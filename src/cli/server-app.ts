@@ -487,19 +487,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
     if (drafts.length === 0) return;
     console.log(`[scenarios] re-compiling ${drafts.length} persisted compiled draft(s) from disk…`);
-    const { compileScenario } = await import('../engine/compiler/index.js');
-    for (const { id, draft, meta } of drafts) {
-      try {
-        // Cache: true means we hit the local hook-source cache. With
-        // a warm cache this is ~10ms per draft; with a cold cache the
-        // hooks regenerate via LLM at the going rate.
-        const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
-        customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
-        compiledScenarioMeta.set(compiled.id, meta);
-        console.log(`[scenarios] hydrated ${compiled.id} (${meta.compiledAt})`);
-      } catch (err) {
-        console.warn(`[scenarios] failed to re-compile persisted draft ${id}:`, err);
+    // Wrap the dynamic import + per-draft loop in its own try-catch
+    // so a module-resolution failure (deploy with broken compiler
+    // bundle, fs hiccup) doesn't surface as an unhandled promise
+    // rejection on the top-level IIFE — the catalog stays at builtins
+    // only and the server keeps serving live runs.
+    try {
+      const { compileScenario } = await import('../engine/compiler/index.js');
+      for (const { id, draft, meta } of drafts) {
+        try {
+          // Cache: true means we hit the local hook-source cache. With
+          // a warm cache this is ~10ms per draft; with a cold cache the
+          // hooks regenerate via LLM at the going rate.
+          const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
+          customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
+          compiledScenarioMeta.set(compiled.id, meta);
+          console.log(`[scenarios] hydrated ${compiled.id} (${meta.compiledAt})`);
+        } catch (err) {
+          console.warn(`[scenarios] failed to re-compile persisted draft ${id}:`, err);
+        }
       }
+    } catch (err) {
+      console.warn('[scenarios] compiler import failed during hydration:', err);
     }
   })();
 
