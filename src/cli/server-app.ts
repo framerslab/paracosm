@@ -493,8 +493,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // bundle, fs hiccup) doesn't surface as an unhandled promise
     // rejection on the top-level IIFE — the catalog stays at builtins
     // only and the server keeps serving live runs.
+    //
+    // Honor `options.compileScenario` when present (existing
+    // injection seam used by the digital-twin path; tests can plug
+    // in a stub compiler that returns a fixture without LLM cost).
+    // Fallback dynamically-imports the real compileScenario for
+    // the production happy path.
     try {
-      const { compileScenario } = await import('../engine/compiler/index.js');
+      const compileScenario = options.compileScenario
+        ?? (await import('../engine/compiler/index.js')).compileScenario;
       for (const { id, draft, meta } of drafts) {
         try {
           // Cache: true means we hit the local hook-source cache. With
@@ -1151,12 +1158,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   const server = createServer(async (req, res) => {
-    // CORS preflight for browser-based POST requests (compile, setup, chat, clear)
+    // CORS preflight for browser-based requests across the public API.
+    // DELETE is in the allow-list because /admin/scenarios/:id is a
+    // cross-origin candidate for the embedded landing-page demos;
+    // X-Admin-Token sits next to Content-Type so admin-gated routes
+    // can pass their token through preflight without the browser
+    // refusing the actual DELETE.
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Token',
         'Access-Control-Max-Age': '86400',
       });
       res.end();
