@@ -149,18 +149,30 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
   const [localLaunching, setLocalLaunching] = useState(false);
   const launching = launchingProp ?? localLaunching;
 
-  // Layout state. Default to side-by-side regardless of actor count —
-  // the N-actor surface (`MultiActorTurnGrid`) renders feature parity
-  // with the 2-actor TurnGrid via a horizontally-scrolling track of
-  // per-actor cells, so the constellation no longer needs to be the
-  // default for 3+. Constellation is still available as a manual
-  // toggle for users who prefer the radial overview.
+  // Layout state. Default to side-by-side because the N-actor surface
+  // (`MultiActorTurnGrid`) renders feature parity with the 2-actor
+  // TurnGrid via a horizontally-scrolling track of per-actor cells.
+  // For large cohorts (50+ actors) the side-by-side track turns into
+  // a 50+ column DOM that the browser struggles to keep at 60fps —
+  // we soft-default such runs to constellation, which scales much
+  // better. The user can still flip back via the layout toggle, and
+  // userPickedLayoutRef pins their explicit choice across SSE updates
+  // so the auto-default never overrides them mid-run.
+  const SIDE_BY_SIDE_AUTO_LIMIT = 50;
   const [layoutState, setLayoutState] = useState<SimLayout>('side-by-side');
   const userPickedLayoutRef = useRef(false);
   const setLayoutWithOverride = useCallback((next: SimLayout) => {
     userPickedLayoutRef.current = true;
     setLayoutState(next);
   }, []);
+  // Auto-default to constellation once a large cohort lands. Only
+  // applies if the user hasn't explicitly chosen a layout this session.
+  useEffect(() => {
+    if (userPickedLayoutRef.current) return;
+    if (state.actorIds.length > SIDE_BY_SIDE_AUTO_LIMIT && layoutState !== 'constellation') {
+      setLayoutState('constellation');
+    }
+  }, [state.actorIds.length, layoutState]);
   const layout: SimLayout = forceLayout ?? layoutState;
 
   const [drillInActor, setDrillInActor] = useState<string | null>(null);
