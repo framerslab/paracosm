@@ -329,21 +329,30 @@ export function GuidedTour({ activeTab, chatEnabled = true, onTabChange, onClose
 
   // Compute card position via CSS custom properties so the static styles
   // live in the SCSS module while runtime values flow through inline.
+  // Threshold reflects the real card footprint, not just header chrome:
+  // step 1 ("Quickstart — author from a brief") plus the 14-step
+  // counter + tab badge + Skip/Next action row lands around 280px on
+  // desktop, so a 200px "below" check happily placed the card in a
+  // slot it could never fit. The card itself is also max-heighted +
+  // overflow-y: auto in the SCSS so even worst-case anchors keep the
+  // controls reachable, but biasing toward "above" / "right" first
+  // avoids the awkward inner scroll on the most common targets.
+  const CARD_MIN_VERTICAL_SLOT = 320;
   const cardVars: CSSProperties = {};
   if (!isMobile && rect) {
     const below = vh - (rect.top + rect.height + 10);
     const above = rect.top - 10;
     const right = vw - (rect.left + rect.width + 10);
 
-    if (below >= 200) {
+    if (below >= CARD_MIN_VERTICAL_SLOT) {
       (cardVars as Record<string, string>)['--card-top'] = `${rect.top + rect.height + 16}px`;
       (cardVars as Record<string, string>)['--card-left'] = `${Math.max(16, Math.min(rect.left, vw - CARD_W - 16))}px`;
-    } else if (above >= 200) {
+    } else if (above >= CARD_MIN_VERTICAL_SLOT) {
       (cardVars as Record<string, string>)['--card-bottom'] = `${vh - rect.top + 16}px`;
       (cardVars as Record<string, string>)['--card-left'] = `${Math.max(16, Math.min(rect.left, vw - CARD_W - 16))}px`;
     } else if (right >= CARD_W + 24) {
       (cardVars as Record<string, string>)['--card-left'] = `${rect.left + rect.width + 16}px`;
-      (cardVars as Record<string, string>)['--card-top'] = `${Math.max(16, rect.top)}px`;
+      (cardVars as Record<string, string>)['--card-top'] = `${Math.max(16, Math.min(rect.top, vh - CARD_MIN_VERTICAL_SLOT - 16))}px`;
     } else {
       (cardVars as Record<string, string>)['--card-bottom'] = '24px';
       (cardVars as Record<string, string>)['--card-right'] = '24px';

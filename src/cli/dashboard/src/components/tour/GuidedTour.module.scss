@@ -39,6 +39,17 @@
   left: var(--card-left, auto);
   bottom: var(--card-bottom, auto);
   right: var(--card-right, auto);
+  // Cap height + scroll-on-overflow. Without this, long step bodies
+  // (e.g. step 1's full Quickstart description) plus the 14-step
+  // counter, action row, and tab badge made the card ~280px tall —
+  // taller than the 200px "below" threshold the placement code uses,
+  // so the Skip/Next buttons disappeared off the bottom of the
+  // viewport. Inner overflow-y: auto keeps every step visible
+  // regardless of how the placement math lands.
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .card.mobile {
