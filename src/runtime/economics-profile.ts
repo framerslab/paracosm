@@ -121,30 +121,42 @@ export function resolveEconomicsProfile(
     SimulationEconomicsProfileId,
     Omit<ResolvedEconomicsProfile, 'id' | 'models' | 'compileSignature'>
   > = {
+    // batch.maxConcurrency tunes how many actors the cohort batch runner
+    // (runBatchSimulations) keeps in flight at once. Pair runs (2 actors)
+    // ignore this — they always run both in parallel via Promise.all.
+    // Higher = faster wall-clock, more LLM rate-limit pressure. Defaults
+    // sized so a 300-actor run lands as ~38 batches of 8 with the
+    // balanced profile (the SeedInput default), staying well within
+    // OpenAI tier-1 RPM. Drop to 1 by passing `economics.batchConcurrency`
+    // when running against a tight provider quota.
     economy: {
       verdict: { mode: 'cheap' },
       search: { mode: 'gated', maxSearches: 1 },
-      batch: { maxConcurrency: 2 },
+      batch: { maxConcurrency: 8 },
     },
     balanced: {
       verdict: { mode: 'balanced' },
       search: { mode: 'adaptive', maxSearches: 3 },
-      batch: { maxConcurrency: 1 },
+      batch: { maxConcurrency: 8 },
     },
     quality: {
+      // Flagship models are heavier per call so we keep fewer in flight
+      // to avoid bursty 429s on top-tier endpoints.
       verdict: { mode: 'flagship' },
       search: { mode: 'aggressive', maxSearches: 5 },
-      batch: { maxConcurrency: 1 },
+      batch: { maxConcurrency: 4 },
     },
     deterministic_first: {
+      // No LLM calls in this path — kernel-only. Concurrency is bound
+      // only by CPU, so we can fan out widely.
       verdict: { mode: 'skip' },
       search: { mode: 'off', maxSearches: 0 },
-      batch: { maxConcurrency: 1 },
+      batch: { maxConcurrency: 16 },
     },
     custom: {
       verdict: { mode: 'balanced' },
       search: { mode: 'adaptive', maxSearches: 3 },
-      batch: { maxConcurrency: 1 },
+      batch: { maxConcurrency: 4 },
     },
   };
 

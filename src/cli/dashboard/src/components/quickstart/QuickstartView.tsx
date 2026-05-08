@@ -364,8 +364,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       // side comparison. The N-actor TurnGrid scales up cleanly via
       // horizontal scroll, so 3+ runs are first-class — the slider
       // default is just a sensible starting point. Server-side
-      // GenerateActorsSchema clamps 1-50.
-      const requestedCount = Math.max(1, Math.min(50, payload.actorCount ?? 2));
+      // GenerateActorsSchema clamps 1-300 (the cohort batch cap).
+      const requestedCount = Math.max(1, Math.min(300, payload.actorCount ?? 2));
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

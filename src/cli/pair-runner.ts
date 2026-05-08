@@ -481,8 +481,18 @@ export async function runBatchSimulations(
     return { leader, index, tag };
   });
 
-  const settled = await Promise.allSettled(actorsWithTags.map(({ leader, index, tag }) => {
-    return runSimulation(leader, simConfig.keyPersonnel ?? DEFAULT_KEY_PERSONNEL, {
+  // Concurrency cap. The batch runner used to fan out every actor
+  // through Promise.allSettled, which fired 300 simultaneous LLM
+  // streams when /setup was called with 300 actors — provider rate
+  // limits would 429-storm the run before the first turn finished.
+  // The economics profile carries `batch.maxConcurrency` (default 8
+  // for the standard profile, lower in cost-cap mode) so we now
+  // process actors through a small worker pool instead. Result + sim
+  // events still broadcast as each actor completes, so the dashboard
+  // sees live progress regardless of pool size.
+  const maxConcurrency = Math.max(1, simConfig.economics?.batch?.maxConcurrency ?? 8);
+  const runOne = ({ leader, index, tag }: typeof actorsWithTags[number]) =>
+    runSimulation(leader, simConfig.keyPersonnel ?? DEFAULT_KEY_PERSONNEL, {
       maxTurns: turns,
       seed,
       startTime,
@@ -530,7 +540,29 @@ export async function runBatchSimulations(
       broadcast('sim_error', { leader: tag, actorIndex: index, error: String(error) }, tag);
       throw error;
     });
-  }));
+
+  // Simple worker-pool implementation: keep `maxConcurrency` runs
+  // in flight at once. Avoids pulling in `p-limit` for one usage and
+  // keeps abort behaviour identical (each runSimulation already
+  // observes simConfig.signal). Errors are captured per-actor in the
+  // settled-style result array so a single 429 doesn't poison the
+  // whole batch.
+  const settled: PromiseSettledResult<unknown>[] = new Array(actorsWithTags.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (true) {
+      const slot = nextIndex++;
+      if (slot >= actorsWithTags.length) return;
+      try {
+        settled[slot] = { status: 'fulfilled', value: await runOne(actorsWithTags[slot]) };
+      } catch (reason) {
+        settled[slot] = { status: 'rejected', reason };
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(maxConcurrency, actorsWithTags.length) }, () => worker()),
+  );
 
   // Mirror runPairSimulations: surface aborted/provider-error at the
   // terminal event so the dashboard can badge the session as

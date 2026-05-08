@@ -106,20 +106,19 @@ test('generate-leaders: count < 2 rejected', async () => {
   assert.equal(get().status, 400);
 });
 
-test('generate-leaders: count > 50 rejected (Compare-runs UI cap)', async () => {
+test('generate-leaders: count > 300 rejected (cohort batch cap)', async () => {
   const { res, get } = fakeRes();
-  await handleGenerateActors({} as IncomingMessage, res, { scenarioId: marsScenario.id, count: 51 }, fakeDeps());
+  await handleGenerateActors({} as IncomingMessage, res, { scenarioId: marsScenario.id, count: 301 }, fakeDeps());
   assert.equal(get().status, 400);
 });
 
-test('generate-leaders: count up to 50 accepted', async () => {
+test('generate-leaders: count up to 300 accepted', async () => {
   const { res, get } = fakeRes();
-  // count: 50 is the cap; 50 itself should pass schema validation. The
-  // handler may still 404 if the scenario is not in the catalog under
-  // the test deps, but it should NOT 400 for a schema reason.
-  await handleGenerateActors({} as IncomingMessage, res, { scenarioId: marsScenario.id, count: 50 }, fakeDeps());
-  // Either 200 (full success) or 404/500 (downstream issue) is acceptable
-  // here -- we only care that schema validation doesn't reject 50.
+  // 300 is the cohort cap, raised from 50 once the batch runner gained
+  // a real concurrency limiter (economics.batch.maxConcurrency). Schema
+  // validation must accept 300; downstream 404/500 paths still depend
+  // on the test deps and are not a schema concern.
+  await handleGenerateActors({} as IncomingMessage, res, { scenarioId: marsScenario.id, count: 300 }, fakeDeps());
   assert.notEqual(get().status, 400);
 });
 

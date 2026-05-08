@@ -39,7 +39,7 @@ export function LoadedScenarioCTA({
   const presetActors = scenario.presets[0]?.leaders ?? scenario.presets[0]?.actors ?? [];
   const presetCount = presetActors.length;
   const hasPreset = presetCount >= 2;
-  // Slider goes to 50 (matches generate-actors API + SeedInput range).
+  // Slider goes to 300 (matches generate-actors API + SeedInput range).
   // When the user picks more than presetCount, QuickstartView's
   // loaded-scenario handler routes through /api/quickstart/generate-actors
   // for the extra slots beyond the preset, so the run still launches —
@@ -48,7 +48,7 @@ export function LoadedScenarioCTA({
   // silently clamped users to 2 for Mars Genesis even when they had
   // dragged the slider to 3+; the third actor never made it into the
   // SIM/VIZ render because state.actorIds.length was never > 2.
-  const sliderMax = 50;
+  const sliderMax = 300;
   const exceedsPreset = actorCount > presetCount;
   const scenarioName = scenario.labels.name;
   // Optional 1-2 sentence "what's this scenario about" line. Mars

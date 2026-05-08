@@ -31,17 +31,23 @@ const CompileFromSeedSchema = z.object({
   seedText: z.string().min(200).max(50_000),
   domainHint: z.string().max(80).optional(),
   sourceUrl: z.string().url().max(2048).optional(),
-  // Number of parallel actors to generate + run. Default 3; max 50.
+  // Number of parallel actors to generate + run. Default 3; max 300.
   // Threaded into generate-actors + the subsequent /setup batch path.
   // The compiler ignores it; only the dashboard reads it back.
-  actorCount: z.number().int().min(1).max(50).optional(),
+  // Cap raised from 50 once the batch runner gained real concurrency
+  // limiting (economics.batch.maxConcurrency) so 300 actors no longer
+  // fan out to 300 simultaneous LLM streams.
+  actorCount: z.number().int().min(1).max(300).optional(),
 });
 
 const GenerateActorsSchema = z.object({
   scenarioId: z.string().min(3).max(64),
-  // Max 50 actors per bundle. Each actor is ~$0.30 LLM spend; the
-  // SeedInput cost preview surfaces this so users opt in consciously.
-  count: z.number().int().min(2).max(50).default(3),
+  // Max 300 actors per bundle. Each actor is ~$0.30 LLM spend; the
+  // SeedInput cost preview surfaces the running total so users opt in
+  // consciously. The runtime feeds them through the batch runner with
+  // an economics-profile concurrency cap (default 8 in batch mode) so
+  // 300 actors land as ~38 batches of 8, not 300 simultaneous calls.
+  count: z.number().int().min(2).max(300).default(3),
 });
 
 const GroundScenarioSchema = z.object({

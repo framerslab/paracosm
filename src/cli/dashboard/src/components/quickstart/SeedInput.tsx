@@ -55,8 +55,10 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, disabled = fa
   // comparison surface (TurnGrid, DivergenceRail, ActorBar). 3+ actors
   // run cleanly through the API + CLI but the visual story collapses
   // here — a richer N-actor dashboard is on the Pro/Enterprise roadmap.
-  // Cap 50 mirrors GenerateLeadersSchema. Each actor is ~$0.30 LLM
-  // spend; the cost preview surfaces the total below the slider.
+  // Cap 300 mirrors GenerateLeadersSchema (raised from 50 once the
+  // batch runner gained real concurrency limiting via
+  // economics.batch.maxConcurrency). Each actor is ~$0.30 LLM spend;
+  // the cost preview surfaces the running total below the slider.
   const [actorCount, setActorCount] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -337,7 +339,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, disabled = fa
           id="quickstart-actor-count"
           type="range"
           min={1}
-          max={50}
+          max={300}
           value={actorCount}
           onChange={(e) => setActorCount(parseInt(e.target.value, 10))}
           disabled={disabled}
@@ -369,18 +371,18 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, disabled = fa
   );
 }
 
-/** Rough wall-time estimate for the cost-preview tile. Three actors
- *  run in parallel today (Promise.allSettled); higher counts will be
- *  bounded by the eventual --max-parallel knob from the spec's risk
- *  register. Returns a "X-Y min" range. */
+/** Rough wall-time estimate for the cost-preview tile. The batch
+ *  runner now respects `economics.batch.maxConcurrency` (default 8 on
+ *  the balanced profile) so this models 8-actor batches landing
+ *  sequentially rather than the old "3 in parallel, ~5 min per batch"
+ *  shape. Compile/ground/actor-gen baseline holds at ~2 min. Returns
+ *  a "X-Y min" range padded to a 1.5x ceiling. */
 function wallTimeEstimate(count: number): string {
   if (count <= 0) return '—';
-  // Compile + ground + leader gen baseline ~2 min, then ~5 min per
-  // batch-of-3 actors at full 6-turn runs. Padded to a 1.5x ceiling
-  // so callers see a realistic upper bound.
   const baselineMin = 2;
   const perBatchMin = 5;
-  const batches = Math.max(1, Math.ceil(count / 3));
+  const batchSize = 8;
+  const batches = Math.max(1, Math.ceil(count / batchSize));
   const lo = baselineMin + perBatchMin * batches;
   const hi = Math.ceil(lo * 1.5);
   return `${lo}–${hi} min`;
