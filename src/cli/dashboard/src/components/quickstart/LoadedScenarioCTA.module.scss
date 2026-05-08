@@ -34,6 +34,50 @@
   overflow-wrap: anywhere;
 }
 
+// Scenario picker row. Same metric/font shape as .actorRow so the
+// stack of "Scenario" → "Actors" reads as one settings cluster, not
+// two competing UI styles. Only renders when the catalog has 2+
+// scenarios so single-builtin installs don't show a redundant
+// dropdown.
+.scenarioPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  color: var(--text-2);
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.scenarioPickerLabel {
+  flex-shrink: 0;
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: var(--font-3xs);
+}
+
+.scenarioPickerSelect {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+}
+
+.scenarioPickerHint {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: var(--font-3xs);
+  font-style: italic;
+}
+
 .actorRow {
   display: flex;
   align-items: center;
