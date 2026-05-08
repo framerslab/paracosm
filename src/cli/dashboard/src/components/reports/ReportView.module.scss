@@ -153,6 +153,35 @@
   box-shadow: 0 2px 10px rgba(232, 180, 74, 0.25);
 }
 
+// N-actor disclosure banner. Surfaces above the turn-by-turn report
+// when the current run has 3+ actors but only 2 are wired into the
+// pair-mode report layout. Sits between headerRow and the strip
+// section. Tone-down amber to read as informational rather than the
+// warning red of provider errors.
+.actorSubsetNotice {
+  border: 1px solid rgba(232, 180, 74, 0.4);
+  background: rgba(232, 180, 74, 0.06);
+  color: var(--text-1);
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: var(--font-sm);
+  line-height: 1.5;
+
+  strong { color: var(--amber); }
+}
+
+.jumpInlineBtn {
+  background: none;
+  border: none;
+  color: var(--amber);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+}
+
 .trajectoryGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

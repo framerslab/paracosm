@@ -474,6 +474,32 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         </button>
       </div>
 
+      {/* N-actor disclosure: the turn-by-turn report renders the first
+          two actors only because the side-by-side EventSide layout is
+          pair-shaped. For 3+ actor runs that would silently hide the
+          rest of the cohort under a "previous simulation" misread —
+          the user sees only Leader A/B in Reports while the SIM tab
+          showed all N actors and concludes the report is from a
+          different run. Surfacing the count + the pointer to the SIM
+          tab's full cohort + the CohortVerdict block at the bottom
+          closes that perception gap until the report supports N
+          actors natively. */}
+      {state.actorIds.length > 2 && (
+        <div className={styles.actorSubsetNotice} role="status">
+          <strong>Showing first 2 of {state.actorIds.length} actors.</strong>{' '}
+          The pair-mode turn-by-turn view renders {nameA} vs {nameB}; the
+          full cohort comparison (rankings, pareto front, deltas) lives
+          in the <button
+            type="button"
+            onClick={() => {
+              const el = document.getElementById('summary');
+              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+            className={styles.jumpInlineBtn}
+          >Run Summary block</button> below.
+        </div>
+      )}
+
       <section id="strip">
         <RunStrip turns={stripCells} leaderAName={nameA} leaderBName={nameB} />
       </section>
