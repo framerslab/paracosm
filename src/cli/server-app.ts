@@ -586,6 +586,26 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // safest default — they replay to everyone.
   const eventActorIds: Array<string | null> = new Array(eventBuffer.length).fill(null);
 
+  // Bound the live event buffer. At 300 actors × 20 turns the buffer
+  // approaches 100k events at ~1-3KB per SSE message — 150MB+ resident
+  // in the Node process plus a same-size .event-buffer.json snapshot.
+  // Once growth crosses the trim threshold we drop the oldest events
+  // FIFO down to the target cap, so live clients keep seeing the most
+  // recent N events while late reconnects miss the earliest. Hysteresis
+  // (trim 10% above target) amortizes the splice so it runs once per
+  // 10k events rather than per-event. Configurable via env to let
+  // operators size against their box and typical cohort load.
+  const EVENT_BUFFER_MAX_ENTRIES = (() => {
+    const raw = env.PARACOSM_EVENT_BUFFER_MAX;
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    // Floor at 1 (cap=0 would mean "drop every event" which makes the
+    // SSE replay path useless). No upper floor — operators sizing
+    // against a small box are free to drop to 5_000 or so.
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 100_000;
+  })();
+  const EVENT_BUFFER_TRIM_AT = Math.ceil(EVENT_BUFFER_MAX_ENTRIES * 1.1);
+  let bufferCapWarned = false;
+
   // Run-state flags for auto-save on clean completion. Reset inside
   // clearEventBuffer() so the next run starts fresh.
   //
@@ -933,6 +953,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     eventBuffer.push(msg);
     eventTimestamps.push(Date.now());
     eventActorIds.push(tag);
+    // Bounded-buffer guard. When growth crosses the trim threshold,
+    // drop the oldest events FIFO so the array reverts to the target
+    // cap. Live clients only see future events; reconnect-after-trim
+    // is the only client that loses anything (it misses the dropped
+    // prefix). Splice is O(n) so we hysteresis-trim by 10% to amortize.
+    if (eventBuffer.length > EVENT_BUFFER_TRIM_AT) {
+      const drop = eventBuffer.length - EVENT_BUFFER_MAX_ENTRIES;
+      eventBuffer.splice(0, drop);
+      eventTimestamps.splice(0, drop);
+      eventActorIds.splice(0, drop);
+      if (!bufferCapWarned) {
+        console.warn(
+          `[event-buffer] Capped at ${EVENT_BUFFER_MAX_ENTRIES} events; dropped oldest ${drop}. ` +
+          `Late reconnects on this run will miss the dropped prefix. ` +
+          `Bump PARACOSM_EVENT_BUFFER_MAX to widen.`,
+        );
+        bufferCapWarned = true;
+      }
+    }
     persistBufferSoon();
     for (const [res, filter] of clients) {
       // Filter contract: client subscribed without ?actor= sees
@@ -981,6 +1020,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     eventBuffer.length = 0;
     eventTimestamps.length = 0;
     eventActorIds.length = 0;
+    // Reset the once-per-run "buffer capped" warning so the next large
+    // cohort run logs its own first-trim notice instead of staying
+    // silent because a previous run already tripped the flag.
+    bufferCapWarned = false;
     if (persistTimer) {
       clearTimeout(persistTimer);
       persistTimer = null;

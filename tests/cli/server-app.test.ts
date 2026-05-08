@@ -1374,6 +1374,97 @@ test('GET /events (no actor filter) still receives every tag — backwards compa
   }
 });
 
+// Bounded eventBuffer: at 300 actors × 20 turns the buffer would
+// otherwise grow past 100k events and consume 150MB+ in process. The
+// guard in broadcast() trims the oldest events FIFO once growth crosses
+// the trim threshold (cap × 1.1) back down to the cap. This test sets
+// the cap small (5), broadcasts well past it, and asserts a fresh
+// /events reconnect sees only the most recent events — never more than
+// the cap.
+test('eventBuffer is bounded by PARACOSM_EVENT_BUFFER_MAX (FIFO drop on overflow)', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-buffer-cap-'));
+  let captureBroadcast: ((event: string, data: unknown, actorId?: string) => void) | null = null;
+  const server = createMarsServer({
+    env: { ...process.env, APP_DIR: appDir, PARACOSM_EVENT_BUFFER_MAX: '5' },
+    runPairSimulations: async (_config, broadcast) => {
+      captureBroadcast = broadcast;
+      await new Promise(() => {});
+    },
+  } as never);
+  server.listen(0);
+  await once(server, 'listening');
+  const port = (server.address() as { port: number }).port;
+  try {
+    const setupRes = await fetch(`http://127.0.0.1:${port}/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        actors: [leaderA, leaderB],
+        provider: 'anthropic',
+        turns: 1,
+        startTime: 2042,
+        population: 110,
+        activeDepartments: ['medical'],
+        startingResources: { food: 20, water: 900, power: 500, morale: 80, pressurizedVolumeM3: 4100, lifeSupportCapacity: 175, infrastructureModules: 5 },
+        startingPolitics: { earthDependencyPct: 68 },
+        execution: { commanderMaxSteps: 7, departmentMaxSteps: 11, sandboxTimeoutMs: 15000, sandboxMemoryMB: 256 },
+        models: { commander: 'gpt-5.4', departments: 'gpt-5.4-mini', judge: 'gpt-5.4' },
+      }),
+    });
+    assert.ok(setupRes.ok);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.ok(captureBroadcast, 'broadcast not captured');
+
+    // Broadcast 50 events. Cap = 5, trim threshold = ceil(5 * 1.1) = 6,
+    // so we expect the buffer to settle at <=5 entries — only the
+    // most recent ones survive.
+    for (let i = 0; i < 50; i++) {
+      captureBroadcast!('sim', { type: 'turn_done', leader: 'X', data: { turn: i } });
+    }
+    // Reconnect from a fresh /events client. The replay loop drains
+    // whatever's currently in the bounded buffer, so a count of
+    // sim-event frames in the replay is the same shape as the cap.
+    const eventsRes = await fetch(`http://127.0.0.1:${port}/events`);
+    assert.equal(eventsRes.status, 200);
+    const reader = eventsRes.body!.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    // Read until replay_done lands (server emits it after flushing the
+    // buffer). 8 reads is plenty of headroom for 5 cap + connected +
+    // replay_done frames.
+    for (let i = 0; i < 8; i++) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value);
+      if (buf.includes('replay_done')) break;
+    }
+    await reader.cancel();
+
+    const simEventCount = (buf.match(/event:\s*sim\b/g) ?? []).length;
+    // Hysteresis: trim fires when len > ceil(cap * 1.1) and drops back
+    // to cap. With cap=5 the buffer oscillates between 5 and 6 in
+    // steady state, so the upper bound on observed events is 6 (the
+    // trim threshold). Asserting <= ceil(cap * 1.1) keeps the test
+    // honest while clearly proving the cap is doing real work — the
+    // 50 events broadcast above never all survive.
+    const trimThreshold = Math.ceil(5 * 1.1);
+    assert.ok(
+      simEventCount <= trimThreshold,
+      `bounded buffer should replay <=${trimThreshold} sim events; saw ${simEventCount}\nbuf head: ${buf.slice(0, 400)}`,
+    );
+    assert.ok(simEventCount < 50, 'cap should have dropped the bulk of the broadcast events');
+    // The most recent events survived; the earliest got dropped.
+    // Asserting on turn 49 (the very last broadcast) confirms FIFO
+    // direction: oldest dropped, newest kept.
+    assert.ok(buf.includes('"turn":49'), `last-broadcast event missing from replay\nbuf head: ${buf.slice(0, 400)}`);
+    assert.ok(!buf.includes('"turn":0,'), `oldest event should have been trimmed\nbuf head: ${buf.slice(0, 400)}`);
+  } finally {
+    server.close();
+    await once(server, 'close');
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 // Regression: a stream of concurrent /setup requests used to hit a race
 // where `simConfig` (a closure-level variable) was nulled out by a
 // concurrent /scenario/switch (or another /setup) DURING the
