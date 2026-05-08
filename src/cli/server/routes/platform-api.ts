@@ -266,16 +266,16 @@ export async function handlePlatformApiRoute(
       const runId = decodeURIComponent(detailMatch[1]);
       const record = await options.runHistoryStore.getRun(runId);
       if (!record) {
-        res.writeHead(404, { ...options.corsHeaders });
+        res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end();
         return true;
       }
       if (!record.artifactPath) {
-        res.writeHead(410, { ...options.corsHeaders });
+        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end();
         return true;
       }
-      res.writeHead(200, { ...options.corsHeaders });
+      res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
       res.end();
       return true;
     }

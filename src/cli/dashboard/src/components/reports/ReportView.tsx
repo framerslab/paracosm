@@ -109,7 +109,13 @@ function buildSideTurnMap(
   const pending = new Map<number, { decision: string; rationale: string; policies: string[] }>();
   for (const evt of events) {
     const turn = evt.turn;
-    if (!turn) continue;
+    // Reject only events with no turn assignment. Falsy `!turn` would
+    // also drop turn === 0; while the runtime currently emits turns
+    // starting at 1, scenario hooks COULD legitimately emit turn 0
+    // events (e.g. an opening prologue or "turn-zero" intro state),
+    // and silently dropping them would surface as a missing turn row
+    // in the report.
+    if (typeof turn !== 'number') continue;
     let t = map.get(turn);
     if (!t) { t = emptyTurn(); map.set(turn, t); }
     const eventIndex = Number(evt.data?.eventIndex ?? 0);
