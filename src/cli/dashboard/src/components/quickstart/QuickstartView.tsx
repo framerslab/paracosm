@@ -136,6 +136,17 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   const [groundingSummary, setGroundingSummary] = useState<GroundingSummary | null>(null);
 
   /**
+   * Catalog-grid handoff key. When the user clicks Run on a card for
+   * a scenario that isn't currently active, we POST /scenario/switch
+   * and reload (so useScenario re-fetches /scenario, ScenarioContext
+   * re-binds, and every downstream surface picks up the new active
+   * scenario consistently). The reload destroys component state, so
+   * we stash the actor-count + intent in sessionStorage and re-run
+   * automatically on mount.
+   */
+  const CATALOG_PENDING_KEY = 'paracosm:catalogPendingRun';
+
+  /**
    * One-click run path: when the user clicks LoadedScenarioCTA, run
    * the loaded scenario directly. With presets ≥ requested actorCount,
    * skip compile + actor-generation and post straight to /setup. With
@@ -313,6 +324,76 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       toast('error', 'Launch failed', friendly, 8000);
     }
   }, [scenario, sse, onRunStarted, toast]);
+
+  /**
+   * Catalog-grid handoff: clicking Run on a scenario card switches the
+   * server's active scenario (if needed) and runs it. When the picked
+   * scenario is already active we just route through the same code
+   * path the LoadedScenarioCTA uses. When it's NOT active, we POST
+   * /scenario/switch + reload so useScenario re-fetches /scenario and
+   * ScenarioContext re-binds with the new labels/presets/policies; a
+   * sessionStorage handoff carries the actor-count across the reload
+   * so the run kicks off automatically on the next mount.
+   */
+  const handleCatalogRun = useCallback(async (id: string, actorCount: number) => {
+    if (id === scenario.id) {
+      void handleLoadedScenarioRun(actorCount);
+      return;
+    }
+    setErrorBanner(null);
+    onRunStarted?.();
+    try {
+      try {
+        sessionStorage.setItem(CATALOG_PENDING_KEY, JSON.stringify({ actorCount, ts: Date.now() }));
+      } catch {
+        // Private mode / quota: continue with the switch but the
+        // post-reload auto-run won't fire. User clicks Run again on
+        // the (now-active) CTA.
+      }
+      const res = await fetch('/scenario/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        try { sessionStorage.removeItem(CATALOG_PENDING_KEY); } catch { /* silent */ }
+        const body = await res.json().catch(() => ({} as { error?: string }));
+        throw new Error(body.error ?? `Scenario switch failed: HTTP ${res.status}`);
+      }
+      window.location.reload();
+    } catch (err) {
+      const friendly = mapLaunchErrorToMessage((err as Error)?.message ?? String(err));
+      setErrorBanner(friendly);
+      toast('error', 'Scenario switch failed', friendly, 8000);
+    }
+  }, [scenario.id, handleLoadedScenarioRun, onRunStarted, toast]);
+
+  // Auto-resume after a /scenario/switch reload. The catalog-grid Run
+  // path stashes { actorCount } in sessionStorage; on mount we read it
+  // back and trigger handleLoadedScenarioRun once. The flag is
+  // consumed (removed) on read so a manual reload after an unrelated
+  // click never re-triggers a stale auto-run.
+  useEffect(() => {
+    let pending: { actorCount?: unknown } | null = null;
+    try {
+      const raw = sessionStorage.getItem(CATALOG_PENDING_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(CATALOG_PENDING_KEY);
+      pending = JSON.parse(raw) as { actorCount?: unknown };
+    } catch {
+      return;
+    }
+    const count = typeof pending?.actorCount === 'number' && pending.actorCount > 0
+      ? Math.min(300, Math.max(1, pending.actorCount))
+      : null;
+    if (count !== null) {
+      void handleLoadedScenarioRun(count);
+    }
+    // Run exactly once per mount. handleLoadedScenarioRun is stable
+    // enough that the missing dep here doesn't double-fire — we never
+    // want this effect to re-run anyway.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
@@ -527,6 +608,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
           <SeedInput
             onSeedReady={handleSeedReady}
             onLoadedScenarioRunStart={handleLoadedScenarioRun}
+            onCatalogRunStart={handleCatalogRun}
           />
           {/* Digital-twin demo lives BELOW the seed input as a
               secondary path. Quickstart's primary use case is

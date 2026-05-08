@@ -10,6 +10,7 @@ import { validateSeedText, validateSeedUrl } from './QuickstartView.helpers';
 import { extractPdfText } from './pdf-extract';
 import { ViewAsCodePanel } from './ViewAsCodePanel';
 import { LoadedScenarioCTA } from './LoadedScenarioCTA';
+import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
 import styles from './SeedInput.module.scss';
 
@@ -21,6 +22,11 @@ export interface SeedInputProps {
    *  the CTA does not render — preserves existing tests for callers
    *  that don't surface a loaded scenario. */
   onLoadedScenarioRunStart?: (actorCount: number) => void;
+  /** Optional: fires when the user clicks Run on a card in the
+   *  ScenarioCatalogGrid. Parent calls /scenario/switch on the picked
+   *  id and routes through the same launch path the CTA uses. When
+   *  omitted the catalog is hidden, same gate as the CTA. */
+  onCatalogRunStart?: (scenarioId: string, actorCount: number) => void;
   disabled?: boolean;
 }
 
@@ -42,7 +48,7 @@ function readPromptFromUrl(): string {
   }
 }
 
-export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, disabled = false }: SeedInputProps) {
+export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunStart, disabled = false }: SeedInputProps) {
   const [tab, setTab] = useState<Tab>('paste');
   const [seedText, setSeedText] = useState(readPromptFromUrl);
   const [urlInput, setUrlInput] = useState('');
@@ -185,6 +191,19 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, disabled = fa
             onRunStart={onLoadedScenarioRunStart}
             disabled={disabled || fetching || hasPendingSeed}
           />
+          {/* Catalog grid sits between the loaded-scenario CTA and the
+              seed paste form so users browsing the catalog flow
+              naturally from "load the active one" → "browse
+              alternatives" → "compile a brand new one." Hides itself
+              when the catalog has fewer than 2 entries to avoid
+              one-card chrome on a fresh-install single-builtin
+              install. */}
+          {onCatalogRunStart && (
+            <ScenarioCatalogGrid
+              onRunScenario={onCatalogRunStart}
+              disabled={disabled || fetching || hasPendingSeed}
+            />
+          )}
           <div className={styles.dividerWrap}>
             <span className={styles.dividerLine} aria-hidden="true" />
             <span>or paste a new scenario</span>
