@@ -162,6 +162,12 @@ export interface GameState {
   seed: number;
   isRunning: boolean;
   isComplete: boolean;
+  /** True when any actor in the run hit `sim_aborted` (server cancelled
+   *  the run, watchdog tripped, etc.). Distinct from `isComplete`: an
+   *  aborted run is also complete (no more events coming) but the UI
+   *  should label per-turn empty cells as "interrupted" rather than
+   *  "catching up", which implies the LLM is still working. */
+  isAborted: boolean;
   /** Combined cost across all actors. */
   cost: CostBreakdown;
   /** Per-actor cost. Keyed by actor name so N-actor arena mode (P2)
@@ -208,7 +214,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
     actors: {},
     actorIds: [],
     turn: 0, time: 0, maxTurns: 6, seed: 950,
-    isRunning: false, isComplete,
+    isRunning: false, isComplete, isAborted: false,
     cost: emptyCost(),
     costByActor: {},
   };
@@ -496,6 +502,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
   // Without this, reloading a page with a completed/aborted run in the
   // event buffer would leave isRunning stuck at true forever.
   const aborted = sseEvents.some(e => e.type === 'sim_aborted');
+  state.isAborted = aborted;
   if (state.isComplete || aborted) {
     state.isRunning = false;
   }

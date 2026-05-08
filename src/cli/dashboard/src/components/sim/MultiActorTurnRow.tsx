@@ -57,9 +57,18 @@ interface MultiActorTurnRowProps {
   actorIds: string[];
   /** Per-actor event list for THIS turn. Index matches `actorIds`. */
   eventsByActor: ProcessedEvent[][];
+  /** True once the run reached a terminal state (complete OR aborted).
+   *  Empty cells should stop spinning at this point because no further
+   *  events are coming for this turn from any actor. */
+  runTerminal?: boolean;
+  /** True specifically for the aborted variant of terminal. Drives the
+   *  "this actor did not reach turn N before the run was interrupted"
+   *  copy versus the cleaner "no event recorded" copy for natural
+   *  completion. */
+  runAborted?: boolean;
 }
 
-export function MultiActorTurnRow({ turn, actorIds, eventsByActor }: MultiActorTurnRowProps) {
+export function MultiActorTurnRow({ turn, actorIds, eventsByActor, runTerminal, runAborted }: MultiActorTurnRowProps) {
   // Determine if EVERY actor with events has the same title for this
   // turn. When yes, render a single shared title; when no, render a
   // per-actor strip below the turn label.
@@ -115,15 +124,46 @@ export function MultiActorTurnRow({ turn, actorIds, eventsByActor }: MultiActorT
             >
               <span className={styles.cellBand} aria-hidden="true" />
               {cellEvents.length === 0 ? (
-                <div className={styles.cellPending} aria-live="polite" title="Parallel runs can drift turn-to-turn — events arrive whenever this actor's LLM calls finish.">
-                  <span className={`spinner ${styles.cellPendingSpinner}`} aria-hidden="true" />
-                  Catching up to turn {turn}…
-                </div>
+                runTerminal ? (
+                  // Run is over (clean finish OR aborted). The spinner
+                  // copy implies "still working" — wrong here. Show the
+                  // terminal-state copy instead so the user can read the
+                  // empty cell as "this actor never reached turn N"
+                  // rather than "the dashboard is hung".
+                  <div
+                    className={styles.cellEmpty}
+                    title={runAborted
+                      ? 'Run was interrupted before this actor reached this turn.'
+                      : 'No event recorded for this actor on this turn.'}
+                  >
+                    {runAborted
+                      ? `Stopped before T${turn}`
+                      : `No event for T${turn}`}
+                  </div>
+                ) : (
+                  <div className={styles.cellPending} aria-live="polite" title="Parallel runs can drift turn-to-turn — events arrive whenever this actor's LLM calls finish.">
+                    <span className={`spinner ${styles.cellPendingSpinner}`} aria-hidden="true" />
+                    Catching up to turn {turn}…
+                  </div>
+                )
               ) : allPending ? (
-                <div className={styles.cellPending} aria-live="polite">
-                  <span className={`spinner ${styles.cellPendingSpinner}`} />
-                  {summarizePending(cellEvents)}
-                </div>
+                runTerminal ? (
+                  <div
+                    className={styles.cellEmpty}
+                    title={runAborted
+                      ? 'Run was interrupted while this turn was still processing.'
+                      : 'No outcome recorded for this actor on this turn.'}
+                  >
+                    {runAborted
+                      ? `Stopped during T${turn}`
+                      : `T${turn} ended without an outcome`}
+                  </div>
+                ) : (
+                  <div className={styles.cellPending} aria-live="polite">
+                    <span className={`spinner ${styles.cellPendingSpinner}`} />
+                    {summarizePending(cellEvents)}
+                  </div>
+                )
               ) : (
                 renderable.map((e) => (
                   <EventCard

@@ -36,9 +36,17 @@ interface TurnRowProps {
   entry: TurnDiffEntry;
   eventsA: ProcessedEvent[];
   eventsB: ProcessedEvent[];
+  /** True once the run reached a terminal state (complete OR aborted).
+   *  Empty cells stop spinning here — no more events are coming for
+   *  this turn from any actor. */
+  runTerminal?: boolean;
+  /** True specifically for the aborted variant of terminal. Drives the
+   *  "interrupted before T{N}" copy versus the cleaner "no event for
+   *  T{N}" copy for natural completion. */
+  runAborted?: boolean;
 }
 
-export function TurnRow({ entry, eventsA, eventsB }: TurnRowProps) {
+export function TurnRow({ entry, eventsA, eventsB, runTerminal, runAborted }: TurnRowProps) {
   const rowClass = `${styles.row} ${
     entry.classification === 'different-outcome' ? styles.differentOutcome
     : entry.classification === 'different-event' ? styles.differentEvent
@@ -78,7 +86,12 @@ export function TurnRow({ entry, eventsA, eventsB }: TurnRowProps) {
           // Side A render six events for T6 while Side B's cell read
           // "(no events yet)" with no other signal that B was simply
           // a turn behind in wall-clock processing.
-          const isCatchingUp = cellEvents.length === 0 && entry.classification === 'one-sided';
+          // Catching-up only makes sense while the run is still live.
+          // Once the run is terminal (complete or aborted) the spinner
+          // copy becomes a lie ("still working") so we drop it for
+          // terminal-state copy that accurately describes what the
+          // empty cell means.
+          const isCatchingUp = cellEvents.length === 0 && entry.classification === 'one-sided' && !runTerminal;
           return (
             <div
               key={idx}
@@ -93,14 +106,38 @@ export function TurnRow({ entry, eventsA, eventsB }: TurnRowProps) {
                     <span className={`spinner ${styles.cellPendingSpinner}`} aria-hidden="true" />
                     Catching up to turn {entry.turn}…
                   </div>
+                ) : runTerminal ? (
+                  <div
+                    className={styles.cellEmpty}
+                    title={runAborted
+                      ? 'Run was interrupted before this side reached this turn.'
+                      : 'No event recorded for this side on this turn.'}
+                  >
+                    {runAborted
+                      ? `Stopped before T${entry.turn}`
+                      : `No event for T${entry.turn}`}
+                  </div>
                 ) : (
                   <div className={styles.cellEmpty}>(no events yet)</div>
                 )
               ) : allPending ? (
-                <div className={styles.cellPending} aria-live="polite">
-                  <span className={`spinner ${styles.cellPendingSpinner}`} />
-                  {summarizePending(cellEvents)}
-                </div>
+                runTerminal ? (
+                  <div
+                    className={styles.cellEmpty}
+                    title={runAborted
+                      ? 'Run was interrupted while this turn was still processing.'
+                      : 'No outcome recorded for this side on this turn.'}
+                  >
+                    {runAborted
+                      ? `Stopped during T${entry.turn}`
+                      : `T${entry.turn} ended without an outcome`}
+                  </div>
+                ) : (
+                  <div className={styles.cellPending} aria-live="polite">
+                    <span className={`spinner ${styles.cellPendingSpinner}`} />
+                    {summarizePending(cellEvents)}
+                  </div>
+                )
               ) : (
                 renderable.map(e => <EventCard key={e.id} event={e} actorIndex={idx as 0 | 1} />)
               )}

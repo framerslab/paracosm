@@ -83,6 +83,8 @@ export function TurnGrid({ state }: TurnGridProps) {
                 entry={entry}
                 eventsA={turnsToEventsA.get(t) ?? []}
                 eventsB={turnsToEventsB.get(t) ?? []}
+                runTerminal={state.isComplete || state.isAborted}
+                runAborted={state.isAborted}
               />
             );
           })

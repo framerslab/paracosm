@@ -120,6 +120,8 @@ export function MultiActorTurnGrid({ state }: MultiActorTurnGridProps) {
                 turn={t}
                 actorIds={actorIds}
                 eventsByActor={perActorTurnEvents.map((m) => m.get(t) ?? [])}
+                runTerminal={state.isComplete || state.isAborted}
+                runAborted={state.isAborted}
               />
             ))
           )}
