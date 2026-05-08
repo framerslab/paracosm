@@ -99,6 +99,14 @@ function sourceLabel(source?: string): string {
  *  semantics stay 1:1 with the badges. */
 type SourceFilter = 'all' | 'builtin' | 'disk' | 'compiled';
 
+/**
+ * Sort modes for the catalog grid. `curated` is the default tuned
+ * order (active first → most-run → newest → alphabetical) — the
+ * picks-the-right-thing baseline for users who don't care to sort.
+ * The rest expose individual axes for users who do.
+ */
+type SortMode = 'curated' | 'most-runs' | 'newest' | 'alphabetical';
+
 export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Element | null {
   const { disabled = false, onRunScenario } = props;
   const scenario = useScenarioContext();
@@ -118,6 +126,7 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
     return () => clearTimeout(handle);
   }, [queryInput]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('curated');
   // Detail drawer state. Click a card body to open with that
   // scenario; close via Esc, backdrop click, or the X. Stays scoped
   // to the grid component because the detail view is a "dive into a
@@ -200,17 +209,33 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
     return haystack.includes(queryNeedle);
   });
 
-  // Sort: active first, then most-run, then newest, then alphabetical.
+  // Sort: respects the user-chosen sortMode. The active scenario
+  // always pins to the top regardless of sort so the picker doesn't
+  // lose the loaded reference. `curated` defaults to active → runs →
+  // recency → alpha; the rest swap the primary axis but keep
+  // tie-breakers consistent.
   const sorted = [...filtered].sort((a, b) => {
     if (a.id === activeId) return -1;
     if (b.id === activeId) return 1;
-    const runDiff = (b.runCount ?? 0) - (a.runCount ?? 0);
-    if (runDiff !== 0) return runDiff;
-    if (a.compiledAt && b.compiledAt) {
-      const aTime = Date.parse(a.compiledAt);
-      const bTime = Date.parse(b.compiledAt);
-      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
-        return bTime - aTime;
+    if (sortMode === 'most-runs') {
+      const diff = (b.runCount ?? 0) - (a.runCount ?? 0);
+      if (diff !== 0) return diff;
+    } else if (sortMode === 'newest') {
+      const aTime = a.compiledAt ? Date.parse(a.compiledAt) : 0;
+      const bTime = b.compiledAt ? Date.parse(b.compiledAt) : 0;
+      if (aTime !== bTime) return bTime - aTime;
+    } else if (sortMode === 'alphabetical') {
+      return a.name.localeCompare(b.name);
+    } else {
+      // curated
+      const runDiff = (b.runCount ?? 0) - (a.runCount ?? 0);
+      if (runDiff !== 0) return runDiff;
+      if (a.compiledAt && b.compiledAt) {
+        const aTime = Date.parse(a.compiledAt);
+        const bTime = Date.parse(b.compiledAt);
+        if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+          return bTime - aTime;
+        }
       }
     }
     return a.name.localeCompare(b.name);
@@ -293,6 +318,20 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
             );
           })}
         </div>
+        <label className={styles.sortLabel}>
+          <span className="sr-only">Sort scenarios</span>
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as SortMode)}
+            className={styles.sortSelect}
+            aria-label="Sort catalog"
+          >
+            <option value="curated">Sort: Curated</option>
+            <option value="most-runs">Sort: Most runs</option>
+            <option value="newest">Sort: Newest first</option>
+            <option value="alphabetical">Sort: A → Z</option>
+          </select>
+        </label>
       </div>
       {sorted.length === 0 ? (
         <div className={styles.emptyMatches} role="status" aria-live="polite">

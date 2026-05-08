@@ -37,6 +37,42 @@ interface RecentRunRow {
   mode?: string;
 }
 
+/**
+ * Trimmed scenario detail returned by `GET /scenarios/:id`. The
+ * drawer only renders the fields it actually shows (presets +
+ * departments). Server-side projection drops hooks + knowledge
+ * topics + the full names registry to keep the response small.
+ */
+interface ScenarioDetail {
+  id: string;
+  name: string;
+  shortName?: string;
+  description?: string;
+  source?: string;
+  compiledAt?: string;
+  seedText?: string | null;
+  runCount?: number;
+  defaultTurns?: number;
+  defaultPopulation?: number;
+  presets: Array<{
+    id: string;
+    label?: string;
+    leaders: Array<{
+      name: string;
+      archetype: string;
+      unit?: string;
+      hexaco?: Record<string, number>;
+      instructions?: string;
+    }>;
+  }>;
+  departments: Array<{
+    id: string;
+    label: string;
+    role?: string;
+    icon?: string;
+  }>;
+}
+
 export interface ScenarioDetailDrawerProps {
   /** Scenario to render. When null, the drawer is closed. */
   scenario: CatalogScenario | null;
@@ -107,6 +143,13 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
   const [recentRuns, setRecentRuns] = useState<RecentRunRow[]>([]);
   const [recentLoading, setRecentLoading] = useState<boolean>(false);
   const [recentError, setRecentError] = useState<string | null>(null);
+  // Per-scenario detail (presets + departments) loaded lazily via
+  // GET /scenarios/:id. Kept separate from the catalog summary so
+  // the drawer doesn't block on a heavy fetch when it opens — it
+  // shows the summary fields immediately and renders presets +
+  // departments as they arrive.
+  const [detail, setDetail] = useState<ScenarioDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Admin delete affordance. Visible only when the operator has an
@@ -129,18 +172,24 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
 
-  // Pull recent runs whenever the drawer opens against a new scenario.
-  // Cap at 5 — drawer real estate is finite and the Library tab is
-  // the canonical browse-all-runs surface.
+  // Pull recent runs + scenario detail whenever the drawer opens
+  // against a new scenario. Recent runs cap at 5; detail comes from
+  // /scenarios/:id which projects only the fields the drawer renders
+  // (presets + departments). Both run in parallel because they're
+  // independent — recent runs may finish first while detail is still
+  // in flight, both render their loading states distinctly.
   useEffect(() => {
     if (!scenario) {
       setRecentRuns([]);
       setRecentError(null);
+      setDetail(null);
       return;
     }
     let cancelled = false;
     setRecentLoading(true);
     setRecentError(null);
+    setDetailLoading(true);
+    setDetail(null);
     fetch(`/api/v1/runs?scenario=${encodeURIComponent(scenario.id)}&limit=5`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -155,6 +204,24 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
       })
       .finally(() => {
         if (!cancelled) setRecentLoading(false);
+      });
+    fetch(`/scenarios/${encodeURIComponent(scenario.id)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<ScenarioDetail>;
+      })
+      .then((body) => {
+        if (cancelled) return;
+        setDetail(body);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Silent: drawer still shows summary + recent runs from props.
+        // The detail section just doesn't render when the fetch fails.
+        setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
       });
     return () => { cancelled = true; };
   }, [scenario?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -315,6 +382,93 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
             </p>
             <pre className={styles.seedBody}>{scenario.seedText}</pre>
           </section>
+        )}
+
+        {/* Leader presets — only renders when the detail fetch
+            succeeded AND the scenario actually ships with presets.
+            Compiled-from-seed scenarios usually do; some hand-crafted
+            disk drafts don't. */}
+        {detail && detail.presets.length > 0 && detail.presets[0].leaders.length > 0 && (
+          <section className={styles.presetsSection} aria-labelledby="scenario-detail-presets-heading">
+            <h3 className={styles.sectionHeading} id="scenario-detail-presets-heading">
+              Leader presets
+            </h3>
+            <p className={styles.sectionHint}>
+              Default leader pair the scenario ships with. Picking Run with the slot count below
+              fills these in first; extra slots beyond the preset get LLM-generated.
+            </p>
+            <ul className={styles.presetList} role="list">
+              {detail.presets[0].leaders.map((leader, idx) => (
+                <li key={`${leader.name}-${idx}`} className={styles.presetCard}>
+                  <div className={styles.presetHeader}>
+                    <span className={styles.presetName}>{leader.name}</span>
+                    {leader.archetype && (
+                      <span className={styles.presetArchetype}>{leader.archetype}</span>
+                    )}
+                  </div>
+                  {leader.unit && (
+                    <span className={styles.presetUnit}>{leader.unit}</span>
+                  )}
+                  {leader.hexaco && Object.keys(leader.hexaco).length > 0 && (
+                    <ul className={styles.hexacoList} aria-label={`HEXACO profile for ${leader.name}`}>
+                      {Object.entries(leader.hexaco).slice(0, 6).map(([axis, value]) => {
+                        const pct = Math.round((Number(value) || 0) * 100);
+                        return (
+                          <li key={axis} className={styles.hexacoRow}>
+                            <span className={styles.hexacoAxis}>
+                              {axis.length > 6 ? axis.slice(0, 6) : axis}
+                            </span>
+                            <span
+                              className={styles.hexacoBar}
+                              role="img"
+                              aria-label={`${axis} ${pct}%`}
+                            >
+                              <span
+                                className={styles.hexacoFill}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </span>
+                            <span className={styles.hexacoValue}>{pct}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {leader.instructions && (
+                    <p className={styles.presetInstructions} title={leader.instructions}>
+                      {leader.instructions.length > 220
+                        ? `${leader.instructions.slice(0, 220)}…`
+                        : leader.instructions}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {/* Departments — short list of who deliberates per turn. Same
+            gate as presets: only renders when detail fetched + array
+            non-empty. */}
+        {detail && detail.departments.length > 0 && (
+          <section className={styles.departmentsSection} aria-labelledby="scenario-detail-depts-heading">
+            <h3 className={styles.sectionHeading} id="scenario-detail-depts-heading">
+              Departments <span className={styles.sectionCount}>· {detail.departments.length}</span>
+            </h3>
+            <ul className={styles.deptChips} role="list">
+              {detail.departments.map((d) => (
+                <li key={d.id} className={styles.deptChip}>
+                  {d.icon && <span className={styles.deptIcon} aria-hidden="true">{d.icon}</span>}
+                  <span>{d.label}</span>
+                  {d.role && <span className={styles.deptRole}>· {d.role}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {detailLoading && !detail && (
+          <p className={styles.statusLine} style={{ padding: '0 18px' }}>Loading scenario detail…</p>
         )}
 
         <section className={styles.recentSection} aria-labelledby="scenario-detail-recent-heading">

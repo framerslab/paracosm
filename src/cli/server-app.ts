@@ -1383,6 +1383,86 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
+    // GET /scenarios/:id — single-scenario detail for the dashboard's
+    // ScenarioDetailDrawer. Mirrors /scenarios but returns the full
+    // scenario shape (presets, departments, world summary) for one
+    // entry so the drawer can preview leader pairs + department
+    // chips without booting the whole compiled package into memory
+    // for every catalog card.
+    const scenarioDetailMatch = req.url
+      ? req.url.match(/^\/scenarios\/([^/?#]+)$/)
+      : null;
+    if (scenarioDetailMatch && req.method === 'GET') {
+      const id = decodeURIComponent(scenarioDetailMatch[1]);
+      const entry = customScenarioCatalog.get(id);
+      if (!entry) {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'scenario_not_found', id }));
+        return;
+      }
+      const sc = entry.scenario;
+      const meta = compiledScenarioMeta.get(id);
+      const runCount = await (async () => {
+        if (!runHistoryStore?.aggregateStats) return 0;
+        try {
+          const agg = await runHistoryStore.aggregateStats({ scenarioId: id });
+          return agg.totalRuns;
+        } catch {
+          return 0;
+        }
+      })();
+      // Project the scenario down to the fields the drawer actually
+      // renders. Hooks are stripped (function values don't serialize)
+      // and large bodies (knowledge.topics, full event registry,
+      // names.first/last) are dropped to keep the response under a
+      // few KB even for elaborate cohort scenarios.
+      const presets = (sc.presets ?? []).map((p) => {
+        // ScenarioPreset.leaders is the canonical post-0.5 field;
+        // some legacy compile-from-seed paths shipped `.actors`
+        // instead before the rename. Cast through `unknown` to read
+        // both without a TS error since the engine's ScenarioPreset
+        // interface only declares `leaders`.
+        const raw = p as unknown as {
+          leaders?: Array<{ name: string; archetype: string; unit?: string; hexaco?: Record<string, number>; instructions?: string }>;
+          actors?: Array<{ name: string; archetype: string; unit?: string; hexaco?: Record<string, number>; instructions?: string }>;
+        };
+        const leaderList = raw.leaders ?? raw.actors ?? [];
+        return {
+          id: p.id,
+          label: p.label,
+          leaders: leaderList.map((l) => ({
+            name: l.name,
+            archetype: l.archetype,
+            unit: l.unit,
+            hexaco: l.hexaco ?? {},
+            instructions: typeof l.instructions === 'string' ? l.instructions.slice(0, 600) : '',
+          })),
+        };
+      });
+      const departments = (sc.departments ?? []).map((d) => ({
+        id: d.id,
+        label: d.label,
+        role: d.role,
+        icon: d.icon,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        id,
+        name: sc.labels?.name ?? id,
+        shortName: sc.labels?.shortName,
+        description: describeCustomScenarioSource(entry.source),
+        source: entry.source,
+        compiledAt: meta?.compiledAt,
+        seedText: meta?.seedText,
+        runCount,
+        presets,
+        departments,
+        defaultTurns: sc.setup?.defaultTurns,
+        defaultPopulation: sc.setup?.defaultPopulation,
+      }));
+      return;
+    }
+
     // Admin config: tells client what's enabled
     if (req.url === '/admin-config' && req.method === 'GET') {
       // Hosted-demo flag: when true, env-only API keys belong to the

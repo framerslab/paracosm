@@ -168,6 +168,164 @@
   line-height: 1.5;
 }
 
+.presetsSection,
+.departmentsSection {
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionHint {
+  font-size: var(--font-xs);
+  color: var(--text-3);
+  margin: 0 0 12px;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.sectionCount {
+  color: var(--text-3);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.presetList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.presetCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.presetHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.presetName {
+  font-family: var(--sans);
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.presetArchetype {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: rgba(232, 180, 74, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(232, 180, 74, 0.4);
+}
+
+.presetUnit {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+.hexacoList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 12px;
+}
+
+.hexacoRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+}
+
+.hexacoAxis {
+  flex-shrink: 0;
+  width: 56px;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hexacoBar {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.hexacoFill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber), #c8952e);
+}
+
+.hexacoValue {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: right;
+  color: var(--text-2);
+}
+
+.presetInstructions {
+  font-size: var(--font-xs);
+  color: var(--text-2);
+  margin: 0;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.deptChips {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.deptChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-1);
+}
+
+.deptIcon {
+  font-size: var(--font-sm);
+}
+
+.deptRole {
+  color: var(--text-3);
+}
+
 .recentSection {
   padding: 18px;
   border-bottom: 1px solid var(--border);

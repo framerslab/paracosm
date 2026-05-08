@@ -155,6 +155,30 @@
   opacity: 0.75;
 }
 
+// Sort dropdown sits at the right end of the filter row so it
+// reads as a tertiary control after search + chips. Same mono
+// + sized treatment as the search input so the row feels uniform.
+.sortLabel {
+  display: flex;
+  align-items: center;
+}
+
+.sortSelect {
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: var(--amber);
+  }
+}
+
 .emptyMatches {
   font-family: var(--mono);
   font-size: var(--font-sm);
