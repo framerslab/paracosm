@@ -92,6 +92,89 @@ function getEventBlock(turn: TurnData, eventIndex: number, totalEvents: number):
   return block;
 }
 
+/**
+ * Fold one actor's SSE events into a `Map<turn, TurnData>`. Pure helper
+ * shared by the pair-mode turn map (used by RunStrip / Sparklines /
+ * Trajectory) and the N-actor turn map (used by the turn-by-turn report
+ * for 3+ actor runs). Refactor target: the original
+ * inline implementation in the `turns` useMemo lived only in pair-mode
+ * scope, which made it impossible to render any actor outside the
+ * picked pair without re-walking the full event stream per actor.
+ */
+function buildSideTurnMap(
+  events: Array<{ type: string; turn?: number; data?: Record<string, unknown> }> | undefined,
+): Map<number, TurnData> {
+  const map = new Map<number, TurnData>();
+  if (!events) return map;
+  const pending = new Map<number, { decision: string; rationale: string; policies: string[] }>();
+  for (const evt of events) {
+    const turn = evt.turn;
+    if (!turn) continue;
+    let t = map.get(turn);
+    if (!t) { t = emptyTurn(); map.set(turn, t); }
+    const eventIndex = Number(evt.data?.eventIndex ?? 0);
+    const totalEvents = Number(evt.data?.totalEvents ?? 1);
+
+    if (evt.type === 'turn_start') {
+      if (evt.data?.time != null) t.time = evt.data.time as number;
+      if (evt.data?.metrics) t.metrics = evt.data.metrics as Record<string, unknown>;
+      if (evt.data?.title && evt.data?.title !== 'Director generating...' && !evt.data?.totalEvents) {
+        const block = getEventBlock(t, 0, 1);
+        block.title = evt.data.title as string;
+        block.category = evt.data.category as string | undefined;
+        block.emergent = evt.data.emergent as boolean | undefined;
+        block.description = (evt.data.crisis as string) || (evt.data.turnSummary as string) || '';
+      }
+    }
+    if (evt.type === 'event_start') {
+      const block = getEventBlock(t, eventIndex, totalEvents);
+      block.title = evt.data?.title as string | undefined;
+      block.category = evt.data?.category as string | undefined;
+      block.emergent = evt.data?.emergent as boolean | undefined;
+      block.description = (evt.data?.description as string) || (evt.data?.turnSummary as string) || '';
+    }
+    if (evt.type === 'decision_made') {
+      pending.set(eventIndex, {
+        decision: String(evt.data?.decision || ''),
+        rationale: String(evt.data?.rationale || ''),
+        policies: Array.isArray(evt.data?.selectedPolicies)
+          ? (evt.data.selectedPolicies as unknown[]).map(p => typeof p === 'string' ? p : JSON.stringify(p))
+          : [],
+      });
+    }
+    if (evt.type === 'outcome') {
+      const block = getEventBlock(t, eventIndex, totalEvents);
+      block.outcome = String(evt.data?.outcome || '');
+      const p = pending.get(eventIndex);
+      if (p) {
+        block.decision = p.decision;
+        block.rationale = p.rationale;
+        block.policies = p.policies;
+        pending.delete(eventIndex);
+      }
+    }
+    if (evt.type === 'specialist_done') {
+      const block = getEventBlock(t, eventIndex, totalEvents);
+      const dept = evt.data?.department as string;
+      if (dept) {
+        const filtered = (evt.data?._filteredTools as Array<Record<string, unknown>>) || [];
+        const approvedCount = filtered.filter((tool) => tool?.approved !== false).length;
+        block.depts[dept] = {
+          summary: (evt.data?.summary as string) || '',
+          tools: approvedCount,
+          citations: Number(evt.data?.citations ?? 0),
+          citationList: (evt.data?.citationList as Array<{ text: string; url: string; doi?: string }>) || [],
+        };
+      }
+    }
+    if (evt.type === 'agent_reactions') {
+      t.reactions = ((evt.data?.reactions as Array<Record<string, unknown>>) || []).slice(0, 3);
+      t.totalReactions = Number(evt.data?.totalReactions ?? 0);
+    }
+  }
+  return map;
+}
+
 function toneColor(tone: 'pos' | 'neg' | 'neutral' | undefined): string {
   if (tone === 'pos') return 'var(--green)';
   if (tone === 'neg') return 'var(--rust)';
@@ -196,108 +279,56 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   }, [state.actorIds, pickedAId, pickedBId, defaultAId, defaultBId]);
   const aId = pickedAId ?? defaultAId;
   const bId = pickedBId ?? defaultBId;
-  const turns = useMemo(() => {
-    const map: Record<number, { a: TurnData; b: TurnData }> = {};
+  const isNActor = state.actorIds.length > 2;
 
-    // Bind the user-selected pair into the local 'a'/'b' slots. For
-    // 2-actor runs aId/bId fall through to actorIds[0]/[1]; for 3+
-    // actor runs the picker drives which two columns the turn-by-turn
-    // grid renders.
-    const actorSlots: Array<{ side: 'a' | 'b'; actorName: string }> = [];
-    if (aId) actorSlots.push({ side: 'a', actorName: aId });
-    if (bId) actorSlots.push({ side: 'b', actorName: bId });
-
-    for (const { side, actorName } of actorSlots) {
-      const sideState = state.actors[actorName];
-      if (!sideState) continue;
-      const pending = new Map<number, { decision: string; rationale: string; policies: string[] }>();
-
-      for (const evt of sideState.events) {
-        const turn = evt.turn;
-        if (!turn) continue;
-        if (!map[turn]) map[turn] = { a: emptyTurn(), b: emptyTurn() };
-        const t = map[turn][side];
-        const eventIndex = Number(evt.data?.eventIndex ?? 0);
-        const totalEvents = Number(evt.data?.totalEvents ?? 1);
-
-        if (evt.type === 'turn_start') {
-          if (evt.data?.time != null) t.time = evt.data.time as number;
-          if (evt.data?.metrics) t.metrics = evt.data.metrics as Record<string, unknown>;
-          // Legacy single-event turn_start: also seed event 0
-          if (evt.data?.title && evt.data?.title !== 'Director generating...' && !evt.data?.totalEvents) {
-            const block = getEventBlock(t, 0, 1);
-            block.title = evt.data.title as string;
-            block.category = evt.data.category as string | undefined;
-            block.emergent = evt.data.emergent as boolean | undefined;
-            block.description = (evt.data.crisis as string) || (evt.data.turnSummary as string) || '';
-          }
-        }
-
-        if (evt.type === 'event_start') {
-          const block = getEventBlock(t, eventIndex, totalEvents);
-          block.title = evt.data?.title as string | undefined;
-          block.category = evt.data?.category as string | undefined;
-          block.emergent = evt.data?.emergent as boolean | undefined;
-          block.description = (evt.data?.description as string) || (evt.data?.turnSummary as string) || '';
-        }
-
-        if (evt.type === 'decision_made') {
-          pending.set(eventIndex, {
-            decision: String(evt.data?.decision || ''),
-            rationale: String(evt.data?.rationale || ''),
-            policies: Array.isArray(evt.data?.selectedPolicies)
-              ? (evt.data.selectedPolicies as unknown[]).map(p => typeof p === 'string' ? p : JSON.stringify(p))
-              : [],
-          });
-        }
-
-        if (evt.type === 'outcome') {
-          const block = getEventBlock(t, eventIndex, totalEvents);
-          block.outcome = String(evt.data?.outcome || '');
-          const p = pending.get(eventIndex);
-          if (p) {
-            block.decision = p.decision;
-            block.rationale = p.rationale;
-            block.policies = p.policies;
-            pending.delete(eventIndex);
-          }
-        }
-
-        if (evt.type === 'specialist_done') {
-          const block = getEventBlock(t, eventIndex, totalEvents);
-          const dept = evt.data?.department as string;
-          if (dept) {
-            // Only count approved forges against the report's tool tally.
-            // Rejected forges still render on their own cards (they live
-            // in _filteredTools) but they never entered the registry and
-            // should not inflate the "N tools" summary.
-            const filtered = (evt.data?._filteredTools as Array<Record<string, unknown>>) || [];
-            const approvedCount = filtered.filter((t) => t?.approved !== false).length;
-            block.depts[dept] = {
-              summary: (evt.data?.summary as string) || '',
-              tools: approvedCount,
-              citations: Number(evt.data?.citations ?? 0),
-              citationList: (evt.data?.citationList as Array<{ text: string; url: string; doi?: string }>) || [],
-            };
-          }
-        }
-
-        if (evt.type === 'agent_reactions') {
-          t.reactions = ((evt.data?.reactions as Array<Record<string, unknown>>) || []).slice(0, 3);
-          t.totalReactions = Number(evt.data?.totalReactions ?? 0);
-        }
-      }
+  // Per-actor turn map. One entry per actor, keyed by actor id. The
+  // pair-mode `turns` derivation below picks two of these for the
+  // strip/sparklines/trajectory; the N-actor turn-by-turn view
+  // (`nActorTurnList`) renders all of them. Memoizing on `state` only
+  // keeps the heavy fold off the picker hot path — swapping aId/bId
+  // re-derives the cheap pair view but never re-walks the events.
+  const perActorTurns = useMemo(() => {
+    const out = new Map<string, Map<number, TurnData>>();
+    for (const id of state.actorIds) {
+      out.set(id, buildSideTurnMap(state.actors[id]?.events));
     }
+    return out;
+  }, [state]);
 
-    // Object.entries keys are always strings; coerce to numbers here so
-    // downstream consumers (collectRunStripData, section ids, sparkline
-    // data) can treat turn numbers numerically without re-parsing each
-    // time. The typed tuple fixes a tsc error that the runtime coercion
-    // was already handling correctly.
-    return Object.entries(map)
-      .map(([k, v]) => [Number(k), v] as [number, { a: TurnData; b: TurnData }])
-      .sort((a, b) => a[0] - b[0]);
-  }, [state, aId, bId]);
+  const turns = useMemo(() => {
+    // Pair-mode derivation: pick the user's currently selected aId/bId
+    // out of the per-actor map. RunStrip + MetricSparklines +
+    // CommanderTrajectoryCard pair are pair-shaped visualizations so
+    // they always read from this view. For 2-actor runs aId/bId
+    // collapse to actorIds[0]/[1] and behavior is unchanged.
+    const aMap = (aId && perActorTurns.get(aId)) || new Map<number, TurnData>();
+    const bMap = (bId && perActorTurns.get(bId)) || new Map<number, TurnData>();
+    const turnNums = new Set<number>([...aMap.keys(), ...bMap.keys()]);
+    return [...turnNums]
+      .sort((x, y) => x - y)
+      .map((t) => [t, { a: aMap.get(t) ?? emptyTurn(), b: bMap.get(t) ?? emptyTurn() }] as [number, { a: TurnData; b: TurnData }]);
+  }, [perActorTurns, aId, bId]);
+
+  // N-actor turn list: ordered by turn, then per-actor cells indexed
+  // off state.actorIds so column order on screen matches the launch
+  // order users already see in the SIM tab. Only consumed by the
+  // 3+ actor turn-by-turn render.
+  const nActorTurnList = useMemo<Array<[number, Map<string, TurnData>]>>(() => {
+    if (!isNActor) return [];
+    const turnSet = new Set<number>();
+    for (const m of perActorTurns.values()) {
+      for (const k of m.keys()) turnSet.add(k);
+    }
+    return [...turnSet]
+      .sort((x, y) => x - y)
+      .map((t) => {
+        const cells = new Map<string, TurnData>();
+        for (const id of state.actorIds) {
+          cells.set(id, perActorTurns.get(id)?.get(t) ?? emptyTurn());
+        }
+        return [t, cells];
+      });
+  }, [isNActor, perActorTurns, state.actorIds]);
 
   const firstId = aId;
   const secondId = bId;
@@ -497,18 +528,15 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         </button>
       </div>
 
-      {/* Actor-pair picker for 3+ actor runs. The turn-by-turn layout
-          stays pair-shaped because EventSide blocks render two columns
-          per event; rather than rebuild the entire report into an
-          N-column responsive grid we let the user rotate the pair in
-          place. Defaults to actorIds[0] vs actorIds[1] for parity with
-          the previous behaviour; the dropdown reveals the rest of the
-          cohort. The full N-actor view (cohort verdict, pareto front,
-          per-actor deltas) lives in the Run Summary block at the
-          bottom of this page. */}
-      {state.actorIds.length > 2 && (
-        <div className={styles.actorPairPicker} role="region" aria-label="Compare actors">
-          <span className={styles.actorPairPickerLabel}>Compare</span>
+      {/* Pair-focus picker for 3+ actor runs. The strip, sparklines,
+          and trajectory cards below are pair-shaped (A-vs-B framing)
+          so they always render exactly two actors; this picker rotates
+          which two. The turn-by-turn section further down renders ALL
+          N actors via the horizontally-scrolling track — the picker
+          does NOT scope it. */}
+      {isNActor && (
+        <div className={styles.actorPairPicker} role="region" aria-label="Pair focus for strip + sparklines + trajectory">
+          <span className={styles.actorPairPickerLabel}>Focus pair</span>
           <select
             aria-label="Left side actor"
             className={styles.actorPairPickerSelect}
@@ -535,15 +563,8 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
             ))}
           </select>
           <span className={styles.actorPairPickerHint}>
-            of {state.actorIds.length} actors · full cohort in the{' '}
-            <button
-              type="button"
-              onClick={() => {
-                const el = document.getElementById('summary');
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              className={styles.jumpInlineBtn}
-            >Run Summary</button> below
+            applies to strip + metrics + trajectory only · turn-by-turn
+            below shows all {state.actorIds.length} actors
           </span>
         </div>
       )}
@@ -610,9 +631,14 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         />
       )}
 
-      {/* Inline pills inside dept blocks point here; the full references
-          section anchors them via #cite-N for deep linking. */}
-      {turns.map(([turnNum, sides]) => {
+      {/* Turn-by-turn: split rendering between pair-mode (N=2) and the
+          N-actor horizontally-scrolling view (N>=3). Pair mode keeps
+          the rich DiffBadge + TurnSharedFooter layout the dashboard has
+          shipped since v0.5; N-actor mode mirrors the SIM tab's
+          MultiActorTurnGrid pattern so all actors are visible per turn
+          instead of the previous "first 2 of N" silent truncation that
+          left users thinking they were looking at the wrong run. */}
+      {!isNActor && turns.map(([turnNum, sides]) => {
         const a = sides.a;
         const b = sides.b;
         const time = a.time || b.time || '?';
@@ -671,6 +697,108 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
             <div className={`responsive-grid-2 ${styles.footerGrid}`}>
               <TurnSharedFooter data={a} name={nameA} sideColor="var(--vis)" showQuotes={reportPlan.footerSections.includes('quotes')} />
               <TurnSharedFooter data={b} name={nameB} sideColor="var(--eng)" showQuotes={reportPlan.footerSections.includes('quotes')} />
+            </div>
+          </section>
+        );
+      })}
+
+      {isNActor && nActorTurnList.map(([turnNum, cells]) => {
+        // N-actor turn section. Each row of EventSide cards lives inside
+        // its own horizontal-scroll track so 3-300 columns line up
+        // without forcing the page to scroll horizontally as a whole.
+        // Determine divergence at the cohort level: any two actors with
+        // different event-0 titles flips the badge.
+        const titles: string[] = [];
+        let firstTime: number | undefined;
+        let maxEventCount = 1;
+        for (const id of state.actorIds) {
+          const td = cells.get(id);
+          if (!td) continue;
+          if (firstTime == null) firstTime = td.time;
+          for (const ev of td.events.values()) {
+            if (ev.totalEvents > maxEventCount) maxEventCount = ev.totalEvents;
+          }
+          const title = td.events.get(0)?.title;
+          if (title) titles.push(title);
+        }
+        const diverged = new Set(titles).size > 1;
+        const time = firstTime ?? '?';
+        return (
+          <section
+            key={turnNum}
+            id={`turn-${turnNum}`}
+            className={[styles.turnSection, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}
+          >
+            <div className={styles.turnHeader}>
+              <span className={styles.turnTitle}>
+                Turn {turnNum} &mdash; Y{time}
+                {maxEventCount > 1 && (
+                  <span className={styles.turnEventCount}>{maxEventCount} events</span>
+                )}
+              </span>
+              <div className={styles.turnHeaderRight}>
+                <span className={[styles.divergenceFlag, diverged ? styles.diverged : ''].filter(Boolean).join(' ')}>
+                  {diverged ? 'DIVERGENT' : 'SHARED'}
+                </span>
+                {canFork(turnNum) && (
+                  <button
+                    type="button"
+                    className={forkStyles.forkButton}
+                    onClick={() => setForkModalAtTurn(turnNum)}
+                    aria-label={`Fork at ${labels.time} ${turnNum}`}
+                  >
+                    &#x21B3; Fork at {labels.Time} {turnNum}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* One scroll track per event (so multi-event turns stack
+                vertically while each event row scrolls horizontally
+                across all N actors). Cell width is bound by CSS
+                (--n-actor-cell-min-width) so 4 actors fill the
+                viewport while 50 actors trigger horizontal scroll
+                without breaking layout. */}
+            {Array.from({ length: maxEventCount }).map((_, ei) => (
+              <div key={ei} className={ei < maxEventCount - 1 ? styles.nActorEventTrackSpaced : styles.nActorEventTrack}>
+                {state.actorIds.map((id, idx) => {
+                  const td = cells.get(id);
+                  const block = td?.events.get(ei);
+                  const actorName = state.actors[id]?.leader?.name ?? id;
+                  const sideColor = idx === 0 ? 'var(--vis)' : idx === 1 ? 'var(--eng)' : 'var(--amber)';
+                  return (
+                    <EventSide
+                      key={id}
+                      block={block}
+                      eventIndex={ei}
+                      totalEvents={maxEventCount}
+                      name={actorName}
+                      sideColor={sideColor}
+                      sections={reportPlan.eventSections}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* Per-turn shared sections: colony state + agent voices,
+                one per actor, in the same horizontal-scroll track. */}
+            <div className={styles.nActorFooterTrack}>
+              {state.actorIds.map((id, idx) => {
+                const td = cells.get(id);
+                if (!td) return null;
+                const actorName = state.actors[id]?.leader?.name ?? id;
+                const sideColor = idx === 0 ? 'var(--vis)' : idx === 1 ? 'var(--eng)' : 'var(--amber)';
+                return (
+                  <TurnSharedFooter
+                    key={id}
+                    data={td}
+                    name={actorName}
+                    sideColor={sideColor}
+                    showQuotes={reportPlan.footerSections.includes('quotes')}
+                  />
+                );
+              })}
             </div>
           </section>
         );

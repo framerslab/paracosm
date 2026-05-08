@@ -343,6 +343,55 @@
   margin-top: 12px;
 }
 
+// N-actor turn-by-turn tracks. Each event row scrolls horizontally so
+// 3-300 actor columns line up cleanly without forcing the whole page
+// to scroll. min-width on the cells keeps each EventSide legible at
+// large cohort sizes; the grid template scales with --n-actor-cell-min
+// so a future tweak (smaller cells for 100+ actor runs) is one CSS
+// var away. Mirrors the MultiActorTurnGrid pattern from the SIM tab.
+.nActorEventTrack {
+  --n-actor-cell-min: 320px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--n-actor-cell-min), 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nActorEventTrackSpaced {
+  --n-actor-cell-min: 320px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--n-actor-cell-min), 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 12px;
+}
+
+.nActorFooterTrack {
+  --n-actor-cell-min: 320px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(var(--n-actor-cell-min), 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  // On phones a 320px floor wastes half the row to scroll-snap; tighten
+  // to 240px so two cells fit the typical phone viewport without making
+  // EventSide read like a modal.
+  .nActorEventTrack,
+  .nActorEventTrackSpaced,
+  .nActorFooterTrack {
+    --n-actor-cell-min: 240px;
+  }
+}
+
 .summarySection { margin-top: 24px; }
 
 .summaryLabel {
