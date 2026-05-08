@@ -19,6 +19,7 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { useScenarioContext } from '../../App';
+import { ScenarioDetailDrawer } from './ScenarioDetailDrawer';
 import styles from './ScenarioCatalogGrid.module.scss';
 
 void React;
@@ -117,6 +118,12 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
     return () => clearTimeout(handle);
   }, [queryInput]);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  // Detail drawer state. Click a card body to open with that
+  // scenario; close via Esc, backdrop click, or the X. Stays scoped
+  // to the grid component because the detail view is a "dive into a
+  // catalog entry" affordance — outside this surface it would need
+  // routing of its own (URL hash, etc.) which is out of scope here.
+  const [detailScenario, setDetailScenario] = useState<CatalogScenario | null>(null);
 
   // Catalog refresh on mount + a soft 30s poll so a freshly-compiled
   // scenario from another browser tab (or a friend on the same hosted
@@ -305,42 +312,61 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
           const isActive = s.id === activeId;
           return (
             <li key={s.id} className={`${styles.card} ${styles[`tone_${tone}`] ?? ''} ${isActive ? styles.cardActive : ''}`.trim()}>
-              <div className={styles.cardHeader}>
-                <span className={`${styles.sourceBadge} ${styles[`badge_${tone}`] ?? ''}`}>
-                  {sourceLabel(s.source)}
-                </span>
-                {isActive && <span className={styles.activeBadge}>Loaded</span>}
-              </div>
-              <h4 className={styles.cardName}>{s.name}</h4>
-              {s.seedText && (
-                <p className={styles.cardSeed} title={s.seedText}>
-                  {s.seedText.slice(0, 140)}{s.seedText.length > 140 ? '…' : ''}
-                </p>
-              )}
-              <dl className={styles.cardStats}>
-                {typeof s.runCount === 'number' && s.runCount > 0 && (
-                  <div className={styles.stat}>
-                    <dt className={styles.statKey}>Runs</dt>
-                    <dd className={styles.statValue}>{s.runCount.toLocaleString()}</dd>
-                  </div>
+              {/* Card body is a button so the whole top region is
+                  clickable for opening the detail drawer. The Run
+                  button below stops propagation so clicks there
+                  don't double-fire (drawer-open + run). */}
+              <button
+                type="button"
+                className={styles.cardBody}
+                onClick={() => setDetailScenario(s)}
+                aria-label={`View detail for ${s.name}`}
+              >
+                <div className={styles.cardHeader}>
+                  <span className={`${styles.sourceBadge} ${styles[`badge_${tone}`] ?? ''}`}>
+                    {sourceLabel(s.source)}
+                  </span>
+                  {isActive && <span className={styles.activeBadge}>Loaded</span>}
+                </div>
+                <h4 className={styles.cardName}>{s.name}</h4>
+                {s.seedText && (
+                  <p className={styles.cardSeed} title={s.seedText}>
+                    {s.seedText.slice(0, 140)}{s.seedText.length > 140 ? '…' : ''}
+                  </p>
                 )}
-                {typeof s.departments === 'number' && s.departments > 0 && (
-                  <div className={styles.stat}>
-                    <dt className={styles.statKey}>Depts</dt>
-                    <dd className={styles.statValue}>{s.departments}</dd>
-                  </div>
-                )}
-                {s.compiledAt && (
-                  <div className={styles.stat}>
-                    <dt className={styles.statKey}>Compiled</dt>
-                    <dd className={styles.statValue}>{formatAge(s.compiledAt) || s.compiledAt.slice(0, 10)}</dd>
-                  </div>
-                )}
-              </dl>
+                <dl className={styles.cardStats}>
+                  {typeof s.runCount === 'number' && s.runCount > 0 && (
+                    <div className={styles.stat}>
+                      <dt className={styles.statKey}>Runs</dt>
+                      <dd className={styles.statValue}>{s.runCount.toLocaleString()}</dd>
+                    </div>
+                  )}
+                  {typeof s.departments === 'number' && s.departments > 0 && (
+                    <div className={styles.stat}>
+                      <dt className={styles.statKey}>Depts</dt>
+                      <dd className={styles.statValue}>{s.departments}</dd>
+                    </div>
+                  )}
+                  {s.compiledAt && (
+                    <div className={styles.stat}>
+                      <dt className={styles.statKey}>Compiled</dt>
+                      <dd className={styles.statValue}>{formatAge(s.compiledAt) || s.compiledAt.slice(0, 10)}</dd>
+                    </div>
+                  )}
+                </dl>
+              </button>
               <button
                 type="button"
                 className={styles.runButton}
-                onClick={() => onRunScenario(s.id, actorCount)}
+                onClick={(e) => {
+                  // stopPropagation isn't strictly needed here because
+                  // the parent .cardBody is a sibling button (not an
+                  // ancestor), but keeping it explicit guards against
+                  // a future refactor that wraps the whole card in a
+                  // single click target.
+                  e.stopPropagation();
+                  onRunScenario(s.id, actorCount);
+                }}
                 disabled={disabled}
                 aria-label={`Run ${actorCount} actor${actorCount === 1 ? '' : 's'} against ${s.name}`}
               >
@@ -351,6 +377,16 @@ export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Elemen
         })}
       </ul>
       )}
+      <ScenarioDetailDrawer
+        scenario={detailScenario}
+        disabled={disabled}
+        initialActorCount={actorCount}
+        onRunScenario={(id, count) => {
+          setDetailScenario(null);
+          onRunScenario(id, count);
+        }}
+        onClose={() => setDetailScenario(null)}
+      />
     </section>
   );
 }
