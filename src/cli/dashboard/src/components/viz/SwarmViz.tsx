@@ -966,6 +966,20 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         </div>
       );
     }
+    // Replay mode: ?replay=<id> is in the URL but events haven't streamed
+    // back yet (or the session was empty). Showing "Run a simulation"
+    // here reads as "the cached run failed to load" — instead show a
+    // replay-aware empty state so the user knows the load is in flight.
+    const isReplaying = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).has('replay');
+    if (isReplaying) {
+      return (
+        <div className={`viz-content ${styles.empty}`} role="status" aria-live="polite">
+          <span className={styles.emptySpinner} aria-hidden="true" />
+          <span>Loading replay — the {scenarioLabels.place} viz will populate as the cached events stream in.</span>
+        </div>
+      );
+    }
     return (
       <div className={`viz-content ${styles.empty}`}>
         Run a simulation to see the {scenarioLabels.place} visualization.

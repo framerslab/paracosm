@@ -2486,16 +2486,26 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const url = new URL(req.url, 'http://localhost');
       const id = url.pathname.replace(/^\/sessions\//, '').replace(/\/replay$/, '');
       const speedRaw = url.searchParams.get('speed');
-      const speed = Math.max(0.25, Math.min(50, speedRaw ? parseFloat(speedRaw) || 1 : 1));
+      // Default replay mode is INSTANT (no pacing) — when the user clicks
+      // a cached run from the Library / Load menu, they want to scrub
+      // through it like a saved file, not watch it play out in real time.
+      // The original wall-clock pacing is still available via explicit
+      // `?speed=1` (or any number) for callers that want replay-theater.
+      // `?speed=instant` and the omitted-param default both bypass pacing
+      // entirely.
+      const isInstant = !speedRaw || speedRaw === 'instant' || speedRaw === '0';
+      const speed = isInstant ? 0 : Math.max(0.25, Math.min(50, parseFloat(speedRaw) || 1));
       const session = await sessionStore.getSession(id);
       if (!session) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'session not found', id }));
         return;
       }
-      // SSE stream: same headers as /events. Replays on the original
-      // wall-clock pacing scaled by `speed` (1 = real-time, 4 = 4x
-      // faster, 0.5 = half speed). Closes the response when done.
+      // SSE stream: same headers as /events. By default events are
+      // delivered as fast as the socket allows so the dashboard
+      // visualization populates immediately. Pass `?speed=1` (or any
+      // positive number) to fall back to the original wall-clock pacing
+      // scaled by that factor (1 = real-time, 4 = 4x faster, 0.5 = half).
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, no-transform',
@@ -2509,9 +2519,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         let prevTs = session.events[0]?.ts ?? 0;
         for (const ev of session.events) {
           if (cancelled) return;
-          const delay = Math.max(0, (ev.ts - prevTs) / speed);
-          if (delay > 0) await new Promise(r => setTimeout(r, delay));
-          prevTs = ev.ts;
+          if (!isInstant) {
+            const delay = Math.max(0, (ev.ts - prevTs) / speed);
+            if (delay > 0) await new Promise(r => setTimeout(r, delay));
+            prevTs = ev.ts;
+          }
           try {
             res.write(ev.sse);
           } catch {
