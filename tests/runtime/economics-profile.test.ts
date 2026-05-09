@@ -4,7 +4,7 @@ import { DEFAULT_MODELS } from '../../src/cli/sim-config.js';
 import {
   buildEconomicsEnvelope,
   resolveEconomicsProfile,
-} from '../../src/runtime/economics-profile.js';
+} from '../../src/runtime/economics/economics-profile.js';
 
 test('balanced profile preserves the default model mix', () => {
   const profile = resolveEconomicsProfile({

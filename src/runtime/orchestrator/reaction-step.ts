@@ -31,7 +31,7 @@ import type {
   SimulationModelConfig,
 } from '../../engine/types.js';
 import type { TurnOutcome } from '../../engine/core/state.js';
-import type { CallUsage } from '../cost-tracker.js';
+import type { CallUsage } from '../economics/cost-tracker.js';
 import type { SimEventType } from './index.js';
 
 /**

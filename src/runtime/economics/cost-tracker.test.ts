@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCostTracker } from './cost-tracker.js';
+import { createCostTracker } from '../economics/cost-tracker.js';
 
 const modelConfig = {
   commander: 'claude-sonnet-4-6',

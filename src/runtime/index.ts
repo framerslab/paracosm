@@ -26,10 +26,10 @@ export type { BatchConfig, BatchResult, BatchManifest } from './batch.js';
 export {
   buildEconomicsEnvelope,
   resolveEconomicsProfile,
-} from './economics-profile.js';
+} from './economics/economics-profile.js';
 export type {
   EconomicsEnvelope,
   ResolvedEconomicsProfile,
   SimulationEconomicsProfileId,
-} from './economics-profile.js';
+} from './economics/economics-profile.js';
 export { recordReactionMemory, consolidateMemory, updateRelationshipsFromReactions, buildMemoryContext } from './agents/agent-memory.js';
