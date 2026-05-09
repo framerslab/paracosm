@@ -13,7 +13,7 @@ import type {
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { RunArtifact, SubjectConfig, InterventionConfig } from '../engine/schema/types.js';
 import type { WorldModel } from '../runtime/world-model/index.js';
-import type { RunOptions as InternalRunOptions } from '../runtime/orchestrator.js';
+import type { RunOptions as InternalRunOptions } from '../runtime/orchestrator/index.js';
 import type { z } from 'zod';
 import type { StreamEventSchema } from '../engine/schema/stream.js';
 

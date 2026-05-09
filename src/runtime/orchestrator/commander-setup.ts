@@ -20,13 +20,13 @@
  * @module paracosm/runtime/commander-setup
  */
 
-import type { Department, HexacoProfile } from '../engine/core/state.js';
-import type { SimulationKernel } from '../engine/core/kernel.js';
-import type { ScenarioPackage, ActorConfig } from '../engine/types.js';
-import type { CallUsage } from './cost-tracker.js';
-import { buildPromotionPrompt } from './runtime-helpers.js';
-import { sendAndValidate } from '../llm/sendAndValidate.js';
-import { PromotionsSchema } from './validators/commander.js';
+import type { Department, HexacoProfile } from '../../engine/core/state.js';
+import type { SimulationKernel } from '../../engine/core/kernel.js';
+import type { ScenarioPackage, ActorConfig } from '../../engine/types.js';
+import type { CallUsage } from '../cost-tracker.js';
+import { buildPromotionPrompt } from '../runtime-helpers.js';
+import { sendAndValidate } from '../../llm/sendAndValidate.js';
+import { PromotionsSchema } from '../validators/commander.js';
 
 /**
  * Build a "Your decision style" block from the leader's HEXACO profile.

@@ -8,7 +8,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { runSimulation } from '../runtime/orchestrator.js';
+import { runSimulation } from '../runtime/orchestrator/index.js';
 import { parseCliRunOptions } from './cli-run-options.js';
 import { DEFAULT_KEY_PERSONNEL } from './sim-config.js';
 import { marsScenario } from '../engine/scenarios/index.js';

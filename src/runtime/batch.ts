@@ -78,7 +78,7 @@ export async function mapConcurrentInOrder<T, R>(
  * Each scenario x leader combination produces one BatchResult.
  */
 export async function runBatch(config: BatchConfig): Promise<BatchManifest> {
-  const { runSimulation } = await import('./orchestrator.js');
+  const { runSimulation } = await import('./orchestrator/index.js');
   const startTime = Date.now();
   const jobs = config.scenarios.flatMap(scenario => (
     config.actors.map(leader => ({ scenario, leader }))

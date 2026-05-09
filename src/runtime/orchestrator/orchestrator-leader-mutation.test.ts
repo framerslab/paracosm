@@ -18,7 +18,7 @@ import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const orchestratorSrc = readFileSync(
-  path.join(__dirname, 'orchestrator.ts'),
+  path.join(__dirname, 'index.ts'),
   'utf-8',
 );
 

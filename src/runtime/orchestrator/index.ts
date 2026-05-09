@@ -1,11 +1,11 @@
-import { writeRunOutput } from './output-writer.js';
-import { buildRunArtifact } from './build-artifact.js';
+import { writeRunOutput } from '../output-writer.js';
+import { buildRunArtifact } from '../build-artifact.js';
 import type {
   Decision,
   InterventionConfig,
   RunArtifact,
   SubjectConfig,
-} from '../engine/schema/index.js';
+} from '../../engine/schema/index.js';
 import type { ITool } from '@framers/agentos';
 import {
   createWebSearchTool,
@@ -19,37 +19,37 @@ import {
   emptyReport,
   emptyDecision,
   decisionToPolicy,
-} from './parsers.js';
-import { sendAndValidate } from '../llm/sendAndValidate.js';
-import { DepartmentReportSchema } from './validators/department.js';
-import { CommanderDecisionSchema } from './validators/commander.js';
-import { createCostTracker } from './cost-tracker.js';
+} from '../parsers.js';
+import { sendAndValidate } from '../../llm/sendAndValidate.js';
+import { DepartmentReportSchema } from '../validators/department.js';
+import { CommanderDecisionSchema } from '../validators/commander.js';
+import { createCostTracker } from '../cost-tracker.js';
 import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   runDepartmentPromotions,
 } from './commander-setup.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
-import { buildCitationCatalog } from './citations-catalog.js';
-import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../engine/core/state.js';
-import { SeededRng } from '../engine/core/rng.js';
-import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../engine/core/progression.js';
-import { buildTrajectoryCue } from './hexaco-cues/trajectory.js';
-import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from './trait-cues/trajectory.js';
-import { normalizeActorConfig, traitsToHexaco } from '../engine/traits/normalize-leader.js';
-import { traitModelRegistry, type TraitProfile } from '../engine/traits/index.js';
-import { driftLeaderProfile } from '../engine/traits/drift.js';
-import type { DepartmentReport, CommanderDecision, TurnArtifact } from './contracts.js';
-import { SimulationKernel } from '../engine/core/kernel.js';
-import type { KeyPersonnel } from '../engine/core/agent-generator.js';
-import { getResearchPacket } from './research/research.js';
-import { getResearchFromBundle } from './research/scenario-research.js';
-import { initResearchMemory, recallResearch, closeResearchMemory } from './research/research-memory.js';
+import { buildCitationCatalog } from '../citations-catalog.js';
+import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
+import { SeededRng } from '../../engine/core/rng.js';
+import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../../engine/core/progression.js';
+import { buildTrajectoryCue } from '../hexaco-cues/trajectory.js';
+import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from '../trait-cues/trajectory.js';
+import { normalizeActorConfig, traitsToHexaco } from '../../engine/traits/normalize-leader.js';
+import { traitModelRegistry, type TraitProfile } from '../../engine/traits/index.js';
+import { driftLeaderProfile } from '../../engine/traits/drift.js';
+import type { DepartmentReport, CommanderDecision, TurnArtifact } from '../contracts.js';
+import { SimulationKernel } from '../../engine/core/kernel.js';
+import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
+import { getResearchPacket } from '../research/research.js';
+import { getResearchFromBundle } from '../research/scenario-research.js';
+import { initResearchMemory, recallResearch, closeResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext, getDepartmentsForTurn } from './departments.js';
 import { EventDirector, type DirectorEvent, type DirectorContext } from './director.js';
 import { runReactionStep } from './reaction-step.js';
-import type { ScenarioPackage } from '../engine/types.js';
-import type { LlmProvider, SimulationModelConfig } from '../engine/types.js';
+import type { ScenarioPackage } from '../../engine/types.js';
+import type { LlmProvider, SimulationModelConfig } from '../../engine/types.js';
 import {
   DEFAULT_EXECUTION,
   resolveSimulationModels,
@@ -57,20 +57,20 @@ import {
   type SimulationExecutionConfig,
   type StartingPolitics,
   type StartingResources,
-} from '../cli/sim-config.js';
-import { resolveProviderWithFallback } from '../engine/provider/resolver.js';
+} from '../../cli/sim-config.js';
+import { resolveProviderWithFallback } from '../../engine/provider/resolver.js';
 import {
   apiKeyForProvider,
   resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
-} from '../engine/provider/credentials.js';
-import { applyCustomEventToCrisis, buildTimeSchedule } from './runtime-helpers.js';
-import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } from './provider-errors.js';
-import { EffectRegistry } from '../engine/registries/effects.js';
-import { marsScenario } from '../engine/scenarios/index.js';
-import type { ActorConfig } from '../engine/types.js';
-import type { ResolvedEconomicsProfile } from './economics-profile.js';
-import { projectSystemBags } from './world-snapshot.js';
+} from '../../engine/provider/credentials.js';
+import { applyCustomEventToCrisis, buildTimeSchedule } from '../runtime-helpers.js';
+import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } from '../provider-errors.js';
+import { EffectRegistry } from '../../engine/registries/effects.js';
+import { marsScenario } from '../../engine/scenarios/index.js';
+import type { ActorConfig } from '../../engine/types.js';
+import type { ResolvedEconomicsProfile } from '../economics-profile.js';
+import { projectSystemBags } from '../world-snapshot.js';
 export type { ActorConfig };
 
 
@@ -384,7 +384,7 @@ export interface RunOptions extends RuntimeCredentialOptions {
    * {@link KernelSnapshot} that the orchestrator restores before
    * running the first turn. Not part of the public API.
    */
-  _resumeFrom?: import('../engine/core/snapshot.js').KernelSnapshot;
+  _resumeFrom?: import('../../engine/core/snapshot.js').KernelSnapshot;
   /**
    * Cost-vs-quality switch for model routing. Defaults to `'quality'`
    * which keeps department agents on the flagship tier (gpt-5.4 /
@@ -636,8 +636,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         // Partial<WorldMetrics / WorldPolitics> shape. The kernel's types
         // carry index signatures for scenario-defined fields; the starter
         // configs only declare the universal fields, so the cast is safe.
-        startingResources: opts.startingResources as Partial<import('../engine/core/state.js').WorldMetrics> | undefined,
-        startingPolitics: opts.startingPolitics as Partial<import('../engine/core/state.js').WorldPolitics> | undefined,
+        startingResources: opts.startingResources as Partial<import('../../engine/core/state.js').WorldMetrics> | undefined,
+        startingPolitics: opts.startingPolitics as Partial<import('../../engine/core/state.js').WorldPolitics> | undefined,
         startingStatuses: opts.startingStatuses,
         startingEnvironment: opts.startingEnvironment,
       });
@@ -645,13 +645,13 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   const firstTurn = opts._resumeFrom ? opts._resumeFrom.turn + 1 : 1;
   // Per-turn kernel snapshots captured when opts.captureSnapshots is on.
   // Populates RunArtifact.scenarioExtensions.kernelSnapshotsPerTurn.
-  const kernelSnapshotsPerTurn: import('../engine/core/snapshot.js').KernelSnapshot[] = [];
+  const kernelSnapshotsPerTurn: import('../../engine/core/snapshot.js').KernelSnapshot[] = [];
 
   // Rolling capture of the agent-swarm snapshot. Updated at the end of
   // each turn (immediately after the systems_snapshot emit). At end-of-
   // run this gets attached to the artifact as `finalSwarm` — the public,
   // serializable view of every agent's role, mood, family edges, memory.
-  let latestSwarmSnapshot: import('../engine/schema/index.js').SwarmSnapshot | undefined;
+  let latestSwarmSnapshot: import('../../engine/schema/index.js').SwarmSnapshot | undefined;
 
   const webSearchTool = createWebSearchTool(opts);
   const toolMap = new Map<string, ITool>();
@@ -1007,7 +1007,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
   const allDepartmentReports: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; report: DepartmentReport }> = [];
   const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
-  const allAgentReactions: Array<{ turn: number; time: number; reactions: import('./agent-reactions.js').AgentReaction[] }> = [];
+  const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agent-reactions.js').AgentReaction[] }> = [];
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
@@ -1182,10 +1182,10 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
     emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing });
 
     // ── Inner event loop ──────────────────────────────────────────────
-    let reactions: import('./agent-reactions.js').AgentReaction[] = [];
+    let reactions: import('../agent-reactions.js').AgentReaction[] = [];
     const turnEventTitles: string[] = [];
     lastTurnToolOutputs = [];
-    let lastOutcome: import('../engine/core/state.js').TurnOutcome = 'conservative_success';
+    let lastOutcome: import('../../engine/core/state.js').TurnOutcome = 'conservative_success';
     let lastEventCategory = '';
     // Reset per-turn slots so the artifacts.push() below captures only this
     // turn's reports / decisions / policies.
@@ -1206,7 +1206,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
       turnEventTitles.push(event.title);
 
       // Research
-      let packet: import('./contracts.js').CrisisResearchPacket;
+      let packet: import('../contracts.js').CrisisResearchPacket;
       if (milestone) {
         packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
         if (packet.canonicalFacts.length === 0) packet = getResearchPacket(turn);
@@ -2029,7 +2029,7 @@ Then set selectedOptionId, decision, and rationale. The rationale compresses the
   // for free. Scenario hooks layer their own domain-specific fields on
   // top (e.g., Mars: autonomy, marsbornFraction). Hook output keys win
   // on conflict so authors can override generic values intentionally.
-  const { genericFingerprint } = await import('./generic-fingerprint.js');
+  const { genericFingerprint } = await import('../generic-fingerprint.js');
   const generic = genericFingerprint(final, outcomeLog, leader, toolRegs, maxTurns);
   const scenarioOverlay = sc.hooks.fingerprintHook
     ? sc.hooks.fingerprintHook(final, outcomeLog, leader, toolRegs, maxTurns)
@@ -2224,7 +2224,7 @@ export async function replaySimulation(
     );
   }
 
-  const inputSnaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: import('../engine/core/snapshot.js').KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn;
+  const inputSnaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: import('../../engine/core/snapshot.js').KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn;
   if (!inputSnaps || inputSnaps.length === 0) {
     throw new WorldModelReplayError(
       `Replay requires per-turn kernel snapshots. The input artifact has none. ` +
@@ -2244,7 +2244,7 @@ export async function replaySimulation(
   // Re-execute the deterministic between-turn progression hook from
   // each snapshot to the next. Fresh snapshots are captured immediately
   // after each advanceTurn call.
-  const freshSnapshots: import('../engine/core/snapshot.js').KernelSnapshot[] = [inputSnaps[0]];
+  const freshSnapshots: import('../../engine/core/snapshot.js').KernelSnapshot[] = [inputSnaps[0]];
   for (let i = 0; i < inputSnaps.length - 1; i++) {
     const here = inputSnaps[i];
     const next = inputSnaps[i + 1];

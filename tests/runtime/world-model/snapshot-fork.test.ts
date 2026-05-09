@@ -14,7 +14,7 @@ import { marsScenario } from '../../../src/engine/scenarios/index.js';
 import { lunarScenario } from '../../../src/engine/scenarios/index.js';
 import type { KernelSnapshot } from '../../../src/engine/core/snapshot.js';
 import type { RunArtifact } from '../../../src/engine/schema/index.js';
-import type { ActorConfig } from '../../../src/runtime/orchestrator.js';
+import type { ActorConfig } from '../../../src/runtime/orchestrator/index.js';
 
 function fakeKernelSnapshot(overrides: Partial<KernelSnapshot> = {}): KernelSnapshot {
   return {

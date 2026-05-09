@@ -25,7 +25,7 @@
  * @module paracosm/runtime/client
  */
 
-import { runSimulation, type RunOptions, type ActorConfig } from './orchestrator.js';
+import { runSimulation, type RunOptions, type ActorConfig } from './orchestrator/index.js';
 import { runBatch, type BatchConfig, type BatchManifest } from './batch.js';
 import { compileScenario } from '../engine/compiler/index.js';
 import type { CompileOptions } from '../engine/compiler/types.js';

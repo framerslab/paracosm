@@ -1,7 +1,7 @@
-import type { Department, SimulationState, Agent } from '../engine/core/state.js';
-import type { DepartmentReport, CrisisResearchPacket } from './contracts.js';
-import type { Scenario } from '../engine/types.js';
-import { buildTrajectoryCue } from './hexaco-cues/trajectory.js';
+import type { Department, SimulationState, Agent } from '../../engine/core/state.js';
+import type { DepartmentReport, CrisisResearchPacket } from '../contracts.js';
+import type { Scenario } from '../../engine/types.js';
+import { buildTrajectoryCue } from '../hexaco-cues/trajectory.js';
 
 /** Summary of a department's previous turn for session continuity */
 export interface DepartmentTurnMemory {

@@ -31,7 +31,7 @@
  * @module paracosm
  */
 
-import { runSimulation, replaySimulation, WorldModelReplayError, type RunOptions, type ActorConfig } from '../orchestrator.js';
+import { runSimulation, replaySimulation, WorldModelReplayError, type RunOptions, type ActorConfig } from '../orchestrator/index.js';
 import type { SimulateOptions, InterveneOptions, BatchOptions, ActorRun } from '../../api/types.js';
 import { runBatch, type BatchConfig, type BatchManifest } from '../batch.js';
 import { canonicalJson } from '../canonical-json.js';
@@ -693,7 +693,7 @@ function describeKind(v: unknown): string {
 
 // Re-export the replay error for consumer ergonomics: callers can catch
 // it from this module without learning the orchestrator import path.
-export { WorldModelReplayError } from '../orchestrator.js';
+export { WorldModelReplayError } from '../orchestrator/index.js';
 
 const QuickstartActorSchema = z.object({
   name: z.string().min(2).max(64),

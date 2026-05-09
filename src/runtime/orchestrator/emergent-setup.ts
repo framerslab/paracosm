@@ -32,12 +32,12 @@ import {
 // Re-export the generalized forge utilities so existing paracosm call
 // sites continue to import from this module without churn.
 export { validateForgeShape, inferSchemaFromTestCases };
-import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../cli/sim-config.js';
+import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
 import {
   searchCredential,
   type SearchCredentialOptions,
-} from '../engine/provider/credentials.js';
-import type { LlmProvider } from '../engine/types.js';
+} from '../../engine/provider/credentials.js';
+import type { LlmProvider } from '../../engine/types.js';
 
 // ---------------------------------------------------------------------------
 // Web search tool

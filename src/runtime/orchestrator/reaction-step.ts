@@ -16,23 +16,23 @@
  * @module paracosm/runtime/reaction-step
  */
 
-import { generateAgentReactions, type AgentReaction } from './agent-reactions.js';
+import { generateAgentReactions, type AgentReaction } from '../agent-reactions.js';
 import {
   recordReactionMemory,
   consolidateMemory,
   updateRelationshipsFromReactions,
-} from './agent-memory.js';
-import { SeededRng } from '../engine/core/rng.js';
-import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../cli/sim-config.js';
-import type { SimulationKernel } from '../engine/core/kernel.js';
+} from '../agent-memory.js';
+import { SeededRng } from '../../engine/core/rng.js';
+import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
+import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type {
   LlmProvider,
   ScenarioPackage,
   SimulationModelConfig,
-} from '../engine/types.js';
-import type { TurnOutcome } from '../engine/core/state.js';
-import type { CallUsage } from './cost-tracker.js';
-import type { SimEventType } from './orchestrator.js';
+} from '../../engine/types.js';
+import type { TurnOutcome } from '../../engine/core/state.js';
+import type { CallUsage } from '../cost-tracker.js';
+import type { SimEventType } from './index.js';
 
 /**
  * Context snapshot passed to generateAgentReactions so each agent's

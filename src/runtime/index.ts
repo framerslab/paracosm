@@ -4,7 +4,7 @@
  * Run simulations with AI agents, crisis directors, and department analysis.
  */
 
-export { runSimulation, buildEventSummary } from './orchestrator.js';
+export { runSimulation, buildEventSummary } from './orchestrator/index.js';
 export type {
   RunOptions,
   SimEvent,
@@ -12,14 +12,14 @@ export type {
   SimEventPayloadMap,
   SimEventCostPayload,
   ActorConfig,
-} from './orchestrator.js';
+} from './orchestrator/index.js';
 export type { CostPreset } from '../cli/sim-config.js';
 export { createParacosmClient } from './client.js';
 export type { ParacosmClient, ParacosmClientOptions } from './client.js';
-export { EventDirector } from './director.js';
-export type { DirectorEvent, DirectorCrisis, DirectorContext, EventCategory, CrisisCategory } from './director.js';
+export { EventDirector } from './orchestrator/director.js';
+export type { DirectorEvent, DirectorCrisis, DirectorContext, EventCategory, CrisisCategory } from './orchestrator/director.js';
 export type { DepartmentReport, CommanderDecision, TurnArtifact, CrisisResearchPacket } from './contracts.js';
-export { buildDepartmentContext, getDepartmentsForTurn } from './departments.js';
+export { buildDepartmentContext, getDepartmentsForTurn } from './orchestrator/departments.js';
 export { generateAgentReactions } from './agent-reactions.js';
 export { runBatch } from './batch.js';
 export type { BatchConfig, BatchResult, BatchManifest } from './batch.js';

@@ -159,7 +159,7 @@ export interface CreateMarsServerOptions {
     scenario?: ScenarioPackage,
     onArtifact?: (
       artifact: import('../engine/schema/index.js').RunArtifact,
-      leader: import('../runtime/orchestrator.js').ActorConfig,
+      leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
   ) => Promise<void>;
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
@@ -213,7 +213,7 @@ export interface StartConfigHooks {
    */
   onArtifact?: (
     artifact: import('../engine/schema/index.js').RunArtifact,
-    leader: import('../runtime/orchestrator.js').ActorConfig,
+    leader: import('../runtime/orchestrator/index.js').ActorConfig,
   ) => void | Promise<void>;
 }
 
@@ -1852,7 +1852,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return compileScenarioReal(raw, opts);
           },
           runSimulation: async (leader, keyPersonnel, runOpts) => {
-            const { runSimulation } = await import('../runtime/orchestrator.js');
+            const { runSimulation } = await import('../runtime/orchestrator/index.js');
             return runSimulation(leader, keyPersonnel, runOpts);
           },
         };
@@ -2713,7 +2713,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const persistSeed = launchConfig.seed;
         const onArtifactPersist = async (
           artifact: import('../engine/schema/index.js').RunArtifact,
-          leader: import('../runtime/orchestrator.js').ActorConfig,
+          leader: import('../runtime/orchestrator/index.js').ActorConfig,
         ) => {
           try {
             const perArtifactBase = {
