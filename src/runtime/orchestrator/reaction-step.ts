@@ -16,12 +16,12 @@
  * @module paracosm/runtime/reaction-step
  */
 
-import { generateAgentReactions, type AgentReaction } from '../agent-reactions.js';
+import { generateAgentReactions, type AgentReaction } from '../agents/agent-reactions.js';
 import {
   recordReactionMemory,
   consolidateMemory,
   updateRelationshipsFromReactions,
-} from '../agent-memory.js';
+} from '../agents/agent-memory.js';
 import { SeededRng } from '../../engine/core/rng.js';
 import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
 import type { SimulationKernel } from '../../engine/core/kernel.js';

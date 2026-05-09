@@ -17,7 +17,7 @@ import type { LlmProvider } from '../../engine/types.js';
 import { SCENARIOS } from '../research/scenarios.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 import { DirectorEventBatchSchema } from '../validators/director.js';
-import { buildTrajectoryCue } from '../hexaco-cues/trajectory.js';
+import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
 
 /** Event category. Scenario-defined, not a fixed union. */
 export type EventCategory = string;

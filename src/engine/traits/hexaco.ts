@@ -2,7 +2,7 @@
  * HEXACO trait model. The canonical six-axis personality model from
  * Ashton & Lee (PSPR 2007), the historical default for paracosm
  * leaders. Cue strings preserved verbatim from the legacy
- * `runtime/hexaco-cues/translation.ts` so HEXACO scenario behavior
+ * `runtime/agents/cues/hexaco/translation.ts` so HEXACO scenario behavior
  * is unchanged when a leader uses this model.
  *
  * Citation:
@@ -144,7 +144,7 @@ export const hexacoModel: TraitModel = {
   },
   /**
    * Cue strings lifted verbatim from
-   * `src/runtime/hexaco-cues/translation.ts` so HEXACO scenario
+   * `src/runtime/agents/cues/hexaco/translation.ts` so HEXACO scenario
    * behavior is unchanged. Mid-zone is omitted intentionally: the
    * legacy translator only emits cues for polarized values.
    */

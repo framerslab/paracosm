@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReactionCues } from './translation.js';
-import type { HexacoProfile } from '../../engine/core/state.js';
+import type { HexacoProfile } from '../../../../engine/core/state.js';
 
 const neutral: HexacoProfile = {
   openness: 0.5, conscientiousness: 0.5, extraversion: 0.5,

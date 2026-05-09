@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTrajectoryCue } from './trajectory.js';
-import type { HexacoProfile, HexacoSnapshot } from '../../engine/core/state.js';
+import type { HexacoProfile, HexacoSnapshot } from '../../../../engine/core/state.js';
 
 const baseline: HexacoProfile = {
   openness: 0.5, conscientiousness: 0.5, extraversion: 0.5,

@@ -1,7 +1,7 @@
 /**
  * Back-compat shim for the legacy `buildTrajectoryCue(history, current)`
  * entry point. Delegates to
- * `runtime/trait-cues/trajectory::buildTrajectoryCueFromHexaco`, which
+ * `runtime/agents/cues/trait/trajectory::buildTrajectoryCueFromHexaco`, which
  * routes through the trait-model registry.
  *
  * Output is byte-identical for HEXACO inputs because the hexaco model's
@@ -9,10 +9,10 @@
  * code should import `buildTrajectoryCue(history, current)` from
  * `runtime/trait-cues` and supply TraitProfile-shaped inputs.
  *
- * @module paracosm/runtime/hexaco-cues/trajectory
+ * @module paracosm/runtime/agents/cues/hexaco/trajectory
  */
-import { buildTrajectoryCueFromHexaco } from '../trait-cues/trajectory.js';
-import type { HexacoProfile, HexacoSnapshot } from '../../engine/core/state.js';
+import { buildTrajectoryCueFromHexaco } from '../trait/trajectory.js';
+import type { HexacoProfile, HexacoSnapshot } from '../../../../engine/core/state.js';
 
 /**
  * @deprecated since 0.8.0: use `buildTrajectoryCue(history, current)`

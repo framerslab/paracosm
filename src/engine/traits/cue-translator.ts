@@ -4,7 +4,7 @@
  * short prose cues the prompt builder can splice into commander /
  * department / agent-reaction prompts.
  *
- * Replaces `runtime/hexaco-cues/translation.ts` for any caller that
+ * Replaces `runtime/agents/cues/hexaco/translation.ts` for any caller that
  * has access to a registered TraitModel; the runtime barrel still
  * re-exports a HEXACO-only convenience for legacy call sites.
  *

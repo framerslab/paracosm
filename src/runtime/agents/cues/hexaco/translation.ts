@@ -1,6 +1,6 @@
 /**
  * Back-compat shim for the legacy `buildReactionCues(hexaco)` entry
- * point. Delegates to `runtime/trait-cues/reaction::buildReactionCuesFromHexaco`,
+ * point. Delegates to `runtime/agents/cues/trait/reaction::buildReactionCuesFromHexaco`,
  * which routes through the trait-model registry.
  *
  * Output is byte-identical for HEXACO inputs because the hexaco model's
@@ -8,10 +8,10 @@
  * should import `buildReactionCues(profile: TraitProfile)` from
  * `runtime/trait-cues` directly.
  *
- * @module paracosm/runtime/hexaco-cues/translation
+ * @module paracosm/runtime/agents/cues/hexaco/translation
  */
-import { buildReactionCuesFromHexaco } from '../trait-cues/reaction.js';
-import type { HexacoProfile } from '../../engine/core/state.js';
+import { buildReactionCuesFromHexaco } from '../trait/reaction.js';
+import type { HexacoProfile } from '../../../../engine/core/state.js';
 
 /**
  * @deprecated since 0.8.0: use `buildReactionCues(profile)` from

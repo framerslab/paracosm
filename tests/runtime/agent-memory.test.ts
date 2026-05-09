@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { recordReactionMemory, consolidateMemory, updateRelationshipsFromReactions, buildMemoryContext } from '../../src/runtime/agent-memory.js';
+import { recordReactionMemory, consolidateMemory, updateRelationshipsFromReactions, buildMemoryContext } from '../../src/runtime/agents/agent-memory.js';
 import type { Agent } from '../../src/engine/core/state.js';
-import type { AgentReaction } from '../../src/runtime/agent-reactions.js';
+import type { AgentReaction } from '../../src/runtime/agents/agent-reactions.js';
 
 function makeAgent(id: string, name: string): Agent {
   return {

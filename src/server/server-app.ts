@@ -2004,7 +2004,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       clearEventBuffer();
       simConfig = null;
       // Clear chat agent pool when simulation is cleared
-      import('../runtime/chat-agents.js').then(m => m.clearPool()).catch(() => {});
+      import('../runtime/agents/chat-agents.js').then(m => m.clearPool()).catch(() => {});
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ cleared: true }));
       return;
@@ -2123,7 +2123,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         // Import chat agent system (lazy to avoid startup cost)
-        const { getOrCreateChatAgent, extractColonistMemories, extractColonistRoster } = await import('../runtime/chat-agents.js');
+        const { getOrCreateChatAgent, extractColonistMemories, extractColonistRoster } = await import('../runtime/agents/chat-agents.js');
 
         // Extract sim events and find colonist profile
         const simEvents = eventBuffer

@@ -11,7 +11,7 @@
  * Works with any scenario type, not just colony simulations.
  */
 
-import type { Agent, AgentMemoryEntry, AgentMemory } from '../engine/core/state.js';
+import type { Agent, AgentMemoryEntry, AgentMemory } from '../../engine/core/state.js';
 import type { AgentReaction } from './agent-reactions.js';
 
 const SHORT_TERM_MAX = 15; // Max short-term entries before consolidation

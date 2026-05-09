@@ -10,16 +10,16 @@
  * Agents are created lazily on first chat message (~2-3s init).
  * A pool of max 10 agents is maintained with LRU eviction.
  *
- * @module paracosm/runtime/chat-agents
+ * @module paracosm/runtime/agents/chat-agents
  */
 
 import { agent as createAgent, AgentMemory } from '@framers/agentos';
-import type { LlmProvider } from '../engine/types.js';
+import type { LlmProvider } from '../../engine/types.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
   resolveProviderFromCredentials,
-} from '../engine/provider/credentials.js';
+} from '../../engine/provider/credentials.js';
 
 // ============================================================================
 // Types

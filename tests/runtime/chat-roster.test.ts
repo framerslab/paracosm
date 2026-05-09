@@ -12,7 +12,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractColonistRoster, type ColonistRosterEntry } from '../../src/runtime/chat-agents.js';
+import { extractColonistRoster, type ColonistRosterEntry } from '../../src/runtime/agents/chat-agents.js';
 
 // Build a minimal systems_snapshot SSE event mimicking the orchestrator emit.
 function makeSnapshot(agents: Array<Record<string, unknown>>, turn = 6) {

@@ -4,17 +4,17 @@
  * builds a cue line from the model's cue dictionary.
  *
  * For HEXACO scenarios, the output string is byte-identical to the
- * legacy `runtime/hexaco-cues/translation.ts::buildReactionCues`
+ * legacy `runtime/agents/cues/hexaco/translation.ts::buildReactionCues`
  * because hexacoModel's cues dictionary lifts those strings verbatim.
  *
- * @module paracosm/runtime/trait-cues/reaction
+ * @module paracosm/runtime/agents/cues/trait/reaction
  */
 
-import type { HexacoProfile } from '../../engine/core/state.js';
-import type { TraitProfile } from '../../engine/traits/index.js';
-import { traitModelRegistry } from '../../engine/traits/index.js';
-import { buildCueLine } from '../../engine/traits/cue-translator.js';
-import { hexacoToTraits } from '../../engine/traits/normalize-leader.js';
+import type { HexacoProfile } from '../../../../engine/core/state.js';
+import type { TraitProfile } from '../../../../engine/traits/index.js';
+import { traitModelRegistry } from '../../../../engine/traits/index.js';
+import { buildCueLine } from '../../../../engine/traits/cue-translator.js';
+import { hexacoToTraits } from '../../../../engine/traits/normalize-leader.js';
 
 /**
  * Generic reaction cue line. Reads the leader's trait model from the
@@ -32,7 +32,7 @@ export function buildReactionCues(profile: TraitProfile): string {
  * Back-compat HEXACO-only wrapper. Existing callers that hold a raw
  * HexacoProfile (no model id) call this; it synthesizes a hexaco
  * traitProfile and delegates. Equivalent in output to the legacy
- * `runtime/hexaco-cues/translation.ts::buildReactionCues`.
+ * `runtime/agents/cues/hexaco/translation.ts::buildReactionCues`.
  */
 export function buildReactionCuesFromHexaco(hexaco: HexacoProfile): string {
   const model = traitModelRegistry.require('hexaco');

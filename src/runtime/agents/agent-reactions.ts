@@ -16,11 +16,11 @@
  * or by switching to a smaller model.
  */
 
-import type { Agent, TurnOutcome } from '../engine/core/state.js';
+import type { Agent, TurnOutcome } from '../../engine/core/state.js';
 import { buildMemoryContext } from './agent-memory.js';
-import { generateValidatedObject } from '../llm/generateValidatedObject.js';
-import { ReactionBatchSchema } from './validators/reactions.js';
-import { buildReactionCues } from './hexaco-cues/translation.js';
+import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
+import { ReactionBatchSchema } from '../validators/reactions.js';
+import { buildReactionCues } from './cues/hexaco/translation.js';
 
 export interface AgentReaction {
   agentId: string;

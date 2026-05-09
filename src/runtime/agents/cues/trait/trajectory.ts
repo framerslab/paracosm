@@ -8,16 +8,16 @@
  * the minimum meaningful drift; 0.15 (three full-cap turns) qualifies
  * as "substantially."
  *
- * @module paracosm/runtime/trait-cues/trajectory
+ * @module paracosm/runtime/agents/cues/trait/trajectory
  */
 
-import type { HexacoProfile, HexacoSnapshot } from '../../engine/core/state.js';
+import type { HexacoProfile, HexacoSnapshot } from '../../../../engine/core/state.js';
 import type {
   TraitModel,
   TraitProfile,
-} from '../../engine/traits/index.js';
-import { traitModelRegistry, withDefaults } from '../../engine/traits/index.js';
-import { hexacoToTraits } from '../../engine/traits/normalize-leader.js';
+} from '../../../../engine/traits/index.js';
+import { traitModelRegistry, withDefaults } from '../../../../engine/traits/index.js';
+import { hexacoToTraits } from '../../../../engine/traits/normalize-leader.js';
 
 const MIN_DRIFT = 0.05;
 const SUBSTANTIAL_DRIFT = 0.15;
@@ -76,7 +76,7 @@ export function buildTrajectoryCue(
  * Back-compat HEXACO-only wrapper. Existing callers that pass
  * HexacoSnapshot[] call this; it converts to TraitProfileSnapshot[]
  * and delegates. Equivalent in output to the legacy
- * `runtime/hexaco-cues/trajectory.ts::buildTrajectoryCue`.
+ * `runtime/agents/cues/hexaco/trajectory.ts::buildTrajectoryCue`.
  */
 export function buildTrajectoryCueFromHexaco(
   history: HexacoSnapshot[],

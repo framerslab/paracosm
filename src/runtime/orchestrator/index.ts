@@ -34,8 +34,8 @@ import { buildCitationCatalog } from '../citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
 import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../../engine/core/progression.js';
-import { buildTrajectoryCue } from '../hexaco-cues/trajectory.js';
-import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from '../trait-cues/trajectory.js';
+import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
+import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from '../agents/cues/trait/trajectory.js';
 import { normalizeActorConfig, traitsToHexaco } from '../../engine/traits/normalize-leader.js';
 import { traitModelRegistry, type TraitProfile } from '../../engine/traits/index.js';
 import { driftLeaderProfile } from '../../engine/traits/drift.js';
@@ -1007,7 +1007,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
   const allDepartmentReports: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; report: DepartmentReport }> = [];
   const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
-  const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agent-reactions.js').AgentReaction[] }> = [];
+  const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agents/agent-reactions.js').AgentReaction[] }> = [];
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
@@ -1182,7 +1182,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
     emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing });
 
     // ── Inner event loop ──────────────────────────────────────────────
-    let reactions: import('../agent-reactions.js').AgentReaction[] = [];
+    let reactions: import('../agents/agent-reactions.js').AgentReaction[] = [];
     const turnEventTitles: string[] = [];
     lastTurnToolOutputs = [];
     let lastOutcome: import('../../engine/core/state.js').TurnOutcome = 'conservative_success';

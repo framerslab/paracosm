@@ -20,7 +20,7 @@ export { EventDirector } from './orchestrator/director.js';
 export type { DirectorEvent, DirectorCrisis, DirectorContext, EventCategory, CrisisCategory } from './orchestrator/director.js';
 export type { DepartmentReport, CommanderDecision, TurnArtifact, CrisisResearchPacket } from './contracts.js';
 export { buildDepartmentContext, getDepartmentsForTurn } from './orchestrator/departments.js';
-export { generateAgentReactions } from './agent-reactions.js';
+export { generateAgentReactions } from './agents/agent-reactions.js';
 export { runBatch } from './batch.js';
 export type { BatchConfig, BatchResult, BatchManifest } from './batch.js';
 export {
@@ -32,4 +32,4 @@ export type {
   ResolvedEconomicsProfile,
   SimulationEconomicsProfileId,
 } from './economics-profile.js';
-export { recordReactionMemory, consolidateMemory, updateRelationshipsFromReactions, buildMemoryContext } from './agent-memory.js';
+export { recordReactionMemory, consolidateMemory, updateRelationshipsFromReactions, buildMemoryContext } from './agents/agent-memory.js';

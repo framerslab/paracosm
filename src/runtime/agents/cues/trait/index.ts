@@ -4,7 +4,7 @@
  * prompts pick up the right cue dictionary for any registered model
  * (hexaco, ai-agent, ...) without hardcoding HEXACO axis names.
  *
- * Replaces the per-axis HEXACO calls in `runtime/hexaco-cues/`. The
+ * Replaces the per-axis HEXACO calls in `runtime/agents/cues/hexaco/`. The
  * legacy module is preserved as a back-compat re-export shim so any
  * external imports continue to work.
  *
