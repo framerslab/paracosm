@@ -1,4 +1,4 @@
-import type { ScenarioPackage } from '../engine/types.js';
+import type { ScenarioPackage } from '../../engine/types.js';
 
 export interface ProjectedSystemBags {
   metrics: Record<string, number>;

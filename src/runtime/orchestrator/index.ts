@@ -1,5 +1,5 @@
-import { writeRunOutput } from '../output-writer.js';
-import { buildRunArtifact } from '../build-artifact.js';
+import { writeRunOutput } from '../io/output-writer.js';
+import { buildRunArtifact } from '../io/build-artifact.js';
 import type {
   Decision,
   InterventionConfig,
@@ -30,7 +30,7 @@ import {
   runDepartmentPromotions,
 } from './commander-setup.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
-import { buildCitationCatalog } from '../citations-catalog.js';
+import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
 import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../../engine/core/progression.js';
@@ -70,7 +70,7 @@ import { EffectRegistry } from '../../engine/registries/effects.js';
 import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
 import type { ResolvedEconomicsProfile } from '../economics/economics-profile.js';
-import { projectSystemBags } from '../world-snapshot.js';
+import { projectSystemBags } from '../io/world-snapshot.js';
 export type { ActorConfig };
 
 

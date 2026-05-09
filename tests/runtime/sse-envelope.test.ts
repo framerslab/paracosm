@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { emitStreamEvent } from '../../src/runtime/sse-envelope.js';
+import { emitStreamEvent } from '../../src/runtime/io/sse-envelope.js';
 
 test('emitStreamEvent passes validated payload through to underlying emitter', () => {
   const prev = process.env.NODE_ENV;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { projectSystemBags } from '../../src/runtime/world-snapshot.js';
+import { projectSystemBags } from '../../src/runtime/io/world-snapshot.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
 const scenario = {

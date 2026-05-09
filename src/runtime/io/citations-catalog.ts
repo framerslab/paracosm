@@ -9,10 +9,10 @@
  *
  * Pure — takes the per-turn report list, returns a serialisable array.
  *
- * @module paracosm/runtime/citations-catalog
+ * @module paracosm/runtime/io/citations-catalog
  */
 
-import type { DepartmentReport } from './contracts.js';
+import type { DepartmentReport } from '../contracts.js';
 
 /** One row in the run's flat citation catalog. */
 export interface CitationCatalogEntry {

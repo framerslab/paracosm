@@ -3,12 +3,12 @@
  * `StreamEventSchema` in development and emits raw in production (so
  * paying Zod parse cost per event doesn't land in hot paths).
  *
- * @module paracosm/runtime/sse-envelope
+ * @module paracosm/runtime/io/sse-envelope
  */
 import {
   StreamEventSchema,
   type StreamEvent,
-} from '../engine/schema/index.js';
+} from '../../engine/schema/index.js';
 
 /**
  * Emit a stream event through a validated envelope. In development

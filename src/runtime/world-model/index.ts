@@ -34,7 +34,7 @@
 import { runSimulation, replaySimulation, WorldModelReplayError, type RunOptions, type ActorConfig } from '../orchestrator/index.js';
 import type { SimulateOptions, InterveneOptions, BatchOptions, ActorRun } from '../../api/types.js';
 import { runBatch, type BatchConfig, type BatchManifest } from '../batch.js';
-import { canonicalJson } from '../canonical-json.js';
+import { canonicalJson } from '../io/canonical-json.js';
 import { compileScenario } from '../../engine/compiler/index.js';
 import { compileFromSeed, type CompileFromSeedInput, type CompileFromSeedOptions } from '../../engine/compiler/compile-from-seed.js';
 import type { CompileOptions } from '../../engine/compiler/types.js';

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalJson } from './canonical-json.js';
+import { canonicalJson } from '../io/canonical-json.js';
 
 test('canonicalJson produces identical output for objects with different key orders', () => {
   assert.equal(

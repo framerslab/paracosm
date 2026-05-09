@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRunArtifact } from '../../src/runtime/build-artifact.js';
+import { buildRunArtifact } from '../../src/runtime/io/build-artifact.js';
 import { RunArtifactSchema } from '../../src/engine/schema/index.js';
 
 const baseInputs = {

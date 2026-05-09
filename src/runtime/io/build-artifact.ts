@@ -5,7 +5,7 @@
  * Keeps the orchestrator return site a single function call. Every
  * field rebucketing + shape normalization lives here.
  *
- * @module paracosm/runtime/build-artifact
+ * @module paracosm/runtime/io/build-artifact
  */
 import type {
   Citation,
@@ -22,7 +22,7 @@ import type {
   Timepoint,
   TrajectoryPoint,
   WorldSnapshot,
-} from '../engine/schema/index.js';
+} from '../../engine/schema/index.js';
 
 /**
  * Whitelist guards for risk/opportunity classification values. Zod

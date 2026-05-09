@@ -6,12 +6,12 @@
  * turn-loop coordinator. Pure function over its inputs; returns the
  * absolute path it wrote to so the caller can log or surface it.
  *
- * @module paracosm/runtime/output-writer
+ * @module paracosm/runtime/io/output-writer
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { RunArtifact } from '../engine/schema/index.js';
+import type { RunArtifact } from '../../engine/schema/index.js';
 
 /**
  * Resolve the output directory to write run snapshots into.

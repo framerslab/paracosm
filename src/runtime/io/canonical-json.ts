@@ -12,7 +12,7 @@
  *   - No special handling for Date / Map / Set: they round-trip through
  *     their default JSON.stringify behavior.
  *
- * @module paracosm/runtime/canonical-json
+ * @module paracosm/runtime/io/canonical-json
  */
 
 /**
