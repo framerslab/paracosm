@@ -61,6 +61,11 @@ export interface AgentHealth {
   conditions: string[];
   /** Bone density percentage (scenario-specific, used by Mars/Lunar) */
   boneDensityPct?: number;
+  /** Immutable starting bone density, captured on first progression
+   *  tick so the decay curve targets a stable baseline rather than
+   *  recursively re-decaying its own output (scenario-specific, used
+   *  by Mars/Lunar physics modules). */
+  boneDensityBase?: number;
   /** Cumulative radiation exposure in millisieverts (scenario-specific, used by Mars/Lunar) */
   cumulativeRadiationMsv?: number;
   /** Scenario-defined health fields beyond the standard set */

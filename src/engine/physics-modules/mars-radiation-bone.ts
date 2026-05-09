@@ -25,6 +25,16 @@ const MARS_RADIATION_MSV_PER_YEAR = 0.67 * 365;
  * Earth-born transferees (0.005/yr); both saturate at 20 years on
  * Mars and floor at 50% so the kernel never produces non-physical
  * negative bone density.
+ *
+ * Decay is applied as a target ratio against an immutable baseline
+ * captured on the first call (default 88 for Mars-born, 100 for
+ * Earth-born — matching `agent-generator.ts`). Earlier versions
+ * multiplied the current bone density by the per-tick decay factor,
+ * which compounded exponentially and produced unrealistically low
+ * values by turn 6. The fix sets `boneDensityPct = baseline *
+ * targetRatio` each tick, where `targetRatio` is purely a function of
+ * `yearsOnMars` — so consecutive calls with the same elapsed time
+ * converge to the same target instead of compounding.
  */
 export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void {
   const { agents, timeDelta, time, startTime } = ctx;
@@ -35,9 +45,17 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
     c.health.cumulativeRadiationMsv =
       (c.health.cumulativeRadiationMsv ?? 0) + MARS_RADIATION_MSV_PER_YEAR * timeDelta;
 
+    // Snapshot the immutable baseline on the first call so the decay
+    // curve always targets the agent's original bone density rather
+    // than recursively re-decaying its own output.
+    if (c.health.boneDensityBase == null) {
+      c.health.boneDensityBase = c.health.boneDensityPct ?? (c.core.marsborn ? 88 : 100);
+    }
+    const baseline = c.health.boneDensityBase as number;
+
     const lossRate = c.core.marsborn ? 0.003 : 0.005;
     const yearsOnMars = time - (c.core.marsborn ? c.core.birthTime : startTime);
-    const decayFactor = Math.max(0.5, 1 - lossRate * Math.min(yearsOnMars, 20));
-    c.health.boneDensityPct = Math.max(50, (c.health.boneDensityPct ?? 0) * decayFactor);
+    const targetRatio = Math.max(0.5, 1 - lossRate * Math.min(yearsOnMars, 20));
+    c.health.boneDensityPct = Math.max(50, baseline * targetRatio);
   }
 }
