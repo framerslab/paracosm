@@ -149,5 +149,149 @@
     "first": ["Ingrid", "Takeshi", "Marina", "Kai", "Nadia", "Henrik", "Yuki", "Carlos", "Petra", "Finn", "Leilani", "Bjorn", "Anika", "Diego", "Signe", "Ravi", "Elise", "Omar", "Freya", "Jun"],
     "last": ["Halvorsen", "Morimoto", "Dupont", "Andersen", "Nakamura", "Torres", "Berg", "Kim", "Costa", "Johansson", "Patel", "Larsson", "Singh", "Eriksson", "Santos", "Holm", "Takahashi", "Rivera", "Dahl", "Li"],
     "child": ["Coral", "Wave", "Tide", "Pearl", "Reef", "Finn", "Kelp", "Marina", "Abyssal", "Deep"]
+  },
+
+  "dataDrivenHooks": {
+    "directorInstructions": "You are the Crisis Director for the Deep Ocean Station, a 50-crew underwater research outpost at 2000m depth in the year 2038. Two leaders — an Explorer captain and a Protector commander — deliberate yearly over how the station chases scientific discovery against the safety margin of operating at 200+ atmospheres of pressure. You observe the station's annual state and generate events that test the leadership's tradeoffs between exploration and crew survival.\n\nRULES:\n- Every event MUST be specific to deep-ocean operations: a hull-integrity micro-fracture, a pressure-lock failure drill, a hydrothermal vent discovery, a biolum specimen collection, a crew nitrogen-narcosis incident, a power source decision (thermal vents vs nuclear), a comms cable severance, a surface-resupply delay. Never use generic settlement themes (no blizzards, no plagues, no hull breaches that aren't pressure-related).\n- Anchor each crisis to AT LEAST ONE concrete metric: HullIntegrity, OxygenReserveHours, FoodMonthsReserve, PowerKw, Morale, FundingConfidence, AutonomyLevel, DepthMeters.\n- The risky option should always carry a real explore-vs-protect tension: dive deeper / collect more specimens (science gain, hull stress, crew exposure) vs hold the ascent margin (safety preserved, mission scope reduced).\n- Categories you may use: environmental, resource, medical, psychological, infrastructure, scientific, communications.\n- When HullIntegrity < 80 OR OxygenReserveHours < 200 OR Morale < 0.4, escalate the next event to an environmental or medical category — the station is past its safety envelope.\n- When SurfaceLink status flips to 'degraded' or 'severed', escalate to a communications-shaped crisis that tests the autonomy doctrine.\n\nEach crisis you generate ships with options the leadership will pick from. Make the tradeoffs sharp. The Deep Ocean Station gets compared against another command team running the same scenario in parallel, so the divergent outcomes are the product.",
+    "departments": {
+      "medical": {
+        "heading": "CREW HEALTH:",
+        "chips": [
+          { "label": "Morale", "source": "metrics.morale", "format": "percent" },
+          { "label": "Crew", "source": "metrics.population", "format": "number" },
+          { "label": "Depth", "source": "environment.depthMeters", "format": "number" }
+        ]
+      },
+      "engineering": {
+        "heading": "STATION INTEGRITY:",
+        "chips": [
+          { "label": "HullIntegrity", "source": "metrics.hullIntegrity", "format": "percent" },
+          { "label": "Power", "source": "metrics.powerKw", "format": "number" },
+          { "label": "Depth", "source": "environment.depthMeters", "format": "number" },
+          { "label": "WaterTemp", "source": "environment.waterTempC", "format": "number" }
+        ]
+      },
+      "marine-science": {
+        "heading": "RESEARCH OPS:",
+        "chips": [
+          { "label": "Morale", "source": "metrics.morale", "format": "percent" },
+          { "label": "Current", "source": "environment.currentSpeedKnots", "format": "number" },
+          { "label": "FundingConfidence", "source": "politics.fundingConfidence", "format": "number" }
+        ]
+      },
+      "life-support": {
+        "heading": "LIFE SUPPORT RESERVES:",
+        "chips": [
+          { "label": "Oxygen(h)", "source": "metrics.oxygenReserveHours", "format": "number" },
+          { "label": "Food(mo)", "source": "metrics.foodMonthsReserve", "format": "number" },
+          { "label": "Power", "source": "metrics.powerKw", "format": "number" }
+        ]
+      },
+      "communications": {
+        "heading": "SURFACE LINK:",
+        "chips": [
+          { "label": "SurfaceLink", "source": "statuses.surfaceLink", "format": "string" },
+          { "label": "Autonomy", "source": "politics.autonomyLevel", "format": "number" },
+          { "label": "FundingConfidence", "source": "politics.fundingConfidence", "format": "number" }
+        ]
+      }
+    },
+    "postureRules": [
+      {
+        "posture": "thriving-frontier",
+        "when": {
+          "all": [
+            { "field": "hullIntegrity", "op": ">=", "value": 90 },
+            { "field": "oxygenReserveHours", "op": ">=", "value": 600 },
+            { "field": "morale", "op": ">=", "value": 0.7 },
+            { "field": "fundingConfidence", "op": ">=", "value": 70 }
+          ]
+        }
+      },
+      {
+        "posture": "strained-but-operational",
+        "when": {
+          "all": [
+            { "field": "hullIntegrity", "op": ">=", "value": 70 },
+            { "field": "oxygenReserveHours", "op": ">=", "value": 200 }
+          ]
+        }
+      },
+      {
+        "posture": "evacuation-imminent",
+        "when": {
+          "any": [
+            { "field": "hullIntegrity", "op": "<", "value": 70 },
+            { "field": "oxygenReserveHours", "op": "<", "value": 200 },
+            { "field": "morale", "op": "<", "value": 0.4 }
+          ]
+        }
+      }
+    ],
+    "fingerprintAxes": [
+      {
+        "name": "hull",
+        "bands": [
+          { "label": "pristine", "when": { "field": "hullIntegrity", "op": ">=", "value": 90 } },
+          { "label": "stressed", "when": { "field": "hullIntegrity", "op": ">=", "value": 70 } },
+          { "label": "compromised", "default": true }
+        ]
+      },
+      {
+        "name": "oxygen",
+        "bands": [
+          { "label": "surplus", "when": { "field": "oxygenReserveHours", "op": ">=", "value": 600 } },
+          { "label": "adequate", "when": { "field": "oxygenReserveHours", "op": ">=", "value": 200 } },
+          { "label": "dwindling", "default": true }
+        ]
+      },
+      {
+        "name": "morale",
+        "bands": [
+          { "label": "high", "when": { "field": "morale", "op": ">=", "value": 0.7 } },
+          { "label": "strained", "when": { "field": "morale", "op": ">=", "value": 0.4 } },
+          { "label": "collapsing", "default": true }
+        ]
+      },
+      {
+        "name": "mission",
+        "bands": [
+          { "label": "thriving", "when": { "field": "fundingConfidence", "op": ">=", "value": 70 } },
+          { "label": "surviving", "when": { "field": "fundingConfidence", "op": ">=", "value": 40 } },
+          { "label": "abandoned", "default": true }
+        ]
+      }
+    ],
+    "politics": {
+      "environmental": {
+        "onSuccess": { "fundingConfidence": 3 },
+        "onFailure": { "fundingConfidence": -4, "autonomyLevel": -3 }
+      },
+      "resource": {
+        "onSuccess": { "fundingConfidence": 2 },
+        "onFailure": { "fundingConfidence": -5, "autonomyLevel": -5 }
+      },
+      "medical": {
+        "onSuccess": { "fundingConfidence": 1 },
+        "onFailure": { "fundingConfidence": -6, "autonomyLevel": -4 }
+      },
+      "psychological": {
+        "onSuccess": { "fundingConfidence": 2 },
+        "onFailure": { "fundingConfidence": -3 }
+      },
+      "infrastructure": {
+        "onSuccess": { "fundingConfidence": 4, "autonomyLevel": 2 },
+        "onFailure": { "fundingConfidence": -5, "autonomyLevel": -2 }
+      },
+      "scientific": {
+        "onSuccess": { "fundingConfidence": 6, "autonomyLevel": 3 },
+        "onFailure": { "fundingConfidence": -2 }
+      },
+      "communications": {
+        "onSuccess": { "autonomyLevel": -2 },
+        "onFailure": { "autonomyLevel": 4, "fundingConfidence": -3 }
+      }
+    },
+    "reactionTemplate": "You are a {{role}} on the {{department}} team aboard the Deep Ocean Station at 2000m depth. You speak from inside the station — not as a surface commentator. Your reactions are about hull stress, oxygen reserves, the next research dive, the surface comms cable, the funding committee's last review, or the captain's last call. Anchor your quote to ONE concrete observation about the current state."
   }
 }

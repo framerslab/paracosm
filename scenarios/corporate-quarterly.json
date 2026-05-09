@@ -151,5 +151,145 @@
     "first": ["Priya", "Marcus", "Amina", "Leo", "Haruki", "Sofia", "Elena", "Kwame", "Maya", "Dmitri", "Isla", "Theo", "Chiara", "Arjun", "Yara", "Rune", "Beatriz", "Kenji", "Freya", "Nikolai"],
     "last":  ["Kapoor", "Reinhardt", "Okafor", "Alvarez", "Tanaka", "Rossi", "Nowak", "Mensah", "Patel", "Volkov", "Connor", "Kaufman", "Moretti", "Singh", "Haddad", "Berg", "Oliveira", "Yamamoto", "Lindqvist", "Petrov"],
     "child": []
+  },
+
+  "dataDrivenHooks": {
+    "directorInstructions": "You are the Crisis Director for Q-Scope Corp, a series-B SaaS company at $6M ARR with 40 employees, 14 months of runway, and 8 active competitors in a 25%-growth market. The CEO and CFO deliberate every quarter: chase the category win or compound discipline. You observe the company's quarterly state and generate events that test the leadership's tradeoffs between growth bets and capital efficiency.\n\nRULES:\n- Every event MUST be specific to startup operations: a churn spike, a competitor's pricing move, a board member's loss-of-confidence note, a funding-round signal, a key hire / departure, a feature delivery slip, a regulatory cost, a working-capital squeeze, a marquee customer expansion or downgrade. Never use generic settlement themes.\n- Anchor each crisis to AT LEAST ONE concrete metric: ARR, BurnRate, RunwayMonths, MarketShare, BoardConfidence, InvestorPressure, MarketGrowth, CompetitorCount.\n- The risky option should always carry a real growth-vs-discipline tension: spend now (revenue gain, runway risk) vs hold (runway preserved, competitor pulls ahead).\n- Categories you may use: market, product, financial, organizational, operational, competitive.\n- When RunwayMonths < 9 OR BurnRate trend is up while ARR is flat, escalate the next event to a financial or competitive category.\n- When MarketShare drops 2+ points OR CompetitorCount climbs, escalate to a competitive press cycle that erodes BoardConfidence.\n\nEach crisis you generate ships with options the leadership will pick from. Make the tradeoffs sharp. Q-Scope gets compared against another exec team running the same scenario in parallel, so the divergent outcomes are the product.",
+    "departments": {
+      "sales": {
+        "heading": "SALES PIPELINE:",
+        "chips": [
+          { "label": "ARR", "source": "metrics.revenueArr", "format": "number" },
+          { "label": "MarketShare", "source": "metrics.marketShare", "format": "percent" },
+          { "label": "BoardConfidence", "source": "politics.boardConfidence", "format": "number" },
+          { "label": "Competitors", "source": "environment.competitorCount", "format": "number" }
+        ]
+      },
+      "engineering": {
+        "heading": "ENGINEERING DELIVERY:",
+        "chips": [
+          { "label": "Engagement", "source": "metrics.morale", "format": "percent" },
+          { "label": "Runway", "source": "metrics.runwayMonths", "format": "number" },
+          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" }
+        ]
+      },
+      "finance": {
+        "heading": "FINANCE / RUNWAY:",
+        "chips": [
+          { "label": "ARR", "source": "metrics.revenueArr", "format": "number" },
+          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" },
+          { "label": "Runway", "source": "metrics.runwayMonths", "format": "number" },
+          { "label": "FundingRound", "source": "statuses.fundingRound", "format": "string" }
+        ]
+      },
+      "hr": {
+        "heading": "PEOPLE / ENGAGEMENT:",
+        "chips": [
+          { "label": "Engagement", "source": "metrics.morale", "format": "percent" },
+          { "label": "Headcount", "source": "metrics.population", "format": "number" },
+          { "label": "BoardConfidence", "source": "politics.boardConfidence", "format": "number" }
+        ]
+      },
+      "operations": {
+        "heading": "OPERATIONS / EXECUTION:",
+        "chips": [
+          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" },
+          { "label": "MarketGrowth", "source": "environment.marketGrowthPct", "format": "number" },
+          { "label": "FedRate(bps)", "source": "environment.macroRateBasisPts", "format": "number" }
+        ]
+      }
+    },
+    "postureRules": [
+      {
+        "posture": "sprinted-to-growth",
+        "when": {
+          "all": [
+            { "field": "revenueArr", "op": ">=", "value": 9000000 },
+            { "field": "marketShare", "op": ">=", "value": 0.12 },
+            { "field": "runwayMonths", "op": "<", "value": 9 }
+          ]
+        }
+      },
+      {
+        "posture": "disciplined-build",
+        "when": {
+          "all": [
+            { "field": "runwayMonths", "op": ">=", "value": 12 },
+            { "field": "morale", "op": ">=", "value": 0.7 },
+            { "field": "revenueArr", "op": ">=", "value": 7000000 }
+          ]
+        }
+      },
+      {
+        "posture": "runway-crisis",
+        "when": { "field": "runwayMonths", "op": "<", "value": 6 }
+      },
+      {
+        "posture": "market-loss",
+        "when": { "field": "marketShare", "op": "<", "value": 0.05 }
+      }
+    ],
+    "fingerprintAxes": [
+      {
+        "name": "revenue",
+        "bands": [
+          { "label": "scaling", "when": { "field": "revenueArr", "op": ">=", "value": 10000000 } },
+          { "label": "growing", "when": { "field": "revenueArr", "op": ">=", "value": 7000000 } },
+          { "label": "flat", "when": { "field": "revenueArr", "op": ">=", "value": 4000000 } },
+          { "label": "declining", "default": true }
+        ]
+      },
+      {
+        "name": "runway",
+        "bands": [
+          { "label": "comfortable", "when": { "field": "runwayMonths", "op": ">=", "value": 12 } },
+          { "label": "tight", "when": { "field": "runwayMonths", "op": ">=", "value": 6 } },
+          { "label": "critical", "default": true }
+        ]
+      },
+      {
+        "name": "engagement",
+        "bands": [
+          { "label": "thriving", "when": { "field": "morale", "op": ">=", "value": 0.75 } },
+          { "label": "steady", "when": { "field": "morale", "op": ">=", "value": 0.55 } },
+          { "label": "fraying", "default": true }
+        ]
+      },
+      {
+        "name": "market",
+        "bands": [
+          { "label": "gaining", "when": { "field": "marketShare", "op": ">=", "value": 0.12 } },
+          { "label": "holding", "when": { "field": "marketShare", "op": ">=", "value": 0.07 } },
+          { "label": "losing", "default": true }
+        ]
+      }
+    ],
+    "politics": {
+      "market": {
+        "onSuccess": { "boardConfidence": 4, "investorPressure": -3 },
+        "onFailure": { "boardConfidence": -3, "investorPressure": 4 }
+      },
+      "product": {
+        "onSuccess": { "boardConfidence": 3, "investorPressure": -2 },
+        "onFailure": { "boardConfidence": -2, "investorPressure": 3 }
+      },
+      "financial": {
+        "onSuccess": { "boardConfidence": 2, "investorPressure": -3 },
+        "onFailure": { "boardConfidence": -5, "investorPressure": 6 }
+      },
+      "organizational": {
+        "onSuccess": { "boardConfidence": 2 },
+        "onFailure": { "boardConfidence": -3 }
+      },
+      "operational": {
+        "onSuccess": { "boardConfidence": 1 },
+        "onFailure": { "boardConfidence": -2, "investorPressure": 2 }
+      },
+      "competitive": {
+        "onSuccess": { "boardConfidence": 3, "investorPressure": -2 },
+        "onFailure": { "boardConfidence": -5, "investorPressure": 5 }
+      }
+    },
+    "reactionTemplate": "You are a {{role}} on the {{department}} team at Q-Scope Corp. You speak from inside the company — not as an industry commentator. Your reactions are about pipeline, runway, hiring, the funding round, the competitor's last move, or the next board meeting. Anchor your quote to ONE concrete observation about the current state."
   }
 }
