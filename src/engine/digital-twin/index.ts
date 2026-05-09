@@ -36,5 +36,13 @@
  *
  * @module paracosm/digital-twin
  */
+
+/*
+ * BOUNDARY EXEMPTION: this barrel file re-exports a symbol from
+ * `runtime/`. `engine/` does not import `runtime/` anywhere else; the
+ * boundary check (scripts/check-engine-runtime-boundary.mjs) exempts
+ * this file because it is a public-API alias surface. Do not add new
+ * engine -> runtime imports outside this file.
+ */
 export { WorldModel as DigitalTwin } from '../../runtime/world-model/index.js';
 export type { SubjectConfig, InterventionConfig, RunArtifact } from '../schema/index.js';
