@@ -12,7 +12,7 @@
  *   4. Computes `ui.eventRenderers` from the `events` list
  *   5. Compiles the `dataDrivenHooks` config into runtime hooks via
  *      the data-driven-hooks factory (which also looks up
- *      `progressionPhysics` against the `physics-modules` registry)
+ *      `progressionPhysics` against the `physics` registry)
  *
  * The result is two `ScenarioPackage` exports — `marsScenario` and
  * `lunarScenario` — that the npm package surface, the orchestrator,

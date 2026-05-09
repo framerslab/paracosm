@@ -12,7 +12,7 @@
  * into it from JSON via `dataDrivenHooks.progressionPhysics:
  * 'mars-radiation-bone'`. It is NOT a scenario.
  *
- * @module paracosm/engine/physics-modules/mars-radiation-bone
+ * @module paracosm/engine/physics/mars-radiation-bone
  */
 import type { ProgressionHookContext } from '../types.js';
 

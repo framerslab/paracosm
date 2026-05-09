@@ -29,7 +29,7 @@ export { compileScenario, ingestFromUrl, ingestSeed } from './engine/compiler/in
 // ─── Built-in scenarios ─────────────────────────────────────────────
 // All scenario data lives in `scenarios/*.json`; the loader assembles
 // runnable ScenarioPackage values at module init by composing JSON +
-// the engine's physics-modules registry + the data-driven-hooks
+// the engine's physics registry + the data-driven-hooks
 // factory. No scenario-specific source files exist.
 export { marsScenario, lunarScenario } from './engine/scenarios/index.js';
 

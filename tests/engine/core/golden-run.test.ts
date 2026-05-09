@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../../src/engine/core/kernel.js';
-import { marsRadiationBoneProgression } from '../../../src/engine/physics-modules/index.js';
+import { marsRadiationBoneProgression } from '../../../src/engine/physics/index.js';
 
 const SEED = 950;
 const KEY_PERSONNEL = [

@@ -12,7 +12,7 @@
  * opt into it via `dataDrivenHooks.progressionPhysics:
  * 'lunar-regolith-atrophy'`.
  *
- * @module paracosm/engine/physics-modules/lunar-regolith-atrophy
+ * @module paracosm/engine/physics/lunar-regolith-atrophy
  */
 import type { ProgressionHookContext } from '../types.js';
 

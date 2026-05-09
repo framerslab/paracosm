@@ -20,7 +20,7 @@
  *   - per-agent progression (Mars radiation accumulation, Lunar
  *     regolith atrophy) — declared in JSON via
  *     `progressionPhysics: '<id>'` and resolved against the registry
- *     at `engine/physics-modules`
+ *     at `engine/physics`
  *   - narrative-anchor milestones (turn 1 + final turn fixed events)
  *     — declared as a `milestones` array in JSON and synthesized into
  *     `getMilestoneEvent` here
@@ -33,7 +33,7 @@
  */
 import type { Agent, SimulationState } from '../core/state.js';
 import type { ActorConfig, MilestoneEventDef, ScenarioHooks } from '../types.js';
-import { physicsModules, type ProgressionPhysics } from '../physics-modules/index.js';
+import { physicsModules, type ProgressionPhysics } from '../physics/index.js';
 
 /**
  * Per-department row of metric chips that get formatted into the
@@ -179,7 +179,7 @@ export interface DataDrivenScenarioConfig {
   reactionTemplate: (agent: Agent, ctx: { time: number; turn: number }) => string;
 
   /** Optional ID of a registered progression-physics module (see
-   *  `engine/physics-modules`). When set, the factory wires the
+   *  `engine/physics`). When set, the factory wires the
    *  module into `progressionHook` so per-agent physics (radiation,
    *  bone decay, etc.) run between turns. Unknown IDs no-op + warn. */
   progressionPhysics?: string;

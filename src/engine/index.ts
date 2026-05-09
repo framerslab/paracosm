@@ -112,7 +112,7 @@ export type { ScenarioEventDef } from './event-taxonomy.js';
 export type { OutcomeModifiers } from './effect-registry.js';
 
 // Scenario packages — assembled from scenarios/*.json + the engine's
-// physics-modules registry by the scenarios loader.
+// physics registry by the scenarios loader.
 export { marsScenario, lunarScenario } from './scenarios/index.js';
 
 // Provider resolution — lets programmatic consumers catch the

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { marsRadiationBoneProgression } from '../../../src/engine/physics-modules/index.js';
+import { marsRadiationBoneProgression } from '../../../src/engine/physics/index.js';
 
 function makeAgent(overrides: Partial<{
   alive: boolean; marsborn: boolean; boneDensityPct: number;

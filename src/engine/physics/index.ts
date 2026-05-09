@@ -16,7 +16,7 @@
  * registry below. Names are kebab-case and describe the physics, NOT
  * the scenario (so `mars-radiation-bone`, not `mars-genesis`).
  *
- * @module paracosm/engine/physics-modules
+ * @module paracosm/engine/physics
  */
 import type { ProgressionHookContext } from '../types.js';
 import { marsRadiationBoneProgression } from './mars-radiation-bone.js';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SeededRng } from '../../../src/engine/core/rng.js';
 import { progressBetweenTurns } from '../../../src/engine/core/progression.js';
-import { marsRadiationBoneProgression } from '../../../src/engine/physics-modules/index.js';
+import { marsRadiationBoneProgression } from '../../../src/engine/physics/index.js';
 
 const makeState = (overrides: any = {}) => ({
   metadata: {
