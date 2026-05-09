@@ -14,12 +14,12 @@
  *
  * All pure — no IO, no LLM calls, no global state.
  *
- * @module paracosm/runtime/parsers
+ * @module paracosm/runtime/util/parsers
  */
 
-import type { Department } from '../engine/core/state.js';
-import type { DepartmentReport, CommanderDecision } from './contracts.js';
-import type { PolicyEffect } from '../engine/core/kernel.js';
+import type { Department } from '../../engine/core/state.js';
+import type { DepartmentReport, CommanderDecision } from '../contracts.js';
+import type { PolicyEffect } from '../../engine/core/kernel.js';
 
 /**
  * Turn a machine-readable tool name into something UI-friendly.

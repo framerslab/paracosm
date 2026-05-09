@@ -11,8 +11,8 @@
  * have to re-implement the universal pieces (innovation index, decision
  * discipline, etc.).
  */
-import type { SimulationState, TurnOutcome } from '../engine/core/state.js';
-import type { ActorConfig } from '../engine/types.js';
+import type { SimulationState, TurnOutcome } from '../../engine/core/state.js';
+import type { ActorConfig } from '../../engine/types.js';
 
 export function genericFingerprint(
   finalState: SimulationState,

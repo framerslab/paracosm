@@ -11,6 +11,18 @@
   flex-shrink: 0;
   flex-wrap: wrap;
   row-gap: 6px;
+  // Stick to the bottom of the viewport so the SIDE-BY-SIDE /
+  // CONSTELLATION layout toggle stays reachable in constellation
+  // mode, where the column flow (Constellation + DistributionPanel +
+  // ActorTable + Timeline) overflows past the visible area and the
+  // footer would otherwise scroll off the bottom edge. Side-by-side
+  // mode already kept it visible because TurnGrid carries its own
+  // internal scroll, so no behavior change there. The opaque
+  // background and top border were already in place — sticky just
+  // pins the strip in place.
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 .label {

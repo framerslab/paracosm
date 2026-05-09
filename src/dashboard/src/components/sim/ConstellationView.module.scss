@@ -5,17 +5,8 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  // `flex: 1` lets the constellation absorb the leftover vertical
-  // space inside SimView's column flex, while leaving the
-  // SimFooterBar's natural height alone. Earlier rule used
-  // `height: 100%` which made the wrap claim the entire parent
-  // height — pushing the footer (with the side-by-side / constellation
-  // toggle buttons) below the viewport on shorter screens. The
-  // `min-height: 0` companion lets the SVG shrink below its intrinsic
-  // 400px floor when the viewport is short, so the footer stays
-  // visible at any size.
-  flex: 1;
-  min-height: 0;
+  height: 100%;
+  min-height: 400px;
   padding: 1rem;
 }
 

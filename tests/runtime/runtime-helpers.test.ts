@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyCustomEventToCrisis, buildPromotionPrompt, buildTimeSchedule } from '../../src/runtime/runtime-helpers.js';
+import { applyCustomEventToCrisis, buildPromotionPrompt, buildTimeSchedule } from '../../src/runtime/util/runtime-helpers.js';
 
 test('buildPromotionPrompt matches the actual five-department promotion set', () => {
   const prompt = buildPromotionPrompt('candidate summary');

@@ -14,7 +14,7 @@
  * SSE event to the dashboard for a persistent banner, so the user knows
  * immediately what happened and what to do about it.
  *
- * @module paracosm/runtime/provider-errors
+ * @module paracosm/runtime/util/provider-errors
  */
 
 /** Categorized reason for an LLM call failure. */

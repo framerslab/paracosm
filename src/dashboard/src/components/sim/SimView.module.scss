@@ -15,6 +15,16 @@
   // never produces a scrollbar — the parallel-actor view's TurnGrid
   // already has internal scroll, so this is a no-op there.
   min-height: 0;
+  // `overflow-y: auto` creates the scroll context the app shell can't
+  // supply (the shell has `overflow: hidden; height: 100dvh` to keep
+  // the topbar / tab nav pinned). In constellation mode the column
+  // flow (Constellation + DistributionPanel + ActorTable + Timeline +
+  // Footer + RerunPanel) easily exceeds viewport height; without this
+  // rule the bottom half — including the layout-toggle footer — was
+  // simply clipped by the shell's overflow:hidden and unreachable by
+  // scroll. Side-by-side mode is unaffected because TurnGrid carries
+  // its own internal scroll and the column never overflows the panel.
+  overflow-y: auto;
 }
 
 // Digital-twin mode wrapper. The DigitalTwinPanel renders subject card,

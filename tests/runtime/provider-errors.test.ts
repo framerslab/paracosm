@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import {
   classifyProviderError,
   shouldAbortRun,
-} from '../../src/runtime/provider-errors.js';
+} from '../../src/runtime/util/provider-errors.js';
 
 describe('classifyProviderError', () => {
   describe('auth', () => {

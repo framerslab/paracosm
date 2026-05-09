@@ -19,7 +19,7 @@ import {
   emptyReport,
   emptyDecision,
   decisionToPolicy,
-} from '../parsers.js';
+} from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
@@ -64,8 +64,8 @@ import {
   resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
 } from '../../engine/provider/credentials.js';
-import { applyCustomEventToCrisis, buildTimeSchedule } from '../runtime-helpers.js';
-import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } from '../provider-errors.js';
+import { applyCustomEventToCrisis, buildTimeSchedule } from '../util/runtime-helpers.js';
+import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } from '../util/provider-errors.js';
 import { EffectRegistry } from '../../engine/registries/effects.js';
 import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
@@ -2029,7 +2029,7 @@ Then set selectedOptionId, decision, and rationale. The rationale compresses the
   // for free. Scenario hooks layer their own domain-specific fields on
   // top (e.g., Mars: autonomy, marsbornFraction). Hook output keys win
   // on conflict so authors can override generic values intentionally.
-  const { genericFingerprint } = await import('../generic-fingerprint.js');
+  const { genericFingerprint } = await import('../util/generic-fingerprint.js');
   const generic = genericFingerprint(final, outcomeLog, leader, toolRegs, maxTurns);
   const scenarioOverlay = sc.hooks.fingerprintHook
     ? sc.hooks.fingerprintHook(final, outcomeLog, leader, toolRegs, maxTurns)
