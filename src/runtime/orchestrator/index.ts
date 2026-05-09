@@ -23,7 +23,7 @@ import {
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
-import { createCostTracker } from '../cost-tracker.js';
+import { createCostTracker } from '../economics/cost-tracker.js';
 import {
   buildPersonalityCue,
   buildCommanderBootstrap,
@@ -69,7 +69,7 @@ import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } f
 import { EffectRegistry } from '../../engine/registries/effects.js';
 import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
-import type { ResolvedEconomicsProfile } from '../economics-profile.js';
+import type { ResolvedEconomicsProfile } from '../economics/economics-profile.js';
 import { projectSystemBags } from '../world-snapshot.js';
 export type { ActorConfig };
 

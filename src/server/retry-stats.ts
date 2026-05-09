@@ -2,7 +2,7 @@
  * Cross-run schema-retry aggregation for production reliability telemetry.
  *
  * Each simulation reports per-schema `{ attempts, calls, fallbacks }` in
- * its cost payload (see [cost-tracker.ts](../runtime/cost-tracker.ts)).
+ * its cost payload (see [cost-tracker.ts](../runtime/economics/cost-tracker.ts)).
  * This module sums those per-run buckets across the last N runs so the
  * dashboard and `/retry-stats` endpoint can surface live reliability
  * metrics without running an expensive replay.

@@ -1,4 +1,4 @@
-import type { LlmProvider, SimulationModelConfig } from '../engine/types.js';
+import type { LlmProvider, SimulationModelConfig } from '../../engine/types.js';
 
 export type SimulationEconomicsProfileId =
   | 'economy'

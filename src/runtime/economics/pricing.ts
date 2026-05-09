@@ -8,10 +8,10 @@
  * prompt caching bill cached tokens at 10% of uncached input, which
  * shows up under-billed rather than over-billed in these totals.
  *
- * @module paracosm/runtime/pricing
+ * @module paracosm/runtime/economics/pricing
  */
 
-import type { SimulationModelConfig } from '../engine/types.js';
+import type { SimulationModelConfig } from '../../engine/types.js';
 
 export type CostSite =
   | 'director'

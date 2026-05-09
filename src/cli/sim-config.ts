@@ -5,7 +5,7 @@ import {
   resolveEconomicsProfile,
   type ResolvedEconomicsProfile,
   type SimulationEconomicsProfileId,
-} from '../runtime/economics-profile.js';
+} from '../runtime/economics/economics-profile.js';
 
 export interface SimulationModelConfig {
   commander: string;

@@ -10,15 +10,15 @@
  *
  * Pricing lookup comes from pricing.ts so MODEL_PRICING has one home.
  *
- * @module paracosm/runtime/cost-tracker
+ * @module paracosm/runtime/economics/cost-tracker
  */
 
-import type { SimulationModelConfig } from '../engine/types.js';
+import type { SimulationModelConfig } from '../../engine/types.js';
 import {
   buildPriceForSite,
   getDefaultPricing,
   type CostSite,
-} from './pricing.js';
+} from '../economics/pricing.js';
 import {
   ForgeStatsAggregator,
   type ForgeStats as AgentOSForgeStats,
