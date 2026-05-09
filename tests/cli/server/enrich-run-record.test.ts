@@ -10,8 +10,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enrichRunRecordFromArtifact } from '../../../src/cli/server/enrich-run-record.js';
-import type { RunRecord } from '../../../src/cli/server/run-record.js';
+import { enrichRunRecordFromArtifact } from '../../../src/server/services/enrich-run-record.js';
+import type { RunRecord } from '../../../src/server/services/run-record.js';
 import type { RunArtifact } from '../../../src/engine/schema/index.js';
 
 function baseRecord(overrides: Partial<RunRecord> = {}): RunRecord {

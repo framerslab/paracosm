@@ -16,5 +16,5 @@
     "resolveJsonModule": true
   },
   "include": ["src", "tests"],
-  "exclude": ["src/cli/dashboard", "scripts"]
+  "exclude": ["src/dashboard", "scripts"]
 }

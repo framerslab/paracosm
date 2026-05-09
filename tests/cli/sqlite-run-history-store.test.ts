@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { createSqliteRunHistoryStore } from '../../src/cli/server/sqlite-run-history-store.js';
-import type { RunRecord } from '../../src/cli/server/run-record.js';
+import { createSqliteRunHistoryStore } from '../../src/server/stores/sqlite-run-history.js';
+import type { RunRecord } from '../../src/server/services/run-record.js';
 
 function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   return {

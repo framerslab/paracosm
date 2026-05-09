@@ -6,7 +6,7 @@
  */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatch } from '../../src/cli/router.js';
+import { dispatch } from '../../src/server/router.js';
 
 interface CapturedIO {
   stdout: string;

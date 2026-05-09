@@ -14,8 +14,9 @@
     "src/engine/**/*.ts",
     "src/engine/**/*.json",
     "src/runtime/**/*.ts",
+    "src/llm/**/*.ts",
     "src/cli/*.ts",
-    "src/cli/server/**/*.ts"
+    "src/server/**/*.ts"
   ],
-  "exclude": ["**/*.test.ts", "src/cli/dashboard/**"]
+  "exclude": ["**/*.test.ts", "src/dashboard/**"]
 }

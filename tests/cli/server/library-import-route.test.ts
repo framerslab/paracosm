@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { handleLibraryImport } from '../../../src/cli/server/library-import-route.js';
-import { createSqliteRunHistoryStore } from '../../../src/cli/server/sqlite-run-history-store.js';
-import type { RunHistoryStore } from '../../../src/cli/server/run-history-store.js';
+import { handleLibraryImport } from '../../../src/server/routes/library-import.js';
+import { createSqliteRunHistoryStore } from '../../../src/server/stores/sqlite-run-history.js';
+import type { RunHistoryStore } from '../../../src/server/stores/run-history.js';
 import type { ServerResponse, IncomingMessage } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

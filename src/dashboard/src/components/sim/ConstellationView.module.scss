@@ -1,0 +1,121 @@
+@use '../../theme/typography' as typo;
+
+.wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  // `flex: 1` lets the constellation absorb the leftover vertical
+  // space inside SimView's column flex, while leaving the
+  // SimFooterBar's natural height alone. Earlier rule used
+  // `height: 100%` which made the wrap claim the entire parent
+  // height — pushing the footer (with the side-by-side / constellation
+  // toggle buttons) below the viewport on shorter screens. The
+  // `min-height: 0` companion lets the SVG shrink below its intrinsic
+  // 400px floor when the viewport is short, so the footer stays
+  // visible at any size.
+  flex: 1;
+  min-height: 0;
+  padding: 1rem;
+}
+
+.svg {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.empty {
+  color: var(--text-dim, #888);
+  font-size: var(--font-lg);
+  font-family: var(--mono);
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.edge {
+  stroke: var(--text-3, #888);
+}
+
+.node {
+  cursor: pointer;
+  stroke: var(--bg-panel);
+  stroke-width: 2;
+  transition: r 0.12s ease;
+}
+
+.node:hover,
+.node:focus {
+  outline: none;
+  filter: brightness(1.2);
+}
+
+// SVG <text> rendering actor IDs (e.g. "aria-001"); preserve casing.
+.label {
+  @include typo.field-label;
+  fill: var(--text-2);
+  pointer-events: none;
+  user-select: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+// Per-node mini-stat overlay. Two short mono lines stacked under the
+// existing actor-name label.
+
+.statLine {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--text-2);
+  pointer-events: none;
+}
+
+.statBadge {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--text-3);
+  pointer-events: none;
+}
+
+.outcomeGlyph {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.outcomeSuccess { fill: var(--green); }
+.outcomeFailure { fill: var(--rust); }
+.outcomePending { fill: var(--text-3); }
+
+.statBadgeMortality { fill: var(--rust); font-weight: 700; }
+
+// Per-edge HEXACO distance label at each line's midpoint.
+
+.edgeLabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--text-3);
+  pointer-events: none;
+}
+
+// Center-of-constellation summary chip.
+
+.centerChip {
+  pointer-events: none;
+}
+
+.centerChipTurn {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  fill: var(--text-1);
+  letter-spacing: 0.08em;
+}
+
+.centerChipScenario {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--text-3);
+  letter-spacing: 0.04em;
+}
