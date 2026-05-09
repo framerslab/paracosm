@@ -29,8 +29,8 @@ export const QUICKSTART_TEMPLATES: ReadonlyArray<QuickstartTemplate> = [
   },
   {
     id: 'saas-mid-tier',
-    label: 'What if a SaaS adds a new mid-tier price mid-funnel?',
-    seedText: 'A mid-stage SaaS with 180,000 paid users introduces a new $14/month mid-tier pricing bracket between Free and the existing $29 Pro. Existing Pro subs get 90-day grandfathering. Test the impact on Free-to-Paid conversion, Pro downgrade rate, net ARPU, and churn over six months. Departments: pricing, growth, success, finance, engineering.',
+    label: 'What if a developer-tools SaaS adds a $14 mid-tier?',
+    seedText: 'StackPulse, a developer-focused observability SaaS (logs + metrics + tracing aimed at series-B-to-D startup engineering teams of 5-50 people), introduces a new $14/month "Builder" tier between the free Sandbox plan and the existing $29 Pro plan. The 180,000-user paid base is mostly engineering managers and SREs at venture-backed startups; their #1 jobs-to-be-done are debugging production incidents under 15 minutes and proving reliability SLAs to enterprise customers. Builder caps log retention at 7 days (Pro keeps 30) and limits trace sampling to 10% (Pro is full). Existing Pro subs get 90-day grandfathering. Competitors: Datadog (incumbent, 10x the price), Honeycomb (premium tier), self-hosted Grafana stacks. Test the impact on Free-to-Paid conversion, Pro downgrade rate, net ARPU, and churn over six months. Departments: pricing, growth, success, finance, engineering.',
   },
   {
     id: 'ai-lab-early-release',

@@ -14,6 +14,7 @@ import { handleSimulate, type SimulateDeps } from './simulate-route.js';
 import { compileScenario as compileScenarioReal } from '../engine/compiler/index.js';
 import { marsScenario } from '../engine/mars/index.js';
 import { lunarScenario } from '../engine/lunar/index.js';
+import { atlasLabScenario } from '../engine/atlas-lab/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import {
   hasProviderCredentials,
@@ -460,6 +461,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const customScenarioCatalog = loadDiskCustomScenarios(scenarioDir);
   customScenarioCatalog.set(marsScenario.id, { scenario: marsScenario, source: 'builtin' });
   customScenarioCatalog.set(lunarScenario.id, { scenario: lunarScenario, source: 'builtin' });
+  customScenarioCatalog.set(atlasLabScenario.id, { scenario: atlasLabScenario, source: 'builtin' });
 
   // Persistence metadata for compile-from-seed scenarios — keyed by
   // scenario id. Carries `compiledAt` + truncated `seedText` so the
