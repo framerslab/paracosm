@@ -148,7 +148,7 @@
         { "name": "Erik Lindqvist", "department": "engineering", "role": "Chief Engineer", "specialization": "Structural Engineering", "age": 45, "featured": true },
         { "name": "Amara Osei", "department": "agriculture", "role": "Head of Agriculture", "specialization": "Hydroponics", "age": 34, "featured": true },
         { "name": "Dr. Priya Singh", "department": "psychology", "role": "Colony Psychologist", "specialization": "Clinical Psychology", "age": 41, "featured": true },
-        { "name": "Carlos Fernandez", "department": "engineering", "role": "Chief Scientist", "specialization": "Geology", "age": 50, "featured": true }
+        { "name": "Carlos Fernandez", "department": "engineering", "role": "Senior Geologist", "specialization": "Mars Surface Geology", "age": 50, "featured": true }
       ]
     }
   ],

@@ -60,6 +60,10 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
     // density above the immutable baseline.
     const yearsOnMars = Math.max(0, time - (c.core.marsborn ? c.core.birthTime : startTime));
     const targetRatio = Math.max(0.5, 1 - lossRate * Math.min(yearsOnMars, 20));
-    c.health.boneDensityPct = Math.max(50, baseline * targetRatio);
+    // Floor at 50% but never above the immutable baseline — guards
+    // the theoretical case where an agent starts with bone density
+    // below 50 (the Math.max would otherwise force it back up to 50,
+    // exceeding their starting state).
+    c.health.boneDensityPct = Math.min(baseline, Math.max(50, baseline * targetRatio));
   }
 }

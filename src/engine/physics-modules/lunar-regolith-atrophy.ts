@@ -22,7 +22,7 @@ const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
 /**
  * Walk the agent roster, accumulate regolith dust exposure (stored on
  * the same `cumulativeRadiationMsv` field for kernel uniformity),
- * and apply muscle/bone atrophy. The 0.008/yr loss rate is steeper
+ * and apply muscle/bone atrophy. The 0.04/yr loss rate is steeper
  * than Mars to reflect 1/6g vs 0.38g; saturates at 15 years on the
  * Moon and floors at 40% bone density.
  *
@@ -68,6 +68,10 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
     // before crew lands).
     const yearsOnMoon = Math.max(0, time - startTime);
     const targetRatio = Math.max(0.4, 1 - lossRate * Math.min(yearsOnMoon, 15));
-    c.health.boneDensityPct = Math.max(40, baseline * targetRatio);
+    // Floor at 40% but never above the immutable baseline — guards
+    // the theoretical case where an agent starts with bone density
+    // below 40 (the Math.max would otherwise force it back up to 40,
+    // exceeding their starting state).
+    c.health.boneDensityPct = Math.min(baseline, Math.max(40, baseline * targetRatio));
   }
 }
