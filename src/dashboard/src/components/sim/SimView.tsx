@@ -284,13 +284,24 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
 
   return (
     <div className={styles.root}>
-      {/* Layout toggle lives in the SimFooterBar only. The top header
-          strip used to render its own copy here for "discoverability,"
-          but stacking it above the leadersRow + StatsBar + DivergenceRail
-          + TurnGrid sticky header pushed actual run content below the
-          fold and read as repetitive chrome. The footer toggle stays
-          visible without scrolling because SimFooterBar is pinned at
-          the bottom of the SIM panel. */}
+      {/*
+        Two-pane SimView shell:
+          • <div.scrollableBody> — everything that scrolls (the active
+            layout's content, plus Timeline). The app shell is
+            `overflow: hidden; height: 100dvh` to keep the topbar /
+            tab nav pinned, so SimView creates its own scroll context
+            here. Constellation mode (with DistributionPanel + ActorTable
+            + Timeline below the constellation SVG) easily exceeds
+            viewport height; without an internal scroll the bottom of
+            the column was simply clipped and unreachable.
+          • <SimFooterBar> + <RerunPanel> — sit OUTSIDE the scroll body
+            as flex siblings, so the layout-toggle row and rerun
+            controls stay glued to the bottom of the SIM panel
+            regardless of how much content is above. Sticky positioning
+            inside a flex column is fragile across browsers; siblings
+            outside the scroll context are not.
+      */}
+      <div className={styles.scrollableBody}>
       {layout === 'constellation' ? (
         <>
           <ConstellationView
@@ -492,9 +503,13 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
       {/* Timeline at bottom — gets the full vertical room now that
           References / Toolbox have moved out of the inline column flow. */}
       <Timeline state={state} />
+      </div>
 
       {/* End-of-sim evidence bar: small pills that open References and
-          Forged Toolbox in modals. */}
+          Forged Toolbox in modals. Sits OUTSIDE scrollableBody so the
+          layout-toggle row + reference/toolbox pills stay pinned at the
+          bottom of the SIM panel even when constellation-mode content
+          overflows the viewport. */}
       <SimFooterBar
         citationRegistry={citationRegistry}
         toolRegistry={toolRegistry}

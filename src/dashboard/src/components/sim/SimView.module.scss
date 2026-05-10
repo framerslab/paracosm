@@ -8,34 +8,30 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  // `min-height: 0` lets nested flex children (TurnGrid, ConstellationView)
-  // shrink below their intrinsic content size so their own internal
-  // scroll regions take effect. Without it the flex layout reports the
-  // child's full content height as the minimum and the outer column
-  // never produces a scrollbar — the parallel-actor view's TurnGrid
-  // already has internal scroll, so this is a no-op there.
+  // `min-height: 0` lets nested flex children (TurnGrid, ConstellationView,
+  // .scrollableBody) shrink below their intrinsic content size so their
+  // own internal scroll regions take effect. Without it the flex layout
+  // reports the child's full content height as the minimum and the
+  // scrollable region never produces a scrollbar.
   min-height: 0;
-  // `overflow-y: auto` creates the scroll context the app shell can't
-  // supply (the shell has `overflow: hidden; height: 100dvh` to keep
-  // the topbar / tab nav pinned). In constellation mode the column
-  // flow (Constellation + DistributionPanel + ActorTable + Timeline +
-  // Footer + RerunPanel) easily exceeds viewport height; without this
-  // rule the bottom half — including the layout-toggle footer — was
-  // simply clipped by the shell's overflow:hidden and unreachable by
-  // scroll. Side-by-side mode is unaffected because TurnGrid carries
-  // its own internal scroll and the column never overflows the panel.
-  overflow-y: auto;
+  // No overflow on the root itself — scrolling lives inside
+  // .scrollableBody. SimFooterBar + RerunPanel sit outside the scroll
+  // body so the layout-toggle row + rerun controls stay pinned at the
+  // bottom of the SIM panel.
 }
 
-// Digital-twin mode wrapper. The DigitalTwinPanel renders subject card,
-// intervention card, the metric delta strip, and a SVG trajectory chart
-// stacked vertically — total height ~1100-1400px depending on metric
-// count. The parallel-actor SimView .root sits inside a fixed-height
-// tabpanel and clips overflow by default, which the user reported as a
-// non-scrollable trajectory chart at the bottom of the SIM tab. This
-// wrapper restores the natural scroll for the digital-twin path
-// without affecting the other branches.
+// Scrollable body — wraps everything in SimView except the always-
+// visible footer (SimFooterBar) and rerun controls (RerunPanel). Used
+// by both the digital-twin path (single DigitalTwinPanel child) and
+// the parallel-actor path (constellation OR side-by-side content +
+// Timeline). `display: flex; flex-direction: column` so TurnGrid /
+// MultiActorTurnGrid / ConstellationView keep their `flex: 1` height
+// constraints; without flex on this wrapper those children would
+// collapse to intrinsic content height and lose their internal scroll
+// regions.
 .scrollableBody {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
