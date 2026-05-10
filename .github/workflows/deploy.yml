@@ -73,13 +73,13 @@ jobs:
             popd >/dev/null
           }
           check "." "Root"
-          check "src/cli/dashboard" "Dashboard"
+          check "src/dashboard" "Dashboard"
 
       - name: Guard against pnpm-workspace contamination in lockfiles
         run: |
           set -e
           fail=0
-          for f in package-lock.json src/cli/dashboard/package-lock.json; do
+          for f in package-lock.json src/dashboard/package-lock.json; do
             if [ ! -f "$f" ]; then continue; fi
             if grep -q 'node_modules/\.pnpm/' "$f"; then
               echo "::error file=$f::Lockfile contains 'node_modules/.pnpm/' substring. This means it was authored from inside a pnpm workspace and references parent paths that do not exist in CI. To repair: copy package.json to a directory outside any pnpm workspace, run 'npm install' there, copy the resulting package-lock.json back, commit, push."
@@ -95,7 +95,7 @@ jobs:
         run: npm run build
 
       - name: Install dashboard dependencies
-        run: cd src/cli/dashboard && npm ci
+        run: cd src/dashboard && npm ci
 
       - name: Build dashboard
         run: npm run dashboard:build
@@ -147,7 +147,7 @@ jobs:
           name: build
           path: |
             dist/
-            src/cli/dashboard/dist/
+            src/dashboard/dist/
             docs/api/
             assets/
             scenarios/
