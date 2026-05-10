@@ -1,7 +1,7 @@
 /**
  * Cache-invariant smoke test (Track 3A end-to-end half).
  *
- * The deep regression coverage lives in `src/cli/auto-save-gate.test.ts`.
+ * The deep regression coverage lives in `src/server/auto-save-gate.test.ts`.
  * This spec is intentionally minimal: it validates that `/sessions`
  * returns the expected shape and that any cached row carries the fields
  * the dashboard's session listing UI needs. A failure here means a

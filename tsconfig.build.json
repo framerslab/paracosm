@@ -15,7 +15,7 @@
     "src/engine/**/*.json",
     "src/runtime/**/*.ts",
     "src/cli/*.ts",
-    "src/cli/server/**/*.ts"
+    "src/server/**/*.ts"
   ],
   "exclude": ["**/*.test.ts", "src/dashboard/**"]
 }

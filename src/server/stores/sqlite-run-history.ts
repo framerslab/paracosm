@@ -16,8 +16,8 @@
 import { createDatabase, type StorageAdapter, type DatabaseOptions } from '@framers/sql-storage-adapter';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { RunRecord } from './run-record.js';
-import type { ListRunsFilters, RunHistoryStore, RunsAggregate } from './run-history-store.js';
+import type { RunRecord } from '../services/run-record.js';
+import type { ListRunsFilters, RunHistoryStore, RunsAggregate } from './run-history.js';
 
 export interface SqliteRunHistoryStoreOptions {
   /**

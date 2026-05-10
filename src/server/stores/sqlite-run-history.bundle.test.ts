@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSqliteRunHistoryStore } from './sqlite-run-history-store.js';
-import { createRunRecord } from './run-record.js';
+import { createSqliteRunHistoryStore } from './sqlite-run-history.js';
+import { createRunRecord } from '../services/run-record.js';
 
 test('listRunsByBundleId returns only members of the requested bundle', async () => {
   const store = createSqliteRunHistoryStore({ dbPath: ':memory:' });

@@ -1,5 +1,5 @@
-import type { RunRecord } from './run-record.js';
-import type { ParacosmServerMode } from './server-mode.js';
+import type { RunRecord } from '../services/run-record.js';
+import type { ParacosmServerMode } from '../server-mode.js';
 
 export interface ListRunsFilters {
   /** Filter by simulation mode (artifact.metadata.mode). For server-mode

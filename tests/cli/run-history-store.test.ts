@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createNoopRunHistoryStore } from '../../src/cli/server/run-history-store.js';
+import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 
 test('noop run history store is queryable without affecting replay storage', async () => {
   const store = createNoopRunHistoryStore();

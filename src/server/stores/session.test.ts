@@ -4,7 +4,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openSessionStore, type TimestampedEvent } from './session-store.js';
+import { openSessionStore, type TimestampedEvent } from './session.js';
 
 function makeEvent(eventName: string, data: Record<string, unknown>, ts: number): TimestampedEvent {
   return { ts, sse: `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n` };

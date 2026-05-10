@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ListRunsFilters, RunHistoryStore } from '../run-history-store.js';
-import type { RunRecord } from '../run-record.js';
+import type { ListRunsFilters, RunHistoryStore } from '../stores/run-history.js';
+import type { RunRecord } from '../services/run-record.js';
 import type { ParacosmServerMode } from '../server-mode.js';
-import type { ScenarioPackage } from '../../../engine/types.js';
-import { WorldModel, WorldModelReplayError } from '../../../runtime/world-model/index.js';
-import type { RunArtifact } from '../../../engine/schema/index.js';
+import type { ScenarioPackage } from '../../engine/types.js';
+import { WorldModel, WorldModelReplayError } from '../../runtime/world-model/index.js';
+import type { RunArtifact } from '../../engine/schema/index.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;

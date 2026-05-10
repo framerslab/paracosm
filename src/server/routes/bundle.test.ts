@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ServerResponse, type IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
-import { handleListBundle, handleBundleAggregate, computeAggregate } from './bundle-routes.js';
-import { createNoopRunHistoryStore } from './server/run-history-store.js';
-import type { RunRecord } from './server/run-record.js';
+import { handleListBundle, handleBundleAggregate, computeAggregate } from './bundle.js';
+import { createNoopRunHistoryStore } from '../stores/run-history.js';
+import type { RunRecord } from '../services/run-record.js';
 
 function makeRes(): { res: ServerResponse; chunks: string[]; status: () => number } {
   const socket = new Socket();

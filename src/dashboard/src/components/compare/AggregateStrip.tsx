@@ -1,7 +1,7 @@
 import * as React from 'react';
 import styles from './AggregateStrip.module.scss';
 import type { BundleAggregate } from './hooks/useBundleAggregate.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface AggregateStripProps {
   aggregate: BundleAggregate;

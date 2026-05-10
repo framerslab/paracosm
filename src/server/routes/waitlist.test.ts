@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleWaitlist, type WaitlistRouteDeps } from './waitlist-route.js';
+import { handleWaitlist, type WaitlistRouteDeps } from './waitlist.js';
 import { IncomingMessage, ServerResponse } from 'node:http';
 
 function fakeReq(ip = '9.9.9.9'): IncomingMessage {

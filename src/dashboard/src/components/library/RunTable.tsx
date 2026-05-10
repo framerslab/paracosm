@@ -1,6 +1,6 @@
 import * as React from 'react';
 import styles from './RunTable.module.scss';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface RunTableProps {
   runs: RunRecord[];

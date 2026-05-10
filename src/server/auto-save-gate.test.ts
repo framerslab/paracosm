@@ -16,7 +16,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { openSessionStore, type TimestampedEvent } from './session-store.ts';
+import { openSessionStore, type TimestampedEvent } from './stores/session.js';
 
 const completeRun = (scenarioId: string, turnCount: number = 2): TimestampedEvent[] => {
   // `deriveMetadata` reads scenarioId/scenarioName from `event: active_scenario`,

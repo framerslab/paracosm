@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { TimestampedEvent } from './session-store.js';
+import type { TimestampedEvent } from './stores/session.js';
 import {
   summariseForTitle,
   buildTitlePrompt,

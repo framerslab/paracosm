@@ -4,10 +4,10 @@ import { once } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync, utimesSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildResultsPayloadFromEventBuffer, createMarsServer } from '../../src/cli/server-app.js';
+import { buildResultsPayloadFromEventBuffer, createMarsServer } from '../../src/server/server-app.js';
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
-import type { RunRecord } from '../../src/cli/server/run-record.js';
-import type { RunHistoryStore } from '../../src/cli/server/run-history-store.js';
+import type { RunRecord } from '../../src/server/services/run-record.js';
+import type { RunHistoryStore } from '../../src/server/stores/run-history.js';
 
 const leaderA = {
   name: 'Aria Chen',
@@ -951,7 +951,7 @@ test('auto-save errors do not break the broadcast pipeline', async () => {
     getSession: () => null,
     count: () => 0,
     close: () => {},
-  } as unknown as import('../../src/cli/session-store.js').SessionStore;
+  } as unknown as import('../../src/server/stores/session.js').SessionStore;
 
   const server = createMarsServer({
     sessionStore: throwingStore,

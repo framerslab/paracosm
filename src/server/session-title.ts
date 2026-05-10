@@ -12,7 +12,7 @@
  *
  * @module paracosm/cli/session-title
  */
-import type { TimestampedEvent } from './session-store.js';
+import type { TimestampedEvent } from './stores/session.js';
 
 /** Model id used for title generation per provider family. */
 export interface TitleModelConfig {

@@ -6,7 +6,7 @@
  * @module paracosm/dashboard/compare/hooks/useBundle
  */
 import * as React from 'react';
-import type { RunRecord } from '../../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../../server/services/run-record.js';
 
 export interface BundlePayload {
   bundleId: string;

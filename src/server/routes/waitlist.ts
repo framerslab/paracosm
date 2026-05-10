@@ -9,9 +9,9 @@
  */
 import { z } from 'zod';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { type WaitlistStore, WAITLIST_USER_TYPES } from './waitlist-store.js';
-import type { SendEmailParams } from './email.js';
-import { renderWaitlistConfirmation } from './email-templates.js';
+import { type WaitlistStore, WAITLIST_USER_TYPES } from '../stores/waitlist.js';
+import type { SendEmailParams } from '../services/email.js';
+import { renderWaitlistConfirmation } from '../services/email-templates.js';
 
 const WaitlistBodySchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),

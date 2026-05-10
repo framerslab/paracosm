@@ -4,7 +4,7 @@
  * on mount and written back on every change.
  */
 import * as React from 'react';
-import type { RunRecord } from '../../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../../server/services/run-record.js';
 
 export interface RunsListFilters {
   q?: string;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { groupRunsByBundle } from './groupRunsByBundle.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 const r = (overrides: Partial<RunRecord>): RunRecord => ({
   runId: 'x', createdAt: '2026-04-26T00:00:00Z', scenarioId: 's', scenarioVersion: '1',

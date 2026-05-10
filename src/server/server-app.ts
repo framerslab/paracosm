@@ -2,15 +2,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from './sim-config.js';
-import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn } from './pair-runner.js';
+import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
   type QuickstartDeps,
-} from './quickstart-routes.js';
+} from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
-import { handleSimulate, type SimulateDeps } from './simulate-route.js';
+import { handleSimulate, type SimulateDeps } from './routes/simulate.js';
 import { compileScenario as compileScenarioReal } from '../engine/compiler/index.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
@@ -24,13 +24,13 @@ import {
   describeCustomScenarioSource,
   isRunnableScenarioPackage,
   loadDiskCustomScenarios,
-} from './custom-scenarios.js';
+} from '../cli/custom-scenarios.js';
 import {
   deletePersistedCompiledScenario,
   loadPersistedCompiledDrafts,
   persistCompiledScenario,
   type PersistedCompiledMeta,
-} from './persisted-compiled-scenarios.js';
+} from '../cli/persisted-compiled-scenarios.js';
 import { IpRateLimiter } from './rate-limiter.js';
 import {
   aggregateSchemaRetries,
@@ -43,20 +43,20 @@ import {
   type PerRunProviderErrors,
 } from './retry-stats.js';
 import { createCompilerTelemetry, type CompilerTelemetry } from '../engine/compiler/telemetry.js';
-import { openSessionStore, type SessionStore, type TimestampedEvent } from './session-store.js';
+import { openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
 import { generateSessionTitle } from './session-title.js';
-import { resolveServerMode } from './server/server-mode.js';
-import { createRunRecord, hashActorConfig } from './server/run-record.js';
-import { enrichRunRecordFromArtifact } from './server/enrich-run-record.js';
-import { createNoopRunHistoryStore, type RunHistoryStore } from './server/run-history-store.js';
-import { createSqliteRunHistoryStore } from './server/sqlite-run-history-store.js';
-import { createWaitlistStore, type WaitlistStore } from './server/waitlist-store.js';
-import { handleWaitlist } from './server/waitlist-route.js';
-import { sendEmail } from './server/email.js';
-import { handlePublicDemoRoute } from './server/routes/public-demo.js';
-import { handlePlatformApiRoute } from './server/routes/platform-api.js';
+import { resolveServerMode } from './server-mode.js';
+import { createRunRecord, hashActorConfig } from './services/run-record.js';
+import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
+import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
+import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
+import { createWaitlistStore, type WaitlistStore } from './stores/waitlist.js';
+import { handleWaitlist } from './routes/waitlist.js';
+import { sendEmail } from './services/email.js';
+import { handlePublicDemoRoute } from './routes/public-demo.js';
+import { handlePlatformApiRoute } from './routes/platform-api.js';
 import { validateForkSetupPreconditions } from './fork-preconditions.js';
-import { fetchSeedFromUrl } from './fetch-seed-url.js';
+import { fetchSeedFromUrl } from '../cli/fetch-seed-url.js';
 
 function projectScenarioForClient(sc: ScenarioPackage) {
   return {
@@ -1209,7 +1209,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
-        const { handleLibraryImport } = await import('./server/library-import-route.js');
+        const { handleLibraryImport } = await import('./routes/library-import.js');
         await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode });
       } catch (err) {
         writeJsonError(res, err);
@@ -1229,7 +1229,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
       const bundleId = decodeURIComponent(match[1]);
       const isAggregate = !!match[2];
-      const { handleListBundle, handleBundleAggregate } = await import('./bundle-routes.js');
+      const { handleListBundle, handleBundleAggregate } = await import('./routes/bundle.js');
       try {
         if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore });
         else await handleListBundle(bundleId, res, { runHistoryStore });
@@ -1573,7 +1573,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // accurate `demo:N` lock labels without hardcoding the number
       // in the client. Lets operators flip the env var + pm2 restart
       // and the UI updates on the next page load without a redeploy.
-      const { DEMO_EXECUTION } = await import('./sim-config.js');
+      const { DEMO_EXECUTION } = await import('../cli/sim-config.js');
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({
         adminWrite,
@@ -2690,7 +2690,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // into one card and the CompareModal can fetch them in one
         // query. Solo runs (1 leader) leave bundleId undefined and
         // render as solo cards exactly as today.
-        const { generateBundleId } = await import('./server/bundle-id.js');
+        const { generateBundleId } = await import('./services/bundle-id.js');
         const bundleId = launchConfig.actors.length >= 2 ? generateBundleId() : undefined;
         const runRecord = createRunRecord({
           scenarioId: activeScenario.id,
@@ -2933,7 +2933,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       req.url === '/.well-known/llms.txt'
     ) {
       try {
-        const distDir = resolve(__dirname, 'dashboard/dist');
+        const distDir = resolve(__dirname, '../dashboard/dist');
         const fileName = req.url === '/.well-known/llms.txt' ? 'llms.txt' : req.url.slice(1);
         const filePath = resolve(distDir, fileName);
         if (existsSync(filePath)) {
@@ -2985,13 +2985,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // ---------------------------------------------------------------------------
     // Static file serving
     // ---------------------------------------------------------------------------
-    const distDir = resolve(__dirname, 'dashboard/dist');
+    const distDir = resolve(__dirname, '../dashboard/dist');
     const hasViteBuild = existsSync(resolve(distDir, 'index.html'));
     const pathname = (req.url || '/').split('?')[0];
 
     // Landing page at /
     if (pathname === '/' || pathname === '/index.html') {
-      const landingPath = resolve(__dirname, 'dashboard/landing.html');
+      const landingPath = resolve(__dirname, '../dashboard/landing.html');
       if (existsSync(landingPath)) {
         // Inject the package version into the schema.org LD+JSON block
         // so search engines and social previews show the real current

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import styles from './RecentlyViewedStrip.module.scss';
 import { useRecentlyViewed } from './hooks/useRecentlyViewed.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface RecentlyViewedStripProps {
   onSelect: (runId: string) => void;

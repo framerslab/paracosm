@@ -14,8 +14,8 @@
  * @module paracosm/cli/bundle-routes
  */
 import type { ServerResponse } from 'node:http';
-import type { RunHistoryStore } from './server/run-history-store.js';
-import type { RunRecord } from './server/run-record.js';
+import type { RunHistoryStore } from '../stores/run-history.js';
+import type { RunRecord } from '../services/run-record.js';
 
 export interface BundleRoutesDeps {
   runHistoryStore: RunHistoryStore;

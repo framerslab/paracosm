@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ParacosmServerMode } from './server-mode.js';
+import type { ParacosmServerMode } from '../server-mode.js';
 
 export interface RunRecord {
   runId: string;

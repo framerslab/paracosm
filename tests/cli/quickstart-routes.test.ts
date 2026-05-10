@@ -7,7 +7,7 @@ import {
   handleGenerateActors,
   _resetCompileJobsForTest,
   type QuickstartDeps,
-} from '../../src/cli/quickstart-routes.js';
+} from '../../src/server/routes/quickstart.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 

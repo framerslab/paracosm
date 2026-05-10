@@ -1,7 +1,7 @@
 import * as React from 'react';
 import styles from './SmallMultiplesGrid.module.scss';
 import { CompareCell } from './CompareCell.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface SmallMultiplesGridProps {
   members: RunRecord[];

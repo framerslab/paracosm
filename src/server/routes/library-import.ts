@@ -12,11 +12,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { RunArtifactSchema } from '../../engine/schema/artifact.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
-import type { RunHistoryStore } from './run-history-store.js';
-import type { RunRecord } from './run-record.js';
-import { createRunRecord, hashActorConfig } from './run-record.js';
-import { enrichRunRecordFromArtifact } from './enrich-run-record.js';
-import type { ParacosmServerMode } from './server-mode.js';
+import type { RunHistoryStore } from '../stores/run-history.js';
+import type { RunRecord } from '../services/run-record.js';
+import { createRunRecord, hashActorConfig } from '../services/run-record.js';
+import { enrichRunRecordFromArtifact } from '../services/enrich-run-record.js';
+import type { ParacosmServerMode } from '../server-mode.js';
 
 const MAX_BUNDLE_SIZE = 50;
 

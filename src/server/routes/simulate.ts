@@ -15,16 +15,16 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../engine/types.js';
-import type { RunArtifact } from '../engine/schema/index.js';
-import type { CompileOptions } from '../engine/compiler/types.js';
-import type { KeyPersonnel } from '../engine/core/agent-generator.js';
-import type { CostPreset } from './sim-config.js';
+import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
+import type { RunArtifact } from '../../engine/schema/index.js';
+import type { CompileOptions } from '../../engine/compiler/types.js';
+import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
+import type { CostPreset } from '../../cli/sim-config.js';
 import {
   normalizeCredential,
   resolveProviderFromCredentials,
   type ProviderCredentialOptions,
-} from '../engine/provider/credentials.js';
+} from '../../engine/provider/credentials.js';
 
 const LeaderSchema = z.object({
   name: z.string().min(1).max(80),

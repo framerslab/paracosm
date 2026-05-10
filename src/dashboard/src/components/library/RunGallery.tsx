@@ -3,7 +3,7 @@ import styles from './RunGallery.module.scss';
 import { RunCard } from './RunCard.js';
 import { BundleCard } from './BundleCard.js';
 import { groupRunsByBundle } from './groupRunsByBundle.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface RunGalleryProps {
   runs: RunRecord[];

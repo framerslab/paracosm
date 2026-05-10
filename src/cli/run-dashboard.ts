@@ -8,7 +8,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createMarsServer } from './server-app.js';
+import { createMarsServer } from '../server/server-app.js';
 import { normalizeSimulationConfig } from './sim-config.js';
 import { parseCliRunOptions } from './cli-run-options.js';
 import { resolveActors, parseActorsFlag } from './actors-resolver.js';

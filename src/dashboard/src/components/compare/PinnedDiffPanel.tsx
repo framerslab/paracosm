@@ -6,7 +6,7 @@ import { FingerprintDiff } from './diff/FingerprintDiff.js';
 import { DecisionRationaleDiff } from './diff/DecisionRationaleDiff.js';
 import { MetricTrajectoryDiff } from './diff/MetricTrajectoryDiff.js';
 import { SwarmDiff } from './diff/SwarmDiff.js';
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export interface PinnedDiffPanelProps {
   pinnedIds: string[];

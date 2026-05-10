@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { RunArtifact } from '../../../../../engine/schema/index.js';
-import type { RunRecord } from '../../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../../server/services/run-record.js';
 
 export type ArtifactStatus = 'ok' | 'not_found' | 'unavailable' | 'unreadable' | 'error' | null;
 

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { RunRecord } from '../../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../../server/services/run-record.js';
 
 const STORAGE_KEY = 'paracosm-library-recent';
 const MAX_RECENT = 5;

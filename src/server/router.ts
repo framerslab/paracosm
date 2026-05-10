@@ -16,7 +16,7 @@
  * @module paracosm/cli/router
  */
 
-import { printTopLevelHelp, printCommandHelp, readPackageVersion } from './help.js';
+import { printTopLevelHelp, printCommandHelp, readPackageVersion } from '../cli/help.js';
 
 const KNOWN_COMMANDS = new Set([
   'run',
@@ -120,25 +120,25 @@ export async function dispatch(argv: readonly string[]): Promise<DispatchResult>
     }
 
     case 'run': {
-      const { runSim } = await import('./run-sim.js');
+      const { runSim } = await import('../cli/run-sim.js');
       const exitCode = await runSim(rest);
       return { exitCode };
     }
 
     case 'dashboard': {
-      const { runDashboard } = await import('./run-dashboard.js');
+      const { runDashboard } = await import('../cli/run-dashboard.js');
       const exitCode = await runDashboard(rest);
       return { exitCode };
     }
 
     case 'compile': {
-      const { runCompile } = await import('./run-compile.js');
+      const { runCompile } = await import('../cli/run-compile.js');
       const exitCode = await runCompile(rest);
       return { exitCode };
     }
 
     case 'init': {
-      const { runInit } = await import('./init.js');
+      const { runInit } = await import('../cli/init.js');
       const exitCode = await runInit(rest);
       return { exitCode };
     }
@@ -147,7 +147,7 @@ export async function dispatch(argv: readonly string[]): Promise<DispatchResult>
       // Legacy fallthrough: bare `paracosm --leader 0 6` etc. dispatched
       // to `run` with a deprecation hint. Removal scheduled for 0.8.0.
       if (looksLikeLegacyRun(argv)) {
-        const { runSim } = await import('./run-sim.js');
+        const { runSim } = await import('../cli/run-sim.js');
         const exitCode = await runSim(argv);
         return {
           exitCode,

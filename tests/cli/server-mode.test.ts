@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveServerMode } from '../../src/cli/server/server-mode.js';
+import { resolveServerMode } from '../../src/server/server-mode.js';
 import {
   createRunRecord,
   hashActorConfig,
-} from '../../src/cli/server/run-record.js';
+} from '../../src/server/services/run-record.js';
 
 test('resolveServerMode prefers platform_api when auth env is enabled', () => {
   const mode = resolveServerMode({

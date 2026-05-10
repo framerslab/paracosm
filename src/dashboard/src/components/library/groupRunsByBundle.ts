@@ -5,7 +5,7 @@
  *
  * @module paracosm/dashboard/library/groupRunsByBundle
  */
-import type { RunRecord } from '../../../../cli/server/run-record.js';
+import type { RunRecord } from '../../../../server/services/run-record.js';
 
 export type GalleryEntry =
   | { kind: 'solo'; record: RunRecord }

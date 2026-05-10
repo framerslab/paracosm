@@ -15,13 +15,13 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { compileFromSeed } from '../engine/compiler/compile-from-seed.js';
-import { generateQuickstartActors } from '../runtime/world-model/index.js';
-import { WorldModel } from '../runtime/world-model/index.js';
-import type { ScenarioPackage, ActorConfig } from '../engine/types.js';
-import type { SubjectConfig, InterventionConfig, RunArtifact } from '../engine/schema/index.js';
-import { groundScenario, type GroundingResult } from './server/deep-research.js';
-import type { BroadcastFn } from './pair-runner.js';
+import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
+import { generateQuickstartActors } from '../../runtime/world-model/index.js';
+import { WorldModel } from '../../runtime/world-model/index.js';
+import type { ScenarioPackage, ActorConfig } from '../../engine/types.js';
+import type { SubjectConfig, InterventionConfig, RunArtifact } from '../../engine/schema/index.js';
+import { groundScenario, type GroundingResult } from '../services/deep-research.js';
+import type { BroadcastFn } from '../../cli/pair-runner.js';
 
 const FetchSeedSchema = z.object({
   url: z.string().url().max(2048),

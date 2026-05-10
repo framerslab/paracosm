@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { handleSimulate, type SimulateDeps } from '../../src/cli/simulate-route.js';
+import { handleSimulate, type SimulateDeps } from '../../src/server/routes/simulate.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage, ActorConfig } from '../../src/engine/types.js';
 import type { RunArtifact } from '../../src/engine/schema/index.js';

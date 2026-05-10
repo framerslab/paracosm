@@ -21,7 +21,7 @@
  * @module paracosm/cli/run
  */
 
-import { dispatch, type DispatchResult } from './router.js';
+import { dispatch, type DispatchResult } from '../server/router.js';
 
 const argv = process.argv.slice(2);
 

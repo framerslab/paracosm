@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWaitlistStore } from './waitlist-store.js';
+import { createWaitlistStore } from './waitlist.js';
 
 function freshStore() {
   return createWaitlistStore({ databaseOptions: { file: ':memory:' } });
