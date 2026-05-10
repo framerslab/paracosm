@@ -65,6 +65,32 @@
   margin-bottom: 16px;
 }
 
+.scenarioTagline {
+  font-size: var(--font-md);
+  color: var(--text-1);
+  line-height: 1.55;
+  margin-bottom: 12px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--amber) 50%, transparent);
+}
+
+.scenarioSourceLink {
+  font-size: var(--font-sm);
+  margin-bottom: 16px;
+
+  a {
+    color: var(--amber);
+    text-decoration: none;
+    border-bottom: 1px dashed color-mix(in srgb, var(--amber) 50%, transparent);
+    padding-bottom: 1px;
+
+    &:hover, &:focus-visible {
+      border-bottom-color: var(--amber);
+      outline: none;
+    }
+  }
+}
+
 .leadHint {
   font-size: var(--font-sm);
   color: var(--text-3);

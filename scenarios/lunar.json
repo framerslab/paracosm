@@ -1,8 +1,8 @@
 {
   "id": "lunar-outpost",
+  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/lunar.json",
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
-
   "labels": {
     "name": "Lunar Outpost",
     "shortName": "lunar",
@@ -12,9 +12,9 @@
     "eventNoun": "incidents",
     "eventNounSingular": "incident",
     "timeUnitNoun": "year",
-    "timeUnitNounPlural": "years"
+    "timeUnitNounPlural": "years",
+    "tagline": "Lunar Outpost: 50-person crew at the lunar south pole. Regolith dust + low-g atrophy run per agent. Two leaders set the resource cadence."
   },
-
   "theme": {
     "primaryColor": "#6366f1",
     "accentColor": "#a5b4fc",
@@ -25,99 +25,364 @@
       "--accent": "#6366f1"
     }
   },
-
   "setup": {
     "defaultTurns": 8,
     "maxEventsPerTurn": 2,
     "defaultSeed": 1200,
     "defaultStartTime": 2030,
     "defaultPopulation": 50,
-    "configurableSections": ["leaders", "personnel", "resources", "departments", "events", "models", "advanced"]
+    "configurableSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models",
+      "advanced"
+    ]
   },
-
   "departments": [
-    { "id": "medical", "label": "Medical", "role": "Chief Medical Officer", "icon": "🏥", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Chief Medical Officer of a lunar outpost. You analyze crew health: regolith dust exposure, muscle atrophy in 1/6g, bone density loss, psychological wellbeing." },
-    { "id": "engineering", "label": "Engineering", "role": "Chief Engineer", "icon": "⚙️", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Chief Engineer of a lunar outpost. You analyze infrastructure: habitat integrity, power systems (solar + nuclear), thermal management, construction." },
-    { "id": "mining", "label": "Mining", "role": "Mining Operations Lead", "icon": "⛏️", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Mining Operations Lead. You analyze ISRU: water ice extraction from shadowed craters, regolith processing, construction material production." },
-    { "id": "life-support", "label": "Life Support", "role": "Life Support Chief", "icon": "🫧", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Life Support Chief. You analyze ECLSS: oxygen from electrolysis, water recycling, food production, atmospheric management." },
-    { "id": "communications", "label": "Communications", "role": "Communications Officer", "icon": "📡", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Communications Officer. You analyze Earth link: signal scheduling, relay satellite status, data transmission, crew morale through connectivity." }
+    {
+      "id": "medical",
+      "label": "Medical",
+      "role": "Chief Medical Officer",
+      "icon": "\ud83c\udfe5",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Chief Medical Officer of a lunar outpost. You analyze crew health: regolith dust exposure, muscle atrophy in 1/6g, bone density loss, psychological wellbeing."
+    },
+    {
+      "id": "engineering",
+      "label": "Engineering",
+      "role": "Chief Engineer",
+      "icon": "\u2699\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Chief Engineer of a lunar outpost. You analyze infrastructure: habitat integrity, power systems (solar + nuclear), thermal management, construction."
+    },
+    {
+      "id": "mining",
+      "label": "Mining",
+      "role": "Mining Operations Lead",
+      "icon": "\u26cf\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Mining Operations Lead. You analyze ISRU: water ice extraction from shadowed craters, regolith processing, construction material production."
+    },
+    {
+      "id": "life-support",
+      "label": "Life Support",
+      "role": "Life Support Chief",
+      "icon": "\ud83e\udee7",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Life Support Chief. You analyze ECLSS: oxygen from electrolysis, water recycling, food production, atmospheric management."
+    },
+    {
+      "id": "communications",
+      "label": "Communications",
+      "role": "Communications Officer",
+      "icon": "\ud83d\udce1",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Communications Officer. You analyze Earth link: signal scheduling, relay satellite status, data transmission, crew morale through connectivity."
+    }
   ],
-
   "metrics": [
-    { "id": "population", "label": "Crew", "source": "metrics.population", "format": "number" },
-    { "id": "morale", "label": "Morale", "source": "metrics.morale", "format": "percent" },
-    { "id": "foodMonthsReserve", "label": "Food", "source": "metrics.foodMonthsReserve", "format": "number" },
-    { "id": "powerKw", "label": "Power", "source": "metrics.powerKw", "format": "number" },
-    { "id": "infrastructureModules", "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" },
-    { "id": "scienceOutput", "label": "Science", "source": "metrics.scienceOutput", "format": "number" }
+    {
+      "id": "population",
+      "label": "Crew",
+      "source": "metrics.population",
+      "format": "number"
+    },
+    {
+      "id": "morale",
+      "label": "Morale",
+      "source": "metrics.morale",
+      "format": "percent"
+    },
+    {
+      "id": "foodMonthsReserve",
+      "label": "Food",
+      "source": "metrics.foodMonthsReserve",
+      "format": "number"
+    },
+    {
+      "id": "powerKw",
+      "label": "Power",
+      "source": "metrics.powerKw",
+      "format": "number"
+    },
+    {
+      "id": "infrastructureModules",
+      "label": "Modules",
+      "source": "metrics.infrastructureModules",
+      "format": "number"
+    },
+    {
+      "id": "scienceOutput",
+      "label": "Science",
+      "source": "metrics.scienceOutput",
+      "format": "number"
+    }
   ],
-
   "events": [
-    { "id": "crisis", "label": "Crisis", "icon": "⚠️", "color": "#ef4444" },
-    { "id": "decision", "label": "Decision", "icon": "⚡", "color": "#f59e0b" },
-    { "id": "birth", "label": "Arrival", "icon": "🚀", "color": "#22c55e" },
-    { "id": "death", "label": "Casualty", "icon": "💀", "color": "#6b7280" },
-    { "id": "promotion", "label": "Appointment", "icon": "⬆️", "color": "#3b82f6" },
-    { "id": "relationship", "label": "Bond", "icon": "🤝", "color": "#ec4899" },
-    { "id": "tool_forge", "label": "Tool Forged", "icon": "🔧", "color": "#8b5cf6" },
-    { "id": "system", "label": "System", "icon": "⚙️", "color": "#64748b" }
+    {
+      "id": "crisis",
+      "label": "Crisis",
+      "icon": "\u26a0\ufe0f",
+      "color": "#ef4444"
+    },
+    {
+      "id": "decision",
+      "label": "Decision",
+      "icon": "\u26a1",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "birth",
+      "label": "Arrival",
+      "icon": "\ud83d\ude80",
+      "color": "#22c55e"
+    },
+    {
+      "id": "death",
+      "label": "Casualty",
+      "icon": "\ud83d\udc80",
+      "color": "#6b7280"
+    },
+    {
+      "id": "promotion",
+      "label": "Appointment",
+      "icon": "\u2b06\ufe0f",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "relationship",
+      "label": "Bond",
+      "icon": "\ud83e\udd1d",
+      "color": "#ec4899"
+    },
+    {
+      "id": "tool_forge",
+      "label": "Tool Forged",
+      "icon": "\ud83d\udd27",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "icon": "\u2699\ufe0f",
+      "color": "#64748b"
+    }
   ],
-
   "effects": {
-    "environmental": { "powerKw": 40, "morale": 0.06, "foodMonthsReserve": 0.5 },
-    "resource": { "foodMonthsReserve": 3, "waterLitersPerDay": 80, "morale": 0.04 },
-    "medical": { "morale": 0.08, "lifeSupportCapacity": 3 },
-    "psychological": { "morale": 0.12 },
-    "political": { "morale": 0.06, "infrastructureModules": 1 },
-    "infrastructure": { "infrastructureModules": 1, "powerKw": 40, "pressurizedVolumeM3": 150 },
-    "social": { "morale": 0.10 },
-    "technological": { "powerKw": 35, "scienceOutput": 4, "morale": 0.04 }
+    "environmental": {
+      "powerKw": 40,
+      "morale": 0.06,
+      "foodMonthsReserve": 0.5
+    },
+    "resource": {
+      "foodMonthsReserve": 3,
+      "waterLitersPerDay": 80,
+      "morale": 0.04
+    },
+    "medical": {
+      "morale": 0.08,
+      "lifeSupportCapacity": 3
+    },
+    "psychological": {
+      "morale": 0.12
+    },
+    "political": {
+      "morale": 0.06,
+      "infrastructureModules": 1
+    },
+    "infrastructure": {
+      "infrastructureModules": 1,
+      "powerKw": 40,
+      "pressurizedVolumeM3": 150
+    },
+    "social": {
+      "morale": 0.1
+    },
+    "technological": {
+      "powerKw": 35,
+      "scienceOutput": 4,
+      "morale": 0.04
+    }
   },
-
   "world": {
     "metrics": {
-      "population": { "id": "population", "label": "Crew", "unit": "", "type": "number", "initial": 50, "min": 0, "category": "metric" },
-      "powerKw": { "id": "powerKw", "label": "Power", "unit": "kW", "type": "number", "initial": 200, "min": 0, "category": "metric" },
-      "foodMonthsReserve": { "id": "foodMonthsReserve", "label": "Food Reserve", "unit": "months", "type": "number", "initial": 12, "min": 0, "category": "metric" },
-      "waterLitersPerDay": { "id": "waterLitersPerDay", "label": "Water", "unit": "L/day", "type": "number", "initial": 400, "min": 0, "category": "metric" },
-      "pressurizedVolumeM3": { "id": "pressurizedVolumeM3", "label": "Volume", "unit": "m³", "type": "number", "initial": 1500, "min": 0, "category": "metric" },
-      "infrastructureModules": { "id": "infrastructureModules", "label": "Modules", "unit": "", "type": "number", "initial": 2, "min": 0, "category": "metric" },
-      "scienceOutput": { "id": "scienceOutput", "label": "Science", "unit": "", "type": "number", "initial": 0, "min": 0, "category": "metric" },
-      "morale": { "id": "morale", "label": "Morale", "unit": "%", "type": "number", "initial": 0.80, "min": 0, "max": 1, "category": "metric" }
+      "population": {
+        "id": "population",
+        "label": "Crew",
+        "unit": "",
+        "type": "number",
+        "initial": 50,
+        "min": 0,
+        "category": "metric"
+      },
+      "powerKw": {
+        "id": "powerKw",
+        "label": "Power",
+        "unit": "kW",
+        "type": "number",
+        "initial": 200,
+        "min": 0,
+        "category": "metric"
+      },
+      "foodMonthsReserve": {
+        "id": "foodMonthsReserve",
+        "label": "Food Reserve",
+        "unit": "months",
+        "type": "number",
+        "initial": 12,
+        "min": 0,
+        "category": "metric"
+      },
+      "waterLitersPerDay": {
+        "id": "waterLitersPerDay",
+        "label": "Water",
+        "unit": "L/day",
+        "type": "number",
+        "initial": 400,
+        "min": 0,
+        "category": "metric"
+      },
+      "pressurizedVolumeM3": {
+        "id": "pressurizedVolumeM3",
+        "label": "Volume",
+        "unit": "m\u00b3",
+        "type": "number",
+        "initial": 1500,
+        "min": 0,
+        "category": "metric"
+      },
+      "infrastructureModules": {
+        "id": "infrastructureModules",
+        "label": "Modules",
+        "unit": "",
+        "type": "number",
+        "initial": 2,
+        "min": 0,
+        "category": "metric"
+      },
+      "scienceOutput": {
+        "id": "scienceOutput",
+        "label": "Science",
+        "unit": "",
+        "type": "number",
+        "initial": 0,
+        "min": 0,
+        "category": "metric"
+      },
+      "morale": {
+        "id": "morale",
+        "label": "Morale",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.8,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      }
     },
     "capacities": {
-      "lifeSupportCapacity": { "id": "lifeSupportCapacity", "label": "Life Support Cap", "unit": "", "type": "number", "initial": 60, "min": 0, "category": "capacity" }
+      "lifeSupportCapacity": {
+        "id": "lifeSupportCapacity",
+        "label": "Life Support Cap",
+        "unit": "",
+        "type": "number",
+        "initial": 60,
+        "min": 0,
+        "category": "capacity"
+      }
     },
     "statuses": {},
     "politics": {},
     "environment": {
-      "surfaceGravity": { "id": "surfaceGravity", "label": "Surface Gravity", "unit": "m/s²", "type": "number", "initial": 1.62, "min": 0, "category": "environment" }
+      "surfaceGravity": {
+        "id": "surfaceGravity",
+        "label": "Surface Gravity",
+        "unit": "m/s\u00b2",
+        "type": "number",
+        "initial": 1.62,
+        "min": 0,
+        "category": "environment"
+      }
     }
   },
-
   "ui": {
     "headerMetrics": [
-      { "id": "population", "format": "number" },
-      { "id": "morale", "format": "percent" },
-      { "id": "foodMonthsReserve", "format": "number" },
-      { "id": "powerKw", "format": "number" },
-      { "id": "infrastructureModules", "format": "number" },
-      { "id": "scienceOutput", "format": "number" }
+      {
+        "id": "population",
+        "format": "number"
+      },
+      {
+        "id": "morale",
+        "format": "percent"
+      },
+      {
+        "id": "foodMonthsReserve",
+        "format": "number"
+      },
+      {
+        "id": "powerKw",
+        "format": "number"
+      },
+      {
+        "id": "infrastructureModules",
+        "format": "number"
+      },
+      {
+        "id": "scienceOutput",
+        "format": "number"
+      }
     ],
-    "tooltipFields": ["boneDensityPct", "cumulativeRadiationMsv", "psychScore"],
-    "reportSections": ["crisis", "departments", "decision", "outcome"],
-    "departmentIcons": { "medical": "🏥", "engineering": "⚙️", "mining": "⛏️", "life-support": "🫧", "communications": "📡" },
-    "setupSections": ["leaders", "personnel", "resources", "departments", "events", "models", "advanced"]
+    "tooltipFields": [
+      "boneDensityPct",
+      "cumulativeRadiationMsv",
+      "psychScore"
+    ],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome"
+    ],
+    "departmentIcons": {
+      "medical": "\ud83c\udfe5",
+      "engineering": "\u2699\ufe0f",
+      "mining": "\u26cf\ufe0f",
+      "life-support": "\ud83e\udee7",
+      "communications": "\ud83d\udce1"
+    },
+    "setupSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models",
+      "advanced"
+    ]
   },
-
   "policies": {
-    "toolForging": { "enabled": true, "requiredPerDepartment": true },
-    "liveSearch": { "enabled": false, "mode": "off" },
-    "bulletin": { "enabled": true },
-    "characterChat": { "enabled": true },
-    "sandbox": { "timeoutMs": 10000, "memoryMB": 128 }
+    "toolForging": {
+      "enabled": true,
+      "requiredPerDepartment": true
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
   },
-
   "presets": [
     {
       "id": "default",
@@ -126,163 +391,513 @@
         {
           "name": "Commander Sarah Lindgren",
           "archetype": "The Pioneer",
-          "hexaco": { "openness": 0.85, "conscientiousness": 0.60, "extraversion": 0.75, "agreeableness": 0.65, "emotionality": 0.35, "honestyHumility": 0.70 },
+          "hexaco": {
+            "openness": 0.85,
+            "conscientiousness": 0.6,
+            "extraversion": 0.75,
+            "agreeableness": 0.65,
+            "emotionality": 0.35,
+            "honestyHumility": 0.7
+          },
           "instructions": "You are Commander Sarah Lindgren, \"The Pioneer.\" You balance ambition with crew safety. You push boundaries but respect engineering limits. You communicate openly. Your HEXACO profile drives your leadership style."
         },
         {
           "name": "Commander Raj Patel",
           "archetype": "The Methodologist",
-          "hexaco": { "openness": 0.35, "conscientiousness": 0.90, "extraversion": 0.40, "agreeableness": 0.70, "emotionality": 0.60, "honestyHumility": 0.85 },
+          "hexaco": {
+            "openness": 0.35,
+            "conscientiousness": 0.9,
+            "extraversion": 0.4,
+            "agreeableness": 0.7,
+            "emotionality": 0.6,
+            "honestyHumility": 0.85
+          },
           "instructions": "You are Commander Raj Patel, \"The Methodologist.\" You follow procedures. You document everything. You prioritize crew welfare over discovery timelines. Cautious, thorough, transparent. Your HEXACO profile drives your leadership style."
         }
       ],
       "personnel": [
-        { "name": "Dr. Sarah Anderson", "department": "medical", "role": "Chief Medical Officer", "specialization": "Aerospace Medicine", "age": 42, "featured": true },
-        { "name": "James Mueller", "department": "engineering", "role": "Chief Engineer", "specialization": "Structural Systems", "age": 48, "featured": true },
-        { "name": "Dr. Yuki Nakamura", "department": "mining", "role": "Mining Operations Lead", "specialization": "ISRU Engineering", "age": 39, "featured": true },
-        { "name": "Chen Wei", "department": "life-support", "role": "Life Support Chief", "specialization": "ECLSS Design", "age": 44, "featured": true },
-        { "name": "Maria Santos", "department": "communications", "role": "Communications Officer", "specialization": "Deep Space Networks", "age": 36, "featured": true }
+        {
+          "name": "Dr. Sarah Anderson",
+          "department": "medical",
+          "role": "Chief Medical Officer",
+          "specialization": "Aerospace Medicine",
+          "age": 42,
+          "featured": true
+        },
+        {
+          "name": "James Mueller",
+          "department": "engineering",
+          "role": "Chief Engineer",
+          "specialization": "Structural Systems",
+          "age": 48,
+          "featured": true
+        },
+        {
+          "name": "Dr. Yuki Nakamura",
+          "department": "mining",
+          "role": "Mining Operations Lead",
+          "specialization": "ISRU Engineering",
+          "age": 39,
+          "featured": true
+        },
+        {
+          "name": "Chen Wei",
+          "department": "life-support",
+          "role": "Life Support Chief",
+          "specialization": "ECLSS Design",
+          "age": 44,
+          "featured": true
+        },
+        {
+          "name": "Maria Santos",
+          "department": "communications",
+          "role": "Communications Officer",
+          "specialization": "Deep Space Networks",
+          "age": 36,
+          "featured": true
+        }
       ]
     }
   ],
-
   "names": {
-    "first": ["Sarah","James","Yuki","Chen","Maria","Ahmed","Olga","Raj","Emma","Lucas","Fatima","Noah","Aiko","Omar","Sofia","Wei","Anna","Kai","Leila","Max","Zara","Felix","Nina","Leo","Ava","Hugo","Mia","Sam","Iris","Theo","Luna","Alex","Eva","Liam","Hana","Ravi","Nora","Jin","Ella","David","Rosa","Erik","Dina","Sven","Clio","Marco","Ines","Tao","Ada","Leon"],
-    "last": ["Anderson","Kim","Tanaka","Mueller","Santos","Patel","Ivanova","Chen","Garcia","Johansson","Singh","Petrov","Nakamura","Fernandez","Weber","Ibrahim","Park","Torres","Lindgren","Ahmad","Costa","Volkov","Li","Osei","Larsson","Diallo","Sato","Rivera","Berg","Mensah","Kato","Morales","Holm","Yusuf","Takahashi","Reyes","Nkomo","Herrera","Ito","Mendez","Dahl","Owusu","Yamamoto","Cruz","Bakker","Ali","Hansen","Novak","Svensson","Kowalski"],
-    "child": ["Selene","Apollo","Luna","Artemis","Ceres","Titan","Nova","Stella","Orion","Helios","Lyra","Atlas","Iris","Pax","Sol","Astra"]
+    "first": [
+      "Sarah",
+      "James",
+      "Yuki",
+      "Chen",
+      "Maria",
+      "Ahmed",
+      "Olga",
+      "Raj",
+      "Emma",
+      "Lucas",
+      "Fatima",
+      "Noah",
+      "Aiko",
+      "Omar",
+      "Sofia",
+      "Wei",
+      "Anna",
+      "Kai",
+      "Leila",
+      "Max",
+      "Zara",
+      "Felix",
+      "Nina",
+      "Leo",
+      "Ava",
+      "Hugo",
+      "Mia",
+      "Sam",
+      "Iris",
+      "Theo",
+      "Luna",
+      "Alex",
+      "Eva",
+      "Liam",
+      "Hana",
+      "Ravi",
+      "Nora",
+      "Jin",
+      "Ella",
+      "David",
+      "Rosa",
+      "Erik",
+      "Dina",
+      "Sven",
+      "Clio",
+      "Marco",
+      "Ines",
+      "Tao",
+      "Ada",
+      "Leon"
+    ],
+    "last": [
+      "Anderson",
+      "Kim",
+      "Tanaka",
+      "Mueller",
+      "Santos",
+      "Patel",
+      "Ivanova",
+      "Chen",
+      "Garcia",
+      "Johansson",
+      "Singh",
+      "Petrov",
+      "Nakamura",
+      "Fernandez",
+      "Weber",
+      "Ibrahim",
+      "Park",
+      "Torres",
+      "Lindgren",
+      "Ahmad",
+      "Costa",
+      "Volkov",
+      "Li",
+      "Osei",
+      "Larsson",
+      "Diallo",
+      "Sato",
+      "Rivera",
+      "Berg",
+      "Mensah",
+      "Kato",
+      "Morales",
+      "Holm",
+      "Yusuf",
+      "Takahashi",
+      "Reyes",
+      "Nkomo",
+      "Herrera",
+      "Ito",
+      "Mendez",
+      "Dahl",
+      "Owusu",
+      "Yamamoto",
+      "Cruz",
+      "Bakker",
+      "Ali",
+      "Hansen",
+      "Novak",
+      "Svensson",
+      "Kowalski"
+    ],
+    "child": [
+      "Selene",
+      "Apollo",
+      "Luna",
+      "Artemis",
+      "Ceres",
+      "Titan",
+      "Nova",
+      "Stella",
+      "Orion",
+      "Helios",
+      "Lyra",
+      "Atlas",
+      "Iris",
+      "Pax",
+      "Sol",
+      "Astra"
+    ]
   },
-
   "knowledgeRef": "lunar-knowledge.json",
-
   "dataDrivenHooks": {
     "progressionPhysics": "lunar-regolith-atrophy",
-
     "directorInstructions": "You are the Crisis Director for a lunar outpost simulation. You observe outpost state and generate crises that test the crew's weaknesses, exploit consequences of prior decisions, and create narrative tension.\n\nRULES:\n1. Each crisis has exactly 2-3 options with stable IDs (option_a, option_b, option_c)\n2. Exactly one option must be marked isRisky: true (higher upside, higher downside)\n3. Crises must reference real lunar science (regolith toxicity, 1/6g effects, solar power cycles, ISRU)\n4. Never repeat a crisis category from the immediately previous turn\n5. Escalate: later crises should reference consequences of earlier decisions\n6. Calibrate difficulty to outpost state\n7. Include actual numbers in the crisis description\n8. Specify which departments should analyze (2-4 departments per crisis)\n\nCRISIS CATEGORIES:\n- environmental: micrometeorites, thermal cycling, seismic activity, solar storms\n- resource: water ice, regolith, power, oxygen shortage\n- medical: dust toxicity, muscle atrophy, bone loss, radiation from solar events\n- psychological: isolation, Earth-homesickness, crew tension, monotony\n- political: Earth agency relations, commercial interests, international partners\n- infrastructure: habitat damage, power systems, communications, mining equipment\n- social: crew rotation, family separation, cultural friction\n- technological: equipment failure, software, autonomous systems\n\nAVAILABLE DEPARTMENTS (use ONLY these exact names):\n- medical\n- engineering\n- mining\n- life-support\n- communications\n\nReturn ONLY valid JSON matching the standard crisis format.",
-
     "departments": {
       "medical": {
         "heading": "HEALTH:",
         "chips": [
-          { "label": "Avg regolith exposure", "agg": { "fn": "avg", "field": "health.cumulativeRadiationMsv", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "number" },
-          { "label": "Avg bone/muscle", "agg": { "fn": "avg", "field": "health.boneDensityPct", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "percent" }
+          {
+            "label": "Avg regolith exposure",
+            "agg": {
+              "fn": "avg",
+              "field": "health.cumulativeRadiationMsv",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "number"
+          },
+          {
+            "label": "Avg bone/muscle",
+            "agg": {
+              "fn": "avg",
+              "field": "health.boneDensityPct",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "percent"
+          }
         ]
       },
       "engineering": {
         "heading": "INFRASTRUCTURE:",
         "chips": [
-          { "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" },
-          { "label": "Power (solar + nuclear)", "source": "metrics.powerKw", "format": "number" },
-          { "label": "Life support cap", "source": "metrics.lifeSupportCapacity", "format": "number" },
-          { "label": "Crew", "source": "metrics.population", "format": "number" },
-          { "label": "Volume m³", "source": "metrics.pressurizedVolumeM3", "format": "number" }
+          {
+            "label": "Modules",
+            "source": "metrics.infrastructureModules",
+            "format": "number"
+          },
+          {
+            "label": "Power (solar + nuclear)",
+            "source": "metrics.powerKw",
+            "format": "number"
+          },
+          {
+            "label": "Life support cap",
+            "source": "metrics.lifeSupportCapacity",
+            "format": "number"
+          },
+          {
+            "label": "Crew",
+            "source": "metrics.population",
+            "format": "number"
+          },
+          {
+            "label": "Volume m\u00b3",
+            "source": "metrics.pressurizedVolumeM3",
+            "format": "number"
+          }
         ]
       },
       "mining": {
         "heading": "MINING:",
         "chips": [
-          { "label": "Power", "source": "metrics.powerKw", "format": "number" },
-          { "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" }
+          {
+            "label": "Power",
+            "source": "metrics.powerKw",
+            "format": "number"
+          },
+          {
+            "label": "Modules",
+            "source": "metrics.infrastructureModules",
+            "format": "number"
+          }
         ],
         "footer": "Ice extraction active in permanently shadowed craters. Regolith processing for construction materials. ISRU capacity scales with power."
       },
       "life-support": {
         "heading": "LIFE SUPPORT:",
         "chips": [
-          { "label": "Reserves (months)", "source": "metrics.foodMonthsReserve", "format": "number" },
-          { "label": "Water L/day", "source": "metrics.waterLitersPerDay", "format": "number" },
-          { "label": "Crew", "source": "metrics.population", "format": "number" }
+          {
+            "label": "Reserves (months)",
+            "source": "metrics.foodMonthsReserve",
+            "format": "number"
+          },
+          {
+            "label": "Water L/day",
+            "source": "metrics.waterLitersPerDay",
+            "format": "number"
+          },
+          {
+            "label": "Crew",
+            "source": "metrics.population",
+            "format": "number"
+          }
         ],
         "footer": "O2 from electrolysis."
       },
       "communications": {
         "heading": "COMMS:",
         "chips": [
-          { "label": "Crew morale", "source": "metrics.morale", "format": "percent" }
+          {
+            "label": "Crew morale",
+            "source": "metrics.morale",
+            "format": "percent"
+          }
         ],
         "footer": "Earth visible from crater rim during ~70% of lunar day. Direct line-of-sight link. 1.3s signal delay. Relay satellite for far-side coverage."
       }
     },
-
     "postureRules": [],
-
     "fingerprintAxes": [
       {
         "name": "resilience",
         "bands": [
-          { "label": "robust", "when": { "field": "morale", "op": ">", "value": 0.6 } },
-          { "label": "stable", "when": { "field": "morale", "op": ">", "value": 0.35 } },
-          { "label": "fragile", "default": true }
+          {
+            "label": "robust",
+            "when": {
+              "field": "morale",
+              "op": ">",
+              "value": 0.6
+            }
+          },
+          {
+            "label": "stable",
+            "when": {
+              "field": "morale",
+              "op": ">",
+              "value": 0.35
+            }
+          },
+          {
+            "label": "fragile",
+            "default": true
+          }
         ]
       },
       {
         "name": "sustainment",
         "bands": [
-          { "label": "self-sustaining", "when": { "field": "foodMonthsReserve", "op": ">", "value": 12 } },
-          { "label": "resupply-dependent", "when": { "field": "foodMonthsReserve", "op": ">", "value": 6 } },
-          { "label": "critical", "default": true }
+          {
+            "label": "self-sustaining",
+            "when": {
+              "field": "foodMonthsReserve",
+              "op": ">",
+              "value": 12
+            }
+          },
+          {
+            "label": "resupply-dependent",
+            "when": {
+              "field": "foodMonthsReserve",
+              "op": ">",
+              "value": 6
+            }
+          },
+          {
+            "label": "critical",
+            "default": true
+          }
         ]
       },
       {
         "name": "leadership",
         "bands": [
-          { "label": "methodical", "when": { "field": "leader.conscientiousness", "op": ">", "value": 0.7 } },
-          { "label": "pioneering", "when": { "field": "leader.openness", "op": ">", "value": 0.7 } },
-          { "label": "balanced", "default": true }
+          {
+            "label": "methodical",
+            "when": {
+              "field": "leader.conscientiousness",
+              "op": ">",
+              "value": 0.7
+            }
+          },
+          {
+            "label": "pioneering",
+            "when": {
+              "field": "leader.openness",
+              "op": ">",
+              "value": 0.7
+            }
+          },
+          {
+            "label": "balanced",
+            "default": true
+          }
         ]
       },
       {
         "name": "riskProfile",
         "bands": [
-          { "label": "exploratory", "when": { "field": "outcomes.risky", "op": ">", "value": 0 } },
-          { "label": "procedural", "default": true }
+          {
+            "label": "exploratory",
+            "when": {
+              "field": "outcomes.risky",
+              "op": ">",
+              "value": 0
+            }
+          },
+          {
+            "label": "procedural",
+            "default": true
+          }
         ]
       },
       {
         "name": "science",
         "bands": [
-          { "label": "discovery-driven", "when": { "field": "tools.total", "op": ">", "value": 16 } },
-          { "label": "productive", "when": { "field": "tools.total", "op": ">", "value": 8 } },
-          { "label": "operational", "default": true }
+          {
+            "label": "discovery-driven",
+            "when": {
+              "field": "tools.total",
+              "op": ">",
+              "value": 16
+            }
+          },
+          {
+            "label": "productive",
+            "when": {
+              "field": "tools.total",
+              "op": ">",
+              "value": 8
+            }
+          },
+          {
+            "label": "operational",
+            "default": true
+          }
         ]
       }
     ],
-
     "politics": {
       "political": {
-        "onSuccess": { "independencePressure": 0.03, "earthDependencyPct": -2 },
-        "onFailure": { "independencePressure": -0.02, "earthDependencyPct": 3 }
+        "onSuccess": {
+          "independencePressure": 0.03,
+          "earthDependencyPct": -2
+        },
+        "onFailure": {
+          "independencePressure": -0.02,
+          "earthDependencyPct": 3
+        }
       },
       "social": {
-        "onSuccess": { "independencePressure": 0.03, "earthDependencyPct": -2 },
-        "onFailure": { "independencePressure": -0.02, "earthDependencyPct": 3 }
+        "onSuccess": {
+          "independencePressure": 0.03,
+          "earthDependencyPct": -2
+        },
+        "onFailure": {
+          "independencePressure": -0.02,
+          "earthDependencyPct": 3
+        }
       }
     },
-
     "reactionTemplate": {
       "lines": [
-        { "template": "Stationed at lunar outpost. {{years}} years on the Moon." },
-        { "template": "Severe muscle and bone atrophy from 1/6g.", "when": { "agent": "health.boneDensityPct", "op": "<", "value": 65 } },
-        { "template": "Significant regolith dust exposure.", "when": { "agent": "health.cumulativeRadiationMsv", "op": ">", "value": 100 } }
+        {
+          "template": "Stationed at lunar outpost. {{years}} years on the Moon."
+        },
+        {
+          "template": "Severe muscle and bone atrophy from 1/6g.",
+          "when": {
+            "agent": "health.boneDensityPct",
+            "op": "<",
+            "value": 65
+          }
+        },
+        {
+          "template": "Significant regolith dust exposure.",
+          "when": {
+            "agent": "health.cumulativeRadiationMsv",
+            "op": ">",
+            "value": 100
+          }
+        }
       ],
       "join": " "
     },
-
     "milestones": [
       {
         "turn": 1,
         "event": {
           "title": "Lunar Arrival",
           "description": "Your crew module has entered lunar orbit. Choose a base location for the permanent outpost.",
-          "crisis": "Your crew module has entered lunar orbit. You must choose a base location for the permanent outpost. Two candidates:\n\nOPTION A: Shackleton Crater Rim (south pole, 89.9°S). Near-permanent sunlight for solar power. Access to permanently shadowed craters with confirmed water ice deposits (LCROSS 2009). Challenging terrain with steep slopes.\n\nOPTION B: Marius Hills Lava Tube. Natural radiation shielding from the intact lava tube ceiling (up to 50m of basalt). Stable thermal environment. No direct solar power access (requires nuclear or transmitted power). Limited water ice nearby.\n\nBoth sites offer access to regolith for ISRU construction. Communication with Earth is line-of-sight dependent.",
+          "crisis": "Your crew module has entered lunar orbit. You must choose a base location for the permanent outpost. Two candidates:\n\nOPTION A: Shackleton Crater Rim (south pole, 89.9\u00b0S). Near-permanent sunlight for solar power. Access to permanently shadowed craters with confirmed water ice deposits (LCROSS 2009). Challenging terrain with steep slopes.\n\nOPTION B: Marius Hills Lava Tube. Natural radiation shielding from the intact lava tube ceiling (up to 50m of basalt). Stable thermal environment. No direct solar power access (requires nuclear or transmitted power). Limited water ice nearby.\n\nBoth sites offer access to regolith for ISRU construction. Communication with Earth is line-of-sight dependent.",
           "options": [
-            { "id": "option_a", "label": "Shackleton Crater Rim", "description": "Sunlight, water ice, steep terrain", "isRisky": false },
-            { "id": "option_b", "label": "Marius Hills Lava Tube", "description": "Natural shielding, no solar, limited water", "isRisky": true }
+            {
+              "id": "option_a",
+              "label": "Shackleton Crater Rim",
+              "description": "Sunlight, water ice, steep terrain",
+              "isRisky": false
+            },
+            {
+              "id": "option_b",
+              "label": "Marius Hills Lava Tube",
+              "description": "Natural shielding, no solar, limited water",
+              "isRisky": true
+            }
           ],
           "riskyOptionId": "option_b",
           "riskSuccessProbability": 0.55,
           "category": "infrastructure",
-          "researchKeywords": ["lunar south pole base", "Shackleton crater water ice", "lunar lava tube habitat", "LCROSS water discovery"],
-          "relevantDepartments": ["engineering", "mining"],
+          "researchKeywords": [
+            "lunar south pole base",
+            "Shackleton crater water ice",
+            "lunar lava tube habitat",
+            "LCROSS water discovery"
+          ],
+          "relevantDepartments": [
+            "engineering",
+            "mining"
+          ],
           "turnSummary": "Crew in orbit. Solar-powered crater rim or radiation-shielded lava tube: the first decision defines everything."
         }
       },
@@ -293,14 +908,32 @@
           "description": "Earth space agencies request a comprehensive status report on your outpost.",
           "crisis": "Earth space agencies request a comprehensive status report on your outpost:\n\n1. CREW: Current headcount, rotation schedule, health status\n2. INFRASTRUCTURE: Modules, pressurized volume, power generation, mining output\n3. SELF-SUFFICIENCY: Water from ISRU, food production, oxygen generation\n4. SCIENCE: Geological surveys, astronomical observations, technology demonstrations\n5. OPERATIONS: What worked, what failed, what needs redesign\n6. RECOMMENDATION: Should the outpost expand, maintain, or be re-evaluated?\n\nBe direct. Your assessment shapes the next decade of lunar policy.",
           "options": [
-            { "id": "option_a", "label": "Factual assessment", "description": "Report data accurately, flag risks", "isRisky": false },
-            { "id": "option_b", "label": "Expansion proposal", "description": "Advocate for major expansion based on results", "isRisky": true }
+            {
+              "id": "option_a",
+              "label": "Factual assessment",
+              "description": "Report data accurately, flag risks",
+              "isRisky": false
+            },
+            {
+              "id": "option_b",
+              "label": "Expansion proposal",
+              "description": "Advocate for major expansion based on results",
+              "isRisky": true
+            }
           ],
           "riskyOptionId": "option_b",
           "riskSuccessProbability": 0.5,
           "category": "political",
-          "researchKeywords": ["lunar base long-term planning", "Artemis program sustainability"],
-          "relevantDepartments": ["communications", "engineering", "medical", "mining"],
+          "researchKeywords": [
+            "lunar base long-term planning",
+            "Artemis program sustainability"
+          ],
+          "relevantDepartments": [
+            "communications",
+            "engineering",
+            "medical",
+            "mining"
+          ],
           "turnSummary": "Earth agencies demand a full status report. The commander must decide: honest assessment or bold expansion pitch."
         }
       }

@@ -61,6 +61,7 @@ import { fetchSeedFromUrl } from '../cli/fetch-seed-url.js';
 function projectScenarioForClient(sc: ScenarioPackage) {
   return {
     id: sc.id,
+    sourceUrl: sc.sourceUrl,
     version: sc.version,
     labels: sc.labels,
     theme: sc.theme,

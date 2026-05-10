@@ -1,8 +1,8 @@
 {
   "id": "mars-genesis",
+  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/mars.json",
   "version": "3.0.0",
   "engineArchetype": "closed_turn_based_settlement",
-
   "labels": {
     "name": "Mars Genesis",
     "shortName": "mars",
@@ -15,7 +15,6 @@
     "timeUnitNounPlural": "years",
     "tagline": "First permanent Mars colony, 100 colonists in hostile terrain. The Visionary (Aria) bets on bold experimentation, the Engineer (Dietrich) on proven systems. HEXACO traits shape every crisis call."
   },
-
   "theme": {
     "primaryColor": "#dc2626",
     "accentColor": "#f97316",
@@ -26,7 +25,6 @@
       "--accent": "#dc2626"
     }
   },
-
   "setup": {
     "defaultTurns": 6,
     "maxEventsPerTurn": 2,
@@ -34,97 +32,390 @@
     "defaultStartTime": 2035,
     "defaultTimePerTurn": 8,
     "defaultPopulation": 100,
-    "configurableSections": ["leaders", "personnel", "resources", "departments", "events", "models", "advanced"]
+    "configurableSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models",
+      "advanced"
+    ]
   },
-
   "departments": [
-    { "id": "medical", "label": "Medical", "role": "Chief Medical Officer", "icon": "🏥", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Chief Medical Officer of a Mars colony. You analyze health impacts: radiation, bone density, disease, injuries, mortality risk, psychological wellbeing." },
-    { "id": "engineering", "label": "Engineering", "role": "Chief Engineer", "icon": "⚙️", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Chief Engineer of a Mars colony. You analyze infrastructure: habitat integrity, power, life support capacity, water systems, construction." },
-    { "id": "agriculture", "label": "Agriculture", "role": "Head of Agriculture", "icon": "🌱", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Head of Agriculture for a Mars colony. You analyze food security: crop yields, soil remediation, hydroponic capacity, caloric needs, reserves." },
-    { "id": "psychology", "label": "Psychology", "role": "Colony Psychologist", "icon": "🧠", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Colony Psychologist. You analyze morale, isolation effects, depression risk, social cohesion, generational tensions." },
-    { "id": "governance", "label": "Governance", "role": "Governance Advisor", "icon": "🏛️", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Governance Advisor. You analyze self-sufficiency, Earth dependency, political pressure, independence readiness." }
+    {
+      "id": "medical",
+      "label": "Medical",
+      "role": "Chief Medical Officer",
+      "icon": "\ud83c\udfe5",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Chief Medical Officer of a Mars colony. You analyze health impacts: radiation, bone density, disease, injuries, mortality risk, psychological wellbeing."
+    },
+    {
+      "id": "engineering",
+      "label": "Engineering",
+      "role": "Chief Engineer",
+      "icon": "\u2699\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Chief Engineer of a Mars colony. You analyze infrastructure: habitat integrity, power, life support capacity, water systems, construction."
+    },
+    {
+      "id": "agriculture",
+      "label": "Agriculture",
+      "role": "Head of Agriculture",
+      "icon": "\ud83c\udf31",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Head of Agriculture for a Mars colony. You analyze food security: crop yields, soil remediation, hydroponic capacity, caloric needs, reserves."
+    },
+    {
+      "id": "psychology",
+      "label": "Psychology",
+      "role": "Colony Psychologist",
+      "icon": "\ud83e\udde0",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Colony Psychologist. You analyze morale, isolation effects, depression risk, social cohesion, generational tensions."
+    },
+    {
+      "id": "governance",
+      "label": "Governance",
+      "role": "Governance Advisor",
+      "icon": "\ud83c\udfdb\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Governance Advisor. You analyze self-sufficiency, Earth dependency, political pressure, independence readiness."
+    }
   ],
-
   "metrics": [
-    { "id": "population", "label": "Population", "source": "metrics.population", "format": "number" },
-    { "id": "morale", "label": "Morale", "source": "metrics.morale", "format": "percent" },
-    { "id": "foodMonthsReserve", "label": "Food", "source": "metrics.foodMonthsReserve", "format": "number" },
-    { "id": "powerKw", "label": "Power", "source": "metrics.powerKw", "format": "number" },
-    { "id": "infrastructureModules", "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" },
-    { "id": "scienceOutput", "label": "Science", "source": "metrics.scienceOutput", "format": "number" }
+    {
+      "id": "population",
+      "label": "Population",
+      "source": "metrics.population",
+      "format": "number"
+    },
+    {
+      "id": "morale",
+      "label": "Morale",
+      "source": "metrics.morale",
+      "format": "percent"
+    },
+    {
+      "id": "foodMonthsReserve",
+      "label": "Food",
+      "source": "metrics.foodMonthsReserve",
+      "format": "number"
+    },
+    {
+      "id": "powerKw",
+      "label": "Power",
+      "source": "metrics.powerKw",
+      "format": "number"
+    },
+    {
+      "id": "infrastructureModules",
+      "label": "Modules",
+      "source": "metrics.infrastructureModules",
+      "format": "number"
+    },
+    {
+      "id": "scienceOutput",
+      "label": "Science",
+      "source": "metrics.scienceOutput",
+      "format": "number"
+    }
   ],
-
   "events": [
-    { "id": "crisis", "label": "Crisis", "icon": "⚠️", "color": "#ef4444" },
-    { "id": "decision", "label": "Decision", "icon": "⚡", "color": "#f59e0b" },
-    { "id": "birth", "label": "Birth", "icon": "👶", "color": "#22c55e" },
-    { "id": "death", "label": "Death", "icon": "💀", "color": "#6b7280" },
-    { "id": "promotion", "label": "Promotion", "icon": "⬆️", "color": "#3b82f6" },
-    { "id": "relationship", "label": "Relationship", "icon": "💕", "color": "#ec4899" },
-    { "id": "tool_forge", "label": "Tool Forged", "icon": "🔧", "color": "#8b5cf6" },
-    { "id": "system", "label": "System", "icon": "⚙️", "color": "#64748b" }
+    {
+      "id": "crisis",
+      "label": "Crisis",
+      "icon": "\u26a0\ufe0f",
+      "color": "#ef4444"
+    },
+    {
+      "id": "decision",
+      "label": "Decision",
+      "icon": "\u26a1",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "birth",
+      "label": "Birth",
+      "icon": "\ud83d\udc76",
+      "color": "#22c55e"
+    },
+    {
+      "id": "death",
+      "label": "Death",
+      "icon": "\ud83d\udc80",
+      "color": "#6b7280"
+    },
+    {
+      "id": "promotion",
+      "label": "Promotion",
+      "icon": "\u2b06\ufe0f",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "relationship",
+      "label": "Relationship",
+      "icon": "\ud83d\udc95",
+      "color": "#ec4899"
+    },
+    {
+      "id": "tool_forge",
+      "label": "Tool Forged",
+      "icon": "\ud83d\udd27",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "icon": "\u2699\ufe0f",
+      "color": "#64748b"
+    }
   ],
-
   "effects": {
-    "environmental": { "powerKw": 50, "morale": 0.08, "foodMonthsReserve": 1 },
-    "resource": { "foodMonthsReserve": 4, "waterLitersPerDay": 100, "morale": 0.05 },
-    "medical": { "morale": 0.10, "lifeSupportCapacity": 5 },
-    "psychological": { "morale": 0.15 },
-    "political": { "morale": 0.08, "infrastructureModules": 1 },
-    "infrastructure": { "infrastructureModules": 2, "powerKw": 60, "pressurizedVolumeM3": 200 },
-    "social": { "morale": 0.12 },
-    "technological": { "powerKw": 50, "scienceOutput": 3, "morale": 0.05 }
-  },
-
-  "world": {
-    "metrics": {
-      "population": { "id": "population", "label": "Population", "unit": "", "type": "number", "initial": 100, "min": 0, "category": "metric" },
-      "powerKw": { "id": "powerKw", "label": "Power", "unit": "kW", "type": "number", "initial": 400, "min": 0, "category": "metric" },
-      "foodMonthsReserve": { "id": "foodMonthsReserve", "label": "Food Reserve", "unit": "months", "type": "number", "initial": 18, "min": 0, "category": "metric" },
-      "waterLitersPerDay": { "id": "waterLitersPerDay", "label": "Water", "unit": "L/day", "type": "number", "initial": 800, "min": 0, "category": "metric" },
-      "pressurizedVolumeM3": { "id": "pressurizedVolumeM3", "label": "Volume", "unit": "m³", "type": "number", "initial": 3000, "min": 0, "category": "metric" },
-      "infrastructureModules": { "id": "infrastructureModules", "label": "Modules", "unit": "", "type": "number", "initial": 3, "min": 0, "category": "metric" },
-      "scienceOutput": { "id": "scienceOutput", "label": "Science", "unit": "", "type": "number", "initial": 0, "min": 0, "category": "metric" },
-      "morale": { "id": "morale", "label": "Morale", "unit": "%", "type": "number", "initial": 0.85, "min": 0, "max": 1, "category": "metric" }
+    "environmental": {
+      "powerKw": 50,
+      "morale": 0.08,
+      "foodMonthsReserve": 1
     },
-    "capacities": {
-      "lifeSupportCapacity": { "id": "lifeSupportCapacity", "label": "Life Support Cap", "unit": "", "type": "number", "initial": 120, "min": 0, "category": "capacity" }
+    "resource": {
+      "foodMonthsReserve": 4,
+      "waterLitersPerDay": 100,
+      "morale": 0.05
     },
-    "statuses": {
-      "governanceStatus": { "id": "governanceStatus", "label": "Governance", "unit": "", "type": "string", "initial": "earth-governed", "category": "status" }
+    "medical": {
+      "morale": 0.1,
+      "lifeSupportCapacity": 5
     },
-    "politics": {
-      "earthDependencyPct": { "id": "earthDependencyPct", "label": "Earth Dependency", "unit": "%", "type": "number", "initial": 95, "min": 0, "max": 100, "category": "politic" },
-      "independencePressure": { "id": "independencePressure", "label": "Independence Pressure", "unit": "%", "type": "number", "initial": 0.05, "min": 0, "max": 1, "category": "politic" }
+    "psychological": {
+      "morale": 0.15
     },
-    "environment": {
-      "surfaceRadiationMsvDay": { "id": "surfaceRadiationMsvDay", "label": "Surface Radiation", "unit": "mSv/day", "type": "number", "initial": 0.67, "min": 0, "category": "environment" }
+    "political": {
+      "morale": 0.08,
+      "infrastructureModules": 1
+    },
+    "infrastructure": {
+      "infrastructureModules": 2,
+      "powerKw": 60,
+      "pressurizedVolumeM3": 200
+    },
+    "social": {
+      "morale": 0.12
+    },
+    "technological": {
+      "powerKw": 50,
+      "scienceOutput": 3,
+      "morale": 0.05
     }
   },
-
+  "world": {
+    "metrics": {
+      "population": {
+        "id": "population",
+        "label": "Population",
+        "unit": "",
+        "type": "number",
+        "initial": 100,
+        "min": 0,
+        "category": "metric"
+      },
+      "powerKw": {
+        "id": "powerKw",
+        "label": "Power",
+        "unit": "kW",
+        "type": "number",
+        "initial": 400,
+        "min": 0,
+        "category": "metric"
+      },
+      "foodMonthsReserve": {
+        "id": "foodMonthsReserve",
+        "label": "Food Reserve",
+        "unit": "months",
+        "type": "number",
+        "initial": 18,
+        "min": 0,
+        "category": "metric"
+      },
+      "waterLitersPerDay": {
+        "id": "waterLitersPerDay",
+        "label": "Water",
+        "unit": "L/day",
+        "type": "number",
+        "initial": 800,
+        "min": 0,
+        "category": "metric"
+      },
+      "pressurizedVolumeM3": {
+        "id": "pressurizedVolumeM3",
+        "label": "Volume",
+        "unit": "m\u00b3",
+        "type": "number",
+        "initial": 3000,
+        "min": 0,
+        "category": "metric"
+      },
+      "infrastructureModules": {
+        "id": "infrastructureModules",
+        "label": "Modules",
+        "unit": "",
+        "type": "number",
+        "initial": 3,
+        "min": 0,
+        "category": "metric"
+      },
+      "scienceOutput": {
+        "id": "scienceOutput",
+        "label": "Science",
+        "unit": "",
+        "type": "number",
+        "initial": 0,
+        "min": 0,
+        "category": "metric"
+      },
+      "morale": {
+        "id": "morale",
+        "label": "Morale",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.85,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      }
+    },
+    "capacities": {
+      "lifeSupportCapacity": {
+        "id": "lifeSupportCapacity",
+        "label": "Life Support Cap",
+        "unit": "",
+        "type": "number",
+        "initial": 120,
+        "min": 0,
+        "category": "capacity"
+      }
+    },
+    "statuses": {
+      "governanceStatus": {
+        "id": "governanceStatus",
+        "label": "Governance",
+        "unit": "",
+        "type": "string",
+        "initial": "earth-governed",
+        "category": "status"
+      }
+    },
+    "politics": {
+      "earthDependencyPct": {
+        "id": "earthDependencyPct",
+        "label": "Earth Dependency",
+        "unit": "%",
+        "type": "number",
+        "initial": 95,
+        "min": 0,
+        "max": 100,
+        "category": "politic"
+      },
+      "independencePressure": {
+        "id": "independencePressure",
+        "label": "Independence Pressure",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.05,
+        "min": 0,
+        "max": 1,
+        "category": "politic"
+      }
+    },
+    "environment": {
+      "surfaceRadiationMsvDay": {
+        "id": "surfaceRadiationMsvDay",
+        "label": "Surface Radiation",
+        "unit": "mSv/day",
+        "type": "number",
+        "initial": 0.67,
+        "min": 0,
+        "category": "environment"
+      }
+    }
+  },
   "ui": {
     "headerMetrics": [
-      { "id": "population", "format": "number" },
-      { "id": "morale", "format": "percent" },
-      { "id": "foodMonthsReserve", "format": "number" },
-      { "id": "powerKw", "format": "number" },
-      { "id": "infrastructureModules", "format": "number" },
-      { "id": "scienceOutput", "format": "number" }
+      {
+        "id": "population",
+        "format": "number"
+      },
+      {
+        "id": "morale",
+        "format": "percent"
+      },
+      {
+        "id": "foodMonthsReserve",
+        "format": "number"
+      },
+      {
+        "id": "powerKw",
+        "format": "number"
+      },
+      {
+        "id": "infrastructureModules",
+        "format": "number"
+      },
+      {
+        "id": "scienceOutput",
+        "format": "number"
+      }
     ],
-    "tooltipFields": ["boneDensityPct", "cumulativeRadiationMsv", "psychScore", "marsborn"],
-    "reportSections": ["crisis", "departments", "decision", "outcome", "quotes"],
-    "departmentIcons": { "medical": "🏥", "engineering": "⚙️", "agriculture": "🌱", "psychology": "🧠", "governance": "🏛️" },
-    "setupSections": ["leaders", "personnel", "resources", "departments", "events", "models", "advanced"]
+    "tooltipFields": [
+      "boneDensityPct",
+      "cumulativeRadiationMsv",
+      "psychScore",
+      "marsborn"
+    ],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome",
+      "quotes"
+    ],
+    "departmentIcons": {
+      "medical": "\ud83c\udfe5",
+      "engineering": "\u2699\ufe0f",
+      "agriculture": "\ud83c\udf31",
+      "psychology": "\ud83e\udde0",
+      "governance": "\ud83c\udfdb\ufe0f"
+    },
+    "setupSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models",
+      "advanced"
+    ]
   },
-
   "policies": {
-    "toolForging": { "enabled": true, "requiredPerDepartment": true },
-    "liveSearch": { "enabled": false, "mode": "off" },
-    "bulletin": { "enabled": true },
-    "characterChat": { "enabled": true },
-    "sandbox": { "timeoutMs": 10000, "memoryMB": 128 }
+    "toolForging": {
+      "enabled": true,
+      "requiredPerDepartment": true
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
   },
-
   "presets": [
     {
       "id": "default",
@@ -133,50 +424,270 @@
         {
           "name": "Aria Chen",
           "archetype": "The Visionary",
-          "hexaco": { "openness": 0.95, "conscientiousness": 0.35, "extraversion": 0.85, "agreeableness": 0.55, "emotionality": 0.30, "honestyHumility": 0.65 },
+          "hexaco": {
+            "openness": 0.95,
+            "conscientiousness": 0.35,
+            "extraversion": 0.85,
+            "agreeableness": 0.55,
+            "emotionality": 0.3,
+            "honestyHumility": 0.65
+          },
           "instructions": "You are Aria Chen, \"The Visionary.\" You lead by inspiration. You value openness to experience and bold experimentation. You tolerate mess if it leads to breakthroughs. You spin setbacks as learning opportunities. You rally people with charisma. Your HEXACO profile drives your leadership style."
         },
         {
           "name": "Dietrich Voss",
           "archetype": "The Engineer",
-          "hexaco": { "openness": 0.25, "conscientiousness": 0.97, "extraversion": 0.30, "agreeableness": 0.60, "emotionality": 0.70, "honestyHumility": 0.90 },
+          "hexaco": {
+            "openness": 0.25,
+            "conscientiousness": 0.97,
+            "extraversion": 0.3,
+            "agreeableness": 0.6,
+            "emotionality": 0.7,
+            "honestyHumility": 0.9
+          },
           "instructions": "You are Dietrich Voss, \"The Engineer.\" You lead by precision and evidence. You value conscientiousness and proven methods. You reject untested approaches. You share bad news immediately and honestly. You build systems, not visions. Your HEXACO profile drives your leadership style."
         }
       ],
       "personnel": [
-        { "name": "Dr. Yuki Tanaka", "department": "medical", "role": "Chief Medical Officer", "specialization": "Radiation Medicine", "age": 38, "featured": true },
-        { "name": "Erik Lindqvist", "department": "engineering", "role": "Chief Engineer", "specialization": "Structural Engineering", "age": 45, "featured": true },
-        { "name": "Amara Osei", "department": "agriculture", "role": "Head of Agriculture", "specialization": "Hydroponics", "age": 34, "featured": true },
-        { "name": "Dr. Priya Singh", "department": "psychology", "role": "Colony Psychologist", "specialization": "Clinical Psychology", "age": 41, "featured": true },
-        { "name": "Carlos Fernandez", "department": "engineering", "role": "Senior Geologist", "specialization": "Mars Surface Geology", "age": 50, "featured": true }
+        {
+          "name": "Dr. Yuki Tanaka",
+          "department": "medical",
+          "role": "Chief Medical Officer",
+          "specialization": "Radiation Medicine",
+          "age": 38,
+          "featured": true
+        },
+        {
+          "name": "Erik Lindqvist",
+          "department": "engineering",
+          "role": "Chief Engineer",
+          "specialization": "Structural Engineering",
+          "age": 45,
+          "featured": true
+        },
+        {
+          "name": "Amara Osei",
+          "department": "agriculture",
+          "role": "Head of Agriculture",
+          "specialization": "Hydroponics",
+          "age": 34,
+          "featured": true
+        },
+        {
+          "name": "Dr. Priya Singh",
+          "department": "psychology",
+          "role": "Colony Psychologist",
+          "specialization": "Clinical Psychology",
+          "age": 41,
+          "featured": true
+        },
+        {
+          "name": "Carlos Fernandez",
+          "department": "engineering",
+          "role": "Senior Geologist",
+          "specialization": "Mars Surface Geology",
+          "age": 50,
+          "featured": true
+        }
       ]
     }
   ],
-
   "names": {
-    "first": ["Aria","Dietrich","Yuki","Marcus","Elena","Kwame","Sofia","Jin","Amara","Liam","Priya","Omar","Mei","Carlos","Ingrid","Tariq","Nadia","Henrik","Aisha","Pavel","Luna","Ravi","Zara","Felix","Anya","Diego","Kira","Hassan","Signe","Jamal","Mila","Chen","Fatima","Anders","Keiko","David","Olga","Kofi","Leila","Sven","Rosa","Idris","Hana","Bruno","Daria","Emeka","Yara","Tomas","Nia","Viktor"],
-    "last": ["Chen","Voss","Tanaka","Webb","Kowalski","Okafor","Petrov","Kim","Santos","Johansson","Patel","Al-Rashid","Nakamura","Fernandez","Berg","Ibrahim","Volkov","Singh","Torres","Andersen","Müller","Zhang","Osei","Larsson","Ahmad","Costa","Ivanova","Park","Eriksson","Diallo","Sato","Rivera","Lindqvist","Mensah","Kato","Morales","Holm","Yusuf","Takahashi","Reyes","Nkomo","Li","Herrera","Bakker","Ito","Mendez","Dahl","Owusu","Yamamoto","Cruz"],
-    "child": ["Nova","Kai","Sol","Tera","Eos","Zan","Lyra","Orion","Vega","Juno","Atlas","Iris","Clio","Pax","Io","Thea"]
+    "first": [
+      "Aria",
+      "Dietrich",
+      "Yuki",
+      "Marcus",
+      "Elena",
+      "Kwame",
+      "Sofia",
+      "Jin",
+      "Amara",
+      "Liam",
+      "Priya",
+      "Omar",
+      "Mei",
+      "Carlos",
+      "Ingrid",
+      "Tariq",
+      "Nadia",
+      "Henrik",
+      "Aisha",
+      "Pavel",
+      "Luna",
+      "Ravi",
+      "Zara",
+      "Felix",
+      "Anya",
+      "Diego",
+      "Kira",
+      "Hassan",
+      "Signe",
+      "Jamal",
+      "Mila",
+      "Chen",
+      "Fatima",
+      "Anders",
+      "Keiko",
+      "David",
+      "Olga",
+      "Kofi",
+      "Leila",
+      "Sven",
+      "Rosa",
+      "Idris",
+      "Hana",
+      "Bruno",
+      "Daria",
+      "Emeka",
+      "Yara",
+      "Tomas",
+      "Nia",
+      "Viktor"
+    ],
+    "last": [
+      "Chen",
+      "Voss",
+      "Tanaka",
+      "Webb",
+      "Kowalski",
+      "Okafor",
+      "Petrov",
+      "Kim",
+      "Santos",
+      "Johansson",
+      "Patel",
+      "Al-Rashid",
+      "Nakamura",
+      "Fernandez",
+      "Berg",
+      "Ibrahim",
+      "Volkov",
+      "Singh",
+      "Torres",
+      "Andersen",
+      "M\u00fcller",
+      "Zhang",
+      "Osei",
+      "Larsson",
+      "Ahmad",
+      "Costa",
+      "Ivanova",
+      "Park",
+      "Eriksson",
+      "Diallo",
+      "Sato",
+      "Rivera",
+      "Lindqvist",
+      "Mensah",
+      "Kato",
+      "Morales",
+      "Holm",
+      "Yusuf",
+      "Takahashi",
+      "Reyes",
+      "Nkomo",
+      "Li",
+      "Herrera",
+      "Bakker",
+      "Ito",
+      "Mendez",
+      "Dahl",
+      "Owusu",
+      "Yamamoto",
+      "Cruz"
+    ],
+    "child": [
+      "Nova",
+      "Kai",
+      "Sol",
+      "Tera",
+      "Eos",
+      "Zan",
+      "Lyra",
+      "Orion",
+      "Vega",
+      "Juno",
+      "Atlas",
+      "Iris",
+      "Clio",
+      "Pax",
+      "Io",
+      "Thea"
+    ]
   },
-
   "knowledgeRef": "mars-knowledge.json",
-
   "dataDrivenHooks": {
     "progressionPhysics": "mars-radiation-bone",
-
     "directorInstructions": "You are the Crisis Director for a Mars colony simulation. You observe colony state and generate crises that test the colony's weaknesses, exploit consequences of prior decisions, and create interesting narrative tension.\n\nRULES:\n1. Each crisis has exactly 2-3 options with stable IDs (option_a, option_b, option_c)\n2. Exactly one option must be marked isRisky: true (higher upside, higher downside)\n3. Crises must reference real Mars science (radiation, gravity, atmosphere, psychology, politics)\n4. Never repeat a crisis category from the immediately previous turn\n5. Escalate: later crises should reference consequences of earlier decisions\n6. Calibrate difficulty to colony state: struggling colonies get survivable crises, thriving colonies get existential ones\n7. Include the colony's actual numbers in the crisis description (population, morale, food, etc.)\n8. Specify which departments should analyze (2-4 departments per crisis)\n\nCRISIS CATEGORIES:\n- environmental: radiation, dust storms, seismic activity, atmospheric events\n- resource: water, food, power, oxygen, materials shortage\n- medical: disease, injury, bone density, radiation sickness, pandemic\n- psychological: morale, isolation, generational tension, grief, burnout\n- political: Earth relations, independence, governance disputes, factions\n- infrastructure: habitat damage, life support failure, construction\n- social: births, education, cultural identity, intergenerational conflict\n- technological: equipment failure, communication, AI systems\n\nAVAILABLE DEPARTMENTS (use ONLY these exact names in relevantDepartments):\n- medical\n- engineering\n- agriculture\n- psychology\n- governance\n\nDo NOT use any other department names. Pick 2-4 from this list.\n\nReturn ONLY valid JSON:\n{\"title\":\"Crisis Title\",\"crisis\":\"Full description with specific colony numbers...\",\"options\":[{\"id\":\"option_a\",\"label\":\"Option Label\",\"description\":\"What this option does\",\"isRisky\":false},{\"id\":\"option_b\",\"label\":\"Risky Option\",\"description\":\"Higher upside, higher risk\",\"isRisky\":true}],\"riskyOptionId\":\"option_b\",\"riskSuccessProbability\":0.55,\"category\":\"environmental\",\"researchKeywords\":[\"mars dust storm\",\"habitat pressure\"],\"relevantDepartments\":[\"engineering\",\"medical\"],\"turnSummary\":\"One sentence: why this crisis emerged from prior events\"}",
-
     "departments": {
       "medical": {
         "heading": "HEALTH:",
         "chips": [
-          { "label": "Avg radiation", "agg": { "fn": "avg", "field": "health.cumulativeRadiationMsv", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "number" },
-          { "label": "Avg bone", "agg": { "fn": "avg", "field": "health.boneDensityPct", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "percent" },
-          { "label": "Mars-born", "agg": { "fn": "count", "where": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "core.marsborn", "op": "==", "value": true }] } }, "format": "number" }
+          {
+            "label": "Avg radiation",
+            "agg": {
+              "fn": "avg",
+              "field": "health.cumulativeRadiationMsv",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "number"
+          },
+          {
+            "label": "Avg bone",
+            "agg": {
+              "fn": "avg",
+              "field": "health.boneDensityPct",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "percent"
+          },
+          {
+            "label": "Mars-born",
+            "agg": {
+              "fn": "count",
+              "where": {
+                "all": [
+                  {
+                    "agent": "health.alive",
+                    "op": "==",
+                    "value": true
+                  },
+                  {
+                    "agent": "core.marsborn",
+                    "op": "==",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            "format": "number"
+          }
         ],
         "featuredRoster": {
           "header": "FEATURED:",
-          "filter": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "narrative.featured", "op": "==", "value": true }] },
+          "filter": {
+            "all": [
+              {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              },
+              {
+                "agent": "narrative.featured",
+                "op": "==",
+                "value": true
+              }
+            ]
+          },
           "limit": 6,
           "template": "- {{name}} ({{age}}y): bone {{health.boneDensityPct}}% rad {{health.cumulativeRadiationMsv}}mSv psych {{health.psychScore}}"
         }
@@ -184,33 +695,138 @@
       "engineering": {
         "heading": "INFRASTRUCTURE:",
         "chips": [
-          { "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" },
-          { "label": "Power", "source": "metrics.powerKw", "format": "number" },
-          { "label": "Life support cap", "source": "metrics.lifeSupportCapacity", "format": "number" },
-          { "label": "Population", "source": "metrics.population", "format": "number" },
-          { "label": "Volume m³", "source": "metrics.pressurizedVolumeM3", "format": "number" },
-          { "label": "Water L/day", "source": "metrics.waterLitersPerDay", "format": "number" }
+          {
+            "label": "Modules",
+            "source": "metrics.infrastructureModules",
+            "format": "number"
+          },
+          {
+            "label": "Power",
+            "source": "metrics.powerKw",
+            "format": "number"
+          },
+          {
+            "label": "Life support cap",
+            "source": "metrics.lifeSupportCapacity",
+            "format": "number"
+          },
+          {
+            "label": "Population",
+            "source": "metrics.population",
+            "format": "number"
+          },
+          {
+            "label": "Volume m\u00b3",
+            "source": "metrics.pressurizedVolumeM3",
+            "format": "number"
+          },
+          {
+            "label": "Water L/day",
+            "source": "metrics.waterLitersPerDay",
+            "format": "number"
+          }
         ]
       },
       "agriculture": {
         "heading": "FOOD:",
         "chips": [
-          { "label": "Reserves (months)", "source": "metrics.foodMonthsReserve", "format": "number" },
-          { "label": "Pop to feed", "source": "metrics.population", "format": "number" },
-          { "label": "Modules", "source": "metrics.infrastructureModules", "format": "number" }
+          {
+            "label": "Reserves (months)",
+            "source": "metrics.foodMonthsReserve",
+            "format": "number"
+          },
+          {
+            "label": "Pop to feed",
+            "source": "metrics.population",
+            "format": "number"
+          },
+          {
+            "label": "Modules",
+            "source": "metrics.infrastructureModules",
+            "format": "number"
+          }
         ]
       },
       "psychology": {
         "heading": "PSYCH:",
         "chips": [
-          { "label": "Morale", "source": "metrics.morale", "format": "percent" },
-          { "label": "Avg psych", "agg": { "fn": "avg", "field": "health.psychScore", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "number" },
-          { "label": "Depressed", "agg": { "fn": "count", "where": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "health.psychScore", "op": "<", "value": 0.5 }] } }, "format": "number" },
-          { "label": "Mars-born", "agg": { "fn": "count", "where": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "core.marsborn", "op": "==", "value": true }] } }, "format": "number" }
+          {
+            "label": "Morale",
+            "source": "metrics.morale",
+            "format": "percent"
+          },
+          {
+            "label": "Avg psych",
+            "agg": {
+              "fn": "avg",
+              "field": "health.psychScore",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "number"
+          },
+          {
+            "label": "Depressed",
+            "agg": {
+              "fn": "count",
+              "where": {
+                "all": [
+                  {
+                    "agent": "health.alive",
+                    "op": "==",
+                    "value": true
+                  },
+                  {
+                    "agent": "health.psychScore",
+                    "op": "<",
+                    "value": 0.5
+                  }
+                ]
+              }
+            },
+            "format": "number"
+          },
+          {
+            "label": "Mars-born",
+            "agg": {
+              "fn": "count",
+              "where": {
+                "all": [
+                  {
+                    "agent": "health.alive",
+                    "op": "==",
+                    "value": true
+                  },
+                  {
+                    "agent": "core.marsborn",
+                    "op": "==",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            "format": "number"
+          }
         ],
         "featuredRoster": {
           "header": "SOCIAL:",
-          "filter": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "narrative.featured", "op": "==", "value": true }] },
+          "filter": {
+            "all": [
+              {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              },
+              {
+                "agent": "narrative.featured",
+                "op": "==",
+                "value": true
+              }
+            ]
+          },
           "limit": 4,
           "template": "- {{name}}: psych {{health.psychScore}}"
         }
@@ -218,106 +834,314 @@
       "governance": {
         "heading": "POLITICS:",
         "chips": [
-          { "label": "Earth dep", "source": "politics.earthDependencyPct", "format": "number" },
-          { "label": "Status", "source": "statuses.governanceStatus", "format": "string" },
-          { "label": "Independence pressure", "source": "politics.independencePressure", "format": "percent" },
-          { "label": "Mars-born alive", "agg": { "fn": "count", "where": { "all": [{ "agent": "health.alive", "op": "==", "value": true }, { "agent": "core.marsborn", "op": "==", "value": true }] } }, "format": "number" },
-          { "label": "Total alive", "agg": { "fn": "count", "where": { "agent": "health.alive", "op": "==", "value": true } }, "format": "number" }
+          {
+            "label": "Earth dep",
+            "source": "politics.earthDependencyPct",
+            "format": "number"
+          },
+          {
+            "label": "Status",
+            "source": "statuses.governanceStatus",
+            "format": "string"
+          },
+          {
+            "label": "Independence pressure",
+            "source": "politics.independencePressure",
+            "format": "percent"
+          },
+          {
+            "label": "Mars-born alive",
+            "agg": {
+              "fn": "count",
+              "where": {
+                "all": [
+                  {
+                    "agent": "health.alive",
+                    "op": "==",
+                    "value": true
+                  },
+                  {
+                    "agent": "core.marsborn",
+                    "op": "==",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            "format": "number"
+          },
+          {
+            "label": "Total alive",
+            "agg": {
+              "fn": "count",
+              "where": {
+                "agent": "health.alive",
+                "op": "==",
+                "value": true
+              }
+            },
+            "format": "number"
+          }
         ]
       }
     },
-
     "postureRules": [],
-
     "fingerprintAxes": [
       {
         "name": "resilience",
         "bands": [
-          { "label": "antifragile", "when": { "field": "morale", "op": ">", "value": 0.6 } },
-          { "label": "resilient", "when": { "field": "morale", "op": ">", "value": 0.35 } },
-          { "label": "brittle", "default": true }
+          {
+            "label": "antifragile",
+            "when": {
+              "field": "morale",
+              "op": ">",
+              "value": 0.6
+            }
+          },
+          {
+            "label": "resilient",
+            "when": {
+              "field": "morale",
+              "op": ">",
+              "value": 0.35
+            }
+          },
+          {
+            "label": "brittle",
+            "default": true
+          }
         ]
       },
       {
         "name": "autonomy",
         "bands": [
-          { "label": "autonomous", "when": { "field": "earthDependencyPct", "op": "<", "value": 40 } },
-          { "label": "transitioning", "when": { "field": "earthDependencyPct", "op": "<", "value": 70 } },
-          { "label": "Earth-tethered", "default": true }
+          {
+            "label": "autonomous",
+            "when": {
+              "field": "earthDependencyPct",
+              "op": "<",
+              "value": 40
+            }
+          },
+          {
+            "label": "transitioning",
+            "when": {
+              "field": "earthDependencyPct",
+              "op": "<",
+              "value": 70
+            }
+          },
+          {
+            "label": "Earth-tethered",
+            "default": true
+          }
         ]
       },
       {
         "name": "governance",
         "bands": [
-          { "label": "charismatic", "when": { "field": "leader.extraversion", "op": ">", "value": 0.7 } },
-          { "label": "technocratic", "when": { "field": "leader.conscientiousness", "op": ">", "value": 0.7 } },
-          { "label": "communal", "default": true }
+          {
+            "label": "charismatic",
+            "when": {
+              "field": "leader.extraversion",
+              "op": ">",
+              "value": 0.7
+            }
+          },
+          {
+            "label": "technocratic",
+            "when": {
+              "field": "leader.conscientiousness",
+              "op": ">",
+              "value": 0.7
+            }
+          },
+          {
+            "label": "communal",
+            "default": true
+          }
         ]
       },
       {
         "name": "riskProfile",
         "bands": [
-          { "label": "expansionist", "when": { "field": "outcomes.risky", "op": ">", "value": 0 } },
-          { "label": "conservative", "default": true }
+          {
+            "label": "expansionist",
+            "when": {
+              "field": "outcomes.risky",
+              "op": ">",
+              "value": 0
+            }
+          },
+          {
+            "label": "conservative",
+            "default": true
+          }
         ]
       },
       {
         "name": "identity",
         "bands": [
-          { "label": "Martian", "when": { "any": [
-            { "all": [{ "field": "agents.alive", "op": ">", "value": 0 }, { "field": "agents.marsborn", "op": ">", "value": 30 }] },
-            { "all": [{ "field": "agents.alive", "op": "<=", "value": 50 }, { "field": "agents.marsborn", "op": ">", "value": 15 }] }
-          ] } },
-          { "label": "Earth-diaspora", "default": true }
+          {
+            "label": "Martian",
+            "when": {
+              "any": [
+                {
+                  "all": [
+                    {
+                      "field": "agents.alive",
+                      "op": ">",
+                      "value": 0
+                    },
+                    {
+                      "field": "agents.marsborn",
+                      "op": ">",
+                      "value": 30
+                    }
+                  ]
+                },
+                {
+                  "all": [
+                    {
+                      "field": "agents.alive",
+                      "op": "<=",
+                      "value": 50
+                    },
+                    {
+                      "field": "agents.marsborn",
+                      "op": ">",
+                      "value": 15
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "label": "Earth-diaspora",
+            "default": true
+          }
         ]
       },
       {
         "name": "innovation",
         "bands": [
-          { "label": "innovative", "when": { "field": "tools.total", "op": ">", "value": 12 } },
-          { "label": "adaptive", "when": { "field": "tools.total", "op": ">", "value": 6 } },
-          { "label": "conventional", "default": true }
+          {
+            "label": "innovative",
+            "when": {
+              "field": "tools.total",
+              "op": ">",
+              "value": 12
+            }
+          },
+          {
+            "label": "adaptive",
+            "when": {
+              "field": "tools.total",
+              "op": ">",
+              "value": 6
+            }
+          },
+          {
+            "label": "conventional",
+            "default": true
+          }
         ]
       }
     ],
-
     "politics": {
       "political": {
-        "onSuccess": { "independencePressure": 0.05, "earthDependencyPct": -3 },
-        "onFailure": { "independencePressure": -0.03, "earthDependencyPct": 2 }
+        "onSuccess": {
+          "independencePressure": 0.05,
+          "earthDependencyPct": -3
+        },
+        "onFailure": {
+          "independencePressure": -0.03,
+          "earthDependencyPct": 2
+        }
       },
       "social": {
-        "onSuccess": { "independencePressure": 0.05, "earthDependencyPct": -3 },
-        "onFailure": { "independencePressure": -0.03, "earthDependencyPct": 2 }
+        "onSuccess": {
+          "independencePressure": 0.05,
+          "earthDependencyPct": -3
+        },
+        "onFailure": {
+          "independencePressure": -0.03,
+          "earthDependencyPct": 2
+        }
       }
     },
-
     "reactionTemplate": {
       "lines": [
-        { "template": "Mars-born, never seen Earth.", "when": { "agent": "core.marsborn", "op": "==", "value": true } },
-        { "template": "Earth-born, {{years}} years on Mars.", "when": { "agent": "core.marsborn", "op": "==", "value": false } },
-        { "template": "Suffering significant bone density loss.", "when": { "agent": "health.boneDensityPct", "op": "<", "value": 70 } },
-        { "template": "High cumulative radiation exposure.", "when": { "agent": "health.cumulativeRadiationMsv", "op": ">", "value": 1500 } }
+        {
+          "template": "Mars-born, never seen Earth.",
+          "when": {
+            "agent": "core.marsborn",
+            "op": "==",
+            "value": true
+          }
+        },
+        {
+          "template": "Earth-born, {{years}} years on Mars.",
+          "when": {
+            "agent": "core.marsborn",
+            "op": "==",
+            "value": false
+          }
+        },
+        {
+          "template": "Suffering significant bone density loss.",
+          "when": {
+            "agent": "health.boneDensityPct",
+            "op": "<",
+            "value": 70
+          }
+        },
+        {
+          "template": "High cumulative radiation exposure.",
+          "when": {
+            "agent": "health.cumulativeRadiationMsv",
+            "op": ">",
+            "value": 1500
+          }
+        }
       ],
       "join": " "
     },
-
     "milestones": [
       {
         "turn": 1,
         "event": {
           "title": "Landfall",
           "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
-          "crisis": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement. Two candidates:\n\nOPTION A: Arcadia Planitia — flat basalt plains at 47°N. Stable terrain, minimal landslide risk, access to subsurface ice deposits detected by Mars Express MARSIS radar. Geologically unremarkable.\n\nOPTION B: Valles Marineris rim — edge of the 4,000 km canyon system at 14°S. Exposed geological strata spanning 3.5 billion years. Rich mineral diversity detected by CRISM. Significant terrain hazards: slopes up to 30°, rockfall risk, and 2km elevation changes within the operational zone.\n\nBoth sites receive similar solar irradiance. Surface radiation at either site: approximately 0.67 mSv/day per Curiosity RAD measurements.\n\nResearch the real science of Mars landing site selection and make your decision.",
+          "crisis": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement. Two candidates:\n\nOPTION A: Arcadia Planitia \u2014 flat basalt plains at 47\u00b0N. Stable terrain, minimal landslide risk, access to subsurface ice deposits detected by Mars Express MARSIS radar. Geologically unremarkable.\n\nOPTION B: Valles Marineris rim \u2014 edge of the 4,000 km canyon system at 14\u00b0S. Exposed geological strata spanning 3.5 billion years. Rich mineral diversity detected by CRISM. Significant terrain hazards: slopes up to 30\u00b0, rockfall risk, and 2km elevation changes within the operational zone.\n\nBoth sites receive similar solar irradiance. Surface radiation at either site: approximately 0.67 mSv/day per Curiosity RAD measurements.\n\nResearch the real science of Mars landing site selection and make your decision.",
           "options": [
-            { "id": "option_a", "label": "Arcadia Planitia", "description": "Flat basalt plains, safe, ice access", "isRisky": false },
-            { "id": "option_b", "label": "Valles Marineris rim", "description": "Canyon rim, mineral rich, hazardous terrain", "isRisky": true }
+            {
+              "id": "option_a",
+              "label": "Arcadia Planitia",
+              "description": "Flat basalt plains, safe, ice access",
+              "isRisky": false
+            },
+            {
+              "id": "option_b",
+              "label": "Valles Marineris rim",
+              "description": "Canyon rim, mineral rich, hazardous terrain",
+              "isRisky": true
+            }
           ],
           "riskyOptionId": "option_b",
           "riskSuccessProbability": 0.65,
           "category": "infrastructure",
-          "researchKeywords": ["Mars landing site selection", "Arcadia Planitia geology", "Valles Marineris mineralogy", "Mars surface radiation Curiosity RAD"],
-          "relevantDepartments": ["medical", "engineering"],
+          "researchKeywords": [
+            "Mars landing site selection",
+            "Arcadia Planitia geology",
+            "Valles Marineris mineralogy",
+            "Mars surface radiation Curiosity RAD"
+          ],
+          "relevantDepartments": [
+            "medical",
+            "engineering"
+          ],
           "turnSummary": "Colony ship in orbit. Safe plains or mineral-rich canyon rim: the first decision shapes everything."
         }
       },
@@ -328,14 +1152,31 @@
           "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
           "crisis": "Earth requests a comprehensive status report on your colony:\n\n1. POPULATION: Current count, birth rate, death rate, immigration status\n2. INFRASTRUCTURE: Number of modules, total pressurized volume, power generation\n3. SELF-SUFFICIENCY: Percentage of needs met without Earth supply ships\n4. SCIENCE: Major discoveries, papers published, unique knowledge created\n5. CULTURE: What kind of society did you build? What values define your colony?\n6. REGRETS: What would you do differently if you could start over?\n7. TOOLS BUILT: Review every tool you forged during this simulation. Which were most valuable?\n8. LEGACY: What will your colony look like in another 50 years?\n\nBe honest. Your personality shapes your assessment.",
           "options": [
-            { "id": "option_a", "label": "Honest assessment", "description": "Report factually, including failures and regrets", "isRisky": false },
-            { "id": "option_b", "label": "Ambitious projection", "description": "Emphasize achievements, propose bold next-century vision", "isRisky": true }
+            {
+              "id": "option_a",
+              "label": "Honest assessment",
+              "description": "Report factually, including failures and regrets",
+              "isRisky": false
+            },
+            {
+              "id": "option_b",
+              "label": "Ambitious projection",
+              "description": "Emphasize achievements, propose bold next-century vision",
+              "isRisky": true
+            }
           ],
           "riskyOptionId": "option_b",
           "riskSuccessProbability": 0.5,
           "category": "political",
-          "researchKeywords": ["Mars colony long-term projections"],
-          "relevantDepartments": ["governance", "psychology", "medical", "engineering"],
+          "researchKeywords": [
+            "Mars colony long-term projections"
+          ],
+          "relevantDepartments": [
+            "governance",
+            "psychology",
+            "medical",
+            "engineering"
+          ],
           "turnSummary": "Earth demands a full status report. The commander must decide: honest accounting of failures, or bold vision for the next century."
         }
       }

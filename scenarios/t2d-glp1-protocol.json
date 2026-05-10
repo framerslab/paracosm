@@ -1,8 +1,8 @@
 {
   "id": "t2d-glp1-protocol",
+  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/t2d-glp1-protocol.json",
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
-
   "labels": {
     "name": "T2D + GLP-1 Care",
     "shortName": "t2d-care",
@@ -12,9 +12,9 @@
     "eventNoun": "decisions",
     "eventNounSingular": "decision",
     "timeUnitNoun": "week",
-    "timeUnitNounPlural": "weeks"
+    "timeUnitNounPlural": "weeks",
+    "tagline": "T2D + GLP-1 Care: a 24-month patient cohort under two clinician archetypes. GLP-1 dose titration, A1c trajectory, and adherence drift are the per-patient state."
   },
-
   "theme": {
     "primaryColor": "#10b981",
     "accentColor": "#34d399",
@@ -25,83 +25,305 @@
       "--accent": "#34d399"
     }
   },
-
   "setup": {
     "defaultTurns": 6,
     "defaultSeed": 11,
     "defaultStartTime": 1,
     "defaultTimePerTurn": 2,
     "defaultPopulation": 1,
-    "configurableSections": ["leaders", "personnel", "resources", "departments", "events", "models"]
+    "configurableSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models"
+    ]
   },
-
   "departments": [
-    { "id": "endocrinology",     "label": "Endocrinology",     "role": "Endocrinologist",        "icon": "💉", "defaultModel": "gpt-5.4-mini", "instructions": "You are the patient's endocrinologist. You analyze HbA1c trajectory, fasting glucose, postprandial glucose patterns, beta-cell function markers, and pharmacological dose-response. You argue for titration, dose-hold, or de-escalation based on glycemic trends and side-effect tolerance." },
-    { "id": "nutrition",          "label": "Nutrition",         "role": "Registered Dietitian",   "icon": "🥗", "defaultModel": "gpt-5.4-mini", "instructions": "You are the patient's registered dietitian. You analyze caloric intake, macronutrient distribution, eating patterns, food-medication timing (esp. with GLP-1 nausea), and protein adequacy during weight loss. You set the meal-plan adjustments that sustain adherence without lean-mass loss." },
-    { "id": "behavioral_psych",   "label": "Behavioral Health", "role": "Health Psychologist",    "icon": "🧠", "defaultModel": "gpt-5.4-mini", "instructions": "You are the patient's health psychologist. You analyze motivation, self-efficacy, sleep hygiene, stress load, mood, and the cognitive friction of new routines. You design the behavioral scaffolding (CBT-I, motivational interviewing, habit-stacking) that converts protocol intent into daily adherence." },
-    { "id": "cardiology",         "label": "Cardiology",        "role": "Preventive Cardiologist","icon": "❤️", "defaultModel": "gpt-5.4-mini", "instructions": "You are the patient's preventive cardiologist. You analyze blood pressure, lipid panel, resting heart rate, exercise tolerance, and cardiovascular risk stratification (ASCVD, CKD-EPI). You hold the line on cardiac safety when the protocol pushes intensity, and you flag gallbladder + pancreatitis signals on GLP-1 therapy." },
-    { "id": "lifestyle_coach",    "label": "Lifestyle Coach",   "role": "Lifestyle Medicine Coach","icon": "🏃", "defaultModel": "gpt-5.4-mini", "instructions": "You are the patient's lifestyle medicine coach. You analyze step count, exercise minutes, sleep duration, hydration, and the patient's lived adherence vs prescription. You argue for graded exercise progression, recovery weeks, and the small environmental tweaks that compound over a 12-week protocol." }
+    {
+      "id": "endocrinology",
+      "label": "Endocrinology",
+      "role": "Endocrinologist",
+      "icon": "\ud83d\udc89",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the patient's endocrinologist. You analyze HbA1c trajectory, fasting glucose, postprandial glucose patterns, beta-cell function markers, and pharmacological dose-response. You argue for titration, dose-hold, or de-escalation based on glycemic trends and side-effect tolerance."
+    },
+    {
+      "id": "nutrition",
+      "label": "Nutrition",
+      "role": "Registered Dietitian",
+      "icon": "\ud83e\udd57",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the patient's registered dietitian. You analyze caloric intake, macronutrient distribution, eating patterns, food-medication timing (esp. with GLP-1 nausea), and protein adequacy during weight loss. You set the meal-plan adjustments that sustain adherence without lean-mass loss."
+    },
+    {
+      "id": "behavioral_psych",
+      "label": "Behavioral Health",
+      "role": "Health Psychologist",
+      "icon": "\ud83e\udde0",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the patient's health psychologist. You analyze motivation, self-efficacy, sleep hygiene, stress load, mood, and the cognitive friction of new routines. You design the behavioral scaffolding (CBT-I, motivational interviewing, habit-stacking) that converts protocol intent into daily adherence."
+    },
+    {
+      "id": "cardiology",
+      "label": "Cardiology",
+      "role": "Preventive Cardiologist",
+      "icon": "\u2764\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the patient's preventive cardiologist. You analyze blood pressure, lipid panel, resting heart rate, exercise tolerance, and cardiovascular risk stratification (ASCVD, CKD-EPI). You hold the line on cardiac safety when the protocol pushes intensity, and you flag gallbladder + pancreatitis signals on GLP-1 therapy."
+    },
+    {
+      "id": "lifestyle_coach",
+      "label": "Lifestyle Coach",
+      "role": "Lifestyle Medicine Coach",
+      "icon": "\ud83c\udfc3",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the patient's lifestyle medicine coach. You analyze step count, exercise minutes, sleep duration, hydration, and the patient's lived adherence vs prescription. You argue for graded exercise progression, recovery weeks, and the small environmental tweaks that compound over a 12-week protocol."
+    }
   ],
-
   "metrics": [
-    { "id": "hba1c",              "label": "HbA1c",             "source": "metrics.hba1c",              "format": "number"  },
-    { "id": "fastingGlucose",     "label": "Fasting Glucose",   "source": "metrics.fastingGlucose",     "format": "number"  },
-    { "id": "weight",             "label": "Weight",            "source": "metrics.weight",             "format": "number"  },
-    { "id": "bmi",                "label": "BMI",               "source": "metrics.bmi",                "format": "number"  },
-    { "id": "exerciseAdherence",  "label": "Exercise Adherence","source": "metrics.exerciseAdherence",  "format": "percent" },
-    { "id": "sleepHours",         "label": "Sleep",             "source": "metrics.sleepHours",         "format": "number"  },
-    { "id": "qualityOfLife",      "label": "Quality of Life",   "source": "metrics.qualityOfLife",      "format": "percent" },
-    { "id": "mortalityRisk",      "label": "10-yr Mortality",   "source": "metrics.mortalityRisk",      "format": "percent" },
-    { "id": "cardioFitness",      "label": "Cardio Fitness",    "source": "metrics.cardioFitness",      "format": "percent" },
-    { "id": "sideEffectBurden",   "label": "Side-effect Load",  "source": "metrics.sideEffectBurden",   "format": "percent" }
+    {
+      "id": "hba1c",
+      "label": "HbA1c",
+      "source": "metrics.hba1c",
+      "format": "number"
+    },
+    {
+      "id": "fastingGlucose",
+      "label": "Fasting Glucose",
+      "source": "metrics.fastingGlucose",
+      "format": "number"
+    },
+    {
+      "id": "weight",
+      "label": "Weight",
+      "source": "metrics.weight",
+      "format": "number"
+    },
+    {
+      "id": "bmi",
+      "label": "BMI",
+      "source": "metrics.bmi",
+      "format": "number"
+    },
+    {
+      "id": "exerciseAdherence",
+      "label": "Exercise Adherence",
+      "source": "metrics.exerciseAdherence",
+      "format": "percent"
+    },
+    {
+      "id": "sleepHours",
+      "label": "Sleep",
+      "source": "metrics.sleepHours",
+      "format": "number"
+    },
+    {
+      "id": "qualityOfLife",
+      "label": "Quality of Life",
+      "source": "metrics.qualityOfLife",
+      "format": "percent"
+    },
+    {
+      "id": "mortalityRisk",
+      "label": "10-yr Mortality",
+      "source": "metrics.mortalityRisk",
+      "format": "percent"
+    },
+    {
+      "id": "cardioFitness",
+      "label": "Cardio Fitness",
+      "source": "metrics.cardioFitness",
+      "format": "percent"
+    },
+    {
+      "id": "sideEffectBurden",
+      "label": "Side-effect Load",
+      "source": "metrics.sideEffectBurden",
+      "format": "percent"
+    }
   ],
-
   "events": [
-    { "id": "drug_titration",     "label": "Dose Titration",        "icon": "💊", "color": "#34d399" },
-    { "id": "side_effect",        "label": "Side-effect Episode",   "icon": "🤢", "color": "#f59e0b" },
-    { "id": "adherence_lapse",    "label": "Adherence Lapse",       "icon": "📉", "color": "#ef4444" },
-    { "id": "lab_result",         "label": "Lab Result",            "icon": "🧪", "color": "#3b82f6" },
-    { "id": "lifestyle_decision", "label": "Lifestyle Decision",    "icon": "🥗", "color": "#10b981" },
-    { "id": "behavioral",         "label": "Behavioral Moment",     "icon": "🧠", "color": "#a78bfa" },
-    { "id": "cardio_check",       "label": "Cardio Check",          "icon": "❤️", "color": "#dc2626" },
-    { "id": "decision",           "label": "Care Decision",         "icon": "🧭", "color": "#f97316" },
-    { "id": "tool_forge",         "label": "Tool Forged",           "icon": "🔧", "color": "#8b5cf6" },
-    { "id": "system",             "label": "System",                "icon": "⚙️", "color": "#64748b" }
+    {
+      "id": "drug_titration",
+      "label": "Dose Titration",
+      "icon": "\ud83d\udc8a",
+      "color": "#34d399"
+    },
+    {
+      "id": "side_effect",
+      "label": "Side-effect Episode",
+      "icon": "\ud83e\udd22",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "adherence_lapse",
+      "label": "Adherence Lapse",
+      "icon": "\ud83d\udcc9",
+      "color": "#ef4444"
+    },
+    {
+      "id": "lab_result",
+      "label": "Lab Result",
+      "icon": "\ud83e\uddea",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "lifestyle_decision",
+      "label": "Lifestyle Decision",
+      "icon": "\ud83e\udd57",
+      "color": "#10b981"
+    },
+    {
+      "id": "behavioral",
+      "label": "Behavioral Moment",
+      "icon": "\ud83e\udde0",
+      "color": "#a78bfa"
+    },
+    {
+      "id": "cardio_check",
+      "label": "Cardio Check",
+      "icon": "\u2764\ufe0f",
+      "color": "#dc2626"
+    },
+    {
+      "id": "decision",
+      "label": "Care Decision",
+      "icon": "\ud83e\udded",
+      "color": "#f97316"
+    },
+    {
+      "id": "tool_forge",
+      "label": "Tool Forged",
+      "icon": "\ud83d\udd27",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "icon": "\u2699\ufe0f",
+      "color": "#64748b"
+    }
   ],
-
   "effects": {
-    "pharmacological": { "hba1c": -0.30, "fastingGlucose": -8.0, "weight": -3.0, "bmi": -0.50, "sideEffectBurden": 0.05 },
-    "lifestyle":       { "exerciseAdherence": 0.10, "weight": -1.5, "sleepHours": 0.40, "cardioFitness": 0.05, "qualityOfLife": 0.04 },
-    "behavioral":      { "exerciseAdherence": 0.08, "qualityOfLife": 0.05, "sleepHours": 0.30, "sideEffectBurden": -0.02 },
-    "cardio_event":    { "mortalityRisk": 0.03, "qualityOfLife": -0.06, "cardioFitness": -0.04 },
-    "side_effect":     { "sideEffectBurden": 0.06, "qualityOfLife": -0.04, "exerciseAdherence": -0.05 },
-    "monitoring":      { "qualityOfLife": 0.02, "sideEffectBurden": -0.02, "mortalityRisk": -0.01 },
-    "adherence":       { "exerciseAdherence": 0.12, "hba1c": -0.15, "weight": -1.0, "qualityOfLife": 0.04 }
+    "pharmacological": {
+      "hba1c": -0.3,
+      "fastingGlucose": -8.0,
+      "weight": -3.0,
+      "bmi": -0.5,
+      "sideEffectBurden": 0.05
+    },
+    "lifestyle": {
+      "exerciseAdherence": 0.1,
+      "weight": -1.5,
+      "sleepHours": 0.4,
+      "cardioFitness": 0.05,
+      "qualityOfLife": 0.04
+    },
+    "behavioral": {
+      "exerciseAdherence": 0.08,
+      "qualityOfLife": 0.05,
+      "sleepHours": 0.3,
+      "sideEffectBurden": -0.02
+    },
+    "cardio_event": {
+      "mortalityRisk": 0.03,
+      "qualityOfLife": -0.06,
+      "cardioFitness": -0.04
+    },
+    "side_effect": {
+      "sideEffectBurden": 0.06,
+      "qualityOfLife": -0.04,
+      "exerciseAdherence": -0.05
+    },
+    "monitoring": {
+      "qualityOfLife": 0.02,
+      "sideEffectBurden": -0.02,
+      "mortalityRisk": -0.01
+    },
+    "adherence": {
+      "exerciseAdherence": 0.12,
+      "hba1c": -0.15,
+      "weight": -1.0,
+      "qualityOfLife": 0.04
+    }
   },
-
   "ui": {
     "headerMetrics": [
-      { "id": "hba1c",             "format": "number"  },
-      { "id": "weight",            "format": "number"  },
-      { "id": "bmi",               "format": "number"  },
-      { "id": "exerciseAdherence", "format": "percent" },
-      { "id": "qualityOfLife",     "format": "percent" },
-      { "id": "mortalityRisk",     "format": "percent" }
+      {
+        "id": "hba1c",
+        "format": "number"
+      },
+      {
+        "id": "weight",
+        "format": "number"
+      },
+      {
+        "id": "bmi",
+        "format": "number"
+      },
+      {
+        "id": "exerciseAdherence",
+        "format": "percent"
+      },
+      {
+        "id": "qualityOfLife",
+        "format": "percent"
+      },
+      {
+        "id": "mortalityRisk",
+        "format": "percent"
+      }
     ],
-    "tooltipFields": ["age", "comorbidities", "yearsWithT2D"],
-    "reportSections": ["crisis", "departments", "decision", "outcome", "quotes"],
-    "departmentIcons": { "endocrinology": "💉", "nutrition": "🥗", "behavioral_psych": "🧠", "cardiology": "❤️", "lifestyle_coach": "🏃" },
-    "setupSections": ["leaders", "personnel", "resources", "departments", "events", "models"]
+    "tooltipFields": [
+      "age",
+      "comorbidities",
+      "yearsWithT2D"
+    ],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome",
+      "quotes"
+    ],
+    "departmentIcons": {
+      "endocrinology": "\ud83d\udc89",
+      "nutrition": "\ud83e\udd57",
+      "behavioral_psych": "\ud83e\udde0",
+      "cardiology": "\u2764\ufe0f",
+      "lifestyle_coach": "\ud83c\udfc3"
+    },
+    "setupSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models"
+    ]
   },
-
   "policies": {
-    "toolForging":    { "enabled": true, "requiredPerDepartment": false },
-    "liveSearch":     { "enabled": false, "mode": "off" },
-    "bulletin":       { "enabled": true },
-    "characterChat":  { "enabled": true },
-    "sandbox":        { "timeoutMs": 10000, "memoryMB": 128 }
+    "toolForging": {
+      "enabled": true,
+      "requiredPerDepartment": false
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
   },
-
   "presets": [
     {
       "id": "default",
@@ -110,67 +332,278 @@
         {
           "name": "Dr. Marcus Reinhardt",
           "archetype": "The Cautious Methodical Endocrinologist",
-          "hexaco": { "openness": 0.55, "conscientiousness": 0.92, "extraversion": 0.40, "agreeableness": 0.70, "emotionality": 0.55, "honestyHumility": 0.88 },
+          "hexaco": {
+            "openness": 0.55,
+            "conscientiousness": 0.92,
+            "extraversion": 0.4,
+            "agreeableness": 0.7,
+            "emotionality": 0.55,
+            "honestyHumility": 0.88
+          },
           "instructions": "You are Dr. Marcus Reinhardt, 'The Cautious Methodical Endocrinologist.' You titrate slowly. You hold dose escalations until labs and patient-reported tolerance are unambiguous. You favor durable adherence over peak A1c reduction. Your HEXACO profile drives every clinical decision."
         },
         {
           "name": "Dr. Priya Kapoor",
           "archetype": "The Aggressive Intensifier",
-          "hexaco": { "openness": 0.92, "conscientiousness": 0.55, "extraversion": 0.78, "agreeableness": 0.55, "emotionality": 0.35, "honestyHumility": 0.50 },
+          "hexaco": {
+            "openness": 0.92,
+            "conscientiousness": 0.55,
+            "extraversion": 0.78,
+            "agreeableness": 0.55,
+            "emotionality": 0.35,
+            "honestyHumility": 0.5
+          },
           "instructions": "You are Dr. Priya Kapoor, 'The Aggressive Intensifier.' You front-load benefit. You push to titrate to maximum tolerated dose by week 4 and add lifestyle intensity early. You believe most side effects are transient and the metabolic momentum from rapid response carries adherence. Your HEXACO profile drives every clinical decision."
         }
       ]
     }
   ],
-
   "world": {
     "metrics": {
-      "population":         { "id": "population",         "label": "Care Team Size", "unit": "people",    "type": "number", "initial": 1,     "min": 0,                   "category": "metric" },
-      "hba1c":              { "id": "hba1c",              "label": "HbA1c",          "unit": "%",         "type": "number", "initial": 7.8,   "min": 4.0, "max": 14.0,    "category": "metric" },
-      "fastingGlucose":     { "id": "fastingGlucose",     "label": "Fasting Glucose","unit": "mg/dL",     "type": "number", "initial": 156,   "min": 50,  "max": 500,     "category": "metric" },
-      "weight":             { "id": "weight",             "label": "Weight",         "unit": "lb",        "type": "number", "initial": 178,   "min": 80,  "max": 500,     "category": "metric" },
-      "bmi":                { "id": "bmi",                "label": "BMI",            "unit": "kg/m²",     "type": "number", "initial": 31.0,  "min": 14,  "max": 60,      "category": "metric" },
-      "exerciseAdherence":  { "id": "exerciseAdherence",  "label": "Exercise Adh.",  "unit": "%",         "type": "number", "initial": 0.05,  "min": 0,   "max": 1,       "category": "metric" },
-      "sleepHours":         { "id": "sleepHours",         "label": "Sleep",          "unit": "hrs/night", "type": "number", "initial": 6.2,   "min": 0,   "max": 14,      "category": "metric" },
-      "qualityOfLife":      { "id": "qualityOfLife",      "label": "QoL",            "unit": "%",         "type": "number", "initial": 0.55,  "min": 0,   "max": 1,       "category": "metric" },
-      "mortalityRisk":      { "id": "mortalityRisk",      "label": "10-yr Mortality","unit": "%",         "type": "number", "initial": 0.18,  "min": 0,   "max": 1,       "category": "metric" },
-      "cardioFitness":      { "id": "cardioFitness",      "label": "Cardio Fitness", "unit": "%",         "type": "number", "initial": 0.45,  "min": 0,   "max": 1,       "category": "metric" },
-      "sideEffectBurden":   { "id": "sideEffectBurden",   "label": "Side Effects",   "unit": "%",         "type": "number", "initial": 0.05,  "min": 0,   "max": 1,       "category": "metric" }
+      "population": {
+        "id": "population",
+        "label": "Care Team Size",
+        "unit": "people",
+        "type": "number",
+        "initial": 1,
+        "min": 0,
+        "category": "metric"
+      },
+      "hba1c": {
+        "id": "hba1c",
+        "label": "HbA1c",
+        "unit": "%",
+        "type": "number",
+        "initial": 7.8,
+        "min": 4.0,
+        "max": 14.0,
+        "category": "metric"
+      },
+      "fastingGlucose": {
+        "id": "fastingGlucose",
+        "label": "Fasting Glucose",
+        "unit": "mg/dL",
+        "type": "number",
+        "initial": 156,
+        "min": 50,
+        "max": 500,
+        "category": "metric"
+      },
+      "weight": {
+        "id": "weight",
+        "label": "Weight",
+        "unit": "lb",
+        "type": "number",
+        "initial": 178,
+        "min": 80,
+        "max": 500,
+        "category": "metric"
+      },
+      "bmi": {
+        "id": "bmi",
+        "label": "BMI",
+        "unit": "kg/m\u00b2",
+        "type": "number",
+        "initial": 31.0,
+        "min": 14,
+        "max": 60,
+        "category": "metric"
+      },
+      "exerciseAdherence": {
+        "id": "exerciseAdherence",
+        "label": "Exercise Adh.",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.05,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      },
+      "sleepHours": {
+        "id": "sleepHours",
+        "label": "Sleep",
+        "unit": "hrs/night",
+        "type": "number",
+        "initial": 6.2,
+        "min": 0,
+        "max": 14,
+        "category": "metric"
+      },
+      "qualityOfLife": {
+        "id": "qualityOfLife",
+        "label": "QoL",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.55,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      },
+      "mortalityRisk": {
+        "id": "mortalityRisk",
+        "label": "10-yr Mortality",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.18,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      },
+      "cardioFitness": {
+        "id": "cardioFitness",
+        "label": "Cardio Fitness",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.45,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      },
+      "sideEffectBurden": {
+        "id": "sideEffectBurden",
+        "label": "Side Effects",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.05,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      }
     },
     "capacities": {
-      "appointmentsPerMonth":  { "id": "appointmentsPerMonth",  "label": "Visits/Month",       "unit": "visits", "type": "number", "initial": 2, "category": "capacity" },
-      "labDrawsPerMonth":      { "id": "labDrawsPerMonth",      "label": "Lab Draws/Month",    "unit": "draws",  "type": "number", "initial": 1, "category": "capacity" }
+      "appointmentsPerMonth": {
+        "id": "appointmentsPerMonth",
+        "label": "Visits/Month",
+        "unit": "visits",
+        "type": "number",
+        "initial": 2,
+        "category": "capacity"
+      },
+      "labDrawsPerMonth": {
+        "id": "labDrawsPerMonth",
+        "label": "Lab Draws/Month",
+        "unit": "draws",
+        "type": "number",
+        "initial": 1,
+        "category": "capacity"
+      }
     },
     "statuses": {
-      "treatmentPhase": { "id": "treatmentPhase", "label": "Treatment Phase", "unit": "", "type": "string", "initial": "initiation", "category": "status" }
+      "treatmentPhase": {
+        "id": "treatmentPhase",
+        "label": "Treatment Phase",
+        "unit": "",
+        "type": "string",
+        "initial": "initiation",
+        "category": "status"
+      }
     },
     "politics": {
-      "patientMotivation": { "id": "patientMotivation", "label": "Motivation",       "unit": "%", "type": "number", "initial": 65, "min": 0, "max": 100, "category": "politic" },
-      "familySupport":     { "id": "familySupport",     "label": "Family Support",   "unit": "%", "type": "number", "initial": 70, "min": 0, "max": 100, "category": "politic" }
+      "patientMotivation": {
+        "id": "patientMotivation",
+        "label": "Motivation",
+        "unit": "%",
+        "type": "number",
+        "initial": 65,
+        "min": 0,
+        "max": 100,
+        "category": "politic"
+      },
+      "familySupport": {
+        "id": "familySupport",
+        "label": "Family Support",
+        "unit": "%",
+        "type": "number",
+        "initial": 70,
+        "min": 0,
+        "max": 100,
+        "category": "politic"
+      }
     },
     "environment": {
-      "insuranceCoverage": { "id": "insuranceCoverage", "label": "Insurance Coverage", "unit": "%", "type": "number", "initial": 80, "category": "environment" },
-      "drugCostPerMonth":  { "id": "drugCostPerMonth",  "label": "Drug Cost/Month",   "unit": "USD","type": "number", "initial": 850, "category": "environment" },
-      "foodEnvironment":   { "id": "foodEnvironment",   "label": "Food Environment",  "unit": "%", "type": "number", "initial": 45, "category": "environment" }
+      "insuranceCoverage": {
+        "id": "insuranceCoverage",
+        "label": "Insurance Coverage",
+        "unit": "%",
+        "type": "number",
+        "initial": 80,
+        "category": "environment"
+      },
+      "drugCostPerMonth": {
+        "id": "drugCostPerMonth",
+        "label": "Drug Cost/Month",
+        "unit": "USD",
+        "type": "number",
+        "initial": 850,
+        "category": "environment"
+      },
+      "foodEnvironment": {
+        "id": "foodEnvironment",
+        "label": "Food Environment",
+        "unit": "%",
+        "type": "number",
+        "initial": 45,
+        "category": "environment"
+      }
     }
   },
-
   "knowledge": {
     "topics": {},
     "categoryMapping": {
       "pharmacological": [],
-      "lifestyle":       [],
-      "behavioral":      [],
-      "cardio_event":    [],
-      "side_effect":     [],
-      "monitoring":      [],
-      "adherence":       []
+      "lifestyle": [],
+      "behavioral": [],
+      "cardio_event": [],
+      "side_effect": [],
+      "monitoring": [],
+      "adherence": []
     }
   },
-
   "names": {
-    "first": ["Maria", "Marcus", "Priya", "Amina", "Leo", "Haruki", "Sofia", "Elena", "Kwame", "Maya", "Dmitri", "Isla", "Theo", "Chiara", "Arjun", "Yara", "Rune", "Beatriz", "Kenji", "Freya"],
-    "last":  ["Chen", "Reinhardt", "Kapoor", "Okafor", "Alvarez", "Tanaka", "Rossi", "Nowak", "Mensah", "Patel", "Volkov", "Connor", "Kaufman", "Moretti", "Singh", "Haddad", "Berg", "Oliveira", "Yamamoto", "Lindqvist"],
+    "first": [
+      "Maria",
+      "Marcus",
+      "Priya",
+      "Amina",
+      "Leo",
+      "Haruki",
+      "Sofia",
+      "Elena",
+      "Kwame",
+      "Maya",
+      "Dmitri",
+      "Isla",
+      "Theo",
+      "Chiara",
+      "Arjun",
+      "Yara",
+      "Rune",
+      "Beatriz",
+      "Kenji",
+      "Freya"
+    ],
+    "last": [
+      "Chen",
+      "Reinhardt",
+      "Kapoor",
+      "Okafor",
+      "Alvarez",
+      "Tanaka",
+      "Rossi",
+      "Nowak",
+      "Mensah",
+      "Patel",
+      "Volkov",
+      "Connor",
+      "Kaufman",
+      "Moretti",
+      "Singh",
+      "Haddad",
+      "Berg",
+      "Oliveira",
+      "Yamamoto",
+      "Lindqvist"
+    ],
     "child": []
   }
 }

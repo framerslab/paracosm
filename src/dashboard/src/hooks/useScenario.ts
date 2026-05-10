@@ -3,6 +3,10 @@ import { subscribeScenarioUpdates } from '../scenario-sync';
 
 export interface ScenarioClientPayload {
   id: string;
+  /** Optional permalink to the scenario JSON in the public repo.
+   *  Surfaced on the SettingsPanel as a "View scenario JSON on GitHub"
+   *  link so users can read or fork the scenario source. */
+  sourceUrl?: string;
   version: string;
   labels: {
     name: string;

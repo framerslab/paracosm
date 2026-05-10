@@ -421,9 +421,23 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       )}
 
       <h2 className={styles.h2}>{scenario.labels.name}</h2>
+      {scenario.labels.tagline && (
+        <p className={styles.scenarioTagline}>{scenario.labels.tagline}</p>
+      )}
       <p className={styles.lead}>
         Configure two leaders and launch. {scenario.departments.length} departments: {scenario.departments.map(d => d.label).join(', ')}.
       </p>
+      {scenario.sourceUrl && (
+        <p className={styles.scenarioSourceLink}>
+          <a
+            href={scenario.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View scenario JSON on GitHub →
+          </a>
+        </p>
+      )}
       <p className={styles.leadHint}>
         Server mode: <strong className={styles.leadStrong}>{serverModeInfo.label}</strong>. {serverModeInfo.description}
       </p>

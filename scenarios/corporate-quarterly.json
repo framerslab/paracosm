@@ -1,8 +1,8 @@
 {
   "id": "corporate-quarterly",
+  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/corporate-quarterly.json",
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
-
   "labels": {
     "name": "Q-Scope Corp",
     "shortName": "corp",
@@ -12,9 +12,9 @@
     "eventNoun": "decisions",
     "eventNounSingular": "decision",
     "timeUnitNoun": "quarter",
-    "timeUnitNounPlural": "quarters"
+    "timeUnitNounPlural": "quarters",
+    "tagline": "Q-Scope Corp: four quarters of a mid-stage company driven by two CEO archetypes. Hires, layoffs, ship dates, and PR fires fall under HEXACO-graded calls."
   },
-
   "theme": {
     "primaryColor": "#3b82f6",
     "accentColor": "#60a5fa",
@@ -25,75 +25,250 @@
       "--accent": "#3b82f6"
     }
   },
-
   "setup": {
     "defaultTurns": 12,
     "defaultSeed": 1,
     "defaultStartTime": 1,
     "defaultTimePerTurn": 1,
     "defaultPopulation": 40,
-    "configurableSections": ["leaders", "personnel", "resources", "departments", "events", "models"]
+    "configurableSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models"
+    ]
   },
-
   "departments": [
-    { "id": "sales",       "label": "Sales",       "role": "VP of Sales",        "icon": "💼", "defaultModel": "gpt-5.4-mini", "instructions": "You are the VP of Sales. You analyze pipeline coverage, ACV trends, close rates, sales cycle length, and territory productivity. You argue for commission structure and GTM bets that move bookings this quarter while protecting next-quarter pipeline." },
-    { "id": "engineering", "label": "Engineering", "role": "VP of Engineering",  "icon": "🛠️",  "defaultModel": "gpt-5.4-mini", "instructions": "You are the VP of Engineering. You analyze feature delivery, quality debt, incident load, hiring pipeline, and tooling spend. You flag when a commit deadline forces a cut against quality or headcount." },
-    { "id": "finance",     "label": "Finance",     "role": "CFO",                "icon": "📊", "defaultModel": "gpt-5.4-mini", "instructions": "You are the CFO. You analyze runway, burn, gross margin, unit economics, working capital, and scenarios for the next 4 quarters. Every decision goes through your runway projection before you sign off." },
-    { "id": "hr",          "label": "People",      "role": "Chief People Officer","icon": "🧑‍🤝‍🧑", "defaultModel": "gpt-5.4-mini", "instructions": "You are the Chief People Officer. You analyze retention risk, employee engagement, compensation bands, manager load, and culture signal. Every headcount move is weighed against burnout risk and attrition forecast." },
-    { "id": "operations",  "label": "Operations",  "role": "COO",                "icon": "🏭", "defaultModel": "gpt-5.4-mini", "instructions": "You are the COO. You analyze cross-functional throughput, vendor risk, contract exposure, operational efficiency, and the gap between plan and reality across every org. You push back when strategy ignores operating constraints." }
+    {
+      "id": "sales",
+      "label": "Sales",
+      "role": "VP of Sales",
+      "icon": "\ud83d\udcbc",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the VP of Sales. You analyze pipeline coverage, ACV trends, close rates, sales cycle length, and territory productivity. You argue for commission structure and GTM bets that move bookings this quarter while protecting next-quarter pipeline."
+    },
+    {
+      "id": "engineering",
+      "label": "Engineering",
+      "role": "VP of Engineering",
+      "icon": "\ud83d\udee0\ufe0f",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the VP of Engineering. You analyze feature delivery, quality debt, incident load, hiring pipeline, and tooling spend. You flag when a commit deadline forces a cut against quality or headcount."
+    },
+    {
+      "id": "finance",
+      "label": "Finance",
+      "role": "CFO",
+      "icon": "\ud83d\udcca",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the CFO. You analyze runway, burn, gross margin, unit economics, working capital, and scenarios for the next 4 quarters. Every decision goes through your runway projection before you sign off."
+    },
+    {
+      "id": "hr",
+      "label": "People",
+      "role": "Chief People Officer",
+      "icon": "\ud83e\uddd1\u200d\ud83e\udd1d\u200d\ud83e\uddd1",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the Chief People Officer. You analyze retention risk, employee engagement, compensation bands, manager load, and culture signal. Every headcount move is weighed against burnout risk and attrition forecast."
+    },
+    {
+      "id": "operations",
+      "label": "Operations",
+      "role": "COO",
+      "icon": "\ud83c\udfed",
+      "defaultModel": "gpt-5.4-mini",
+      "instructions": "You are the COO. You analyze cross-functional throughput, vendor risk, contract exposure, operational efficiency, and the gap between plan and reality across every org. You push back when strategy ignores operating constraints."
+    }
   ],
-
   "metrics": [
-    { "id": "population",  "label": "Employees",   "source": "metrics.population",  "format": "number" },
-    { "id": "morale",      "label": "Engagement",  "source": "metrics.morale",      "format": "percent" },
-    { "id": "revenueArr",  "label": "ARR",         "source": "metrics.revenueArr",  "format": "number" },
-    { "id": "burnRate",    "label": "Burn",        "source": "metrics.burnRate",    "format": "number" },
-    { "id": "runwayMonths","label": "Runway",      "source": "metrics.runwayMonths","format": "number" },
-    { "id": "marketShare", "label": "Market Share","source": "metrics.marketShare", "format": "percent" }
+    {
+      "id": "population",
+      "label": "Employees",
+      "source": "metrics.population",
+      "format": "number"
+    },
+    {
+      "id": "morale",
+      "label": "Engagement",
+      "source": "metrics.morale",
+      "format": "percent"
+    },
+    {
+      "id": "revenueArr",
+      "label": "ARR",
+      "source": "metrics.revenueArr",
+      "format": "number"
+    },
+    {
+      "id": "burnRate",
+      "label": "Burn",
+      "source": "metrics.burnRate",
+      "format": "number"
+    },
+    {
+      "id": "runwayMonths",
+      "label": "Runway",
+      "source": "metrics.runwayMonths",
+      "format": "number"
+    },
+    {
+      "id": "marketShare",
+      "label": "Market Share",
+      "source": "metrics.marketShare",
+      "format": "percent"
+    }
   ],
-
   "events": [
-    { "id": "crisis",     "label": "Crisis",     "icon": "🚨", "color": "#ef4444" },
-    { "id": "decision",   "label": "Decision",   "icon": "🧭", "color": "#f59e0b" },
-    { "id": "launch",     "label": "Launch",     "icon": "🚀", "color": "#22c55e" },
-    { "id": "departure",  "label": "Departure",  "icon": "👋", "color": "#6b7280" },
-    { "id": "hire",       "label": "Hire",       "icon": "🎯", "color": "#3b82f6" },
-    { "id": "tool_forge", "label": "Tool Forged","icon": "🔧", "color": "#8b5cf6" },
-    { "id": "system",     "label": "System",     "icon": "⚙️", "color": "#64748b" }
+    {
+      "id": "crisis",
+      "label": "Crisis",
+      "icon": "\ud83d\udea8",
+      "color": "#ef4444"
+    },
+    {
+      "id": "decision",
+      "label": "Decision",
+      "icon": "\ud83e\udded",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "launch",
+      "label": "Launch",
+      "icon": "\ud83d\ude80",
+      "color": "#22c55e"
+    },
+    {
+      "id": "departure",
+      "label": "Departure",
+      "icon": "\ud83d\udc4b",
+      "color": "#6b7280"
+    },
+    {
+      "id": "hire",
+      "label": "Hire",
+      "icon": "\ud83c\udfaf",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "tool_forge",
+      "label": "Tool Forged",
+      "icon": "\ud83d\udd27",
+      "color": "#8b5cf6"
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "icon": "\u2699\ufe0f",
+      "color": "#64748b"
+    }
   ],
-
   "effects": {
-    "market":        { "revenueArr": 500000,  "marketShare": 0.01,  "morale":  0.03 },
-    "product":       { "revenueArr": 300000,  "marketShare": 0.015, "burnRate": -20000 },
-    "financial":     { "runwayMonths": 2,     "burnRate": -40000,   "morale": -0.02 },
-    "organizational":{ "morale": 0.08,        "population": 3 },
-    "operational":   { "burnRate": -15000,    "morale": 0.02 },
-    "competitive":   { "marketShare": -0.02,  "morale": -0.05,      "revenueArr": -200000 }
+    "market": {
+      "revenueArr": 500000,
+      "marketShare": 0.01,
+      "morale": 0.03
+    },
+    "product": {
+      "revenueArr": 300000,
+      "marketShare": 0.015,
+      "burnRate": -20000
+    },
+    "financial": {
+      "runwayMonths": 2,
+      "burnRate": -40000,
+      "morale": -0.02
+    },
+    "organizational": {
+      "morale": 0.08,
+      "population": 3
+    },
+    "operational": {
+      "burnRate": -15000,
+      "morale": 0.02
+    },
+    "competitive": {
+      "marketShare": -0.02,
+      "morale": -0.05,
+      "revenueArr": -200000
+    }
   },
-
   "ui": {
     "headerMetrics": [
-      { "id": "population",   "format": "number" },
-      { "id": "morale",       "format": "percent" },
-      { "id": "revenueArr",   "format": "number" },
-      { "id": "burnRate",     "format": "number" },
-      { "id": "runwayMonths", "format": "number" },
-      { "id": "marketShare",  "format": "percent" }
+      {
+        "id": "population",
+        "format": "number"
+      },
+      {
+        "id": "morale",
+        "format": "percent"
+      },
+      {
+        "id": "revenueArr",
+        "format": "number"
+      },
+      {
+        "id": "burnRate",
+        "format": "number"
+      },
+      {
+        "id": "runwayMonths",
+        "format": "number"
+      },
+      {
+        "id": "marketShare",
+        "format": "percent"
+      }
     ],
-    "tooltipFields": ["tenureQuarters", "psychScore", "performanceRating"],
-    "reportSections": ["crisis", "departments", "decision", "outcome", "quotes"],
-    "departmentIcons": { "sales": "💼", "engineering": "🛠️", "finance": "📊", "hr": "🧑‍🤝‍🧑", "operations": "🏭" },
-    "setupSections": ["leaders", "personnel", "resources", "departments", "events", "models"]
+    "tooltipFields": [
+      "tenureQuarters",
+      "psychScore",
+      "performanceRating"
+    ],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome",
+      "quotes"
+    ],
+    "departmentIcons": {
+      "sales": "\ud83d\udcbc",
+      "engineering": "\ud83d\udee0\ufe0f",
+      "finance": "\ud83d\udcca",
+      "hr": "\ud83e\uddd1\u200d\ud83e\udd1d\u200d\ud83e\uddd1",
+      "operations": "\ud83c\udfed"
+    },
+    "setupSections": [
+      "leaders",
+      "personnel",
+      "resources",
+      "departments",
+      "events",
+      "models"
+    ]
   },
-
   "policies": {
-    "toolForging":    { "enabled": true, "requiredPerDepartment": false },
-    "liveSearch":     { "enabled": false, "mode": "off" },
-    "bulletin":       { "enabled": true },
-    "characterChat":  { "enabled": true },
-    "sandbox":        { "timeoutMs": 10000, "memoryMB": 128 }
+    "toolForging": {
+      "enabled": true,
+      "requiredPerDepartment": false
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
   },
-
   "presets": [
     {
       "id": "default",
@@ -102,100 +277,330 @@
         {
           "name": "Priya Kapoor",
           "archetype": "The Growth CEO",
-          "hexaco": { "openness": 0.90, "conscientiousness": 0.45, "extraversion": 0.85, "agreeableness": 0.55, "emotionality": 0.30, "honestyHumility": 0.60 },
+          "hexaco": {
+            "openness": 0.9,
+            "conscientiousness": 0.45,
+            "extraversion": 0.85,
+            "agreeableness": 0.55,
+            "emotionality": 0.3,
+            "honestyHumility": 0.6
+          },
           "instructions": "You are Priya Kapoor, 'The Growth CEO.' You lead by bold category bets. You will spend to win a market before you have product-market fit on paper. You trust fast learning over cautious modelling. Your HEXACO profile drives your leadership."
         },
         {
           "name": "Marcus Reinhardt",
           "archetype": "The Discipline CEO",
-          "hexaco": { "openness": 0.40, "conscientiousness": 0.95, "extraversion": 0.45, "agreeableness": 0.65, "emotionality": 0.55, "honestyHumility": 0.85 },
+          "hexaco": {
+            "openness": 0.4,
+            "conscientiousness": 0.95,
+            "extraversion": 0.45,
+            "agreeableness": 0.65,
+            "emotionality": 0.55,
+            "honestyHumility": 0.85
+          },
           "instructions": "You are Marcus Reinhardt, 'The Discipline CEO.' You lead by unit economics and clean books. You will say no to a tempting market if the payback period is wrong. You think capital efficiency is the durable competitive advantage. Your HEXACO profile drives your leadership."
         }
       ]
     }
   ],
-
   "world": {
     "metrics": {
-      "population":    { "id": "population",    "label": "Employees",   "unit": "people", "type": "number", "initial": 40,     "min": 0,   "category": "metric" },
-      "morale":        { "id": "morale",        "label": "Engagement",  "unit": "%",      "type": "number", "initial": 0.72,   "min": 0,   "max": 1,   "category": "metric" },
-      "revenueArr":    { "id": "revenueArr",    "label": "ARR",         "unit": "USD",    "type": "number", "initial": 6000000, "min": 0,   "category": "metric" },
-      "burnRate":      { "id": "burnRate",      "label": "Burn",        "unit": "USD/mo", "type": "number", "initial": 850000, "min": 0,   "category": "metric" },
-      "runwayMonths":  { "id": "runwayMonths",  "label": "Runway",      "unit": "months", "type": "number", "initial": 14,     "min": 0,   "category": "metric" },
-      "marketShare":   { "id": "marketShare",   "label": "Market Share","unit": "%",      "type": "number", "initial": 0.08,   "min": 0,   "max": 1,   "category": "metric" }
+      "population": {
+        "id": "population",
+        "label": "Employees",
+        "unit": "people",
+        "type": "number",
+        "initial": 40,
+        "min": 0,
+        "category": "metric"
+      },
+      "morale": {
+        "id": "morale",
+        "label": "Engagement",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.72,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      },
+      "revenueArr": {
+        "id": "revenueArr",
+        "label": "ARR",
+        "unit": "USD",
+        "type": "number",
+        "initial": 6000000,
+        "min": 0,
+        "category": "metric"
+      },
+      "burnRate": {
+        "id": "burnRate",
+        "label": "Burn",
+        "unit": "USD/mo",
+        "type": "number",
+        "initial": 850000,
+        "min": 0,
+        "category": "metric"
+      },
+      "runwayMonths": {
+        "id": "runwayMonths",
+        "label": "Runway",
+        "unit": "months",
+        "type": "number",
+        "initial": 14,
+        "min": 0,
+        "category": "metric"
+      },
+      "marketShare": {
+        "id": "marketShare",
+        "label": "Market Share",
+        "unit": "%",
+        "type": "number",
+        "initial": 0.08,
+        "min": 0,
+        "max": 1,
+        "category": "metric"
+      }
     },
     "capacities": {
-      "hiringCapacity":  { "id": "hiringCapacity",  "label": "Hiring Capacity", "unit": "hires/qtr", "type": "number", "initial": 8,  "category": "capacity" },
-      "deliveryCapacity":{ "id": "deliveryCapacity","label": "Delivery Capacity","unit": "initiatives/qtr","type": "number", "initial": 6,  "category": "capacity" }
+      "hiringCapacity": {
+        "id": "hiringCapacity",
+        "label": "Hiring Capacity",
+        "unit": "hires/qtr",
+        "type": "number",
+        "initial": 8,
+        "category": "capacity"
+      },
+      "deliveryCapacity": {
+        "id": "deliveryCapacity",
+        "label": "Delivery Capacity",
+        "unit": "initiatives/qtr",
+        "type": "number",
+        "initial": 6,
+        "category": "capacity"
+      }
     },
     "statuses": {
-      "fundingRound": { "id": "fundingRound", "label": "Funding Round", "unit": "", "type": "string", "initial": "series-b", "category": "status" }
+      "fundingRound": {
+        "id": "fundingRound",
+        "label": "Funding Round",
+        "unit": "",
+        "type": "string",
+        "initial": "series-b",
+        "category": "status"
+      }
     },
     "politics": {
-      "boardConfidence":  { "id": "boardConfidence",  "label": "Board Confidence",  "unit": "%", "type": "number", "initial": 75, "min": 0, "max": 100, "category": "politic" },
-      "investorPressure": { "id": "investorPressure", "label": "Investor Pressure", "unit": "%", "type": "number", "initial": 40, "min": 0, "max": 100, "category": "politic" }
+      "boardConfidence": {
+        "id": "boardConfidence",
+        "label": "Board Confidence",
+        "unit": "%",
+        "type": "number",
+        "initial": 75,
+        "min": 0,
+        "max": 100,
+        "category": "politic"
+      },
+      "investorPressure": {
+        "id": "investorPressure",
+        "label": "Investor Pressure",
+        "unit": "%",
+        "type": "number",
+        "initial": 40,
+        "min": 0,
+        "max": 100,
+        "category": "politic"
+      }
     },
     "environment": {
-      "marketGrowthPct":   { "id": "marketGrowthPct",   "label": "Market Growth", "unit": "%", "type": "number", "initial": 25, "category": "environment" },
-      "competitorCount":   { "id": "competitorCount",   "label": "Competitors",    "unit": "firms", "type": "number", "initial": 8, "category": "environment" },
-      "macroRateBasisPts": { "id": "macroRateBasisPts", "label": "Fed Rate (bps)", "unit": "bps", "type": "number", "initial": 475, "category": "environment" }
+      "marketGrowthPct": {
+        "id": "marketGrowthPct",
+        "label": "Market Growth",
+        "unit": "%",
+        "type": "number",
+        "initial": 25,
+        "category": "environment"
+      },
+      "competitorCount": {
+        "id": "competitorCount",
+        "label": "Competitors",
+        "unit": "firms",
+        "type": "number",
+        "initial": 8,
+        "category": "environment"
+      },
+      "macroRateBasisPts": {
+        "id": "macroRateBasisPts",
+        "label": "Fed Rate (bps)",
+        "unit": "bps",
+        "type": "number",
+        "initial": 475,
+        "category": "environment"
+      }
     }
   },
-
   "knowledge": {
     "topics": {},
     "categoryMapping": {}
   },
-
   "names": {
-    "first": ["Priya", "Marcus", "Amina", "Leo", "Haruki", "Sofia", "Elena", "Kwame", "Maya", "Dmitri", "Isla", "Theo", "Chiara", "Arjun", "Yara", "Rune", "Beatriz", "Kenji", "Freya", "Nikolai"],
-    "last":  ["Kapoor", "Reinhardt", "Okafor", "Alvarez", "Tanaka", "Rossi", "Nowak", "Mensah", "Patel", "Volkov", "Connor", "Kaufman", "Moretti", "Singh", "Haddad", "Berg", "Oliveira", "Yamamoto", "Lindqvist", "Petrov"],
+    "first": [
+      "Priya",
+      "Marcus",
+      "Amina",
+      "Leo",
+      "Haruki",
+      "Sofia",
+      "Elena",
+      "Kwame",
+      "Maya",
+      "Dmitri",
+      "Isla",
+      "Theo",
+      "Chiara",
+      "Arjun",
+      "Yara",
+      "Rune",
+      "Beatriz",
+      "Kenji",
+      "Freya",
+      "Nikolai"
+    ],
+    "last": [
+      "Kapoor",
+      "Reinhardt",
+      "Okafor",
+      "Alvarez",
+      "Tanaka",
+      "Rossi",
+      "Nowak",
+      "Mensah",
+      "Patel",
+      "Volkov",
+      "Connor",
+      "Kaufman",
+      "Moretti",
+      "Singh",
+      "Haddad",
+      "Berg",
+      "Oliveira",
+      "Yamamoto",
+      "Lindqvist",
+      "Petrov"
+    ],
     "child": []
   },
-
   "dataDrivenHooks": {
     "directorInstructions": "You are the Crisis Director for Q-Scope Corp, a series-B SaaS company at $6M ARR with 40 employees, 14 months of runway, and 8 active competitors in a 25%-growth market. The CEO and CFO deliberate every quarter: chase the category win or compound discipline. You observe the company's quarterly state and generate events that test the leadership's tradeoffs between growth bets and capital efficiency.\n\nRULES:\n- Every event MUST be specific to startup operations: a churn spike, a competitor's pricing move, a board member's loss-of-confidence note, a funding-round signal, a key hire / departure, a feature delivery slip, a regulatory cost, a working-capital squeeze, a marquee customer expansion or downgrade. Never use generic settlement themes.\n- Anchor each crisis to AT LEAST ONE concrete metric: ARR, BurnRate, RunwayMonths, MarketShare, BoardConfidence, InvestorPressure, MarketGrowth, CompetitorCount.\n- The risky option should always carry a real growth-vs-discipline tension: spend now (revenue gain, runway risk) vs hold (runway preserved, competitor pulls ahead).\n- Categories you may use: market, product, financial, organizational, operational, competitive.\n- When RunwayMonths < 9 OR BurnRate trend is up while ARR is flat, escalate the next event to a financial or competitive category.\n- When MarketShare drops 2+ points OR CompetitorCount climbs, escalate to a competitive press cycle that erodes BoardConfidence.\n\nEach crisis you generate ships with options the leadership will pick from. Make the tradeoffs sharp. Q-Scope gets compared against another exec team running the same scenario in parallel, so the divergent outcomes are the product.",
     "departments": {
       "sales": {
         "heading": "SALES PIPELINE:",
         "chips": [
-          { "label": "ARR", "source": "metrics.revenueArr", "format": "number" },
-          { "label": "MarketShare", "source": "metrics.marketShare", "format": "percent" },
-          { "label": "BoardConfidence", "source": "politics.boardConfidence", "format": "number" },
-          { "label": "Competitors", "source": "environment.competitorCount", "format": "number" }
+          {
+            "label": "ARR",
+            "source": "metrics.revenueArr",
+            "format": "number"
+          },
+          {
+            "label": "MarketShare",
+            "source": "metrics.marketShare",
+            "format": "percent"
+          },
+          {
+            "label": "BoardConfidence",
+            "source": "politics.boardConfidence",
+            "format": "number"
+          },
+          {
+            "label": "Competitors",
+            "source": "environment.competitorCount",
+            "format": "number"
+          }
         ]
       },
       "engineering": {
         "heading": "ENGINEERING DELIVERY:",
         "chips": [
-          { "label": "Engagement", "source": "metrics.morale", "format": "percent" },
-          { "label": "Runway", "source": "metrics.runwayMonths", "format": "number" },
-          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" }
+          {
+            "label": "Engagement",
+            "source": "metrics.morale",
+            "format": "percent"
+          },
+          {
+            "label": "Runway",
+            "source": "metrics.runwayMonths",
+            "format": "number"
+          },
+          {
+            "label": "BurnRate",
+            "source": "metrics.burnRate",
+            "format": "number"
+          }
         ]
       },
       "finance": {
         "heading": "FINANCE / RUNWAY:",
         "chips": [
-          { "label": "ARR", "source": "metrics.revenueArr", "format": "number" },
-          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" },
-          { "label": "Runway", "source": "metrics.runwayMonths", "format": "number" },
-          { "label": "FundingRound", "source": "statuses.fundingRound", "format": "string" }
+          {
+            "label": "ARR",
+            "source": "metrics.revenueArr",
+            "format": "number"
+          },
+          {
+            "label": "BurnRate",
+            "source": "metrics.burnRate",
+            "format": "number"
+          },
+          {
+            "label": "Runway",
+            "source": "metrics.runwayMonths",
+            "format": "number"
+          },
+          {
+            "label": "FundingRound",
+            "source": "statuses.fundingRound",
+            "format": "string"
+          }
         ]
       },
       "hr": {
         "heading": "PEOPLE / ENGAGEMENT:",
         "chips": [
-          { "label": "Engagement", "source": "metrics.morale", "format": "percent" },
-          { "label": "Headcount", "source": "metrics.population", "format": "number" },
-          { "label": "BoardConfidence", "source": "politics.boardConfidence", "format": "number" }
+          {
+            "label": "Engagement",
+            "source": "metrics.morale",
+            "format": "percent"
+          },
+          {
+            "label": "Headcount",
+            "source": "metrics.population",
+            "format": "number"
+          },
+          {
+            "label": "BoardConfidence",
+            "source": "politics.boardConfidence",
+            "format": "number"
+          }
         ]
       },
       "operations": {
         "heading": "OPERATIONS / EXECUTION:",
         "chips": [
-          { "label": "BurnRate", "source": "metrics.burnRate", "format": "number" },
-          { "label": "MarketGrowth", "source": "environment.marketGrowthPct", "format": "number" },
-          { "label": "FedRate(bps)", "source": "environment.macroRateBasisPts", "format": "number" }
+          {
+            "label": "BurnRate",
+            "source": "metrics.burnRate",
+            "format": "number"
+          },
+          {
+            "label": "MarketGrowth",
+            "source": "environment.marketGrowthPct",
+            "format": "number"
+          },
+          {
+            "label": "FedRate(bps)",
+            "source": "environment.macroRateBasisPts",
+            "format": "number"
+          }
         ]
       }
     },
@@ -204,9 +609,21 @@
         "posture": "sprinted-to-growth",
         "when": {
           "all": [
-            { "field": "revenueArr", "op": ">=", "value": 9000000 },
-            { "field": "marketShare", "op": ">=", "value": 0.12 },
-            { "field": "runwayMonths", "op": "<", "value": 9 }
+            {
+              "field": "revenueArr",
+              "op": ">=",
+              "value": 9000000
+            },
+            {
+              "field": "marketShare",
+              "op": ">=",
+              "value": 0.12
+            },
+            {
+              "field": "runwayMonths",
+              "op": "<",
+              "value": 9
+            }
           ]
         }
       },
@@ -214,82 +631,210 @@
         "posture": "disciplined-build",
         "when": {
           "all": [
-            { "field": "runwayMonths", "op": ">=", "value": 12 },
-            { "field": "morale", "op": ">=", "value": 0.7 },
-            { "field": "revenueArr", "op": ">=", "value": 7000000 }
+            {
+              "field": "runwayMonths",
+              "op": ">=",
+              "value": 12
+            },
+            {
+              "field": "morale",
+              "op": ">=",
+              "value": 0.7
+            },
+            {
+              "field": "revenueArr",
+              "op": ">=",
+              "value": 7000000
+            }
           ]
         }
       },
       {
         "posture": "runway-crisis",
-        "when": { "field": "runwayMonths", "op": "<", "value": 6 }
+        "when": {
+          "field": "runwayMonths",
+          "op": "<",
+          "value": 6
+        }
       },
       {
         "posture": "market-loss",
-        "when": { "field": "marketShare", "op": "<", "value": 0.05 }
+        "when": {
+          "field": "marketShare",
+          "op": "<",
+          "value": 0.05
+        }
       }
     ],
     "fingerprintAxes": [
       {
         "name": "revenue",
         "bands": [
-          { "label": "scaling", "when": { "field": "revenueArr", "op": ">=", "value": 10000000 } },
-          { "label": "growing", "when": { "field": "revenueArr", "op": ">=", "value": 7000000 } },
-          { "label": "flat", "when": { "field": "revenueArr", "op": ">=", "value": 4000000 } },
-          { "label": "declining", "default": true }
+          {
+            "label": "scaling",
+            "when": {
+              "field": "revenueArr",
+              "op": ">=",
+              "value": 10000000
+            }
+          },
+          {
+            "label": "growing",
+            "when": {
+              "field": "revenueArr",
+              "op": ">=",
+              "value": 7000000
+            }
+          },
+          {
+            "label": "flat",
+            "when": {
+              "field": "revenueArr",
+              "op": ">=",
+              "value": 4000000
+            }
+          },
+          {
+            "label": "declining",
+            "default": true
+          }
         ]
       },
       {
         "name": "runway",
         "bands": [
-          { "label": "comfortable", "when": { "field": "runwayMonths", "op": ">=", "value": 12 } },
-          { "label": "tight", "when": { "field": "runwayMonths", "op": ">=", "value": 6 } },
-          { "label": "critical", "default": true }
+          {
+            "label": "comfortable",
+            "when": {
+              "field": "runwayMonths",
+              "op": ">=",
+              "value": 12
+            }
+          },
+          {
+            "label": "tight",
+            "when": {
+              "field": "runwayMonths",
+              "op": ">=",
+              "value": 6
+            }
+          },
+          {
+            "label": "critical",
+            "default": true
+          }
         ]
       },
       {
         "name": "engagement",
         "bands": [
-          { "label": "thriving", "when": { "field": "morale", "op": ">=", "value": 0.75 } },
-          { "label": "steady", "when": { "field": "morale", "op": ">=", "value": 0.55 } },
-          { "label": "fraying", "default": true }
+          {
+            "label": "thriving",
+            "when": {
+              "field": "morale",
+              "op": ">=",
+              "value": 0.75
+            }
+          },
+          {
+            "label": "steady",
+            "when": {
+              "field": "morale",
+              "op": ">=",
+              "value": 0.55
+            }
+          },
+          {
+            "label": "fraying",
+            "default": true
+          }
         ]
       },
       {
         "name": "market",
         "bands": [
-          { "label": "gaining", "when": { "field": "marketShare", "op": ">=", "value": 0.12 } },
-          { "label": "holding", "when": { "field": "marketShare", "op": ">=", "value": 0.07 } },
-          { "label": "losing", "default": true }
+          {
+            "label": "gaining",
+            "when": {
+              "field": "marketShare",
+              "op": ">=",
+              "value": 0.12
+            }
+          },
+          {
+            "label": "holding",
+            "when": {
+              "field": "marketShare",
+              "op": ">=",
+              "value": 0.07
+            }
+          },
+          {
+            "label": "losing",
+            "default": true
+          }
         ]
       }
     ],
     "politics": {
       "market": {
-        "onSuccess": { "boardConfidence": 4, "investorPressure": -3 },
-        "onFailure": { "boardConfidence": -3, "investorPressure": 4 }
+        "onSuccess": {
+          "boardConfidence": 4,
+          "investorPressure": -3
+        },
+        "onFailure": {
+          "boardConfidence": -3,
+          "investorPressure": 4
+        }
       },
       "product": {
-        "onSuccess": { "boardConfidence": 3, "investorPressure": -2 },
-        "onFailure": { "boardConfidence": -2, "investorPressure": 3 }
+        "onSuccess": {
+          "boardConfidence": 3,
+          "investorPressure": -2
+        },
+        "onFailure": {
+          "boardConfidence": -2,
+          "investorPressure": 3
+        }
       },
       "financial": {
-        "onSuccess": { "boardConfidence": 2, "investorPressure": -3 },
-        "onFailure": { "boardConfidence": -5, "investorPressure": 6 }
+        "onSuccess": {
+          "boardConfidence": 2,
+          "investorPressure": -3
+        },
+        "onFailure": {
+          "boardConfidence": -5,
+          "investorPressure": 6
+        }
       },
       "organizational": {
-        "onSuccess": { "boardConfidence": 2 },
-        "onFailure": { "boardConfidence": -3 }
+        "onSuccess": {
+          "boardConfidence": 2
+        },
+        "onFailure": {
+          "boardConfidence": -3
+        }
       },
       "operational": {
-        "onSuccess": { "boardConfidence": 1 },
-        "onFailure": { "boardConfidence": -2, "investorPressure": 2 }
+        "onSuccess": {
+          "boardConfidence": 1
+        },
+        "onFailure": {
+          "boardConfidence": -2,
+          "investorPressure": 2
+        }
       },
       "competitive": {
-        "onSuccess": { "boardConfidence": 3, "investorPressure": -2 },
-        "onFailure": { "boardConfidence": -5, "investorPressure": 5 }
+        "onSuccess": {
+          "boardConfidence": 3,
+          "investorPressure": -2
+        },
+        "onFailure": {
+          "boardConfidence": -5,
+          "investorPressure": 5
+        }
       }
     },
-    "reactionTemplate": "You are a {{role}} on the {{department}} team at Q-Scope Corp. You speak from inside the company — not as an industry commentator. Your reactions are about pipeline, runway, hiring, the funding round, the competitor's last move, or the next board meeting. Anchor your quote to ONE concrete observation about the current state."
+    "reactionTemplate": "You are a {{role}} on the {{department}} team at Q-Scope Corp. You speak from inside the company \u2014 not as an industry commentator. Your reactions are about pipeline, runway, hiring, the funding round, the competitor's last move, or the next board meeting. Anchor your quote to ONE concrete observation about the current state."
   }
 }

@@ -423,6 +423,13 @@ export interface SimulationModelConfig {
 export interface ScenarioPackage {
   /** Unique scenario identifier (e.g., "mars-genesis", "lunar-outpost") */
   id: string;
+  /**
+   * Optional permalink to the scenario JSON in the public repo (e.g.
+   * https://github.com/framersai/paracosm/blob/master/scenarios/mars.json).
+   * Surfaced in the dashboard so users can read or fork the scenario
+   * source from the settings panel without leaving the app.
+   */
+  sourceUrl?: string;
   /** Semantic version of this scenario definition */
   version: string;
   /** Engine archetype this scenario targets */
