@@ -353,11 +353,10 @@
   z-index: 50;
 }
 
-/* Cohort focus-pair picker — sits above TurnBanner on the Viz tab
- * for runs with 3+ actors. Reuses the same visual language as the
- * Reports tab picker so users can recognise it as a cross-tab
- * focus-pair control. */
-.cohortPairPicker {
+/* Cohort view controls — sits above TurnBanner on the Viz tab for
+ * runs with 3+ actors. Carries the all-vs-pair view toggle plus the
+ * focus-pair picker (when pair mode is on). */
+.cohortViewBar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -368,6 +367,61 @@
   border-radius: 6px;
   margin-bottom: 8px;
   font-size: var(--font-sm);
+  color: var(--text-1);
+}
+
+.cohortViewModeToggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+.cohortViewModeButton {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: rgba(232, 180, 74, 0.08);
+    color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+
+  & + & {
+    border-left: 1px solid var(--border);
+  }
+}
+
+.cohortViewModeButtonActive {
+  background: var(--amber);
+  color: var(--bg-deep);
+
+  &:hover {
+    background: var(--amber);
+    color: var(--bg-deep);
+  }
+}
+
+.cohortPairPicker {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   color: var(--text-1);
 }
 

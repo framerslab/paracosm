@@ -1,0 +1,159 @@
+// CohortSwarmGrid: horizontally-scrolling track of N actor columns.
+// Each column has a sticky-ish color-banded header and a fixed-width
+// LivingSwarmGrid (lazy-mounted) below. The track itself is the
+// horizontal scroller; the page's vertical scroll is unaffected.
+
+.track {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bg-deep);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  // Visible scrollbar so users know more columns sit past the viewport.
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hl, var(--border)) transparent;
+  &::-webkit-scrollbar { height: 10px; }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border-hl, var(--border));
+    border-radius: 5px;
+  }
+  &::-webkit-scrollbar-track { background: transparent; }
+}
+
+.trackInner {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px;
+  // No min-width on the container — each column carries its own
+  // min-width so the flex row grows to accommodate them all and the
+  // outer .track wrapper handles overflow.
+  width: max-content;
+  min-width: 100%;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  flex-shrink: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--actor-color, var(--amber));
+  border-radius: 8px;
+  overflow: hidden;
+  // Reserve enough vertical room so each LivingSwarmGrid lands with
+  // its full HUD strip + canvas square + popovers visible inside the
+  // column. Tweaked to match the pair-mode side-by-side height.
+  min-height: 640px;
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--actor-color, var(--border));
+  flex-shrink: 0;
+}
+
+.columnHeaderSlot {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  color: var(--actor-color, var(--amber));
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+.columnHeaderText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.columnHeaderName {
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.columnHeaderArchetype {
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+.columnHeaderPop {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-2);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.columnBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+// Placeholder for lazy-mounted columns past the IntersectionObserver
+// trigger. Shimmer is a subtle CSS animation so it doesn't dominate
+// when many columns are still hydrating.
+.columnPlaceholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--actor-color, var(--amber)) 4%, var(--bg-panel)) 0%,
+    var(--bg-deep) 100%,
+  );
+  min-height: 480px;
+}
+
+.columnPlaceholderShimmer {
+  width: 60%;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--actor-color, var(--amber)) 35%, transparent) 50%,
+    transparent 100%,
+  );
+  animation: cohort-shimmer 1.6s ease-in-out infinite;
+}
+
+.columnPlaceholderLabel {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@keyframes cohort-shimmer {
+  0%, 100% { opacity: 0.5; transform: translateX(-20px); }
+  50% { opacity: 1; transform: translateX(20px); }
+}

@@ -4,6 +4,7 @@ import styles from './SwarmViz.module.scss';
 import { useScenarioContext, useDashboardNavigation } from '../../App';
 import { useToast } from '../shared/Toast';
 import { useVizSnapshots } from './useVizSnapshots.js';
+import { CohortSwarmGrid } from './CohortSwarmGrid.js';
 import { TurnBanner } from './TurnBanner.js';
 import { VizControls } from './VizControls.js';
 import { LivingSwarmGrid } from './grid/LivingSwarmGrid.js';
@@ -113,6 +114,17 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const sideStateA = firstLeaderId ? state.actors[firstLeaderId] : null;
   const sideStateB = secondLeaderId ? state.actors[secondLeaderId] : null;
   const isCohort = state.actorIds.length > 2;
+  // View mode: 'pair' renders the existing two-panel A/B layout with
+  // the cohort focus-pair picker. 'cohort' replaces that with a
+  // horizontally-scrolling CohortSwarmGrid showing every actor's
+  // living-swarm panel lazy-mounted side-by-side. Pair runs always
+  // stay in 'pair'; cohort runs default to 'cohort' so users land
+  // on the all-actor view first and opt into pair drill-in via the
+  // toggle.
+  const [vizMode, setVizMode] = useState<'pair' | 'cohort'>(isCohort ? 'cohort' : 'pair');
+  useEffect(() => {
+    setVizMode(isCohort ? 'cohort' : 'pair');
+  }, [isCohort]);
   const maxTurn = Math.max(snapsA.length, snapsB.length);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -1030,35 +1042,68 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         className={`viz-content ${styles.root}`}
       >
         {isCohort && (
-          <div className={styles.cohortPairPicker} role="region" aria-label="Cohort focus pair picker">
-            <span className={styles.cohortPairPickerLabel}>Focus pair</span>
-            <select
-              aria-label="Left panel actor"
-              className={styles.cohortPairPickerSelect}
-              value={firstLeaderId ?? ''}
-              onChange={(e) => setPickedAId(e.target.value || undefined)}
-            >
-              {state.actorIds.map((id) => (
-                <option key={id} value={id} disabled={id === secondLeaderId}>
-                  {state.actors[id]?.leader?.name ?? id}
-                </option>
-              ))}
-            </select>
-            <span className={styles.cohortPairPickerVs}>vs</span>
-            <select
-              aria-label="Right panel actor"
-              className={styles.cohortPairPickerSelect}
-              value={secondLeaderId ?? ''}
-              onChange={(e) => setPickedBId(e.target.value || undefined)}
-            >
-              {state.actorIds.map((id) => (
-                <option key={id} value={id} disabled={id === firstLeaderId}>
-                  {state.actors[id]?.leader?.name ?? id}
-                </option>
-              ))}
-            </select>
+          <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
+            <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={vizMode === 'cohort'}
+                onClick={() => setVizMode('cohort')}
+                className={[
+                  styles.cohortViewModeButton,
+                  vizMode === 'cohort' ? styles.cohortViewModeButtonActive : '',
+                ].filter(Boolean).join(' ')}
+                title="Show every actor's living-swarm panel side-by-side with horizontal scroll"
+              >
+                All {state.actorIds.length} actors
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={vizMode === 'pair'}
+                onClick={() => setVizMode('pair')}
+                className={[
+                  styles.cohortViewModeButton,
+                  vizMode === 'pair' ? styles.cohortViewModeButtonActive : '',
+                ].filter(Boolean).join(' ')}
+                title="Focus on a 2-actor head-to-head with the original pair-mode diff overlay + sympathy hover"
+              >
+                Focus pair
+              </button>
+            </div>
+            {vizMode === 'pair' && (
+              <div className={styles.cohortPairPicker}>
+                <select
+                  aria-label="Left panel actor"
+                  className={styles.cohortPairPickerSelect}
+                  value={firstLeaderId ?? ''}
+                  onChange={(e) => setPickedAId(e.target.value || undefined)}
+                >
+                  {state.actorIds.map((id) => (
+                    <option key={id} value={id} disabled={id === secondLeaderId}>
+                      {state.actors[id]?.leader?.name ?? id}
+                    </option>
+                  ))}
+                </select>
+                <span className={styles.cohortPairPickerVs}>vs</span>
+                <select
+                  aria-label="Right panel actor"
+                  className={styles.cohortPairPickerSelect}
+                  value={secondLeaderId ?? ''}
+                  onChange={(e) => setPickedBId(e.target.value || undefined)}
+                >
+                  {state.actorIds.map((id) => (
+                    <option key={id} value={id} disabled={id === firstLeaderId}>
+                      {state.actors[id]?.leader?.name ?? id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <span className={styles.cohortPairPickerHint}>
-              The living-swarm grid renders 2 actors side-by-side. Rotate the picker to browse the full cohort of {state.actorIds.length}; the Reports tab carries the all-actor trajectory + turn-by-turn views without the pair constraint.
+              {vizMode === 'cohort'
+                ? `Horizontal scroll · ${state.actorIds.length} living-swarm panels lazy-mount as they enter the viewport. Toggle "Focus pair" for the A-vs-B diff overlay.`
+                : `Living-swarm grid renders these 2 actors side-by-side. Rotate the picker to browse the full cohort, or switch to "All ${state.actorIds.length} actors" for the cohort scroll view.`}
             </span>
           </div>
         )}
@@ -1212,10 +1257,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           hoveredTurn={hoveredTurn}
           onHoverTurnChange={setHoveredTurn}
         />
-        {diffLine && (
+        {vizMode === 'pair' && diffLine && (
           <div className={styles.diffLine}>{diffLine}</div>
         )}
-        {phone && (
+        {vizMode === 'pair' && phone && (
           <div
             role="tablist"
             aria-label="Leader panel selector"
@@ -1241,6 +1286,23 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             })}
           </div>
         )}
+        {vizMode === 'cohort' && (
+          <CohortSwarmGrid
+            state={state}
+            snapshotMap={snapshotMap}
+            currentTurn={currentTurn}
+            gridMode={gridMode}
+            palette={palette === 'cool' ? 1 : palette === 'mono' ? 2 : 0}
+            gridSettings={gridSettings}
+            hexacoById={hexacoById}
+            searchQuery={searchQuery}
+            chronicleFilter={chronicleFilter}
+            chronicleHover={hoveredChronicleEvent}
+            startTime={scenario.setup?.defaultStartTime}
+            onOpenChat={handleOpenChat}
+          />
+        )}
+        {vizMode === 'pair' && (
         <div
           className={[
             'leaders-row',
@@ -1333,6 +1395,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           />
           </div>
         </div>
+        )}
         <VizControls
           currentTurn={currentTurn}
           maxTurn={maxTurn}
