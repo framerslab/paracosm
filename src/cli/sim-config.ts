@@ -498,7 +498,6 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
     profileId: 'economy',
     provider: config.provider,
     baseModels: demoModels,
-    batchConcurrency: 1,
   });
   return {
     ...config,
