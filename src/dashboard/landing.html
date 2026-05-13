@@ -694,6 +694,25 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     <h2 class="sec-title rv">What paracosm actually is</h2>
     <p class="sec-desc rv">Paracosm is a <strong>structured, LLM-driven, counterfactual world simulator</strong>. It compiles a prompt, document, or URL into a typed scenario, runs it through a deterministic seeded kernel coupled with an LLM reasoning surface, and emits one universal Zod-validated <code>RunArtifact</code> across turn-loop civ sims, batch-trajectory digital twins, and batch-point forecasts. The category is named in <a href="https://arxiv.org/abs/2507.05169" target="_blank" rel="noopener" style="color:var(--amber)">Xing&nbsp;2025</a>, catalogued in the <a href="https://dl.acm.org/doi/full/10.1145/3746449" target="_blank" rel="noopener" style="color:var(--amber)">ACM&nbsp;CSUR&nbsp;2025</a> survey, and given counterfactual semantics by <a href="https://link.springer.com/article/10.1007/s43681-025-00718-4" target="_blank" rel="noopener" style="color:var(--amber)">Kirfel&nbsp;et&nbsp;al,&nbsp;2025</a>.</p>
 
+    <!-- System flow diagram. Click-to-expand opens a zoomable modal with
+         pan/zoom/keyboard controls; see the script near </body>. -->
+    <figure class="flow-diagram rv" style="margin:36px auto 0;max-width:1080px;padding:16px 12px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.25),0 0 30px rgba(232,180,74,0.05);position:relative;">
+      <button type="button" class="flow-diagram-trigger" data-diagram-src="/diagrams/paracosm-flow.svg" data-diagram-title="Paracosm system flow" aria-label="Open the Paracosm system flow diagram in a zoomable full-screen viewer" style="display:block;width:100%;padding:0;background:transparent;border:0;cursor:zoom-in;position:relative;color:inherit;font:inherit;">
+        <img src="/diagrams/paracosm-flow.svg" alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director then Departments in parallel then Commander then Reactions, with Tool Forge in a V8 sandbox, an LLM Judge, HEXACO drift, and AgentMemory side modules), Agent Swarm of about a hundred personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches." width="1200" height="1180" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;border-radius:8px;">
+        <span class="flow-diagram-badge" aria-hidden="true" style="position:absolute;top:18px;right:18px;display:inline-flex;align-items:center;gap:0.35rem;padding:0.35rem 0.6rem;font-family:var(--mono);font-size:11px;font-weight:600;color:#fff;background:rgba(15,12,8,0.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.25);pointer-events:none;letter-spacing:0.04em;opacity:0.88;transition:opacity 0.15s ease,transform 0.15s ease;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="display:inline-block;vertical-align:-1px;"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+          Click to expand
+        </span>
+      </button>
+      <figcaption style="font-family:var(--mono);font-size:var(--font-2xs);color:var(--t3);letter-spacing:0.1em;text-transform:uppercase;padding-top:12px;text-align:center;">From a paragraph to a forkable, replayable, multi-agent world</figcaption>
+    </figure>
+    <style>
+      .flow-diagram-trigger:hover .flow-diagram-badge { opacity: 1; transform: scale(1.04); }
+      .flow-diagram-trigger:focus-visible { outline: 2px solid var(--amber); outline-offset: 4px; border-radius: 12px; }
+      .flow-diagram-trigger img { transition: opacity 0.15s ease; }
+      .flow-diagram-trigger:hover img { opacity: 0.96; }
+    </style>
+
     <div class="arch rv" style="margin-top:32px">
       <div class="arch-row" style="border-left:3px solid var(--amber)">
         <svg style="color:var(--amber);width:24px;height:24px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="13" y1="14" x2="17" y2="14"/></svg>
@@ -1605,6 +1624,363 @@ document.querySelectorAll('.example-tabs').forEach(tabs => {
     });
   });
 });
+</script>
+
+<!-- Click-to-zoom modal viewer for hand-crafted diagrams. Triggered by any
+     button[data-diagram-src] on the page. Theme-matched to the page (html.light
+     class), zoom 50–400% in 10% steps, mouse-wheel zoom, drag-to-pan, full
+     keyboard support (Esc/+/-/0/Tab), focus trap, focus restore. Adapted
+     from apps/agentos-live-docs/src/mermaid-zoom.js. -->
+<script>
+(function () {
+  if (typeof window === 'undefined') return;
+
+  var MIN_ZOOM = 50;
+  var MAX_ZOOM = 400;
+  var DEFAULT_ZOOM = 100;
+  var ZOOM_STEP = 10;
+
+  var modal = null;
+  var lastFocused = null;
+  var currentZoom = DEFAULT_ZOOM;
+  var panX = 0, panY = 0;
+  var isPanning = false;
+  var panStartX = 0, panStartY = 0;
+
+  function isLight() {
+    return document.documentElement.classList.contains('light');
+  }
+
+  function applyTransform() {
+    var wrap = document.getElementById('paracosm-zoom-svg-wrap');
+    if (wrap) {
+      var scale = currentZoom / 100;
+      wrap.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + scale + ')';
+    }
+  }
+
+  function setZoom(value) {
+    currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value)));
+    var label = document.getElementById('paracosm-zoom-label');
+    if (label) label.textContent = currentZoom + '%';
+    applyTransform();
+  }
+
+  function applyThemeToModal() {
+    var container = document.getElementById('paracosm-zoom-container');
+    var svgWrap = document.getElementById('paracosm-zoom-svg-wrap');
+    if (!container) return;
+    var dark = !isLight();
+    container.style.background = dark ? '#0a0806' : '#f0e6d2';
+    container.style.colorScheme = dark ? 'dark' : 'light';
+    if (svgWrap) svgWrap.style.colorScheme = dark ? 'dark' : 'light';
+  }
+
+  function styleBtn(b) {
+    Object.assign(b.style, {
+      background: 'rgba(255,255,255,0.08)',
+      border: '1px solid rgba(255,255,255,0.18)',
+      borderRadius: '6px',
+      padding: '0.5rem 0.8rem',
+      cursor: 'pointer',
+      color: '#fff',
+      fontFamily: 'JetBrains Mono, SF Mono, Menlo, monospace',
+      fontSize: '12px',
+      fontWeight: '600',
+      letterSpacing: '0.04em',
+      transition: 'background 0.15s, transform 0.05s',
+      minWidth: '36px',
+      minHeight: '36px',
+      lineHeight: '1',
+    });
+  }
+
+  function makeBtn(label, title, onClick, ariaLabel) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.title = title;
+    if (ariaLabel) b.setAttribute('aria-label', ariaLabel);
+    styleBtn(b);
+    b.addEventListener('click', onClick);
+    b.addEventListener('mouseenter', function () { b.style.background = 'rgba(255,255,255,0.18)'; });
+    b.addEventListener('mouseleave', function () { b.style.background = 'rgba(255,255,255,0.08)'; });
+    b.addEventListener('mousedown', function () { b.style.transform = 'scale(0.97)'; });
+    b.addEventListener('mouseup', function () { b.style.transform = ''; });
+    return b;
+  }
+
+  function getModal() {
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'paracosm-zoom-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'paracosm-zoom-title');
+    modal.setAttribute('tabindex', '-1');
+    Object.assign(modal.style, {
+      position: 'fixed', inset: '0', zIndex: '99999',
+      background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+      display: 'none', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', padding: '24px',
+    });
+
+    var srTitle = document.createElement('h2');
+    srTitle.id = 'paracosm-zoom-title';
+    srTitle.textContent = 'Paracosm diagram zoom viewer';
+    Object.assign(srTitle.style, {
+      position: 'absolute', width: '1px', height: '1px', padding: '0',
+      margin: '-1px', overflow: 'hidden', clip: 'rect(0,0,0,0)',
+      whiteSpace: 'nowrap', border: '0',
+    });
+
+    var toolbar = document.createElement('div');
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute('aria-label', 'Diagram zoom controls');
+    Object.assign(toolbar.style, {
+      display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap',
+      padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '10px', marginBottom: '12px', userSelect: 'none',
+    });
+
+    var zoomOut = makeBtn('−', 'Zoom out (− key)', function () { setZoom(currentZoom - ZOOM_STEP); }, 'Zoom out');
+    var zoomLabel = document.createElement('span');
+    zoomLabel.id = 'paracosm-zoom-label';
+    zoomLabel.setAttribute('aria-live', 'polite');
+    zoomLabel.setAttribute('aria-atomic', 'true');
+    Object.assign(zoomLabel.style, {
+      color: '#fff', fontSize: '12px', minWidth: '52px',
+      textAlign: 'center', fontFamily: 'JetBrains Mono, SF Mono, Menlo, monospace',
+      letterSpacing: '0.04em',
+    });
+    zoomLabel.textContent = DEFAULT_ZOOM + '%';
+    var zoomIn = makeBtn('+', 'Zoom in (+ key)', function () { setZoom(currentZoom + ZOOM_STEP); }, 'Zoom in');
+    var resetBtn = makeBtn('Reset', 'Reset zoom and position (0 key)', function () {
+      currentZoom = DEFAULT_ZOOM;
+      var l = document.getElementById('paracosm-zoom-label');
+      if (l) l.textContent = DEFAULT_ZOOM + '%';
+      panX = 0; panY = 0; applyTransform();
+    }, 'Reset zoom and position');
+
+    var sep = document.createElement('span');
+    Object.assign(sep.style, { width: '1px', height: '20px', background: 'rgba(255,255,255,0.2)', margin: '0 4px' });
+
+    var closeBtn = makeBtn('✕  Close', 'Close (Escape key)', function () { hideModal(); }, 'Close diagram viewer');
+
+    toolbar.append(zoomOut, zoomLabel, zoomIn, resetBtn, sep, closeBtn);
+
+    var container = document.createElement('div');
+    container.id = 'paracosm-zoom-container';
+    Object.assign(container.style, {
+      overflow: 'hidden', borderRadius: '12px',
+      maxWidth: '95vw', maxHeight: 'calc(95vh - 80px)',
+      width: '100%', cursor: 'grab', position: 'relative',
+      border: '1px solid rgba(255,255,255,0.1)',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+    });
+
+    var svgWrap = document.createElement('div');
+    svgWrap.id = 'paracosm-zoom-svg-wrap';
+    Object.assign(svgWrap.style, {
+      transformOrigin: '0 0',
+      transition: 'transform 0.1s ease-out',
+      padding: '2rem',
+    });
+    container.appendChild(svgWrap);
+
+    container.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      isPanning = true;
+      panStartX = e.clientX - panX;
+      panStartY = e.clientY - panY;
+      container.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!isPanning) return;
+      panX = e.clientX - panStartX;
+      panY = e.clientY - panStartY;
+      applyTransform();
+    });
+    window.addEventListener('mouseup', function () {
+      if (isPanning) {
+        isPanning = false;
+        container.style.cursor = 'grab';
+      }
+    });
+
+    // Single-finger touch pan for mobile.
+    var lastTouchX = 0, lastTouchY = 0;
+    container.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      lastTouchX = e.touches[0].clientX;
+      lastTouchY = e.touches[0].clientY;
+    }, { passive: true });
+    container.addEventListener('touchmove', function (e) {
+      if (e.touches.length !== 1) return;
+      var t = e.touches[0];
+      panX += (t.clientX - lastTouchX);
+      panY += (t.clientY - lastTouchY);
+      lastTouchX = t.clientX;
+      lastTouchY = t.clientY;
+      applyTransform();
+      e.preventDefault();
+    }, { passive: false });
+
+    container.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
+      setZoom(currentZoom + delta);
+    }, { passive: false });
+
+    modal.append(srTitle, toolbar, container);
+    document.body.appendChild(modal);
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) hideModal();
+    });
+
+    return modal;
+  }
+
+  function trapTab(e) {
+    if (e.key !== 'Tab' || !modal || modal.style.display === 'none') return;
+    var focusables = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (!focusables.length) return;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      last.focus();
+      e.preventDefault();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      first.focus();
+      e.preventDefault();
+    }
+  }
+
+  function showModal(src, srcTitle) {
+    var m = getModal();
+    var wrap = document.getElementById('paracosm-zoom-svg-wrap');
+
+    currentZoom = DEFAULT_ZOOM;
+    panX = 0;
+    panY = 0;
+    while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+    applyThemeToModal();
+
+    // Placeholder while fetch resolves.
+    var placeholder = document.createElement('img');
+    placeholder.src = src;
+    placeholder.alt = srcTitle || '';
+    Object.assign(placeholder.style, {
+      width: '100%', height: 'auto', display: 'block',
+      opacity: '0.4', pointerEvents: 'none',
+    });
+    wrap.appendChild(placeholder);
+
+    // Inline the SVG so prefers-color-scheme inside the SVG resolves
+    // against the modal's color-scheme rather than the OS default. We
+    // also strip the @media (prefers-color-scheme: ...) blocks and apply
+    // the modal's theme explicitly so OS preference can't override the
+    // user's manual toggle.
+    fetch(src).then(function (r) {
+      return r.ok ? r.text() : Promise.reject(r.status);
+    }).then(function (svgText) {
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(svgText, 'image/svg+xml');
+      var svgEl = doc.querySelector('svg');
+      if (!svgEl) return;
+      svgEl.style.width = '100%';
+      svgEl.style.height = 'auto';
+      svgEl.style.display = 'block';
+      svgEl.style.pointerEvents = 'none';
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+
+      var lightMode = isLight();
+      svgEl.setAttribute('data-theme', lightMode ? 'light' : 'dark');
+      svgEl.querySelectorAll('style').forEach(function (styleEl) {
+        var css = styleEl.textContent || '';
+        if (lightMode) {
+          // Pull the light-mode :root variables out of the @media block
+          // and re-apply them as an SVG-scoped rule so they win even
+          // after we strip the OS-driven media query.
+          var lightMatch = css.match(/@media\s*\(\s*prefers-color-scheme:\s*light\s*\)\s*\{\s*:root\s*\{([\s\S]*?)\}\s*\}/);
+          if (lightMatch && lightMatch[1]) {
+            var stripped = css.replace(/@media\s*\(\s*prefers-color-scheme:[^)]*\)\s*\{[\s\S]*?\}\s*\}/g, '');
+            styleEl.textContent = stripped + '\nsvg{' + lightMatch[1] + '}\n';
+            return;
+          }
+        }
+        var s2 = css.replace(/@media\s*\(\s*prefers-color-scheme:[^)]*\)\s*\{[\s\S]*?\}\s*\}/g, '');
+        if (s2 !== css) styleEl.textContent = s2;
+      });
+
+      while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+      wrap.appendChild(svgEl);
+    }).catch(function () {
+      placeholder.style.opacity = '1';
+    });
+
+    var label = document.getElementById('paracosm-zoom-label');
+    if (label) label.textContent = DEFAULT_ZOOM + '%';
+    applyTransform();
+    m.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+
+    // Move focus into the modal for keyboard users; Esc / Tab cycle stays
+    // trapped via the keydown handler below.
+    var firstFocusable = m.querySelector('button');
+    if (firstFocusable) firstFocusable.focus();
+  }
+
+  function hideModal() {
+    if (!modal) return;
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+    isPanning = false;
+    if (lastFocused && typeof lastFocused.focus === 'function') {
+      lastFocused.focus();
+    }
+    lastFocused = null;
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (!modal || modal.style.display === 'none') return;
+    if (e.key === 'Escape') { e.preventDefault(); hideModal(); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); setZoom(currentZoom + ZOOM_STEP); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); setZoom(currentZoom - ZOOM_STEP); return; }
+    if (e.key === '0') {
+      e.preventDefault();
+      currentZoom = DEFAULT_ZOOM;
+      var l = document.getElementById('paracosm-zoom-label');
+      if (l) l.textContent = DEFAULT_ZOOM + '%';
+      panX = 0; panY = 0; applyTransform();
+      return;
+    }
+    if (e.key === 'Tab') trapTab(e);
+  });
+
+  // Re-apply theme when the user toggles theme while modal is open.
+  var themeObserver = new MutationObserver(function () {
+    if (modal && modal.style.display !== 'none') applyThemeToModal();
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+  // Delegated trigger: any [data-diagram-src] element opens the modal.
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest('[data-diagram-src]');
+    if (!trigger) return;
+    e.preventDefault();
+    lastFocused = trigger;
+    var src = trigger.getAttribute('data-diagram-src');
+    var title = trigger.getAttribute('data-diagram-title') || '';
+    showModal(src, title);
+  });
+})();
 </script>
 </body>
 </html>
