@@ -69,10 +69,11 @@
   }
 
   // Phone: bump tap target to clear the WCAG 2.5.5 44px guideline and
-  // raise font size so iOS doesn't auto-zoom the page on focus.
+  // raise font size to 16px so iOS Safari doesn't auto-zoom the page
+  // when the user opens the dropdown.
   @media (max-width: 480px) {
     padding: 10px 8px;
-    font-size: var(--font-md);
+    font-size: 16px;
   }
 }
 
