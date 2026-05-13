@@ -85,15 +85,20 @@ function buildForgeFeedFor(events: ProcessedEvent[]): { attempts: ForgeAttempt[]
   for (const evt of events) {
     if (evt.type === 'forge_attempt') {
       const d = evt.data || {};
+      // Anthropic SSE payloads sometimes serialize the boolean as the
+      // string 'true' instead of `true`; the dashboard accepts both.
+      // Compute the normalized value once and reuse it for both the
+      // attempts entry and the firstByName lookup so they can't drift.
+      const isApproved = d.approved === true || d.approved === 'true';
       attempts.push({
         turn: Number(d.turn ?? 0),
         eventIndex: Number(d.eventIndex ?? 0),
         department: String(d.department || ''),
         name: String(d.name || ''),
-        approved: d.approved === true || d.approved === 'true',
+        approved: isApproved,
         confidence: typeof d.confidence === 'number' ? d.confidence : undefined,
       });
-      if (d.name && d.department && d.approved === true && !firstByName.has(String(d.name))) {
+      if (d.name && d.department && isApproved && !firstByName.has(String(d.name))) {
         firstByName.set(String(d.name), String(d.department));
       }
       continue;

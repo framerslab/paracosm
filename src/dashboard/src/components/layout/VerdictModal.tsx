@@ -34,7 +34,14 @@ function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
   const keyDivergence = String(v.keyDivergence || '');
   const rankings = (Array.isArray(v.rankings) ? v.rankings : []) as CohortRankingEntry[];
   const reasoning = String(v.reasoning || '');
-  const actorCount = Array.isArray(v.actors) ? (v.actors as unknown[]).length : rankings.length;
+  // Schema requires `rankings` to carry ≥ 2 entries, but a malformed
+  // verdict payload could still arrive empty; the floor of 1 keeps the
+  // kicker from rendering "Cohort of 0" which would never match the
+  // banner's actor count and looks like a bug to the user.
+  const actorCount = Math.max(
+    1,
+    Array.isArray(v.actors) ? (v.actors as unknown[]).length : rankings.length,
+  );
 
   return (
     <div className={styles.cohortDetails}>
@@ -57,11 +64,11 @@ function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
             const color = getActorColorVar(r.actorIndex);
             return (
               <li
-                key={`${r.rank}-${r.actorName}`}
+                key={`${r.rank ?? 'unranked'}-${r.actorName}-${r.actorIndex}`}
                 className={styles.cohortRankingEntry}
                 style={{ '--actor-color': color } as CSSProperties}
               >
-                <div className={styles.cohortRankBadge}>#{r.rank}</div>
+                <div className={styles.cohortRankBadge}>#{r.rank ?? '?'}</div>
                 <div className={styles.cohortRankBody}>
                   <div className={styles.cohortRankName}>{r.actorName}</div>
                   <div className={styles.cohortRankScores}>
