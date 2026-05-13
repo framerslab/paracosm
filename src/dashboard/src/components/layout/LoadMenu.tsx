@@ -17,6 +17,7 @@ import {
   shouldShowCacheRow,
   cacheExpandedBody,
 } from './LoadMenu.helpers';
+import { formatRoster } from './ReplayBanner';
 import styles from './LoadMenu.module.scss';
 
 export interface LoadMenuProps {
@@ -50,11 +51,14 @@ function formatCost(usd: number | undefined): string {
 function Card({ s, onPick }: { s: StoredSessionMeta; onPick: () => void }) {
   // Prefer the LLM-generated narrative title when present. Fall back to
   // scenarioName for titleless rows, then to a deterministic label.
-  const deterministicTitle = s.leaderA && s.leaderB
-    ? `${s.leaderA} vs ${s.leaderB}${s.scenarioName ? ` · ${s.scenarioName}` : ''}`
+  // formatRoster handles cohort runs ("Aria, Maria, Atlas, +5 more")
+  // and pair fallback ("Aria vs Maria") off the same meta shape.
+  const roster = formatRoster(s);
+  const deterministicTitle = roster
+    ? `${roster}${s.scenarioName ? ` · ${s.scenarioName}` : ''}`
     : s.scenarioName || 'Simulation Run';
   const title = s.title || s.scenarioName || deterministicTitle;
-  const actors = s.leaderA && s.leaderB ? `${s.leaderA} vs ${s.leaderB}` : '';
+  const actors = roster;
   const scenarioSub = s.title && s.scenarioName ? s.scenarioName : '';
   const turns = s.turnCount != null ? `${s.turnCount} turn${s.turnCount === 1 ? '' : 's'}` : '';
   const line2 = [actors, scenarioSub, turns].filter(Boolean).join(' · ');

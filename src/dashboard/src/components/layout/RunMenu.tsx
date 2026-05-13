@@ -20,6 +20,7 @@ import { resolveSetupRedirectHref } from '../../tab-routing';
 import { buildReplayHref, cacheExpandedBody } from './LoadMenu.helpers';
 import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import { Tooltip } from '../shared/Tooltip';
+import { formatRoster } from './ReplayBanner';
 import styles from './RunMenu.module.scss';
 
 // Alias kept for minimal-diff readability within the history section
@@ -71,11 +72,12 @@ function formatCost(usd: number | undefined): string {
 }
 
 function SessionCard({ s, onPick }: { s: StoredSessionMeta; onPick: () => void }) {
-  const deterministicTitle = s.leaderA && s.leaderB
-    ? `${s.leaderA} vs ${s.leaderB}${s.scenarioName ? ` · ${s.scenarioName}` : ''}`
+  const roster = formatRoster(s);
+  const deterministicTitle = roster
+    ? `${roster}${s.scenarioName ? ` · ${s.scenarioName}` : ''}`
     : s.scenarioName || 'Simulation Run';
   const title = s.title || s.scenarioName || deterministicTitle;
-  const actors = s.leaderA && s.leaderB ? `${s.leaderA} vs ${s.leaderB}` : '';
+  const actors = roster;
   const scenarioSub = s.title && s.scenarioName ? s.scenarioName : '';
   const turns = s.turnCount != null ? `${s.turnCount} turn${s.turnCount === 1 ? '' : 's'}` : '';
   const line2 = [actors, scenarioSub, turns].filter(Boolean).join(' · ');

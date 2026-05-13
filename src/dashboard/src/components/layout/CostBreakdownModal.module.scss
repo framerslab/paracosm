@@ -383,3 +383,69 @@
   font-size: var(--font-2xs);
   margin-top: 2px;
 }
+
+/* Per-actor cohort rollup. Renders one row per actor sorted by total
+ * spend descending, with a horizontal bar that scales to the most
+ * expensive actor so the user spots outliers at a glance. */
+.perActorList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+}
+
+.perActorRow {
+  display: grid;
+  grid-template-columns: 28px 1fr 120px 80px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-deep);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.perActorRank {
+  font-weight: 800;
+  color: var(--amber);
+  text-align: center;
+  font-size: var(--font-xs);
+}
+
+.perActorName {
+  color: var(--text-1);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.perActorBarTrack {
+  height: 8px;
+  background: var(--bg-panel);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.perActorBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green), var(--amber));
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.perActorCost {
+  color: var(--green);
+  font-weight: 800;
+  text-align: right;
+  font-size: var(--font-md);
+}
+
+.perActorMeta {
+  color: var(--text-3);
+  font-size: var(--font-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

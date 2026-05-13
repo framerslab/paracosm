@@ -23,6 +23,14 @@ interface CostBreakdownModalProps {
   leaderB?: CostBreakdown;
   leaderAName?: string;
   leaderBName?: string;
+  /**
+   * Optional full-cohort per-actor cost list. When the run carried 3+
+   * actors, ReportView passes the entire roster here so the modal can
+   * render an "all actors" rollup section above the stage breakdown.
+   * Empty / undefined for pair runs (which keep the existing
+   * leaderA/leaderB rendering only).
+   */
+  actors?: Array<{ actorId: string; name: string; cost: CostBreakdown }>;
   onClose: () => void;
 }
 
@@ -60,7 +68,7 @@ function fallbackColor(rate: number): string {
   return 'var(--text-3)';
 }
 
-export function CostBreakdownModal({ combined, leaderA, leaderB, leaderAName, leaderBName, onClose }: CostBreakdownModalProps) {
+export function CostBreakdownModal({ combined, leaderA, leaderB, leaderAName, leaderBName, actors, onClose }: CostBreakdownModalProps) {
   // Dismiss on Escape key. Keeps the modal keyboard-accessible without
   // pulling in a dialog library.
   useEffect(() => {
@@ -636,6 +644,48 @@ export function CostBreakdownModal({ combined, leaderA, leaderB, leaderAName, le
             </div>
           );
         })()}
+
+        {/* Full cohort cost rollup. For cohort runs (3+ actors)
+            ReportView passes the entire actor list so users can see
+            per-actor spend ranked by total — surfaces runaway tool-call
+            loops on a specific actor at a glance instead of being
+            hidden in the pair-mode A/B-only summary below. */}
+        {actors && actors.length > 2 && (
+          <div className={styles.section}>
+            <div className={styles.sectionLabel}>PER ACTOR · {actors.length} ACTORS</div>
+            {(() => {
+              const sortedActors = [...actors].sort((a, b) => b.cost.totalCostUSD - a.cost.totalCostUSD);
+              const maxActorCost = sortedActors[0]?.cost.totalCostUSD ?? 0;
+              const cohortTotal = sortedActors.reduce((s, a) => s + a.cost.totalCostUSD, 0);
+              return (
+                <div className={styles.perActorList}>
+                  {sortedActors.map((entry, idx) => {
+                    const widthPct = maxActorCost > 0 ? (entry.cost.totalCostUSD / maxActorCost) * 100 : 0;
+                    const sharePct = cohortTotal > 0 ? (entry.cost.totalCostUSD / cohortTotal) * 100 : 0;
+                    return (
+                      <div key={entry.actorId} className={styles.perActorRow}>
+                        <div className={styles.perActorRank}>#{idx + 1}</div>
+                        <div className={styles.perActorName} title={entry.name}>
+                          {entry.name}
+                        </div>
+                        <div className={styles.perActorBarTrack} aria-hidden="true">
+                          <div
+                            className={styles.perActorBarFill}
+                            style={{ width: `${widthPct}%` }}
+                          />
+                        </div>
+                        <div className={styles.perActorCost}>{fmtUsd(entry.cost.totalCostUSD)}</div>
+                        <div className={styles.perActorMeta}>
+                          {entry.cost.llmCalls} calls · {fmtTokens(entry.cost.totalTokens)} tok · {sharePct.toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {/* Per-leader totals when both sides have reported. Lets the user
             see if one leader's simulation is unusually expensive (e.g.

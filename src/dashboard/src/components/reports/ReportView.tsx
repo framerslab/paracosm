@@ -688,6 +688,11 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           leaderB={(secondId ? state.costByActor[secondId] : undefined) ?? { totalTokens: 0, totalCostUSD: 0, llmCalls: 0 }}
           leaderAName={sideA?.leader?.name}
           leaderBName={sideB?.leader?.name}
+          actors={isNActor ? state.actorIds.map((id) => ({
+            actorId: id,
+            name: state.actors[id]?.leader?.name || id,
+            cost: state.costByActor[id] ?? { totalTokens: 0, totalCostUSD: 0, llmCalls: 0 },
+          })) : undefined}
           onClose={() => setCostOpen(false)}
         />
       )}
