@@ -537,7 +537,12 @@ function AppContent() {
     for (let i = 0; i < gameState.actorIds.length; i++) {
       const actorId = gameState.actorIds[i];
       const side = gameState.actors[actorId];
-      const name = side?.leader?.name || `${actorTitle} ${String.fromCharCode(65 + i)}`;
+      // Use 1-based index for the fallback so cohorts past 26 actors
+      // don't get non-letter ASCII characters where the slot letter
+      // should go. Pair runs still read "Commander A / B" because the
+      // ActorBar / leader-detail panels carry the alphabetic slot
+      // label separately.
+      const name = side?.leader?.name || `${actorTitle} ${i + 1}`;
       const archetype = side?.leader?.archetype || '';
       const unit = side?.leader?.unit || '';
       lines.push(

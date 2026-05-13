@@ -622,20 +622,21 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         </section>
       )}
 
-      {(!isNActor || isPairFocus) && (
-        <section id="sparklines">
+      {/* One sparklines section, two shapes. Pair runs + cohort runs
+          with the focus-pair toggle ON render the A-vs-B overlay; cohort
+          runs with the toggle OFF render the N-polyline cohort variant.
+          Consolidated into a single <section id> so the in-page anchor
+          + accessibility tree stay valid (duplicate IDs are invalid
+          HTML and break "skip to sparklines" jump links). */}
+      <section id="sparklines">
+        {(!isNActor || isPairFocus) ? (
           <MetricSparklines metrics={metricSeries} leaderAName={nameA} leaderBName={nameB} />
-        </section>
-      )}
-
-      {/* Cohort sparklines: N polylines per metric card when the
-          pair-focus toggle is off, replacing the 2-color A/B overlay
-          with the full cohort trajectory. */}
-      {isNActor && !isPairFocus && cohortMetricSeries && (
-        <section id="sparklines">
-          <MetricSparklines metrics={cohortMetricSeries} leaderAName="" leaderBName="" />
-        </section>
-      )}
+        ) : (
+          cohortMetricSeries && (
+            <MetricSparklines metrics={cohortMetricSeries} leaderAName="" leaderBName="" />
+          )
+        )}
+      </section>
 
       {/* Commander personality arcs. Shown once per side once there's at
           least one turn of drift data, so the user can visually inspect

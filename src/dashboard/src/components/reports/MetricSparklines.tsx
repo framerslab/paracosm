@@ -53,10 +53,20 @@ function SparkCard({ metric, sideAColor, sideBColor }: CardProps) {
     : [...metric.a, ...metric.b];
   if (allPoints.length === 0) return null;
 
-  const minTurn = Math.min(...allPoints.map(p => p.turn));
-  const maxTurn = Math.max(...allPoints.map(p => p.turn));
-  const minVal = Math.min(...allPoints.map(p => p.value));
-  const maxVal = Math.max(...allPoints.map(p => p.value));
+  // Single-pass min/max scan. Spread-based `Math.min(...allPoints)` would
+  // blow the call stack on very large cohorts (e.g., 300 actors × 6 turns
+  // = 1800 points) since spread inflates the argument list past JS engine
+  // function-argument caps. The reduce is O(n) and call-stack-safe.
+  let minTurn = Infinity;
+  let maxTurn = -Infinity;
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  for (const p of allPoints) {
+    if (p.turn < minTurn) minTurn = p.turn;
+    if (p.turn > maxTurn) maxTurn = p.turn;
+    if (p.value < minVal) minVal = p.value;
+    if (p.value > maxVal) maxVal = p.value;
+  }
   const valRange = Math.max(1e-6, maxVal - minVal);
   const turnRange = Math.max(1, maxTurn - minTurn);
 

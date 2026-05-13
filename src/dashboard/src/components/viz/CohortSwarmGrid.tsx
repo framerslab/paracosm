@@ -203,7 +203,11 @@ function CohortColumn(props: CohortColumnProps) {
   const snap = snaps[currentTurn];
   const prevSnap = currentTurn > 0 ? snaps[currentTurn - 1] : undefined;
   const sideColor = getActorColorVar(actorIndex);
-  const fallbackName = leader?.name || `Leader ${String.fromCharCode(65 + actorIndex)}`;
+  // 1-based numeric fallback so cohorts past 26 actors don't render
+  // non-letter ASCII glitches where the slot label should go. The
+  // ActorBar slot pill carries the proper A/B/…/AA/AB Excel-style label
+  // separately when alphabetic identity matters.
+  const fallbackName = leader?.name || `Leader ${actorIndex + 1}`;
   const forge = useMemo(() => {
     if (!sideState) return { attempts: [], reuses: [] };
     return buildForgeFeedFor(sideState.events);
