@@ -47,6 +47,78 @@ function readIsLight(): boolean {
   return document.documentElement.classList.contains('light');
 }
 
+interface MediaBlock {
+  head: string;
+  body: string;
+}
+
+/**
+ * Brace-counting parser for `@media (prefers-color-scheme: …) { … }`
+ * blocks. Replaces the original `[\s\S]*?` regex which would stop at
+ * the first inner `}` and mishandle nested rule blocks. Returns the
+ * extracted blocks plus the original CSS with every matched block
+ * removed in one pass, so the caller can rewrite the stylesheet
+ * without parsing twice. We control the SVG content today, but
+ * keeping the parser brace-aware means a future change that nests
+ * rules inside `:root` won't silently produce broken theme blocks.
+ */
+function extractPrefersColorSchemeBlocks(css: string): { blocks: MediaBlock[]; withoutBlocks: string } {
+  const blocks: MediaBlock[] = [];
+  const headRegex = /@media\s*\(\s*prefers-color-scheme:[^)]*\)\s*\{/g;
+  let withoutBlocks = '';
+  let lastEnd = 0;
+  let match: RegExpExecArray | null;
+  while ((match = headRegex.exec(css)) !== null) {
+    const headStart = match.index;
+    const headEnd = headRegex.lastIndex; // points just past the opening `{`
+    let depth = 1;
+    let cursor = headEnd;
+    while (cursor < css.length && depth > 0) {
+      const ch = css.charCodeAt(cursor);
+      if (ch === 123 /* { */) depth += 1;
+      else if (ch === 125 /* } */) depth -= 1;
+      cursor += 1;
+    }
+    // depth === 0 → cursor is one past the matching `}`.
+    if (depth !== 0) {
+      // Unbalanced block. Bail out: leave the rest of the css intact
+      // so we don't corrupt the stylesheet — we'd rather show a stale
+      // OS-preference-driven SVG than blow it up entirely.
+      withoutBlocks += css.slice(lastEnd);
+      return { blocks, withoutBlocks };
+    }
+    blocks.push({
+      head: css.slice(headStart, headEnd),
+      body: css.slice(headEnd, cursor - 1).trim(),
+    });
+    withoutBlocks += css.slice(lastEnd, headStart);
+    lastEnd = cursor;
+    headRegex.lastIndex = cursor;
+  }
+  withoutBlocks += css.slice(lastEnd);
+  return { blocks, withoutBlocks };
+}
+
+/** Pull the body out of a leading `:root { … }` rule inside an @media
+ *  block. Same brace-counting strategy as `extractPrefersColorSchemeBlocks`
+ *  so a nested `{}` inside the variable definitions wouldn't truncate
+ *  the body early. */
+function extractRootBlockBody(blockBody: string): string | null {
+  const rootMatch = blockBody.match(/:root\s*\{/);
+  if (!rootMatch || rootMatch.index == null) return null;
+  const start = rootMatch.index + rootMatch[0].length;
+  let depth = 1;
+  let cursor = start;
+  while (cursor < blockBody.length && depth > 0) {
+    const ch = blockBody.charCodeAt(cursor);
+    if (ch === 123) depth += 1;
+    else if (ch === 125) depth -= 1;
+    cursor += 1;
+  }
+  if (depth !== 0) return null;
+  return blockBody.slice(start, cursor - 1).trim();
+}
+
 export function ZoomableDiagram({
   src,
   alt,
@@ -160,24 +232,20 @@ export function ZoomableDiagram({
 
     svgEl.querySelectorAll('style').forEach((styleEl) => {
       const css = styleEl.textContent || '';
+      const media = extractPrefersColorSchemeBlocks(css);
+      if (!media.blocks.length) return;
+      let rewritten = media.withoutBlocks;
       if (isLight) {
-        const lightMatch = css.match(
-          /@media\s*\(\s*prefers-color-scheme:\s*light\s*\)\s*\{\s*:root\s*\{([\s\S]*?)\}\s*\}/,
-        );
-        if (lightMatch && lightMatch[1]) {
-          const stripped = css.replace(
-            /@media\s*\(\s*prefers-color-scheme:[^)]*\)\s*\{[\s\S]*?\}\s*\}/g,
-            '',
-          );
-          styleEl.textContent = `${stripped}\nsvg{${lightMatch[1]}}\n`;
-          return;
+        // Pull the `:root { ... }` body out of the light-mode block so
+        // the modal's `data-theme="light"` actually applies the light
+        // variables to the SVG without needing the OS to also be light.
+        const lightBlock = media.blocks.find(b => /prefers-color-scheme:\s*light/i.test(b.head));
+        if (lightBlock) {
+          const rootBody = extractRootBlockBody(lightBlock.body);
+          if (rootBody) rewritten += `\nsvg{${rootBody}}\n`;
         }
       }
-      const stripped = css.replace(
-        /@media\s*\(\s*prefers-color-scheme:[^)]*\)\s*\{[\s\S]*?\}\s*\}/g,
-        '',
-      );
-      if (stripped !== css) styleEl.textContent = stripped;
+      if (rewritten !== css) styleEl.textContent = rewritten;
     });
 
     while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
