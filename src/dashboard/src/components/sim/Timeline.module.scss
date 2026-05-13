@@ -20,6 +20,15 @@
   padding: 4px 8px;
   min-width: 0;
   max-width: 100%;
+
+  // Phone: scroll-snap so each swipe lands on one full column instead
+  // of an awkward half-column edge view. Touch-momentum scroll keeps
+  // the swipe feel natural on iOS Safari.
+  @media (max-width: 480px) {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    height: 260px;
+  }
   // Make the horizontal scrollbar visible so users discover the
   // hidden columns past the viewport edge.
   scrollbar-width: thin;
@@ -42,6 +51,22 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+
+  // Tablet: tighten column min-width so two columns still fit
+  // side-by-side on a 768px viewport without forcing the horizontal
+  // scroll to engage for a pair run.
+  @media (max-width: 768px) {
+    min-width: 280px;
+  }
+
+  // Phone: each column fills the viewport edge-to-edge minus the
+  // row's 16px horizontal padding. Combined with the parent's
+  // overflow-x: auto + scroll-snap-type the user pages between
+  // actor columns one swipe at a time on a phone.
+  @media (max-width: 480px) {
+    min-width: calc(100vw - 32px);
+    scroll-snap-align: start;
+  }
 }
 
 .sideHeader {

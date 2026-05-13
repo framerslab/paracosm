@@ -20,6 +20,15 @@
     border-radius: 5px;
   }
   &::-webkit-scrollbar-track { background: transparent; }
+
+  // Phone: turn on scroll-snap so the column scroll-snap-align targets
+  // engage. Combined with the column's `calc(100vw - 32px)` width this
+  // produces a 1-column-per-page swipe experience instead of the user
+  // trying to read a half-visible column on the left edge.
+  @media (max-width: 480px) {
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .trackInner {
@@ -48,6 +57,26 @@
   // its full HUD strip + canvas square + popovers visible inside the
   // column. Tweaked to match the pair-mode side-by-side height.
   min-height: 640px;
+
+  // Tablet (NARROW): shrink columns slightly so two fit side-by-side
+  // on a typical iPad portrait viewport (~768px) without the user
+  // needing to scroll just to see the second column header.
+  @media (max-width: 768px) {
+    width: 360px;
+    min-height: 520px;
+  }
+
+  // Phone (PHONE_QUERY): single column per viewport with scroll-snap
+  // so each swipe lands cleanly on the next actor instead of half-way
+  // between two. Width minus the track's 24px padding (12px each side)
+  // so the column fills the viewport without horizontal scrollbar
+  // overshoot. Height tuned for the smallest LivingSwarmGrid that
+  // still shows the HUD + canvas square at a useful size.
+  @media (max-width: 480px) {
+    width: calc(100vw - 32px);
+    min-height: 440px;
+    scroll-snap-align: start;
+  }
 }
 
 .columnHeader {
