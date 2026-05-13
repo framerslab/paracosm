@@ -177,17 +177,23 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   const messages = selectedId ? (threads.get(selectedId) ?? []) : [];
   const history = selectedId ? (historyByAgent.get(selectedId) ?? []) : [];
 
-  const agents = useMemo(() => {
-    const map = new Map<string, AgentInfo>();
+  // Group reactions by the lead actor that produced them so cohort runs
+  // can dropdown-filter to one actor's swarm at a time. Same character
+  // name appearing under two different leaders (e.g. shared scenario
+  // archetypes) gets two entries, one per actor, so the chat-thread
+  // memory stays isolated per leader instead of cross-contaminating.
+  const agentsByActor = useMemo(() => {
+    const out = new Map<string, AgentInfo[]>();
     for (const actorName of state.actorIds) {
       const sideState = state.actors[actorName];
       if (!sideState) continue;
+      const perActorMap = new Map<string, AgentInfo>();
       for (const evt of sideState.events) {
         if (evt.type === 'agent_reactions') {
           const reactions = evt.data.reactions as Array<Record<string, unknown>> || [];
           for (const r of reactions) {
             if (r.name) {
-              map.set(r.name as string, {
+              perActorMap.set(r.name as string, {
                 name: r.name as string, role: r.role as string || '',
                 department: r.department as string || '', mood: r.mood as string || 'neutral',
                 age: r.age as number, marsborn: r.marsborn as boolean,
@@ -201,9 +207,34 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           }
         }
       }
+      if (perActorMap.size > 0) out.set(actorName, Array.from(perActorMap.values()));
     }
-    return Array.from(map.values());
+    return out;
   }, [state]);
+
+  // Cohort filter: when 3+ actors, the sidebar shows a dropdown to
+  // scope the agent list to a single lead actor's swarm. Default for
+  // cohorts is the first actor with any agents (so the sidebar isn't
+  // overwhelmed by ~100 × N characters). Pair runs (2 actors) keep
+  // the original combined view by defaulting to null = "all leaders".
+  const isCohort = state.actorIds.length > 2;
+  const [filterActorId, setFilterActorId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isCohort) {
+      if (filterActorId !== null) setFilterActorId(null);
+      return;
+    }
+    if (filterActorId && agentsByActor.has(filterActorId)) return;
+    const firstWithAgents = state.actorIds.find(id => (agentsByActor.get(id)?.length ?? 0) > 0);
+    setFilterActorId(firstWithAgents ?? null);
+  }, [isCohort, agentsByActor, state.actorIds, filterActorId]);
+
+  const agents = useMemo(() => {
+    if (filterActorId) return agentsByActor.get(filterActorId) ?? [];
+    const all: AgentInfo[] = [];
+    for (const ids of agentsByActor.values()) all.push(...ids);
+    return all;
+  }, [agentsByActor, filterActorId]);
 
   const selected = agents.find(c => c.name === selectedId);
 
@@ -334,6 +365,35 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
             : `Chat becomes available after the first turn completes. Start a simulation and come back once agents have reacted to the first crisis. Each agent has persistent memory, personality, and relationships shaped by the crises they experience.`
           }
         </p>
+
+        {/* Cohort filter: pick one lead actor's swarm at a time. Hidden
+            for solo + pair runs so the existing 2-actor combined view
+            stays unchanged. Built off `agentsByActor` so the count next
+            to each name updates live as reactions stream in. */}
+        {isCohort && agentsByActor.size > 0 && (
+          <div className={styles.actorFilter}>
+            <label className={styles.actorFilterLabel} htmlFor="chat-actor-filter">
+              Lead actor
+            </label>
+            <select
+              id="chat-actor-filter"
+              className={styles.actorFilterSelect}
+              value={filterActorId ?? ''}
+              onChange={(e) => setFilterActorId(e.target.value || null)}
+              aria-label="Filter chat agents by lead actor"
+            >
+              {state.actorIds.map((id) => {
+                const count = agentsByActor.get(id)?.length ?? 0;
+                const name = state.actors[id]?.leader?.name || id;
+                return (
+                  <option key={id} value={id} disabled={count === 0}>
+                    {name} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
         {agents.map(c => (
           <button
             key={c.name}

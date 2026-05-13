@@ -31,6 +31,44 @@
   line-height: 1.5;
 }
 
+.actorFilter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.actorFilterLabel {
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.actorFilterSelect {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  padding: 4px 6px;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+}
+
 .agentBtn {
   width: 100%;
   text-align: left;
