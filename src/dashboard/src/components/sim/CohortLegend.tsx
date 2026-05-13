@@ -2,10 +2,15 @@
  * Cohort summary strip that sits above the constellation. At 30+
  * actors the constellation looks like a hairball; the legend tells
  * the user the archetype distribution at a glance and provides
- * click-to-filter targets so they can fade unrelated cohorts on the
- * graph below. v1 is read-only — clicking a cohort emits a callback
- * but the constellation does not yet listen. (Filtering wiring lands
- * in a follow-up.)
+ * click-to-filter targets so they fade unrelated cohorts on the
+ * graph below.
+ *
+ * Filtering wiring: the constellation owns the `focusedArchetype`
+ * state and threads it into both the click handler here and the per-
+ * node/edge dimming pass. Clicking a pill once focuses that cohort
+ * (off-cohort nodes drop to ~25% opacity, cross-cohort edges fade,
+ * edge-distance labels suppress for non-focused pairs); clicking the
+ * same pill again clears focus.
  *
  * @module paracosm/dashboard/sim/CohortLegend
  */
