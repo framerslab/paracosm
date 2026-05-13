@@ -49,7 +49,13 @@ function formatActorSummary(
     : 'no deaths';
   return [
     `${label}: ${leader.name} "${leader.archetype}" (${leader.unit})`,
-    `  HEXACO: O${leader.hexaco.openness.toFixed(2)} C${leader.hexaco.conscientiousness.toFixed(2)} E${leader.hexaco.extraversion.toFixed(2)} A${leader.hexaco.agreeableness.toFixed(2)} Em${leader.hexaco.emotionality.toFixed(2)} HH${leader.hexaco.honestyHumility.toFixed(2)}`,
+    // Optional-chain every HEXACO axis so actors using the ai-agent
+    // (or any other) trait model — where `leader.hexaco` is undefined
+    // because the profile lives under `traitProfile` instead — don't
+    // crash the verdict prompt builder with a TypeError. Falls back
+    // to 0.50 (the schema default) so the prompt still carries a
+    // structurally complete HEXACO line for the LLM to reason from.
+    `  HEXACO: O${(leader.hexaco?.openness ?? 0.5).toFixed(2)} C${(leader.hexaco?.conscientiousness ?? 0.5).toFixed(2)} E${(leader.hexaco?.extraversion ?? 0.5).toFixed(2)} A${(leader.hexaco?.agreeableness ?? 0.5).toFixed(2)} Em${(leader.hexaco?.emotionality ?? 0.5).toFixed(2)} HH${(leader.hexaco?.honestyHumility ?? 0.5).toFixed(2)}`,
     `  Final: Pop ${col?.population ?? '?'}, Morale ${Math.round((col?.morale ?? 0) * 100)}%, Food ${col?.foodMonthsReserve?.toFixed(1) ?? '?'}mo, Power ${col?.powerKw?.toFixed(0) ?? '?'}kW, Modules ${col?.infrastructureModules?.toFixed(1) ?? '?'}, Science ${col?.scienceOutput ?? '?'}`,
     `  Mortality: ${deathEvents.length} total (${causeSummary})`,
     `  Innovation: ${toolbox.length} unique tools forged (${fp.innovation || 'n/a'}), citations ${result.totalCitations}`,
