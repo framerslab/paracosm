@@ -242,6 +242,17 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   min-width: 160px;
+
+  // Phone: 160px min-width forces the two selects + "vs" to wrap onto
+  // 3 rows on a 360px viewport. Dropping the floor + flex-grow lets
+  // them share the row width and clears the WCAG 2.5.5 44px tap
+  // target via the larger padding.
+  @media (max-width: 480px) {
+    min-width: 0;
+    flex: 1 1 0;
+    padding: 10px 8px;
+    font-size: var(--font-md);
+  }
 }
 
 .actorPairPickerVs {
