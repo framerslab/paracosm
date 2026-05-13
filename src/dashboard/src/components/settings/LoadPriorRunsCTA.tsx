@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useSessions } from '../../hooks/useSessions';
+import { formatRoster } from '../layout/ReplayBanner';
 import styles from './LoadPriorRunsCTA.module.scss';
 
 interface LoadPriorRunsCTAProps {
@@ -105,7 +106,7 @@ export function LoadPriorRunsCTA({ hideWhenUnavailable = true }: LoadPriorRunsCT
               <span className={styles.tileMeta}>
                 {s.title && s.scenarioName ? `${s.scenarioName} · ` : ''}
                 {typeof s.turnCount === 'number' ? `${s.turnCount} turns · ` : ''}
-                {s.leaderA && s.leaderB ? `${s.leaderA} vs ${s.leaderB} · ` : ''}
+                {formatRoster(s) ? `${formatRoster(s)} · ` : ''}
                 {formatCreatedAt(s.createdAt)}
               </span>
               {typeof s.totalCostUSD === 'number' && s.totalCostUSD > 0 && (

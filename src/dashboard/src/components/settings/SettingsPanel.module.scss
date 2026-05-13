@@ -102,9 +102,105 @@
 
 .leadersGrid {
   display: grid;
+  // Pair runs (`responsive-grid-2` class) lock to 2 columns. Cohort
+  // runs (`responsive-grid-cohort` class added in the JSX) auto-fit a
+  // 2-column-on-desktop / 1-column-on-narrow layout via the
+  // grid-template-columns rule on the global utility below.
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
+}
+
+/* Global utility for the cohort N-actor settings grid. Goes on the
+ * leadersGrid wrapper alongside .leadersGrid. Uses `:global` to
+ * escape the CSS module scope so the className applied from JSX
+ * (`responsive-grid-cohort`) matches without needing to import. */
+:global(.responsive-grid-cohort) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.leaderCardWrap {
+  position: relative;
+}
+
+.leaderRemoveBtn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  z-index: 1;
+
+  &:hover {
+    color: var(--rust);
+    border-color: var(--rust);
+    background: color-mix(in srgb, var(--rust) 8%, var(--bg-deep));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.leadersAddRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.leaderAddBtn {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: transparent;
+  border: 1px dashed var(--amber);
+  border-radius: 4px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--amber) 10%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 480px) {
+    padding: 12px 14px;
+    min-height: 44px;
+    flex: 1 1 auto;
+  }
+}
+
+.leaderAddCap {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  line-height: 1.55;
 }
 
 .fieldset {
