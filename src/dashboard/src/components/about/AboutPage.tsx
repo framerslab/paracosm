@@ -304,8 +304,8 @@ export function AboutPage() {
             <div className={styles.hostedLabel}>Open Core + Hosted Roadmap</div>
             <h3 id="hosted-heading" className={styles.hostedTitle}>Planned Hosted Packaging</h3>
             <p className={styles.hostedPara}>
-              The open-source engine supports unlimited leaders and simulations via the API today. The dashboard demo runs up to 300 leaders
-              side-by-side, auto-switching to a constellation view past 50. The planned hosted product targets organizations that need to run dozens or hundreds of simulations in parallel.
+              The open-source engine supports unlimited leaders and simulations via the API today. The dashboard runs swarms of leaders
+              side-by-side, auto-switching to a constellation view as the cohort grows. The planned hosted product targets organizations that need to run swarms of simulations in parallel.
             </p>
             <p className={styles.hostedPara}>
               Defense agencies stress-testing doctrine across leadership profiles. Corporations modeling executive decision-making

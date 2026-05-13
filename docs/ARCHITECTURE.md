@@ -283,7 +283,7 @@ In Paracosm, HEXACO influences:
 
 ### Parallel Execution
 
-Pair runs (exactly 2 commanders) fan out via `Promise.all` in `pair-runner.ts`. Cohort runs (3 to 300 commanders) fan out through a bounded worker pool in `runBatchSimulations`, sized to `economics.batch.maxConcurrency` (default 8) so a 300-actor run lands as ~38 batches while staying within provider rate limits. Within each commander's turn, all department analyses also run in parallel. This produces independent timelines from the same starting conditions:
+Pair runs (exactly 2 commanders) fan out via `Promise.all` in `pair-runner.ts`. Cohort runs (3+ commanders) fan out through a bounded worker pool in `runBatchSimulations`, sized to `economics.batch.maxConcurrency` (default 8) so the swarm lands as a sequence of batches that stay within provider rate limits regardless of how many leaders are in flight. Within each commander's turn, all department analyses also run in parallel. This produces independent timelines from the same starting conditions:
 
 ```
 Turn N:

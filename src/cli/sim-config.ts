@@ -520,13 +520,14 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
 export function normalizeSimulationConfig(input: SimulationSetupPayload): NormalizedSimulationConfig {
   // Fork setup takes exactly one actor (the override for the forked
   // branch). Regular pair setup takes exactly two and dispatches to
-  // runPairSimulations with verdict comparison. Cohort setups (3 to
-  // 300 actors) dispatch to runBatchSimulations and skip the verdict
+  // runPairSimulations with verdict comparison. Swarm setups (3+
+  // actors) dispatch to runBatchSimulations and skip the verdict
   // because verdicts compare exactly two leaders and would be
-  // ambiguous across N >= 3. The cohort upper bound matches the
-  // Quickstart UI's clamp and the economics-profile design target;
-  // batches of `economics.batch.maxConcurrency` (default 8) keep
-  // provider rate-limit pressure bounded at any scale in the range.
+  // ambiguous across N >= 3. The upper bound is a defense-in-depth
+  // sanity check matching the Quickstart UI's clamp and the
+  // economics-profile design target; batches of
+  // `economics.batch.maxConcurrency` (default 8) keep provider
+  // rate-limit pressure bounded at any swarm size.
   if (input.forkFrom) {
     if (!Array.isArray(input.actors) || input.actors.length !== 1) {
       throw new Error('Fork setup requires exactly one actor');
