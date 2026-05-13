@@ -28,11 +28,32 @@ interface CohortRankingEntry {
   };
 }
 
+/**
+ * Runtime type guard for one cohort ranking entry. The server side
+ * sends a Zod-validated payload but saved sessions (loaded back into
+ * the UI months later) can carry arbitrary JSON that no longer matches
+ * the current schema. Filtering through this guard keeps the modal
+ * from crashing on a stale shape and silently drops malformed rows
+ * instead of rendering `#undefined` badges or NaN scores.
+ */
+function isValidRankingEntry(raw: unknown): raw is CohortRankingEntry {
+  if (!raw || typeof raw !== 'object') return false;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.actorName !== 'string' || r.actorName.length === 0) return false;
+  if (typeof r.actorIndex !== 'number' || !Number.isFinite(r.actorIndex)) return false;
+  if (typeof r.rank !== 'number' || !Number.isFinite(r.rank)) return false;
+  if (typeof r.rationale !== 'string') return false;
+  if (r.scores != null && typeof r.scores !== 'object') return false;
+  return true;
+}
+
 function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
   const headline = String(v.headline || '');
   const summary = String(v.summary || '');
   const keyDivergence = String(v.keyDivergence || '');
-  const rankings = (Array.isArray(v.rankings) ? v.rankings : []) as CohortRankingEntry[];
+  const rankings: CohortRankingEntry[] = Array.isArray(v.rankings)
+    ? (v.rankings as unknown[]).filter(isValidRankingEntry)
+    : [];
   const reasoning = String(v.reasoning || '');
   // Schema requires `rankings` to carry ≥ 2 entries, but a malformed
   // verdict payload could still arrive empty; the floor of 1 keeps the

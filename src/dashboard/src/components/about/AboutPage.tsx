@@ -12,11 +12,11 @@ interface FaqItem {
 const FAQ: FaqItem[] = [
   {
     q: 'What is Paracosm?',
-    a: 'Paracosm is an agent swarm simulation framework for structured world modeling with LLMs. Start from a prompt, brief, URL, or scenario JSON draft, compile or ground it into a typed ScenarioPackage, then assign AI leaders with distinct HEXACO personality profiles. The engine handles event generation, department analysis, runtime tool forging, personality drift, and deterministic state transitions. Leaders can be colony commanders, CEOs, generals, governing councils, AI systems, or any top-down decision maker — each running a multi-agent swarm of specialists and ~100 personality-typed cells.',
+    a: 'Paracosm is an agent swarm simulation framework for structured world modeling with LLMs. Start from a prompt, brief, URL, or scenario JSON draft, compile or ground it into a typed ScenarioPackage, then assign 2 to 300 AI leaders with distinct HEXACO personality profiles to run against it in parallel. The engine handles event generation, department analysis, runtime tool forging, personality drift, and deterministic state transitions. Leaders can be colony commanders, CEOs, generals, governing councils, AI systems, or any top-down decision maker — each running a multi-agent swarm of specialists and ~100 personality-typed cells.',
   },
   {
     q: 'How does the simulation work?',
-    a: 'AI leaders with distinct personality profiles run the same world in parallel. Each turn: an Event Director generates events based on the world state and decision history. Department agents analyze the situation and forge computational tools at runtime. Leaders decide. The deterministic kernel applies consequences. Same seed, same starting conditions, different leaders, different outcomes. Leaders are abstract: they can model people, organizations, policies, or autonomous systems.',
+    a: 'A cohort of AI leaders with distinct personality profiles runs the same world in parallel. Each turn: an Event Director generates events based on the world state and decision history. Department agents analyze the situation and forge computational tools at runtime. Each leader decides. The deterministic kernel applies consequences. Same seed, same starting conditions, different leaders, different outcomes. At the end the cohort verdict ranks every actor on survival, prosperity, morale, and innovation; the SIM tab renders all actors side-by-side throughout, with horizontal scroll for the full cohort and a constellation graph past 50 actors.',
   },
   {
     q: 'How do I inspect the agent swarm?',
@@ -292,12 +292,15 @@ export function AboutPage() {
           />
           <div className={`responsive-grid-2 ${styles.grid2}`}>
             {[
-              { title: 'Event Director', desc: 'AI generates unique events per timeline based on world state, decision history, and tool intelligence. No two runs play the same way.' },
-              { title: 'Abstract Leaders', desc: 'Leaders are top-down decision makers with HEXACO personality profiles. They can be people, organizations, policies, or autonomous systems. The engine models how personality shapes decisions.' },
-              { title: 'Tool Forging', desc: 'Department agents create computational tools at runtime: calculators, projectors, analyzers. An LLM judge reviews each for safety and correctness in a hardened node:vm sandbox.' },
-              { title: 'Personality Drift', desc: 'HEXACO traits evolve through leader pull, role activation, and outcome reinforcement. A cautious leader becomes bolder after risky successes. A bold leader retreats after failures.' },
-              { title: 'Deterministic Kernel', desc: 'Seeded PRNG ensures reproducibility. Same seed, same roster. Only AI decisions create divergence. Fork at any turn to explore alternate timelines.' },
-              { title: 'Any Domain', desc: 'Space colonies, corporate strategy, military wargaming, policy simulation, game worlds. Define departments, metrics, and events in JSON. The engine handles the rest.' },
+              { title: 'Event Director', desc: 'An LLM agent generates unique events per timeline from world state, decision history, and tool intelligence. No two runs play the same way; in a cohort each actor gets their own divergent event stream off the same kernel state.' },
+              { title: 'Abstract Leaders', desc: 'Leaders are top-down decision makers with HEXACO personality profiles. They can be people, organizations, policies, or autonomous systems. The engine models how personality shapes decisions under pressure.' },
+              { title: 'Cohort Runs', desc: 'Launch 2 to 300 leaders against the same compiled scenario from a single click. The SIM tab renders the full cohort side-by-side with horizontal scroll; past 50 actors it auto-switches to a constellation graph that exposes cohort archetype clusters.' },
+              { title: 'Tool Forging', desc: 'Department agents author computational tools at runtime — calculators, projectors, scoring functions — in a hardened node:vm sandbox. An LLM judge reviews each for safety and correctness before it enters the registry, then later turns reuse the tool at a fraction of the cost.' },
+              { title: 'Personality Drift', desc: 'HEXACO traits evolve every turn through leader pull, role activation, and outcome reinforcement. A cautious leader becomes bolder after a risky success; a bold leader retreats after a failure. Drift is capped per turn so the arc stays legible across long runs.' },
+              { title: 'Deterministic Kernel', desc: 'Mulberry32 seeded PRNG ensures the substrate reproduces byte-for-byte. Same seed, same starting roster, same physics. Divergence comes from the LLM stages reading each actor\'s HEXACO and deciding accordingly; replay any past run for free.' },
+              { title: 'Cohort Verdict', desc: 'Pair runs ship a head-to-head winner banner. Cohort runs (3+ actors) produce a ranked leaderboard with per-axis scores (survival, prosperity, morale, innovation) and a per-actor rationale — the full ranking opens in a modal off the top-bar banner.' },
+              { title: 'Forkable Counterfactuals', desc: 'Fork any past turn with a different actor, seed, or custom event. The branch streams alongside the trunk and the per-metric deltas surface in the Branches tab. The fork inherits the parent\'s kernel snapshot — turns 1 to N are reused, never replayed.' },
+              { title: 'Any Domain', desc: 'Space colonies, corporate strategy, military wargaming, policy simulation, frontier-AI release councils, game worlds. Define departments, metrics, and events in JSON. The engine handles the rest.' },
             ].map(item => (
               <div key={item.title} className={`hover-glow ${styles.howCard}`}>
                 <h3 className={styles.howCardTitle}>{item.title}</h3>

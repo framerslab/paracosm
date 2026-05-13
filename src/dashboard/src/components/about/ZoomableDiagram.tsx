@@ -21,7 +21,7 @@
  *
  * @module dashboard/about/ZoomableDiagram
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './AboutPage.module.scss';
 
@@ -62,15 +62,30 @@ export function ZoomableDiagram({
   const [inlineSvg, setInlineSvg] = useState<string | null>(null);
   const [fetchFailed, setFetchFailed] = useState(false);
 
+  // Unique ID per ZoomableDiagram instance so multiple diagrams mounted
+  // on the same page don't share an `aria-labelledby` target. React's
+  // useId is SSR-stable so the hook is safe to call here regardless of
+  // SSR context.
+  const titleId = useId();
+
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   /** Pan-drag state lives in refs to avoid React re-render thrash on
-   *  every mousemove. */
+   *  every mousemove. `panRef` shadows the `pan` state so the
+   *  mouse/touch listeners read the latest pan without needing to be
+   *  re-bound when the state updates — keeping the listeners stable
+   *  across drag ticks is what fixes the "rebind every frame" loop
+   *  that the previous pan.x/pan.y deps array introduced. */
   const panningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0 });
+  const panRef = useRef({ x: 0, y: 0 });
+  const lastTouchRef = useRef({ x: 0, y: 0 });
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
 
   /** Watch the html.light class so the modal background and inlined SVG
    *  theme follow the dashboard's theme toggle, not the OS preference. */
@@ -224,7 +239,11 @@ export function ZoomableDiagram({
     return () => window.removeEventListener('keydown', handler);
   }, [open, applyZoomDelta, handleReset, handleClose]);
 
-  /** Mouse drag pan. */
+  /** Mouse + touch drag pan. Listeners are bound once per `open` change
+   *  and read mutable pan state from `panRef` / `lastTouchRef` rather
+   *  than from the `pan` state value, so the effect doesn't re-bind
+   *  itself on every drag tick (which would tear down + re-attach
+   *  listeners mid-gesture and visibly stutter the pan). */
   useEffect(() => {
     if (!open) return;
     const container = containerRef.current;
@@ -233,7 +252,7 @@ export function ZoomableDiagram({
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       panningRef.current = true;
-      panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      panStartRef.current = { x: e.clientX - panRef.current.x, y: e.clientY - panRef.current.y };
       container.style.cursor = 'grabbing';
       e.preventDefault();
     };
@@ -251,22 +270,18 @@ export function ZoomableDiagram({
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
 
-    let lastTouchX = 0;
-    let lastTouchY = 0;
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
+      lastTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     };
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       setPan((p) => ({
-        x: p.x + (t.clientX - lastTouchX),
-        y: p.y + (t.clientY - lastTouchY),
+        x: p.x + (t.clientX - lastTouchRef.current.x),
+        y: p.y + (t.clientY - lastTouchRef.current.y),
       }));
-      lastTouchX = t.clientX;
-      lastTouchY = t.clientY;
+      lastTouchRef.current = { x: t.clientX, y: t.clientY };
       e.preventDefault();
     };
     container.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -287,7 +302,11 @@ export function ZoomableDiagram({
       container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('wheel', onWheel);
     };
-  }, [open, applyZoomDelta, pan.x, pan.y]);
+    // `pan.x` and `pan.y` are intentionally absent from the deps so the
+    // handlers stay bound across drag ticks; they read the latest pan
+    // through `panRef.current` instead. Adding them back would re-bind
+    // every frame and stutter the pan visibly.
+  }, [open, applyZoomDelta]);
 
   const wrapTransform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`;
   const modalBg = isLight ? '#f0e6d2' : '#0a0806';
@@ -340,14 +359,14 @@ export function ZoomableDiagram({
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="zoom-dialog-title"
+            aria-labelledby={titleId}
             tabIndex={-1}
             className={styles.zoomBackdrop}
             onClick={(e) => {
               if (e.target === e.currentTarget) handleClose();
             }}
           >
-            <h2 id="zoom-dialog-title" className="sr-only">{title}</h2>
+            <h2 id={titleId} className="sr-only">{title}</h2>
             <div role="toolbar" aria-label="Diagram zoom controls" className={styles.zoomToolbar}>
               <button
                 type="button"
