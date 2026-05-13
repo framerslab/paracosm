@@ -181,6 +181,58 @@
   color: var(--amber);
 }
 
+// Toggle: amber-tinted checkbox + label, replaces the always-on picker
+// when cohort runs are shown so the default view leads with all actors.
+.actorPairPickerToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+
+  input[type="checkbox"] {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--amber);
+    border-radius: 3px;
+    background: var(--bg-deep);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s ease;
+
+    &:checked {
+      background: var(--amber);
+    }
+
+    &:checked::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 5px;
+      height: 9px;
+      border: solid var(--bg-deep);
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--amber);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.actorPairPickerToggleText {
+  font-family: var(--mono);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+  font-size: var(--font-xs);
+}
+
 .actorPairPickerSelect {
   font-family: var(--mono);
   font-size: var(--font-sm);
