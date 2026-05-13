@@ -136,8 +136,10 @@
     height: 6px;
     border-radius: 50%;
     background: var(--actor-color, var(--text-3));
-    vertical-align: 1px;
     flex-shrink: 0;
+    // No vertical-align: the parent's `align-items: baseline` already
+    // owns the cross-axis alignment for inline-flex children, and the
+    // vertical-align property is ignored on flex items.
   }
 }
 
