@@ -18,6 +18,7 @@ export default defineConfig({
       '/rate-limit': 'http://localhost:3456',
       '/favicon.svg': 'http://localhost:3456',
       '/favicon.png': 'http://localhost:3456',
+      '/diagrams': 'http://localhost:3456',
     },
   },
   build: {

@@ -2829,6 +2829,30 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
     }
 
+    // Serve hand-crafted diagram SVGs (system flow, etc). Single source
+    // at `assets/diagrams/` — referenced from landing.html, the dashboard
+    // AboutPage, and the README. Same path-traversal guard as `/brand/`
+    // and `/demo/`; same file types; same cache policy.
+    if (req.url?.split('?')[0].startsWith('/diagrams/')) {
+      try {
+        const diagramRoot = resolve(__dirname, '..', '..', 'assets', 'diagrams');
+        const diagramPath = resolve(diagramRoot, req.url.split('?')[0].replace('/diagrams/', ''));
+        const insideRoot = diagramPath === diagramRoot || diagramPath.startsWith(diagramRoot + sep);
+        if (insideRoot && existsSync(diagramPath) && statSync(diagramPath).isFile()) {
+          const ext = diagramPath.split('.').pop() || '';
+          const types: Record<string, string> = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg' };
+          res.writeHead(200, {
+            'Content-Type': types[ext] || 'application/octet-stream',
+            'Cache-Control': 'public, max-age=3600, s-maxage=300',
+          });
+          res.end(readFileSync(diagramPath));
+          return;
+        }
+      } catch (err) {
+        console.warn(`[diagrams] failed to serve ${req.url}: ${(err as Error).message}`);
+      }
+    }
+
     // Serve demo videos (Remotion-rendered loops shown on the landing
     // page). Long cache: rendered output is content-addressable enough
     // that the landing's <video src> changes when content changes.

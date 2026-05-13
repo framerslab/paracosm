@@ -158,9 +158,37 @@
   border: 1px solid var(--border-hl);
   border-radius: 8px;
   padding: 16px 12px 8px;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
   box-shadow: var(--card-shadow), 0 0 30px var(--amber-glow);
   text-align: center;
+  position: relative;
+}
+
+.flowDiagramTrigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+  position: relative;
+  color: inherit;
+  font: inherit;
+  border-radius: 8px;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 4px;
+  }
+
+  &:hover .flowDiagramImg {
+    opacity: 0.96;
+  }
+
+  &:hover .flowDiagramBadge {
+    opacity: 1;
+    transform: scale(1.04);
+  }
 }
 
 .flowDiagramImg {
@@ -169,16 +197,154 @@
   max-width: 1080px;
   height: auto;
   margin: 0 auto;
+  border-radius: 8px;
+  transition: opacity 0.15s ease;
+}
+
+.flowDiagramBadge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(15, 12, 8, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  letter-spacing: 0.04em;
+  opacity: 0.88;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+
+  svg {
+    display: inline-block;
+    vertical-align: -1px;
+  }
 }
 
 .flowDiagramCaption {
   font-family: var(--mono);
   font-size: var(--font-2xs);
   color: var(--text-3);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding-top: 10px;
+  padding-top: 12px;
   text-align: center;
+}
+
+/* ---------- Zoom modal ---------- */
+
+.zoomBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.zoomToolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  user-select: none;
+}
+
+.zoomButton {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+  color: #ffffff;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: background 0.15s, transform 0.05s;
+  min-width: 36px;
+  min-height: 36px;
+  line-height: 1;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.zoomLabel {
+  color: #ffffff;
+  font-size: 12px;
+  min-width: 52px;
+  text-align: center;
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+.zoomSep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 4px;
+}
+
+.zoomContainer {
+  overflow: hidden;
+  border-radius: 12px;
+  max-width: 95vw;
+  max-height: calc(95vh - 80px);
+  width: 100%;
+  cursor: grab;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.zoomSvgWrap {
+  transform-origin: 0 0;
+  transition: transform 0.1s ease-out;
+  padding: 2rem;
+
+  svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    pointer-events: none;
+  }
+}
+
+.zoomPlaceholder {
+  width: 100%;
+  height: auto;
+  display: block;
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .howCard {

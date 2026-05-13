@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useScenarioContext } from '../../App';
 import { describeAvailability, type ProductAvailability } from './aboutStatus';
+import { ZoomableDiagram } from './ZoomableDiagram';
 import styles from './AboutPage.module.scss';
 
 interface FaqItem {
@@ -281,19 +282,14 @@ export function AboutPage() {
         {/* How it works */}
         <section className={styles.section} aria-labelledby="how-heading">
           <h2 id="how-heading" className={styles.h2}>How It Works</h2>
-          <figure className={styles.flowDiagram}>
-            <img
-              src="/diagrams/paracosm-flow.svg"
-              alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director → Departments → Commander → Reactions, with Tool Forge + LLM Judge + HEXACO Drift + AgentMemory side modules), Agent Swarm of personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches."
-              className={styles.flowDiagramImg}
-              loading="lazy"
-              width="1200"
-              height="1180"
-            />
-            <figcaption className={styles.flowDiagramCaption}>
-              From a paragraph to a forkable, replayable, multi-agent world.
-            </figcaption>
-          </figure>
+          <ZoomableDiagram
+            src="/diagrams/paracosm-flow.svg"
+            alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director then Departments in parallel then Commander then Reactions, with Tool Forge in a V8 sandbox, an LLM Judge, HEXACO drift, and AgentMemory side modules), Agent Swarm of about a hundred personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches."
+            caption="From a paragraph to a forkable, replayable, multi-agent world."
+            title="Paracosm system flow"
+            width={1200}
+            height={1180}
+          />
           <div className={`responsive-grid-2 ${styles.grid2}`}>
             {[
               { title: 'Event Director', desc: 'AI generates unique events per timeline based on world state, decision history, and tool intelligence. No two runs play the same way.' },
