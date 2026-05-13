@@ -2,9 +2,62 @@ import { DEFAULT_KEY_PERSONNEL, type NormalizedSimulationConfig } from './sim-co
 import { marsScenario } from '../engine/scenarios/index.js';
 import { apiKeyForProvider } from '../engine/provider/credentials.js';
 import { generateValidatedObject } from '../llm/generateValidatedObject.js';
-import { VerdictSchema } from '../runtime/validators/verdict.js';
+import { VerdictSchema, CohortVerdictSchema } from '../runtime/validators/verdict.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import type { ResolvedEconomicsProfile } from '../runtime/economics/economics-profile.js';
+
+/**
+ * Largest cohort that gets a full LLM-ranked verdict. Past this size
+ * the prompt + response token budget explodes and the dashboard
+ * auto-switches to the constellation view anyway, so the per-actor
+ * ranking stops being load-bearing. For N > MAX_COHORT_VERDICT_N the
+ * batch runner skips the verdict call entirely and the dashboard
+ * surfaces the group-median deltas via the constellation surface.
+ */
+const MAX_COHORT_VERDICT_N = 50;
+
+/**
+ * Per-actor summary used by both the pair verdict and the cohort
+ * verdict prompt builders. Pulled out of the original inline
+ * `formatLeader` closure so the cohort runner can reuse it without
+ * duplicating the cause-of-death rollup + tool-ledger math.
+ *
+ * @param label leading label for this actor in the prompt ("LEADER A",
+ *              "#3 Captain Reyes", etc.)
+ * @param leader actor config (carries HEXACO + archetype + unit)
+ * @param result completed RunArtifact for this actor
+ * @param col `result.finalState.metrics`, hoisted for clarity
+ */
+function formatActorSummary(
+  label: string,
+  leader: import('../runtime/orchestrator/index.js').ActorConfig,
+  result: any,
+  col: any,
+): string {
+  const fp = result.fingerprint || {};
+  const toolbox = result.forgedToolbox || [];
+  const topTools = toolbox.slice(0, 5).map((t: any) => `${t.name}(${t.firstForgedDepartment}, reused ${t.reuseCount}x)`).join('; ');
+  const deathEvents = (result.finalState?.eventLog ?? []).filter((e: any) => e.type === 'death');
+  const causeCounts: Record<string, number> = {};
+  for (const d of deathEvents) {
+    const raw = (d.cause as string | undefined) ?? 'unknown';
+    const key = raw.startsWith('accident:') ? 'accident' : raw;
+    causeCounts[key] = (causeCounts[key] ?? 0) + 1;
+  }
+  const causeSummary = Object.keys(causeCounts).length > 0
+    ? Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(', ')
+    : 'no deaths';
+  return [
+    `${label}: ${leader.name} "${leader.archetype}" (${leader.unit})`,
+    `  HEXACO: O${leader.hexaco.openness.toFixed(2)} C${leader.hexaco.conscientiousness.toFixed(2)} E${leader.hexaco.extraversion.toFixed(2)} A${leader.hexaco.agreeableness.toFixed(2)} Em${leader.hexaco.emotionality.toFixed(2)} HH${leader.hexaco.honestyHumility.toFixed(2)}`,
+    `  Final: Pop ${col?.population ?? '?'}, Morale ${Math.round((col?.morale ?? 0) * 100)}%, Food ${col?.foodMonthsReserve?.toFixed(1) ?? '?'}mo, Power ${col?.powerKw?.toFixed(0) ?? '?'}kW, Modules ${col?.infrastructureModules?.toFixed(1) ?? '?'}, Science ${col?.scienceOutput ?? '?'}`,
+    `  Mortality: ${deathEvents.length} total (${causeSummary})`,
+    `  Innovation: ${toolbox.length} unique tools forged (${fp.innovation || 'n/a'}), citations ${result.totalCitations}`,
+    topTools ? `  Top tools: ${topTools}` : '  No tools forged',
+    `  Fingerprint: ${fp.summary || 'n/a'}`,
+    `  Cost: $${result.cost?.totalCostUSD?.toFixed(4) ?? '?'} over ${result.cost?.llmCalls ?? '?'} LLM calls`,
+  ].join('\n');
+}
 
 /**
  * SSE broadcast contract. The optional `actorId` lets per-actor
@@ -572,6 +625,100 @@ export async function runBatchSimulations(
   const fulfilled = settled.filter(s => s.status === 'fulfilled')
     .map(s => (s as PromiseFulfilledResult<unknown>).value as { aborted?: boolean; providerError?: unknown });
   const allAborted = fulfilled.length === 0 || fulfilled.every(v => v?.aborted === true || !!v?.providerError);
+
+  // Cohort verdict: rank every actor that finished cleanly. Previously
+  // the dashboard saw no winner banner for N>=3 runs because verdicts
+  // were pair-only; now a single LLM call produces an absolute winner
+  // plus a full ranked list, scoped to MAX_COHORT_VERDICT_N actors so
+  // the prompt budget stays bounded. Skipped on abort + when the
+  // economics profile turns verdicts off ('skip' mode).
+  if (!allAborted) {
+    const verdictModel = resolveVerdictModel(simConfig.provider || 'openai', simConfig.economics);
+    const cleanRuns: Array<{ leader: import('../runtime/orchestrator/index.js').ActorConfig; index: number; result: any }> = [];
+    for (let i = 0; i < settled.length; i++) {
+      const slot = settled[i];
+      if (slot?.status !== 'fulfilled') continue;
+      const result = slot.value as any;
+      if (result?.aborted === true || result?.providerError) continue;
+      cleanRuns.push({ leader: actorsWithTags[i].leader, index: actorsWithTags[i].index, result });
+    }
+
+    if (verdictModel && cleanRuns.length >= 2 && cleanRuns.length <= MAX_COHORT_VERDICT_N) {
+      const summaries = cleanRuns.map(({ leader, index, result }) => {
+        const col = result.finalState?.metrics;
+        return formatActorSummary(`#${index + 1} ${leader.name}`, leader, result, col);
+      }).join('\n\n');
+
+      try {
+        const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
+          provider: simConfig.provider || 'openai',
+          model: verdictModel,
+          apiKey: apiKeyForProvider(simConfig.provider || 'openai', simConfig),
+          schema: CohortVerdictSchema,
+          schemaName: 'CohortVerdict',
+          prompt: `You are judging a cohort simulation. ${cleanRuns.length} AI commanders with different HEXACO personality profiles led identical worlds through ${turns} turns from the same starting conditions and deterministic seed. Your job is to rank them from best to worst and explain WHY each placed where it did.
+
+ACTOR SUMMARIES (in launch order):
+
+${summaries}
+
+TRADEOFFS TO WEIGH
+Tool forging is a cost/capability tradeoff: every forged tool spent a judge LLM call and ate analyst attention; failed forges hurt morale and produced no reusable capability; successful tools let later decisions reason about concrete numbers. A leader who built few tools and reused them many times has a disciplined, cost-efficient signature; a leader who forged many novel tools has an exploratory signature with broader capability surface. Both are valid strategies and your scoring should reflect that trade, not punish either extreme.
+
+Mortality is a cause-specific signal, not a number. The "Mortality" line names HOW each colonist died. Starvation deaths reveal resource-allocation choices; radiation-cancer deaths reveal shielding priorities; despair deaths reveal a colony in psychological freefall. Reference specific causes when they shape the story.
+
+REASONING — populate the "reasoning" field with a numbered breakdown covering:
+  (1) Population trajectory across the cohort — which actors held the line, which collapsed?
+  (2) Morale + psychological state — which actor's colony held together emotionally?
+  (3) Resource efficiency — food, power, infrastructure — which ran leanest, which hit crises?
+  (4) Innovation signature — breadth vs depth in the forged toolbox across actors.
+  (5) Mortality story — which causes dominated, and what does that say about each actor's priorities?
+  (6) The single most impactful divergence across the cohort.
+  (7) The full ranking with brief why-this-rank.
+
+Then fill out:
+  winner: the name of the top-ranked actor (exact match from one of the names above)
+  winnerIndex: the 0-based launch-order index of the winner
+  headline: one-line verdict (max 80 chars) grounded in the key cohort divergence
+  summary: 2-3 sentences naming the personality + tool-use + mortality pattern that drove the winner's success relative to the rest of the cohort
+  keyDivergence: the single most impactful difference between the winner and the next-best actor
+  rankings: every actor as a separate entry, with rank (1 = winner), actorName, actorIndex, scores { survival, prosperity, morale, innovation } each 0-10, and a 1-2 sentence rationale specific to that actor`,
+        });
+        if (fromFallback) {
+          console.log('  Cohort verdict schema fallback; skipping broadcast');
+        } else {
+          broadcast('cohort_verdict', {
+            ...cohortVerdict,
+            actors: cleanRuns.map(({ leader, index }) => ({
+              name: leader.name,
+              archetype: leader.archetype,
+              unit: leader.unit,
+              index,
+            })),
+            finalStats: cleanRuns.map(({ leader, index, result }) => ({
+              actorName: leader.name,
+              actorIndex: index,
+              population: result.finalState?.metrics?.population,
+              morale: result.finalState?.metrics?.morale,
+              food: result.finalState?.metrics?.foodMonthsReserve,
+              power: result.finalState?.metrics?.powerKw,
+              modules: result.finalState?.metrics?.infrastructureModules,
+              science: result.finalState?.metrics?.scienceOutput,
+              tools: result.totalToolsForged,
+            })),
+          });
+          console.log(`\n  COHORT VERDICT: ${cohortVerdict.headline}`);
+          console.log(`  Winner: ${cohortVerdict.winner} (#${cohortVerdict.winnerIndex + 1})`);
+          console.log(`  ${cohortVerdict.summary}\n`);
+        }
+      } catch (verdictErr) {
+        console.log('  Cohort verdict generation failed:', verdictErr);
+      }
+    } else if (verdictModel && cleanRuns.length > MAX_COHORT_VERDICT_N) {
+      console.log(`  [batch] Cohort verdict skipped: ${cleanRuns.length} actors exceeds MAX_COHORT_VERDICT_N=${MAX_COHORT_VERDICT_N}`);
+    }
+  }
+
   broadcast('complete', {
     timestamp: new Date().toISOString(),
     batch: true,

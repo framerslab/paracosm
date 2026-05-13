@@ -1,11 +1,13 @@
 /**
- * Full-verdict modal triggered from the global VerdictBanner. Opens a
- * centered dialog carrying the VerdictDetails breakdown with focus
- * trapped inside while open. Backdrop click + Escape (handled by
- * caller) both dismiss.
+ * Full-verdict modal triggered from the global VerdictBanner. Renders
+ * either the pair-mode VerdictDetails (A vs B scoreboard) or a cohort
+ * ranking table depending on `verdict.mode`. Focus is trapped while
+ * open; backdrop click + Escape (handled by the caller) dismiss.
  */
+import type { CSSProperties } from 'react';
 import { VerdictDetails } from '../sim/VerdictCard';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './VerdictModal.module.scss';
 
 interface VerdictModalProps {
@@ -13,14 +15,88 @@ interface VerdictModalProps {
   onClose: () => void;
 }
 
+interface CohortRankingEntry {
+  actorName: string;
+  actorIndex: number;
+  rank: number;
+  rationale: string;
+  scores?: {
+    survival?: number;
+    prosperity?: number;
+    morale?: number;
+    innovation?: number;
+  };
+}
+
+function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
+  const headline = String(v.headline || '');
+  const summary = String(v.summary || '');
+  const keyDivergence = String(v.keyDivergence || '');
+  const rankings = (Array.isArray(v.rankings) ? v.rankings : []) as CohortRankingEntry[];
+  const reasoning = String(v.reasoning || '');
+  const actorCount = Array.isArray(v.actors) ? (v.actors as unknown[]).length : rankings.length;
+
+  return (
+    <div className={styles.cohortDetails}>
+      <header className={styles.cohortHeader}>
+        <div className={styles.cohortKicker}>★ Cohort of {actorCount} · Verdict</div>
+        <h2 className={styles.cohortHeadline}>{headline}</h2>
+        {summary && <p className={styles.cohortSummary}>{summary}</p>}
+        {keyDivergence && (
+          <p className={styles.cohortDivergence}>
+            <strong>Key divergence:</strong> {keyDivergence}
+          </p>
+        )}
+      </header>
+
+      <ol className={styles.cohortRankings}>
+        {rankings
+          .slice()
+          .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
+          .map((r) => {
+            const color = getActorColorVar(r.actorIndex);
+            return (
+              <li
+                key={`${r.rank}-${r.actorName}`}
+                className={styles.cohortRankingEntry}
+                style={{ '--actor-color': color } as CSSProperties}
+              >
+                <div className={styles.cohortRankBadge}>#{r.rank}</div>
+                <div className={styles.cohortRankBody}>
+                  <div className={styles.cohortRankName}>{r.actorName}</div>
+                  <div className={styles.cohortRankScores}>
+                    <span title="Survival">S {r.scores?.survival ?? '?'}</span>
+                    <span title="Prosperity">P {r.scores?.prosperity ?? '?'}</span>
+                    <span title="Morale">M {r.scores?.morale ?? '?'}</span>
+                    <span title="Innovation">I {r.scores?.innovation ?? '?'}</span>
+                  </div>
+                  {r.rationale && <p className={styles.cohortRankRationale}>{r.rationale}</p>}
+                </div>
+              </li>
+            );
+          })}
+      </ol>
+
+      {reasoning && (
+        <details className={styles.cohortReasoning}>
+          <summary>Full reasoning</summary>
+          <pre>{reasoning}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
 export function VerdictModal({ verdict, onClose }: VerdictModalProps) {
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
+  const mode = verdict.mode === 'cohort' ? 'cohort' : 'pair';
   const winner = verdict.winner;
   const dialogClassName = [
     styles.dialog,
-    winner === 'A' ? styles.winnerA : undefined,
-    winner === 'B' ? styles.winnerB : undefined,
-    winner === 'tie' ? styles.winnerTie : undefined,
+    mode === 'pair' && winner === 'A' ? styles.winnerA : undefined,
+    mode === 'pair' && winner === 'B' ? styles.winnerB : undefined,
+    mode === 'pair' && winner === 'tie' ? styles.winnerTie : undefined,
+    mode === 'cohort' ? styles.cohortDialog : undefined,
   ].filter(Boolean).join(' ');
   return (
     <div
@@ -43,8 +119,10 @@ export function VerdictModal({ verdict, onClose }: VerdictModalProps) {
         >
           ×
         </button>
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        <VerdictDetails v={verdict as any} />
+        {mode === 'cohort'
+          ? <CohortVerdictDetails v={verdict} />
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          : <VerdictDetails v={verdict as any} />}
       </div>
     </div>
   );
