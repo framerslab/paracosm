@@ -405,6 +405,13 @@
   & + & {
     border-left: 1px solid var(--border);
   }
+
+  // Phone: bump tap target to the WCAG 2.5.5 "Target Size" recommended
+  // 44×44px minimum so thumb taps don't miss between adjacent pills.
+  @media (max-width: 480px) {
+    padding: 10px 14px;
+    min-height: 44px;
+  }
 }
 
 .cohortViewModeButtonActive {
@@ -447,6 +454,16 @@
   &:focus-visible {
     outline: 2px solid var(--amber);
     outline-offset: 1px;
+  }
+
+  // Phone: drop the 160px floor so two selects + the "vs" separator
+  // can both fit on a single row inside a 360px viewport, and bump
+  // the height to clear the WCAG 2.5.5 44px target-size guideline.
+  @media (max-width: 480px) {
+    min-width: 0;
+    flex: 1 1 0;
+    padding: 10px 8px;
+    font-size: var(--font-md);
   }
 }
 

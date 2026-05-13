@@ -59,6 +59,12 @@
 .cohortDetails {
   padding: 12px 4px 8px;
   color: var(--text-1);
+
+  // Phone: pull the padding flush with the dialog edge so 360px
+  // viewports get more rendering room for the headline + summary.
+  @media (max-width: 480px) {
+    padding: 8px 0 6px;
+  }
 }
 
 .cohortHeader {
@@ -122,6 +128,15 @@
   border: 1px solid color-mix(in srgb, var(--actor-color, var(--amber)) 28%, transparent);
   border-left: 3px solid var(--actor-color, var(--amber));
   border-radius: 8px;
+
+  // Phone: tighten the badge column so the rationale text gets more
+  // horizontal room. The rank badge is short enough (#1 to #99) to
+  // still center-read at 40px while leaving meaningful body width.
+  @media (max-width: 480px) {
+    grid-template-columns: 40px 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+  }
 }
 
 .cohortRankBadge {

@@ -87,6 +87,14 @@
   background: var(--bg-panel);
   border-bottom: 1px solid var(--actor-color, var(--border));
   flex-shrink: 0;
+
+  // Phone: shrink the header padding + gap so the slot label + name +
+  // pop chip stay on one line at narrow widths. Archetype already
+  // truncates with text-overflow: ellipsis so it shrinks naturally.
+  @media (max-width: 480px) {
+    padding: 8px 10px;
+    gap: 6px;
+  }
 }
 
 .columnHeaderSlot {

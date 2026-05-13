@@ -67,6 +67,13 @@
     outline: 2px solid var(--amber);
     outline-offset: 1px;
   }
+
+  // Phone: bump tap target to clear the WCAG 2.5.5 44px guideline and
+  // raise font size so iOS doesn't auto-zoom the page on focus.
+  @media (max-width: 480px) {
+    padding: 10px 8px;
+    font-size: var(--font-md);
+  }
 }
 
 .agentBtn {
