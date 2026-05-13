@@ -514,7 +514,17 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       es.addEventListener('verdict', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data);
-          setState(prev => ({ ...prev, verdict: data }));
+          // Tag the pair-mode shape so VerdictBanner can branch
+          // cleanly between pair and cohort rendering instead of
+          // sniffing the payload shape.
+          setState(prev => ({ ...prev, verdict: { ...data, mode: 'pair' } }));
+        } catch {}
+      });
+
+      es.addEventListener('cohort_verdict', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          setState(prev => ({ ...prev, verdict: { ...data, mode: 'cohort' } }));
         } catch {}
       });
 
