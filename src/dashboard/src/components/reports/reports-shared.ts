@@ -32,13 +32,25 @@ export function classifyTurn(
   return aFirstTitle === bFirstTitle ? 'shared' : 'divergent';
 }
 
-/** Series shape consumed by MetricSparklines. */
+/** Per-actor entry in the cohort metric series. */
+export interface CohortMetricSeriesPoint {
+  actorId: string;
+  name: string;
+  color: string;
+  points: Array<{ turn: number; value: number }>;
+}
+
+/** Series shape consumed by MetricSparklines. The `a` / `b` pair is the
+ *  pair-mode rendering shape kept for back-compat; when `series` is
+ *  populated MetricSparklines branches into N-polyline cohort mode and
+ *  ignores `a` / `b`. */
 export interface MetricSeries {
   id: 'population' | 'morale' | 'foodMonthsReserve' | 'powerKw' | 'infrastructureModules' | 'scienceOutput';
   label: string;
   unit?: string;
   a: Array<{ turn: number; value: number }>;
   b: Array<{ turn: number; value: number }>;
+  series?: CohortMetricSeriesPoint[];
 }
 
 const METRIC_DEFS: Array<{ id: MetricSeries['id']; label: string; unit?: string }> = [
@@ -95,6 +107,42 @@ export function collectMetricSeries(
     unit: def.unit,
     a: aEvents ? seriesForSide(aEvents, def.id) : [],
     b: bEvents ? seriesForSide(bEvents, def.id) : [],
+  }));
+}
+
+/**
+ * Cohort variant: builds the six-metric series for every actor in the
+ * run. Each MetricSeries carries a populated `series` array (one entry
+ * per actor) so MetricSparklines can render N polylines per card instead
+ * of the pair-mode A/B overlay. Leaves `a` / `b` empty since the cohort
+ * card ignores them when `series` is present.
+ */
+export function collectMetricSeriesCohort(
+  state: GameState,
+  paletteFor: (idx: number) => string,
+): MetricSeries[] {
+  const perActor = state.actorIds.map((actorId, idx) => {
+    const events = state.actors[actorId]?.events as Array<{ turn?: number; data: Record<string, unknown> }> | undefined;
+    return {
+      actorId,
+      idx,
+      name: state.actors[actorId]?.leader?.name ?? actorId,
+      color: paletteFor(idx),
+      events,
+    };
+  });
+  return METRIC_DEFS.map(def => ({
+    id: def.id,
+    label: def.label,
+    unit: def.unit,
+    a: [],
+    b: [],
+    series: perActor.map(p => ({
+      actorId: p.actorId,
+      name: p.name,
+      color: p.color,
+      points: p.events ? seriesForSide(p.events, def.id) : [],
+    })),
   }));
 }
 

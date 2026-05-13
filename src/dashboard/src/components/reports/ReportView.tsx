@@ -25,7 +25,8 @@ import { CohortVerdict } from './CohortVerdict';
 import { RunStrip } from './RunStrip';
 import { MetricSparklines } from './MetricSparklines';
 import { ReportSideNav, type SideNavItem } from './ReportSideNav';
-import { collectMetricSeries, collectRunStripData } from './reports-shared';
+import { collectMetricSeries, collectMetricSeriesCohort, collectRunStripData } from './reports-shared';
+import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './ReportView.module.scss';
 
 /**
@@ -388,7 +389,16 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   // Strip + sparklines respect the picker so swapping actors rotates
   // every panel that mentions A/B in lockstep.
   const stripCells = useMemo(() => collectRunStripData(turns), [turns]);
+  // Pair-mode metric series (A vs B). Used when isPairFocus is on for
+  // cohort runs and for all 2-actor pair runs.
   const metricSeries = useMemo(() => collectMetricSeries(state, aId, bId), [state, aId, bId]);
+  // Cohort-mode metric series (one polyline per actor). Used when the
+  // pair-focus toggle is off for cohort runs so the sparklines render
+  // all N actors at once instead of just the picked pair.
+  const cohortMetricSeries = useMemo(
+    () => (isNActor ? collectMetricSeriesCohort(state, getActorColorVar) : null),
+    [isNActor, state],
+  );
   const sideNavItems = useMemo<SideNavItem[]>(() => {
     // Order now matches the new section layout: turn-by-turn content
     // at the top (Strip → Metrics → Trajectory → individual turns →
@@ -615,6 +625,15 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
       {(!isNActor || isPairFocus) && (
         <section id="sparklines">
           <MetricSparklines metrics={metricSeries} leaderAName={nameA} leaderBName={nameB} />
+        </section>
+      )}
+
+      {/* Cohort sparklines: N polylines per metric card when the
+          pair-focus toggle is off, replacing the 2-color A/B overlay
+          with the full cohort trajectory. */}
+      {isNActor && !isPairFocus && cohortMetricSeries && (
+        <section id="sparklines">
+          <MetricSparklines metrics={cohortMetricSeries} leaderAName="" leaderBName="" />
         </section>
       )}
 

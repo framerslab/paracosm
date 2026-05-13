@@ -88,3 +88,52 @@
   color: var(--side-b-color, var(--eng));
   font-weight: 700;
 }
+
+/* Cohort variant: chips of the per-actor last-value, wrapping when
+ * many actors are present so a 12-actor cohort doesn't blow up the
+ * sparkline card's footer width. */
+.cardFooterCohort {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: var(--font-2xs);
+  font-family: var(--mono);
+}
+
+.lastCohort {
+  color: var(--actor-color, var(--text-3));
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Cohort legend at the section header. Wrapping flex of per-actor
+ * chips; each chip carries the actor's color via the --actor-color
+ * CSS var set inline. */
+.legendCohort {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  max-width: 70%;
+  justify-content: flex-end;
+}
+
+.legendCohortEntry {
+  color: var(--actor-color, var(--text-2));
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--actor-color, var(--text-3));
+    margin-right: 4px;
+    vertical-align: 1px;
+  }
+}
