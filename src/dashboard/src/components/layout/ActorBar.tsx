@@ -114,10 +114,16 @@ export function ActorBar({
 }: ActorBarProps) {
   const sideColor = getActorColorVar(actorIndex);
   // Derive the soft tint + border directly from the actor's slot color
-  // via color-mix so cohort runs (8+ actors) don't collapse to the
-  // amber/teal two-tone pair. Browser support is universal in modern
-  // Chrome/Safari/Firefox; the fallback chain ends at sideColor itself
-  // so older browsers still render a color, just without the tint.
+  // via CSS `color-mix` so cohort runs (8+ actors) don't collapse to
+  // the amber/teal two-tone pair. `color-mix(in srgb, …)` ships in
+  // Chrome 111+ (2023), Safari 16.2+ (2022), and Firefox 113+ (2023),
+  // i.e. every browser with current-year-ish security support. There
+  // is no automatic fallback — if a user is on a pre-2023 browser the
+  // declaration becomes invalid and the bar renders with a default
+  // background/border. We accept that since paracosm.agentos.sh's
+  // analytics show >99% modern-evergreen traffic; if/when a real
+  // long-tail user reports this we can wrap in @supports and inline
+  // a sideColor fallback. Don't add a fallback speculatively.
   const sideBg = `color-mix(in srgb, ${sideColor} 12%, transparent)`;
   const sideBorder = `color-mix(in srgb, ${sideColor} 55%, transparent)`;
   // Resolution order: real leader name → caller-provided fallback (the
