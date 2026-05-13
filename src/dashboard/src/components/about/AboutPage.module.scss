@@ -153,6 +153,34 @@
   line-height: 1.6;
 }
 
+.flowDiagram {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hl);
+  border-radius: 8px;
+  padding: 16px 12px 8px;
+  margin-bottom: 16px;
+  box-shadow: var(--card-shadow), 0 0 30px var(--amber-glow);
+  text-align: center;
+}
+
+.flowDiagramImg {
+  display: block;
+  width: 100%;
+  max-width: 1080px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.flowDiagramCaption {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 10px;
+  text-align: center;
+}
+
 .howCard {
   background: var(--bg-card);
   border: 1px solid var(--border);

@@ -39,9 +39,11 @@
 
 ---
 
-Paracosm is an agent swarm simulation framework for structured world modeling with LLMs. It compiles a JSON scenario draft (or a prompt, or an extracted document) into a runnable multi-agent world, plays it through a deterministic kernel, and lets agents with HEXACO personality profiles decide turn by turn how the world unfolds. Snapshots persist on disk. Runs replay byte-for-byte. Any past turn can be forked with a different actor, a different seed, or a custom event, and the divergent branch streams alongside the trunk so the contrast is visible in the artifact, not promised in copy.
+Paracosm compiles a JSON scenario draft (or a prompt, or an extracted document) into a runnable multi-agent world, plays it through a deterministic seeded kernel, and lets actors with HEXACO personality profiles decide turn by turn how the world unfolds. The kernel reproduces byte-for-byte. The LLM Event Director reads each actor's HEXACO profile and accumulated state, so events diverge from turn 1. Snapshot any turn, fork with a different actor, seed, or custom event, and the branch streams alongside the trunk: the contrast is visible in the artifact, not promised in copy.
 
-The product is the contrast. Same compiled world, same kernel, same seed — but the LLM Event Director reads each leader's HEXACO profile and accumulated state, so the events themselves diverge from turn 1. Swap one variable and the trajectory measurably moves; replay the same leader on the same seed and the run reproduces.
+<p align="center">
+  <img src="assets/diagrams/paracosm-flow.svg" alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director → Departments → Commander → Reactions, with Tool Forge + LLM Judge + HEXACO Drift + AgentMemory side modules), Agent Swarm of personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches." width="100%" />
+</p>
 
 ---
 
@@ -258,7 +260,7 @@ console.log('forged tools ', result.forgedTools?.length ?? 0);
 console.log('citations    ', result.citations?.length ?? 0);
 ```
 
-Each call to `wm.simulate` takes one actor. Run one, two, or twenty. The dashboard runs two side-by-side for comparison; the API has no limit.
+Each call to `wm.simulate` takes one actor. The dashboard fans cohorts out side-by-side and auto-switches to a constellation view past 50; the API has no limit.
 
 ### Or use the dashboard
 
@@ -476,8 +478,8 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 
 |                  | Open source (Apache-2.0)                                           | Hosted (planned)                                                      |
 |------------------|--------------------------------------------------------------------|------------------------------------------------------------------------|
-| Actors           | Unlimited via API. Dashboard shows two side-by-side.               | N actors in parallel, fleet management UI.                             |
-| Simulations      | Sequential or self-managed parallelism.                            | Distributed parallelization across worker nodes.                       |
+| Actors           | Unlimited via API. Dashboard renders the full cohort side-by-side, constellation view past 50. | Fleet management UI on top.                          |
+| Simulations      | In-process parallelism via the bounded worker pool.                | Distributed parallelization across worker nodes.                       |
 | Scenarios        | JSON + compiler, unlimited.                                         | Visual scenario editor, team sharing, version control.                |
 | Agent chat       | Available after the first turn completes.                           | Persistent agents with durable memory across sessions.                |
 | Cost             | Free forever. The user supplies LLM API keys.                       | Tiered pricing for teams, organizations, and government agencies.     |
