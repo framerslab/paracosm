@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useDashboardNavigation, useScenarioContext } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
+import { getActorColorVar } from '../../hooks/useGameState';
 import { ActorConfig, type ActorFormData } from './ActorConfig';
 import { ScenarioEditor } from './ScenarioEditor';
 import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
@@ -84,15 +85,45 @@ const TIER_LABELS: Record<ModelTier, { label: string; help: string }> = {
   agentReactions: { label: 'Agent Reactions',        help: 'One to two sentences per colonist per turn. Highest volume — pick cheapest.' },
 };
 
+/**
+ * Generic per-slot defaults so the Settings panel can render N actor
+ * forms instead of just the original two. Indexes 0/1 keep their
+ * legacy names (Actor A / Actor B + Visionary / Engineer archetypes
+ * + Colony Alpha / Beta units) so pair-mode runs feel identical to
+ * the pre-cohort UX; cohort slots fall through to numbered defaults.
+ */
+const PHONETIC_UNITS = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta'];
+const COHORT_ARCHETYPES = [
+  'The Visionary',
+  'The Engineer',
+  'The Diplomat',
+  'The Maverick',
+  'The Guardian',
+  'The Strategist',
+  'The Steward',
+  'The Innovator',
+];
+
 function defaultLeader(idx: number): ActorFormData {
+  const slotLetter = String.fromCharCode(65 + (idx % 26));
+  const phonetic = PHONETIC_UNITS[idx] ?? `Group ${idx + 1}`;
   return {
-    name: idx === 0 ? 'Actor A' : 'Actor B',
-    archetype: idx === 0 ? 'The Visionary' : 'The Engineer',
-    unit: idx === 0 ? 'Colony Alpha' : 'Colony Beta',
+    name: `Actor ${slotLetter}`,
+    archetype: COHORT_ARCHETYPES[idx] ?? 'The Strategist',
+    unit: `Colony ${phonetic}`,
     instructions: '',
     hexaco: { ...DEFAULT_HEXACO },
   };
 }
+
+/** Lower bound — Sim API rejects under 2 actors (non-fork paths). */
+const MIN_ACTORS = 2;
+/** Upper bound for the Settings panel UI. The server accepts up to
+ *  300 (matches the Quickstart slider), but past ~8 the per-actor
+ *  HEXACO form scroll becomes a lot to manage from this surface.
+ *  Users wanting larger cohorts should use Quickstart's generate-N
+ *  flow which produces actor configs from a single prompt. */
+const MAX_ACTORS = 8;
 
 export interface SettingsPanelProps {
   /** SSE events to feed the embedded EventLogPanel sub-tab. Optional
@@ -134,49 +165,67 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const presetLeaders = defaultPreset?.leaders ?? defaultPreset?.actors;
   const persistedActors =
     typeof window !== 'undefined' ? readActiveRunActors(window.localStorage) : null;
-  const fallbackA =
-    presetLeaders?.[0] ??
-    (persistedActors?.[0] as { name?: string; archetype?: string; instructions?: string; hexaco?: Record<string, number> } | undefined);
-  const fallbackB =
-    presetLeaders?.[1] ??
-    (persistedActors?.[1] as { name?: string; archetype?: string; instructions?: string; hexaco?: Record<string, number> } | undefined);
-  // Spread the hexaco object so the form's per-trait edits don't mutate
-  // the preset that lives in the scenario context (which is shared with
-  // every other consumer that reads scenario.presets).
-  const initLeaderA: ActorFormData = fallbackA?.name
-    ? { name: fallbackA.name, archetype: fallbackA.archetype ?? '', unit: 'Colony Alpha', instructions: fallbackA.instructions ?? '', hexaco: { ...(fallbackA.hexaco ?? {}) } }
-    : defaultLeader(0);
-  const initLeaderB: ActorFormData = fallbackB?.name
-    ? { name: fallbackB.name, archetype: fallbackB.archetype ?? '', unit: 'Colony Beta', instructions: fallbackB.instructions ?? '', hexaco: { ...(fallbackB.hexaco ?? {}) } }
-    : defaultLeader(1);
+  // Cohort-aware initial state: merge presets, persisted launch config,
+  // and per-slot defaults. The Settings panel renders up to MAX_ACTORS
+  // actor forms; runs that previously launched with 3+ actors via
+  // Quickstart resume here with their full roster intact instead of
+  // collapsing back to the legacy pair view. Pair-only sources (a
+  // 2-actor preset on a scenario built before cohorts) still hydrate
+  // the first two slots and leave the rest at their slot defaults.
+  const presetActorCount = Math.max(
+    MIN_ACTORS,
+    Math.min(MAX_ACTORS, presetLeaders?.length ?? persistedActors?.length ?? MIN_ACTORS),
+  );
+  const initActors: ActorFormData[] = Array.from({ length: presetActorCount }, (_, idx) => {
+    const fallback =
+      presetLeaders?.[idx] ??
+      (persistedActors?.[idx] as { name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> } | undefined);
+    if (!fallback?.name) return defaultLeader(idx);
+    return {
+      name: fallback.name,
+      archetype: fallback.archetype ?? '',
+      unit: fallback.unit ?? `Colony ${PHONETIC_UNITS[idx] ?? `${idx + 1}`}`,
+      instructions: fallback.instructions ?? '',
+      // Spread so the form's per-trait edits don't mutate the preset
+      // shared via the scenario context.
+      hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
+    };
+  });
 
-  const [leaderA, setLeaderA] = useState<ActorFormData>(initLeaderA);
-  const [leaderB, setLeaderB] = useState<ActorFormData>(initLeaderB);
+  const [actors, setActors] = useState<ActorFormData[]>(initActors);
 
   // Re-populate from presets when scenario data loads (async fetch).
-  // Depend on presets length because the fallback has presets:[] but same id.
+  // Depend on presets length because the fallback has presets:[] but
+  // the same id. Preserves the user's actor count when the preset has
+  // fewer entries than the current form (no shrink on scenario load).
   useEffect(() => {
     const p = scenario.presets.find(p => p.id === 'default');
     const leaders = p?.leaders ?? p?.actors;
-    if (leaders?.[0]) {
-      setLeaderA({
-        name: leaders[0].name,
-        archetype: leaders[0].archetype,
-        unit: 'Colony Alpha',
-        instructions: leaders[0].instructions,
-        hexaco: { ...leaders[0].hexaco },
-      });
-    }
-    if (leaders?.[1]) {
-      setLeaderB({
-        name: leaders[1].name,
-        archetype: leaders[1].archetype,
-        unit: 'Colony Beta',
-        instructions: leaders[1].instructions,
-        hexaco: { ...leaders[1].hexaco },
-      });
-    }
+    if (!leaders || leaders.length === 0) return;
+    setActors(prev => prev.map((existing, idx) => {
+      const preset = leaders[idx];
+      if (!preset) return existing;
+      return {
+        name: preset.name,
+        archetype: preset.archetype,
+        unit: existing.unit || `Colony ${PHONETIC_UNITS[idx] ?? `${idx + 1}`}`,
+        instructions: preset.instructions,
+        hexaco: { ...preset.hexaco },
+      };
+    }));
   }, [scenario.id, scenario.presets.length]);
+
+  const updateActor = useCallback((idx: number, next: ActorFormData) => {
+    setActors(prev => prev.map((a, i) => (i === idx ? next : a)));
+  }, []);
+
+  const addActor = useCallback(() => {
+    setActors(prev => (prev.length < MAX_ACTORS ? [...prev, defaultLeader(prev.length)] : prev));
+  }, []);
+
+  const removeActor = useCallback((idx: number) => {
+    setActors(prev => (prev.length > MIN_ACTORS ? prev.filter((_, i) => i !== idx) : prev));
+  }, []);
   const [turns, setTurns] = useState(scenario.setup.defaultTurns);
   const [seed, setSeed] = useState(scenario.setup.defaultSeed);
   const [startTime, setStartTime] = useState(scenario.setup.defaultStartTime);
@@ -306,10 +355,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     setStatus('Starting...');
     try {
       const config: Record<string, unknown> = {
-        actors: [
-          { ...leaderA, hexaco: leaderA.hexaco },
-          { ...leaderB, hexaco: leaderB.hexaco },
-        ],
+        actors: actors.map(a => ({ ...a, hexaco: a.hexaco })),
         provider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
         activeDepartments: scenario.departments.map(d => d.id),
         economics: { profileId: effectiveEconomicsProfile },
@@ -326,7 +372,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, [leaderA, leaderB]);
+      writeActiveRunActors(window.localStorage, actors);
       // Attach any user-provided key overrides (never sends .env values)
       if (keyOverrides.openai) config.apiKey = keyOverrides.openai;
       if (keyOverrides.anthropic) config.anthropicKey = keyOverrides.anthropic;
@@ -366,7 +412,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [leaderA, leaderB, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, scenario, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, scenario, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');
@@ -442,10 +488,52 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         Server mode: <strong className={styles.leadStrong}>{serverModeInfo.label}</strong>. {serverModeInfo.description}
       </p>
 
-      {/* Leaders grid */}
-      <div className={`responsive-grid-2 ${styles.leadersGrid}`}>
-        <ActorConfig label="Commander A" sideColor="var(--vis)" data={leaderA} onChange={setLeaderA} />
-        <ActorConfig label="Commander B" sideColor="var(--eng)" data={leaderB} onChange={setLeaderB} />
+      {/* Leaders grid. Renders N actor forms (2 ≤ N ≤ MAX_ACTORS).
+          Pair-mode runs (2 actors) layout in the responsive-grid-2
+          column pair; cohort runs (3+) flow into a responsive grid so
+          larger cohorts stack two-per-row instead of one column per
+          slot. Each card carries a Remove button when the cohort is
+          past MIN_ACTORS; the bottom of the section has an "Add
+          actor" CTA that pushes a slot-defaulted new actor until the
+          cohort hits MAX_ACTORS. */}
+      <div className={`${actors.length > 2 ? 'responsive-grid-cohort' : 'responsive-grid-2'} ${styles.leadersGrid}`}>
+        {actors.map((actor, idx) => (
+          <div key={idx} className={styles.leaderCardWrap} style={{ position: 'relative' }}>
+            <ActorConfig
+              label={`Commander ${String.fromCharCode(65 + (idx % 26))}`}
+              sideColor={getActorColorVar(idx)}
+              data={actor}
+              onChange={(next) => updateActor(idx, next)}
+            />
+            {actors.length > MIN_ACTORS && (
+              <button
+                type="button"
+                onClick={() => removeActor(idx)}
+                className={styles.leaderRemoveBtn}
+                aria-label={`Remove ${actor.name || `actor ${idx + 1}`} from the cohort`}
+                title="Remove this actor"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className={styles.leadersAddRow}>
+        {actors.length < MAX_ACTORS ? (
+          <button
+            type="button"
+            onClick={addActor}
+            className={styles.leaderAddBtn}
+            aria-label="Add another actor to the cohort"
+          >
+            + Add actor ({actors.length}/{MAX_ACTORS})
+          </button>
+        ) : (
+          <span className={styles.leaderAddCap}>
+            Max {MAX_ACTORS} actors from Settings · use Quickstart's generate-N flow for larger cohorts.
+          </span>
+        )}
       </div>
 
       {/* Simulation config */}
