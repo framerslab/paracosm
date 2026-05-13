@@ -129,7 +129,7 @@
   <!-- =============================================== -->
   <g transform="translate(0, 90)">
     <!-- Section label (left) -->
-    <text x="80" y="18" class="t4 label mono">01 · INPUT</text>
+    <text x="24" y="18" class="label mono"><tspan class="amber-fill">01</tspan><tspan class="t4" dx="6">· INPUT</tspan></text>
 
     <!-- Input chips row -->
     <g transform="translate(220, 0)">
@@ -180,9 +180,9 @@
   <!-- LAYER 2: SCENARIO COMPILER -->
   <!-- =============================================== -->
   <g transform="translate(0, 192)">
-    <text x="80" y="58" class="t4 label mono">02 · COMPILE</text>
-    <text x="80" y="74" class="t4 small">~$0.10 first run</text>
-    <text x="80" y="88" class="t4 small">cached forever</text>
+    <text x="24" y="58" class="label mono"><tspan class="amber-fill">02</tspan><tspan class="t4" dx="6">· COMPILE</tspan></text>
+    <text x="24" y="74" class="t4 small">~$0.10 first run</text>
+    <text x="24" y="88" class="t4 small">cached forever</text>
 
     <!-- Compiler block -->
     <g transform="translate(180, 0)">
@@ -240,7 +240,7 @@
   <!-- LAYER 3: SCENARIO PACKAGE + DETERMINISTIC KERNEL (side by side) -->
   <!-- =============================================== -->
   <g transform="translate(0, 416)">
-    <text x="80" y="42" class="t4 label mono">03 · WORLD CONTRACT</text>
+    <text x="24" y="42" class="label mono"><tspan class="amber-fill">03</tspan><tspan class="t4" dx="6">· WORLD CONTRACT</tspan></text>
 
     <!-- ScenarioPackage block (left) -->
     <g transform="translate(180, 0)">
@@ -282,10 +282,10 @@
   <!-- LAYER 4: RUNTIME ORCHESTRATOR (per turn) -->
   <!-- =============================================== -->
   <g transform="translate(0, 574)">
-    <text x="80" y="42" class="t4 label mono">04 · TURN LOOP</text>
-    <text x="80" y="58" class="t4 small">runs per actor</text>
-    <text x="80" y="72" class="t4 small">cohort fans out</text>
-    <text x="80" y="86" class="t4 small">via worker pool</text>
+    <text x="24" y="42" class="label mono"><tspan class="amber-fill">04</tspan><tspan class="t4" dx="6">· TURN LOOP</tspan></text>
+    <text x="24" y="58" class="t4 small">runs per actor</text>
+    <text x="24" y="72" class="t4 small">cohort fans out</text>
+    <text x="24" y="86" class="t4 small">via worker pool</text>
 
     <!-- Big orchestrator panel -->
     <rect x="180" y="0" width="840" height="280" rx="10" class="panel-fill" stroke="var(--amber)" stroke-width="1.5" filter="url(#soft-glow)"/>
@@ -390,9 +390,9 @@
   <!-- LAYER 5: AGENT SWARM -->
   <!-- =============================================== -->
   <g transform="translate(0, 908)">
-    <text x="80" y="40" class="t4 label mono">05 · SWARM</text>
-    <text x="80" y="56" class="t4 small">~100 cells</text>
-    <text x="80" y="70" class="t4 small">per leader</text>
+    <text x="24" y="40" class="label mono"><tspan class="amber-fill">05</tspan><tspan class="t4" dx="6">· SWARM</tspan></text>
+    <text x="24" y="56" class="t4 small">~100 cells</text>
+    <text x="24" y="70" class="t4 small">per leader</text>
 
     <!-- Swarm panel -->
     <g transform="translate(180, 0)">
@@ -519,7 +519,7 @@
   <!-- LAYER 6: RUN ARTIFACT + FORK -->
   <!-- =============================================== -->
   <g transform="translate(0, 1058)">
-    <text x="80" y="42" class="t4 label mono">06 · OUTPUT</text>
+    <text x="24" y="42" class="label mono"><tspan class="amber-fill">06</tspan><tspan class="t4" dx="6">· OUTPUT</tspan></text>
 
     <!-- Artifact block -->
     <g transform="translate(180, 0)">
