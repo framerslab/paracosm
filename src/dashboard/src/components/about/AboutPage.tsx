@@ -284,7 +284,7 @@ export function AboutPage() {
           <h2 id="how-heading" className={styles.h2}>How It Works</h2>
           <ZoomableDiagram
             src="/diagrams/paracosm-flow.svg"
-            alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director then Departments in parallel then Commander then Reactions, with Tool Forge in a V8 sandbox, an LLM Judge, HEXACO drift, and AgentMemory side modules), Agent Swarm of about a hundred personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches."
+            alt="Paracosm system flow: world source through compiler, kernel, orchestrator (Director, Departments, Commander, Reactions), agent swarm, to forkable + replayable RunArtifact."
             caption="From a paragraph to a forkable, replayable, multi-agent world."
             title="Paracosm system flow"
             width={1200}
