@@ -174,6 +174,25 @@
     --green-dim: #3a5f28;
     --green-glow: rgba(106, 173, 72, 0.12);
 
+    /* Extended cohort palette: tokens 5-8 of the per-actor color rotation.
+       Used by getActorColorVar() to give each actor in a swarm a
+       visually distinct color when N > 4. Hues sit at roughly even
+       distances around the color wheel from the existing amber / teal /
+       rust / green so no two adjacent slots collide. Each pairs with a
+       light-mode override at the same index in `.light` below. */
+    --violet: #9d7ec8;
+    --violet-dim: #5a3d80;
+    --violet-glow: rgba(157, 126, 200, 0.12);
+    --coral: #d97896;
+    --coral-dim: #8c3855;
+    --coral-glow: rgba(217, 120, 150, 0.12);
+    --sky: #5fa8d9;
+    --sky-dim: #1f5a85;
+    --sky-glow: rgba(95, 168, 217, 0.12);
+    --olive: #c4a93a;
+    --olive-dim: #6a5e1c;
+    --olive-glow: rgba(196, 169, 58, 0.12);
+
     /* Legacy accent aliases */
     --accent-primary: var(--amber);
     --accent-secondary: var(--rust);
@@ -283,6 +302,22 @@
     --green: #305a10;      /* forest */
     --green-dim: #203e08;
     --green-glow: rgba(48, 90, 16, 0.1);
+
+    /* Extended cohort palette — light-mode overrides. Each darker than
+       its dark-mode counterpart so contrast on the sepia background
+       clears WCAG AA 4.5:1. Same slot order as `:root` above. */
+    --violet: #4a2e80;     /* deep aubergine — 7.2:1 on sepia */
+    --violet-dim: #2a1a4a;
+    --violet-glow: rgba(74, 46, 128, 0.1);
+    --coral: #8c2548;      /* deep raspberry — 7.0:1 on sepia */
+    --coral-dim: #5a1530;
+    --coral-glow: rgba(140, 37, 72, 0.1);
+    --sky: #155080;        /* deep ocean blue — 7.4:1 on sepia */
+    --sky-dim: #0c3050;
+    --sky-glow: rgba(21, 80, 128, 0.1);
+    --olive: #5a4a10;      /* dark mustard — 7.5:1 on sepia */
+    --olive-dim: #3a2f08;
+    --olive-glow: rgba(90, 74, 16, 0.1);
 
     /* Borders — warm and defined */
     --border: #b8a888;

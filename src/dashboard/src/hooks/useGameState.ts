@@ -176,14 +176,33 @@ export interface GameState {
 }
 
 /**
- * Map a leader index to its CSS color custom property. Index 0 is the
- * "visionary" palette, index 1 is "engineer". Indices 2+ fall back to
- * amber for now; F2/F3 extends the palette when N>2 rendering ships.
+ * Eight-slot per-actor color palette. Slot 0 keeps the original
+ * "visionary" amber + slot 1 the "engineer" teal so 2-actor pair runs
+ * render unchanged. Slots 2-7 are new tokens defined in `theme/tokens.css`
+ * with paired light/dark values that pass WCAG AA on both backgrounds.
+ * For cohorts past 8 actors the slot index wraps via modulo — beyond
+ * that point the constellation view (auto-engaged at 50+ actors) takes
+ * over from any per-color identification anyway, so wrap-collision is
+ * acceptable.
+ */
+const ACTOR_COLOR_TOKENS = [
+  'var(--vis)',
+  'var(--eng)',
+  'var(--rust)',
+  'var(--green)',
+  'var(--violet)',
+  'var(--coral)',
+  'var(--sky)',
+  'var(--olive)',
+];
+
+/**
+ * Map an actor's launch-order index to the CSS custom property that
+ * carries its color. Stable across renders and theme switches because
+ * the underlying tokens carry the light/dark resolution themselves.
  */
 export function getActorColorVar(index: number): string {
-  if (index === 0) return 'var(--vis)';
-  if (index === 1) return 'var(--eng)';
-  return 'var(--amber)';
+  return ACTOR_COLOR_TOKENS[((index % ACTOR_COLOR_TOKENS.length) + ACTOR_COLOR_TOKENS.length) % ACTOR_COLOR_TOKENS.length];
 }
 
 /**

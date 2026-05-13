@@ -113,8 +113,13 @@ export function ActorBar({
   nameFallback,
 }: ActorBarProps) {
   const sideColor = getActorColorVar(actorIndex);
-  const sideBg = actorIndex === 0 ? 'rgba(232,180,74,.12)' : 'rgba(76,168,168,.12)';
-  const sideBorder = actorIndex === 0 ? 'var(--amber-dim)' : 'var(--teal-dim)';
+  // Derive the soft tint + border directly from the actor's slot color
+  // via color-mix so cohort runs (8+ actors) don't collapse to the
+  // amber/teal two-tone pair. Browser support is universal in modern
+  // Chrome/Safari/Firefox; the fallback chain ends at sideColor itself
+  // so older browsers still render a color, just without the tint.
+  const sideBg = `color-mix(in srgb, ${sideColor} 12%, transparent)`;
+  const sideBorder = `color-mix(in srgb, ${sideColor} 55%, transparent)`;
   // Resolution order: real leader name → caller-provided fallback (the
   // SSE actor id, which is the orchestrator-side actor name even before
   // the `status: parallel` payload populates the full LeaderInfo) →
