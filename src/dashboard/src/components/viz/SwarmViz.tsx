@@ -92,12 +92,27 @@ interface SwarmVizProps {
  */
 export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const snapshotMap = useVizSnapshots(state);
-  const firstLeaderId = state.actorIds[0];
-  const secondLeaderId = state.actorIds[1];
+  // Cohort-aware focus-pair: SwarmViz's living-swarm grid is built for
+  // exactly two side-by-side panels (side='a' + side='b' on each
+  // LivingSwarmGrid prop). For cohort runs the user picks which two
+  // actors land on those panels via the focus-pair selector below;
+  // the rest of the cohort stays accessible by rotating the picker.
+  // Default + back-compat for pair runs: actorIds[0]/[1].
+  const defaultAId = state.actorIds[0];
+  const defaultBId = state.actorIds[1];
+  const [pickedAId, setPickedAId] = useState<string | undefined>(defaultAId);
+  const [pickedBId, setPickedBId] = useState<string | undefined>(defaultBId);
+  useEffect(() => {
+    if (pickedAId && !state.actorIds.includes(pickedAId)) setPickedAId(defaultAId);
+    if (pickedBId && !state.actorIds.includes(pickedBId)) setPickedBId(defaultBId);
+  }, [state.actorIds, pickedAId, pickedBId, defaultAId, defaultBId]);
+  const firstLeaderId = pickedAId ?? defaultAId;
+  const secondLeaderId = pickedBId ?? defaultBId;
   const snapsA = (firstLeaderId ? snapshotMap[firstLeaderId] : undefined) ?? [];
   const snapsB = (secondLeaderId ? snapshotMap[secondLeaderId] : undefined) ?? [];
   const sideStateA = firstLeaderId ? state.actors[firstLeaderId] : null;
   const sideStateB = secondLeaderId ? state.actors[secondLeaderId] : null;
+  const isCohort = state.actorIds.length > 2;
   const maxTurn = Math.max(snapsA.length, snapsB.length);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -295,8 +310,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     const findLatest = () => {
       let best: { key: string; side: 'a' | 'b'; turn: number; category: string; title: string } | null = null;
       const slots: Array<{ side: 'a' | 'b'; actorName: string }> = [];
-      if (state.actorIds[0]) slots.push({ side: 'a', actorName: state.actorIds[0] });
-      if (state.actorIds[1]) slots.push({ side: 'b', actorName: state.actorIds[1] });
+      if (firstLeaderId) slots.push({ side: 'a', actorName: firstLeaderId });
+      if (secondLeaderId) slots.push({ side: 'b', actorName: secondLeaderId });
       for (const { side, actorName } of slots) {
         const sideState = state.actors[actorName];
         if (!sideState) continue;
@@ -765,8 +780,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       b: { attempts: [], reuses: [] },
     };
     const slots: Array<{ side: 'a' | 'b'; actorName: string }> = [];
-    if (state.actorIds[0]) slots.push({ side: 'a', actorName: state.actorIds[0] });
-    if (state.actorIds[1]) slots.push({ side: 'b', actorName: state.actorIds[1] });
+    if (firstLeaderId) slots.push({ side: 'a', actorName: firstLeaderId });
+    if (secondLeaderId) slots.push({ side: 'b', actorName: secondLeaderId });
     for (const { side, actorName } of slots) {
       const sideState = state.actors[actorName];
       if (!sideState) continue;
@@ -1014,6 +1029,39 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         ref={vizRootRef}
         className={`viz-content ${styles.root}`}
       >
+        {isCohort && (
+          <div className={styles.cohortPairPicker} role="region" aria-label="Cohort focus pair picker">
+            <span className={styles.cohortPairPickerLabel}>Focus pair</span>
+            <select
+              aria-label="Left panel actor"
+              className={styles.cohortPairPickerSelect}
+              value={firstLeaderId ?? ''}
+              onChange={(e) => setPickedAId(e.target.value || undefined)}
+            >
+              {state.actorIds.map((id) => (
+                <option key={id} value={id} disabled={id === secondLeaderId}>
+                  {state.actors[id]?.leader?.name ?? id}
+                </option>
+              ))}
+            </select>
+            <span className={styles.cohortPairPickerVs}>vs</span>
+            <select
+              aria-label="Right panel actor"
+              className={styles.cohortPairPickerSelect}
+              value={secondLeaderId ?? ''}
+              onChange={(e) => setPickedBId(e.target.value || undefined)}
+            >
+              {state.actorIds.map((id) => (
+                <option key={id} value={id} disabled={id === firstLeaderId}>
+                  {state.actors[id]?.leader?.name ?? id}
+                </option>
+              ))}
+            </select>
+            <span className={styles.cohortPairPickerHint}>
+              The living-swarm grid renders 2 actors side-by-side. Rotate the picker to browse the full cohort of {state.actorIds.length}; the Reports tab carries the all-actor trajectory + turn-by-turn views without the pair constraint.
+            </span>
+          </div>
+        )}
         <TurnBanner state={state} currentTurn={currentTurn} />
         <HighlightStrip text={highlightText} turn={currentTurn + 1} />
         <VizLegendBar departments={legendDepartments} />
