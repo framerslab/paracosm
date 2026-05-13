@@ -352,3 +352,61 @@
   animation: paracosm-vignette 450ms ease-out forwards;
   z-index: 50;
 }
+
+/* Cohort focus-pair picker — sits above TurnBanner on the Viz tab
+ * for runs with 3+ actors. Reuses the same visual language as the
+ * Reports tab picker so users can recognise it as a cross-tab
+ * focus-pair control. */
+.cohortPairPicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid rgba(232, 180, 74, 0.4);
+  background: rgba(232, 180, 74, 0.06);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: var(--font-sm);
+  color: var(--text-1);
+}
+
+.cohortPairPickerLabel {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+
+.cohortPairPickerSelect {
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+  padding: 4px 8px;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-width: 160px;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+}
+
+.cohortPairPickerVs {
+  font-family: var(--mono);
+  color: var(--text-3);
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cohortPairPickerHint {
+  font-size: var(--font-xs);
+  color: var(--text-2);
+  flex-basis: 100%;
+  line-height: 1.5;
+}
