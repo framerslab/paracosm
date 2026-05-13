@@ -518,19 +518,23 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
 }
 
 export function normalizeSimulationConfig(input: SimulationSetupPayload): NormalizedSimulationConfig {
-  // Fork setups take exactly one actor (the override for the forked
-  // branch); regular pair setups take exactly two. Spec 2B.
-  // Spec 2B: fork setup takes exactly one actor (the override for the
-  // forked branch). Tier 5 Quickstart: 3 to 6 actors dispatch to the
-  // batch runner. Regular pair setup still takes two.
+  // Fork setup takes exactly one actor (the override for the forked
+  // branch). Regular pair setup takes exactly two and dispatches to
+  // runPairSimulations with verdict comparison. Cohort setups (3 to
+  // 300 actors) dispatch to runBatchSimulations and skip the verdict
+  // because verdicts compare exactly two leaders and would be
+  // ambiguous across N >= 3. The cohort upper bound matches the
+  // Quickstart UI's clamp and the economics-profile design target;
+  // batches of `economics.batch.maxConcurrency` (default 8) keep
+  // provider rate-limit pressure bounded at any scale in the range.
   if (input.forkFrom) {
     if (!Array.isArray(input.actors) || input.actors.length !== 1) {
       throw new Error('Fork setup requires exactly one actor');
     }
   } else if (!Array.isArray(input.actors) || input.actors.length < 2) {
     throw new Error('Simulation requires at least 2 actors');
-  } else if (input.actors.length > 6) {
-    throw new Error(`Simulation accepts at most 6 actors per run, got ${input.actors.length}`);
+  } else if (input.actors.length > 300) {
+    throw new Error(`Simulation accepts at most 300 actors per run, got ${input.actors.length}`);
   }
 
   // Priority for provider resolution:

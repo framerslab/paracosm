@@ -212,8 +212,10 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
                     One decision cycle per turn. Departments analyze the
                     situation, the commander picks a policy, the kernel
                     advances in-sim time, colonists age. At turn
-                    {' '}{gameState.maxTurns}{' '}the run finishes and the
-                    verdict judge compares the two commanders.
+                    {' '}{gameState.maxTurns}{' '}the run finishes
+                    {gameState.actorIds.length === 2
+                      ? ' and the verdict judge compares the two commanders.'
+                      : '; cohort runs (3+ commanders) skip the verdict and surface group-median deltas instead.'}
                   </div>
                 </div>
               }

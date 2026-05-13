@@ -24,11 +24,11 @@
 </p>
 
 <p align="center">
-  <img src="assets/blog/readme/paracosm-hero.gif" alt="Paracosm end-to-end: paragraph in, two leaders running, fork-and-replay out" width="720" />
+  <img src="assets/blog/readme/paracosm-hero.gif" alt="Paracosm end-to-end: paragraph in, multiple leaders running side by side, fork-and-replay out" width="720" />
 </p>
 
 <p align="center">
-  <em>Type a what-if. Compile a typed world. Run two LLM commanders against it. Fork any past turn. Watch the trajectories diverge.</em>
+  <em>Type a what-if. Compile a typed world. Run multiple LLM commanders against it side by side. Fork any past turn. Watch the trajectories diverge.</em>
 </p>
 
 <p align="center">

@@ -87,11 +87,11 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
         <b className={styles.introHeading}>How to read this:</b>{' '}
         {expanded ? (
           <>
-            Two commanders with opposing HEXACO profiles run the same seed. Left is Leader A (amber), right is Leader B (teal). Each turn, departments analyze in parallel and may forge a new computational tool in a V8 sandbox or reuse an existing one. Commanders decide. The settlement diverges. Click any tile in Viz to drill into a colonist; click any forge card to inspect the generated code.
+            Multiple commanders with different HEXACO profiles run the same seed side by side. Each turn, departments analyze in parallel and may forge a new computational tool in a V8 sandbox or reuse an existing one. Commanders decide. The settlement diverges. Click any tile in Viz to drill into a colonist; click any forge card to inspect the generated code.
           </>
         ) : (
           <>
-            two commanders, one seed, divergent histories. HEXACO shapes every LLM call.{' '}
+            multiple commanders, one seed, divergent histories. HEXACO shapes every LLM call.{' '}
             <button
               onClick={() => setExpanded(true)}
               className={styles.introExpandButton}
@@ -466,7 +466,7 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
         <div className={styles.centerState}>
           <div className={styles.centerStateHeadingLarger}>No simulation running</div>
           <div className={styles.centerStateCopyWide}>
-            Configure two commanders with different HEXACO personality profiles, choose a scenario, and launch from the Settings tab. Or load a previously saved simulation.
+            Configure your commanders with different HEXACO personality profiles, choose a scenario, and launch from the Settings tab. Or load a previously saved simulation.
           </div>
           <div className={styles.emptyStateActions}>
             {onRun && (

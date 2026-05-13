@@ -425,7 +425,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         <p className={styles.scenarioTagline}>{scenario.labels.tagline}</p>
       )}
       <p className={styles.lead}>
-        Configure two leaders and launch. {scenario.departments.length} departments: {scenario.departments.map(d => d.label).join(', ')}.
+        Configure your leaders and launch. {scenario.departments.length} departments: {scenario.departments.map(d => d.label).join(', ')}.
       </p>
       {scenario.sourceUrl && (
         <p className={styles.scenarioSourceLink}>

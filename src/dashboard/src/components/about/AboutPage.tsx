@@ -39,7 +39,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'What can leaders represent?',
-    a: 'Leaders are abstract top-down decision makers. They can be colony commanders, CEOs, military generals, governing councils, AI systems, department heads, or any entity that receives information and makes choices. The engine does not care what they represent. It models how their HEXACO personality profile shapes decisions under pressure. Run two CEOs with different risk appetites through the same market crisis. Run two generals through the same theater. Run two AI policies through the same failure cascade.',
+    a: 'Leaders are abstract top-down decision makers. They can be colony commanders, CEOs, military generals, governing councils, AI systems, department heads, or any entity that receives information and makes choices. The engine does not care what they represent. It models how their HEXACO personality profile shapes decisions under pressure. Race a cohort of CEOs with different risk appetites through the same market crisis. Race a cohort of generals through the same theater. Race a cohort of AI policies through the same failure cascade.',
   },
   {
     q: 'What verticals does Paracosm support?',
@@ -304,8 +304,8 @@ export function AboutPage() {
             <div className={styles.hostedLabel}>Open Core + Hosted Roadmap</div>
             <h3 id="hosted-heading" className={styles.hostedTitle}>Planned Hosted Packaging</h3>
             <p className={styles.hostedPara}>
-              The open-source engine supports unlimited leaders and simulations via the API today. The dashboard demo runs two leaders
-              side-by-side. The planned hosted product targets organizations that need to run dozens or hundreds of simulations in parallel.
+              The open-source engine supports unlimited leaders and simulations via the API today. The dashboard demo runs up to 300 leaders
+              side-by-side, auto-switching to a constellation view past 50. The planned hosted product targets organizations that need to run dozens or hundreds of simulations in parallel.
             </p>
             <p className={styles.hostedPara}>
               Defense agencies stress-testing doctrine across leadership profiles. Corporations modeling executive decision-making

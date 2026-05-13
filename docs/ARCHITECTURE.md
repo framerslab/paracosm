@@ -30,7 +30,8 @@ This document covers the full system: how scenarios become simulations, how the 
 ┌─────────────────────────────────────────────────────────────┐
 │                     Runtime Orchestrator                      │
 │  Turn pipeline: Director → Kernel → Departments → Commander  │
-│  Both leaders run in parallel via Promise.all                │
+│  All leaders run in parallel (pair via Promise.all, cohort   │
+│  via bounded worker pool sized to economics.maxConcurrency)  │
 └─────────────────┬───────────────────────────────────────────┘
                   │
                   ▼
@@ -134,7 +135,7 @@ The kernel tracks:
 
 The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality probability, birth events, personality drift magnitudes. Two simulations with the same seed produce the same colonist names, the same birth/death events, and the same base progression.
 
-What differs is the commander's decisions. The crisis is the same, the department analysis is the same, but two commanders with different HEXACO profiles choose differently. The kernel applies different numerical effects based on the choice, and divergence compounds.
+What differs is each commander's decisions. The crisis is the same, the department analysis is the same, but commanders with different HEXACO profiles choose differently. The kernel applies different numerical effects based on the choice, and divergence compounds across the cohort.
 
 ### Health Fields
 
@@ -282,7 +283,7 @@ In Paracosm, HEXACO influences:
 
 ### Parallel Execution
 
-Both commanders run in parallel via `Promise.all` in `pair-runner.ts`. Within each commander's turn, all department analyses also run in parallel. This produces two independent timelines from the same starting conditions:
+Pair runs (exactly 2 commanders) fan out via `Promise.all` in `pair-runner.ts`. Cohort runs (3 to 300 commanders) fan out through a bounded worker pool in `runBatchSimulations`, sized to `economics.batch.maxConcurrency` (default 8) so a 300-actor run lands as ~38 batches while staying within provider rate limits. Within each commander's turn, all department analyses also run in parallel. This produces independent timelines from the same starting conditions:
 
 ```
 Turn N:
@@ -362,7 +363,7 @@ The economic argument: a 1000-agent bottom-up sim runs ~1000 LLM calls per turn 
 
 ### LLM Verdict
 
-After both commanders complete all turns, an LLM compares their final states and produces a verdict:
+After a pair run completes all turns, an LLM compares the two commanders' final states and produces a verdict. Cohort runs (N >= 3) skip the verdict because pairwise comparison is ambiguous across N; the dashboard surfaces group-median deltas and the constellation view instead.
 
 ```json
 {
