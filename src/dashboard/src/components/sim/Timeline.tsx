@@ -176,19 +176,50 @@ function SideTimeline({ turns, actorIndex }: { turns: TurnEntry[]; actorIndex: n
 }
 
 export function Timeline({ state }: TimelineProps) {
-  const firstId = state.actorIds[0];
-  const secondId = state.actorIds[1];
-  const sideA = firstId ? state.actors[firstId] : null;
-  const sideB = secondId ? state.actors[secondId] : null;
-  const turnsA = sideA ? extractTurns(sideA, state.isComplete) : [];
-  const turnsB = sideB ? extractTurns(sideB, state.isComplete) : [];
+  // Generalised to every actor in the run rather than the first two.
+  // For 2-actor pair runs the layout still resolves to a 50/50 split
+  // (flex: 1 + min-width on each column). For N>=3 the row scrolls
+  // horizontally so the user can pan through every cohort member's
+  // per-turn ledger without losing context, matching the
+  // MultiActorTurnGrid scroll pattern directly above it.
+  const columns = state.actorIds.map((id, idx) => {
+    const side = state.actors[id];
+    return {
+      id,
+      idx,
+      turns: side ? extractTurns(side, state.isComplete) : [],
+      name: side?.leader?.name ?? id,
+      archetype: side?.leader?.archetype,
+    };
+  });
 
-  if (!turnsA.length && !turnsB.length) return null;
+  if (columns.every((c) => c.turns.length === 0)) return null;
 
   return (
     <div className={`timeline-row ${styles.timelineRow}`} role="region" aria-label="Turn timeline">
-      <SideTimeline turns={turnsA} actorIndex={0} />
-      <SideTimeline turns={turnsB} actorIndex={1} />
+      {columns.map((c) => {
+        const sideColor = getActorColorVar(c.idx);
+        return (
+          <div
+            key={c.id}
+            className={styles.sideWrap}
+            style={{ '--side-color': sideColor } as CSSProperties}
+          >
+            <header className={styles.sideHeader}>
+              <span className={styles.sideHeaderIdx}>A{c.idx + 1}</span>
+              <span className={styles.sideHeaderName} title={c.name}>
+                {c.name}
+              </span>
+              {c.archetype && (
+                <span className={styles.sideHeaderArchetype} title={c.archetype}>
+                  {c.archetype}
+                </span>
+              )}
+            </header>
+            <SideTimeline turns={c.turns} actorIndex={c.idx} />
+          </div>
+        );
+      })}
     </div>
   );
 }

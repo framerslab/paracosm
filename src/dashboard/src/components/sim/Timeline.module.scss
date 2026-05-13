@@ -1,17 +1,91 @@
 // Migrated from inline `style={{}}`. Per-side leader color and outcome
 // status flow in via CSS custom properties.
 
+// Per-turn ledger that pins to the bottom of SimView. Generalised from
+// the original 2-column pair layout to an N-column horizontally
+// scrolling track: each actor gets a fixed-min-width column with a
+// small color-coded header and a vertical-scrolling entry list. For
+// pair runs the two columns grow to fill the viewport (flex: 1).
+// For cohort runs (3+ actors) the row overflows horizontally with a
+// native scrollbar — same pattern as MultiActorTurnGrid directly above.
 .timelineRow {
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   display: flex;
-  gap: 4px;
-  height: 200px;
-  overflow: hidden;
+  gap: 8px;
+  height: 220px;
+  overflow-x: auto;
+  overflow-y: hidden;
   flex-shrink: 0;
   padding: 4px 8px;
   min-width: 0;
   max-width: 100%;
+  // Make the horizontal scrollbar visible so users discover the
+  // hidden columns past the viewport edge.
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  &::-webkit-scrollbar { height: 8px; }
+  &::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  &::-webkit-scrollbar-track { background: transparent; }
+}
+
+// Wrapper around each actor's column: holds the header strip + the
+// vertical-scrolling entry list. flex-basis 0 + flex-grow 1 lets a
+// pair run fill the row 50/50; min-width pins each cohort column wide
+// enough to read so 8+ actors trigger horizontal overflow.
+.sideWrap {
+  flex: 1 1 0;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sideHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  // --side-color set inline.
+  border-bottom-color: var(--side-color, var(--border));
+  opacity: 1;
+}
+
+.sideHeaderIdx {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  font-weight: 800;
+  color: var(--side-color, var(--amber));
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.sideHeaderName {
+  font-size: var(--font-xs);
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.sideHeaderArchetype {
+  font-size: var(--font-3xs);
+  color: var(--text-3);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+  flex-shrink: 1;
+  font-style: italic;
 }
 
 .side {
@@ -22,6 +96,7 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  padding-top: 4px;
 }
 
 .outcomeBadge {
