@@ -70,19 +70,21 @@ interface ReactionContext {
  * The per-agent identity/memory/history block goes in the user prompt
  * via `buildBatchAgentBlock` so it does NOT invalidate the cache.
  */
-function buildBatchSystemPrompt(ctx: ReactionContext): string {
-  const timeNounRaw = ctx.timeUnitNoun ?? 'tick';
-  const TimeNoun = timeNounRaw.charAt(0).toUpperCase() + timeNounRaw.slice(1);
+/**
+ * Static system prompt for batched reactions. Independent of any
+ * per-turn / per-actor context so it serves cleanly out of the
+ * provider prompt cache. The dynamic crisis context (turn, event,
+ * decision, outcome, morale, population) moves to the user prompt via
+ * `buildBatchSituationContext` — keeping it out of the system block
+ * was the fix that turned the reaction cache from "writes only" into
+ * "reads on every cohort actor's reaction call after the first."
+ */
+function buildBatchSystemPrompt(): string {
   return `You are each of several colony members reacting to what just happened at your settlement. Based on each person's personality, health, relationships, and memories, give a short reaction in their voice.
-
-SHARED SITUATION:
-Turn ${ctx.turn}, ${TimeNoun} ${ctx.time}. Event: "${ctx.eventTitle}" (${ctx.eventCategory}).
-Commander decided: ${ctx.decision.slice(0, 200)}
-Outcome: ${ctx.outcome}. Current morale: ${Math.round(ctx.colonyMorale * 100)}%. Population: ${ctx.colonyPopulation}.
 
 Keep reactions real. No heroic speeches. People under stress say blunt, honest things. Each person's reaction must sound distinctly like THAT person — their personality, health, and memories should color their voice. Do NOT start any reaction with "I can't believe".
 
-OUTPUT FORMAT — you will receive a numbered list of agents. Return ONLY a JSON object matching this shape:
+OUTPUT FORMAT — you will receive a numbered list of agents preceded by a SHARED SITUATION block. Return ONLY a JSON object matching this shape:
 {
   "reactions": [
     {"agentId":"<id>","quote":"1-2 sentences in first person","mood":"positive|negative|neutral|anxious|defiant|hopeful|resigned","intensity":0.0-1.0},
@@ -91,6 +93,21 @@ OUTPUT FORMAT — you will receive a numbered list of agents. Return ONLY a JSON
 }
 
 One entry per agent, in the same order, matching each agentId EXACTLY as given. No prose, no markdown fences, no explanation before or after.`;
+}
+
+/**
+ * Per-call dynamic situation context. Lives in the user prompt rather
+ * than the cached system block so cache lookups don't miss on every
+ * turn/event/actor change. The model still sees identical structural
+ * content; only the position relative to the cache boundary differs.
+ */
+function buildBatchSituationContext(ctx: ReactionContext): string {
+  const timeNounRaw = ctx.timeUnitNoun ?? 'tick';
+  const TimeNoun = timeNounRaw.charAt(0).toUpperCase() + timeNounRaw.slice(1);
+  return `SHARED SITUATION:
+Turn ${ctx.turn}, ${TimeNoun} ${ctx.time}. Event: "${ctx.eventTitle}" (${ctx.eventCategory}).
+Commander decided: ${ctx.decision.slice(0, 200)}
+Outcome: ${ctx.outcome}. Current morale: ${Math.round(ctx.colonyMorale * 100)}%. Population: ${ctx.colonyPopulation}.`;
 }
 
 /**
@@ -265,7 +282,8 @@ export async function generateAgentReactions(
     chunks.push(alive.slice(i, i + batchSize));
   }
 
-  const systemPrompt = buildBatchSystemPrompt(ctx);
+  const systemPrompt = buildBatchSystemPrompt();
+  const situationContext = buildBatchSituationContext(ctx);
   const reactions: AgentReaction[] = [];
   let firstBatchError: unknown = null;
 
@@ -278,6 +296,8 @@ export async function generateAgentReactions(
     const windowResults = await Promise.all(window.map(async (chunk) => {
       try {
         const userPrompt = [
+          situationContext,
+          '',
           `Generate one reaction per agent below, in order, returning a JSON object with a "reactions" array.`,
           '',
           ...chunk.map((c, idx) => `--- ${idx + 1}/${chunk.length} ---\n${buildBatchAgentBlock(c, ctx, options.reactionContextHook)}`),
