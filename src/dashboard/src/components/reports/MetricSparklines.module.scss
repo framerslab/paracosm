@@ -125,6 +125,9 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
 
   &::before {
     content: '';
@@ -133,7 +136,34 @@
     height: 6px;
     border-radius: 50%;
     background: var(--actor-color, var(--text-3));
-    margin-right: 4px;
     vertical-align: 1px;
+    flex-shrink: 0;
   }
+}
+
+.legendCohortSlot {
+  // Color-independent slot identifier (A, B, ... AA). Pairs with the
+  // color dot in ::before so color-vision-impaired readers can still
+  // identify each actor in the legend without relying on hue.
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--actor-color, var(--text-3));
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--actor-color, var(--text-3)) 40%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--actor-color, var(--text-3)) 8%, transparent);
+}
+
+.lastCohortSlot {
+  // Per-card last-value chip slot prefix. Mirrors .legendCohortSlot
+  // so the same A/B/C identifier carries from the section-header
+  // legend down into each metric card's footer values.
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-right: 3px;
+  opacity: 0.7;
 }

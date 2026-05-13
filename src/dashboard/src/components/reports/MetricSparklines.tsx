@@ -32,6 +32,22 @@ function formatValue(v: number, unit?: string): string {
   return `${Math.round(v)}${unit ? ' ' + unit : ''}`;
 }
 
+/**
+ * Excel-style alphabetic slot label: 0 → A, 25 → Z, 26 → AA, 27 → AB.
+ * Used as a color-independent identifier in the cohort sparkline
+ * legend + footer chips so color-vision-impaired users still have a
+ * stable way to map each value back to its actor.
+ */
+function slotLabel(index: number): string {
+  let n = index;
+  let out = '';
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return out;
+}
+
 interface CardProps {
   metric: MetricSeries;
   sideAColor: string;
@@ -108,8 +124,14 @@ function SparkCard({ metric, sideAColor, sideBColor }: CardProps) {
           })}
         </svg>
         <div className={styles.cardFooterCohort}>
-          {metric.series!.map((s) => {
+          {metric.series!.map((s, idx) => {
             const last = s.points[s.points.length - 1]?.value;
+            // Slot letter prefix (A, B, C, ... AA, AB) gives the value
+            // a second non-color identifier so color-vision-impaired
+            // users can map each value back to its actor in the
+            // legend above. The letter uses Excel-style wrapping past
+            // 26 actors to stay scannable on large cohorts.
+            const slotLetter = slotLabel(idx);
             return (
               <span
                 key={s.actorId}
@@ -117,6 +139,7 @@ function SparkCard({ metric, sideAColor, sideBColor }: CardProps) {
                 style={{ ['--actor-color' as string]: s.color } as CSSProperties}
                 title={s.name}
               >
+                <span className={styles.lastCohortSlot} aria-hidden="true">{slotLetter}</span>
                 {last != null ? formatValue(last, metric.unit) : '·'}
               </span>
             );
@@ -190,12 +213,13 @@ export function MetricSparklines(props: MetricSparklinesProps) {
         <span className={styles.sectionTitle}>Metric Trajectories</span>
         {isCohortShape ? (
           <span className={styles.legendCohort}>
-            {(populated[0].series ?? []).map((s) => (
+            {(populated[0].series ?? []).map((s, idx) => (
               <span
                 key={s.actorId}
                 className={styles.legendCohortEntry}
                 style={{ ['--actor-color' as string]: s.color } as CSSProperties}
               >
+                <span className={styles.legendCohortSlot} aria-hidden="true">{slotLabel(idx)}</span>
                 {s.name}
               </span>
             ))}
