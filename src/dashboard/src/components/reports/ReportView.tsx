@@ -287,6 +287,22 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   const bId = pickedBId ?? defaultBId;
   const isNActor = state.actorIds.length > 2;
 
+  // Pair-focus toggle. Default OFF for cohort runs (3+ actors) so the
+  // user lands on the all-actor turn-by-turn view first instead of a
+  // pair-focused strip/sparkline/trajectory block that hides 6 of the
+  // 8 actors in their swarm. Pair-mode sections are visually present
+  // even when toggle is OFF — they collapse into a "focus pair" CTA
+  // panel that explains why the strip/sparklines are hidden and offers
+  // a one-click reveal. For 2-actor pair runs the toggle isn't shown
+  // and the legacy pair view renders unchanged.
+  const [isPairFocus, setIsPairFocus] = useState<boolean>(!isNActor);
+  // Keep the toggle in sync if the run swaps from a pair to a cohort
+  // (or vice versa) mid-session — without this, switching scenarios
+  // can leave the toggle stuck in the wrong default state.
+  useEffect(() => {
+    setIsPairFocus(!isNActor);
+  }, [isNActor]);
+
   // Per-actor turn map. One entry per actor, keyed by actor id. The
   // pair-mode `turns` derivation below picks two of these for the
   // strip/sparklines/trajectory; the N-actor turn-by-turn view
@@ -541,54 +557,77 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           N actors via the horizontally-scrolling track — the picker
           does NOT scope it. */}
       {isNActor && (
-        <div className={styles.actorPairPicker} role="region" aria-label="Pair focus for strip + sparklines + trajectory">
-          <span className={styles.actorPairPickerLabel}>Focus pair</span>
-          <select
-            aria-label="Left side actor"
-            className={styles.actorPairPickerSelect}
-            value={aId ?? ''}
-            onChange={(e) => setPickedAId(e.target.value || null)}
-          >
-            {state.actorIds.map(id => (
-              <option key={id} value={id} disabled={id === bId}>
-                {state.actors[id]?.leader?.name ?? id}
-              </option>
-            ))}
-          </select>
-          <span className={styles.actorPairPickerVs}>vs</span>
-          <select
-            aria-label="Right side actor"
-            className={styles.actorPairPickerSelect}
-            value={bId ?? ''}
-            onChange={(e) => setPickedBId(e.target.value || null)}
-          >
-            {state.actorIds.map(id => (
-              <option key={id} value={id} disabled={id === aId}>
-                {state.actors[id]?.leader?.name ?? id}
-              </option>
-            ))}
-          </select>
-          <span className={styles.actorPairPickerHint}>
-            applies to strip + metrics + trajectory only · turn-by-turn
-            below shows all {state.actorIds.length} actors
-          </span>
+        <div className={styles.actorPairPicker} role="region" aria-label="Pair focus toggle">
+          <label className={styles.actorPairPickerToggle}>
+            <input
+              type="checkbox"
+              checked={isPairFocus}
+              onChange={(e) => setIsPairFocus(e.target.checked)}
+              aria-label="Toggle pair-focus view for strip, sparklines, and trajectory"
+            />
+            <span className={styles.actorPairPickerToggleText}>Focus pair</span>
+          </label>
+          {isPairFocus ? (
+            <>
+              <select
+                aria-label="Left side actor"
+                className={styles.actorPairPickerSelect}
+                value={aId ?? ''}
+                onChange={(e) => setPickedAId(e.target.value || null)}
+              >
+                {state.actorIds.map(id => (
+                  <option key={id} value={id} disabled={id === bId}>
+                    {state.actors[id]?.leader?.name ?? id}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.actorPairPickerVs}>vs</span>
+              <select
+                aria-label="Right side actor"
+                className={styles.actorPairPickerSelect}
+                value={bId ?? ''}
+                onChange={(e) => setPickedBId(e.target.value || null)}
+              >
+                {state.actorIds.map(id => (
+                  <option key={id} value={id} disabled={id === aId}>
+                    {state.actors[id]?.leader?.name ?? id}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.actorPairPickerHint}>
+                strip + metrics + trajectory show this pair only · turn-by-turn below shows all {state.actorIds.length} actors
+              </span>
+            </>
+          ) : (
+            <span className={styles.actorPairPickerHint}>
+              Showing all {state.actorIds.length} actors. Toggle on to focus on a 2-actor head-to-head view in the strip, sparklines, and trajectory cards.
+            </span>
+          )}
         </div>
       )}
 
-      <section id="strip">
-        <RunStrip turns={stripCells} leaderAName={nameA} leaderBName={nameB} />
-      </section>
+      {(!isNActor || isPairFocus) && (
+        <section id="strip">
+          <RunStrip turns={stripCells} leaderAName={nameA} leaderBName={nameB} />
+        </section>
+      )}
 
-      <section id="sparklines">
-        <MetricSparklines metrics={metricSeries} leaderAName={nameA} leaderBName={nameB} />
-      </section>
+      {(!isNActor || isPairFocus) && (
+        <section id="sparklines">
+          <MetricSparklines metrics={metricSeries} leaderAName={nameA} leaderBName={nameB} />
+        </section>
+      )}
 
       {/* Commander personality arcs. Shown once per side once there's at
           least one turn of drift data, so the user can visually inspect
           how each commander's HEXACO evolved across the run. Data comes
           from drift SSE events emitted after every turn. */}
+      {/* Trajectory cards: pair-mode by default. When the cohort toggle
+          is off (default for cohort runs) every actor's drift arc gets a
+          dedicated card so the user can compare HEXACO evolution across
+          the full swarm. */}
       <section id="trajectory">
-        {hasTrajectories && (
+        {hasTrajectories && isPairFocus && (
           <div className={`responsive-grid-2 ${styles.trajectoryGrid}`}>
             <CommanderTrajectoryCard
               events={sideA?.events ?? []}
@@ -600,6 +639,22 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
               actorName={nameB}
               baselineHexaco={sideB?.leader?.hexaco}
             />
+          </div>
+        )}
+        {hasTrajectories && !isPairFocus && (
+          <div className={`responsive-grid-2 ${styles.trajectoryGrid}`}>
+            {state.actorIds.map(id => {
+              const side = state.actors[id];
+              if (!side?.events.length) return null;
+              return (
+                <CommanderTrajectoryCard
+                  key={id}
+                  events={side.events}
+                  actorName={side.leader?.name || id}
+                  baselineHexaco={side.leader?.hexaco}
+                />
+              );
+            })}
           </div>
         )}
       </section>
