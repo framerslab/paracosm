@@ -38,3 +38,35 @@
 
 .lineA { color: var(--vis); }
 .lineB { color: var(--eng); }
+
+/* Cohort lines: rendered when there are 3+ actors. Each line gets
+ * its own actor name as the label (instead of "A"/"B") and uses the
+ * default body text color since per-actor color treatment lives in
+ * the cohort grid below; keeping the banner text uniform helps the
+ * eye scan event-level outcome differences without color confusion. */
+.line {
+  color: var(--text-2);
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lineLabel {
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.lineBody {
+  color: var(--text-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.lineMore {
+  font-size: var(--font-3xs);
+  color: var(--text-3);
+  font-style: italic;
+  margin-top: 2px;
+}

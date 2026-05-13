@@ -55,24 +55,38 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
   return { actorName, decision, outcome, deaths, dominantCause, moraleDelta, eventTitle, eventCategory, time };
 }
 
+// Cap on inline humanized lines in the banner. Past this many actors
+// the per-actor lines fall off and we render a "+N more \u2014 see cohort
+// grid below" footer instead, keeping the banner under one screen.
+const MAX_INLINE_OUTCOMES = 6;
+
 /**
  * Banner above the grid: turn number, time, event title + category,
  * and one humanized outcome line per leader. Generated from existing
- * events only; no LLM call.
+ * events only; no LLM call. Scales to N actors: pair runs render the
+ * original two-line layout, cohort runs render up to
+ * `MAX_INLINE_OUTCOMES` lines and trail with a count chip for the rest
+ * so the banner stays under a screen on large cohort runs.
  */
 export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
-  const firstId = state.actorIds[0];
-  const secondId = state.actorIds[1];
-  const sideA = firstId ? state.actors[firstId] : null;
-  const sideB = secondId ? state.actors[secondId] : null;
-  const a = useMemo(() => sideA ? summarize(sideA, currentTurn) : null, [sideA, currentTurn]);
-  const b = useMemo(() => sideB ? summarize(sideB, currentTurn) : null, [sideB, currentTurn]);
+  const summaries = useMemo(() => {
+    const out: Array<{ actorId: string; summary: LeaderTurnSummary | null }> = [];
+    for (const actorId of state.actorIds) {
+      const side = state.actors[actorId];
+      out.push({ actorId, summary: side ? summarize(side, currentTurn) : null });
+    }
+    return out;
+  }, [state.actorIds, state.actors, currentTurn]);
 
-  const headline = a?.eventTitle || b?.eventTitle || '';
-  const category = a?.eventCategory || b?.eventCategory || '';
-  const time = a?.time || b?.time || 0;
+  const populated = summaries.filter((entry): entry is { actorId: string; summary: LeaderTurnSummary } => entry.summary !== null);
+  const headline = populated.find(p => p.summary.eventTitle)?.summary.eventTitle || '';
+  const category = populated.find(p => p.summary.eventCategory)?.summary.eventCategory || '';
+  const time = populated.find(p => p.summary.time)?.summary.time || 0;
 
   if (!headline) return null;
+
+  const visible = populated.slice(0, MAX_INLINE_OUTCOMES);
+  const hidden = populated.length - visible.length;
 
   return (
     <div role="status" aria-label="Current turn narrative" className={styles.banner}>
@@ -81,8 +95,26 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
         <span className={styles.title}>{headline}</span>
         {category && <span className={styles.categoryPill}>{category}</span>}
       </div>
-      {a && <div className={styles.lineA}>A: {humanizeOutcome(a)}</div>}
-      {b && <div className={styles.lineB}>B: {humanizeOutcome(b)}</div>}
+      {visible.map((entry, idx) => (
+        <div
+          key={entry.actorId}
+          // For 2-actor pair runs, keep the legacy `.lineA` / `.lineB`
+          // class names so the existing SCSS gradient/color rules still
+          // apply. Cohort runs use the generic `.line` class which
+          // styles with --actor-color (set by the per-row chip below).
+          className={populated.length <= 2 ? (idx === 0 ? styles.lineA : styles.lineB) : styles.line}
+        >
+          <span className={styles.lineLabel}>
+            {populated.length <= 2 ? (idx === 0 ? 'A' : 'B') : entry.summary.actorName}
+          </span>
+          <span className={styles.lineBody}>: {humanizeOutcome(entry.summary)}</span>
+        </div>
+      ))}
+      {hidden > 0 && (
+        <div className={styles.lineMore}>
+          +{hidden} more \u00b7 see cohort grid below for the rest
+        </div>
+      )}
     </div>
   );
 }
