@@ -164,7 +164,7 @@
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--actor-color, var(--amber)) 4%, var(--bg-panel)) 0%,
-    var(--bg-deep) 100%,
+    var(--bg-deep) 100%
   );
   min-height: 480px;
 }
@@ -177,9 +177,17 @@
     90deg,
     transparent 0%,
     color-mix(in srgb, var(--actor-color, var(--amber)) 35%, transparent) 50%,
-    transparent 100%,
+    transparent 100%
   );
   animation: cohort-shimmer 1.6s ease-in-out infinite;
+
+  // Honor reduced-motion preference so the shimmer doesn't pulse for
+  // users who've opted out. The gradient mid-stop still hints at
+  // "loading" so the affordance survives without animation.
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .columnPlaceholderLabel {
