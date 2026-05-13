@@ -459,11 +459,16 @@
   // Phone: drop the 160px floor so two selects + the "vs" separator
   // can both fit on a single row inside a 360px viewport, and bump
   // the height to clear the WCAG 2.5.5 44px target-size guideline.
+  // 16px font is the iOS-Safari zoom-on-focus threshold — below that
+  // the page auto-zooms when the user opens the dropdown, which
+  // breaks the layout for the rest of the session until they
+  // double-tap zoom back out. Specifying 16px directly is the
+  // recommended workaround.
   @media (max-width: 480px) {
     min-width: 0;
     flex: 1 1 0;
     padding: 10px 8px;
-    font-size: var(--font-md);
+    font-size: 16px;
   }
 }
 
