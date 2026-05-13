@@ -60,11 +60,12 @@
   }
 
   // Phone: each column fills the viewport edge-to-edge minus the
-  // row's 16px horizontal padding. Combined with the parent's
-  // overflow-x: auto + scroll-snap-type the user pages between
-  // actor columns one swipe at a time on a phone.
+  // row's horizontal padding (.timelineRow padding: 4px 8px → 16px
+  // combined). Combined with the parent's overflow-x: auto +
+  // scroll-snap-type the user pages between actor columns one swipe
+  // at a time on a phone.
   @media (max-width: 480px) {
-    min-width: calc(100vw - 32px);
+    min-width: calc(100vw - 16px);
     scroll-snap-align: start;
   }
 }
