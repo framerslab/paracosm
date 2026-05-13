@@ -468,6 +468,12 @@
 }
 
 .perActorBarFill {
+  // Default width of 0 so the bar is invisible when the React render
+  // somehow omits the inline `style={{ width: '...%' }}` — without
+  // this default the gradient would render at the parent's full
+  // width, which on a 1fr column reads as "100% of total spend" for
+  // every actor and breaks the relative-spend comparison.
+  width: 0;
   height: 100%;
   background: linear-gradient(90deg, var(--green), var(--amber));
   border-radius: 4px;
