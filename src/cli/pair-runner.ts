@@ -313,6 +313,14 @@ Then fill out:
         });
         if (fromFallback) {
           console.log('  Verdict schema fallback; skipping broadcast');
+          // Pair verdict fell back the same way the cohort version
+          // does — emit the same explanatory event so the UI surfaces
+          // a "no verdict" banner instead of going silent.
+          broadcast('verdict_skipped', {
+            mode: 'pair',
+            reason: 'generation_failed',
+            detail: 'Schema validation fallback exhausted',
+          });
         } else {
           broadcast('verdict', {
             ...verdict,
@@ -668,6 +676,21 @@ Then fill out:
         });
         if (fromFallback) {
           console.log('  Cohort verdict schema fallback; skipping broadcast');
+          // Schema-validation fallback exhausted on the cohort verdict
+          // call. The original code logged this and silently dropped
+          // the broadcast, leaving the dashboard with no verdict and
+          // no explanation — exactly the user-reported "I see no
+          // victor for cohort runs" failure. Cheap-tier models
+          // (gpt-5.4-nano, claude-haiku-4-5) hit the rankings array
+          // schema (min 2 entries, each with rank + scores + rationale)
+          // more often than they hit the simpler pair Verdict schema,
+          // so cohort runs lost the banner where pair runs kept it.
+          broadcast('verdict_skipped', {
+            mode: 'cohort',
+            reason: 'generation_failed',
+            detail: 'Schema validation fallback exhausted',
+            actorCount: cleanRuns.length,
+          });
         } else {
           broadcast('cohort_verdict', {
             ...cohortVerdict,

@@ -264,12 +264,22 @@
   .light {
     color-scheme: light;
 
-    /* Backgrounds — layered sepia with clear visual separation */
+    /* Backgrounds — layered sepia with clear visual separation.
+     * Light-mode depth runs WITH the page rather than against it: each
+     * deeper surface stays close to the page tone instead of dropping
+     * 24 shades darker. The prior --bg-panel: #d8cab0 was 24 shades
+     * below --bg-deep, which made every panel-backed surface (the VIZ
+     * tab's cohort view bar, the chart strip, the cohort grid columns,
+     * every tooltip and drawer) read as "dimmed" in light mode while
+     * SIM-tab actor cards using --bg-card popped lighter than the page.
+     * Lifted --bg-panel to a subtle 8-shade-below tone so panels still
+     * register as inset but stop reading as overlays. Dark-mode tokens
+     * unchanged. */
     --bg-deep: #f0e6d2;
-    --bg-panel: #d8cab0;
+    --bg-panel: #e6d6b8;
     --bg-card: #f8f2e4;
     --bg-input: #faf6ee;
-    --bg-elevated: #e4d8c0;
+    --bg-elevated: #ecdeb8;
 
     /* Glassmorphic — warm frosted glass */
     --glass-bg: rgba(232, 220, 200, 0.88);
