@@ -87,7 +87,10 @@ export function useTerminalToast({
     if (!userTriggeredRun) return;
     if (!verdict || typeof verdict !== 'object') return;
     if (!replayDone) return;
-    const skipped = Boolean((verdict as { skipped?: unknown }).skipped);
+    // Strict equality on `=== true` instead of Boolean() so a non-boolean
+    // truthy payload (legacy clients sending "skipped": "yes" etc.) does
+    // not silently flip the banner into the no-verdict state.
+    const skipped = (verdict as { skipped?: unknown }).skipped === true;
     if (skipped) {
       // Skipped-verdict toast — explains the missing banner so users
       // don't refresh the page assuming something hung.
@@ -108,26 +111,33 @@ export function useTerminalToast({
       toast('info', 'Run finished — no verdict', body);
       return;
     }
-    const winner = (verdict as { winner?: unknown }).winner;
-    if (!winner) return;
+    const winnerRaw = (verdict as { winner?: unknown }).winner;
+    // Treat only null/undefined as absent so a legitimate falsy string
+    // payload (impossible per the current schema but cheap to defend
+    // against) still flows through to the toast logic. Normalize to a
+    // string up front so downstream comparisons don't drift between
+    // raw type and the cast.
+    if (winnerRaw === null || winnerRaw === undefined) return;
+    const winner = String(winnerRaw);
     const headline = String((verdict as { headline?: unknown }).headline || '').trim();
     const mode = (verdict as { mode?: unknown }).mode === 'cohort' ? 'cohort' : 'pair';
     const winnerName = (() => {
-      if (mode === 'cohort') return String(winner);
+      if (mode === 'cohort') return winner;
       if (winner === 'tie') return 'Tie';
       const named = String((verdict as { winnerName?: unknown }).winnerName || '').trim();
-      return named || `Leader ${String(winner)}`;
+      return named || `Leader ${winner}`;
     })();
-    const fingerprint = `${mode}:${String(winner)}:${winnerName}:${headline}`;
+    const fingerprint = `${mode}:${winner}:${winnerName}:${headline}`;
     try {
       if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
       sessionStorage.setItem(VERDICT_STORAGE_KEY, fingerprint);
     } catch {
       /* silent */
     }
+    const isTie = winner === 'tie';
     const title = mode === 'cohort'
-      ? (winner === 'tie' ? 'Cohort tied' : `${winnerName} leads the cohort`)
-      : (winner === 'tie' ? 'Verdict: tie' : `${winnerName} wins`);
+      ? (isTie ? 'Cohort tied' : `${winnerName} leads the cohort`)
+      : (isTie ? 'Verdict: tie' : `${winnerName} wins`);
     const body = headline || 'Click the verdict banner for the full breakdown.';
     toast('success', title, body);
   }, [verdict, replayDone, tourActive, userTriggeredRun, toast]);
