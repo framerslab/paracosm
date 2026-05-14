@@ -55,12 +55,14 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgba(10, 8, 6, 0) 0%,
-    rgba(10, 8, 6, 0.6) 60%,
-    rgba(10, 8, 6, 1) 100%
-  );
+  // Flat fade: the previous radial-gradient (transparent center →
+  // opaque corners) painted a visible vignette on every panel mount.
+  // On the Divergence sub-tab of VIZ, every grid remounts on tab
+  // switch so the corner darkening was almost always visible. The
+  // intent of this cover is "smooth fade-in from blank panel to live
+  // canvas", which a flat fill delivers without the corner-darken
+  // artifact the user reported.
+  background: var(--bg-deep);
   // --reveal-opacity set inline (1 → 0 at first paint).
   opacity: var(--reveal-opacity, 1);
   transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);

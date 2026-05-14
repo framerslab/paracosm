@@ -348,7 +348,12 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(circle at center, transparent 50%, rgba(0, 0, 0, 0.55) 100%);
+  // Flat dim instead of radial. The previous radial gradient produced
+  // a heavy corner-darken artifact on the viz tab, which was the
+  // user-reported "dark corner vignetting" — kept the visual cue
+  // (whole-canvas dim on a scrub jump) without the painterly
+  // vignette effect that read as a rendering bug to viewers.
+  background: rgba(0, 0, 0, 0.25);
   animation: paracosm-vignette 450ms ease-out forwards;
   z-index: 50;
 }

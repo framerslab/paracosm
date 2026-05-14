@@ -117,6 +117,11 @@ function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
 
 export function VerdictModal({ verdict, onClose }: VerdictModalProps) {
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
+  // Skipped-verdict short-circuit: the banner already explains the
+  // skip, the modal has no winning-side data to render. Bail before
+  // the cohort/pair branches read fields the skipped payload lacks
+  // (e.g. CohortVerdictDetails would throw on a missing `rankings`).
+  if (verdict.skipped) return null;
   const mode = verdict.mode === 'cohort' ? 'cohort' : 'pair';
   const winner = verdict.winner;
   const dialogClassName = [

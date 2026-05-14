@@ -212,29 +212,89 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     return out;
   }, [state]);
 
-  // Cohort filter: when 3+ actors, the sidebar shows a dropdown to
-  // scope the agent list to a single lead actor's swarm. Default for
-  // cohorts is the first actor with any agents (so the sidebar isn't
-  // overwhelmed by ~100 × N characters). Pair runs (2 actors) keep
-  // the original combined view by defaulting to null = "all leaders".
-  const isCohort = state.actorIds.length > 2;
-  const [filterActorId, setFilterActorId] = useState<string | null>(null);
+  // Lead-actor filter: when 2+ actors, the sidebar shows a dropdown
+  // to scope the agent list to a single lead's swarm. Lowered the
+  // threshold from cohort-only (3+) to pair runs (2+) per the user
+  // request that EVERY actor / subsystem / swarm have its own
+  // selector — even pair runs benefit from being able to pivot
+  // between "Alice's people" and "Bob's people" without scrolling
+  // through both populations interleaved. The "all leaders" mode is
+  // still available via the explicit "All leaders" option in the
+  // select.
+  const isMultiActor = state.actorIds.length >= 2;
+  // Default value `'all'` (vs. null) means "no actor filter" — same
+  // effective behavior as the prior pair-mode default, but explicit
+  // in the dropdown so the user can see the choice. Cohort runs
+  // (5+ actors) start filtered to the first actor since the union of
+  // every swarm is too long to scan without paging.
+  const COHORT_PREFILTER_THRESHOLD = 5;
+  const [filterActorId, setFilterActorId] = useState<string | null>('all');
   useEffect(() => {
-    if (!isCohort) {
+    if (!isMultiActor) {
       if (filterActorId !== null) setFilterActorId(null);
       return;
     }
+    if (filterActorId === 'all') return;
     if (filterActorId && agentsByActor.has(filterActorId)) return;
-    const firstWithAgents = state.actorIds.find(id => (agentsByActor.get(id)?.length ?? 0) > 0);
-    setFilterActorId(firstWithAgents ?? null);
-  }, [isCohort, agentsByActor, state.actorIds, filterActorId]);
+    // Auto-pick the first actor with agents only for large cohorts.
+    // Pair / small cohort runs (<5 actors) get the union view by default
+    // — they can still filter via the dropdown, but the sidebar stays
+    // populated immediately on cold load.
+    if (state.actorIds.length >= COHORT_PREFILTER_THRESHOLD) {
+      const firstWithAgents = state.actorIds.find(id => (agentsByActor.get(id)?.length ?? 0) > 0);
+      setFilterActorId(firstWithAgents ?? 'all');
+    } else {
+      setFilterActorId('all');
+    }
+  }, [isMultiActor, agentsByActor, state.actorIds, filterActorId]);
 
-  const agents = useMemo(() => {
-    if (filterActorId) return agentsByActor.get(filterActorId) ?? [];
+  // Department / subsystem filter — second dropdown that narrows the
+  // already-actor-scoped list to one department at a time. Pulled
+  // from the live `department` field on every reaction, deduped and
+  // sorted alphabetically so the menu stays stable as new reactions
+  // stream in. `null` = no filter (show everything for the selected
+  // actor).
+  const [filterDepartment, setFilterDepartment] = useState<string | null>(null);
+
+  const actorScopedAgents = useMemo(() => {
+    if (filterActorId && filterActorId !== 'all') return agentsByActor.get(filterActorId) ?? [];
     const all: AgentInfo[] = [];
-    for (const ids of agentsByActor.values()) all.push(...ids);
+    // Dedup by name across actors: when the same colonist appears
+    // under multiple leaders (shared scenario archetypes) the
+    // "All leaders" view shouldn't render duplicate sidebar entries.
+    const seen = new Set<string>();
+    for (const ids of agentsByActor.values()) {
+      for (const a of ids) {
+        if (seen.has(a.name)) continue;
+        seen.add(a.name);
+        all.push(a);
+      }
+    }
     return all;
   }, [agentsByActor, filterActorId]);
+
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of actorScopedAgents) {
+      const dept = (a.department || '').trim();
+      if (dept) set.add(dept);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [actorScopedAgents]);
+
+  // Reset the department filter when the active list changes so a
+  // stale department name (one that no longer exists in the current
+  // actor's swarm) doesn't lock the sidebar to "no results".
+  useEffect(() => {
+    if (filterDepartment && !departments.includes(filterDepartment)) {
+      setFilterDepartment(null);
+    }
+  }, [departments, filterDepartment]);
+
+  const agents = useMemo(() => {
+    if (!filterDepartment) return actorScopedAgents;
+    return actorScopedAgents.filter(a => (a.department || '').trim() === filterDepartment);
+  }, [actorScopedAgents, filterDepartment]);
 
   const selected = agents.find(c => c.name === selectedId);
 
@@ -366,11 +426,12 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           }
         </p>
 
-        {/* Cohort filter: pick one lead actor's swarm at a time. Hidden
-            for solo + pair runs so the existing 2-actor combined view
-            stays unchanged. Built off `agentsByActor` so the count next
-            to each name updates live as reactions stream in. */}
-        {isCohort && agentsByActor.size > 0 && (
+        {/* Lead-actor + department filters. Shown for any run with 2+
+            actors (pair + cohort) so users can pivot between
+            "actor / subsystem / swarm" without scrolling a single
+            mixed list. The counts in parentheses update live as
+            reactions stream in. */}
+        {isMultiActor && agentsByActor.size > 0 && (
           <div className={styles.actorFilter}>
             <label className={styles.actorFilterLabel} htmlFor="chat-actor-filter">
               Lead actor
@@ -382,12 +443,50 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
               onChange={(e) => setFilterActorId(e.target.value || null)}
               aria-label="Filter chat agents by lead actor"
             >
+              <option value="all">
+                All leaders ({(() => {
+                  const seen = new Set<string>();
+                  for (const list of agentsByActor.values()) for (const a of list) seen.add(a.name);
+                  return seen.size;
+                })()})
+              </option>
               {state.actorIds.map((id) => {
                 const count = agentsByActor.get(id)?.length ?? 0;
                 const name = state.actors[id]?.leader?.name || id;
                 return (
                   <option key={id} value={id} disabled={count === 0}>
                     {name} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+
+        {/* Department / subsystem filter. Hidden when the active
+            actor-scoped list has zero or one department since there's
+            nothing to narrow. Combined with the lead-actor filter
+            this gives the user a two-dimensional pivot: actor x
+            department, mirroring how the orchestrator partitions its
+            departmental specialists. */}
+        {departments.length > 1 && (
+          <div className={styles.actorFilter}>
+            <label className={styles.actorFilterLabel} htmlFor="chat-department-filter">
+              Department
+            </label>
+            <select
+              id="chat-department-filter"
+              className={styles.actorFilterSelect}
+              value={filterDepartment ?? ''}
+              onChange={(e) => setFilterDepartment(e.target.value || null)}
+              aria-label="Filter chat agents by department"
+            >
+              <option value="">All departments ({actorScopedAgents.length})</option>
+              {departments.map((dept) => {
+                const count = actorScopedAgents.filter(a => (a.department || '').trim() === dept).length;
+                return (
+                  <option key={dept} value={dept}>
+                    {dept} ({count})
                   </option>
                 );
               })}

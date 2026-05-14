@@ -699,6 +699,7 @@ function AppContent() {
     replayDone: sse.replayDone,
     tourActive,
     userTriggeredRun,
+    verdict: sse.verdict,
   });
 
   // Local cache fallback: write completed runs to localStorage keyed

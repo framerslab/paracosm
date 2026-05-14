@@ -127,9 +127,64 @@ test('computeGameState: sim_aborted in events forces isRunning=false even with p
   assert.equal(state.isRunning, false, 'abort overrides status-parallel-driven isRunning=true');
 });
 
-test('getActorColorVar: index 0 -> vis, 1 -> eng, 2+ -> amber fallback', () => {
+test('getActorColorVar: 8-slot palette + wrapping past slot 7', () => {
+  // The cohort palette extends beyond the original A/B pair. Slots are:
+  //   0:vis, 1:eng, 2:rust, 3:green, 4:violet, 5:coral, 6:sky, 7:olive
+  // Past slot 7 the index wraps via modulo so 8 -> 0, 15 -> 7.
   assert.equal(getActorColorVar(0), 'var(--vis)');
   assert.equal(getActorColorVar(1), 'var(--eng)');
-  assert.equal(getActorColorVar(2), 'var(--amber)');
-  assert.equal(getActorColorVar(9), 'var(--amber)');
+  assert.equal(getActorColorVar(2), 'var(--rust)');
+  assert.equal(getActorColorVar(3), 'var(--green)');
+  assert.equal(getActorColorVar(7), 'var(--olive)');
+  assert.equal(getActorColorVar(8), 'var(--vis)', 'wraps to slot 0 after slot 7');
+  assert.equal(getActorColorVar(15), 'var(--olive)', 'wraps to slot 7 at index 15');
+});
+
+test('computeGameState: outcome event clears pendingDecision (DECIDING chip drops)', () => {
+  const decisionEvent: SimEvent = {
+    type: 'decision_made',
+    leader: 'Alice',
+    data: { decision: 'seal_breach', rationale: 'safety first', reasoning: 'CoT', selectedPolicies: [] },
+  };
+  const outcomeEvent: SimEvent = {
+    type: 'outcome',
+    leader: 'Alice',
+    data: { turn: 1, time: 2035, outcome: 'success', category: 'engineering' },
+  };
+  const state = computeGameState([decisionEvent, outcomeEvent], false);
+  assert.equal(state.actors.Alice.pendingDecision, '', 'pending cleared after outcome');
+  assert.equal(state.actors.Alice.decisions, 1, 'decision counted');
+});
+
+test('computeGameState: turn_start clears stale pendingDecision from a prior turn', () => {
+  // Simulates the failure mode: orchestrator emitted decision_made but the
+  // event-loop catch block ran (provider/schema error) so no outcome fired.
+  // Next turn_start MUST reset the slot or DECIDING pins forever.
+  const decisionEvent: SimEvent = {
+    type: 'decision_made',
+    leader: 'Alice',
+    data: { decision: 'half_measure', rationale: 'unsure', reasoning: '', selectedPolicies: [] },
+  };
+  const nextTurn: SimEvent = {
+    type: 'turn_start',
+    leader: 'Alice',
+    turn: 2,
+    data: { turn: 2, time: 2036, title: 'Next event', metrics: { ...baseMetrics } },
+  };
+  const state = computeGameState([decisionEvent, nextTurn], false);
+  assert.equal(state.actors.Alice.pendingDecision, '', 'stale pending cleared on new turn');
+});
+
+test('computeGameState: terminal state (isComplete) clears every actor\'s lingering pendingDecision', () => {
+  // Simulates the user-reported bug: 8-actor cohort run finishes, but the
+  // last turn errored mid-event-loop for 2 actors. Their pendingDecision
+  // is still set when isComplete=true. The reconciliation pass must clear
+  // everyone so the cards don't render DECIDING into a finished run.
+  const decideAlice: SimEvent = { type: 'decision_made', leader: 'Alice', data: { decision: 'X', rationale: '', reasoning: '', selectedPolicies: [] } };
+  const decideBob: SimEvent = { type: 'decision_made', leader: 'Bob', data: { decision: 'Y', rationale: '', reasoning: '', selectedPolicies: [] } };
+  const outcomeAlice: SimEvent = { type: 'outcome', leader: 'Alice', data: { turn: 6, time: 2040, outcome: 'success', category: 'engineering' } };
+  // Bob never gets outcome — his pendingDecision lingers.
+  const state = computeGameState([decideAlice, decideBob, outcomeAlice], /* isComplete */ true);
+  assert.equal(state.actors.Alice.pendingDecision, '', 'Alice cleared via outcome');
+  assert.equal(state.actors.Bob.pendingDecision, '', 'Bob cleared via isComplete reconciliation');
 });

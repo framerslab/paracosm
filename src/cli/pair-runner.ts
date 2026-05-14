@@ -694,10 +694,38 @@ Then fill out:
           console.log(`  ${cohortVerdict.summary}\n`);
         }
       } catch (verdictErr) {
+        const detail = verdictErr instanceof Error ? verdictErr.message : String(verdictErr);
         console.log('  Cohort verdict generation failed:', verdictErr);
+        // Surface the failure to the dashboard so the user isn't left
+        // staring at a finished run with no verdict + no explanation.
+        // Without this event, a transient LLM error during the cohort
+        // ranking call (rate limit, schema fallback exhausted) just
+        // logged server-side and the UI silently dropped the banner.
+        broadcast('verdict_skipped', {
+          mode: 'cohort',
+          reason: 'generation_failed',
+          detail,
+          actorCount: cleanRuns.length,
+        });
       }
     } else if (verdictModel && cleanRuns.length > MAX_COHORT_VERDICT_N) {
       console.log(`  [batch] Cohort verdict skipped: ${cleanRuns.length} actors exceeds MAX_COHORT_VERDICT_N=${MAX_COHORT_VERDICT_N}`);
+      broadcast('verdict_skipped', {
+        mode: 'cohort',
+        reason: 'cohort_too_large',
+        actorCount: cleanRuns.length,
+        max: MAX_COHORT_VERDICT_N,
+      });
+    } else if (!verdictModel && cleanRuns.length >= 2) {
+      // economics.verdict.mode === 'skip' branch — explicit user choice
+      // (the cheap-tier profile turns verdicts off to save spend) but
+      // the UI still benefits from a positive signal that "yes the run
+      // ended, no verdict on purpose" rather than a missing-banner.
+      broadcast('verdict_skipped', {
+        mode: 'cohort',
+        reason: 'economics_skip',
+        actorCount: cleanRuns.length,
+      });
     }
   }
 

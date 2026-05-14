@@ -56,7 +56,61 @@ export function VerdictBanner({
   onDismiss,
   onNavigateTab,
 }: VerdictBannerProps) {
-  if (!verdict || !verdict.winner) return null;
+  if (!verdict) return null;
+  // Skipped-verdict branch: server emitted `verdict_skipped` (LLM call
+  // failed, cohort too large, or economics profile turned verdicts
+  // off). Renders an explanatory chip so the user understands the
+  // missing banner is intentional / explainable, not a stuck pipe.
+  if (verdict.skipped) {
+    const reason = String(verdict.reason || 'unknown');
+    const reasonCopy = (() => {
+      switch (reason) {
+        case 'generation_failed': return 'Verdict LLM call failed — open Reports for the raw run stats.';
+        case 'cohort_too_large': return `Cohort exceeded the verdict cap (${verdict.actorCount}/${verdict.max} actors). Open Reports for the cohort breakdown.`;
+        case 'economics_skip': return 'Verdict generation off in your economics profile. Reports tab carries the run summary.';
+        default: return 'Verdict unavailable. Open Reports for the run breakdown.';
+      }
+    })();
+    const skippedKey = `skipped|${reason}`;
+    if (dismissedKey === skippedKey) return null;
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label="Verdict unavailable"
+        className={`${styles.banner} ${styles.bannerSkipped}`}
+        style={winColorCssVars('var(--text-3)')}
+      >
+        <div className={styles.winnerLabel}>
+          <div className={styles.kicker}>Run complete</div>
+          <div className={`${styles.winnerName} ${styles.winnerNameSkipped}`}>No verdict</div>
+        </div>
+        <div className={styles.headlineColumn}>
+          {/* Static informational text — uses the dedicated info
+              variant so screen readers don't announce it as
+              interactive and sighted users don't get a
+              cursor: pointer hint on non-clickable text. */}
+          <p className={styles.headlineStatic}>{reasonCopy}</p>
+          <div className={styles.turnLabel}>Turn {currentTurn}/{maxTurns}</div>
+        </div>
+        <button
+          onClick={() => onNavigateTab('reports')}
+          className={styles.reportsChip}
+          title="Open the Reports tab for the full run breakdown"
+        >
+          Reports
+        </button>
+        <button
+          onClick={() => onDismiss(skippedKey)}
+          aria-label="Dismiss banner"
+          className={styles.dismissButton}
+        >
+          ×
+        </button>
+      </div>
+    );
+  }
+  if (!verdict.winner) return null;
   const headline = String(verdict.headline || '');
   const winnerKey = `${verdict.winner}|${headline}`;
   if (dismissedKey === winnerKey) return null;

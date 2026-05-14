@@ -69,3 +69,97 @@
   text-transform: uppercase;
   margin-bottom: 8px;
 }
+
+// Filter bar — actor + department selectors above the numbered list.
+// Lets the user pivot a single combined list into per-actor /
+// per-department slices instead of scrolling a single flat block.
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+
+  // Phone: stretch both fields full-width below their labels so 280px
+  // selects don't overflow on narrow viewports. `.filterStats` drops
+  // to the next row when there's no room rather than competing with
+  // the dropdowns for horizontal space.
+  @media (max-width: 600px) {
+    gap: 8px;
+    padding: 10px;
+  }
+}
+
+.filterField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  @media (max-width: 600px) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    width: 100%;
+  }
+}
+
+.filterLabel {
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.filterSelect {
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  padding: 4px 8px;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-width: 280px;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+
+  @media (max-width: 600px) {
+    // Drop the 280px cap so the select can take the full filterField
+    // width (which is itself 100% of the bar via the @600 rule above).
+    max-width: none;
+    width: 100%;
+  }
+
+  @media (max-width: 480px) {
+    padding: 10px 8px;
+    font-size: 16px;
+  }
+}
+
+.filterStats {
+  font-family: var(--mono);
+  font-size: var(--font-3xs);
+  color: var(--text-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.empty {
+  padding: 16px;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-3);
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}

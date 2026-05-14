@@ -411,6 +411,16 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
 
       case 'turn_start':
         s.currentEvents = [];
+        // Defensive reset: a new turn means any prior pending decision
+        // is stale by definition. Without this, an error mid-event-loop
+        // (decision_made fires, kernel throws before outcome) would
+        // leave the DECIDING chip pinned on the actor card forever —
+        // user-visible regression on 8-actor runs where any one actor
+        // tripped a transient provider/schema error.
+        s.pendingDecision = '';
+        s.pendingRationale = '';
+        s.pendingReasoning = '';
+        s.pendingPolicies = [];
         if (dd.turn) state.turn = dd.turn as number;
         if (dd.time) state.time = dd.time as number;
         if (dd.title && dd.title !== 'Director generating...') {
@@ -486,6 +496,13 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
             _policies: s.pendingPolicies,
           },
         });
+        // Decision has resolved into an outcome — clear the pending
+        // slot so the next event starts from a clean state and the
+        // DECIDING chip drops off the actor bar.
+        s.pendingDecision = '';
+        s.pendingRationale = '';
+        s.pendingReasoning = '';
+        s.pendingPolicies = [];
         break;
       }
 
@@ -524,6 +541,20 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
   state.isAborted = aborted;
   if (state.isComplete || aborted) {
     state.isRunning = false;
+    // Run is over: clear any lingering DECIDING state on every actor.
+    // Belt-and-braces with the per-turn resets above — covers the
+    // case where the FINAL turn errored mid-event-loop, so neither
+    // outcome nor a follow-up turn_start fired to clear the slot.
+    for (const id of state.actorIds) {
+      const actor = state.actors[id];
+      if (!actor) continue;
+      if (actor.pendingDecision || actor.pendingRationale || actor.pendingReasoning || actor.pendingPolicies.length) {
+        actor.pendingDecision = '';
+        actor.pendingRationale = '';
+        actor.pendingReasoning = '';
+        actor.pendingPolicies = [];
+      }
+    }
   }
 
   return state;

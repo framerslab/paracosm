@@ -528,6 +528,22 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         } catch {}
       });
 
+      es.addEventListener('verdict_skipped', (e: MessageEvent) => {
+        // Server-side cohort verdict was attempted and failed (LLM
+        // error, schema fallback, or cohort too large). Park a stub
+        // payload so the dashboard can surface "verdict unavailable"
+        // copy instead of pretending nothing happened — without this
+        // the user saw a finished run with no banner, no toast, and
+        // no explanation.
+        try {
+          const data = JSON.parse(e.data);
+          setState(prev => ({
+            ...prev,
+            verdict: prev.verdict ?? { ...data, mode: 'cohort', skipped: true },
+          }));
+        } catch {}
+      });
+
       es.addEventListener('complete', (e: MessageEvent) => {
         // pair-runner emits `complete` with an optional `aborted: true`
         // flag when either leader was cancelled. Fold that into
