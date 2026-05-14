@@ -47,7 +47,7 @@ function isValidRankingEntry(raw: unknown): raw is CohortRankingEntry {
   return true;
 }
 
-function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
+export function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
   const headline = String(v.headline || '');
   const summary = String(v.summary || '');
   const keyDivergence = String(v.keyDivergence || '');

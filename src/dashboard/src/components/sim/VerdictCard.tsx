@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback, type CSSProperties } from 'react';
+import { CohortVerdictDetails } from '../layout/VerdictModal';
+import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './VerdictCard.module.scss';
 
 interface VerdictData {
@@ -226,12 +228,20 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
 }
 
 /**
- * Inline full-width verdict panel for the Reports tab. Renders every
- * field VerdictDetails surfaces without the click-to-open step the
- * Sim modal requires, and adds a winner ribbon above the header.
+ * Inline full-width verdict panel. Branches on `verdict.mode`:
+ * pair-mode renders the A-vs-B VerdictDetails (scores + final stats);
+ * cohort-mode renders the N-actor CohortVerdictDetails (ranked list,
+ * per-actor scores, key divergence). Both share the same collapsible
+ * panel chrome so the SIM and Reports tabs swap panels seamlessly when
+ * the run shape changes.
+ *
+ * Previously cohort runs returned null here — the panel checked
+ * `v.scores` which only exists on the pair shape, so 3+ actor runs
+ * showed no verdict in the SIM body even when `cohort_verdict` had
+ * landed cleanly.
  */
 export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
-  const v = raw as unknown as VerdictData;
+  const v = raw as unknown as VerdictData & { mode?: string; rankings?: unknown; winnerIndex?: number };
   const [copied, setCopied] = useState(false);
   // Collapsible: clicking the close button shrinks the panel to a
   // single-line summary so the SIM area is not dominated by the
@@ -246,10 +256,20 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
       () => { /* clipboard denied — silent */ },
     );
   }, [v]);
-  if (!v.winner || !v.scores) return null;
-  const winColor = winColorFor(v.winner);
+  if (!v.winner) return null;
+  const mode: 'pair' | 'cohort' = v.mode === 'cohort' ? 'cohort' : 'pair';
+  // Pair shape: bail without scores (back-compat: an older verdict
+  // payload without scores can't render the score bars).
+  if (mode === 'pair' && !v.scores) return null;
+  // Cohort shape: bail without rankings.
+  if (mode === 'cohort' && !Array.isArray(v.rankings)) return null;
+  const winColor = mode === 'cohort'
+    ? getActorColorVar(typeof v.winnerIndex === 'number' ? v.winnerIndex : 0)
+    : winColorFor(v.winner);
   if (!expanded) {
-    const headline = v.headline ?? `${v.winner === 'tie' ? 'Tied' : `${v.winner.toUpperCase()} wins`}`;
+    const headline = v.headline ?? (mode === 'cohort'
+      ? `${String(v.winner)} leads`
+      : `${v.winner === 'tie' ? 'Tied' : `${v.winner.toUpperCase()} wins`}`);
     return (
       <button
         type="button"
@@ -278,7 +298,9 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
       >
         ×
       </button>
-      <VerdictDetails v={v} onExport={handleExport} copied={copied} />
+      {mode === 'cohort'
+        ? <CohortVerdictDetails v={v as unknown as Record<string, unknown>} />
+        : <VerdictDetails v={v} onExport={handleExport} copied={copied} />}
     </div>
   );
 }
