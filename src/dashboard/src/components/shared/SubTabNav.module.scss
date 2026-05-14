@@ -1,0 +1,56 @@
+// SubTabNav — small horizontal tab bar nested inside a top-level tab
+// panel. Migrated from inline styles. The active state uses
+// `--text-contrast` so the foreground inverts between light + dark
+// themes — `--amber` is bright gold in dark mode and dark gold in
+// light mode, so a hard-coded near-black color (the previous inline
+// value) produced unreadable brown-on-brown in light mode.
+
+.tablist {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-deep);
+  flex-shrink: 0;
+}
+
+.tab {
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    color: var(--text-2);
+    background: color-mix(in srgb, var(--amber) 8%, transparent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+
+  @media (max-width: 480px) {
+    // Phone: WCAG 2.5.5 tap target.
+    padding: 10px 14px;
+    min-height: 44px;
+  }
+}
+
+.tabActive {
+  color: var(--text-contrast);
+  background: var(--amber);
+
+  &:hover {
+    color: var(--text-contrast);
+    background: var(--amber);
+  }
+}
