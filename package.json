@@ -73,7 +73,7 @@
   },
   "dependencies": {
     "@framers/agentos": "^0.9.9",
-    "@framers/sql-storage-adapter": "^0.6.5",
+    "@framers/sql-storage-adapter": "^0.6.6",
     "better-sqlite3": "^12.9.0",
     "pdfjs-dist": "^5.7.284",
     "resend": "^4.8.0",
