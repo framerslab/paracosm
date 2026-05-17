@@ -1,3 +1,5 @@
+import { useMediaQuery, PHONE_QUERY } from './useMediaQuery.js';
+
 export type GridMode = 'living' | 'mood' | 'forge' | 'ecology' | 'divergence';
 
 /** Hints are scenario-templated. `{people}` = plural population noun,
@@ -48,6 +50,49 @@ export function GridModePills({
   counts?: Partial<Record<GridMode, number>>;
   labels: { person: string; people: string; Person: string; People: string };
 }) {
+  const isPhone = useMediaQuery(PHONE_QUERY);
+
+  // On phone viewports the 5-pill row was horizontally scrollable but
+  // ate ~44px of vertical chrome + always required the user to swipe
+  // sideways to see DIVERGENCE / ECOLOGY. Native <select> renders the
+  // current mode + a tap target that opens the system picker — cleaner
+  // and reclaims the row for actual viz content.
+  if (isPhone) {
+    return (
+      <select
+        aria-label="Grid viz mode"
+        value={mode}
+        onChange={(e) => onChange(e.target.value as GridMode)}
+        title={interpolate(MODES.find(m => m.key === mode)?.hint ?? '', labels)}
+        style={{
+          width: '100%',
+          padding: '8px 10px',
+          fontSize: 16,  // iOS Safari zoom-on-focus threshold
+          fontFamily: 'var(--mono)',
+          fontWeight: 800,
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          background: 'var(--bg-card)',
+          color: 'var(--text-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          cursor: 'pointer',
+          minHeight: 44,  // WCAG 2.5.5 target size
+        }}
+      >
+        {MODES.map((m) => {
+          const count = counts?.[m.key];
+          const countSuffix = typeof count === 'number' && count > 0 ? ` · ${count}` : '';
+          return (
+            <option key={m.key} value={m.key}>
+              {m.label}{countSuffix}
+            </option>
+          );
+        })}
+      </select>
+    );
+  }
+
   return (
     <div
       role="tablist"

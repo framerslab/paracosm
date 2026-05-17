@@ -13,6 +13,14 @@
   font-family: var(--sans);
   font-size: var(--font-xs);
   color: var(--text-3);
+
+  // Below 480px the 4 legend swatches + Show full legend button take a
+  // full 40px row. The legend is reference info, not interactive — and
+  // SHOW FULL LEGEND is still reachable via the toolbar's ? Help
+  // overlay on phones. Reclaim the row for canvas height.
+  @media (max-width: 480px) {
+    display: none;
+  }
 }
 
 .glyphRow {
