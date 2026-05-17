@@ -360,19 +360,20 @@
 
 /* Cohort view controls — sits above TurnBanner on the Viz tab for
  * runs with 3+ actors. Carries the all-vs-pair view toggle plus the
- * focus-pair picker (when pair mode is on). */
+ * focus-pair picker (when pair mode is on). Flat strip, no amber wash
+ * — the prior `rgba(232, 180, 74, 0.06)` background painted a band
+ * that read as an unexplained gradient against the surrounding
+ * panels, especially in light mode where the wash sat 5+ shades below
+ * the page bg. */
 .cohortViewBar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  border: 1px solid rgba(232, 180, 74, 0.4);
-  background: rgba(232, 180, 74, 0.06);
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin-bottom: 8px;
+  gap: 8px;
+  padding: 4px 12px;
   font-size: var(--font-sm);
   color: var(--text-1);
+  border-bottom: 1px solid var(--border);
 }
 
 .cohortViewModeToggle {

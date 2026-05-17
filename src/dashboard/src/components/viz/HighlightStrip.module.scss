@@ -4,12 +4,12 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 16px;
-  min-height: 36px;
+  padding: 4px 16px;
+  min-height: 24px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   color: var(--text-2);
   line-height: 1.4;
 }
