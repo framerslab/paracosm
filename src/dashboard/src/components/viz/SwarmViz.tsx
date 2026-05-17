@@ -1100,11 +1100,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
                 </select>
               </div>
             )}
-            <span className={styles.cohortPairPickerHint}>
-              {vizMode === 'cohort'
-                ? `Horizontal scroll · ${state.actorIds.length} living-swarm panels lazy-mount as they enter the viewport. Toggle "Focus pair" for the A-vs-B diff overlay.`
-                : `Living-swarm grid renders these 2 actors side-by-side. Rotate the picker to browse the full cohort, or switch to "All ${state.actorIds.length} actors" for the cohort scroll view.`}
-            </span>
           </div>
         )}
         <TurnBanner state={state} currentTurn={currentTurn} />
