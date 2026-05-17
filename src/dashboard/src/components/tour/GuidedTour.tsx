@@ -367,26 +367,9 @@ export function GuidedTour({ activeTab, chatEnabled = true, onTabChange, onClose
 
   return (
     <>
-      {/* Dim overlay with cutout around highlighted element */}
-      <div data-tour-overlay className={styles.svgOverlay}>
-        <svg width="100%" height="100%" className={styles.svgFill}>
-          <defs>
-            <mask id="tour-mask">
-              <rect width="100%" height="100%" fill="white" />
-              {rect && (
-                <rect
-                  x={rect.left - pad} y={rect.top - pad}
-                  width={rect.width + pad * 2} height={rect.height + pad * 2}
-                  rx="10" fill="black"
-                />
-              )}
-            </mask>
-          </defs>
-          <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#tour-mask)" />
-        </svg>
-      </div>
-
-      {/* Click-away layer */}
+      {/* Click-away layer. No SVG scrim — the highlighted element's
+       * pulsing amber outline carries the focus signal and the full UI
+       * stays bright underneath. */}
       <div data-tour-overlay className={styles.clickAway} onClick={handleClose} />
 
       {/* Tour card */}
