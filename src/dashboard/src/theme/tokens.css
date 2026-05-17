@@ -273,14 +273,14 @@
      * brightness AND moved --bg-panel above --bg-deep so panels pop as
      * elevated cream rather than sinking below the page. Contrast still
      * clears WCAG AA for all text/accent tokens listed below. */
-    --bg-deep: #ffffff;
-    --bg-panel: #ffffff;
-    --bg-card: #ffffff;
+    --bg-deep: #f0e6d2;
+    --bg-panel: #faf3df;
+    --bg-card: #fdf8e8;
     --bg-input: #ffffff;
-    --bg-elevated: #ffffff;
+    --bg-elevated: #fdf8e8;
 
     /* Glassmorphic — warm frosted glass */
-    --glass-bg: rgba(255, 255, 255, 0.92);
+    --glass-bg: rgba(250, 243, 223, 0.88);
     --glass-border: rgba(160, 140, 110, 0.5);
     --glass-shadow: 0 4px 24px rgba(60, 40, 10, 0.12), 0 1px 2px rgba(60, 40, 10, 0.08);
     --glass-glow: 0 0 30px rgba(160, 120, 40, 0.06);
