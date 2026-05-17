@@ -12,7 +12,7 @@ const stubScenario = {
   id: 'mars',
   version: '3.0.0',
   labels: { name: 'Mars Genesis', shortName: 'mars', populationNoun: 'colonists', settlementNoun: 'colony', currency: 'credits', actorNounPlural: 'actors' },
-  theme: { primaryColor: '#dc2626', accentColor: '#f97316', cssVariables: {} },
+  theme: { primaryColor: '#dc2626', accentColor: '#f97316' },
   setup: { defaultTurns: 6, defaultSeed: 950, defaultStartTime: 2035, defaultPopulation: 100 },
   departments: [],
   presets: [],

@@ -19,7 +19,7 @@ const EXAMPLE_SCENARIO = {
   version: '1.0.0',
   engineArchetype: 'closed_turn_based_settlement',
   labels: { name: 'My Scenario', shortName: 'custom', populationNoun: 'agents', settlementNoun: 'settlement', currency: 'credits' },
-  theme: { primaryColor: '#6366f1', accentColor: '#818cf8', cssVariables: {} },
+  theme: { primaryColor: '#6366f1', accentColor: '#818cf8' },
   setup: { defaultTurns: 8, defaultSeed: 100, defaultStartTime: 2040, defaultPopulation: 50, configurableSections: ['actors', 'departments', 'models'] },
   departments: [
     { id: 'operations', label: 'Operations', role: 'Operations Lead', icon: '', defaultModel: 'gpt-5.4-mini', instructions: 'You analyze operations.' },

@@ -29,7 +29,6 @@ export interface ScenarioClientPayload {
   theme: {
     primaryColor: string;
     accentColor: string;
-    cssVariables: Record<string, string>;
   };
   setup: {
     defaultTurns: number;
@@ -74,7 +73,7 @@ const MARS_FALLBACK: ScenarioClientPayload = {
   id: 'mars-genesis',
   version: '3.0.0',
   labels: { name: 'Mars Genesis', shortName: 'mars', populationNoun: 'colonists', settlementNoun: 'colony', currency: 'credits' },
-  theme: { primaryColor: '#dc2626', accentColor: '#f97316', cssVariables: {} },
+  theme: { primaryColor: '#dc2626', accentColor: '#f97316' },
   setup: { defaultTurns: 6, defaultSeed: 950, defaultStartTime: 2035, defaultTimePerTurn: 8, defaultPopulation: 100 },
   departments: [
     { id: 'medical', label: 'Medical', role: 'Chief Medical Officer', icon: '🏥' },
@@ -109,13 +108,6 @@ export function useScenario() {
         .then(data => {
           if (data?.id) {
             setScenario(data);
-            // Inject scenario CSS variables
-            if (data.theme?.cssVariables) {
-              const root = document.documentElement;
-              for (const [key, value] of Object.entries(data.theme.cssVariables)) {
-                root.style.setProperty(key, value as string);
-              }
-            }
           }
         })
         .catch(() => {})
