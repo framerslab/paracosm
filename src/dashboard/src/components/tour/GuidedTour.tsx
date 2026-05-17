@@ -386,31 +386,12 @@ export function GuidedTour({ activeTab, chatEnabled = true, onTabChange, onClose
 
   return (
     <>
-      {/* Dim overlay with cutout around highlighted element. Painted
-       * only when a `rect` is measured — without that gate the scrim
-       * renders solid dim with no hole (no target found / wrong tab),
-       * which is what the user saw as "full-page dim with no tour info"
-       * after navigating to a tab the current step doesn't target. */}
-      {rect && (
-        <div data-tour-overlay className={styles.svgOverlay}>
-          <svg width="100%" height="100%" className={styles.svgFill}>
-            <defs>
-              <mask id="tour-mask">
-                <rect width="100%" height="100%" fill="white" />
-                <rect
-                  x={rect.left - pad} y={rect.top - pad}
-                  width={rect.width + pad * 2} height={rect.height + pad * 2}
-                  rx="10" fill="black"
-                />
-              </mask>
-            </defs>
-            <rect width="100%" height="100%" fill="rgba(0,0,0,0.18)" mask="url(#tour-mask)" />
-          </svg>
-        </div>
-      )}
-
-      {/* Click-away layer */}
-      <div data-tour-overlay className={styles.clickAway} onClick={handleClose} />
+      {/* Scrimless tour per the file header intent — no SVG dim overlay,
+       * no full-viewport click-away. The pulsing amber outline on the
+       * highlighted element carries the focus signal; the tour card
+       * itself stays interactive with X / ESC / arrow keys for
+       * dismissal and navigation. The full page stays clickable
+       * underneath, so navigating away mid-tour just works. */}
 
       {/* Tour card */}
       <div data-tour-overlay className={cardCls} style={cardVars} onClick={e => e.stopPropagation()} role="dialog" aria-label="Guided tour">
