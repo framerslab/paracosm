@@ -450,10 +450,20 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         if (!reducedMotion) tickGol(gol);
       }
     }
-    // Higher alpha (0.65) so the chunky tiles read as the primary
-    // visual texture. Color follows side tint — amber for A, teal
-    // for B — so the two panels stay distinguishable at a glance.
-    drawGol(ctx, gol, size.w, size.h, resolvedSide, 0.65);
+    // Conway tiles paint with the actor's sideColor at variable alpha.
+    // In dark mode 0.65 is the right intensity for the chunky tiles to
+    // read as the primary visual texture. In light mode the sideColor
+    // tokens are deliberately darker (amber #6b4700 vs dark-mode
+    // #e8b44a) to clear WCAG contrast on cream, so 0.65 painted across
+    // every alive tile in every cohort panel cumulatively reads as a
+    // heavy dark wash — that's the "dark gradient" complaint on viz
+    // cached-run loads, where every panel paints the steady-state
+    // tile pattern in one frame instead of streaming in. Drop the
+    // light-mode intensity to 0.22 so tiles still register but don't
+    // dominate.
+    const isLightTheme = typeof document !== 'undefined'
+      && document.documentElement.classList.contains('light');
+    drawGol(ctx, gol, size.w, size.h, resolvedSide, isLightTheme ? 0.22 : 0.65);
     // DEATHS filter: gray hollow tombstone squares with an X at each
     // dead colonist's historical position. BIRTHS filter: green filled
     // squares with a "+" glyph at each native-born colonist's position.
