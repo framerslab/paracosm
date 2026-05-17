@@ -129,15 +129,44 @@ export function useDashboardDropZone(
       }
     };
 
+    // Safety reset: the dragenter/dragleave counter pattern is fragile —
+    // browsers miss dragleave events when the cursor crosses the window
+    // edge, exits to a different app, or the page loses focus mid-drag.
+    // Without a fallback the counter stays > 0 forever and the overlay
+    // (z-index 100001, rgba black wash, backdrop-blur) stays painted
+    // over every tab, dimming the page and visually blocking every
+    // interaction even though pointer-events:none lets clicks through.
+    //
+    // Three independent resets:
+    //   1. `dragend` fires on the drag SOURCE when the operation ends
+    //      for any reason (drop, ESC, cancel). Always reset.
+    //   2. window `blur` — user switched apps mid-drag. Reset so the
+    //      overlay doesn't survive the focus loss.
+    //   3. `pointerover` outside any drag — if the cursor is moving
+    //      around the page without an active drag, there can't be one
+    //      in progress; reset to safe state.
+    const reset = () => {
+      counter = 0;
+      setIsDragging(false);
+    };
+    const onPointerOverIdle = (e: PointerEvent) => {
+      if (e.buttons === 0) reset();
+    };
     window.addEventListener('dragenter', onDragEnter);
     window.addEventListener('dragover', onDragOver);
     window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('drop', onDrop);
+    window.addEventListener('dragend', reset);
+    window.addEventListener('blur', reset);
+    window.addEventListener('pointerover', onPointerOverIdle);
     return () => {
       window.removeEventListener('dragenter', onDragEnter);
       window.removeEventListener('dragover', onDragOver);
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragend', reset);
+      window.removeEventListener('blur', reset);
+      window.removeEventListener('pointerover', onPointerOverIdle);
     };
   }, []);
 
