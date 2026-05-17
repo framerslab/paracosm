@@ -12,7 +12,12 @@
   // the TurnBanner + sub-tabs + chart strip. Was `hidden`, which hid
   // the entire body when squeezed and left only column headers visible.
   overflow-y: auto;
-  background: var(--bg-deep);
+  // Track bg matches its column bg so the cohort area reads as one
+  // uniform surface instead of a darker frame (bg-deep) wrapped
+  // around brighter columns (bg-panel). The contrast was visible
+  // enough in light mode to read as a gray "dim band" surrounding
+  // the actor cards.
+  background: var(--bg-panel);
   border-radius: 8px;
   border: 1px solid var(--border);
   // Visible scrollbar so users know more columns sit past the viewport.
