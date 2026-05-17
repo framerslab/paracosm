@@ -397,6 +397,21 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const crosshairTracerFill =
       (cs && hexToRgba(cs.getPropertyValue('--text-2').trim(), 0.95)) ||
       'rgba(216, 204, 176, 0.95)';
+    // Theme-aware tombstone + ecology-label colors. The dead-marker
+    // tombstone reads as text-3 (warm muted in dark, dark brown in
+    // light); the ecology quadrant captions reuse text-2 at 60% so
+    // they read crisply on whichever theme is active. Both layers
+    // accept these as opts (defaults are the dark-mode tones for
+    // backwards compatibility).
+    const tombstoneStroke =
+      (cs && hexToRgba(cs.getPropertyValue('--text-3').trim(), 0.85)) ||
+      'rgba(168, 152, 120, 0.85)';
+    const tombstoneFill =
+      (cs && hexToRgba(cs.getPropertyValue('--text-3').trim(), 0.08)) ||
+      'rgba(168, 152, 120, 0.08)';
+    const ecologyLabelColor =
+      (cs && hexToRgba(cs.getPropertyValue('--text-2').trim(), 0.6)) ||
+      'rgba(216, 204, 176, 0.6)';
     ctx.clearRect(0, 0, size.w, size.h);
     // Conway Game of Life ambient layer. On turn change: fresh seed +
     // 5-tick warmup from colonist mood + position. On any new event
@@ -478,6 +493,8 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         size.h,
         DEFAULT_GOL_CONFIG.cols,
         DEFAULT_GOL_CONFIG.rows,
+        tombstoneStroke,
+        tombstoneFill,
       );
     } else if (eventFilter === 'birth') {
       drawBirthMarkers(
@@ -527,7 +544,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       );
     }
     if (mode === 'ecology') {
-      drawEcologyResourceMap(ctx, snapshot, size.w, size.h);
+      drawEcologyResourceMap(ctx, snapshot, size.w, size.h, ecologyLabelColor);
     }
     if (mode === 'divergence') {
       drawDivergenceHighlight(

@@ -121,6 +121,11 @@ export function drawEcologyResourceMap(
   snapshot: TurnSnapshot,
   width: number,
   height: number,
+  // Theme-aware label color. Default is the dark-mode text-2 tone at
+  // 60% — readable on a near-black canvas. In light mode the caller
+  // threads the dark-text variant through so the FOOD/WATER/POWER/VOL
+  // captions don't render as invisible cream-on-cream.
+  labelColor = 'rgba(216, 204, 176, 0.6)',
 ): void {
   const asNum = (v: unknown): number | null => (typeof v === 'number' ? v : null);
   const snap = snapshot as unknown as Record<string, unknown>;
@@ -172,7 +177,7 @@ export function drawEcologyResourceMap(
   // Labels so users can tell which quadrant is which. Small faint
   // monospace in each quadrant's corner.
   ctx.font = 'bold 9px ui-monospace, monospace';
-  ctx.fillStyle = 'rgba(216, 204, 176, 0.6)';
+  ctx.fillStyle = labelColor;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   if (food != null) ctx.fillText(`FOOD ${food.toFixed(1)}mo`, 8, 8);

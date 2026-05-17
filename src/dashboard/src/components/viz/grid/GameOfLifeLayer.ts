@@ -178,14 +178,21 @@ export function drawDeadMarkers(
   overlayHeight: number,
   cols: number,
   rows: number,
+  // Theme-aware tombstone stroke + fill. Default is the dark-mode
+  // text-3 tone (`#a89878`) — fine over near-black canvas. In light
+  // mode the caller threads a darker variant (text-3 = `#4a3e2c`)
+  // through so the tombstone reads against the cream canvas instead
+  // of disappearing into it.
+  strokeColor = 'rgba(168, 152, 120, 0.85)',
+  fillColor = 'rgba(168, 152, 120, 0.08)',
 ): void {
   const cw = overlayWidth / cols;
   const ch = overlayHeight / rows;
   const tile = Math.max(1, Math.min(cw, ch) - 2);
   ctx.save();
   ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(168, 152, 120, 0.85)';
-  ctx.fillStyle = 'rgba(168, 152, 120, 0.08)';
+  ctx.strokeStyle = strokeColor;
+  ctx.fillStyle = fillColor;
   for (const c of cells) {
     if (c.alive) continue;
     const p = positions.get(c.agentId);
