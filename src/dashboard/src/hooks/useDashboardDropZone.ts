@@ -137,12 +137,19 @@ export function useDashboardDropZone(
     // over every tab, dimming the page and visually blocking every
     // interaction even though pointer-events:none lets clicks through.
     //
-    // Three independent resets:
-    //   1. `dragend` fires on the drag SOURCE when the operation ends
-    //      for any reason (drop, ESC, cancel). Always reset.
-    //   2. window `blur` — user switched apps mid-drag. Reset so the
+    // Four independent resets:
+    //   1. `drop` safety pass — the main onDrop handler returns early
+    //      when payload isn't files or when a local zone owns the
+    //      drop, so this unconditional reset runs after it to guarantee
+    //      isDragging clears no matter which branch onDrop took.
+    //   2. `dragend` fires on the drag SOURCE when an in-page drag ends
+    //      for any reason (drop, ESC, cancel). Does NOT fire for
+    //      external OS-originated file drags (where the source is the
+    //      Finder/Explorer, not the window) — those are covered by the
+    //      drop safety pass above and the blur/pointerover fallbacks.
+    //   3. window `blur` — user switched apps mid-drag. Reset so the
     //      overlay doesn't survive the focus loss.
-    //   3. `pointerover` outside any drag — if the cursor is moving
+    //   4. `pointerover` outside any drag — if the cursor is moving
     //      around the page without an active drag, there can't be one
     //      in progress; reset to safe state.
     const reset = () => {
@@ -156,6 +163,11 @@ export function useDashboardDropZone(
     window.addEventListener('dragover', onDragOver);
     window.addEventListener('dragleave', onDragLeave);
     window.addEventListener('drop', onDrop);
+    // Unconditional reset runs AFTER onDrop. Both listeners fire on the
+    // same event; React's event ordering preserves attachment order so
+    // onDrop processes the file first, then this pass clears state
+    // even if onDrop took an early-return path that skipped the reset.
+    window.addEventListener('drop', reset);
     window.addEventListener('dragend', reset);
     window.addEventListener('blur', reset);
     window.addEventListener('pointerover', onPointerOverIdle);
@@ -164,6 +176,7 @@ export function useDashboardDropZone(
       window.removeEventListener('dragover', onDragOver);
       window.removeEventListener('dragleave', onDragLeave);
       window.removeEventListener('drop', onDrop);
+      window.removeEventListener('drop', reset);
       window.removeEventListener('dragend', reset);
       window.removeEventListener('blur', reset);
       window.removeEventListener('pointerover', onPointerOverIdle);
