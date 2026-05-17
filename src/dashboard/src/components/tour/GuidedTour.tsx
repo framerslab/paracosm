@@ -203,6 +203,25 @@ export function GuidedTour({ activeTab, chatEnabled = true, onTabChange, onClose
     if (s) onTabChange(s.tab);
   }, [step, onTabChange, steps]);
 
+  // Auto-dismiss when the user manually navigates to a tab the current
+  // step doesn't target. Without this, clicking VIZ while parked on
+  // (e.g.) the quickstart step leaves the viewport-wide SVG scrim
+  // painted on a tab where the highlight target doesn't exist — the
+  // user sees a permanent dim wash with no card and no obvious
+  // dismissal affordance. Short delay lets tour-driven onTabChange
+  // settle before we judge "mismatched" (without it the step-change
+  // effect above briefly desyncs activeTab and aborts the tour
+  // mid-progression).
+  useEffect(() => {
+    const s = steps[step];
+    if (!s || s.tab === activeTab) return;
+    const t = setTimeout(() => {
+      const stillMismatched = steps[step]?.tab !== activeTab;
+      if (stillMismatched) onClose();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [activeTab, step, steps, onClose]);
+
   // Highlight target element and measure its rect.
   const attemptCancelRef = useRef<(() => void) | null>(null);
   const measure = useCallback(() => {
