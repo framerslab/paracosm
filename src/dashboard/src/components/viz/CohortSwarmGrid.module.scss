@@ -161,11 +161,12 @@
   justify-content: center;
   gap: 12px;
   padding: 24px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--actor-color, var(--amber)) 4%, var(--bg-panel)) 0%,
-    var(--bg-deep) 100%
-  );
+  // Flat actor-tinted panel instead of a fade-to-bg-deep gradient. The
+  // gradient produced a heavy dark band on each unmounted column in
+  // dark mode and an inverted dark-at-top stripe in light mode (where
+  // bg-deep is lighter than bg-panel). The shimmer already carries the
+  // loading affordance, so the gradient added nothing functional.
+  background: color-mix(in srgb, var(--actor-color, var(--amber)) 4%, var(--bg-panel));
   min-height: 480px;
 }
 
