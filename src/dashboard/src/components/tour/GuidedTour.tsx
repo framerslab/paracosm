@@ -404,7 +404,7 @@ export function GuidedTour({ activeTab, chatEnabled = true, onTabChange, onClose
                 />
               </mask>
             </defs>
-            <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#tour-mask)" />
+            <rect width="100%" height="100%" fill="rgba(0,0,0,0.18)" mask="url(#tour-mask)" />
           </svg>
         </div>
       )}
