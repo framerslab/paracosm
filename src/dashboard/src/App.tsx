@@ -47,6 +47,7 @@ import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
   getDashboardTabAndSubFromHref,
+  getDashboardTabFromHref,
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
@@ -425,12 +426,45 @@ function AppContent() {
     // expensive when real run data is loaded).
   }, [activeTab]);
 
-  // The GuidedTour is only ever started by an explicit HOW IT WORKS
-  // click. The prior auto-start fired on first visit, set tourActive
-  // true, painted a 55%-black SVG scrim over the whole viewport, and
-  // then survived any tab navigation the user made before reaching the
-  // first dismissal control — so a user who clicked VIZ before reading
-  // the tour card saw a permanently dimmed page with no obvious cause.
+  // Auto-start the GuidedTour on the user's FIRST visit to the sim
+  // page so new viewers get oriented without having to find the
+  // HOW IT WORKS button. Gated on a localStorage flag
+  // (`paracosm:tourSeen`) so returning users don't get the tour
+  // replayed every time they open the app.
+  //
+  // We set the flag IMMEDIATELY on auto-start fire (not just when
+  // the tour ends). Reason: React 19's StrictMode double-runs
+  // effects in dev, SPA navigations / query-param changes can
+  // remount AppContent, and various dismissal paths (click-away,
+  // Escape, browser back) don't all reliably call handleTourEnd
+  // before the component unmounts. Pinning the flag at fire-time
+  // guarantees once-ever auto-start behavior regardless of how
+  // the user exits the tour. Manual re-play via HOW IT WORKS still
+  // works since that path bypasses this effect.
+  //
+  // Mobile gate: skip auto-start below 640px.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('paracosm:tourSeen') === '1') return;
+      localStorage.setItem('paracosm:tourSeen', '1');
+    } catch {
+      return;
+    }
+    if (typeof window !== 'undefined' && window.innerWidth < 640) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      const currentTab = getDashboardTabFromHref(window.location.href);
+      if (currentTab !== 'quickstart') {
+        return;
+      }
+      preTourTabRef.current = currentTab;
+      setTourActive(true);
+    }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
 
   // Chat handoff from the VIZ drilldown. Sets the URL hash so
   // ChatPanel can read it on mount or on hashchange, then switches
