@@ -12,6 +12,15 @@
   font-size: var(--font-xs);
   color: var(--text-2);
   line-height: 1.4;
+
+  // Below 640px the TurnBanner headline already carries the event
+  // title above this row; the divergence summary repeated here just
+  // eats vertical space the canvas needs more. Pull it off-screen
+  // for assistive tech (display:none drops it from the a11y tree)
+  // so phones reclaim the row.
+  @media (max-width: 640px) {
+    display: none;
+  }
 }
 
 .text { flex: 1 1 auto; }
