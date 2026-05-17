@@ -7,7 +7,11 @@
   position: relative;
   width: 100%;
   overflow-x: auto;
-  overflow-y: hidden;
+  // Vertical scroll on the track so a 640px+ column body never gets
+  // clipped invisible when the viewport leaves less than that under
+  // the TurnBanner + sub-tabs + chart strip. Was `hidden`, which hid
+  // the entire body when squeezed and left only column headers visible.
+  overflow-y: auto;
   background: var(--bg-deep);
   border-radius: 8px;
   border: 1px solid var(--border);

@@ -19,6 +19,26 @@
   flex-wrap: wrap;
 }
 
+.collapseBtn {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: transparent;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--text-1);
+    border-color: var(--border-hl);
+  }
+}
+
 .turnLabel { color: var(--text-3); }
 
 .title {

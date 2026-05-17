@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { GameState, ActorSideState } from '../../hooks/useGameState.js';
 import { humanizeOutcome } from './humanize-outcome.js';
 import styles from './TurnBanner.module.scss';
@@ -69,6 +69,15 @@ const MAX_INLINE_OUTCOMES = 6;
  * so the banner stays under a screen on large cohort runs.
  */
 export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
+  // Cohort runs (3+ actors) render all per-actor outcome lines which
+  // can eat 6+ rows of vertical space on the viz tab, squeezing the
+  // cohort grid below to just its column headers with the bodies
+  // clipped. Default the per-actor block to collapsed for cohort runs
+  // so the headline stays visible without crowding the grid; pair runs
+  // keep the expanded default since two lines never crowd the layout.
+  const isCohortDefault = state.actorIds.length > 2;
+  const [collapsed, setCollapsed] = useState(isCohortDefault);
+
   const summaries = useMemo(() => {
     const out: Array<{ actorId: string; summary: LeaderTurnSummary | null }> = [];
     for (const actorId of state.actorIds) {
@@ -87,6 +96,8 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
 
   const visible = populated.slice(0, MAX_INLINE_OUTCOMES);
   const hidden = populated.length - visible.length;
+  const showLines = !collapsed;
+  const canCollapse = populated.length > 0;
 
   return (
     <div role="status" aria-label="Current turn narrative" className={styles.banner}>
@@ -94,8 +105,19 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
         <span className={styles.turnLabel}>T{currentTurn + 1}{time ? ` \u00b7 ${time}` : ''}</span>
         <span className={styles.title}>{headline}</span>
         {category && <span className={styles.categoryPill}>{category}</span>}
+        {canCollapse && (
+          <button
+            type="button"
+            onClick={() => setCollapsed(c => !c)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Expand per-actor outcomes' : 'Collapse per-actor outcomes'}
+            className={styles.collapseBtn}
+          >
+            {collapsed ? `\u25be ${populated.length} actors` : '\u25b4 hide'}
+          </button>
+        )}
       </div>
-      {visible.map((entry, idx) => (
+      {showLines && visible.map((entry, idx) => (
         <div
           key={entry.actorId}
           // For 2-actor pair runs, keep the legacy `.lineA` / `.lineB`
@@ -110,7 +132,7 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
           <span className={styles.lineBody}>: {humanizeOutcome(entry.summary)}</span>
         </div>
       ))}
-      {hidden > 0 && (
+      {showLines && hidden > 0 && (
         <div className={styles.lineMore}>
           +{hidden} more \u00b7 see cohort grid below for the rest
         </div>
