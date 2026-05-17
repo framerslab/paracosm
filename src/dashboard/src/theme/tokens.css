@@ -274,7 +274,7 @@
      * elevated cream rather than sinking below the page. Contrast still
      * clears WCAG AA for all text/accent tokens listed below. */
     --bg-deep: #ffffff;
-    --bg-panel: #fbf9f3;
+    --bg-panel: #ffffff;
     --bg-card: #ffffff;
     --bg-input: #ffffff;
     --bg-elevated: #ffffff;
