@@ -47,7 +47,6 @@ import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
   getDashboardTabAndSubFromHref,
-  getDashboardTabFromHref,
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
@@ -426,69 +425,12 @@ function AppContent() {
     // expensive when real run data is loaded).
   }, [activeTab]);
 
-  // Auto-start the GuidedTour on the user's FIRST visit to the sim
-  // page so new viewers get oriented without having to find the
-  // HOW IT WORKS button. Gated on a localStorage flag
-  // (`paracosm:tourSeen`) so returning users don't get the tour
-  // replayed every time they open the app.
-  //
-  // We set the flag IMMEDIATELY on auto-start fire (not just when
-  // the tour ends). Reason: React 19's StrictMode double-runs
-  // effects in dev, SPA navigations / query-param changes can
-  // remount AppContent, and various dismissal paths (click-away,
-  // Escape, browser back) don't all reliably call handleTourEnd
-  // before the component unmounts. Pinning the flag at fire-time
-  // guarantees once-ever auto-start behavior regardless of how
-  // the user exits the tour. Manual re-play via HOW IT WORKS still
-  // works since that path bypasses this effect.
-  //
-  // Mobile gate: skip auto-start below 640px (the tour's own
-  // breakpoint). The 14-step tour highlights desktop-only elements
-  // (sim-columns, leaders-row, divergence-rail) and on a phone
-  // covers ~60vh as a bottom sheet — fresh visitors arriving from
-  // landing-page CTAs interpret that as a paywall, not an onboarding.
-  // Mobile users still can replay via the HOW IT WORKS button in
-  // the top bar, which is the manual entry point.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('paracosm:tourSeen') === '1') return;
-      // Mark seen on mobile too so a user who opens on mobile then later
-      // resizes / rotates / hits a desktop browser doesn't see the tour
-      // pop unexpectedly. The HOW IT WORKS button is the canonical
-      // re-entry point.
-      localStorage.setItem('paracosm:tourSeen', '1');
-    } catch {
-      // Privacy mode / quota error: skip autostart — if we can't
-      // persist "seen", don't fire or the tour loops forever.
-      return;
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return;
-    }
-    // Defer one tick so the initial layout (tab bar, topbar, sim
-    // columns) paints before the highlight ring lands on the first
-    // step. The tour's getBoundingClientRect reads will otherwise
-    // measure zero-height shells on cold mount.
-    //
-    // Do not start the tour at all when the user deep-linked to a
-    // non-default tab. The tour's first step calls onTabChange('sim')
-    // which would clobber an explicit /sim?tab=library or
-    // /sim#branches choice. Quickstart is the default first-visit
-    // landing; only on that tab does the tour add value.
-    const timer = setTimeout(() => {
-      const currentTab = getDashboardTabFromHref(window.location.href);
-      if (currentTab !== 'quickstart') {
-        return;
-      }
-      preTourTabRef.current = currentTab;
-      setTourActive(true);
-      // The tour's first step is already 'quickstart' — no need to
-      // force-route through 'sim' before the tour takes over.
-    }, 600);
-    return () => clearTimeout(timer);
-    // Run exactly once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The GuidedTour is only ever started by an explicit HOW IT WORKS
+  // click. The prior auto-start fired on first visit, set tourActive
+  // true, painted a 55%-black SVG scrim over the whole viewport, and
+  // then survived any tab navigation the user made before reaching the
+  // first dismissal control — so a user who clicked VIZ before reading
+  // the tour card saw a permanently dimmed page with no obvious cause.
 
   // Chat handoff from the VIZ drilldown. Sets the URL hash so
   // ChatPanel can read it on mount or on hashchange, then switches
