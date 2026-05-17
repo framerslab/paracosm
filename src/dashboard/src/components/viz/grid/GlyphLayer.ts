@@ -29,6 +29,14 @@ export function drawGlyphs(
   searchQuery = '',
   nameLabels = false,
   labelColor = 'rgba(216, 204, 176, 0.9)',
+  // Background plate behind each name label. Default was the dark-mode
+  // value 'rgba(10, 8, 6, 0.55)' — fine over near-black canvas, but in
+  // light mode stamped 100+ near-black rects on a cream canvas across
+  // every cohort panel, which the user read as "dim/dark gradient" on
+  // cached-run loads (where every glyph paints in one frame instead of
+  // streaming in). Threaded through from LivingSwarmGrid so it picks
+  // up `var(--bg-deep)` at the active theme value.
+  labelChipBg = 'rgba(10, 8, 6, 0.55)',
 ): void {
   void ({} as DrawGlyphsOptions);
   ctx.save();
@@ -122,7 +130,7 @@ export function drawGlyphs(
       const y = pos.y + (c.featured ? 12 : 10);
       // Plate behind the label so it reads over the RD field.
       const w = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(10, 8, 6, 0.55)';
+      ctx.fillStyle = labelChipBg;
       ctx.fillRect(pos.x - w / 2 - 3, y - 1, w + 6, 10);
       ctx.fillStyle = diverged
         ? 'rgba(232, 180, 74, 0.95)'

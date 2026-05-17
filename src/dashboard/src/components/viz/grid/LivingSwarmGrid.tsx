@@ -494,6 +494,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         searchQuery,
         true, // always-on labels for featured + diverged
         textMuted,
+        // labelChipBg — theme-aware bg-deep at 55% opacity. Was
+        // hardcoded near-black in GlyphLayer which stamped dark
+        // splotches across light-mode cohort canvases on cached-run
+        // loads (100+ colonist labels per panel × 6 panels).
+        labelBg,
       );
     // Mode-specific overlays. Each runs AFTER the base layers so its
     // own visual signature rides on top of the RD backdrop, and
