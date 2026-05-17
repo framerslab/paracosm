@@ -274,10 +274,10 @@
      * elevated cream rather than sinking below the page. Contrast still
      * clears WCAG AA for all text/accent tokens listed below. */
     --bg-deep: #f0e6d2;
-    --bg-panel: #faf3df;
-    --bg-card: #fdf8e8;
+    --bg-panel: #f3eada;
+    --bg-card: #f8f0e0;
     --bg-input: #ffffff;
-    --bg-elevated: #fdf8e8;
+    --bg-elevated: #f8f0e0;
 
     /* Glassmorphic — warm frosted glass */
     --glass-bg: rgba(250, 243, 223, 0.88);
