@@ -76,7 +76,7 @@
     "@framers/sql-storage-adapter": "^0.6.6",
     "better-sqlite3": "^12.9.0",
     "pdfjs-dist": "^5.7.284",
-    "resend": "^4.8.0",
+    "resend": "^6.12.3",
     "zod": "^4.4.1"
   },
   "devDependencies": {
