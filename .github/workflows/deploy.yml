@@ -297,7 +297,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
           # Files that affect the published package surface
-          if echo "$CHANGED" | grep -qE '^(src/engine/|src/runtime/|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)\.ts|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)/|package\.json|tsconfig\.build\.json|README\.md|LICENSE)'; then
+          if echo "$CHANGED" | grep -qE '^(src/engine/|src/runtime/|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)\.ts|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)/|package\.json|tsconfig\.build\.json|LICENSE)'; then
             echo "library_changed=true" >> "$GITHUB_OUTPUT"
             echo "Library code changed — will publish."
           else
