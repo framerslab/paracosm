@@ -32,7 +32,7 @@
 </p>
 
 <p align="center">
-  <a href="https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4">▶ Full 90-second demo</a>
+  <a href="https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4">▶ 31-second demo</a>
   &nbsp;·&nbsp;
   <a href="https://paracosm.agentos.sh/demo/digital-twin-maria-2-hero.mp4">▶ Digital twin</a>
 </p>
