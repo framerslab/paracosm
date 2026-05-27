@@ -8,6 +8,11 @@ import { useGamePersistence } from './hooks/useGamePersistence';
 import { useLocalHistory } from './hooks/useLocalHistory';
 import { useLoadPreview } from './hooks/useLoadPreview';
 import { useLoadFromUrl } from './hooks/useLoadFromUrl';
+import {
+  parseAutoloadParam,
+  parseDestinationTabParam,
+  parseLoadUrlParam,
+} from './hooks/useLoadFromUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
@@ -46,6 +51,7 @@ import { GuidedTour } from './components/tour/GuidedTour';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
+  DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
   getDashboardTabFromHref,
   type DashboardTab,
@@ -253,6 +259,26 @@ function AppContent() {
     toast('success', 'Saved', `${sse.events.length} events${sse.verdict ? ' + verdict' : ''} saved to file.`);
   }, [sse.events, sse.results, sse.verdict, persistence, toast]);
 
+  // Deep-link intent captured once at mount via useState lazy init.
+  // Only populated when the initial URL has a valid `?load=<url>` param
+  // — picker / DnD flows leave this empty so they retain their "always
+  // land on sim" default. `destinationTab` lets a share link target a
+  // non-sim tab (most commonly viz for r/dataisbeautiful-style social
+  // shares); `autoload` skips the F9 preview modal so the share is
+  // one-click. Setter unused — value is immutable for the session.
+  const [deepLinkIntent] = useState<{
+    destinationTab: DashboardTab | null;
+    autoload: boolean;
+  }>(() => {
+    if (typeof window === 'undefined') return { destinationTab: null, autoload: false };
+    const parsed = parseLoadUrlParam(window.location.href);
+    if (!parsed.ok) return { destinationTab: null, autoload: false };
+    return {
+      destinationTab: parseDestinationTabParam(window.location.href, DASHBOARD_TABS),
+      autoload: parseAutoloadParam(window.location.href),
+    };
+  });
+
   const loadPreview = useLoadPreview({
     pickFile: persistence.pickFile,
     parseFile: persistence.parseFile,
@@ -260,7 +286,12 @@ function AppContent() {
     onConfirm: ({ events, results, verdict }) => {
       sse.loadEvents(events, results, verdict);
       toast('info', 'Loaded', `${events.length} events loaded.`);
-      setActiveTab('sim');
+      // Respect the share-link's `?tab=` when it was specified alongside
+      // `?load=` — falls back to 'sim' for picker / DnD loads and for
+      // share links that didn't pin a tab. 'about' is excluded because
+      // landing on / would discard the just-loaded sim state.
+      const target = deepLinkIntent.destinationTab;
+      setActiveTab(target && target !== 'about' ? target : 'sim');
     },
     onError: (reason) => {
       toast('error', 'Load Failed', reason);
@@ -275,6 +306,21 @@ function AppContent() {
     onInfo: (title, body) => toast('info', title, body),
     onError: (title, body) => toast('error', title, body),
   });
+
+  // ?autoload=1 share-link path: when the F9 preview is ready AND the
+  // initial URL asked for auto-confirm, fire confirm once and clear the
+  // flag. Without this, social-share viewers would see a "Load run?"
+  // modal asking them to click before the viz appears — defeats the
+  // one-click share. `consumed` guards against re-firing if state ever
+  // cycles back through 'preview' for a subsequent picker / DnD load.
+  const autoloadConsumedRef = useRef(false);
+  useEffect(() => {
+    if (autoloadConsumedRef.current) return;
+    if (!deepLinkIntent.autoload) return;
+    if (loadPreview.state.kind !== 'preview') return;
+    autoloadConsumedRef.current = true;
+    loadPreview.confirm();
+  }, [deepLinkIntent.autoload, loadPreview.state.kind, loadPreview]);
 
   // Drag-and-drop a .json save file anywhere on the dashboard. Uses the
   // same preview + parse pipeline as the file-picker flow.

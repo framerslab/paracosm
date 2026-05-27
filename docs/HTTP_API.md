@@ -318,3 +318,16 @@ Unknown routes under `/api/v1/` return `404 unknown_platform_route` with the req
 
 - [Cookbook](./COOKBOOK.md) — SDK-level walkthrough with input + output JSON for every public method
 - [Architecture](./ARCHITECTURE.md) — engine, runtime, CLI layering and replay semantics
+
+## Dashboard deep links
+
+The dashboard at `/sim` also accepts a client-side query-param contract for sharing runs without server upload — useful for one-click Reddit posts and bug reports. Not an HTTP endpoint, but documented next to the rest of the wire-level surface for discoverability.
+
+| Param      | Required | Behaviour |
+| ---------- | -------- | --------- |
+| `?load=`   | yes      | URL of a remote `.json` save (http/https only, CORS-readable). |
+| `?tab=`    | no       | Tab to land on after the load resolves: `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. |
+| `?autoload=` | no     | `1` or `true` skips the F9 preview-confirm modal. |
+| `?replay=` | no       | Session ID from a server-stored run. Switches the SSE source to `/sessions/:id/replay` instead of fetching a remote file. Pairs with `?tab=` the same way. |
+
+Full example walkthrough: [Cookbook → Sharing a run via deep link](./COOKBOOK.md#sharing-a-run-via-deep-link-loadurltabautoload).

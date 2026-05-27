@@ -9,6 +9,8 @@ import {
   parseLoadUrlParam,
   deriveFileNameFromUrl,
   isCrossOrigin,
+  parseAutoloadParam,
+  parseDestinationTabParam,
 } from './useLoadFromUrl.helpers.js';
 
 // -- parseLoadUrlParam ----------------------------------------------------
@@ -139,5 +141,79 @@ test('isCrossOrigin: different scheme -> true', () => {
   assert.equal(
     isCrossOrigin(new URL('http://dash.example.com/a.json'), 'https://dash.example.com/sim'),
     true,
+  );
+});
+
+// -- parseAutoloadParam ---------------------------------------------------
+
+test('parseAutoloadParam: autoload=1 -> true', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=1'), true);
+});
+
+test('parseAutoloadParam: autoload=true (any case) -> true', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=true'), true);
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=TRUE'), true);
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=True'), true);
+});
+
+test('parseAutoloadParam: autoload=0 -> false', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=0'), false);
+});
+
+test('parseAutoloadParam: autoload=false -> false', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=false'), false);
+});
+
+test('parseAutoloadParam: missing param -> false', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim'), false);
+});
+
+test('parseAutoloadParam: empty value -> false', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload='), false);
+});
+
+test('parseAutoloadParam: garbage value -> false', () => {
+  assert.equal(parseAutoloadParam('http://dash/sim?autoload=yes'), false);
+});
+
+test('parseAutoloadParam: bad outer href -> false', () => {
+  assert.equal(parseAutoloadParam('not a url'), false);
+});
+
+// -- parseDestinationTabParam --------------------------------------------
+
+const TABS = ['quickstart', 'sim', 'viz', 'settings', 'reports', 'chat', 'library', 'studio', 'about'] as const;
+
+test('parseDestinationTabParam: tab=viz -> "viz"', () => {
+  assert.equal(parseDestinationTabParam('http://dash/sim?tab=viz', TABS), 'viz');
+});
+
+test('parseDestinationTabParam: tab=sim -> "sim"', () => {
+  assert.equal(parseDestinationTabParam('http://dash/sim?tab=sim', TABS), 'sim');
+});
+
+test('parseDestinationTabParam: tab=invalid -> null', () => {
+  assert.equal(parseDestinationTabParam('http://dash/sim?tab=does-not-exist', TABS), null);
+});
+
+test('parseDestinationTabParam: missing tab -> null', () => {
+  assert.equal(parseDestinationTabParam('http://dash/sim', TABS), null);
+});
+
+test('parseDestinationTabParam: empty tab -> null', () => {
+  assert.equal(parseDestinationTabParam('http://dash/sim?tab=', TABS), null);
+});
+
+test('parseDestinationTabParam: bad outer href -> null', () => {
+  assert.equal(parseDestinationTabParam('not a url', TABS), null);
+});
+
+test('parseDestinationTabParam: ignores other params', () => {
+  assert.equal(
+    parseDestinationTabParam(
+      'http://dash/sim?load=https://e.com/r.json&tab=viz&autoload=1',
+      TABS,
+    ),
+    'viz',
   );
 });

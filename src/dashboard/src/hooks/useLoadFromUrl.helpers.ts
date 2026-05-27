@@ -76,3 +76,43 @@ export function isCrossOrigin(url: URL, currentHref: string): boolean {
     return true;
   }
 }
+
+/**
+ * Read `?autoload=` and decide whether the dashboard should bypass the
+ * F9 preview modal. Designed for one-click share links — e.g. a Reddit
+ * post that drops the user straight onto a viz. Truthy values are `1`
+ * and `true` (case-insensitive); everything else is false.
+ */
+export function parseAutoloadParam(href: string): boolean {
+  let outer: URL;
+  try {
+    outer = new URL(href);
+  } catch {
+    return false;
+  }
+  const raw = outer.searchParams.get('autoload');
+  if (!raw) return false;
+  const v = raw.toLowerCase();
+  return v === '1' || v === 'true';
+}
+
+/**
+ * Read `?tab=` and return the value when it is a member of `validTabs`.
+ * Returns `null` for missing / invalid / unknown values. Caller picks a
+ * fallback. Kept pure so it can be reused without coupling helpers to
+ * the {@link DashboardTab} union from tab-routing.
+ */
+export function parseDestinationTabParam<T extends string>(
+  href: string,
+  validTabs: readonly T[],
+): T | null {
+  let outer: URL;
+  try {
+    outer = new URL(href);
+  } catch {
+    return null;
+  }
+  const raw = outer.searchParams.get('tab');
+  if (!raw) return null;
+  return (validTabs as readonly string[]).includes(raw) ? (raw as T) : null;
+}

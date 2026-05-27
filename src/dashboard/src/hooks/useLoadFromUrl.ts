@@ -106,14 +106,20 @@ export function useLoadFromUrl(opts: UseLoadFromUrlOptions): void {
 }
 
 /**
- * Remove the `?load=` param from the current URL without a page reload
- * so a subsequent refresh doesn't re-trigger the fetch.
+ * Remove the `?load=` and `?autoload=` params from the current URL
+ * without a page reload so a subsequent refresh doesn't re-fetch the
+ * remote run or re-skip the preview modal. `?tab=` is preserved so the
+ * post-load destination (set by the share link) survives any later tab
+ * navigations.
  */
 function stripLoadParam(): void {
   try {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has('load')) return;
+    const hadLoad = url.searchParams.has('load');
+    const hadAutoload = url.searchParams.has('autoload');
+    if (!hadLoad && !hadAutoload) return;
     url.searchParams.delete('load');
+    url.searchParams.delete('autoload');
     const newHref = url.pathname + (url.search ? url.search : '') + url.hash;
     window.history.replaceState({}, '', newHref);
   } catch {

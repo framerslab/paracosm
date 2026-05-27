@@ -287,6 +287,32 @@ paracosm init my-app --domain "Submarine crew of 8" --actors 3
 
 The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./config/actors.json`, then a bundled example. A back-compat `paracosm-dashboard` alias is shipped for existing scripts and Docker invocations.
 
+### Share a sim with a one-click link
+
+Any saved `.json` run can be turned into a deep link that auto-loads in the dashboard. The link fetches the file, parses it, and lands the viewer on the tab you choose — no upload step, no preview modal.
+
+```
+https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
+```
+
+| Param      | Required | Behaviour |
+| ---------- | -------- | --------- |
+| `load`     | yes      | URL of the remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, gists, S3, GitHub raw all work. |
+| `tab`      | no       | Tab to open after the run loads. `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
+| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. |
+
+Concrete share links:
+
+```
+# r/dataisbeautiful drop — opens straight on the swarm viz
+paracosm.agentos.sh/sim?load=https://gist.githubusercontent.com/<user>/<id>/raw/mars-run.json&tab=viz&autoload=1
+
+# Linked from a bug report — opens the reports tab with preview shown
+paracosm.agentos.sh/sim?load=https://example.com/runs/diverged-run.json&tab=reports
+```
+
+The `?load=` and `?autoload=` params are stripped after the fetch resolves, so refreshing the page won't re-download. `?tab=` is kept so the URL survives copy/paste. Cross-origin fetches require the host to send permissive CORS headers (`Access-Control-Allow-Origin: *` on Gists, S3 with the right bucket policy, etc.).
+
 ---
 
 ## The universal result contract
