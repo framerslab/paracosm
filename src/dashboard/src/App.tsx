@@ -13,6 +13,10 @@ import {
   parseDestinationTabParam,
   parseLoadUrlParam,
 } from './hooks/useLoadFromUrl.helpers';
+import {
+  buildReplayShareUrl,
+  findLatestSavedSessionId,
+} from './hooks/shareUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
@@ -593,6 +597,28 @@ function AppContent() {
     });
   }, [gameState, scenario, toast]);
 
+  // Sharable session id for the currently visible run. Two sources:
+  //   1. The replay query param when the user landed via a share link.
+  //   2. The latest `sim_saved` event with status='saved' from the
+  //      server's autoSaveOnComplete pass.
+  // Stays null until one of those exists so the TopBar's Share menu
+  // item stays hidden for fresh / in-flight sims that haven't yet
+  // produced a sharable id.
+  const currentSessionId = replaySessionId ?? findLatestSavedSessionId(sse.events);
+
+  // Copy a deep link that opens the current run on the viz tab. Used
+  // for social shares (r/dataisbeautiful etc.) where viewers click
+  // straight through to the swarm visualization with no upload step.
+  const handleShareViz = useCallback(() => {
+    if (!currentSessionId) return;
+    const url = buildReplayShareUrl(window.location.origin, currentSessionId, 'viz');
+    navigator.clipboard.writeText(url).then(() => {
+      toast('success', 'Share link copied', 'Anyone with the link opens this run on the viz tab.');
+    }).catch(() => {
+      toast('error', 'Copy Failed', 'Clipboard access denied.');
+    });
+  }, [currentSessionId, toast]);
+
   // App-level "launching" state: persists across tab navigation so the
   // user can submit /setup, switch to viz/chat/etc., come back to sim,
   // and still see the spinner instead of the empty-state Run button.
@@ -867,6 +893,7 @@ function AppContent() {
             onRun={handleRun}
             onTour={handleTourStart}
             onCopy={handleCopySummary}
+            onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
             history={history.entries}
             onRestoreHistory={(entry) => history.restore(entry, sse.loadEvents)}

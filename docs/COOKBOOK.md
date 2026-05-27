@@ -763,6 +763,13 @@ This is also the path the dashboard's Studio tab uses when a user drops a `.json
 
 A saved `.json` run can be turned into a shareable URL that auto-fetches the file and lands the viewer directly on a chosen tab. The exchange runs entirely client-side: the dashboard fetches the URL, parses it through the same `fromJson` path as a manual drop, and switches tabs without a server roundtrip. Designed for one-click posts to subreddits like r/dataisbeautiful or r/internetisbeautiful where the audience won't tolerate an upload step.
 
+Two complementary surfaces produce these links from inside the dashboard so you don't have to construct them by hand:
+
+- **TopBar ⋯ menu → Share viz link** — appears whenever the current run has a server-stored session id (either the sim just finished and `sim_saved` landed, or the dashboard is replaying a previously-shared link). Copies `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz`.
+- **Quickstart actor card → Copy viz share link** — per-actor button on the [Quickstart results](../src/dashboard/src/components/quickstart/QuickstartResults.tsx) panel. Same URL shape, different invocation point.
+
+Both routes go through the public `/sessions/:id/replay` SSE endpoint, so the viewer streams the stored run live; the recipient does not need to download a `.json` first. The `?load=` URL shape below is the fallback for runs that exist as a static remote JSON instead of a server session.
+
 ### Input
 
 ```

@@ -5,6 +5,7 @@
  */
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { BranchDelta } from '../branches/BranchesTab.helpers.js';
+import { buildReplayShareUrl, type ShareTargetTab } from '../../hooks/shareUrl.helpers';
 
 export interface SeedUrlValidation {
   ok: true;
@@ -113,12 +114,19 @@ export function computeMedianDeltas(artifact: RunArtifact, peers: RunArtifact[])
   });
 }
 
-/** Build the shareable replay URL for a completed Quickstart session. */
-export function buildQuickstartShareUrl(origin: string, sessionId: string): string {
-  const url = new URL('/sim', origin);
-  url.searchParams.set('replay', sessionId);
-  url.searchParams.set('view', 'quickstart');
-  return url.toString();
+/**
+ * Build the shareable replay URL for a completed Quickstart session.
+ * `tab` defaults to `'viz'` so social-share clicks land on the
+ * visually compelling swarm visualization (r/dataisbeautiful etc.).
+ * Pass `'quickstart'` explicitly when the share should reopen on the
+ * Quickstart actor cards instead.
+ */
+export function buildQuickstartShareUrl(
+  origin: string,
+  sessionId: string,
+  tab: ShareTargetTab = 'viz',
+): string {
+  return buildReplayShareUrl(origin, sessionId, tab);
 }
 
 /**
