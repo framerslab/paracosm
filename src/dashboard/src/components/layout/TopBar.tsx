@@ -26,6 +26,14 @@ interface TopBarProps {
   onRun?: () => void;
   onTour?: () => void;
   onCopy?: () => void;
+  /**
+   * Build + copy a deep link to the current run that opens on the viz
+   * tab. Wired only when a `sim_saved` server event has landed during
+   * this session (or the dashboard is currently replaying a stored
+   * session); the menu item is hidden when no sharable session id
+   * exists, so the handler doesn't have to defend against null ids.
+   */
+  onShareViz?: () => void;
   /** F14 local-history props, forwarded to the RunMenu's history section. */
   history?: LocalHistoryEntry[];
   onRestoreHistory?: (entry: LocalHistoryEntry) => void;
@@ -58,7 +66,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRun, onTour, onCopy, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -392,7 +400,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
             stored runs + sessions + output files even with an empty
             local buffer. Save/Copy still require an active run; their
             individual buttons inside the menu are gated separately. */}
-        {((hasEvents && (onSave || onCopy)) || onClear) && (
+        {((hasEvents && (onSave || onCopy || onShareViz)) || onClear) && (
           <div ref={overflowRootRef} className={styles.overflowAnchor}>
             <button
               type="button"
@@ -400,7 +408,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
               aria-haspopup="menu"
               aria-expanded={overflowOpen}
               aria-label={overflowOpen ? 'Close run actions' : 'Open run actions menu'}
-              title="Save · Copy · Wipe"
+              title="Save · Share · Copy · Wipe"
               className={`${styles.toolBtn} ${styles.overflowTrigger}`}
             >
               ⋯
@@ -421,6 +429,17 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
                     title="Export simulation data as .json"
                   >
                     Save
+                  </button>
+                )}
+                {hasEvents && onShareViz && (
+                  <button
+                    role="menuitem"
+                    type="button"
+                    onClick={() => { setOverflowOpen(false); onShareViz(); }}
+                    className={styles.overflowItem}
+                    title="Copy a deep link that opens this run on the visualization tab"
+                  >
+                    Share viz link
                   </button>
                 )}
                 {hasEvents && onCopy && (

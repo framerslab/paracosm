@@ -236,8 +236,13 @@ function ActorResultCard({
       )}
       <div className={styles.actions}>
         <button type="button" onClick={onDownload}>Download JSON</button>
-        <button type="button" onClick={onShare} disabled={!shareEnabled}>
-          {copiedHere ? 'Copied!' : 'Copy share link'}
+        <button
+          type="button"
+          onClick={onShare}
+          disabled={!shareEnabled}
+          title="Copy a deep link that opens this run on the visualization tab"
+        >
+          {copiedHere ? 'Copied!' : 'Copy viz share link'}
         </button>
         <button
           type="button"

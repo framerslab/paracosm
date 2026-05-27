@@ -89,7 +89,12 @@ test('computeMedianDeltas: identical values omitted', () => {
   assert.deepEqual(computeMedianDeltas(a, [b]), []);
 });
 
-test('buildQuickstartShareUrl: formats correctly', () => {
+test('buildQuickstartShareUrl: defaults to viz tab', () => {
   const url = buildQuickstartShareUrl('https://paracosm.agentos.sh', 'abc123');
-  assert.match(url, /\/sim\?replay=abc123&view=quickstart$/);
+  assert.equal(url, 'https://paracosm.agentos.sh/sim?replay=abc123&tab=viz');
+});
+
+test('buildQuickstartShareUrl: honors explicit quickstart tab', () => {
+  const url = buildQuickstartShareUrl('https://paracosm.agentos.sh', 'abc123', 'quickstart');
+  assert.equal(url, 'https://paracosm.agentos.sh/sim?replay=abc123&tab=quickstart');
 });
