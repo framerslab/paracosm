@@ -72,7 +72,7 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.9.21",
+    "@framers/agentos": "^0.9.23",
     "@framers/sql-storage-adapter": "^0.6.6",
     "better-sqlite3": "^12.9.0",
     "pdfjs-dist": "^5.7.284",
