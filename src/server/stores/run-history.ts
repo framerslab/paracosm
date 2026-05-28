@@ -39,6 +39,16 @@ export interface RunHistoryStore {
   aggregateStats?(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash'>): Promise<RunsAggregate>;
   recordReplayResult?(runId: string, matches: boolean): Promise<void>;
   /**
+   * Backfill the session-store id onto a set of already-inserted runs.
+   * The broadcast handler's autoSaveOnComplete pass returns a fresh
+   * sessionId AFTER the per-artifact RunRecords have already landed,
+   * so this is called as a follow-up to associate the runs with their
+   * shared session for share-link construction. Idempotent at the SQL
+   * level (UPDATE on a non-existent runId is a no-op) so partial
+   * failures during a broadcast are recoverable on the next save.
+   */
+  linkSessionId?(runIds: readonly string[], sessionId: string): Promise<void>;
+  /**
    * Destructive: delete every row in the runs table. Used by the
    * `/admin/data/wipe` endpoint and CLI `paracosm wipe-data` for
    * one-shot cleanups. Returns the count of deleted rows.
@@ -57,6 +67,7 @@ export function createNoopRunHistoryStore(): RunHistoryStore {
       return { totalRuns: 0, totalCostUSD: 0, totalDurationMs: 0, replaysAttempted: 0, replaysMatched: 0 };
     },
     async recordReplayResult() {},
+    async linkSessionId() {},
     async wipeAll() { return 0; },
   };
 }

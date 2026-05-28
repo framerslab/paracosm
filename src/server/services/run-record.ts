@@ -34,6 +34,18 @@ export interface RunRecord {
    *  from `artifact.trajectory.points` at insert time via
    *  `extractSummaryTrajectory`. Empty for batch-point runs. */
   summaryTrajectory?: number[];
+  /**
+   * Session-store id the run's events were saved under by the
+   * broadcast handler's autoSaveOnComplete pass. Populated
+   * asynchronously after insert via `linkSessionId` because the
+   * sessionStore.saveSession call lives outside this insert handler.
+   * Undefined for legacy runs that predate the link wire-up, runs
+   * whose save failed or was skipped (below-min-turns), and runs
+   * inserted by code paths that bypass the broadcast handler
+   * entirely (CLI batch runs, replay-only flows). Surfaces on the
+   * Library row's "Copy viz share link" button — enabled when set.
+   */
+  sessionId?: string;
 }
 
 export function createRunRecord(input: Omit<RunRecord, 'runId' | 'createdAt'>): RunRecord {

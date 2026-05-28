@@ -291,7 +291,13 @@ The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./co
 
 The dashboard ships two ways to produce a shareable run link, both landing the viewer on the visualization tab with no upload step.
 
-**From the dashboard UI** — once a sim finishes (or while you're watching a stored replay), the TopBar overflow menu (⋯) shows **Share viz link**. Click to copy `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz` to the clipboard. The Quickstart actor cards have the same "Copy viz share link" button per actor; both routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly.
+**From the dashboard UI** — three places now copy `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz` to the clipboard:
+
+- **TopBar overflow menu** (⋯ → Share viz link) — for the run you're currently watching, including replays loaded from a previously shared link.
+- **Quickstart actor cards** — per-actor "Copy viz share link" button.
+- **Library row Share button** — for any historical run whose broadcast session was successfully linked at save time (any run completed after this feature shipped). Library rows from before the link wire-up render without the Share button.
+
+All three routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly.
 
 **By URL construction** — any remote `.json` save can be turned into a deep link that auto-fetches, parses, and lands on the tab you choose. No upload step, no preview modal.
 

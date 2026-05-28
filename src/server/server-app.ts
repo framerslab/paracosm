@@ -699,6 +699,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // for the surviving actor — replay UX then advertised a half-broken
   // session as cached state.
   let currentRunErrored = false;
+  // RunRecord ids inserted by onArtifactPersist for the current
+  // broadcast. After autoSaveOnComplete resolves a fresh sessionId,
+  // these are backfilled with `runHistoryStore.linkSessionId` so the
+  // Library row's "Copy viz share link" button can build a deep link
+  // to the same session-store replay endpoint. Reset in
+  // clearEventBuffer alongside the other per-run flags.
+  const currentRunInsertedRunIds: string[] = [];
   const AUTO_SAVE_MIN_TURNS = 1;
 
   // Persistent storage for completed sim runs. Lives at
@@ -984,6 +991,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const result = await sessionStore.saveSession(events);
       const storeCount = await sessionStore.count();
       console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} turns (store count: ${storeCount})`);
+      // Backfill session_id onto every RunRecord that onArtifactPersist
+      // inserted for this broadcast. Wrapped in try/catch because a
+      // link failure must not abort the save broadcast — the run is
+      // already in the session store and replayable by sessionId; the
+      // missing column just hides the Library row's Share button until
+      // the next time this same broadcast saves (idempotent UPDATE).
+      if (currentRunInsertedRunIds.length > 0 && runHistoryStore.linkSessionId) {
+        try {
+          await runHistoryStore.linkSessionId([...currentRunInsertedRunIds], result.id);
+        } catch (error) {
+          console.warn('[run-history] linkSessionId failed:', error);
+        }
+      }
       emitSaveStatus('saved', {
         id: result.id,
         evictedId: result.evictedId,
@@ -1092,6 +1112,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     currentRunAborted = false;
     currentRunSaved = false;
     currentRunErrored = false;
+    currentRunInsertedRunIds.length = 0;
     eventBuffer.length = 0;
     eventTimestamps.length = 0;
     eventActorIds.length = 0;
@@ -2728,6 +2749,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             };
             const enriched = enrichRunRecordFromArtifact(perArtifactBase, artifact);
             await runHistoryStore.insertRun(enriched);
+            // Remember the runId so autoSaveOnComplete can backfill
+            // session_id once the broadcast's sessionStore.saveSession
+            // returns. The push happens AFTER insertRun resolves so a
+            // failed insert doesn't enqueue a runId that doesn't exist.
+            currentRunInsertedRunIds.push(enriched.runId);
           } catch (error) {
             console.warn('[run-history] per-artifact insert failed:', error);
           }

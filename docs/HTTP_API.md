@@ -102,10 +102,16 @@ Single run record plus the full RunArtifact loaded from disk.
 
 ```json
 {
-  "record": { "runId": "run_a1b2...", "...": "as in /runs response" },
+  "record": {
+    "runId": "run_a1b2...",
+    "sessionId": "<uuid>",
+    "...": "all fields from /runs response"
+  },
   "artifact": { "metadata": { "...": "..." }, "trajectory": { "...": "..." } }
 }
 ```
+
+`sessionId` is the session-store id the run's events were saved under. Populated for runs whose broadcast `autoSaveOnComplete` pass succeeded; omitted on legacy rows (runs persisted before the link wire-up), runs whose save was skipped (`below_min_turns` / `partial_completion`), and runs persisted by code paths that bypass the broadcast handler (CLI batch runs, replay-only flows). Consumers can build a deep link to the live SSE replay endpoint with `https://<host>/sim?replay=<sessionId>&tab=viz` when this field is set.
 
 **Status codes**
 

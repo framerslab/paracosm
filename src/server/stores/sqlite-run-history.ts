@@ -66,6 +66,7 @@ interface RunRow {
   summary_trajectory: string | null;
   replay_attempts: number | null;
   replay_matches: number | null;
+  session_id: string | null;
 }
 
 function rowToRecord(row: RunRow): RunRecord {
@@ -88,6 +89,7 @@ function rowToRecord(row: RunRow): RunRecord {
   if (row.actor_name !== null) record.actorName = row.actor_name;
   if (row.actor_archetype !== null) record.actorArchetype = row.actor_archetype;
   if (row.bundle_id !== null) record.bundleId = row.bundle_id;
+  if (row.session_id !== null) record.sessionId = row.session_id;
   if (row.summary_trajectory !== null) {
     try {
       const parsed = JSON.parse(row.summary_trajectory) as unknown;
@@ -155,6 +157,11 @@ async function ensureRunsColumns(adapter: StorageAdapter): Promise<void> {
     ['replay_matches', 'INTEGER DEFAULT 0'],
     ['bundle_id', 'TEXT'],
     ['summary_trajectory', 'TEXT'],
+    // Session-store id the run's events were saved under. Populated
+    // asynchronously by linkSessionId once the broadcast handler's
+    // autoSaveOnComplete pass returns. NULL for legacy runs that
+    // predate the link wire-up and for runs whose save failed.
+    ['session_id', 'TEXT'],
   ];
   for (const [name, type] of newCols) {
     try {
@@ -186,7 +193,8 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       replay_attempts     INTEGER DEFAULT 0,
       replay_matches      INTEGER DEFAULT 0,
       bundle_id           TEXT,
-      summary_trajectory  TEXT
+      summary_trajectory  TEXT,
+      session_id          TEXT
     );
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_runs_created_at        ON runs (created_at DESC);`);
@@ -230,6 +238,7 @@ function buildInsertParams(run: RunRecord): Record<string, unknown> {
     actorArchetype: run.actorArchetype ?? null,
     bundleId: run.bundleId ?? null,
     summaryTrajectory: run.summaryTrajectory ? JSON.stringify(run.summaryTrajectory) : null,
+    sessionId: run.sessionId ?? null,
   };
 }
 
@@ -238,12 +247,12 @@ const INSERT_RUN_SQL = `
     (run_id, created_at, scenario_id, scenario_version, actor_config_hash,
      economics_profile, source_mode, created_by,
      artifact_path, cost_usd, duration_ms, mode, actor_name, actor_archetype,
-     bundle_id, summary_trajectory)
+     bundle_id, summary_trajectory, session_id)
   VALUES
     (@runId, @createdAt, @scenarioId, @scenarioVersion, @actorConfigHash,
      @economicsProfile, @sourceMode, @createdBy,
      @artifactPath, @costUSD, @durationMs, @mode, @actorName, @actorArchetype,
-     @bundleId, @summaryTrajectory)
+     @bundleId, @summaryTrajectory, @sessionId)
 `;
 
 function buildWhere(filters: ListRunsFilters | undefined): { where: string; params: Record<string, string> } {
@@ -383,6 +392,22 @@ export function createSqliteRunHistoryStore(options: SqliteRunHistoryStoreOption
              replay_matches  = COALESCE(replay_matches, 0) + ?
          WHERE run_id = ?`,
         [matches ? 1 : 0, runId],
+      );
+    },
+
+    async linkSessionId(runIds: readonly string[], sessionId: string): Promise<void> {
+      // Empty input is a no-op rather than an error; callers don't have
+      // to defend against zero-artifact broadcasts at the call site.
+      if (runIds.length === 0) return;
+      const adapter = await getAdapter();
+      // Parameterise each runId so the IN clause stays bind-safe. The
+      // sql-storage-adapter accepts positional params via an array, so
+      // the placeholder list is constructed inline rather than threaded
+      // through the @name binder used by the rest of this file.
+      const placeholders = runIds.map(() => '?').join(', ');
+      await adapter.run(
+        `UPDATE runs SET session_id = ? WHERE run_id IN (${placeholders})`,
+        [sessionId, ...runIds],
       );
     },
 

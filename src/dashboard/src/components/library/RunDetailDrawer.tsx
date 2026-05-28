@@ -7,6 +7,7 @@ import { BatchArtifactView } from '../reports/BatchArtifactView.js';
 import { ReportViewAdapter } from '../reports/ReportViewAdapter.js';
 import type { MetricSpec } from '../viz/kit/index.js';
 import type { RunRecord } from '../../../../server/services/run-record.js';
+import { buildReplayShareUrl } from '../../hooks/shareUrl.helpers';
 
 export interface RunDetailDrawerProps {
   runId: string | null;
@@ -112,6 +113,7 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
         <header className={styles.head}>
           <button onClick={onClose} className={styles.closeBtn} aria-label="Close detail">×</button>
           {artifact && <ReplayPanel artifact={artifact} />}
+          {record?.sessionId && <ShareVizButton sessionId={record.sessionId} />}
         </header>
 
         <section className={styles.body}>
@@ -153,6 +155,39 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
         </section>
       </aside>
     </>
+  );
+}
+
+/**
+ * Header-mounted "Share viz link" button for the run-detail drawer.
+ * Mirrors the per-row Share button on RunCard so the drawer (which is
+ * the deep-dive surface for a single run) carries the same affordance
+ * without forcing the user to dismiss the drawer to share.
+ */
+function ShareVizButton({ sessionId }: { sessionId: string }): JSX.Element {
+  const [copied, setCopied] = React.useState(false);
+  const handleClick = (): void => {
+    const url = buildReplayShareUrl(window.location.origin, sessionId, 'viz');
+    void navigator.clipboard.writeText(url).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => {
+        // Silent clipboard failure — same handling as RunCard's Share.
+      },
+    );
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label="Copy a deep link that opens this run on the visualization tab"
+      title="Copy viz share link"
+      className={styles.closeBtn}
+    >
+      {copied ? 'Copied!' : 'Share viz link'}
+    </button>
   );
 }
 
