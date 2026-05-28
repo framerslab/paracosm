@@ -759,6 +759,68 @@ This is also the path the dashboard's Studio tab uses when a user drops a `.json
 
 ---
 
+## Sharing a run via deep link: `?load=<url>&tab=&autoload=`
+
+A saved `.json` run can be turned into a shareable URL that auto-fetches the file and lands the viewer directly on a chosen tab. The exchange runs entirely client-side: the dashboard fetches the URL, parses it through the same `fromJson` path as a manual drop, and switches tabs without a server roundtrip. Designed for one-click posts to subreddits like r/dataisbeautiful or r/internetisbeautiful where the audience won't tolerate an upload step.
+
+Two complementary surfaces produce these links from inside the dashboard so you don't have to construct them by hand:
+
+- **TopBar ⋯ menu → Share viz link** — appears whenever the current run has a server-stored session id (either the sim just finished and `sim_saved` landed, or the dashboard is replaying a previously-shared link). Copies `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz`.
+- **Quickstart actor card → Copy viz share link** — per-actor button on the [Quickstart results](../src/dashboard/src/components/quickstart/QuickstartResults.tsx) panel. Same URL shape, different invocation point.
+
+Both routes go through the public `/sessions/:id/replay` SSE endpoint, so the viewer streams the stored run live; the recipient does not need to download a `.json` first. The `?load=` URL shape below is the fallback for runs that exist as a static remote JSON instead of a server session.
+
+### Input
+
+```
+https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
+```
+
+Query params:
+
+| Param      | Required | Type        | Behaviour |
+| ---------- | -------- | ----------- | --------- |
+| `load`     | yes      | URL         | Remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, GitHub gists, S3, and any static host work. |
+| `tab`      | no       | enum        | `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
+| `autoload` | no       | `1`/`true`  | Skips the F9 preview-confirm modal. Omit to keep the confirm step (useful when the recipient should see the run's metadata before committing). |
+
+### Output
+
+The dashboard renders the loaded run on whichever tab `?tab=` named:
+
+- `tab=viz` → `<SwarmViz>` with the loaded `gameState` — the swarm grid, agent trails, and inspector panel populated from the file's events.
+- `tab=reports` → `<ReportView>` against the loaded `verdict` and metrics.
+- `tab=chat` → `<ChatPanel>` keyed to the loaded actors so the viewer can interrogate them.
+- `tab=sim` → `<SimView>` showing the canonical run dashboard. This is the fallback when `tab=` is missing or invalid.
+
+`?load=` and `?autoload=` are stripped from the address bar after the fetch resolves so a refresh doesn't re-download. `?tab=` is preserved.
+
+### Concrete links
+
+```
+# r/dataisbeautiful — one-click viz drop
+https://paracosm.agentos.sh/sim?load=https://gist.githubusercontent.com/<user>/<id>/raw/mars-run.json&tab=viz&autoload=1
+
+# Bug report — show the loaded run on the reports tab, keep the preview confirm
+https://paracosm.agentos.sh/sim?load=https://example.com/runs/diverged-run.json&tab=reports
+
+# Default behaviour — load on sim tab, preview confirm shown
+https://paracosm.agentos.sh/sim?load=https://example.com/runs/baseline.json
+```
+
+### What just happened
+
+`useLoadFromUrl` reads `?load=` on mount, fetches the JSON with a 30s abort, wraps it as a `File`, and pipes it through the same `useLoadPreview.openFromFile` path the file picker and drag-and-drop use. The fetch streams to a `Blob`, `extractPreviewMetadata` runs against the parsed payload, and the dashboard transitions to its `preview` state.
+
+From there one of two things happens:
+
+- `autoload=1` — a `useEffect` watches the `preview` state and fires `loadPreview.confirm()` once, which dispatches the events into the SSE shim (`sse.loadEvents(...)`) and switches tabs based on `?tab=`.
+- `autoload` absent — the `LoadPreviewModal` renders so the viewer can confirm or cancel; on confirm the same `?tab=` routing applies.
+
+Schemes are whitelisted to `http:` and `https:` in [`useLoadFromUrl.helpers.ts`](../src/dashboard/src/hooks/useLoadFromUrl.helpers.ts) (`parseLoadUrlParam`); `javascript:`, `file:`, and `data:` are rejected with a console warning and the param is stripped. Cross-origin URLs require the host to send `Access-Control-Allow-Origin` headers permissive enough for the dashboard origin — public Gists and most CDN buckets do; locked-down internal blob stores typically don't.
+
+---
+
 ## Manual snapshot + fork: `wm.snapshot` + `wm.fork`
 
 `wm.forkFromArtifact` is the high-level "branch a finished run at turn N" entry point and covers most use cases. The lower-level `wm.snapshot()` + `wm.fork(snapshot)` pair gives you direct control over when the kernel state is captured and where the new branch resumes — useful for batch experimentation, custom checkpoint cadence, and tooling that wants to fork mid-run rather than only after completion.
