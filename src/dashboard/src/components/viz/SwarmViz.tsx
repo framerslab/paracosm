@@ -1313,6 +1313,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapA}
+            isLiveRun={state.isRunning}
             previousSnapshot={prevSnapA}
             snapshotHistory={snapsA}
             actorName={leaderA?.name ?? 'Leader A'}
@@ -1355,6 +1356,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapB}
+            isLiveRun={state.isRunning}
             previousSnapshot={prevSnapB}
             snapshotHistory={snapsB}
             actorName={leaderB?.name ?? 'Leader B'}

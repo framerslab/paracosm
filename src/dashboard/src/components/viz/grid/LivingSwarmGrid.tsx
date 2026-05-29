@@ -26,7 +26,6 @@ import {
   DEFAULT_GOL_CONFIG,
   type GolState,
 } from './GameOfLifeLayer.js';
-import { isJumpReveal, golRevealAlpha, GOL_REVEAL_MS } from './golReveal.js';
 import { hitTestGlyph } from './hitTest.js';
 import type { GridMode } from './GridModePills.js';
 import { ClickPopover, type ClickPopoverPayload } from './ClickPopover.js';
@@ -112,6 +111,14 @@ interface LivingSwarmGridProps {
    * directly connected to the canvas.
    */
   chronicleHover?: { kind: 'birth' | 'death' | 'forge' | 'crisis'; side: 'a' | 'b'; turn: number } | null;
+  /**
+   * True while the run is actively streaming (live sim). When false
+   * (cached / loaded / completed runs) the ambient Conway tile layer and
+   * label-chip plates are suppressed so loaded panels read clean instead
+   * of painting the full steady-state wash in one frame. Defaults to
+   * true so callers that don't thread run state keep the textured look.
+   */
+  isLiveRun?: boolean;
 }
 
 function resolveCssColor(color: string, element: HTMLElement | null): string {
@@ -162,6 +169,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     onOpenChat,
     eventFilter = 'all',
     chronicleHover = null,
+    isLiveRun = true,
   } = props;
   const isFocused = focusedSide === side;
 
@@ -225,11 +233,6 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   const lastGolModeRef = useRef<string>('');
   const lastGolFilterRef = useRef<string>('');
   const lastFlareSignatureRef = useRef<string | null>(null);
-  // Timestamp (performance.now) when the GoL tile fade started, or
-  // -Infinity when no fade is active. Set on a jump load (cached re-run
-  // / multi-turn scrub) so the tile layer eases in instead of slamming
-  // the full steady-state in one frame. See golReveal.ts.
-  const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -431,7 +434,6 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const modeChanged = mode !== lastGolModeRef.current;
     const turnChanged = snapshot.turn !== lastGolTurnRef.current;
     const filterChanged = eventFilter !== lastGolFilterRef.current;
-    const prevGolTurn = lastGolTurnRef.current;
     if (turnChanged || modeChanged || filterChanged) {
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
@@ -457,13 +459,6 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         warmup = 5;
       }
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
-      // Cached re-run / multi-turn scrub: ease the tile layer in instead
-      // of painting the full steady-state in one frame (the "gray
-      // gradient" complaint). Live single-turn advances stream naturally
-      // and are excluded by isJumpReveal.
-      if (!reducedMotion && turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) {
-        golRevealStartRef.current = performance.now();
-      }
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
         : null;
@@ -492,14 +487,14 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     // dominate.
     const isLightTheme = typeof document !== 'undefined'
       && document.documentElement.classList.contains('light');
-    const baseGolAlpha = isLightTheme ? 0.22 : 0.65;
-    const golAlpha = golRevealAlpha(
-      baseGolAlpha,
-      performance.now() - golRevealStartRef.current,
-      GOL_REVEAL_MS,
-      reducedMotion,
-    );
-    drawGol(ctx, gol, size.w, size.h, resolvedSide, golAlpha);
+    // Ambient Conway tile layer renders only while a run is actively
+    // streaming. On cached / completed loads it would paint the full
+    // steady-state pattern in one frame, which reads as a persistent dim
+    // wash (the "dim gradient" users reported on loaded runs) — so
+    // suppress it on non-live runs and loaded panels read clean.
+    if (isLiveRun) {
+      drawGol(ctx, gol, size.w, size.h, resolvedSide, isLightTheme ? 0.22 : 0.65);
+    }
     // DEATHS filter: gray hollow tombstone squares with an X at each
     // dead colonist's historical position. BIRTHS filter: green filled
     // squares with a "+" glyph at each native-born colonist's position.
@@ -546,7 +541,10 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         // hardcoded near-black in GlyphLayer which stamped dark
         // splotches across light-mode cohort canvases on cached-run
         // loads (100+ colonist labels per panel × 6 panels).
-        labelBg,
+        // On non-live (cached / loaded) runs, drop the chip backing so
+        // the label plates don't stack into the same dim wash; the
+        // colonist names themselves still render.
+        isLiveRun ? labelBg : 'transparent',
       );
     // Mode-specific overlays. Each runs AFTER the base layers so its
     // own visual signature rides on top of the RD backdrop, and
@@ -695,6 +693,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     startTime,
     forgeAttempts,
     eventFilter,
+    isLiveRun,
   ]);
 
   const onMouseMove = useCallback(
