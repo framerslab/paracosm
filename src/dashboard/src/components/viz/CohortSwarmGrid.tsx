@@ -253,6 +253,7 @@ function CohortColumn(props: CohortColumnProps) {
         {hasBeenVisible ? (
           <LivingSwarmGrid
             snapshot={snap}
+            isLiveRun={state.isRunning}
             previousSnapshot={prevSnap}
             snapshotHistory={snaps}
             actorName={fallbackName}
