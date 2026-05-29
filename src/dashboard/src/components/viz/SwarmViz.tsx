@@ -129,6 +129,13 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const [currentTurn, setCurrentTurn] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  // Replay (`?replay=<id>`) is cached playback (no new LLM cost). The run
+  // reducer still flips `isRunning` true while replayed status events
+  // stream, so gate on replay too: treat cached playback as non-live so
+  // the VIZ suppresses the ambient wash just like completed/loaded runs.
+  const isReplaying = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).has('replay');
+  const isLiveRun = state.isRunning && !isReplaying;
 
   // Grid mode (new living-colony grid). Shared across both leaders so
   // tabs toggle in lockstep. Persisted to localStorage so the user's
@@ -1313,7 +1320,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapA}
-            isLiveRun={state.isRunning}
+            isLiveRun={isLiveRun}
             previousSnapshot={prevSnapA}
             snapshotHistory={snapsA}
             actorName={leaderA?.name ?? 'Leader A'}
@@ -1356,7 +1363,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapB}
-            isLiveRun={state.isRunning}
+            isLiveRun={isLiveRun}
             previousSnapshot={prevSnapB}
             snapshotHistory={snapsB}
             actorName={leaderB?.name ?? 'Leader B'}

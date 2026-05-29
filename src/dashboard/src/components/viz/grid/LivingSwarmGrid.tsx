@@ -899,7 +899,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         ref={canvasWrapRef}
         className={styles.canvasWrap}
         style={{
-          '--tint-color': tintColor,
+          '--tint-color': isLiveRun ? tintColor : 'transparent',
           '--wrap-border': wrapBorder,
           '--wrap-glow': wrapGlow,
         } as CSSProperties}
