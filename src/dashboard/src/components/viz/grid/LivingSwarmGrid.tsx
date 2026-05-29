@@ -26,6 +26,7 @@ import {
   DEFAULT_GOL_CONFIG,
   type GolState,
 } from './GameOfLifeLayer.js';
+import { isJumpReveal, golRevealAlpha, GOL_REVEAL_MS } from './golReveal.js';
 import { hitTestGlyph } from './hitTest.js';
 import type { GridMode } from './GridModePills.js';
 import { ClickPopover, type ClickPopoverPayload } from './ClickPopover.js';
@@ -224,6 +225,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   const lastGolModeRef = useRef<string>('');
   const lastGolFilterRef = useRef<string>('');
   const lastFlareSignatureRef = useRef<string | null>(null);
+  // Timestamp (performance.now) when the GoL tile fade started, or
+  // -Infinity when no fade is active. Set on a jump load (cached re-run
+  // / multi-turn scrub) so the tile layer eases in instead of slamming
+  // the full steady-state in one frame. See golReveal.ts.
+  const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -425,6 +431,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const modeChanged = mode !== lastGolModeRef.current;
     const turnChanged = snapshot.turn !== lastGolTurnRef.current;
     const filterChanged = eventFilter !== lastGolFilterRef.current;
+    const prevGolTurn = lastGolTurnRef.current;
     if (turnChanged || modeChanged || filterChanged) {
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
@@ -450,6 +457,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         warmup = 5;
       }
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
+      // Cached re-run / multi-turn scrub: ease the tile layer in instead
+      // of painting the full steady-state in one frame (the "gray
+      // gradient" complaint). Live single-turn advances stream naturally
+      // and are excluded by isJumpReveal.
+      if (!reducedMotion && turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) {
+        golRevealStartRef.current = performance.now();
+      }
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
         : null;
@@ -478,7 +492,14 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     // dominate.
     const isLightTheme = typeof document !== 'undefined'
       && document.documentElement.classList.contains('light');
-    drawGol(ctx, gol, size.w, size.h, resolvedSide, isLightTheme ? 0.22 : 0.65);
+    const baseGolAlpha = isLightTheme ? 0.22 : 0.65;
+    const golAlpha = golRevealAlpha(
+      baseGolAlpha,
+      performance.now() - golRevealStartRef.current,
+      GOL_REVEAL_MS,
+      reducedMotion,
+    );
+    drawGol(ctx, gol, size.w, size.h, resolvedSide, golAlpha);
     // DEATHS filter: gray hollow tombstone squares with an X at each
     // dead colonist's historical position. BIRTHS filter: green filled
     // squares with a "+" glyph at each native-born colonist's position.
