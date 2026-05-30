@@ -543,6 +543,6 @@ Apache-2.0
 ---
 
 <p align="center">
-  Built by <a href="https://manic.agency">Manic Agency LLC</a> · <a href="https://frame.dev">Frame.dev</a><br />
+  Built by <a href="https://frame.dev">Frame.dev</a><br />
   <a href="mailto:team@frame.dev">team@frame.dev</a>
 </p>

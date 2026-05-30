@@ -438,7 +438,7 @@ export function AboutPage() {
             <a href="https://github.com/framersai/agentos" target="_blank" rel="noopener" className={styles.linkItem}>AgentOS GitHub</a>
             <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" className={styles.linkItem}>npm</a>
             <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.linkItem}>Frame.dev</a>
-            <a href="https://manic.agency" target="_blank" rel="noopener" className={styles.linkItem}>Manic Agency</a>
+            <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.linkItem}>Frame</a>
             <a href="https://wilds.ai/discord" target="_blank" rel="noopener" className={styles.linkItem}>Discord</a>
             <a href="mailto:team@frame.dev" className={styles.linkItem}>team@frame.dev</a>
           </nav>

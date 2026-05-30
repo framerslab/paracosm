@@ -161,7 +161,7 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
       {!isPhone && (
         <span>
           <span className={styles.brand}>PARA<span className={styles.brandAccent}>COSM</span></span>
-          {' '}&middot; Apache-2.0 &middot; <a href="https://manic.agency" target="_blank" rel="noopener" className={styles.brandLink}>Manic Agency</a> / <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.brandLink}>Frame.dev</a>
+          {' '}&middot; Apache-2.0 &middot; <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.brandLink}>Frame.dev</a>
         </span>
       )}
     </footer>
