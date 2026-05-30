@@ -84,7 +84,7 @@ export function renderWaitlistConfirmation(input: WaitlistConfirmationInput): Re
 
 <tr><td style="padding:24px 40px;border-top:1px solid #2a1f18;font-size:12px;color:${TEXT_MUTED};">
 <p style="margin:0 0 6px 0;">Sent to <strong style="color:${TEXT_PRIMARY};">${safeEmail}</strong> from <a href="mailto:${SUPPORT_EMAIL}" style="color:${ACCENT_AMBER};text-decoration:none;">${SUPPORT_EMAIL}</a>.</p>
-<p style="margin:0;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a> &middot; <a href="https://manic.agency" style="color:${ACCENT_AMBER};text-decoration:none;">manic.agency</a></p>
+<p style="margin:0;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a></p>
 </td></tr>
 </table>
 </td></tr>
@@ -110,7 +110,7 @@ export function renderWaitlistConfirmation(input: WaitlistConfirmationInput): Re
     '-- The Paracosm team',
     '',
     `Sent to ${input.email} from ${SUPPORT_EMAIL}.`,
-    'frame.dev | agentos.sh | manic.agency',
+    'frame.dev | agentos.sh',
   ].join('\n');
 
   return { subject, html, text };
@@ -167,7 +167,7 @@ export function renderYoureIn(input: YoureInInput): RenderedEmail {
 
 <tr><td style="padding:24px 40px;border-top:1px solid #2a1f18;font-size:12px;color:${TEXT_MUTED};">
 <p style="margin:0 0 6px 0;">Sent to <strong style="color:${TEXT_PRIMARY};">${safeEmail}</strong> from <a href="mailto:${SUPPORT_EMAIL}" style="color:${ACCENT_AMBER};text-decoration:none;">${SUPPORT_EMAIL}</a>.</p>
-<p style="margin:0;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a> &middot; <a href="https://manic.agency" style="color:${ACCENT_AMBER};text-decoration:none;">manic.agency</a></p>
+<p style="margin:0;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a></p>
 </td></tr>
 </table>
 </td></tr>
@@ -194,7 +194,7 @@ export function renderYoureIn(input: YoureInInput): RenderedEmail {
     '-- The Paracosm team',
     '',
     `Sent to ${input.email} from ${SUPPORT_EMAIL}.`,
-    'frame.dev | agentos.sh | manic.agency',
+    'frame.dev | agentos.sh',
   ].join('\n');
 
   return { subject, html, text };
