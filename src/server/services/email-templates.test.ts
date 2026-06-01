@@ -19,7 +19,7 @@ test('renderWaitlistConfirmation includes email + brand assets, omits position n
   assert.match(out.html, /paracosm\.agentos\.sh\/brand\/favicons\/favicon-192\.png/);
   // Logo must be the Paracosm orbital favicon, not Frame.dev's "F" mark.
   assert.doesNotMatch(out.html, /frame\.dev\/icon-192\.png/);
-  assert.match(out.html, /github\.com\/framersai\/paracosm/);
+  assert.match(out.html, /github\.com\/framerslab\/paracosm/);
   assert.match(out.html, /https:\/\/frame\.dev"/);
   assert.match(out.html, /https:\/\/agentos\.sh"/);
   assert.match(out.html, /https:\/\/manic\.agency"/);

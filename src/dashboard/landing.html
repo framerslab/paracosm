@@ -1406,7 +1406,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     .then(function (d) { if (d && d.version) setText('npm-version', 'v' + d.version); })
     .catch(function () {});
   // GitHub stars + forks (one request, both numbers)
-  fetch('https://api.github.com/repos/framersai/paracosm')
+  fetch('https://api.github.com/repos/framerslab/paracosm')
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d) return;

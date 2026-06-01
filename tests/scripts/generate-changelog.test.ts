@@ -341,7 +341,7 @@ test('renderBullet: feat(scope) subject strips type + keeps scope', () => {
   const b = renderBullet(c);
   assert.equal(
     b,
-    '- runtime: add X ([abcdef1](https://github.com/framersai/paracosm/commit/abcdef1234567890abcdef1234567890abcdef12))',
+    '- runtime: add X ([abcdef1](https://github.com/framerslab/paracosm/commit/abcdef1234567890abcdef1234567890abcdef12))',
   );
 });
 

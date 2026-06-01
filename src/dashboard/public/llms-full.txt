@@ -8,7 +8,7 @@ This file is a curated, token-efficient full-content map of Paracosm for large l
 
 - **Name:** Paracosm
 - **Homepage:** https://paracosm.agentos.sh
-- **Repository:** https://github.com/framersai/paracosm
+- **Repository:** https://github.com/framerslab/paracosm
 - **npm:** https://www.npmjs.com/package/paracosm
 - **License:** Apache-2.0
 - **Built by:** Framers Lab, Inc. (https://frame.dev)
@@ -250,6 +250,6 @@ Largest cost lever: tool reuse after turn 3. Anthropic prompt cache hits the sha
 
 ## Contact + community
 
-- Issues: https://github.com/framersai/paracosm/issues
+- Issues: https://github.com/framerslab/paracosm/issues
 - Enterprise / consulting: team@frame.dev
 - Author: Johnny Dunn — https://github.com/jddunn

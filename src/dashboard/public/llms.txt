@@ -9,7 +9,7 @@ Paracosm is built by [Framers Lab, Inc.](https://frame.dev) on top of [AgentOS](
 - Homepage: https://paracosm.agentos.sh
 - API Reference: https://paracosm.agentos.sh/docs
 - npm: https://www.npmjs.com/package/paracosm
-- GitHub: https://github.com/framersai/paracosm
+- GitHub: https://github.com/framerslab/paracosm
 - AgentOS (parent runtime): https://agentos.sh
 - Sitemap: https://paracosm.agentos.sh/sitemap.xml
 
