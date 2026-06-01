@@ -3149,7 +3149,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     <a href="/">Home</a>
     <a href="/sim">Simulation</a>
     <a href="/docs">API Docs</a>
-    <a href="https://github.com/framersai/paracosm" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener">GitHub</a>
     <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener">npm</a>
     <button class="pdh-search" onclick="document.getElementById('tsd-search-trigger')?.click()" aria-label="Search docs"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="11" x2="15" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
     <button class="pdh-theme" id="pdh-theme-toggle" aria-label="Toggle theme"></button>
@@ -3160,7 +3160,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   <a href="/">Home</a>
   <a href="/sim">Simulation</a>
   <a href="/docs">API Docs</a>
-  <a href="https://github.com/framersai/paracosm" target="_blank" rel="noopener">GitHub</a>
+  <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener">GitHub</a>
   <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener">npm</a>
   <a href="https://agentos.sh/en" target="_blank" rel="noopener">AgentOS</a>
   <a href="https://wilds.ai/discord" target="_blank" rel="noopener">Discord</a>
@@ -3239,7 +3239,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               `<div class="paracosm-docs-footer">
   <div class="pdf-links">
     <a href="https://agentos.sh/en">agentos.sh</a>
-    <a href="https://github.com/framersai/paracosm">GitHub</a>
+    <a href="https://github.com/framerslab/paracosm">GitHub</a>
     <a href="https://www.npmjs.com/package/paracosm">npm</a>
     <a href="https://frame.dev">Frame.dev</a>
     <a href="https://frame.dev">Frame</a>

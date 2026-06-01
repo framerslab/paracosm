@@ -425,7 +425,7 @@ export interface ScenarioPackage {
   id: string;
   /**
    * Optional permalink to the scenario JSON in the public repo (e.g.
-   * https://github.com/framersai/paracosm/blob/master/scenarios/mars.json).
+   * https://github.com/framerslab/paracosm/blob/master/scenarios/mars.json).
    * Surfaced in the dashboard so users can read or fork the scenario
    * source from the settings panel without leaving the app.
    */

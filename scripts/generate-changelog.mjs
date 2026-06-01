@@ -32,7 +32,7 @@ export const EARLIEST_BOUNDARY_MAJOR_MINOR = '0.4.0';
  */
 export const LOCKED_ENTRY_VERSIONS = ['0.4.0'];
 
-const REPO_URL = 'https://github.com/framersai/paracosm';
+const REPO_URL = 'https://github.com/framerslab/paracosm';
 
 /**
  * Fixed set of conventional-commit types the parser recognises as

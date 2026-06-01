@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/paracosm"><img src="https://img.shields.io/npm/v/paracosm?style=flat-square&color=e8b44a&labelColor=14110e" alt="npm" /></a>
-  <a href="https://github.com/framersai/paracosm/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-e06530?style=flat-square&labelColor=14110e" alt="License" /></a>
+  <a href="https://github.com/framerslab/paracosm/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-e06530?style=flat-square&labelColor=14110e" alt="License" /></a>
   <a href="https://paracosm.agentos.sh/docs"><img src="https://img.shields.io/badge/docs-API%20Reference-4ca8a8?style=flat-square&labelColor=14110e" alt="Docs" /></a>
   <a href="https://agentos.sh/en"><img src="https://img.shields.io/badge/built%20on-AgentOS-e06530?style=flat-square&labelColor=14110e" alt="AgentOS" /></a>
 </p>
@@ -265,7 +265,7 @@ Each call to `wm.simulate` takes one actor. The dashboard fans cohorts out side-
 ### Or use the dashboard
 
 ```bash
-git clone https://github.com/framersai/paracosm
+git clone https://github.com/framerslab/paracosm
 cd paracosm && npm install
 cp .env.example .env  # add OPENAI_API_KEY or ANTHROPIC_API_KEY
 npm run dashboard     # opens http://localhost:3456

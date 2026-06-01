@@ -1,6 +1,6 @@
 {
   "id": "deep-ocean-station",
-  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/submarine.json",
+  "sourceUrl": "https://github.com/framerslab/paracosm/blob/master/scenarios/submarine.json",
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {

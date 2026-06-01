@@ -163,7 +163,7 @@ The v0.8 line accumulated three competing shapes (functional `runSimulation`, OO
 
 The reviewer flagged the npm download stats (~25k/month at v0.8.719) and recommended a soft break. The maintainer chose a hard break to avoid carrying compatibility shims through what should be a clean v1.0 trajectory. v0.8 stays installable indefinitely; new development happens on v0.9.
 
-If you hit a migration footgun this guide doesn't cover, file an issue at https://github.com/framersai/paracosm/issues — we'll add it to the table above.
+If you hit a migration footgun this guide doesn't cover, file an issue at https://github.com/framerslab/paracosm/issues — we'll add it to the table above.
 
 ## v0.10: internal layout reorganization
 
