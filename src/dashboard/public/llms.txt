@@ -2,7 +2,7 @@
 
 > Agent swarm simulation for structured world modeling with LLMs. Open-source TypeScript framework: compile prompts into typed ScenarioPackages, run multi-agent worlds with HEXACO personalities, deterministic kernel, sandboxed tool forging.
 
-Paracosm is built by [Manic Agency LLC](https://manic.agency) on top of [AgentOS](https://agentos.sh). It turns prompts, briefs, URLs, or scenario JSON drafts into typed ScenarioPackages, then runs deterministic multi-agent simulations with HEXACO leaders, LLM events, runtime tool forging, and universal forkable RunArtifacts.
+Paracosm is built by [Framers Lab, Inc.](https://frame.dev) on top of [AgentOS](https://agentos.sh). It turns prompts, briefs, URLs, or scenario JSON drafts into typed ScenarioPackages, then runs deterministic multi-agent simulations with HEXACO leaders, LLM events, runtime tool forging, and universal forkable RunArtifacts.
 
 ## Links
 

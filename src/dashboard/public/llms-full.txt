@@ -11,7 +11,7 @@ This file is a curated, token-efficient full-content map of Paracosm for large l
 - **Repository:** https://github.com/framersai/paracosm
 - **npm:** https://www.npmjs.com/package/paracosm
 - **License:** Apache-2.0
-- **Built by:** Manic Agency LLC / Frame.dev (https://manic.agency, https://frame.dev)
+- **Built by:** Framers Lab, Inc. (https://frame.dev)
 - **Built on:** AgentOS (https://agentos.sh)
 - **Maintainer:** Johnny Dunn (https://github.com/jddunn)
 - **Status:** Active (npm v0.9.x as of 2026-05)
