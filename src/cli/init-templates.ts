@@ -116,7 +116,7 @@ node run.mjs
 - Edit \`actors.json\` to swap HEXACO traits or instructions.
 - Edit \`run.mjs\` to change the actor index, mode, turn count, or seed.
 
-See https://github.com/framersai/paracosm for the full API reference.
+See https://github.com/framerslab/paracosm for the full API reference.
 `;
 }
 

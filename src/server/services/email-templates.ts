@@ -25,7 +25,7 @@ export interface RenderedEmail {
 }
 
 const PARACOSM_LOGO_URL = 'https://paracosm.agentos.sh/brand/favicons/favicon-192.png';
-const PARACOSM_REPO = 'https://github.com/framersai/paracosm';
+const PARACOSM_REPO = 'https://github.com/framerslab/paracosm';
 const PARACOSM_NPM = 'https://npmjs.com/package/paracosm';
 const PARACOSM_DEMO = 'https://paracosm.agentos.sh';
 const SUPPORT_EMAIL = 'team@frame.dev';
@@ -75,7 +75,7 @@ export function renderWaitlistConfirmation(input: WaitlistConfirmationInput): Re
 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
 <tr><td style="padding:4px 0;"><span style="color:${ACCENT_RUST};font-family:monospace;">&rarr;</span> <a href="${PARACOSM_DEMO}" style="color:${ACCENT_AMBER};text-decoration:none;">Live demo: paracosm.agentos.sh</a></td></tr>
 <tr><td style="padding:4px 0;"><span style="color:${ACCENT_RUST};font-family:monospace;">&rarr;</span> <a href="${PARACOSM_NPM}" style="color:${ACCENT_AMBER};text-decoration:none;">npm: npmjs.com/package/paracosm</a></td></tr>
-<tr><td style="padding:4px 0;"><span style="color:${ACCENT_RUST};font-family:monospace;">&rarr;</span> <a href="${PARACOSM_REPO}" style="color:${ACCENT_AMBER};text-decoration:none;">Source: github.com/framersai/paracosm</a></td></tr>
+<tr><td style="padding:4px 0;"><span style="color:${ACCENT_RUST};font-family:monospace;">&rarr;</span> <a href="${PARACOSM_REPO}" style="color:${ACCENT_AMBER};text-decoration:none;">Source: github.com/framerslab/paracosm</a></td></tr>
 </table>
 
 <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:${TEXT_PRIMARY};">Reply to this email if you want to chat about a specific use case ${safeUseCase ? `&mdash; you mentioned: <em style="color:${TEXT_MUTED};">&quot;${safeUseCase}&quot;</em>` : '&mdash; agent-society research, decision rehearsal for an enterprise process, custom scenario authoring, or anything else'}.</p>

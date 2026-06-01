@@ -342,7 +342,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
             mutating inline styles was a workaround pre-CSS-module; the
             module's :hover rule does the same job without React state. */}
         <a
-          href="https://github.com/framersai/paracosm"
+          href="https://github.com/framerslab/paracosm"
           target="_blank"
           rel="noopener noreferrer"
           className={`topbar-github ${styles.github}`}

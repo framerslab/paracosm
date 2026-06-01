@@ -36,7 +36,7 @@ Examples:
   paracosm init my-app --domain "Submarine crew of 8"     # scaffold a project
 
 Docs:   https://paracosm.agentos.sh/docs
-GitHub: https://github.com/framersai/paracosm
+GitHub: https://github.com/framerslab/paracosm
 `;
 
 const RUN_HELP = `paracosm run [options]

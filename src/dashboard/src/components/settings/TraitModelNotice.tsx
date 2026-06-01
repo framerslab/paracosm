@@ -34,7 +34,7 @@ export function TraitModelNotice() {
         </p>
         <div className={styles.links}>
           <a
-            href="https://github.com/framersai/paracosm/blob/master/docs/COOKBOOK.md#pluggable-traits-ai-agent-end-to-end"
+            href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md#pluggable-traits-ai-agent-end-to-end"
             target="_blank"
             rel="noopener"
             className={styles.link}
@@ -42,7 +42,7 @@ export function TraitModelNotice() {
             Captured ai-agent end-to-end run
           </a>
           <a
-            href="https://github.com/framersai/paracosm/blob/master/docs/COOKBOOK.md#pluggable-traits-ai-agent-end-to-end"
+            href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md#pluggable-traits-ai-agent-end-to-end"
             target="_blank"
             rel="noopener"
             className={styles.link}

@@ -117,7 +117,7 @@ const PRICING: PricingTier[] = [
       'TypeScript SDK with full type definitions',
       'Community support via Discord',
     ],
-    cta: { label: 'View on GitHub', href: 'https://github.com/framersai/paracosm' },
+    cta: { label: 'View on GitHub', href: 'https://github.com/framerslab/paracosm' },
     availability: 'available_now',
   },
   {
@@ -434,8 +434,8 @@ export function AboutPage() {
           <nav aria-label="External links" className={styles.linksNav}>
             <a href="https://agentos.sh/en" target="_blank" rel="noopener" className={styles.linkItem}>agentos.sh</a>
             <a href="https://docs.agentos.sh" target="_blank" rel="noopener" className={styles.linkItem}>Documentation</a>
-            <a href="https://github.com/framersai/paracosm" target="_blank" rel="noopener" className={styles.linkItem}>GitHub</a>
-            <a href="https://github.com/framersai/agentos" target="_blank" rel="noopener" className={styles.linkItem}>AgentOS GitHub</a>
+            <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" className={styles.linkItem}>GitHub</a>
+            <a href="https://github.com/framerslab/agentos" target="_blank" rel="noopener" className={styles.linkItem}>AgentOS GitHub</a>
             <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" className={styles.linkItem}>npm</a>
             <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.linkItem}>Frame.dev</a>
             <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.linkItem}>Frame</a>

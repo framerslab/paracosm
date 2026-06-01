@@ -133,7 +133,7 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
       {!isPhone && (
         <nav aria-label="Footer links" className={styles.nav}>
           <a href="https://agentos.sh/en" target="_blank" rel="noopener" className={styles.navLink}>agentos.sh</a>
-          <a href="https://github.com/framersai/paracosm" target="_blank" rel="noopener" className={styles.navLink}>github</a>
+          <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" className={styles.navLink}>github</a>
           <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" className={styles.navLink}>npm</a>
           <a href="/docs" className={styles.navLink}>docs</a>
           <a href="https://agentos.sh/blog" target="_blank" rel="noopener" className={styles.navLink}>blog</a>

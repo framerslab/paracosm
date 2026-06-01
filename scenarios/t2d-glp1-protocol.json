@@ -1,6 +1,6 @@
 {
   "id": "t2d-glp1-protocol",
-  "sourceUrl": "https://github.com/framersai/paracosm/blob/master/scenarios/t2d-glp1-protocol.json",
+  "sourceUrl": "https://github.com/framerslab/paracosm/blob/master/scenarios/t2d-glp1-protocol.json",
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {

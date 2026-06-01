@@ -130,10 +130,10 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/framersai/paracosm.git"
+    "url": "git+https://github.com/framerslab/paracosm.git"
   },
   "bugs": {
-    "url": "https://github.com/framersai/paracosm/issues"
+    "url": "https://github.com/framerslab/paracosm/issues"
   },
   "homepage": "https://paracosm.agentos.sh"
 }
