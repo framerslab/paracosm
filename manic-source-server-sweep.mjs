@@ -22,7 +22,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const PROFILE = `${process.env.HOME}/.manic-evidence-chrome-profile`;
-const OUT     = `${process.env.HOME}/Documents/james_discord_scammers/scammers/source-server-search-manic`;
+const OUT     = `${process.env.HOME}/Documents/abuse-investigation/scammers/source-server-search-manic`;
 
 if (!existsSync(PROFILE)) {
   console.error(`!! Manic profile does not exist at ${PROFILE}`);
@@ -35,9 +35,9 @@ if (!existsSync(PROFILE)) {
 mkdirSync(OUT, { recursive: true });
 
 const SERVERS = [
-  { tag: 'M.AI', guildId: '1144547040454508606', name: 'Mistral AI',         displayedBy: 'aetherctl'  },
-  { tag: 'CDEX', guildId: '1438605022379249767', name: 'Cricdex',            displayedBy: 'devkairo'   },
-  { tag: 'CODE', guildId: '613425648685547541',  name: 'Discord Developers', displayedBy: '_chaserich_' },
+  { tag: 'M.AI', guildId: '1144547040454508606', name: 'Mistral AI',         displayedBy: 'actor-a'  },
+  { tag: 'CDEX', guildId: '1438605022379249767', name: 'Cricdex',            displayedBy: 'actor-b'   },
+  { tag: 'CODE', guildId: '613425648685547541',  name: 'Discord Developers', displayedBy: 'actor-c' },
 ];
 
 const QUERIES = [

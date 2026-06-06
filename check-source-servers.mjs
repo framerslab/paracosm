@@ -3,9 +3,9 @@
  * any defamation / mentions of wilds.ai / agentos / Johnny.
  *
  * Servers (clan tag → guild ID):
- *   M.AI  = Mistral AI         (1144547040454508606)  — aetherctl
- *   CDEX  = Cricdex            (1438605022379249767)  — devkairo
- *   CODE  = Discord Developers (613425648685547541)   — _chaserich_
+ *   M.AI  = Mistral AI         (1144547040454508606)
+ *   CDEX  = Cricdex            (1438605022379249767)
+ *   CODE  = Discord Developers (613425648685547541)
  *
  * For each: detect membership, run a sequence of keyword searches via Ctrl+F,
  * screenshot every result page, and dump structured findings to JSON.
@@ -14,14 +14,14 @@ import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const OUT = `${process.env.HOME}/Documents/james_discord_scammers/scammers/source-server-search`;
+const OUT = `${process.env.HOME}/Documents/abuse-investigation/scammers/source-server-search`;
 const PROFILE = `${process.env.HOME}/.agentos-evidence-chrome-profile`;
 mkdirSync(OUT, { recursive: true });
 
 const SERVERS = [
-  { tag: 'M.AI', guildId: '1144547040454508606', name: 'Mistral AI',         displayedBy: 'aetherctl' },
-  { tag: 'CDEX', guildId: '1438605022379249767', name: 'Cricdex',            displayedBy: 'devkairo' },
-  { tag: 'CODE', guildId: '613425648685547541',  name: 'Discord Developers', displayedBy: '_chaserich_' },
+  { tag: 'M.AI', guildId: '1144547040454508606', name: 'Mistral AI',         displayedBy: 'actor-a' },
+  { tag: 'CDEX', guildId: '1438605022379249767', name: 'Cricdex',            displayedBy: 'actor-b' },
+  { tag: 'CODE', guildId: '613425648685547541',  name: 'Discord Developers', displayedBy: 'actor-c' },
 ];
 
 const QUERIES = [
