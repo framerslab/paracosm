@@ -37,7 +37,11 @@
   },
   "files": [
     "dist/",
-    "scenarios/",
+    "scenarios/mars.json",
+    "scenarios/mars-knowledge.json",
+    "scenarios/lunar.json",
+    "scenarios/lunar-knowledge.json",
+    "scenarios/t2d-glp1-protocol.json",
     "config/leaders.example.json",
     "config/leaders.json",
     "README.md",
