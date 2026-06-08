@@ -37,6 +37,7 @@
   },
   "files": [
     "dist/",
+    "scenarios/",
     "config/leaders.example.json",
     "config/leaders.json",
     "README.md",
