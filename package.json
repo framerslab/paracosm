@@ -80,7 +80,7 @@
     "@framers/agentos": "^0.9.56",
     "@framers/sql-storage-adapter": "^0.6.6",
     "better-sqlite3": "^12.9.0",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.0.227",
     "resend": "^4.8.0",
     "zod": "^4.4.1"
   },
