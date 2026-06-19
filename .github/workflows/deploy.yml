@@ -236,6 +236,13 @@ jobs:
             --name paracosm \
             --max-memory-restart 3G \
             --env production
+
+          # Ensure pm2 resurrects the app after a reboot. Without this
+          # systemd unit, a host reboot (Linode maintenance) brings nginx
+          # back but leaves the app dead — nginx then returns 502 until
+          # someone manually runs `pm2 resurrect`. Idempotent: re-running
+          # on an already-configured box just re-asserts the enabled unit.
+          pm2 startup systemd -u root --hp /root
           pm2 save
 
           echo "Paracosm deployed and running"
