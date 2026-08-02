@@ -56,6 +56,12 @@ jobs:
             pnpm install --no-frozen-lockfile
           fi
 
+      - name: Refresh npm lockfile (when present)
+        run: |
+          if [ -f package-lock.json ]; then
+            npm install --package-lock-only --no-audit --no-fund --ignore-scripts
+          fi
+
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7
         with:
@@ -76,7 +82,7 @@ jobs:
           branch: chore/bump-framers-deps
           base: master
           delete-branch: true
-          add-paths: |
-            **/package.json
-            pnpm-lock.yaml
-            .gitmodules
+          # No add-paths: a pathspec naming a file a repo doesn't commit
+          # (pnpm-lock.yaml, .gitmodules) makes the action's `git add` fatal,
+          # staging NOTHING - and `**/package.json` misses the root manifest.
+          # Default collection stages every bump change.
