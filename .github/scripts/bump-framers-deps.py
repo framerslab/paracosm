@@ -1,21 +1,51 @@
 #!/usr/bin/env python3
 """
-Bump all `@framers/*` explicit-version pins in `package.json` files to
-`^<latest>` from the npm registry.
+Bump every `@framers/*` version pin in a repository to `^<latest>` from the
+npm registry.
 
-Behavior:
-- Walks every `package.json` under the working directory (excluding
-  `node_modules` and `.git`).
-- Discovers every unique `@framers/*` dep name referenced.
-- Queries npm for each package's latest published version.
-- Replaces each explicit pin (caret, tilde, range, exact) with
-  `^<latest>`. Does NOT touch `workspace:*` pins.
-- No-ops when the pin already matches.
-- Prints a per-package diff summary to stderr.
-- Exits 0 on success regardless of whether any files changed.
+Pins it rewrites, in files tracked by git:
+- `package.json` entries keyed by the package name in any field
+  (dependencies, devDependencies, peerDependencies, optionalDependencies,
+  overrides, resolutions, pnpm.overrides), including glob resolution keys
+  such as `"**/@framers/agentos"`.
+- `pnpm-workspace.yaml` entries under `overrides:`, `catalog:` and
+  `catalogs:`. An override there wins over every `package.json` range in
+  the workspace, so a stale one keeps the whole repository building
+  against an old release no matter what the `package.json` files say.
 
-Designed to run inside GitHub Actions; no external Python deps beyond
-the standard library + `npm` on PATH.
+A value is rewritten only when it is a semver range (node-semver grammar:
+`1.2.3`, `^0.9.0`, `>=0.7.0 <0.10.0`, `^0.9.0 || ^0.10.0`, `1.x`, `*`)
+that mentions no version above the latest release. Everything else is left
+alone: protocols (`workspace:`, `link:`, `file:`, `npm:`, `jsr:` ...),
+paths (`../agentos`, `./shim.js`, patch files), git and GitHub specs,
+dist-tags (`next`), npm `$name` references, pnpm's `-` (remove), YAML
+anchors and aliases, and any range that already reaches past `latest`
+(such as a prerelease from the `next` channel), so a pin never moves
+backwards. Version-qualified selector keys such as
+`"@framers/agentos@<0.10"` are not matched, because they target only the
+copies inside that range.
+
+Overrides that pin the package under one parent (pnpm `"wunderland>@framers/agentos"`,
+Yarn `"wunderland/@framers/agentos"`, or an npm override nested under the
+parent's key) are reported, not rewritten: they hold one consumer on a chosen version on
+purpose, and moving them is a decision for a person. Pins this script
+cannot read (a nested npm override object, a YAML flow mapping) are
+reported the same way. Reports are GitHub Actions warning annotations, so
+they show on the run summary.
+
+Only files tracked by git are read, so `node_modules`, build output and
+the contents of git submodules are never touched: the pull request this
+workflow opens cannot commit those, and the refreshed lockfile has to
+describe the manifests that are committed.
+
+The script checks its own rules against fixtures before it touches any
+file and exits 1 if a rule misbehaves, so a broken edit to this file fails
+the run instead of opening a wrong pull request. It also exits 1 when npm
+fails for any package for a reason other than "not published", so a
+registry outage cannot pass as a clean run with stale pins.
+
+Designed to run inside GitHub Actions; no external Python dependencies
+beyond the standard library and `npm` on PATH.
 """
 
 from __future__ import annotations
@@ -24,115 +54,512 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
-DEP_PATTERN = re.compile(r'"@framers/[a-z0-9-]+"')
+NAME = r"@framers/[a-z0-9._-]+"
+
+# A name as a JSON key or value, plain or after a selector prefix
+# (`"wunderland>@framers/agentos"`, `"**/@framers/agentos"`).
+DEP_PATTERN = re.compile(rf'["/>]({NAME})"')
+YAML_DEP_PATTERN = re.compile(rf"""['"]?(?:[^'"\s:]*[>/])?({NAME})['"]?\s*:""")
+
+# node-semver range grammar: comparators joined by spaces, hyphen ranges,
+# alternatives joined by `||`. Whitespace is allowed only after an
+# operator, so a run of spaces has exactly one parse and a failing match
+# cannot backtrack exponentially.
+_VER = r"[v=]?(?:\d+|[xX*])(?:\.(?:\d+|[xX*])){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+_CMP = rf"(?:(?:\^|~>?|[<>]=?|=)\s*)?{_VER}"
+_SET = rf"(?:{_VER}\s+-\s+{_VER}|{_CMP}(?:\s+{_CMP})*)"
+RANGE_RE = re.compile(rf"\s*{_SET}(?:\s*\|\|\s*{_SET})*\s*", re.ASCII)
+
+# One version inside a range; a prerelease or build suffix is consumed with
+# it so its own numbers are never read as a version.
+VERSION_TOKEN = re.compile(
+    r"(?<![\w.])[v=]?(\d+)(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+    re.ASCII,
+)
+
+# Byte-order mark, written as a code point so no invisible character sits in this file.
+BOM = chr(0xFEFF)
+
+# Top-level pnpm-workspace.yaml blocks whose entries are version pins.
+YAML_PIN_BLOCKS = ("overrides", "catalog", "catalogs")
+
+Warn = Callable[[str, int, str], None]
 
 
-def find_pkg_files() -> list[Path]:
-    """Return every package.json under cwd, skipping node_modules + .git."""
-    result = subprocess.run(
-        [
-            "find", ".", "-name", "package.json",
-            "-not", "-path", "*/node_modules/*",
-            "-not", "-path", "*/.git/*",
-        ],
-        capture_output=True, text=True, check=True,
-    )
-    return [Path(p) for p in result.stdout.strip().split("\n") if p]
+def annotate(path: str, line: int, message: str) -> None:
+    """Print a GitHub Actions warning annotation for `path:line`."""
+    print(f"::warning file={path},line={line}::{message}", file=sys.stderr)
 
 
-def find_framers_deps(pkg_files: list[Path]) -> list[str]:
-    """Discover every unique `@framers/<name>` referenced across package.json files."""
-    deps: set[str] = set()
-    for path in pkg_files:
-        try:
-            text = path.read_text()
-        except OSError:
+def is_registry_range(spec: str) -> bool:
+    """True when `spec` is a semver range the registry resolves, not a protocol, path, tag or reference."""
+    return RANGE_RE.fullmatch(spec) is not None
+
+
+def mentions_newer(spec: str, latest: str) -> bool:
+    """True when any version in `spec` is above `latest` (missing or wildcard parts count as 0)."""
+    top = tuple(int(part) for part in latest.split("."))
+    for match in VERSION_TOKEN.finditer(spec):
+        parts = tuple(int(g) if g and g.isdigit() else 0 for g in match.groups())
+        if parts > top:
+            return True
+    return False
+
+
+def should_rewrite(spec: str, latest: str) -> bool:
+    """A pin moves to `^latest` only when it is a range that does not reach past latest."""
+    return spec != f"^{latest}" and is_registry_range(spec) and not mentions_newer(spec, latest)
+
+
+# package.json fields whose entries force versions across the install.
+OVERRIDE_FIELDS = ("overrides", "resolutions")
+
+
+def json_key_paths(text: str) -> dict[int, tuple[str, ...]]:
+    """Map the offset of each object key's opening quote to the keys of the containers enclosing it.
+
+    A small scanner, not a parser: it follows strings (with escapes) and
+    braces only, so it works on any text the regexes below can match,
+    including fragments. The root object contributes an empty key.
+    """
+    paths: dict[int, tuple[str, ...]] = {}
+    stack: list[str] = []
+    pending = ""
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        if char == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            k = j + 1
+            while k < n and text[k] in " \t\r\n":
+                k += 1
+            if k < n and text[k] == ":":
+                paths[i] = tuple(stack)
+                pending = text[i + 1:j]
+            i = j + 1
             continue
-        for match in DEP_PATTERN.findall(text):
-            deps.add(match.strip('"'))
+        if char in "{[":
+            stack.append(pending)
+            pending = ""
+        elif char in "}]" and stack:
+            stack.pop()
+        i += 1
+    return paths
+
+
+def parent_scoped(path: tuple[str, ...], prefix: str | None) -> bool:
+    """True when a pin applies under one parent package only.
+
+    pnpm writes that as `parent>pkg`, Yarn as `parent/pkg` (only `**/` is
+    global), and npm as a nested object inside `overrides`.
+    """
+    if prefix is not None and prefix != "**/":
+        return True
+    for field in OVERRIDE_FIELDS:
+        if field in path:
+            return len(path) > path.index(field) + 1
+    return False
+
+
+def json_pin_pattern(pkg: str) -> re.Pattern[str]:
+    """Match `"<selector-prefix?><pkg>": "<spec>"` in package.json text.
+
+    The optional prefix covers parent selectors (`wunderland>`) and globs
+    (`**/`). The closing quote right after the name keeps
+    `@framers/agentos` from matching `@framers/agentos-ext-foo`.
+    """
+    return re.compile(rf'("(?P<prefix>[^"]*[>/])?{re.escape(pkg)}"\s*:\s*)"(?P<spec>[^"]*)"')
+
+
+def json_nested_pattern(pkg: str) -> re.Pattern[str]:
+    """Match an npm nested override object such as `"<pkg>": { ".": "0.9.0" }`."""
+    return re.compile(rf'"(?:[^"]*[>/])?{re.escape(pkg)}"\s*:\s*\{{')
+
+
+def yaml_pin_pattern(pkg: str) -> re.Pattern[str]:
+    """Match one `<indent><key>: <spec>` line of a pnpm-workspace.yaml pin block.
+
+    The value is single-quoted, double-quoted or plain. A plain value runs
+    to the end of the line or to a ` #` comment, so `^0.9.0 || ^0.10.0` is
+    read whole and `framersai/agentos#main` keeps its `#`.
+    """
+    return re.compile(
+        rf"""^(?P<indent>\s+)(?P<kq>['"]?)(?P<key>(?P<prefix>[^'"\s:]*[>/])?{re.escape(pkg)})(?P=kq)(?P<sep>\s*:\s*)"""
+        r"""(?:'(?P<sq>[^'\n]*)'|"(?P<dq>[^"\n]*)"|(?P<bare>[^'"\s#](?:[^\n]*?\S)?))(?P<tail>\s+#.*|\s*)$"""
+    )
+
+
+def line_of(text: str, offset: int) -> int:
+    """1-based line number of `offset` in `text`."""
+    return text.count("\n", 0, offset) + 1
+
+
+def bump_json_text(text: str, versions: dict[str, str], source: str = "<fixture>", warn: Warn = annotate) -> tuple[str, int]:
+    """Rewrite registry pins in package.json text. Return the new text and the number of pins changed.
+
+    A pin that applies under one parent package is reported instead of
+    rewritten (see `parent_scoped`), and so is an npm override written as
+    a nested object. Key paths are recomputed for each package because an
+    earlier rewrite can shift offsets.
+    """
+    changes = 0
+    for pkg, latest in versions.items():
+        paths = json_key_paths(text)
+        for nested in json_nested_pattern(pkg).finditer(text):
+            if any(field in paths.get(nested.start(), ()) for field in OVERRIDE_FIELDS):
+                warn(source, line_of(text, nested.start()), f"nested override for {pkg} not handled; check it by hand")
+
+        def replace(match: re.Match[str], _pkg: str = pkg, _latest: str = latest,
+                    _paths: dict[int, tuple[str, ...]] = paths) -> str:
+            nonlocal changes
+            if not should_rewrite(match.group("spec"), _latest):
+                return match.group(0)
+            if parent_scoped(_paths.get(match.start(), ()), match.group("prefix")):
+                warn(source, line_of(text, match.start()),
+                     f"override pins {_pkg} under a parent ({match.group('spec')}); left for a person to move to ^{_latest}")
+                return match.group(0)
+            changes += 1
+            return f'{match.group(1)}"^{_latest}"'
+
+        text = json_pin_pattern(pkg).sub(replace, text)
+    return text, changes
+
+
+def bump_yaml_text(text: str, versions: dict[str, str], source: str = "<fixture>", warn: Warn = annotate) -> tuple[str, int]:
+    """Rewrite registry pins inside the pin blocks of pnpm-workspace.yaml text.
+
+    Every line that starts in column 0 and is not a comment opens a new
+    top-level block (quoted keys included); only indented lines under
+    `overrides:`, `catalog:` or `catalogs:` are candidates, so a
+    `packages:` glob, a patch path or a comment is never touched. A pin
+    line for a known package that no pattern can read is reported, not
+    skipped silently.
+    """
+    bom = text.startswith(BOM)
+    if bom:
+        text = text[1:]
+    out: list[str] = []
+    changes = 0
+    block = None
+    entry_indent = None
+    patterns = {pkg: yaml_pin_pattern(pkg) for pkg in versions}
+    exact_keys = {pkg: re.compile(rf"""['"\s>/{{,]{re.escape(pkg)}['"]?\s*:""") for pkg in versions}
+    for number, line in enumerate(text.split("\n"), start=1):
+        if line and line[0] not in " \t#\r":
+            top = re.match(r"""^(['"]?)([A-Za-z][\w-]*)\1\s*:""", line)
+            block = top.group(2) if top else None
+            entry_indent = None
+            if block in YAML_PIN_BLOCKS and re.match(r"""^[^:]*:\s*[{\[]""", line):
+                warn(source, number, "inline (flow) mapping not handled; check its @framers pins by hand")
+                block = None
+        elif block in YAML_PIN_BLOCKS and line.strip() and not line.lstrip().startswith("#"):
+            indent = len(line) - len(line.lstrip(" \t"))
+            if entry_indent is None:
+                entry_indent = indent
+            # pnpm overrides are a flat map; an entry indented under another key
+            # is scoped to that key (a parent), so it is reported like `parent>pkg`.
+            nested_override = block == "overrides" and indent > entry_indent
+            matched = False
+            for pkg, pattern in patterns.items():
+                match = pattern.match(line)
+                if not match:
+                    continue
+                matched = True
+                latest = versions[pkg]
+                if match.group("sq") is not None:
+                    spec, quote = match.group("sq"), "'"
+                elif match.group("dq") is not None:
+                    spec, quote = match.group("dq"), '"'
+                else:
+                    spec, quote = match.group("bare"), "'"
+                    if spec[0] in "&*!":
+                        warn(source, number, f"YAML anchor, alias or tag on the {pkg} pin; check it by hand")
+                        break
+                if not should_rewrite(spec, latest):
+                    break
+                if nested_override or ">" in (match.group("prefix") or ""):
+                    warn(source, number, f"override pins {pkg} under a parent ({spec}); left for a person to move to ^{latest}")
+                    break
+                line = (
+                    f"{match.group('indent')}{match.group('kq')}{match.group('key')}{match.group('kq')}"
+                    f"{match.group('sep')}{quote}^{latest}{quote}{match.group('tail')}"
+                )
+                changes += 1
+                break
+            if not matched and any(key.search(line) for key in exact_keys.values()):
+                warn(source, number, "could not read this pin; left unchanged")
+        out.append(line)
+    result = "\n".join(out)
+    return (BOM + result if bom else result), changes
+
+
+def self_check() -> None:
+    """Exit 1 unless the rewriting rules behave as documented on fixed inputs."""
+    versions = {"@framers/agentos": "0.10.28", "@framers/sql-storage-adapter": "0.6.8"}
+    warnings: list[str] = []
+
+    def collect(_source: str, line: int, message: str) -> None:
+        warnings.append(f"{line}:{message.split(';')[0]}")
+
+    unchanged = [
+        '"@framers/agentos": "^0.10.28"',
+        '"@framers/agentos": "workspace:*"',
+        '"@framers/agentos": "link:../agentos"',
+        '"@framers/agentos": "jsr:@framers/agentos@1"',
+        '"@framers/agentos": "$@framers/agentos"',
+        '"@framers/agentos": "-"',
+        '"@framers/agentos": "next"',
+        '"@framers/agentos": "./src/shims/agentos.browser.js"',
+        '"@framers/agentos": "../agentos"',
+        '"@framers/agentos": "framersai/agentos#feat"',
+        '"@framers/agentos": "patches/@framers__agentos.patch"',
+        '"(.*)/@framers/agentos": "<rootDir>/__mocks__/agentos.js"',
+        '"@framers/agentos": "^0.11.0"',
+        '"@framers/agentos": "0.11.0-beta.2"',
+        '"@framers/agentos": "0.10.29-next.0"',
+        '"@framers/agentos": ">=0.7.0 <0.11.0"',
+        '"@framers/agentos@<0.10": "0.9.1"',
+        '"@framers/agentos-ext-foo": "^0.1.0"',
+        '"name": "@framers/agentos"',
+        '"peerDependencies": { "@framers/agentos": "^0.10.28" },\n"peerDependenciesMeta": { "@framers/agentos": { "optional": true } }',
+    ]
+    rewritten = [
+        ('"@framers/agentos": "^0.9.135"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": "0.10.0"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": ">=0.7.0"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": ">= 0.7.0"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": ">=0.9.0 <0.10.0"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": "^0.9.0 || ^0.10.0"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": "0.10.0-beta.12"', '"@framers/agentos": "^0.10.28"'),
+        ('"@framers/agentos": "*"', '"@framers/agentos": "^0.10.28"'),
+        ('"**/@framers/agentos": "0.9.1"', '"**/@framers/agentos": "^0.10.28"'),
+        ('{"overrides": {"@framers/agentos": "0.9.1"}}', '{"overrides": {"@framers/agentos": "^0.10.28"}}'),
+        ('{"pnpm": {"overrides": {"@framers/agentos": "^0.9.135"}}}', '{"pnpm": {"overrides": {"@framers/agentos": "^0.10.28"}}}'),
+    ]
+    json_warned = [
+        ('"wunderland>@framers/agentos": "0.9.138"', "1:override pins @framers/agentos under a parent (0.9.138)"),
+        ('"overrides": {\n  "@framers/agentos": { ".": "0.9.135" }\n}', "2:nested override for @framers/agentos not handled"),
+        ('{\n  "overrides": {\n    "wunderland": {\n      "@framers/agentos": "0.9.138"\n    }\n  }\n}',
+         "4:override pins @framers/agentos under a parent (0.9.138)"),
+        ('"resolutions": { "wunderland/@framers/agentos": "0.9.138" }', "1:override pins @framers/agentos under a parent (0.9.138)"),
+    ]
+    yaml_in = "\n".join([
+        "packages:",
+        "  - '@framers/agentos: 0.1.0'",
+        "overrides:",
+        '  "@framers/agentos": "^0.9.135"',
+        "  '@framers/sql-storage-adapter': 0.6.1  # keep this comment",
+        "  wunderland>@framers/agentos: 0.9.138",
+        "  '@framers/agentos-ext-foo': ^0.1.0",
+        "catalog:",
+        "  '@framers/agentos': workspace:*",
+        "catalogs:",
+        "  next:",
+        "    '@framers/agentos': ^0.10.0",
+        "  quoted:",
+        "    '@framers/agentos': '>=0.9.0 <0.10.0'",
+        "  bare:",
+        "    '@framers/agentos': ^0.9.0 || ^0.10.0  # two ranges",
+        "  git:",
+        "    '@framers/agentos': framersai/agentos#main",
+        "  newer:",
+        "    '@framers/agentos': ^0.11.0",
+        "  alias:",
+        "    '@framers/agentos': *pinned",
+        "'patchedDependencies':",
+        "  '@framers/agentos': patches/@framers__agentos.patch",
+        "onlyBuiltDependencies:",
+        "  - '@framers/agentos'",
+        "",
+    ])
+    yaml_out = "\n".join([
+        "packages:",
+        "  - '@framers/agentos: 0.1.0'",
+        "overrides:",
+        '  "@framers/agentos": "^0.10.28"',
+        "  '@framers/sql-storage-adapter': '^0.6.8'  # keep this comment",
+        "  wunderland>@framers/agentos: 0.9.138",
+        "  '@framers/agentos-ext-foo': ^0.1.0",
+        "catalog:",
+        "  '@framers/agentos': workspace:*",
+        "catalogs:",
+        "  next:",
+        "    '@framers/agentos': '^0.10.28'",
+        "  quoted:",
+        "    '@framers/agentos': '^0.10.28'",
+        "  bare:",
+        "    '@framers/agentos': '^0.10.28'  # two ranges",
+        "  git:",
+        "    '@framers/agentos': framersai/agentos#main",
+        "  newer:",
+        "    '@framers/agentos': ^0.11.0",
+        "  alias:",
+        "    '@framers/agentos': *pinned",
+        "'patchedDependencies':",
+        "  '@framers/agentos': patches/@framers__agentos.patch",
+        "onlyBuiltDependencies:",
+        "  - '@framers/agentos'",
+        "",
+    ])
+    yaml_warned = [
+        "6:override pins @framers/agentos under a parent (0.9.138)",
+        "22:YAML anchor, alias or tag on the @framers/agentos pin",
+    ]
+    special = [
+        ("overrides:\r\n  '@framers/agentos': ^0.9.135\r\n", "overrides:\r\n  '@framers/agentos': '^0.10.28'\r\n", 1, []),
+        (BOM + "overrides:\n  '@framers/agentos': ^0.9.135\n", BOM + "overrides:\n  '@framers/agentos': '^0.10.28'\n", 1, []),
+        ("overrides: {'@framers/agentos': ^0.9.135}\n", "overrides: {'@framers/agentos': ^0.9.135}\n", 0,
+         ["1:inline (flow) mapping not handled"]),
+        ("overrides: {\n  '@framers/agentos': ^0.9.135,\n}\n", "overrides: {\n  '@framers/agentos': ^0.9.135,\n}\n", 0,
+         ["1:inline (flow) mapping not handled"]),
+        ("overrides:\n  '@framers/sql-storage-adapter': 0.6.1\n  wunderland:\n    '@framers/agentos': 0.9.138\n",
+         "overrides:\n  '@framers/sql-storage-adapter': '^0.6.8'\n  wunderland:\n    '@framers/agentos': 0.9.138\n", 1,
+         ["4:override pins @framers/agentos under a parent (0.9.138)"]),
+    ]
+    failures = []
+    for given in unchanged:
+        got, n = bump_json_text(given, versions, warn=collect)
+        if got != given or n:
+            failures.append(f"package.json: {given!r} -> {got!r}, want it unchanged")
+    for given, want in rewritten:
+        got, n = bump_json_text(given, versions, warn=collect)
+        if got != want or n != 1:
+            failures.append(f"package.json: {given!r} -> {got!r}, want {want!r}")
+    if warnings:
+        failures.append(f"package.json: unexpected warnings {warnings}")
+    for given, want_warning in json_warned:
+        warnings.clear()
+        got, n = bump_json_text(given, versions, warn=collect)
+        if got != given or n or warnings != [want_warning]:
+            failures.append(f"package.json: {given!r} -> {got!r}, warnings {warnings}, want unchanged with [{want_warning!r}]")
+    warnings.clear()
+    got, n = bump_yaml_text(yaml_in, versions, warn=collect)
+    if got != yaml_out or n != 5 or warnings != yaml_warned:
+        failures.append(f"pnpm-workspace.yaml: {n} changes, warnings {warnings}, output:\n{got}")
+    for given, want, want_n, want_warnings in special:
+        warnings.clear()
+        got, n = bump_yaml_text(given, versions, warn=collect)
+        if got != want or n != want_n or warnings != want_warnings:
+            failures.append(f"pnpm-workspace.yaml: {given!r} -> {got!r} ({n} changes, warnings {warnings})")
+    if failures:
+        print("self-check failed:\n" + "\n".join(failures), file=sys.stderr)
+        sys.exit(1)
+
+
+def read_text(path: Path) -> str | None:
+    """Read a file as UTF-8 with its line endings preserved; None (with a warning) when it cannot be read."""
+    try:
+        with open(path, encoding="utf-8", newline="") as handle:
+            return handle.read()
+    except (OSError, UnicodeDecodeError) as error:
+        annotate(str(path), 1, f"skipped, could not read as UTF-8 ({type(error).__name__})")
+        return None
+
+
+def write_text(path: Path, text: str) -> None:
+    """Write UTF-8 without translating line endings."""
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text)
+
+
+def tracked_files() -> tuple[list[Path], list[Path]]:
+    """Every tracked package.json and pnpm-workspace.yaml in this repository.
+
+    `git ls-files` never lists submodule contents, `node_modules` or other
+    untracked output, which is exactly the set the pull request can commit.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-z", "--", ":(glob)**/package.json", ":(glob)**/pnpm-workspace.yaml"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"git ls-files failed: {result.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
+    paths = [Path(p) for p in result.stdout.split("\0") if p]
+    return ([p for p in paths if p.name == "package.json"],
+            [p for p in paths if p.name == "pnpm-workspace.yaml"])
+
+
+def find_framers_deps(texts: dict[Path, str]) -> list[str]:
+    """Discover every unique `@framers/<name>` referenced across the files."""
+    deps: set[str] = set()
+    for path, text in texts.items():
+        pattern = YAML_DEP_PATTERN if path.name == "pnpm-workspace.yaml" else DEP_PATTERN
+        deps.update(pattern.findall(text))
     return sorted(deps)
 
 
-def query_latest_versions(pkgs: list[str]) -> dict[str, str]:
-    """Look up latest npm-published version for each package; skip unpublished."""
+def query_latest_versions(pkgs: list[str]) -> tuple[dict[str, str], list[str]]:
+    """Look up the `latest` dist-tag of each package.
+
+    Returns the resolved versions and the packages npm failed on. A package
+    npm reports as not published (E404), or whose `latest` is not a plain
+    release, is skipped; any other failure is returned so the run can fail.
+    """
     versions: dict[str, str] = {}
+    failed: list[str] = []
     for pkg in pkgs:
         try:
             proc = subprocess.run(
-                ["npm", "view", pkg, "version"],
-                capture_output=True, text=True, timeout=30,
+                ["npm", "view", f"{pkg}@latest", "version"],
+                capture_output=True, text=True, timeout=60,
             )
-            ver = proc.stdout.strip()
-            # `npm view` returns empty when the package is unpublished and a
-            # warning string when the registry is unhappy; only accept output
-            # that starts with a digit (a real semver value).
-            if ver and ver[0].isdigit():
-                versions[pkg] = ver
-        except (subprocess.TimeoutExpired, OSError):
+        except (subprocess.TimeoutExpired, OSError) as error:
+            print(f"  {pkg}: npm failed ({type(error).__name__})", file=sys.stderr)
+            failed.append(pkg)
             continue
-    return versions
+        ver = proc.stdout.strip()
+        if proc.returncode == 0 and re.fullmatch(r"\d+\.\d+\.\d+", ver):
+            versions[pkg] = ver
+        elif "E404" in proc.stderr:
+            print(f"  skipped {pkg}: not published", file=sys.stderr)
+        elif proc.returncode == 0:
+            print(f"  skipped {pkg}: latest is not a plain release ({ver!r})", file=sys.stderr)
+        else:
+            print(f"  {pkg}: npm failed: {proc.stderr.strip()[:200]}", file=sys.stderr)
+            failed.append(pkg)
+    return versions, failed
 
 
-def bump_file(path: Path, versions: dict[str, str]) -> int:
-    """Apply pin updates to one file. Return number of pins changed."""
-    try:
-        text = path.read_text()
-    except OSError:
-        return 0
-    new_text = text
-    changes = 0
-    for pkg, latest in versions.items():
-        target = f"^{latest}"
-        # Match `"@framers/<pkg>": "<non-workspace>"`. The negative
-        # lookahead `(?!workspace:)` preserves workspace protocol pins.
-        pattern = re.compile(
-            rf'("{re.escape(pkg)}"\s*:\s*)"(?!workspace:)([^"]+)"'
-        )
-
-        def replace(match: re.Match[str], _target: str = target) -> str:
-            old_pin = match.group(2)
-            if old_pin == _target:
-                return match.group(0)
-            return f'{match.group(1)}"{_target}"'
-
-        new_candidate, n = pattern.subn(replace, new_text)
-        if new_candidate != new_text:
-            # Count actual line-level diffs caused by this package.
-            for old_line, new_line in zip(new_text.split("\n"), new_candidate.split("\n")):
-                if old_line != new_line:
-                    changes += 1
-            new_text = new_candidate
+def bump_path(path: Path, text: str, versions: dict[str, str]) -> int:
+    """Rewrite one file in place from its already-read text. Return the number of pins changed."""
+    bump = bump_yaml_text if path.name == "pnpm-workspace.yaml" else bump_json_text
+    new_text, changes = bump(text, versions, str(path))
     if new_text != text:
-        path.write_text(new_text)
+        write_text(path, new_text)
     return changes
 
 
 def main() -> int:
-    pkg_files = find_pkg_files()
-    framers_deps = find_framers_deps(pkg_files)
+    self_check()
+    pkg_files, yaml_files = tracked_files()
+    texts = {path: text for path in pkg_files + yaml_files if (text := read_text(path)) is not None}
+    framers_deps = find_framers_deps(texts)
     print(
-        f"Found {len(framers_deps)} unique @framers/* packages across {len(pkg_files)} files",
+        f"Found {len(framers_deps)} unique @framers/* packages across "
+        f"{len(pkg_files)} package.json and {len(yaml_files)} pnpm-workspace.yaml files",
         file=sys.stderr,
     )
 
-    versions = query_latest_versions(framers_deps)
-    print(
-        f"Resolved {len(versions)} packages to latest npm-published versions",
-        file=sys.stderr,
-    )
+    versions, failed = query_latest_versions(framers_deps)
+    print(f"Resolved {len(versions)} packages to latest npm-published versions", file=sys.stderr)
+    if failed:
+        print(f"npm failed for {', '.join(failed)}; failing instead of opening a partial bump", file=sys.stderr)
+        return 1
 
     total_changes = 0
     files_changed = 0
-    for path in pkg_files:
-        changed = bump_file(path, versions)
-        if changed > 0:
+    for path, text in texts.items():
+        changed = bump_path(path, text, versions)
+        if changed:
             files_changed += 1
             total_changes += changed
-    print(
-        f"Updated {files_changed} files, applied {total_changes} pin bumps",
-        file=sys.stderr,
-    )
+            print(f"  {path}: {changed} pin(s)", file=sys.stderr)
+    print(f"Updated {files_changed} files, applied {total_changes} pin bumps", file=sys.stderr)
     return 0
 
 
