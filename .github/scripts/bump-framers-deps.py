@@ -29,8 +29,9 @@ Overrides that pin the package under one parent (pnpm `"wunderland>@framers/agen
 Yarn `"wunderland/@framers/agentos"`, or an npm override nested under the
 parent's key) are reported, not rewritten: they hold one consumer on a chosen version on
 purpose, and moving them is a decision for a person. Pins this script
-cannot read (a nested npm override object, a YAML flow mapping) are
-reported the same way. Reports are GitHub Actions warning annotations, so
+cannot rewrite safely (a nested npm override object, a YAML flow mapping,
+anchor or alias, a plain value continued on the next line) are reported
+the same way. Reports are GitHub Actions warning annotations, so
 they show on the run summary.
 
 Only files tracked by git are read, so `node_modules`, build output and
@@ -50,6 +51,7 @@ beyond the standard library and `npm` on PATH.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -65,9 +67,10 @@ YAML_DEP_PATTERN = re.compile(rf"""['"]?(?:[^'"\s:]*[>/])?({NAME})['"]?\s*:""")
 
 # node-semver range grammar: comparators joined by spaces, hyphen ranges,
 # alternatives joined by `||`. Whitespace is allowed only after an
-# operator, so a run of spaces has exactly one parse and a failing match
-# cannot backtrack exponentially.
-_VER = r"[v=]?(?:\d+|[xX*])(?:\.(?:\d+|[xX*])){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
+# operator and `=` is only an operator (never a version prefix), so every
+# comparator has exactly one parse and a failing match cannot backtrack
+# exponentially.
+_VER = r"v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*])){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?"
 _CMP = rf"(?:(?:\^|~>?|[<>]=?|=)\s*)?{_VER}"
 _SET = rf"(?:{_VER}\s+-\s+{_VER}|{_CMP}(?:\s+{_CMP})*)"
 RANGE_RE = re.compile(rf"\s*{_SET}(?:\s*\|\|\s*{_SET})*\s*", re.ASCII)
@@ -108,6 +111,26 @@ def mentions_newer(spec: str, latest: str) -> bool:
     return False
 
 
+# Specifiers that are deliberately not a registry range: protocols, `-`,
+# npm `$name` references, paths and git shorthands (they contain `/`), and
+# dist-tags. Anything else that fails the range grammar was misread.
+DELIBERATE_PREFIXES = (
+    "workspace:", "catalog:", "link:", "file:", "npm:", "jsr:", "git", "github:",
+    "http:", "https:", "portal:", "patch:", "$",
+)
+
+
+def is_deliberate_specifier(spec: str) -> bool:
+    """True for a value that is intentionally not a semver range (see DELIBERATE_PREFIXES)."""
+    spec = spec.strip()
+    if re.search(r"[,{}\[\]]|:\s", spec):
+        return False
+    return (
+        spec == "-" or spec.startswith(DELIBERATE_PREFIXES) or "/" in spec
+        or re.fullmatch(r"[A-Za-z][\w.-]*", spec) is not None
+    )
+
+
 def should_rewrite(spec: str, latest: str) -> bool:
     """A pin moves to `^latest` only when it is a range that does not reach past latest."""
     return spec != f"^{latest}" and is_registry_range(spec) and not mentions_newer(spec, latest)
@@ -115,6 +138,15 @@ def should_rewrite(spec: str, latest: str) -> bool:
 
 # package.json fields whose entries force versions across the install.
 OVERRIDE_FIELDS = ("overrides", "resolutions")
+
+
+def decode_key(token: str) -> str:
+    """The value of a JSON string token (escapes decoded), or its raw text if it does not parse."""
+    try:
+        value = json.loads(token)
+    except ValueError:
+        return token[1:-1]
+    return value if isinstance(value, str) else token[1:-1]
 
 
 def json_key_paths(text: str) -> dict[int, tuple[str, ...]]:
@@ -139,7 +171,7 @@ def json_key_paths(text: str) -> dict[int, tuple[str, ...]]:
                 k += 1
             if k < n and text[k] == ":":
                 paths[i] = tuple(stack)
-                pending = text[i + 1:j]
+                pending = decode_key(text[i:j + 1])
             i = j + 1
             continue
         if char in "{[":
@@ -202,16 +234,23 @@ def bump_json_text(text: str, versions: dict[str, str], source: str = "<fixture>
     """Rewrite registry pins in package.json text. Return the new text and the number of pins changed.
 
     A pin that applies under one parent package is reported instead of
-    rewritten (see `parent_scoped`), and so is an npm override written as
-    a nested object. Key paths are recomputed for each package because an
-    earlier rewrite can shift offsets.
+    rewritten (see `parent_scoped`). A package with an npm override written
+    as a nested object keeps every pin in the file, because npm rejects a
+    dependency that no longer equals its override. Key paths are recomputed
+    for each package because an earlier rewrite can shift offsets.
     """
     changes = 0
     for pkg, latest in versions.items():
         paths = json_key_paths(text)
-        for nested in json_nested_pattern(pkg).finditer(text):
-            if any(field in paths.get(nested.start(), ()) for field in OVERRIDE_FIELDS):
-                warn(source, line_of(text, nested.start()), f"nested override for {pkg} not handled; check it by hand")
+        nested = [m for m in json_nested_pattern(pkg).finditer(text)
+                  if any(field in paths.get(m.start(), ()) for field in OVERRIDE_FIELDS)]
+        if nested:
+            # npm requires a direct dependency and its "." override to match,
+            # so moving one without the other breaks the install; keep both.
+            for m in nested:
+                warn(source, line_of(text, m.start()),
+                     f"nested override for {pkg} not handled; its pins in this file are left unchanged")
+            continue
 
         def replace(match: re.Match[str], _pkg: str = pkg, _latest: str = latest,
                     _paths: dict[int, tuple[str, ...]] = paths) -> str:
@@ -232,37 +271,89 @@ def bump_json_text(text: str, versions: dict[str, str], source: str = "<fixture>
 def bump_yaml_text(text: str, versions: dict[str, str], source: str = "<fixture>", warn: Warn = annotate) -> tuple[str, int]:
     """Rewrite registry pins inside the pin blocks of pnpm-workspace.yaml text.
 
-    Every line that starts in column 0 and is not a comment opens a new
-    top-level block (quoted keys included); only indented lines under
-    `overrides:`, `catalog:` or `catalogs:` are candidates, so a
-    `packages:` glob, a patch path or a comment is never touched. A pin
-    line for a known package that no pattern can read is reported, not
-    skipped silently.
+    The root mapping's indentation comes from the first content line, so a
+    file indented as a whole is read too. A line at that indentation opens
+    a new top-level block (quoted keys included); only deeper lines under
+    `overrides:`, `catalog:` or `catalogs:` are candidates, so a `packages:`
+    glob, a patch path or a comment is never touched. A pin this script
+    cannot rewrite safely (a flow mapping, a YAML anchor, alias or tag, a
+    plain value continued on the next line, an override nested under a
+    parent, or a line no pattern reads) is reported, not rewritten.
     """
     bom = text.startswith(BOM)
     if bom:
         text = text[1:]
+    lines = text.split("\n")
     out: list[str] = []
     changes = 0
     block = None
     entry_indent = None
+    flow_indent = None
     patterns = {pkg: yaml_pin_pattern(pkg) for pkg in versions}
     exact_keys = {pkg: re.compile(rf"""['"\s>/{{,]{re.escape(pkg)}['"]?\s*:""") for pkg in versions}
-    for number, line in enumerate(text.split("\n"), start=1):
-        if line and line[0] not in " \t#\r":
-            top = re.match(r"""^(['"]?)([A-Za-z][\w-]*)\1\s*:""", line)
+
+    def indent_of(line: str) -> int:
+        return len(line) - len(line.lstrip(" \t"))
+
+    def is_content(line: str) -> bool:
+        stripped = line.strip()
+        return bool(stripped) and not stripped.startswith("#") and stripped not in ("---", "...")
+
+    root_indent = next((indent_of(line) for line in lines if is_content(line)), 0)
+    for idx, line in enumerate(lines):
+        number = idx + 1
+        if line.strip() in ("---", "..."):
+            block = None
+        elif is_content(line) and indent_of(line) <= root_indent:
+            body = line[indent_of(line):]
+            top = re.match(r"""^(['"]?)([A-Za-z][\w-]*)\1\s*:""", body)
             block = top.group(2) if top else None
             entry_indent = None
-            if block in YAML_PIN_BLOCKS and re.match(r"""^[^:]*:\s*[{\[]""", line):
+            flow_indent = None
+            # A flow value here may carry an anchor or tag first (`catalog: &shared {`).
+            if block in YAML_PIN_BLOCKS and re.match(r"""^[^:]*:\s*(?:[&!]\S*\s+)*[{\[]""", body):
                 warn(source, number, "inline (flow) mapping not handled; check its @framers pins by hand")
                 block = None
-        elif block in YAML_PIN_BLOCKS and line.strip() and not line.lstrip().startswith("#"):
-            indent = len(line) - len(line.lstrip(" \t"))
+        elif block in YAML_PIN_BLOCKS and is_content(line):
+            indent = indent_of(line)
+            # Inside a flow collection opened by an earlier nested key: copy the
+            # lines through its closing bracket unchanged.
+            if flow_indent is not None:
+                if indent > flow_indent or (indent == flow_indent and line.strip()[:1] in "}]"):
+                    out.append(line)
+                    continue
+                flow_indent = None
+            # A nested key whose value opens a flow collection (`shared: {`), or a
+            # bare `{` / `[` under such a key: its entries cannot be rewritten line
+            # by line, so report and skip them through the closing bracket.
+            if re.match(r"""^\s*(?:\S[^#]*?:\s*)?(?:[&!]\S*\s+)*[{\[]""", line):
+                span = [line]
+                code = re.sub(r"\s#.*$", "", line)
+                depth = code.count("{") + code.count("[") - code.count("}") - code.count("]")
+                if depth > 0:
+                    flow_indent = indent
+                    for later in lines[idx + 1:]:
+                        if later.strip().startswith("#"):
+                            span.append(later)
+                            continue
+                        if later.strip() and indent_of(later) <= indent and later.strip()[:1] not in "}]":
+                            break
+                        span.append(later)
+                        if later.strip() and indent_of(later) == indent and later.strip()[:1] in "}]":
+                            break
+                if any(key.search(part) for key in exact_keys.values() for part in span):
+                    warn(source, number, "inline (flow) mapping not handled; check its @framers pins by hand")
+                out.append(line)
+                continue
             if entry_indent is None:
                 entry_indent = indent
             # pnpm overrides are a flat map; an entry indented under another key
             # is scoped to that key (a parent), so it is reported like `parent>pkg`.
             nested_override = block == "overrides" and indent > entry_indent
+            # A deeper content line after a plain value (comments in between or
+            # not) continues it; rewriting only the first line would break the file.
+            following = next((later for later in lines[idx + 1:] if is_content(later)), "")
+            continued = bool(following) and indent_of(following) > indent
             matched = False
             for pkg, pattern in patterns.items():
                 match = pattern.match(line)
@@ -279,6 +370,12 @@ def bump_yaml_text(text: str, versions: dict[str, str], source: str = "<fixture>
                     if spec[0] in "&*!":
                         warn(source, number, f"YAML anchor, alias or tag on the {pkg} pin; check it by hand")
                         break
+                    if continued:
+                        warn(source, number, f"multi-line value on the {pkg} pin; check it by hand")
+                        break
+                if not is_registry_range(spec) and not is_deliberate_specifier(spec):
+                    warn(source, number, "could not read this pin; left unchanged")
+                    break
                 if not should_rewrite(spec, latest):
                     break
                 if nested_override or ">" in (match.group("prefix") or ""):
@@ -325,6 +422,8 @@ def self_check() -> None:
         '"@framers/agentos@<0.10": "0.9.1"',
         '"@framers/agentos-ext-foo": "^0.1.0"',
         '"name": "@framers/agentos"',
+        # Fails to parse (an empty last alternative), and must fail fast.
+        '"@framers/agentos": "' + '=0 ' * 22 + '||"',
         '"peerDependencies": { "@framers/agentos": "^0.10.28" },\n"peerDependenciesMeta": { "@framers/agentos": { "optional": true } }',
     ]
     rewritten = [
@@ -346,6 +445,11 @@ def self_check() -> None:
         ('{\n  "overrides": {\n    "wunderland": {\n      "@framers/agentos": "0.9.138"\n    }\n  }\n}',
          "4:override pins @framers/agentos under a parent (0.9.138)"),
         ('"resolutions": { "wunderland/@framers/agentos": "0.9.138" }', "1:override pins @framers/agentos under a parent (0.9.138)"),
+        ('{"dependencies": {"@framers/agentos": "^0.9.135"}, "overrides": {"@framers/agentos": {".": "^0.9.135"}}}',
+         "1:nested override for @framers/agentos not handled"),
+        # The key below is `overrides` with its first letter written as a JSON escape.
+        ('{"' + chr(92) + 'u006fverrides": {"wunderland": {"@framers/agentos": "0.9.138"}}}',
+         "1:override pins @framers/agentos under a parent (0.9.138)"),
     ]
     yaml_in = "\n".join([
         "packages:",
@@ -416,6 +520,39 @@ def self_check() -> None:
          ["1:inline (flow) mapping not handled"]),
         ("overrides: {\n  '@framers/agentos': ^0.9.135,\n}\n", "overrides: {\n  '@framers/agentos': ^0.9.135,\n}\n", 0,
          ["1:inline (flow) mapping not handled"]),
+        ("catalog: &shared { '@framers/agentos': ^0.9.135 }\ncatalogs:\n  shared: *shared\n",
+         "catalog: &shared { '@framers/agentos': ^0.9.135 }\ncatalogs:\n  shared: *shared\n", 0,
+         ["1:inline (flow) mapping not handled"]),
+        ("catalogs:\n  shared: &shared {\n    '@framers/agentos': ^0.9.135\n  }\n",
+         "catalogs:\n  shared: &shared {\n    '@framers/agentos': ^0.9.135\n  }\n", 0,
+         ["2:inline (flow) mapping not handled"]),
+        ("catalog:\n  '@framers/agentos': ^0.9.0\n    || ^0.11.0\n", "catalog:\n  '@framers/agentos': ^0.9.0\n    || ^0.11.0\n", 0,
+         ["2:multi-line value on the @framers/agentos pin"]),
+        ("  overrides:\n    '@framers/agentos': ^0.9.135\n", "  overrides:\n    '@framers/agentos': '^0.10.28'\n", 1, []),
+        ("catalog:\n  '@framers/agentos': ^0.9.0\n    # comment\n    || ^0.10.0\n",
+         "catalog:\n  '@framers/agentos': ^0.9.0\n    # comment\n    || ^0.10.0\n", 0,
+         ["2:multi-line value on the @framers/agentos pin"]),
+        ("catalog:\n  '@framers/agentos': ^0.9.135\n  # trailing comment\n  lodash: ^4.17.21\n",
+         "catalog:\n  '@framers/agentos': '^0.10.28'\n  # trailing comment\n  lodash: ^4.17.21\n", 1, []),
+        ("catalogs:\n  shared: {\n    '@framers/agentos': ^0.9.135,\n    lodash: ^4.17.21\n  }\n",
+         "catalogs:\n  shared: {\n    '@framers/agentos': ^0.9.135,\n    lodash: ^4.17.21\n  }\n", 0,
+         ["2:inline (flow) mapping not handled"]),
+        ("catalogs:\n  shared: {\n  # shared versions\n    '@framers/agentos': ^0.9.135,\n  }\n",
+         "catalogs:\n  shared: {\n  # shared versions\n    '@framers/agentos': ^0.9.135,\n  }\n", 0,
+         ["2:inline (flow) mapping not handled"]),
+        ("catalogs:\n  shared: { # }\n    '@framers/agentos': ^0.9.135,\n  }\n",
+         "catalogs:\n  shared: { # }\n    '@framers/agentos': ^0.9.135,\n  }\n", 0,
+         ["2:inline (flow) mapping not handled"]),
+        ("catalog:\n  '@framers/agentos': ^0.9.135,\n", "catalog:\n  '@framers/agentos': ^0.9.135,\n", 0,
+         ["2:could not read this pin"]),
+        ("catalogs:\n  shared:\n    {\n      '@framers/agentos': ^0.9.135, 'wunderland/@framers/agentos': 0.9.138\n    }\n",
+         "catalogs:\n  shared:\n    {\n      '@framers/agentos': ^0.9.135, 'wunderland/@framers/agentos': 0.9.138\n    }\n", 0,
+         ["3:inline (flow) mapping not handled"]),
+        ("catalog:\n  '@framers/agentos': ^0.9.135, 'wunderland/@framers/agentos': 0.9.138\n",
+         "catalog:\n  '@framers/agentos': ^0.9.135, 'wunderland/@framers/agentos': 0.9.138\n", 0,
+         ["2:could not read this pin"]),
+        ("catalogs:\n  other: {\n    lodash: ^4.17.21\n  }\n  main:\n    '@framers/agentos': ^0.9.135\n",
+         "catalogs:\n  other: {\n    lodash: ^4.17.21\n  }\n  main:\n    '@framers/agentos': '^0.10.28'\n", 1, []),
         ("overrides:\n  '@framers/sql-storage-adapter': 0.6.1\n  wunderland:\n    '@framers/agentos': 0.9.138\n",
          "overrides:\n  '@framers/sql-storage-adapter': '^0.6.8'\n  wunderland:\n    '@framers/agentos': 0.9.138\n", 1,
          ["4:override pins @framers/agentos under a parent (0.9.138)"]),
