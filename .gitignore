@@ -51,3 +51,6 @@ playwright/.cache/
 tests-e2e/screenshots/
 .DS_Store
 **/.DS_Store
+
+# Local SQLite file left by test runs; not part of the package.
+:memory:
