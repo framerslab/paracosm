@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/framerslab/paracosm/security/policy
+    about: Report it privately as the security policy describes. Do not open a public issue.
+  - name: Ask a question
+    url: https://wilds.ai/discord
+    about: Questions and discussion happen on Discord.
+  - name: Read the documentation
+    url: https://paracosm.agentos.sh/docs
+    about: The paracosm API reference.
+  - name: Report a bug in the AgentOS runtime
+    url: https://github.com/framerslab/agentos/issues/new/choose
+    about: Bugs in @framers/agentos itself belong in its repository.
