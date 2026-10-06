@@ -1,0 +1,61 @@
+name: CI
+
+# Builds and tests every pull request. The deploy workflow's build job runs
+# the same steps on a push to master before it deploys, so a change to the
+# steps here belongs in deploy.yml too.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # The version deploy.yml builds with; its env block says why.
+          node-version: '24'
+
+      - name: Guard against pnpm-workspace contamination in lockfiles
+        run: |
+          set -e
+          fail=0
+          for f in package-lock.json src/dashboard/package-lock.json; do
+            if [ ! -f "$f" ]; then continue; fi
+            if grep -q 'node_modules/\.pnpm/' "$f"; then
+              echo "::error file=$f::Lockfile contains 'node_modules/.pnpm/'. It was written inside a pnpm workspace and npm ci cannot install from it. Regenerate it with npm in a plain clone."
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript (engine + runtime)
+        run: npm run build
+
+      - name: Install dashboard dependencies
+        run: cd src/dashboard && npm ci
+
+      - name: Build dashboard
+        run: npm run dashboard:build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check doc examples compile against package
+        run: npm run check:doc-examples
+
+      - name: Build API docs (TypeDoc)
+        run: npm run docs

@@ -107,7 +107,7 @@ jobs:
           VITE_CLARITY_PROJECT_ID: ${{ secrets.CLARITY_PROJECT_ID }}
 
       - name: Run tests
-        run: npm test || true
+        run: npm test
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples

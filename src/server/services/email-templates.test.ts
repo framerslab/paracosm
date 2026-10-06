@@ -22,7 +22,7 @@ test('renderWaitlistConfirmation includes email + brand assets, omits position n
   assert.match(out.html, /github\.com\/framerslab\/paracosm/);
   assert.match(out.html, /https:\/\/frame\.dev"/);
   assert.match(out.html, /https:\/\/agentos\.sh"/);
-  assert.match(out.html, /https:\/\/manic\.agency"/);
+  assert.doesNotMatch(out.html, /manic\.agency/);
   // Footer drops safeos.sh + wilds.ai per user request.
   assert.doesNotMatch(out.html, /safeos\.sh/);
   assert.doesNotMatch(out.html, /wilds\.ai/);
@@ -77,7 +77,7 @@ test('renderYoureIn includes brand assets and CTA, omits position', () => {
   assert.match(out.html, /Open the dashboard/);
   assert.match(out.html, /https:\/\/frame\.dev"/);
   assert.match(out.html, /https:\/\/agentos\.sh"/);
-  assert.match(out.html, /https:\/\/manic\.agency"/);
+  assert.doesNotMatch(out.html, /manic\.agency/);
   assert.doesNotMatch(out.html, /\(#\d+\)/);
   assert.doesNotMatch(out.subject, /\(#\d+\)/);
   assert.match(out.text, /You're in/);

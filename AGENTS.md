@@ -21,38 +21,40 @@ Instructions for coding agents working in this repository. People contributing b
 - `scenarios/`: built-in scenario JSON; `schema/`: JSON schemas for RunArtifact and stream events; `config/`: example actor configuration
 - `scripts/`: the boundary check, the doc-example check, the changelog generator and schema exporters
 - `docs/`: guides (architecture, cookbook, HTTP API, migration); `assets/`: images and the API docs theme
-- `.github/workflows/`: the deploy workflow, the weekly dependency bump and the link check
+- `.github/workflows/`: CI, the deploy workflow, the weekly dependency bump and the link check
 
 ## Toolchain
 
-The deploy workflow uses Node 24 with npm. TypeScript compiled with `tsc -p tsconfig.build.json` into `dist/`; the package is ESM (`"type": "module"`). Tests use Node's built-in test runner with `tsx`. The dashboard is React built with Vite. Both lockfiles are npm lockfiles.
+CI and the deploy workflow use Node 24 with npm. TypeScript compiled with `tsc -p tsconfig.build.json` into `dist/`; the package is ESM (`"type": "module"`). Tests use Node's built-in test runner with `tsx`. The dashboard is React built with Vite. Both lockfiles are npm lockfiles.
 
 ## Commands
 
-The deploy workflow runs the commands below after every merge, and its result decides. Run any of them locally to check a change before you push. Pull requests run only the link check, so run these yourself.
+CI runs the commands below, and its result decides. Run any of them locally to check a change before you push.
 
-The build job in [`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml) runs, in order:
+CI runs (job "Build and test" in [`.github/workflows/ci.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/ci.yml)) on every pull request, in order:
 
 1. `npm ci`
 2. `npm run build`
 3. `cd src/dashboard && npm ci`
 4. `npm run dashboard:build`
-5. `npm test` (the boundary check, the dashboard type check, then every test file; the workflow ignores its result with `|| true`, so a failure here does not stop a deploy)
-6. `npm run check:doc-examples` (type-checks the examples in `src/dashboard/landing.html` against the package; a failure stops the deploy)
+5. `npm test` (the boundary check, the dashboard type check, then every test file)
+6. `npm run check:doc-examples` (type-checks the examples in `src/dashboard/landing.html` against the package)
 7. `npm run docs` (TypeDoc)
+
+The build job of the deploy workflow ([`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml)) runs the same steps after a merge, and a failure in any of them stops the deploy.
 
 To run one test file: `node --import tsx --import ./scripts/test-css-stub.mjs --test <path>`.
 
-Available scripts that the workflow does not run: `npm run test:e2e` (Playwright; `npm run test:e2e:install` first), `npm run dashboard`, `npm run dashboard:dev`, `npm run compile`, `npm run run`, `npm run smoke`, `npm run export:json-schema`, `npm run snapshot:schema`.
+Available scripts that CI does not run: `npm run test:e2e` (Playwright; `npm run test:e2e:install` first), `npm run dashboard`, `npm run dashboard:dev`, `npm run compile`, `npm run run`, `npm run smoke`, `npm run export:json-schema`, `npm run snapshot:schema`.
 
 ## Conventions
 
-- `src/engine/` never imports from `src/runtime/`; the one exception is the public alias `src/engine/digital-twin/index.ts`. `scripts/check-engine-runtime-boundary.mjs` enforces it and `npm test` runs it first. CI ignores the test result, so run `npm test` before you push.
+- `src/engine/` never imports from `src/runtime/`; the one exception is the public alias `src/engine/digital-twin/index.ts`. `scripts/check-engine-runtime-boundary.mjs` enforces it and `npm test` runs it first.
 - Each of the seven top-level directories under `src/` owns one job. A new one needs a reason in the pull request and a line in `docs/architecture/INTERNAL_LAYOUT.md`.
 - The public entry points are the `exports` map of `package.json` (`.`, `./core`, `./compiler`, `./schema`, `./swarm`, `./digital-twin`). A new public module needs an entry there.
 - Every structured model call in a turn (director, departments, commander, reactions, verdict) is validated with Zod and retried with feedback; the response schemas live in `src/runtime/validators/`.
 - Tests: one `*.test.ts` per module under test, in `tests/` or next to the file; tests that call a live model run only behind an environment flag such as `RUN_LIVE_CHAT_TEST=1`, so the default suite needs no API keys. Integration tests for behavior with an observable surface, unit tests for pure logic and regression pins, no filler tests.
-- Lockfiles: install with npm. A lockfile written inside a pnpm workspace contains `node_modules/.pnpm/` paths and fails the deploy workflow; regenerate it in a plain clone.
+- Lockfiles: install with npm. A lockfile written inside a pnpm workspace contains `node_modules/.pnpm/` paths and fails CI and the deploy workflow; regenerate it in a plain clone.
 - A weekly workflow and Dependabot open pull requests that move dependency versions, `@framers/*` included. Do not pin an older version of a package in this family.
 - TSDoc on every exported symbol, and comments where the code is not obvious.
 - A bug in `@framers/agentos` or another first-party package is fixed in that package's repository and released. Do not patch `node_modules` or copy a workaround into this repository.
