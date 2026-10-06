@@ -285,12 +285,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
 
-      # Skip the rest of the publish job when only the dashboard, docs,
-      # CI workflows, or other non-library files changed. The npm package
-      # ships dist/engine, dist/runtime, and dist/cli (server bits used by
-      # `npm run dashboard`). Dashboard React code is bundled at build time
-      # but not part of the public TS API surface — UI-only commits should
-      # NOT cut a new package version (was producing a release per UI tweak).
+      # Skip the rest of the publish job when the commit changes nothing the
+      # npm package ships: a dashboard, docs, test or workflow change cuts no
+      # version. scripts/detect-library-change.mjs holds the rule and its
+      # tests (tests/scripts/detect-library-change.test.ts).
       - name: Detect library changes
         id: changes
         run: |
@@ -303,14 +301,22 @@ jobs:
           CHANGED=$(git diff --name-only HEAD~1 HEAD)
           echo "Changed files:"
           echo "$CHANGED"
-          # Files that affect the published package surface
-          if echo "$CHANGED" | grep -qE '^(src/engine/|src/runtime/|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)\.ts|src/cli/(serve|server-app|sim-config|cli-run-options|compile|run|run-a|run-b|pair-runner|custom-scenarios|types)/|package\.json|tsconfig\.build\.json|LICENSE)'; then
-            echo "library_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Library code changed — will publish."
-          else
-            echo "library_changed=false" >> "$GITHUB_OUTPUT"
-            echo "Only dashboard/docs/CI changed — skipping npm publish + GitHub release."
-          fi
+          # The step's shell exits on a failed command, so a script error stops the job here.
+          VERDICT=$(printf '%s\n' "$CHANGED" | node scripts/detect-library-change.mjs)
+          case "$VERDICT" in
+            true)
+              echo "library_changed=true" >> "$GITHUB_OUTPUT"
+              echo "A shipped file changed — will publish."
+              ;;
+            false)
+              echo "library_changed=false" >> "$GITHUB_OUTPUT"
+              echo "No shipped file changed — skipping npm publish + GitHub release."
+              ;;
+            *)
+              echo "::error::detect-library-change.mjs printed '$VERDICT', expected true or false."
+              exit 1
+              ;;
+          esac
 
       - name: Install dependencies
         if: steps.changes.outputs.library_changed == 'true'
