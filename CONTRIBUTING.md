@@ -77,7 +77,7 @@ Every push to `master`, including a merged pull request, starts the [deploy work
 3. **docs** pushes the TypeDoc output to the `gh-pages` branch.
 4. **publish** compares the pushed commit with its parent. It publishes only when that commit changes one of the paths the workflow lists: `src/engine/`, `src/runtime/`, a set of files under `src/cli/`, `package.json`, `tsconfig.build.json` or `LICENSE`. Then it builds, sets the version to the major and minor of `package.json` with the workflow run number as the patch, regenerates `CHANGELOG.md` and commits it to `master` when it changed, runs `npm publish` and creates the GitHub release `v<version>`. A commit that changes none of those paths, such as a dashboard, documentation or test change, publishes nothing.
 
-The `CHANGELOG.md` commit is pushed before `npm publish` runs. If the publish fails, `master` has a changelog entry for a version that npm lacks and no GitHub release exists for it. Fix the cause; the next publishing push publishes under its own run number.
+When the changelog changed, its commit is pushed before `npm publish` runs, so a failed publish leaves `master` with a changelog entry for a version that npm lacks. When the changelog did not change, a failed publish leaves `master` as it was. In both cases no GitHub release exists for that version. Fix the cause; the next publishing push publishes under its own run number.
 
 Never edit `CHANGELOG.md` or the version in `package.json` to release, and never run `npm publish` by hand.
 
