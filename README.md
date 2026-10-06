@@ -440,7 +440,7 @@ Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forg
 
 Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in a hardened `node:vm` sandbox; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.
 
-Every structured LLM call (director, departments, commander, reactions, verdict) is Zod-validated with retry-with-feedback. Schemas under [`src/runtime/validators/`](src/runtime/validators/). Full per-stage breakdown in [docs/architecture.md](docs/architecture.md).
+Every structured LLM call (director, departments, commander, reactions, verdict) is Zod-validated with retry-with-feedback. Schemas under [`src/runtime/validators/`](src/runtime/validators/). Full per-stage breakdown in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -536,6 +536,17 @@ The open-source engine is the permanent foundation. The hosted product targets o
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |
+
+## Contributing and support
+
+| Guide | What |
+|---|---|
+| [Contributing](https://github.com/framerslab/paracosm/blob/master/CONTRIBUTING.md) | Development setup, commit and pull request rules, review threads, contribution licensing |
+| [Releasing and deploying](https://github.com/framerslab/paracosm/blob/master/CONTRIBUTING.md#releasing-and-deploying) | What a merge to master deploys and when npm publishes |
+| [Agent instructions](https://github.com/framerslab/paracosm/blob/master/AGENTS.md) | Commands and conventions for coding agents |
+| [Code of Conduct](https://github.com/framerslab/paracosm/blob/master/.github/CODE_OF_CONDUCT.md) | Community standards |
+| [Security Policy](https://github.com/framerslab/paracosm/blob/master/.github/SECURITY.md) | Reporting vulnerabilities privately |
+| [Support](https://github.com/framerslab/paracosm/blob/master/SUPPORT.md) | Where to get help |
 
 ## License
 
