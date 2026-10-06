@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the existing issues and found none for this bug.
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps or code that shows the bug.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Package and version
+      description: For example paracosm 0.9.973, or a commit SHA.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Node version, operating system and model provider. Write n/a where it does not apply.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Remove API keys, tokens and private prompts before pasting.
+      render: shell
