@@ -11,7 +11,7 @@ paracosm is an agent swarm simulation engine built on AgentOS: multi-agent world
 
 ## Development setup
 
-You need Node.js 24, the version the deploy workflow uses. The repository installs with npm and commits two lockfiles: `package-lock.json` at the root and `src/dashboard/package-lock.json` for the dashboard, which is its own npm project.
+You need Node.js 24, the version CI uses. The repository installs with npm and commits two lockfiles: `package-lock.json` at the root and `src/dashboard/package-lock.json` for the dashboard, which is its own npm project.
 
 ```bash
 git clone https://github.com/framerslab/paracosm.git
@@ -35,7 +35,7 @@ To run a simulation or the dashboard, copy `.env.example` to `.env` and set at l
 | `npm run check:doc-examples` | Type-checks the TypeScript examples in `src/dashboard/landing.html` against the package. |
 | `npm run test:e2e` | Runs the Playwright suite in `tests-e2e/` against a local server it starts. Install the browser once with `npm run test:e2e:install`. |
 
-Pull requests run the link check only. The build, the tests and the example check run after a merge, in the deploy workflow (see [Releasing and deploying](#releasing-and-deploying)). Run `npm run build`, `npm test` and `npm run check:doc-examples` before you open a pull request, and say in it what you ran.
+CI ([`ci.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/ci.yml)) runs one job, "Build and test", on every pull request. It fails when a lockfile was written inside a pnpm workspace, then runs, in order: `npm ci`, `npm run build`, the dashboard's `npm ci` and `npm run dashboard:build`, `npm test`, `npm run check:doc-examples` and `npm run docs`. Maintainers merge a pull request only when CI is green. The deploy workflow runs the same steps again after the merge (see [Releasing and deploying](#releasing-and-deploying)).
 
 ## Commit messages
 
@@ -47,7 +47,7 @@ Write the subject in the imperative mood and keep each commit to one change.
 
 - Keep each pull request to one concern.
 - Fill in the [pull request template](https://github.com/framerslab/paracosm/blob/master/.github/pull_request_template.md), including how you verified the change.
-- Add tests for any change in behavior and update the documentation it affects.
+- Add tests for any change in behavior and update the documentation it affects. CI must be green.
 - Maintainers squash-merge with the pull request title as the commit subject, which becomes the changelog line. Give the title the Conventional Commits form, put `!` before the colon for a change that breaks users (`feat!:` or `feat(api)!:`), and describe what users must change in the Migration notes section.
 
 ## Automated review threads
@@ -72,7 +72,7 @@ paracosm is Apache-2.0. By submitting a contribution you agree it is provided un
 
 Every push to `master`, including a merged pull request, starts the [deploy workflow](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml), unless the commit message carries a skip instruction such as `[skip ci]`. Maintainers can also start it by hand. It runs four jobs.
 
-1. **build** runs on Node 24. It warns when a lockfile is out of step with its `package.json`, fails when a lockfile was written inside a pnpm workspace, then runs `npm ci`, `npm run build`, the dashboard's `npm ci` and `npm run dashboard:build`, `npm test`, `npm run check:doc-examples` and the TypeDoc build. A failing `npm test` does not stop the workflow (the step runs `npm test || true`). A failure in any other step does, and the three jobs below then do not run.
+1. **build** runs on Node 24. It warns when a lockfile is out of step with its `package.json`, fails when a lockfile was written inside a pnpm workspace, then runs `npm ci`, `npm run build`, the dashboard's `npm ci` and `npm run dashboard:build`, `npm test`, `npm run check:doc-examples` and the TypeDoc build. A failure in any step stops the workflow, and the three jobs below then do not run.
 2. **deploy** copies the build to the server behind paracosm.agentos.sh and restarts the app, so every push that passes the build redeploys it.
 3. **docs** pushes the TypeDoc output to the `gh-pages` branch.
 4. **publish** compares the pushed commit with its parent. It publishes only when that commit changes one of the paths the workflow lists: `src/engine/`, `src/runtime/`, a set of files under `src/cli/`, `package.json`, `tsconfig.build.json` or `LICENSE`. Then it builds, sets the version to the major and minor of `package.json` with the workflow run number as the patch, regenerates `CHANGELOG.md` and commits it to `master` when it changed, runs `npm publish` and creates the GitHub release `v<version>`. A commit that changes none of those paths, such as a dashboard, documentation or test change, publishes nothing.
