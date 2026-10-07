@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   parseCommit,
   classifyCommit,
@@ -9,6 +13,7 @@ import {
   sliceCommits,
   renderBullet,
   renderEntry,
+  renderReleaseNotes,
 } from '../../scripts/generate-changelog.mjs';
 
 test('parseCommit extracts type, scope, breaking, subject from "feat(runtime): add X"', () => {
@@ -468,4 +473,29 @@ narrative B
 test('extractLockedEntries: missing version yields no map entry', () => {
   const locked = extractLockedEntries('# Changelog\n\n## 0.5.0 (2026-04-21)\n\n### Features\n- x\n', ['0.4.0']);
   assert.equal(locked.size, 0);
+});
+
+test('renderReleaseNotes starts at the last release tag, not at a pre-release tag after it', () => {
+  // A real repository: the range comes from `git describe`, which is what this pins.
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-release-notes-'));
+  const git = (args: string[]) =>
+    execFileSync('git', args, { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trimEnd();
+  const commit = (subject: string) =>
+    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', subject]);
+  try {
+    git(['init', '-q']);
+    commit('feat: in the last release');
+    git(['tag', 'v0.9.1']);
+    commit('fix: shipped after the last release');
+    git(['tag', 'v0.9.2-rc.1']);
+    commit('feat: shipped after the pre-release');
+
+    const notes = renderReleaseNotes({ boundaries: [], gitFn: git });
+
+    assert.match(notes, /shipped after the last release/);
+    assert.match(notes, /shipped after the pre-release/);
+    assert.doesNotMatch(notes, /in the last release/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

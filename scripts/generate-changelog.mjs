@@ -424,14 +424,16 @@ export function renderChangelog({ boundaries, narratives, gitFn }) {
 
 /**
  * Build release-notes.md text for the upcoming publish. Range is
- * `<last v*-tag>..HEAD`, falling back to the newest boundary's sha
- * when no `v*` tag exists yet (first-publish case). Returns a short
+ * `<last release tag>..HEAD`, falling back to the newest boundary's sha
+ * when no release tag exists yet (first-publish case). A release tag is
+ * `v<version>` without a pre-release suffix, the same baseline the
+ * publish job in deploy.yml compares with. Returns a short
  * "no user-facing changes" body when the range is empty.
  */
 export function renderReleaseNotes({ boundaries, gitFn }) {
   let lastTag = null;
   try {
-    lastTag = gitFn(['describe', '--tags', '--abbrev=0', '--match', 'v*']);
+    lastTag = gitFn(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', '--exclude', '*-*']);
   } catch {
     lastTag = null;
   }
