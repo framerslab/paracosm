@@ -16,7 +16,7 @@
 </div></section>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ParacosmClientOptions</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#compilermodel">compilerModel</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#compilerprovider">compilerProvider</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">LlmProvider</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#costpreset">costPreset</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">CostPreset</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#models">models</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">Partial</span><span class="tsd-signature-symbol">&lt;</span><a href="paracosm.SimulationModelConfig.html" class="tsd-signature-type tsd-kind-interface">SimulationModelConfig</a><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#provider">provider</a><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">LlmProvider</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L37">runtime/client.ts:37</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L37">runtime/client.ts:37</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -42,7 +42,7 @@ provider-default (gpt-5.4-mini on OpenAI, claude-sonnet-4-6 on
 Anthropic).</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L72">runtime/client.ts:72</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L72">runtime/client.ts:72</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="compilerprovider"><code class="tsd-tag">Optional</code><span>compiler<wbr/>Provider</span><a href="#compilerprovider" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">compilerProvider</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">LlmProvider</span></div>
@@ -51,7 +51,7 @@ Defaults to <code>provider</code> when unset so most users only configure one
 provider. Env fallback: <code>PARACOSM_COMPILER_PROVIDER</code>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L65">runtime/client.ts:65</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L65">runtime/client.ts:65</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="costpreset"><code class="tsd-tag">Optional</code><span>cost<wbr/>Preset</span><a href="#costpreset" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">costPreset</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">CostPreset</span></div>
@@ -59,7 +59,7 @@ provider. Env fallback: <code>PARACOSM_COMPILER_PROVIDER</code>.</p>
 or <code>=economy</code>.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L48">runtime/client.ts:48</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L48">runtime/client.ts:48</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="models"><code class="tsd-tag">Optional</code><span>models</span><a href="#models" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">models</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">Partial</span><span class="tsd-signature-symbol">&lt;</span><a href="paracosm.SimulationModelConfig.html" class="tsd-signature-type tsd-kind-interface">SimulationModelConfig</a><span class="tsd-signature-symbol">&gt;</span></div>
@@ -73,7 +73,7 @@ commander / director / judge / agentReactions flowing from the
 preset as before.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L59">runtime/client.ts:59</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L59">runtime/client.ts:59</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="provider"><code class="tsd-tag">Optional</code><span>provider</span><a href="#provider" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">provider</span><span class="tsd-signature-symbol">?:</span> <span class="tsd-signature-type">LlmProvider</span></div>
@@ -82,7 +82,7 @@ preset as before.</p>
 still wins.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/runtime/client.ts#L43">runtime/client.ts:43</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/46efd93dca6e4f357a99bf25ef8167ac283bd70a/src/runtime/client.ts#L43">runtime/client.ts:43</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
