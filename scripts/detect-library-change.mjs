@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 /**
  * Decides whether a commit changes what the npm package ships, so the
- * publish job can skip a commit that only touches the dashboard, the
- * docs, the tests or the workflows.
+ * publish job can skip a commit that only touches the docs, the tests or
+ * the workflows.
  *
- * The package ships three kinds of file:
+ * The package ships four kinds of file:
  *   1. `dist/`, which `tsc -p tsconfig.build.json` compiles from the
  *      source under `src/`, the dashboard and the test files excluded;
- *   2. the paths the `files` field of `package.json` names beside
- *      `dist/`: scenarios, the actor configuration, the license;
- *   3. `package.json` itself.
- * A change to a `tsconfig` build file changes the first kind.
+ *   2. `dist/dashboard/`, the dashboard's Vite build and landing page,
+ *      which `scripts/pack-dashboard.mjs` copies from `src/dashboard/`
+ *      when the package is packed;
+ *   3. the paths the `files` field of `package.json` names beside
+ *      `dist/`: scenarios, the actor configuration, the landing page's
+ *      assets, the license;
+ *   4. `package.json` itself.
+ * A change to a `tsconfig` build file changes the first kind, and any
+ * change under `src/` other than a test changes the first or the second.
  *
  * The README is in the tarball too, and a change to it alone publishes
  * nothing: a version that differs only in its README is noise.
@@ -38,7 +43,7 @@ const TEST_FILE = /\.test\.tsx?$/;
 export function shipsInPackage(file, shippedPaths) {
   if (BUILD_INPUTS.has(file)) return true;
   if (file.startsWith('src/')) {
-    return !file.startsWith('src/dashboard/') && !TEST_FILE.test(file);
+    return !TEST_FILE.test(file);
   }
   return shippedPaths.some((entry) => {
     if (IGNORED_FILES_ENTRIES.has(entry)) return false;

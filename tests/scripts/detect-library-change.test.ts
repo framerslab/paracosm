@@ -26,11 +26,28 @@ test('every compiled source directory publishes', () => {
   }
 });
 
-test('the dashboard, tests, docs and workflows publish nothing', () => {
+test('the dashboard publishes: the package ships its build and landing page', () => {
+  // scripts/pack-dashboard.mjs copies the build into dist/dashboard/ at prepack.
   for (const file of [
     'src/dashboard/src/App.tsx',
     'src/dashboard/landing.html',
     'src/dashboard/package.json',
+    'src/dashboard/vite.config.ts',
+    'assets/landing.css',
+    'assets/diagrams/paracosm-flow.svg',
+    'assets/favicons/favicon-32.png',
+  ]) {
+    assert.equal(shipsInPackage(file, files), true, file);
+  }
+  // The demo video stays out of the package; only its poster ships.
+  assert.equal(shipsInPackage('assets/demo/e2e-atlas-8-hero.mp4', files), false);
+  assert.equal(shipsInPackage('assets/demo/e2e-atlas-8-poster.jpg', files), true);
+});
+
+test('tests, docs and workflows publish nothing', () => {
+  for (const file of [
+    'src/dashboard/src/components/quickstart/pdf-extract.test.ts',
+    'src/dashboard/src/components/sim/TurnGrid.test.tsx',
     'src/engine/core/state.test.ts',
     'src/cli/sim-config.test.ts',
     'tests/engine/kernel.test.ts',
@@ -73,7 +90,8 @@ test('every files entry beside the build output exists in the repository', () =>
 });
 
 test('changesPackage is true when any changed path ships', () => {
-  assert.equal(changesPackage(['README.md', 'src/dashboard/src/App.tsx'], files), false);
+  assert.equal(changesPackage(['README.md', 'docs/ARCHITECTURE.md'], files), false);
+  assert.equal(changesPackage(['README.md', 'src/dashboard/src/App.tsx'], files), true);
   assert.equal(changesPackage(['README.md', 'src/server/server-app.ts'], files), true);
   assert.equal(changesPackage([], files), false);
 });
