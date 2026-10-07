@@ -95,6 +95,18 @@ YAML_PIN_BLOCKS = ("overrides", "catalog", "catalogs")
 # The package.json field whose pins are never rewritten (see the module docstring).
 PEER_FIELD = "peerDependencies"
 
+
+def in_peer_field(path: tuple[str, ...]) -> bool:
+    """True when a pin sits directly in the top-level peerDependencies field.
+
+    A package.json's root object contributes an empty key, so the field's
+    path is ("", "peerDependencies"); a fragment without the root braces
+    gives ("peerDependencies",). An object named peerDependencies deeper down
+    (an npm override for a package of that name, a config block) is not the
+    field, and its pins follow the other rules.
+    """
+    return path in ((PEER_FIELD,), ("", PEER_FIELD))
+
 Warn = Callable[[str, int, str], None]
 
 
@@ -262,7 +274,7 @@ def bump_json_text(text: str, versions: dict[str, str], source: str = "<fixture>
         def replace(match: re.Match[str], _pkg: str = pkg, _latest: str = latest,
                     _paths: dict[int, tuple[str, ...]] = paths) -> str:
             nonlocal changes
-            if PEER_FIELD in _paths.get(match.start(), ()):
+            if in_peer_field(_paths.get(match.start(), ())):
                 return match.group(0)
             if not should_rewrite(match.group("spec"), _latest):
                 return match.group(0)
@@ -453,6 +465,9 @@ def self_check() -> None:
         # The same pin moves under dependencies while the peer stays.
         ('{"dependencies": {"@framers/agentos": "^0.9.135"}, "peerDependencies": {"@framers/agentos": "^0.9.135"}}',
          '{"dependencies": {"@framers/agentos": "^0.10.28"}, "peerDependencies": {"@framers/agentos": "^0.9.135"}}'),
+        # An object named peerDependencies below the root is not the field.
+        ('{"config": {"peerDependencies": {"@framers/agentos": "^0.9.135"}}}',
+         '{"config": {"peerDependencies": {"@framers/agentos": "^0.10.28"}}}'),
     ]
     json_warned = [
         ('"wunderland>@framers/agentos": "0.9.138"', "1:override pins @framers/agentos under a parent (0.9.138)"),
@@ -460,6 +475,9 @@ def self_check() -> None:
         ('{\n  "overrides": {\n    "wunderland": {\n      "@framers/agentos": "0.9.138"\n    }\n  }\n}',
          "4:override pins @framers/agentos under a parent (0.9.138)"),
         ('"resolutions": { "wunderland/@framers/agentos": "0.9.138" }', "1:override pins @framers/agentos under a parent (0.9.138)"),
+        # An npm override under a parent package named peerDependencies is still parent-scoped.
+        ('{"overrides": {"peerDependencies": {"@framers/agentos": "0.9.138"}}}',
+         "1:override pins @framers/agentos under a parent (0.9.138)"),
         ('{"dependencies": {"@framers/agentos": "^0.9.135"}, "overrides": {"@framers/agentos": {".": "^0.9.135"}}}',
          "1:nested override for @framers/agentos not handled"),
         # The key below is `overrides` with its first letter written as a JSON escape.
