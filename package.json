@@ -44,11 +44,15 @@
     "scenarios/t2d-glp1-protocol.json",
     "config/actors.example.json",
     "config/actors.json",
+    "assets/favicons/",
+    "assets/landing.css",
+    "assets/diagrams/",
+    "assets/demo/e2e-atlas-8-poster.jpg",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/run.js dist/cli/serve.js 2>/dev/null || true",
+    "build": "tsc -p tsconfig.build.json && (chmod +x dist/cli/run.js dist/cli/serve.js 2>/dev/null || true)",
     "run": "npx tsx src/cli/run.ts",
     "run:a": "npx tsx src/cli/run-a.ts",
     "run:b": "npx tsx src/cli/run-b.ts",
@@ -73,6 +77,8 @@
     "export:json-schema": "npx tsx scripts/export-json-schema.ts",
     "snapshot:schema": "npx tsx scripts/snapshot-schema.ts",
     "prepublishOnly": "npm run build",
+    "prepack": "node scripts/pack-dashboard.mjs",
+    "check:package": "node scripts/smoke-packed-package.mjs",
     "leader:a": "npx tsx src/cli/run-a.ts",
     "leader:b": "npx tsx src/cli/run-b.ts"
   },

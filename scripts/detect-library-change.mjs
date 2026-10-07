@@ -1,16 +1,22 @@
 #!/usr/bin/env node
 /**
  * Decides whether a commit changes what the npm package ships, so the
- * publish job can skip a commit that only touches the dashboard, the
- * docs, the tests or the workflows.
+ * publish job can skip a commit that only touches the docs, the tests or
+ * the workflows.
  *
- * The package ships three kinds of file:
+ * The package ships four kinds of file:
  *   1. `dist/`, which `tsc -p tsconfig.build.json` compiles from the
  *      source under `src/`, the dashboard and the test files excluded;
- *   2. the paths the `files` field of `package.json` names beside
- *      `dist/`: scenarios, the actor configuration, the license;
- *   3. `package.json` itself.
- * A change to a `tsconfig` build file changes the first kind.
+ *   2. `dist/dashboard/`, the dashboard's Vite build and landing page,
+ *      which `scripts/pack-dashboard.mjs` copies from `src/dashboard/`
+ *      when the package is packed;
+ *   3. the paths the `files` field of `package.json` names beside
+ *      `dist/`: scenarios, the actor configuration, the landing page's
+ *      assets, the license;
+ *   4. `package.json` itself.
+ * A change to a `tsconfig` build file changes the first kind, a change to
+ * `scripts/pack-dashboard.mjs` the second, and any change under `src/`
+ * other than a test changes the first or the second.
  *
  * The README is in the tarball too, and a change to it alone publishes
  * nothing: a version that differs only in its README is noise.
@@ -22,8 +28,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** Files outside `src/` whose change alters the built package. */
-const BUILD_INPUTS = new Set(['package.json', 'tsconfig.json', 'tsconfig.build.json']);
+/**
+ * Files outside `src/` whose change alters the built package: the manifest, the
+ * TypeScript build configuration, and the prepack script that copies the dashboard
+ * into `dist/dashboard/`.
+ */
+const BUILD_INPUTS = new Set(['package.json', 'tsconfig.json', 'tsconfig.build.json', 'scripts/pack-dashboard.mjs']);
 
 /** `files` entries that are in the tarball and decide no publish here. */
 const IGNORED_FILES_ENTRIES = new Set(['dist', 'dist/', 'README.md']);
@@ -38,7 +48,7 @@ const TEST_FILE = /\.test\.tsx?$/;
 export function shipsInPackage(file, shippedPaths) {
   if (BUILD_INPUTS.has(file)) return true;
   if (file.startsWith('src/')) {
-    return !file.startsWith('src/dashboard/') && !TEST_FILE.test(file);
+    return !TEST_FILE.test(file);
   }
   return shippedPaths.some((entry) => {
     if (IGNORED_FILES_ENTRIES.has(entry)) return false;

@@ -5,7 +5,8 @@ name: CI
 # steps here belongs in deploy.yml too. The exception is the PDF upload
 # end-to-end test: Playwright's web server rebuilds src/dashboard/dist without
 # the analytics settings deploy.yml builds with, and deploy.yml uploads that
-# directory, so the test runs here only.
+# directory, so the test runs here only. The packed-package check runs here
+# and in deploy.yml's publish job, before npm publish, on the build it publishes.
 #
 # The weekly bump workflow dispatches CI on its pull request branch, because
 # GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
@@ -61,6 +62,12 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # Packs the package, installs the tarball into an empty project, starts
+      # paracosm-dashboard and requests the landing page, the dashboard and
+      # their assets (scripts/smoke-packed-package.mjs).
+      - name: Check the packed package
+        run: npm run check:package
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
