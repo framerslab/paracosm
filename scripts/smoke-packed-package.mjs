@@ -35,6 +35,8 @@ const REQUIRED_FILES = [
 /** [path, content type prefix, text the body must contain (or null)] */
 const PAGES = [
   ['/', 'text/html', '<title>Paracosm'],
+  // The package leaves the hero video out; the landing page must name the hosted copy.
+  ['/', 'text/html', 'https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4'],
   ['/sim', 'text/html', '<div id="root">'],
   ['/brand/landing.css', 'text/css', null],
   ['/diagrams/paracosm-flow.svg', 'image/svg+xml', '<svg'],
