@@ -168,8 +168,18 @@ jobs:
             exit 1
           fi
           # The commit the run tests: another bump run can move the branch after the
-          # bump job read its head.
-          run=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json headSha,url)
+          # bump job read its head. A run created a moment ago may not be readable
+          # yet, so this tries for a minute.
+          run=''
+          for _ in $(seq 1 12); do
+            run=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json headSha,url) && break
+            run=''
+            sleep 5
+          done
+          if [ -z "$run" ]; then
+            echo "::error::CI run $id could not be read for a minute after the dispatch."
+            exit 1
+          fi
           head=$(jq -r .headSha <<<"$run")
           url=$(jq -r .url <<<"$run")
           {
