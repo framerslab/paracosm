@@ -92,7 +92,7 @@
     "pdf-lib": "^1.17.1",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.0",
-    "typescript": "^5.4.0"
+    "typescript": "^7.0.2"
   },
   "keywords": [
     "paracosm",
