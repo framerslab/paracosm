@@ -41,6 +41,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # create-pull-request sets up its own authentication to push, so the token
+          # is not left in .git/config for the install steps, which run package code.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -69,7 +72,8 @@ jobs:
       - name: Refresh pnpm lockfile (when present)
         run: |
           if [ -f pnpm-lock.yaml ]; then
-            pnpm install --no-frozen-lockfile
+            # Refreshing the lockfile needs no package's install script.
+            pnpm install --no-frozen-lockfile --ignore-scripts
           fi
 
       - name: Refresh npm lockfile (when present)
