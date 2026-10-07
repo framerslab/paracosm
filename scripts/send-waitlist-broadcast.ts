@@ -19,9 +19,9 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createWaitlistStore } from '../src/cli/server/waitlist-store.js';
-import { sendEmail } from '../src/cli/server/email.js';
-import { renderYoureIn } from '../src/cli/server/email-templates.js';
+import { createWaitlistStore } from '../src/server/stores/waitlist.js';
+import { sendEmail } from '../src/server/services/email.js';
+import { renderYoureIn } from '../src/server/services/email-templates.js';
 
 function loadEnv(): void {
   const envPath = resolve(process.cwd(), '.env');
