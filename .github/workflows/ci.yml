@@ -2,7 +2,10 @@ name: CI
 
 # Builds and tests every pull request. The deploy workflow's build job runs
 # the same steps on a push to master before it deploys, so a change to the
-# steps here belongs in deploy.yml too.
+# steps here belongs in deploy.yml too. The exception is the PDF upload
+# end-to-end test: Playwright's web server rebuilds src/dashboard/dist without
+# the analytics settings deploy.yml builds with, and deploy.yml uploads that
+# directory, so the test runs here only.
 on:
   pull_request:
 
@@ -53,6 +56,12 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: PDF upload end-to-end test
+        run: npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples

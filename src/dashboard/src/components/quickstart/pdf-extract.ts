@@ -83,12 +83,13 @@ export async function extractPdfText(
   const pdfjs = await loadPdfjs();
 
   const buffer = await file.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
-  const scanPages = Math.min(pdf.numPages, maxPages);
+  const loadingTask = pdfjs.getDocument({ data: buffer });
   const chunks: string[] = [];
   let totalBytes = 0;
   let truncated = false;
   try {
+    const pdf = await loadingTask.promise;
+    const scanPages = Math.min(pdf.numPages, maxPages);
     for (let i = 1; i <= scanPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
@@ -132,8 +133,9 @@ export async function extractPdfText(
     }
     return { text, pages: pdf.numPages, truncated };
   } finally {
-    // Release the native PDFDocumentProxy handle even when iteration
-    // threw partway through.
-    try { pdf.destroy(); } catch { /* noop */ }
+    // Destroying the loading task terminates the worker getDocument() started,
+    // also when the load rejected or a page threw partway through. pdf.js 6
+    // removed PDFDocumentProxy.destroy() (mozilla/pdf.js#21245).
+    void loadingTask.destroy().catch(() => { /* noop */ });
   }
 }
