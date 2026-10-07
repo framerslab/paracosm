@@ -57,7 +57,7 @@ async function waitForServer(url, timeoutMs, server, closed) {
   while (Date.now() < deadline) {
     if (server.exitCode !== null || server.signalCode !== null) {
       // 'exit' can come before the last of the server's output; 'close' follows once
-      // stdout and stderr have ended, so the error message below has all of it.
+      // stdout and stderr have ended, so the output main() prints with this error is complete.
       await Promise.race([closed, new Promise((wait) => setTimeout(wait, 5_000).unref())]);
       throw new Error(`paracosm-dashboard exited (${server.signalCode ?? `code ${server.exitCode}`}) before it answered`);
     }
