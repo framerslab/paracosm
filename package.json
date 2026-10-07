@@ -52,7 +52,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli/run.js dist/cli/serve.js 2>/dev/null || true",
+    "build": "tsc -p tsconfig.build.json && (chmod +x dist/cli/run.js dist/cli/serve.js 2>/dev/null || true)",
     "run": "npx tsx src/cli/run.ts",
     "run:a": "npx tsx src/cli/run-a.ts",
     "run:b": "npx tsx src/cli/run-b.ts",
