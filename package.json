@@ -90,7 +90,7 @@
     "@types/react-dom": "^19.2.0",
     "pdf-lib": "^1.17.1",
     "tsx": "^4.21.0",
-    "typedoc": "^0.28.0",
+    "typedoc": "^0.28.20",
     "typescript": "^5.4.0"
   },
   "keywords": [
