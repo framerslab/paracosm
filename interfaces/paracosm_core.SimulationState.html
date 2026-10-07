@@ -13,7 +13,7 @@
 <h1>Interface SimulationState</h1></div>
 <div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">SimulationState</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-property" href="#agents">agents</a><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.Agent.html" class="tsd-signature-type tsd-kind-interface">Agent</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#environment">environment</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#eventlog">eventLog</a><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.TurnEvent.html" class="tsd-signature-type tsd-kind-interface">TurnEvent</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#metadata">metadata</a><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.SimulationMetadata.html" class="tsd-signature-type tsd-kind-interface">SimulationMetadata</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#metrics">metrics</a><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.WorldMetrics.html" class="tsd-signature-type tsd-kind-interface">WorldMetrics</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#politics">politics</a><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.WorldPolitics.html" class="tsd-signature-type tsd-kind-interface">WorldPolitics</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-property" href="#statuses">statuses</a><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L222">engine/core/state.ts:222</a></li></ul></aside>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L222">engine/core/state.ts:222</a></li></ul></aside>
 <section class="tsd-panel-group tsd-index-group">
 <section class="tsd-panel tsd-index-panel">
 <details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
@@ -36,7 +36,7 @@
 <h3 class="tsd-anchor-link" id="agents"><span>agents</span><a href="#agents" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">agents</span><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.Agent.html" class="tsd-signature-type tsd-kind-interface">Agent</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L234">engine/core/state.ts:234</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L234">engine/core/state.ts:234</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="environment"><span>environment</span><a href="#environment" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">environment</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">number</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></div>
@@ -46,17 +46,17 @@ Keys are scenario-declared; always present (empty object when
 the scenario declares no environment fields).</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L249">engine/core/state.ts:249</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L249">engine/core/state.ts:249</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="eventlog"><span>event<wbr/>Log</span><a href="#eventlog" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">eventLog</span><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.TurnEvent.html" class="tsd-signature-type tsd-kind-interface">TurnEvent</a><span class="tsd-signature-symbol">[]</span></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L250">engine/core/state.ts:250</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L250">engine/core/state.ts:250</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="metadata"><span>metadata</span><a href="#metadata" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">metadata</span><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.SimulationMetadata.html" class="tsd-signature-type tsd-kind-interface">SimulationMetadata</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L223">engine/core/state.ts:223</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L223">engine/core/state.ts:223</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="metrics"><span>metrics</span><a href="#metrics" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">metrics</span><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.WorldMetrics.html" class="tsd-signature-type tsd-kind-interface">WorldMetrics</a></div>
@@ -69,12 +69,12 @@ now <code>metrics</code> aligning with <code>WorldSnapshot.metrics</code> from t
 universal schema.</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L233">engine/core/state.ts:233</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L233">engine/core/state.ts:233</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="politics"><span>politics</span><a href="#politics" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">politics</span><span class="tsd-signature-symbol">:</span> <a href="paracosm_core.WorldPolitics.html" class="tsd-signature-type tsd-kind-interface">WorldPolitics</a></div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L235">engine/core/state.ts:235</a></li></ul></aside></section>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L235">engine/core/state.ts:235</a></li></ul></aside></section>
 <section class="tsd-panel tsd-member">
 <h3 class="tsd-anchor-link" id="statuses"><span>statuses</span><a href="#statuses" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
 <div class="tsd-signature"><span class="tsd-kind-property">statuses</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Record</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">string</span><span class="tsd-signature-symbol">,</span> <span class="tsd-signature-type">string</span> <span class="tsd-signature-symbol">|</span> <span class="tsd-signature-type">boolean</span><span class="tsd-signature-symbol">&gt;</span></div>
@@ -84,7 +84,7 @@ Keys are scenario-declared; always present (empty object when
 the scenario declares no statuses).</p>
 </div><aside class="tsd-sources">
 <ul>
-<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/c7e6898029fe66681da998f2b9ba6899b176fea2/src/engine/core/state.ts#L242">engine/core/state.ts:242</a></li></ul></aside></section></section></details></div>
+<li>Defined in <a href="https://github.com/framerslab/paracosm/blob/b061e1b760bc341a40c3d831fb25a0a233868d17/src/engine/core/state.ts#L242">engine/core/state.ts:242</a></li></ul></aside></section></section></details></div>
 <div class="col-sidebar">
 <div class="page-menu">
 <div class="tsd-navigation settings">
