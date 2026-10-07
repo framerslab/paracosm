@@ -6,14 +6,19 @@ name: CI
 # end-to-end test: Playwright's web server rebuilds src/dashboard/dist without
 # the analytics settings deploy.yml builds with, and deploy.yml uploads that
 # directory, so the test runs here only.
+#
+# The weekly bump workflow dispatches CI on its pull request branch, because
+# GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
+# until a maintainer approves them.
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
