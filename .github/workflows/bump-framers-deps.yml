@@ -13,7 +13,8 @@ name: Bump @framers/* deps
 # So the ci job below dispatches CI on the pull request branch, waits for it
 # and posts its result as the "CI (workflow_dispatch)" commit status. A pull
 # request's checks leave out the check runs of a dispatched run; they list
-# commit statuses.
+# commit statuses. The dispatched run gets what a Dependabot pull request's
+# run gets: a read-only token and no secrets.
 
 on:
   schedule:
@@ -32,6 +33,7 @@ jobs:
       operation: ${{ steps.cpr.outputs.pull-request-operation }}
       branch: ${{ steps.cpr.outputs.pull-request-branch }}
       sha: ${{ steps.cpr.outputs.pull-request-head-sha }}
+      number: ${{ steps.cpr.outputs.pull-request-number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -102,13 +104,15 @@ jobs:
           # staging NOTHING - and `**/package.json` misses the root manifest.
           # Default collection stages every bump change.
 
-  # Runs when this run opened the pull request or pushed to its branch. A run
-  # that leaves the branch as it was keeps the status already posted. CI can be
-  # run on the branch by hand (gh workflow run ci.yml --ref chore/bump-framers-deps),
-  # but only this job posts the status.
+  # Runs after every bump run that leaves a pull request open. A new or updated
+  # branch gets a CI run. An unchanged branch gets one only when its head commit
+  # has no pending or passed CI (workflow_dispatch) status, so a dispatch that
+  # failed is retried by the next run. CI can be run on the branch by hand
+  # (gh workflow run ci.yml --ref chore/bump-framers-deps), but only this job
+  # posts the status.
   ci:
     needs: bump
-    if: needs.bump.outputs.operation == 'created' || needs.bump.outputs.operation == 'updated'
+    if: needs.bump.outputs.number != '' && needs.bump.outputs.operation != 'closed'
     runs-on: ubuntu-latest
     # Only this job can dispatch workflows and post statuses; the bump job, which installs packages, cannot.
     permissions:
@@ -118,6 +122,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BRANCH: ${{ needs.bump.outputs.branch }}
       SHA: ${{ needs.bump.outputs.sha }}
+      OPERATION: ${{ needs.bump.outputs.operation }}
       CONTEXT: CI (workflow_dispatch)
     steps:
       - name: Dispatch CI on the pull request branch and post its result
@@ -126,41 +131,75 @@ jobs:
         run: |
           set -euo pipefail
           post() {
-            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$1" -f context="$CONTEXT" \
-              -f description="$2" -f target_url="$3" > /dev/null
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$1" -f state="$2" -f context="$CONTEXT" \
+              -f description="$3" -f target_url="$4" > /dev/null
           }
-          # A minute of slack for the clock difference between this runner and GitHub.
-          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
-          run=''
+          if [ "$OPERATION" = none ]; then
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" \
+              --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0].state // \"\"")
+            if [ "$state" = success ] || [ "$state" = pending ]; then
+              echo "The branch is unchanged and $CONTEXT is $state on $SHA."
+              echo "posted=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          # The dispatched runs that exist now, so the lookup below cannot pick one of them.
+          before=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
+            --event workflow_dispatch --limit 100 --json databaseId --jq '[.[].databaseId]')
+          # The endpoint answers with the new run's id:
+          # https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
+          dispatched=$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" \
+            -f ref="$BRANCH")
+          id=''
+          if [ -n "$dispatched" ]; then
+            id=$(jq -r '.workflow_run_id // empty' <<<"$dispatched")
+          fi
           for _ in $(seq 1 24); do
+            [ -n "$id" ] && break
             sleep 5
-            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
-              --event workflow_dispatch --limit 20 --json databaseId,headSha,createdAt,url \
-              --jq "map(select(.headSha == \"$SHA\" and .createdAt >= \"$since\")) | first // empty") || run=''
-            [ -n "$run" ] && break
+            id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
+              --event workflow_dispatch --limit 100 --json databaseId,createdAt \
+              | jq -r --argjson before "$before" \
+                '[.[] | select(.databaseId as $i | ($before | any(. == $i)) | not)] | sort_by(.createdAt) | first | .databaseId // empty') \
+              || id=''
           done
-          if [ -z "$run" ]; then
-            echo "::error::No dispatched CI run for $SHA appeared within two minutes."
+          if [ -z "$id" ]; then
+            echo "::error::The CI run this job dispatched did not appear within two minutes."
             exit 1
           fi
-          id=$(jq -r .databaseId <<<"$run")
+          # The commit the run tests: another bump run can move the branch after the
+          # bump job read its head.
+          run=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json headSha,url)
+          head=$(jq -r .headSha <<<"$run")
           url=$(jq -r .url <<<"$run")
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          post pending 'CI is running on this commit' "$url"
+          {
+            echo "sha=$head"
+            echo "url=$url"
+          } >> "$GITHUB_OUTPUT"
+          post "$head" pending 'CI is running on this commit' "$url"
           result=''
+          failures=0
           while [ -z "$result" ]; do
             sleep 30
-            result=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json status,conclusion \
-              --jq 'select(.status == "completed") | .conclusion') || result=''
+            if out=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json status,conclusion \
+              --jq 'select(.status == "completed") | .conclusion'); then
+              failures=0
+              result=$out
+            else
+              failures=$((failures + 1))
+              if [ "$failures" -ge 10 ]; then
+                echo "::error::gh run view failed ten times in a row for run $id."
+                exit 1
+              fi
+            fi
           done
           case "$result" in
-            success) post success 'CI passed on this commit' "$url" ;;
-            failure | timed_out | startup_failure) post failure "CI failed on this commit ($result)" "$url" ;;
-            *) post error "CI ended without a result ($result)" "$url" ;;
+            success) post "$head" success 'CI passed on this commit' "$url" ;;
+            failure | timed_out | startup_failure) post "$head" failure "CI failed on this commit ($result)" "$url" ;;
+            *) post "$head" error "CI ended without a result ($result)" "$url" ;;
           esac
           echo "posted=true" >> "$GITHUB_OUTPUT"
-          echo "CI on $SHA: $result ($url)"
+          echo "CI on $head: $result ($url)"
           [ "$result" = success ]
 
       # A status left pending reads as CI still running, so when the step above stops before it
@@ -168,7 +207,8 @@ jobs:
       - name: Post an error status if CI's result was not posted
         if: (failure() || cancelled()) && steps.run.outputs.posted != 'true'
         env:
+          TARGET: ${{ steps.run.outputs.sha || needs.bump.outputs.sha }}
           URL: ${{ steps.run.outputs.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=error -f context="$CONTEXT" \
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$TARGET" -f state=error -f context="$CONTEXT" \
             -f description='The job that waits for CI stopped before CI finished' -f target_url="$URL" > /dev/null
