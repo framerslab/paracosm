@@ -134,8 +134,14 @@ export async function extractPdfText(
     return { text, pages: pdf.numPages, truncated };
   } finally {
     // Destroying the loading task terminates the worker getDocument() started,
-    // also when the load rejected or a page threw partway through. pdf.js 6
-    // removed PDFDocumentProxy.destroy() (mozilla/pdf.js#21245).
-    void loadingTask.destroy().catch(() => { /* noop */ });
+    // also when the load rejected or a page threw partway through. It is awaited,
+    // so the next upload cannot start while this worker is still shutting down;
+    // a failed teardown does not replace the result or the original error.
+    // pdf.js 6 removed PDFDocumentProxy.destroy() (mozilla/pdf.js#21245).
+    try {
+      await loadingTask.destroy();
+    } catch {
+      /* noop */
+    }
   }
 }
