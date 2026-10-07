@@ -107,7 +107,6 @@ const sandboxTsconfig = {
     // enough so they compile without forcing every example to declare
     // every helper variable's full type.
     noImplicitAny: false,
-    baseUrl: '.',
     typeRoots: [`${REPO_ROOT}/node_modules/@types`],
     types: ['node'],
     paths: {
