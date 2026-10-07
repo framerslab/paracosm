@@ -7,10 +7,13 @@ name: Bump @framers/* deps
 # into every repo that depends on the agentos family.
 #
 # GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
-# or pushes to until someone with write access approves them, and a
-# workflow_dispatch event always creates a run. So the ci job below starts CI
-# on the pull request branch by dispatch, and its checks show on the pull
-# request: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
+# or pushes to until someone with write access approves them, while a
+# workflow_dispatch event always creates a run:
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
+# So the ci job below dispatches CI on the pull request branch, waits for it
+# and posts its result as the "CI (workflow_dispatch)" commit status. A pull
+# request's checks leave out the check runs of a dispatched run; they list
+# commit statuses.
 
 on:
   schedule:
@@ -28,6 +31,7 @@ jobs:
     outputs:
       operation: ${{ steps.cpr.outputs.pull-request-operation }}
       branch: ${{ steps.cpr.outputs.pull-request-branch }}
+      sha: ${{ steps.cpr.outputs.pull-request-head-sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -98,19 +102,73 @@ jobs:
           # staging NOTHING - and `**/package.json` misses the root manifest.
           # Default collection stages every bump change.
 
-  # Runs when this run opened the pull request or pushed to its branch; a run
-  # that leaves the branch as it was keeps the checks of the last dispatch. To
-  # run CI on the branch again: gh workflow run ci.yml --ref chore/bump-framers-deps
+  # Runs when this run opened the pull request or pushed to its branch. A run
+  # that leaves the branch as it was keeps the status already posted. CI can be
+  # run on the branch by hand (gh workflow run ci.yml --ref chore/bump-framers-deps),
+  # but only this job posts the status.
   ci:
     needs: bump
     if: needs.bump.outputs.operation == 'created' || needs.bump.outputs.operation == 'updated'
     runs-on: ubuntu-latest
-    # Only this job can dispatch workflows; the bump job, which installs packages, cannot.
+    # Only this job can dispatch workflows and post statuses; the bump job, which installs packages, cannot.
     permissions:
       actions: write
+      statuses: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH: ${{ needs.bump.outputs.branch }}
+      SHA: ${{ needs.bump.outputs.sha }}
+      CONTEXT: CI (workflow_dispatch)
     steps:
-      - name: Dispatch CI on the pull request branch
+      - name: Dispatch CI on the pull request branch and post its result
+        id: run
+        timeout-minutes: 90
+        run: |
+          set -euo pipefail
+          post() {
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$1" -f context="$CONTEXT" \
+              -f description="$2" -f target_url="$3" > /dev/null
+          }
+          # A minute of slack for the clock difference between this runner and GitHub.
+          since=$(date -u -d '-1 minute' +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          run=''
+          for _ in $(seq 1 24); do
+            sleep 5
+            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
+              --event workflow_dispatch --limit 20 --json databaseId,headSha,createdAt,url \
+              --jq "map(select(.headSha == \"$SHA\" and .createdAt >= \"$since\")) | first // empty") || run=''
+            [ -n "$run" ] && break
+          done
+          if [ -z "$run" ]; then
+            echo "::error::No dispatched CI run for $SHA appeared within two minutes."
+            exit 1
+          fi
+          id=$(jq -r .databaseId <<<"$run")
+          url=$(jq -r .url <<<"$run")
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          post pending 'CI is running on this commit' "$url"
+          result=''
+          while [ -z "$result" ]; do
+            sleep 30
+            result=$(gh run view "$id" --repo "$GITHUB_REPOSITORY" --json status,conclusion \
+              --jq 'select(.status == "completed") | .conclusion') || result=''
+          done
+          case "$result" in
+            success) post success 'CI passed on this commit' "$url" ;;
+            failure | timed_out | startup_failure) post failure "CI failed on this commit ($result)" "$url" ;;
+            *) post error "CI ended without a result ($result)" "$url" ;;
+          esac
+          echo "posted=true" >> "$GITHUB_OUTPUT"
+          echo "CI on $SHA: $result ($url)"
+          [ "$result" = success ]
+
+      # A status left pending reads as CI still running, so when the step above stops before it
+      # posts CI's result (no run appeared, an API error, the time limit, a cancel), this posts an error.
+      - name: Post an error status if CI's result was not posted
+        if: (failure() || cancelled()) && steps.run.outputs.posted != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: ${{ needs.bump.outputs.branch }}
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          URL: ${{ steps.run.outputs.url || format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=error -f context="$CONTEXT" \
+            -f description='The job that waits for CI stopped before CI finished' -f target_url="$URL" > /dev/null
