@@ -13,7 +13,9 @@
     // src/ so no test code ships in the npm package.
     "rootDir": ".",
     "declaration": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // TypeScript 6 and 7 include no @types package unless listed.
+    "types": ["node"]
   },
   "include": ["src", "tests"],
   "exclude": ["src/dashboard", "scripts"]

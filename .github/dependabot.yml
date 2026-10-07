@@ -24,6 +24,12 @@ updates:
         patterns:
           - "@framers/*"
           - "@wilds/*"
+    ignore:
+      # TypeScript 7 ships no compiler API, and typedoc 0.28 needs the 6.x
+      # one (its typescript peer range ends at 6.0.x). Remove this once a
+      # typedoc release supports TypeScript 7 (TypeStrong/typedoc#3098).
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
 
   - package-ecosystem: "npm"
     directory: "/src/dashboard"
@@ -31,6 +37,21 @@ updates:
       interval: "daily"
     open-pull-requests-limit: 3
     versioning-strategy: "increase"
+    groups:
+      # react-dom throws "Incompatible React versions" unless react is the
+      # same version, so the four move in one pull request.
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+    ignore:
+      # TypeScript 7 ships no compiler API, and typedoc 0.28 needs the 6.x
+      # one (its typescript peer range ends at 6.0.x). Remove this once a
+      # typedoc release supports TypeScript 7 (TypeStrong/typedoc#3098).
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
