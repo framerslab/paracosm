@@ -338,6 +338,13 @@ jobs:
         if: steps.changes.outputs.library_changed == 'true'
         run: npm run dashboard:build
 
+      # The tarball this job publishes, checked first: installed into an empty
+      # project, paracosm-dashboard must serve the landing page, the dashboard and
+      # their assets (scripts/smoke-packed-package.mjs). CI runs it on every pull request.
+      - name: Check the packed package
+        if: steps.changes.outputs.library_changed == 'true'
+        run: npm run check:package
+
       - name: Auto-version from run number
         if: steps.changes.outputs.library_changed == 'true'
         id: version

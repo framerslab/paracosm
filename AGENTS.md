@@ -38,10 +38,12 @@ CI runs (job "Build and test" in [`.github/workflows/ci.yml`](https://github.com
 3. `cd src/dashboard && npm ci`
 4. `npm run dashboard:build`
 5. `npm test` (the boundary check, the dashboard type check, then every test file)
-6. `npm run check:doc-examples` (type-checks the examples in `src/dashboard/landing.html` against the package)
-7. `npm run docs` (TypeDoc)
+6. `npm run check:package` (packs the package, installs the tarball into an empty project and checks that `paracosm-dashboard` serves the landing page, the dashboard and their assets)
+7. `npx playwright install --with-deps chromium`, then `npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop` (the PDF upload end-to-end test)
+8. `npm run check:doc-examples` (type-checks the examples in `src/dashboard/landing.html` against the package)
+9. `npm run docs` (TypeDoc)
 
-The build job of the deploy workflow ([`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml)) runs the same steps after a merge, and a failure in any of them stops the deploy.
+The build job of the deploy workflow ([`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml)) runs the same steps after a merge except the package check and the PDF upload test, and a failure in any of them stops the deploy. Its publish job runs the package check before `npm publish`.
 
 To run one test file: `node --import tsx --import ./scripts/test-css-stub.mjs --test <path>`.
 
@@ -67,7 +69,7 @@ Available scripts that CI does not run: `npm run test:e2e` (Playwright; `npm run
 
 ## Releasing and deploying
 
-Every push to `master` builds, redeploys paracosm.agentos.sh and pushes the API reference to `gh-pages`, unless the commit message carries a skip instruction such as `[skip ci]`. npm publishes only when the pushed commit changes source under `src/` outside `src/dashboard/` (test files excluded), `package.json`, a `tsconfig` file, or a path the `files` field ships beside `dist/` and the README (`scripts/detect-library-change.mjs` holds the rule); the version is `<major>.<minor>` from `package.json` with the workflow run number as the patch. A change to `package.json` therefore publishes a new version when it merges. Never edit `CHANGELOG.md` or the `version` field to release, and never run `npm publish`. Details: [Releasing and deploying](https://github.com/framerslab/paracosm/blob/master/CONTRIBUTING.md#releasing-and-deploying).
+Every push to `master` builds, redeploys paracosm.agentos.sh and pushes the API reference to `gh-pages`, unless the commit message carries a skip instruction such as `[skip ci]`. npm publishes only when the pushed commit changes source under `src/` (test files excluded; the package ships the dashboard's build), `package.json`, a `tsconfig` file, or a path the `files` field ships beside `dist/` and the README (`scripts/detect-library-change.mjs` holds the rule); the version is `<major>.<minor>` from `package.json` with the workflow run number as the patch. A change to `package.json` therefore publishes a new version when it merges. Never edit `CHANGELOG.md` or the `version` field to release, and never run `npm publish`. Details: [Releasing and deploying](https://github.com/framerslab/paracosm/blob/master/CONTRIBUTING.md#releasing-and-deploying).
 
 ## Automated review threads
 
