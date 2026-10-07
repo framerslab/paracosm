@@ -52,10 +52,13 @@ function freePort() {
   });
 }
 
-async function waitForServer(url, timeoutMs, server) {
+async function waitForServer(url, timeoutMs, server, closed) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (server.exitCode !== null || server.signalCode !== null) {
+      // 'exit' can come before the last of the server's output; 'close' follows once
+      // stdout and stderr have ended, so the error message below has all of it.
+      await Promise.race([closed, new Promise((wait) => setTimeout(wait, 5_000).unref())]);
       throw new Error(`paracosm-dashboard exited (${server.signalCode ?? `code ${server.exitCode}`}) before it answered`);
     }
     try {
@@ -100,9 +103,10 @@ async function main() {
     });
     child.stdout.on('data', (chunk) => { serverOutput += chunk; });
     child.stderr.on('data', (chunk) => { serverOutput += chunk; });
+    const closed = new Promise((resolveClose) => child.once('close', resolveClose));
 
     const base = `http://127.0.0.1:${port}`;
-    await waitForServer(`${base}/`, 60_000, child);
+    await waitForServer(`${base}/`, 60_000, child, closed);
     for (const [path, type, marker] of PAGES) {
       const response = await fetch(`${base}${path}`);
       const contentType = response.headers.get('content-type') ?? '';
