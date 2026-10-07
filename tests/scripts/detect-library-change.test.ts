@@ -55,6 +55,7 @@ test('tests, docs and workflows publish nothing', () => {
     'README.md',
     'CONTRIBUTING.md',
     'scripts/detect-library-change.mjs',
+    'scripts/smoke-packed-package.mjs',
     '.github/workflows/deploy.yml',
     'package-lock.json',
   ]) {
@@ -63,7 +64,7 @@ test('tests, docs and workflows publish nothing', () => {
 });
 
 test('the build inputs publish', () => {
-  for (const file of ['package.json', 'tsconfig.json', 'tsconfig.build.json']) {
+  for (const file of ['package.json', 'tsconfig.json', 'tsconfig.build.json', 'scripts/pack-dashboard.mjs']) {
     assert.equal(shipsInPackage(file, files), true, file);
   }
 });

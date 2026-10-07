@@ -52,9 +52,12 @@ function freePort() {
   });
 }
 
-async function waitForServer(url, timeoutMs) {
+async function waitForServer(url, timeoutMs, server) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (server.exitCode !== null || server.signalCode !== null) {
+      throw new Error(`paracosm-dashboard exited (${server.signalCode ?? `code ${server.exitCode}`}) before it answered`);
+    }
     try {
       const response = await fetch(url);
       if (response.ok) return;
@@ -99,7 +102,7 @@ async function main() {
     child.stderr.on('data', (chunk) => { serverOutput += chunk; });
 
     const base = `http://127.0.0.1:${port}`;
-    await waitForServer(`${base}/`, 60_000);
+    await waitForServer(`${base}/`, 60_000, child);
     for (const [path, type, marker] of PAGES) {
       const response = await fetch(`${base}${path}`);
       const contentType = response.headers.get('content-type') ?? '';
@@ -112,7 +115,12 @@ async function main() {
     if (serverOutput) console.error(`--- paracosm-dashboard output ---\n${serverOutput}`);
     throw error;
   } finally {
-    child?.kill();
+    // Wait for the server to exit before removing the project it runs from.
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolveExit) => child.once('exit', resolveExit));
+      child.kill();
+      await Promise.race([exited, new Promise((wait) => setTimeout(wait, 10_000).unref())]);
+    }
     rmSync(work, { recursive: true, force: true });
   }
 }
