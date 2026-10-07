@@ -305,16 +305,14 @@ jobs:
           fi
           # Compare with the commit the last release was published from, not only the
           # parent: a run that a later push replaced published nothing, and its changes
-          # must reach the next run that publishes. Before the first release, compare
-          # with the parent; on the first commit, publish.
-          BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD 2>/dev/null || true)
+          # must reach the next run that publishes. This workflow tags each release
+          # v<major>.<minor>.<run number>, so a tag with a pre-release suffix
+          # (v1.0.0-rc.1) is not a release it published. With no release tag, publish.
+          BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || true)
           if [ -z "$BASE" ]; then
-            if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
-              echo "library_changed=true" >> "$GITHUB_OUTPUT"
-              echo "First commit — proceeding with publish."
-              exit 0
-            fi
-            BASE=HEAD~1
+            echo "library_changed=true" >> "$GITHUB_OUTPUT"
+            echo "No release tag on this commit's history — proceeding with publish."
+            exit 0
           fi
           echo "Comparing with $BASE"
           CHANGED=$(git diff --name-only "$BASE" HEAD)
