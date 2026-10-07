@@ -5,6 +5,12 @@ name: Bump @framers/* deps
 # pnpm lockfile when present, bumps git submodule pointers when present,
 # and opens a single Pull Request with the diff. The same workflow drops
 # into every repo that depends on the agentos family.
+#
+# GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
+# or pushes to until someone with write access approves them, and a
+# workflow_dispatch event always creates a run. So the ci job below starts CI
+# on the pull request branch by dispatch, and its checks show on the pull
+# request: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
 
 on:
   schedule:
@@ -18,6 +24,10 @@ permissions:
 jobs:
   bump:
     runs-on: ubuntu-latest
+    # Read by the ci job below.
+    outputs:
+      operation: ${{ steps.cpr.outputs.pull-request-operation }}
+      branch: ${{ steps.cpr.outputs.pull-request-branch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -63,6 +73,7 @@ jobs:
           fi
 
       - name: Create Pull Request
+        id: cpr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -86,3 +97,20 @@ jobs:
           # (pnpm-lock.yaml, .gitmodules) makes the action's `git add` fatal,
           # staging NOTHING - and `**/package.json` misses the root manifest.
           # Default collection stages every bump change.
+
+  # Runs when this run opened the pull request or pushed to its branch; a run
+  # that leaves the branch as it was keeps the checks of the last dispatch. To
+  # run CI on the branch again: gh workflow run ci.yml --ref chore/bump-framers-deps
+  ci:
+    needs: bump
+    if: needs.bump.outputs.operation == 'created' || needs.bump.outputs.operation == 'updated'
+    runs-on: ubuntu-latest
+    # Only this job can dispatch workflows; the bump job, which installs packages, cannot.
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch CI on the pull request branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ needs.bump.outputs.branch }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"

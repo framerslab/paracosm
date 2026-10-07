@@ -55,7 +55,7 @@ Available scripts that CI does not run: `npm run test:e2e` (Playwright; `npm run
 - Every structured model call in a turn (director, departments, commander, reactions, verdict) is validated with Zod and retried with feedback; the response schemas live in `src/runtime/validators/`.
 - Tests: one `*.test.ts` per module under test, in `tests/` or next to the file; tests that call a live model run only behind an environment flag such as `RUN_LIVE_CHAT_TEST=1`, so the default suite needs no API keys. Integration tests for behavior with an observable surface, unit tests for pure logic and regression pins, no filler tests.
 - Lockfiles: install with npm. A lockfile written inside a pnpm workspace contains `node_modules/.pnpm/` paths and fails CI and the deploy workflow; regenerate it in a plain clone.
-- A weekly workflow and Dependabot open pull requests that move dependency versions, `@framers/*` included. Do not pin an older version of a package in this family.
+- A weekly workflow and Dependabot open pull requests that move dependency versions, `@framers/*` included. The weekly workflow then dispatches CI on its branch: GitHub holds the runs of a pull request that the workflow token opens until a maintainer approves them. Do not pin an older version of a package in this family.
 - TSDoc on every exported symbol, and comments where the code is not obvious.
 - A bug in `@framers/agentos` or another first-party package is fixed in that package's repository and released. Do not patch `node_modules` or copy a workaround into this repository.
 
