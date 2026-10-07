@@ -4,10 +4,14 @@ Bump every `@framers/*` version pin in a repository to `^<latest>` from the
 npm registry.
 
 Pins it rewrites, in files tracked by git:
-- `package.json` entries keyed by the package name in any field
-  (dependencies, devDependencies, peerDependencies, optionalDependencies,
+- `package.json` entries keyed by the package name in any field but
+  peerDependencies (dependencies, devDependencies, optionalDependencies,
   overrides, resolutions, pnpm.overrides), including glob resolution keys
-  such as `"**/@framers/agentos"`.
+  such as `"**/@framers/agentos"`. A peer range states the oldest host
+  release a package works with; rewritten to `^<latest>` it would make npm
+  refuse the package next to any other release, and since a peer-only
+  change publishes nothing, the published package would keep the old range
+  anyway. So peerDependencies are left for a person to set.
 - `pnpm-workspace.yaml` entries under `overrides:`, `catalog:` and
   `catalogs:`. An override there wins over every `package.json` range in
   the workspace, so a stale one keeps the whole repository building
@@ -87,6 +91,9 @@ BOM = chr(0xFEFF)
 
 # Top-level pnpm-workspace.yaml blocks whose entries are version pins.
 YAML_PIN_BLOCKS = ("overrides", "catalog", "catalogs")
+
+# The package.json field whose pins are never rewritten (see the module docstring).
+PEER_FIELD = "peerDependencies"
 
 Warn = Callable[[str, int, str], None]
 
@@ -255,6 +262,8 @@ def bump_json_text(text: str, versions: dict[str, str], source: str = "<fixture>
         def replace(match: re.Match[str], _pkg: str = pkg, _latest: str = latest,
                     _paths: dict[int, tuple[str, ...]] = paths) -> str:
             nonlocal changes
+            if PEER_FIELD in _paths.get(match.start(), ()):
+                return match.group(0)
             if not should_rewrite(match.group("spec"), _latest):
                 return match.group(0)
             if parent_scoped(_paths.get(match.start(), ()), match.group("prefix")):
@@ -425,6 +434,9 @@ def self_check() -> None:
         # Fails to parse (an empty last alternative), and must fail fast.
         '"@framers/agentos": "' + '=0 ' * 22 + '||"',
         '"peerDependencies": { "@framers/agentos": "^0.10.28" },\n"peerDependenciesMeta": { "@framers/agentos": { "optional": true } }',
+        # Peer ranges are never rewritten, stale or not.
+        '{"peerDependencies": {"@framers/agentos": ">=0.7.0"}}',
+        '{"peerDependencies": {"@framers/agentos": "^0.9.135", "@framers/sql-storage-adapter": "^0.6.1"}}',
     ]
     rewritten = [
         ('"@framers/agentos": "^0.9.135"', '"@framers/agentos": "^0.10.28"'),
@@ -438,6 +450,9 @@ def self_check() -> None:
         ('"**/@framers/agentos": "0.9.1"', '"**/@framers/agentos": "^0.10.28"'),
         ('{"overrides": {"@framers/agentos": "0.9.1"}}', '{"overrides": {"@framers/agentos": "^0.10.28"}}'),
         ('{"pnpm": {"overrides": {"@framers/agentos": "^0.9.135"}}}', '{"pnpm": {"overrides": {"@framers/agentos": "^0.10.28"}}}'),
+        # The same pin moves under dependencies while the peer stays.
+        ('{"dependencies": {"@framers/agentos": "^0.9.135"}, "peerDependencies": {"@framers/agentos": "^0.9.135"}}',
+         '{"dependencies": {"@framers/agentos": "^0.10.28"}, "peerDependencies": {"@framers/agentos": "^0.9.135"}}'),
     ]
     json_warned = [
         ('"wunderland>@framers/agentos": "0.9.138"', "1:override pins @framers/agentos under a parent (0.9.138)"),
