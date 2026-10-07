@@ -21,6 +21,7 @@ import type { ITool } from '@framers/agentos';
 import {
   EmergentCapabilityEngine, EmergentJudge, EmergentToolRegistry,
   ComposableToolBuilder, SandboxedToolForge, ForgeToolMetaTool, generateText,
+  createStepGate,
   type EmergentTool,
   wrapForgeTool as wrapForgeToolAgentOS,
   validateForgeShape,
@@ -217,10 +218,6 @@ export function createEmergentEngine(
     generateTextWithSystem: llmCbWithSystem,
   } as unknown as ConstructorParameters<typeof EmergentJudge>[0];
   const judge = new EmergentJudge(judgeConfig);
-  const executor = async (name: string, args: unknown, ctx: any) => {
-    const t = toolMap.get(name);
-    return t ? t.execute(args as any, ctx) : { success: false, error: `Tool "${name}" not found` };
-  };
   const engine = new EmergentCapabilityEngine({
     config: {
       enabled: true,
@@ -232,7 +229,11 @@ export function createEmergentEngine(
       allowSandboxTools: true, persistSandboxSource: true,
       judgeModel, promotionJudgeModel: judgeModel,
     },
-    composableBuilder: new ComposableToolBuilder(executor as any),
+    // Compositions resolve their steps in toolMap; the gate reads each step
+    // tool's hasSideEffects, which the chaining rule needs. web_search and
+    // call_forged_tool declare none, so the compositions paracosm forges keep
+    // working; no compose.sideEffectingTools is set.
+    composableBuilder: new ComposableToolBuilder(createStepGate({ resolve: (name) => toolMap.get(name) })),
     sandboxForge: new SandboxedToolForge(),
     judge, registry,
     // Capture every approved forged tool's executable into the shared
