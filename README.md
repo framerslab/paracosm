@@ -182,7 +182,7 @@ In the dashboard, Quickstart is the default landing tab. A user pastes a brief, 
 npm install paracosm   # also: pnpm add paracosm · bun add paracosm
 ```
 
-Paracosm ships as pure ESM. The root export covers most use cases (`run`, `runMany`, `WorldModel`, `compileScenario`, `marsScenario`, `lunarScenario`, `ACTOR_PRESETS`, all public types). Subpath escape hatches are kept for power users: `paracosm/compiler`, `paracosm/schema`, `paracosm/swarm`, `paracosm/digital-twin`, `paracosm/core`. Node 20+, Bun 1.x, and any TypeScript runner with ESM and import-attributes support resolve them out of the box.
+Paracosm ships as pure ESM. The root export covers most use cases (`run`, `runMany`, `WorldModel`, `compileScenario`, `marsScenario`, `lunarScenario`, `ACTOR_PRESETS`, all public types). Subpath escape hatches are kept for power users: `paracosm/compiler`, `paracosm/schema`, `paracosm/swarm`, `paracosm/digital-twin`, `paracosm/core`. Node 22+, Bun 1.x, and any TypeScript runner with ESM and import-attributes support resolve them out of the box.
 
 ---
 
