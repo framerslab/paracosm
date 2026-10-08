@@ -13,7 +13,6 @@ concurrency:
 
 permissions:
   contents: write
-  pages: write
 
 env:
   # Node 24 ships npm 11.x which matches the developer-machine npm that
@@ -252,25 +251,6 @@ jobs:
 
           echo "Paracosm deployed and running"
           REMOTE
-
-  docs:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build
-          path: build/
-
-      - name: Deploy API docs to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: build/docs/api
-          cname: docs.agentos.sh
 
   # The tarball check, away from the publish job's write token and npm token. It
   # installs the tarball into an empty project, where npm resolves every
