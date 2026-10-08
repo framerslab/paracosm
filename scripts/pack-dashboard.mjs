@@ -8,11 +8,12 @@
  * user installs needs both there.
  *
  * Build first: `npm run build` (the server) and `npm run dashboard:build`.
- * The script stops when either is missing, so a package whose dashboard
+ * The script stops when either is missing, or when a file the dashboard page
+ * loads from /assets/ is not in the build, so a package whose dashboard
  * command has nothing to serve is never packed. It writes to stderr, which
  * keeps the standard output of `npm pack --json` clean.
  */
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,6 +32,18 @@ if (!existsSync(resolve(root, 'dist/server/server-app.js'))) {
 }
 if (!existsSync(resolve(dashboardBuild, 'index.html'))) {
   stop('src/dashboard/dist/index.html is missing. Run `npm run dashboard:build` before packing.');
+}
+// The page must find its bundle beside it: an index.html left from another build
+// would pack a dashboard that loads nothing.
+const bundle = [...readFileSync(resolve(dashboardBuild, 'index.html'), 'utf8').matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)].map(
+  (match) => match[1],
+);
+if (!bundle.some((asset) => asset.endsWith('.js'))) {
+  stop('src/dashboard/dist/index.html loads no /assets/*.js bundle. Run `npm run dashboard:build` before packing.');
+}
+const absent = bundle.filter((asset) => !existsSync(resolve(dashboardBuild, asset.slice(1))));
+if (absent.length > 0) {
+  stop(`src/dashboard/dist/index.html loads ${absent.join(', ')}, which the build lacks. Run \`npm run dashboard:build\` before packing.`);
 }
 
 rmSync(target, { recursive: true, force: true });
