@@ -24,8 +24,9 @@
  * The rule reads paths, not the build output, so a change under the
  * dashboard that leaves its build the same (a type-only devDependency,
  * its tsconfig, a page Vite does not build) still publishes a version whose
- * files match the previous one apart from the version, as a root
- * devDependency bump does. That is the trade-off for not building and
+ * files match the previous one apart from the version. A root devDependency
+ * bump publishes too, and its tarball differs in package.json, which ships
+ * with its devDependencies. That is the trade-off for not building and
  * comparing two tarballs on every push.
  *
  * Usage: git diff --name-only HEAD~1 HEAD | node scripts/detect-library-change.mjs
