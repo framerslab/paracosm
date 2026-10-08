@@ -268,28 +268,43 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # The release tags, which the publish decision compares with.
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # A push that publishes nothing (no shipped file changed since the last
+      # release tag) skips the rest: publish would skip too.
+      - name: Does this push publish?
+        id: changes
+        run: |
+          verdict=$(bash scripts/library-changed-since-release.sh)
+          echo "library_changed=$verdict" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
+        if: steps.changes.outputs.library_changed == 'true'
         run: npm ci
 
       - name: Build
+        if: steps.changes.outputs.library_changed == 'true'
         run: npm run build
 
       - name: Install dashboard dependencies
+        if: steps.changes.outputs.library_changed == 'true'
         run: cd src/dashboard && npm ci
 
       # Without analytics settings, as publish builds it.
       - name: Build the dashboard the package ships
+        if: steps.changes.outputs.library_changed == 'true'
         run: npm run dashboard:build
 
       # Installed into an empty project, paracosm-dashboard must serve the landing
       # page, the dashboard, its bundle and their assets (scripts/smoke-packed-package.mjs).
       - name: Check the packed package
+        if: steps.changes.outputs.library_changed == 'true'
         run: npm run check:package
 
   publish:
@@ -347,22 +362,11 @@ jobs:
           # Compare with the commit the last release was published from, not only the
           # parent: a run that a later push replaced published nothing, and its changes
           # must reach the next run that publishes. This workflow tags each release
-          # v<major>.<minor>.<run number>, so a tag with a pre-release suffix
-          # (v1.0.0-rc.1) is not a release it published. With no release tag, publish.
-          # Only this job makes v* tags: one made by hand becomes the baseline and
-          # can hide changes that were never published.
-          BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || true)
-          if [ -z "$BASE" ]; then
-            echo "library_changed=true" >> "$GITHUB_OUTPUT"
-            echo "No release tag on this commit's history — proceeding with publish."
-            exit 0
-          fi
-          echo "Comparing with $BASE"
-          CHANGED=$(git diff --name-only "$BASE" HEAD)
-          echo "Changed files:"
-          echo "$CHANGED"
-          # The step's shell exits on a failed command, so a script error stops the job here.
-          VERDICT=$(printf '%s\n' "$CHANGED" | node scripts/detect-library-change.mjs)
+          # v<major>.<minor>.<run number>; with no release tag, publish.
+          # scripts/library-changed-since-release.sh holds that comparison; the
+          # package-check job runs it too. The step's shell exits on a failed
+          # command, so a script error stops the job here.
+          VERDICT=$(bash scripts/library-changed-since-release.sh)
           case "$VERDICT" in
             true)
               echo "library_changed=true" >> "$GITHUB_OUTPUT"
@@ -373,7 +377,7 @@ jobs:
               echo "No shipped file changed — skipping npm publish + GitHub release."
               ;;
             *)
-              echo "::error::detect-library-change.mjs printed '$VERDICT', expected true or false."
+              echo "::error::library-changed-since-release.sh printed '$VERDICT', expected true or false."
               exit 1
               ;;
           esac

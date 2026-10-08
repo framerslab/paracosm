@@ -268,6 +268,7 @@ Each call to `wm.simulate` takes one actor. The dashboard fans cohorts out side-
 ```bash
 git clone https://github.com/framerslab/paracosm
 cd paracosm && npm install
+(cd src/dashboard && npm install) && npm run dashboard:build
 cp .env.example .env  # add OPENAI_API_KEY or ANTHROPIC_API_KEY
 npm run dashboard     # opens http://localhost:3456
 ```
