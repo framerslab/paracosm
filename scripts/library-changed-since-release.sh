@@ -19,4 +19,5 @@ if [ -z "$base" ]; then
   exit 0
 fi
 echo "Comparing with $base. Changed files:" >&2
-git diff --name-only "$base" HEAD | tee /dev/stderr | node "$here/detect-library-change.mjs"
+# --no-renames lists both paths of a move, so a file moved out of the shipped paths counts.
+git diff --name-only --no-renames "$base" HEAD | tee /dev/stderr | node "$here/detect-library-change.mjs"

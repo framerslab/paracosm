@@ -3322,7 +3322,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // A source checkout has no dashboard build until it runs one; the npm
       // package always ships it (scripts/pack-dashboard.mjs refuses to pack without).
       res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('The dashboard is not built. Run `npm install` in src/dashboard, then `npm run dashboard:build`, and reload.');
+      res.end('The dashboard is not built. Run `npm install` in src/dashboard, then `npm run dashboard:build` in the repository root, and reload.');
       return;
     }
 

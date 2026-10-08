@@ -84,3 +84,16 @@ test('a pre-release tag is not the baseline', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a shipped file moved out of the shipped paths publishes', () => {
+  const dir = repository();
+  try {
+    git(dir, 'tag', 'v0.9.1');
+    mkdirSync(join(dir, 'docs'));
+    git(dir, 'mv', 'src/index.ts', 'docs/index.ts');
+    git(dir, 'commit', '-q', '-m', 'move the source out');
+    assert.equal(verdict(dir), 'true');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
