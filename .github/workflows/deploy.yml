@@ -22,11 +22,6 @@ env:
   # npm 11 disagree on transitive entries (`@tailwindcss/oxide-wasm32-wasi`
   # bundled deps) and `peer: true` markers on optional peers.
   NODE_VERSION: '24'
-  # SERVER_IP + APP_DIR resolved from GitHub Actions repo secrets so
-  # deploy topology isn't encoded in the public workflow file. Set both
-  # at repo → Settings → Secrets and variables → Actions → Secrets.
-  SERVER_IP: ${{ secrets.SERVER_IP }}
-  APP_DIR: ${{ secrets.APP_DIR }}
 
 jobs:
   build:
@@ -167,6 +162,14 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # SERVER_IP + APP_DIR resolved from GitHub Actions repo secrets so
+    # deploy topology isn't encoded in the public workflow file. Set both
+    # at repo → Settings → Secrets and variables → Actions → Secrets. Only
+    # this job reads them; the publish job's package check starts a server
+    # that would otherwise write its state under APP_DIR.
+    env:
+      SERVER_IP: ${{ secrets.SERVER_IP }}
+      APP_DIR: ${{ secrets.APP_DIR }}
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -273,6 +276,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
+    # contents: the changelog push and the GitHub release; actions: the run it
+    # dispatches when master's head has no run of its own.
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -293,6 +301,8 @@ jobs:
       # (tests/scripts/detect-library-change.test.ts).
       - name: Detect library changes
         id: changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # A newer commit on master has its own run, which publishes everything since the
           # last release, so this run publishes only while it is master's head. That also
@@ -300,7 +310,18 @@ jobs:
           git fetch -q origin master
           if [ "$(git rev-parse origin/master)" != "$(git rev-parse HEAD)" ]; then
             echo "library_changed=false" >> "$GITHUB_OUTPUT"
-            echo "master has moved past this commit; the run for the newer commit publishes."
+            HEAD_SHA=$(git rev-parse origin/master)
+            # A [skip ci] commit has no run of its own. When master's head has none, dispatch one on
+            # master: it waits for this run (the deploy group) and publishes everything since the
+            # last release. If the lookup fails, assume the head has a run, as before.
+            RUNS=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy.yml/runs?head_sha=$HEAD_SHA" \
+              --jq .total_count 2>/dev/null || echo 1)
+            if [ "$RUNS" = 0 ]; then
+              gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref master
+              echo "master has moved to $HEAD_SHA, which has no run of its own; dispatched one, which publishes."
+            else
+              echo "master has moved past this commit; the run for the newer commit publishes."
+            fi
             exit 0
           fi
           # Compare with the commit the last release was published from, not only the
@@ -308,6 +329,8 @@ jobs:
           # must reach the next run that publishes. This workflow tags each release
           # v<major>.<minor>.<run number>, so a tag with a pre-release suffix
           # (v1.0.0-rc.1) is not a release it published. With no release tag, publish.
+          # Only this job makes v* tags: one made by hand becomes the baseline and
+          # can hide changes that were never published.
           BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' HEAD 2>/dev/null || true)
           if [ -z "$BASE" ]; then
             echo "library_changed=true" >> "$GITHUB_OUTPUT"
