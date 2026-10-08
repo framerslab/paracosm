@@ -20,7 +20,7 @@
 import type { ITool } from '@framers/agentos';
 import {
   EmergentCapabilityEngine, EmergentJudge, EmergentToolRegistry,
-  ComposableToolBuilder, SandboxedToolForge, ForgeToolMetaTool, generateText,
+  ComposableToolBuilder, ForgeToolMetaTool, generateText,
   createStepGate,
   type EmergentTool,
   wrapForgeTool as wrapForgeToolAgentOS,
@@ -227,6 +227,10 @@ export function createEmergentEngine(
       sandboxMemoryMB: execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
       promotionThreshold: { uses: 5, confidence: 0.8 },
       allowSandboxTools: true, persistSandboxSource: true,
+      // Forged code here computes; it reaches nothing. The ceiling grants no
+      // capability, and with no storage adapter no effect records are kept.
+      capabilities: {},
+      audit: { store: 'none' },
       judgeModel, promotionJudgeModel: judgeModel,
     },
     // Compositions resolve their steps in toolMap; the gate reads each step
@@ -234,7 +238,6 @@ export function createEmergentEngine(
     // call_forged_tool declare none, so the compositions paracosm forges keep
     // working; no compose.sideEffectingTools is set.
     composableBuilder: new ComposableToolBuilder(createStepGate({ resolve: (name) => toolMap.get(name) })),
-    sandboxForge: new SandboxedToolForge(),
     judge, registry,
     // Capture every approved forged tool's executable into the shared
     // map so the call_forged_tool meta-tool can dispatch to it in
