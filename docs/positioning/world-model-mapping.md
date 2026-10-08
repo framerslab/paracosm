@@ -133,7 +133,7 @@ Seed-ingestion pipeline via AgentOS `WebSearchService` (Firecrawl, Tavily, Serpe
 
 ### 6. Tool-forging capable
 
-Specialists write TypeScript tools at runtime. Execution runs in AgentOS's hardened `CodeSandbox` node:vm context with a 10 s timeout; heap usage is observed but not preemptively capped by node:vm. An LLM judge approves before the tool enters the decision pipeline. Approved tools are reused on later turns via `call_forged_tool` at near-zero marginal cost: reuse economics are the single largest lever on total run spend. Via AgentOS `EmergentCapabilityEngine` + `EmergentJudge`. See [`src/runtime/emergent-setup.ts`](../../src/runtime/emergent-setup.ts).
+Specialists write JavaScript tools at runtime. Execution runs in AgentOS's `CodeSandbox`, an in-process node:vm context, with a 10 s timeout and no network or file access; heap usage is observed but not preemptively capped by node:vm. An LLM judge approves before the tool enters the decision pipeline. Approved tools are reused on later turns via `call_forged_tool` at near-zero marginal cost: reuse economics are the single largest lever on total run spend. Via AgentOS `EmergentCapabilityEngine` + `EmergentJudge`. See [`src/runtime/orchestrator/emergent-setup.ts`](../../src/runtime/orchestrator/emergent-setup.ts).
 
 ### 7. Universal artifact
 

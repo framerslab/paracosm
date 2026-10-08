@@ -210,13 +210,13 @@ Department agents forge computational tools at runtime using AgentOS's `Emergent
 
 1. The department agent calls `forge_tool` with a name, description, input/output schema, implementation code, and test cases.
 2. A pre-judge validator (`validateForgeShape`) checks the request is well-formed. When the LLM emits concrete test cases but forgets to declare `inputSchema.properties` / `outputSchema.properties`, a companion helper `inferSchemaFromTestCases` synthesizes the missing properties from the test data so the forge doesn't get rejected on a formality the test cases already witnessed.
-3. The `SandboxedToolForge` delegates to AgentOS's hardened `CodeSandbox` node:vm context with these guarantees:
+3. The `SandboxedToolForge` delegates to AgentOS's `CodeSandbox`, an in-process node:vm context, which applies these limits:
    - **Wall-clock timeout** enforced via `vm.runInContext` (default 10 seconds; configurable via `sandboxTimeoutMs`).
    - **Memory observed** via `process.memoryUsage().heapUsed` delta after each invocation. The default `sandboxMemoryMB: 128` is a soft monitoring target, not a hard cap; the sandbox does not preempt on overrun.
    - **`codeGeneration: { strings: false, wasm: false }`** at context construction blocks runtime `eval` and `Function()` reflection.
    - **Frozen `console`** plus explicit-undefined for `process`, `globalThis`, `require`, `setTimeout`, `setInterval`, `fetch`.
    - **Realm intrinsics blocked** at context construction: `Reflect`, `Proxy`, `WebAssembly`, `SharedArrayBuffer`, `Atomics`. These otherwise resolve via the V8 default realm even with `codeGeneration.strings: false`.
-   - **Allowed extras** (opt-in via `extraGlobals`): `fetch` (domain-restricted), `fs.readFile` (path-restricted), `crypto` (hashing only). Each opt-in is a CodeSandbox config field, not an automatic exposure.
+   - **No capabilities.** paracosm's engine runs forged code under a ceiling that grants none (`capabilities: {}` in `src/runtime/orchestrator/emergent-setup.ts`), so forged code gets no `fetch`, file reads or `crypto`; a forge that asks for one is refused before the judge sees it.
 4. The `EmergentJudge` (LLM-as-judge) reviews the tool for safety, correctness, determinism, and schema compliance.
 5. If approved, the tool is registered at session scope and available for future turns via the `call_forged_tool` meta-tool (no re-forge required).
 
@@ -636,7 +636,7 @@ Paracosm uses AgentOS for all agent orchestration, LLM calls, tool forging, and 
 | `ObjectGenerationError` | Typed error surfaced on exhausted retries; wrappers fall back to empty skeleton + emit `validation_fallback` SSE |
 | `extractJson` | Multi-strategy JSON extraction (code fence, thinking-tag strip, greedy brace match) used by `sendAndValidate` |
 | `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt, reaction batch system) |
-| `EmergentCapabilityEngine` | Runtime tool forging in a hardened node:vm sandbox |
+| `EmergentCapabilityEngine` | Runtime tool forging in an in-process node:vm context |
 | `EmergentJudge` | LLM-as-judge safety review of forged tools |
 | `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG |
 | HEXACO personality | Trait-modulated decision making, memory retrieval, mood adaptation |

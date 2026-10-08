@@ -86,7 +86,7 @@ export class EffectRegistry {
     if (tm) {
       const forgeCost = tm.newToolsThisEvent + tm.forgeFailures;
       if (forgeCost > 0) {
-        // Power: every forged tool runs in a hardened node:vm sandbox.
+        // Power: every forged tool runs in an in-process node:vm context.
         if (deltas.powerKw !== undefined || base.powerKw !== undefined) {
           deltas.powerKw = (deltas.powerKw ?? 0) - forgeCost * 1.2;
         } else {

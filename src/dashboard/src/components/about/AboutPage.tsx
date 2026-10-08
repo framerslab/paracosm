@@ -60,7 +60,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: 'What is runtime tool forging?',
-    a: 'Department agents create computational tools on the fly: radiation dose calculators, food security projectors, structural analyzers, morale prediction models. Each tool runs in a hardened node:vm sandbox, is reviewed by an LLM-as-judge for safety and correctness, and produces real computed output that influences decisions. Nobody pre-programmed these tools.',
+    a: 'Department agents create computational tools on the fly: radiation dose calculators, food security projectors, structural analyzers, morale prediction models. Each tool runs in an in-process node:vm context with a time limit and no network or file access, is reviewed by an LLM-as-judge for safety and correctness, and produces real computed output that influences decisions. Nobody pre-programmed these tools.',
   },
   {
     q: 'What is HEXACO personality?',
@@ -295,7 +295,7 @@ export function AboutPage() {
               { title: 'Event Director', desc: 'An LLM agent generates unique events per timeline from world state, decision history, and tool intelligence. No two runs play the same way; in a cohort each actor gets their own divergent event stream off the same kernel state.' },
               { title: 'Abstract Leaders', desc: 'Leaders are top-down decision makers with HEXACO personality profiles. They can be people, organizations, policies, or autonomous systems. The engine models how personality shapes decisions under pressure.' },
               { title: 'Cohort Runs', desc: 'Launch 2 to 300 leaders against the same compiled scenario from a single click. The SIM tab renders the full cohort side-by-side with horizontal scroll; past 50 actors it auto-switches to a constellation graph that exposes cohort archetype clusters.' },
-              { title: 'Tool Forging', desc: 'Department agents author computational tools at runtime — calculators, projectors, scoring functions — in a hardened node:vm sandbox. An LLM judge reviews each for safety and correctness before it enters the registry, then later turns reuse the tool at a fraction of the cost.' },
+              { title: 'Tool Forging', desc: 'Department agents author computational tools at runtime — calculators, projectors, scoring functions — in an in-process node:vm context with a time limit and no network or file access. An LLM judge reviews each for safety and correctness before it enters the registry, then later turns reuse the tool at a fraction of the cost.' },
               { title: 'Personality Drift', desc: 'HEXACO traits evolve every turn through leader pull, role activation, and outcome reinforcement. A cautious leader becomes bolder after a risky success; a bold leader retreats after a failure. Drift is capped per turn so the arc stays legible across long runs.' },
               { title: 'Deterministic Kernel', desc: 'Mulberry32 seeded PRNG ensures the substrate reproduces byte-for-byte. Same seed, same starting roster, same physics. Divergence comes from the LLM stages reading each actor\'s HEXACO and deciding accordingly; replay any past run for free.' },
               { title: 'Cohort Verdict', desc: 'Pair runs ship a head-to-head winner banner. Cohort runs (3+ actors) produce a ranked leaderboard with per-axis scores (survival, prosperity, morale, innovation) and a per-actor rationale — the full ranking opens in a modal off the top-bar banner.' },

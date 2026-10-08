@@ -438,7 +438,7 @@ Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forg
 
 ## How a turn runs
 
-Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in a hardened `node:vm` sandbox; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.
+Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in an in-process `node:vm` context; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.
 
 Every structured LLM call (director, departments, commander, reactions, verdict) is Zod-validated with retry-with-feedback. Schemas under [`src/runtime/validators/`](src/runtime/validators/). Full per-stage breakdown in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -504,7 +504,7 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 |------------------------------|-----------------------------------------------------------------------|
 | `agent()`                    | Commander, department, and Event Director agents                      |
 | `generateText()`             | LLM calls for event generation and tool evaluation                    |
-| `EmergentCapabilityEngine`   | Runtime tool forging in a hardened node:vm sandbox                    |
+| `EmergentCapabilityEngine`   | Runtime tool forging in an in-process node:vm context                 |
 | `EmergentJudge`              | LLM-as-judge safety review of forged tools                            |
 | `WebSearchService`           | Multi-provider seed enrichment with Firecrawl, Tavily, Serper, Brave  |
 | `AgentMemory`                | Per-run citation memory with semantic recall                          |

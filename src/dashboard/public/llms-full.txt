@@ -55,10 +55,10 @@ The kernel is fully deterministic, seeded by Mulberry32 (32-bit PRNG). Given the
 When a department agent needs a calculation the codebase doesn't provide, it writes one.
 
 - Specialist proposes a tool with Zod-validated input/output schema
-- LLM authors a TypeScript body
-- Code executes in a hardened `node:vm` sandbox: 5s wall-clock cap, ~128 MB nominal heap
-- Sandbox always bans: `eval`, `Function`, `require`, dynamic `import`, `process`, `child_process`, destructive `fs.*`
-- `fetch`, `fs.readFile`, `crypto` are opt-in via empty-by-default allowlist
+- LLM authors a JavaScript body
+- Code runs in an in-process `node:vm` context: 10-second wall-clock limit, heap use reported against a nominal 128 MB budget
+- The forge always rejects code that uses: `eval`, `Function`, `require`, dynamic `import`, `process`, `child_process`, destructive `fs.*`
+- Forged code gets no network, file or `crypto` access: paracosm's ceiling grants none
 - LLM judge reviews output against specialist's stated intent
 - Approved tools land in a discoverable registry; `call_forged_tool` reuses them at tens of tokens vs full forge cost
 - After turn 3, most decisions invoke a previously-forged tool — total run cost flattens
