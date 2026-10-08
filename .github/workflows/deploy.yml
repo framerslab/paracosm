@@ -272,8 +272,48 @@ jobs:
           publish_dir: build/docs/api
           cname: docs.agentos.sh
 
-  publish:
+  # The tarball check, away from the publish job's write token and npm token. It
+  # installs the tarball into an empty project, where npm resolves every
+  # dependency afresh (no lockfile) and runs their install scripts, so a
+  # dependency release published inside a semver range runs here: a job with a
+  # read-only token, no stored git credentials and no secrets, on its own
+  # runner. It builds the same commit from the same lockfiles as publish, which
+  # waits for it.
+  package-check:
     needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Install dashboard dependencies
+        run: cd src/dashboard && npm ci
+
+      # Without analytics settings, as publish builds it.
+      - name: Build the dashboard the package ships
+        run: npm run dashboard:build
+
+      # Installed into an empty project, paracosm-dashboard must serve the landing
+      # page, the dashboard, its bundle and their assets (scripts/smoke-packed-package.mjs).
+      - name: Check the packed package
+        run: npm run check:package
+
+  publish:
+    needs: [build, package-check]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     # contents: the changelog push and the GitHub release; actions: the run it
@@ -377,13 +417,6 @@ jobs:
       - name: Build the dashboard the package ships
         if: steps.changes.outputs.library_changed == 'true'
         run: npm run dashboard:build
-
-      # The tarball this job publishes, checked first: installed into an empty
-      # project, paracosm-dashboard must serve the landing page, the dashboard and
-      # their assets (scripts/smoke-packed-package.mjs). CI runs it on every pull request.
-      - name: Check the packed package
-        if: steps.changes.outputs.library_changed == 'true'
-        run: npm run check:package
 
       - name: Auto-version from run number
         if: steps.changes.outputs.library_changed == 'true'

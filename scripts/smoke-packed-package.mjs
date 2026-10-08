@@ -2,7 +2,8 @@
 /**
  * Packs the package, installs the tarball into an empty project, starts the
  * `paracosm-dashboard` command it ships and requests the landing page, the
- * dashboard and the assets they load. It fails when the tarball lacks a file
+ * dashboard, every file of the dashboard's bundle the page loads, and the
+ * landing page's assets. It fails when the tarball lacks a file
  * the command serves or when a page does not answer, so a package whose
  * dashboard command has nothing to serve is caught before it is published.
  *
@@ -92,6 +93,9 @@ async function main() {
     const paths = new Set(packed.files.map((file) => file.path));
     const missing = REQUIRED_FILES.filter((path) => !paths.has(path));
     if (missing.length > 0) throw new Error(`the tarball lacks ${missing.join(', ')}`);
+    if (![...paths].some((path) => path.startsWith('dist/dashboard/dist/assets/') && path.endsWith('.js'))) {
+      throw new Error('the tarball has no dashboard bundle (dist/dashboard/dist/assets/*.js)');
+    }
     const videos = [...paths].filter((path) => path.endsWith('.mp4'));
     if (videos.length > 0) throw new Error(`the tarball ships video files: ${videos.join(', ')}`);
     console.log(`packed ${packed.filename}: ${packed.entryCount} files, ${(packed.unpackedSize / 1e6).toFixed(1)} MB unpacked`);
@@ -125,6 +129,19 @@ async function main() {
       if (!contentType.startsWith(type)) throw new Error(`GET ${path} answered ${contentType}, not ${type}`);
       if (marker !== null && !(await response.text()).includes(marker)) throw new Error(`GET ${path} has no ${marker}`);
       console.log(`GET ${path}: ${response.status} ${contentType}`);
+    }
+    // The dashboard's bundle: every /assets/ file the /sim page loads must answer with its type.
+    const dashboardPage = await (await fetch(`${base}/sim`)).text();
+    const bundle = [...dashboardPage.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)].map((match) => match[1]);
+    if (!bundle.some((asset) => asset.endsWith('.js'))) throw new Error('GET /sim loads no /assets/*.js bundle');
+    for (const asset of bundle) {
+      const response = await fetch(`${base}${asset}`);
+      const contentType = response.headers.get('content-type') ?? '';
+      await response.arrayBuffer();
+      if (!response.ok) throw new Error(`GET ${asset}, which /sim loads, answered ${response.status}`);
+      const type = asset.endsWith('.js') ? 'text/javascript' : asset.endsWith('.css') ? 'text/css' : '';
+      if (!contentType.startsWith(type)) throw new Error(`GET ${asset} answered ${contentType}, not ${type}`);
+      console.log(`GET ${asset}: ${response.status} ${contentType}`);
     }
     for (const [path, location] of REDIRECTS) {
       const response = await fetch(`${base}${path}`, { redirect: 'manual' });
