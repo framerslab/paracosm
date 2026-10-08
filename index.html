@@ -239,7 +239,7 @@
 <p><code>WorldModel.simulate</code> returns a <code>cost</code> field with token counts, LLM call counts, and USD spend. Every stable system prefix routes through a <code>cacheBreakpoint: true</code> block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward; OpenAI auto-caches any prompt over 1024 tokens. The <code>cost.caches</code> field reports tokens read, tokens created, and USD saved per run.</p>
 <hr>
 <h2 id="how-a-turn-runs" class="tsd-anchor-link">How a turn runs<a href="#how-a-turn-runs" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
-<p>Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in a hardened <code>node:vm</code> sandbox; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.</p>
+<p>Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in an in-process <code>node:vm</code> context; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.</p>
 <p>Every structured LLM call (director, departments, commander, reactions, verdict) is Zod-validated with retry-with-feedback. Schemas under <a href="media/validators"><code>src/runtime/validators/</code></a>. Full per-stage breakdown in <a href="media/ARCHITECTURE.md">docs/ARCHITECTURE.md</a>.</p>
 <hr>
 <h2 id="seed-enrichment" class="tsd-anchor-link">Seed enrichment<a href="#seed-enrichment" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
@@ -281,7 +281,7 @@
 </tr>
 <tr>
 <td><code>EmergentCapabilityEngine</code></td>
-<td>Runtime tool forging in a hardened node:vm sandbox</td>
+<td>Runtime tool forging in an in-process node:vm context</td>
 </tr>
 <tr>
 <td><code>EmergentJudge</code></td>
