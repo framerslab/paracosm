@@ -116,6 +116,10 @@ async function main() {
       env: { ...process.env, PORT: String(port), APP_DIR: project },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // A command that cannot start (a missing bin link, no executable bit) makes spawn emit 'error';
+    // unheard, it would end this process before the failure is printed and the temp project removed.
+    // The child then has a negative exit code, which waitForServer reports.
+    child.once('error', (error) => { serverOutput += `${error.message}\n`; });
     child.stdout.on('data', (chunk) => { serverOutput += chunk; });
     child.stderr.on('data', (chunk) => { serverOutput += chunk; });
     const closed = new Promise((resolveClose) => child.once('close', resolveClose));
