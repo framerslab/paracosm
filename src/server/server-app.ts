@@ -3068,6 +3068,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // API docs (TypeDoc generated)
     if (pathname.startsWith('/docs')) {
       const docsDir = resolve(__dirname, '..', '..', 'docs', 'api');
+      // The npm package does not ship docs/api, so an install sends the landing
+      // page's and the dashboard's docs links to the hosted paracosm reference
+      // instead of answering 404.
+      if (!existsSync(docsDir)) {
+        res.writeHead(302, { Location: 'https://docs.agentos.sh/paracosm' });
+        res.end();
+        return;
+      }
       if (pathname === '/docs' || pathname === '/docs/') {
         res.writeHead(302, { Location: '/docs/modules.html' });
         res.end();

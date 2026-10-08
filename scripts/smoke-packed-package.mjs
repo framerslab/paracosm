@@ -43,6 +43,12 @@ const PAGES = [
   ['/favicon.png', 'image/png', null],
 ];
 
+/** [path, Location of the redirect]: the package ships no docs/api, so the docs links go to the hosted reference. */
+const REDIRECTS = [
+  ['/docs', 'https://docs.agentos.sh/paracosm'],
+  ['/docs/modules.html', 'https://docs.agentos.sh/paracosm'],
+];
+
 function freePort() {
   return new Promise((resolvePort, reject) => {
     const probe = createServer();
@@ -97,10 +103,13 @@ async function main() {
     execFileSync('npm', ['install', join(work, packed.filename), '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
 
     const port = await freePort();
-    const command = join(project, 'node_modules', 'paracosm', 'dist', 'cli', 'serve.js');
-    child = spawn(process.execPath, [command], {
+    // The installed command: its bin link, executable bit and shebang, not the file it points to.
+    const command = join(project, 'node_modules', '.bin', 'paracosm-dashboard');
+    child = spawn(command, [], {
       cwd: project,
-      env: { ...process.env, PORT: String(port) },
+      // APP_DIR roots the server's state (sessions, run history, rate limits); keep it in the
+      // temp project, whatever the environment says (the deploy workflow's publish job has one).
+      env: { ...process.env, PORT: String(port), APP_DIR: project },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout.on('data', (chunk) => { serverOutput += chunk; });
@@ -116,6 +125,14 @@ async function main() {
       if (!contentType.startsWith(type)) throw new Error(`GET ${path} answered ${contentType}, not ${type}`);
       if (marker !== null && !(await response.text()).includes(marker)) throw new Error(`GET ${path} has no ${marker}`);
       console.log(`GET ${path}: ${response.status} ${contentType}`);
+    }
+    for (const [path, location] of REDIRECTS) {
+      const response = await fetch(`${base}${path}`, { redirect: 'manual' });
+      const target = response.headers.get('location');
+      if (response.status !== 302 || target !== location) {
+        throw new Error(`GET ${path} answered ${response.status} to ${target}, not 302 to ${location}`);
+      }
+      console.log(`GET ${path}: 302 to ${target}`);
     }
   } catch (error) {
     if (serverOutput) console.error(`--- paracosm-dashboard output ---\n${serverOutput}`);
