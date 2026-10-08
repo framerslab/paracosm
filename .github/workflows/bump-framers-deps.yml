@@ -13,13 +13,22 @@ name: Bump @framers/* deps
 # So the ci job below dispatches CI on the pull request branch, waits for it
 # and posts its result as the "CI (workflow_dispatch)" commit status. A pull
 # request's checks leave out the check runs of a dispatched run; they list
-# commit statuses. The dispatched run gets what a Dependabot pull request's
-# run gets: a read-only token and no secrets.
+# commit statuses. Unlike a Dependabot pull request's run, a dispatched run
+# gets the token permissions its ci.yml declares and can read any repository
+# secret a step references. ci.yml declares `permissions: contents: read` and
+# references no repository secret in a step that runs on workflow_dispatch;
+# keep it that way.
 
 on:
   schedule:
     - cron: '0 6 * * 1'  # Monday 06:00 UTC weekly
   workflow_dispatch: {}
+
+# A second bump run waits for the first, so two runs never push the branch and
+# dispatch CI over each other.
+concurrency:
+  group: bump-framers-deps
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -139,21 +148,38 @@ jobs:
               -f description="$3" -f target_url="$4" > /dev/null
           }
           if [ "$OPERATION" = none ]; then
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" \
-              --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0].state // \"\"")
-            if [ "$state" = success ] || [ "$state" = pending ]; then
-              echo "The branch is unchanged and $CONTEXT is $state on $SHA."
+            # A failed read dispatches CI again rather than failing this step: the error step
+            # below would otherwise replace a passing status with an error.
+            current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" \
+              --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | \"\\(.state) \\(.updated_at)\"" \
+              2>/dev/null) || current=''
+            state=${current%% *}
+            since=${current#* }
+            if [ "$state" = success ]; then
+              echo "The branch is unchanged and $CONTEXT is success on $SHA."
               echo "posted=true" >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+            if [ "$state" = pending ]; then
+              # A job that waits gives up after this step's 90 minutes, so a pending status older
+              # than 100 minutes was left by a job that died before it posted a result.
+              age=$(( $(date -u +%s) - $(date -u -d "$since" +%s 2>/dev/null || date -u +%s) ))
+              if [ "$age" -lt 6000 ]; then
+                echo "The branch is unchanged and $CONTEXT has been pending on $SHA since $since."
+                echo "posted=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "$CONTEXT has been pending on $SHA since $since, longer than this job runs; dispatching CI again."
             fi
           fi
           # The dispatched runs that exist now, so the lookup below cannot pick one of them.
           before=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" \
             --event workflow_dispatch --limit 100 --json databaseId --jq '[.[].databaseId]')
-          # The endpoint answers with the new run's id:
+          # With return_run_details the endpoint answers 200 with the new run's id; without it,
+          # or where it is not supported, 204 with no body, and the run list below finds the run.
           # https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event
           dispatched=$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" \
-            -f ref="$BRANCH")
+            -f ref="$BRANCH" -F return_run_details=true)
           id=''
           if [ -n "$dispatched" ]; then
             id=$(jq -r '.workflow_run_id // empty' <<<"$dispatched")
