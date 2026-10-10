@@ -2,9 +2,10 @@
  * The site says what a visitor can use now. The landing page served at
  * GET / carries no waitlist, early-access or coming-soon promise, tells
  * the visitor where to start, links only to sections and repository
- * files that exist, and its structured data parses. The same
- * promise-free rule holds for every page source under src/dashboard and
- * assets.
+ * files that exist, and its structured data parses. Wherever it offers
+ * the API reference it also offers the HTTP API reference and the
+ * Cookbook. The promise-free rule holds for every page source under
+ * src/dashboard and assets as well.
  */
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,6 +70,30 @@ test('the landing page tells a visitor what to use today', () => {
   assert.match(getStarted, /href="\/sim"/, 'the section must link the hosted dashboard');
   assert.match(getStarted, /href="\/docs"/, 'the section must link the API reference');
   assert.match(html, /<a href="#get-started"/, 'the navigation must link the section');
+});
+
+/** The markup from `open` up to the first `close` after it. */
+function between(open: string, close: string): string {
+  const start = html.indexOf(open);
+  assert.notEqual(start, -1, `the landing page has no ${open}`);
+  return html.slice(start, html.indexOf(close, start));
+}
+
+test('wherever the landing page links the API reference it also links the HTTP API reference and the Cookbook', () => {
+  const httpApi = 'href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md"';
+  const cookbook = 'href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md"';
+  const places: Record<string, string> = {
+    'the Docs menu': between('type="button">Docs <svg', '</div>'),
+    'the mobile Docs menu': between('<summary><span>Docs</span></summary>', '</details>'),
+    'the footer': between('<nav class="ft-links"', '</nav>'),
+    'the get-started section': section('get-started'),
+  };
+
+  for (const [place, markup] of Object.entries(places)) {
+    assert.ok(markup.includes('href="/docs"'), `${place} must link the API reference`);
+    assert.ok(markup.includes(httpApi), `${place} must link docs/HTTP_API.md`);
+    assert.ok(markup.includes(cookbook), `${place} must link docs/COOKBOOK.md`);
+  }
 });
 
 test('every in-page link on the landing page lands on an element that exists', () => {
