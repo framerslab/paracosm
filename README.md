@@ -518,7 +518,7 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 |---|---|---|
 | Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. |
 | Model keys | The host's keys, or your own OpenAI or Anthropic key entered in Settings. | Your own keys, from the environment or a `.env` file. |
-| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | None in the SDK and the CLI. The dashboard limits runs on the server's keys to `RATE_LIMIT` per IP address per day; `RATE_LIMIT=0` turns the limit off. |
+| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | None in the SDK and `paracosm run`. The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
 | Cost | Free to try. | Free. You pay your model provider for the runs you make. |
 | Support | Community via Discord and GitHub. | Community via Discord and GitHub. |
 
