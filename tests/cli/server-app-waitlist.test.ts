@@ -92,3 +92,30 @@ test('PARACOSM_WAITLIST_STORE=1 opens the stored signups for reading and the rou
     rmSync(appDir, { recursive: true, force: true });
   }
 });
+
+test('PARACOSM_WAITLIST_STORE=1 with no stored signups reports that and creates no store', async (t) => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-waitlist-absent-'));
+  const logSpy = t.mock.method(console, 'log');
+  const server = createMarsServer({
+    env: { ...serverEnv(appDir), PARACOSM_WAITLIST_STORE: '1' },
+    runPairSimulations: async () => {},
+  });
+  const port = await listen(server);
+  try {
+    const waitlistLine = logLines(logSpy).find((line) => line.includes('[waitlist]')) ?? '';
+    assert.match(waitlistLine, /No waitlist store at /, `expected the server to report the missing store, got: "${waitlistLine}"`);
+
+    const res = await postSignup(port, 'reader@example.com');
+
+    assert.equal(res.status, 410);
+    assert.equal(
+      existsSync(join(appDir, 'data', 'waitlist.db')),
+      false,
+      'reading the stored signups must not create a store that was not there',
+    );
+  } finally {
+    server.close();
+    await once(server, 'close');
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
