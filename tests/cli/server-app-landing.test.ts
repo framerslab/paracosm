@@ -24,7 +24,7 @@ const PROMISES: ReadonlyArray<readonly [string, RegExp]> = [
   ['coming soon', /coming[\s-]soon/i],
   ['notify me', /notify[\s-]me/i],
   ['Q3 2026', /Q3[\s-]2026/i],
-  ['a later release', /(follow-up|future|later|next) release/i],
+  ['coming in a later release', /coming in (a|an|the) [\w-]+ release/i],
 ];
 
 function promisesIn(text: string): string[] {
