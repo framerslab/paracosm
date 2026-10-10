@@ -214,7 +214,7 @@ Largest cost lever: tool reuse after turn 3. Anthropic prompt cache hits the sha
 ## Network behavior
 
 - Compiling a scenario and running it both call the OpenAI or Anthropic API
-- Web search is optional: with live search off (the default for a run), department research comes from the scenario's knowledge bundle and the run makes no search requests
+- Web search is optional: live search is off by default for a run, and department research then comes from the scenario's knowledge bundle
 
 ## Pricing model
 
