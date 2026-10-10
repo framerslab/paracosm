@@ -211,18 +211,16 @@ Compile-from-seed adds ~$0.10 (cached to disk by seed signature).
 
 Largest cost lever: tool reuse after turn 3. Anthropic prompt cache hits the shared system prefix from turn 2 onward (10× input-cost reduction); OpenAI auto-caches any prompt over 1024 tokens. The artifact's `cost` field reports tokens read, tokens created, and USD saved per run.
 
-## Network / offline behavior
+## Network behavior
 
-- Web search + LLM calls require internet
-- Offline mode falls back to LLM-only event generation without research citations
-- Artifact records `offline: true` flag for auditability
-- Air-gapped deployments via custom inference gateway + pre-ingested research bundles (hosted enterprise tier)
+- Compiling a scenario and running it both call the OpenAI or Anthropic API
+- Web search is optional: with live search off (the default for a run), department research comes from the scenario's knowledge bundle and the run makes no search requests
 
 ## Pricing model
 
 - Engine itself: Apache-2.0, commercial use unrestricted
 - LLM costs: you provide your own API keys
-- Hosted enterprise SaaS dashboard (analytics, fleet orchestration, team workspaces, private deployment): in development, target Q3 2026
+- Hosted demo: https://paracosm.agentos.sh/sim is free to try on the host's API keys, with capped run size and a daily limit per IP address; your own OpenAI or Anthropic key lifts both
 - Contact: team@frame.dev
 
 ## Glossary
