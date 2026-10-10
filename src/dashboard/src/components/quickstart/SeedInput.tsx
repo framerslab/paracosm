@@ -60,7 +60,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
   // Default 2: this dashboard is built around the side-by-side 2-actor
   // comparison surface (TurnGrid, DivergenceRail, ActorBar). 3+ actors
   // run cleanly through the API + CLI but the visual story collapses
-  // here — a richer N-actor dashboard is on the Pro/Enterprise roadmap.
+  // here.
   // Cap 300 mirrors GenerateLeadersSchema (raised from 50 once the
   // batch runner gained real concurrency limiting via
   // economics.batch.maxConcurrency). Each actor is ~$0.30 LLM spend;

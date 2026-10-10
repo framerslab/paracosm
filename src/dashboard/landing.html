@@ -70,8 +70,8 @@
 {"@type":"Question","name":"What does a typical run cost?","acceptedAnswer":{"@type":"Answer","text":"A six-turn run on a small scenario runs roughly tens of cents under economy and a few dollars under quality. Compile-from-seed adds ~$0.10 (cached to disk by seed signature). Tool reuse after turn three is the largest cost lever. Anthropic prompt cache hits the shared system prefix from turn 2 onward (10x input-cost reduction); OpenAI auto-caches any prompt over 1024 tokens. The cost field reports tokens read, tokens created, and USD saved per run."}},
 {"@type":"Question","name":"What verticals does this apply to?","acceptedAnswer":{"@type":"Answer","text":"Digital-twin medicine, corporate strategy (M&A, market entry, leadership replays), policy simulation (tax, regulation, congestion pricing, healthcare reform), defense / wargaming (commander HEXACO under shared starting conditions; replay any past run after a code change), game design playtesting (procedural NPC civilizations, runtime tool forge), AI alignment red-teaming (pressure-test agent behavior under specific HEXACO weights). The engine is domain-agnostic; the scenario contract names the world."}},
 {"@type":"Question","name":"Can I build my own scenario?","acceptedAnswer":{"@type":"Answer","text":"Three paths. (1) Write a ScenarioPackage in TypeScript with custom hooks for progression, crisis generation, milestones, and politics — full control. (2) Write a scenario JSON draft and run it through compileScenario() — zero-code authoring, $0.10 per compile, caches to disk. (3) Pass a brief or URL to WorldModel.fromPrompt() and let an LLM draft the JSON contract first. All three produce the same canonical ScenarioPackage."}},
-{"@type":"Question","name":"Does Paracosm need an internet connection?","acceptedAnswer":{"@type":"Answer","text":"Yes — for research grounding (web search) and the LLM calls themselves. Offline mode falls back to LLM-only event generation without research citations; the artifact records the offline flag so runs are auditable. For air-gapped deployments, the hosted enterprise tier supports a custom inference gateway and pre-ingested research bundles."}},
-{"@type":"Question","name":"Is Paracosm free?","acceptedAnswer":{"@type":"Answer","text":"The engine is open source under Apache-2.0. Use in commercial products without restriction. You provide LLM API keys; running a 6-turn quality-preset run costs roughly $1-3 on OpenAI, $3-7 on Anthropic. A hosted enterprise SaaS dashboard with full analytics, fleet orchestration, team workspaces, and private-deployment options is in development for Q3 2026; team@frame.dev for early access."}}
+{"@type":"Question","name":"Does Paracosm need an internet connection?","acceptedAnswer":{"@type":"Answer","text":"Yes. Compiling a scenario and running it both call the OpenAI or Anthropic API. Web search is optional. Live search is off by default for a run, and department research then comes from the scenario's knowledge bundle."}},
+{"@type":"Question","name":"Is Paracosm free?","acceptedAnswer":{"@type":"Answer","text":"The engine is open source under Apache-2.0. Use in commercial products without restriction. You provide LLM API keys; running a 6-turn quality-preset run costs roughly $1-3 on OpenAI, $3-7 on Anthropic. The hosted demo at paracosm.agentos.sh/sim is free to try. It runs on the host's API keys with capped run size and a daily limit per IP address, and your own OpenAI or Anthropic key lifts both."}}
 ]}
 </script>
 <script type="application/ld+json">
@@ -82,7 +82,7 @@
 ]}
 </script>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"TechArticle","@id":"https://paracosm.agentos.sh/#article","headline":"Paracosm: Agent Swarm Simulation for Structured World Modeling with LLMs","description":"Agent swarm simulation for structured world modeling with LLMs. Compile prompts, briefs, URLs into typed ScenarioPackages. Deterministic seeded kernel, HEXACO-personality leaders, runtime tool forging in sandboxed node:vm, replay-verified forkable simulations.","url":"https://paracosm.agentos.sh","mainEntityOfPage":"https://paracosm.agentos.sh","author":{"@id":"https://paracosm.agentos.sh/#author"},"publisher":{"@id":"https://paracosm.agentos.sh/#publisher"},"datePublished":"2026-04-13","dateModified":"2026-05-01","articleSection":"AI Engineering","keywords":"agent swarm, agent swarm simulation, multi-agent simulation, world model, structured world model, LLM world model, world modeling, digital twin, HEXACO, agent-based modeling, AgentOS, paracosm","proficiencyLevel":"Expert","about":[{"@type":"Thing","name":"Agent-based modeling"},{"@type":"Thing","name":"Multi-agent simulation"},{"@type":"Thing","name":"Large language models"},{"@type":"Thing","name":"World model"},{"@type":"Thing","name":"HEXACO personality model"},{"@type":"Thing","name":"Digital twin"}],"image":"https://paracosm.agentos.sh/brand/social/paracosm-social-1200x630.png"}
+{"@context":"https://schema.org","@type":"TechArticle","@id":"https://paracosm.agentos.sh/#article","headline":"Paracosm: Agent Swarm Simulation for Structured World Modeling with LLMs","description":"Agent swarm simulation for structured world modeling with LLMs. Compile prompts, briefs, URLs into typed ScenarioPackages. Deterministic seeded kernel, HEXACO-personality leaders, runtime tool forging in sandboxed node:vm, replay-verified forkable simulations.","url":"https://paracosm.agentos.sh","mainEntityOfPage":"https://paracosm.agentos.sh","author":{"@id":"https://paracosm.agentos.sh/#author"},"publisher":{"@id":"https://paracosm.agentos.sh/#publisher"},"datePublished":"2026-04-13","dateModified":"2026-10-10","articleSection":"AI Engineering","keywords":"agent swarm, agent swarm simulation, multi-agent simulation, world model, structured world model, LLM world model, world modeling, digital twin, HEXACO, agent-based modeling, AgentOS, paracosm","proficiencyLevel":"Expert","about":[{"@type":"Thing","name":"Agent-based modeling"},{"@type":"Thing","name":"Multi-agent simulation"},{"@type":"Thing","name":"Large language models"},{"@type":"Thing","name":"World model"},{"@type":"Thing","name":"HEXACO personality model"},{"@type":"Thing","name":"Digital twin"}],"image":"https://paracosm.agentos.sh/brand/social/paracosm-social-1200x630.png"}
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Person","@id":"https://paracosm.agentos.sh/#author","name":"Johnny Dunn","alternateName":"jddunn","url":"https://github.com/jddunn","jobTitle":"Founder & Engineer","worksFor":{"@id":"https://paracosm.agentos.sh/#publisher"},"affiliation":{"@id":"https://paracosm.agentos.sh/#publisher"},"sameAs":["https://github.com/jddunn","https://www.linkedin.com/in/johnnyddunn","https://twitter.com/jddunn","https://x.com/jddunn","https://frame.dev"],"knowsAbout":["Agent swarm simulation","Multi-agent systems","Large language models","Structured world modeling","HEXACO personality model","AI agent runtimes","Digital twins","TypeScript","Node.js","Deterministic simulation","Counterfactual modeling","Runtime tool forging","Sandboxed code execution","AgentOS"],"description":"Founder of Frame. Builds open-source AI agent runtimes and structured world-model engines. Author of AgentOS and Paracosm."}
@@ -165,7 +165,7 @@
         <a href="#features" role="menuitem">Features</a>
         <a href="#how-it-works" role="menuitem">How It Works</a>
         <a href="#scenarios" role="menuitem">Scenarios</a>
-        <a href="#hosted" role="menuitem">Hosted</a>
+        <a href="#get-started" role="menuitem">Get Started</a>
         <a href="#faq" role="menuitem">FAQ</a>
         <a href="#about" role="menuitem">About</a>
       </div>
@@ -177,6 +177,7 @@
       <button class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false" type="button">Docs <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="nav-dropdown-menu" role="menu">
         <a href="/docs" role="menuitem">API Reference</a>
+        <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener" role="menuitem">HTTP API Reference</a>
         <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener" role="menuitem">Cookbook (markdown)</a>
         <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener" role="menuitem">Positioning Map</a>
       </div>
@@ -198,7 +199,7 @@
       <a href="#features">Features</a>
       <a href="#how-it-works">How It Works</a>
       <a href="#scenarios">Scenarios</a>
-      <a href="#hosted">Hosted</a>
+      <a href="#get-started">Get Started</a>
       <a href="#faq">FAQ</a>
       <a href="#about">About</a>
     </div>
@@ -210,6 +211,7 @@
     <summary><span>Docs</span></summary>
     <div class="nav-mobile-group-body">
       <a href="/docs">API Reference</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API Reference</a>
       <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook (markdown)</a>
       <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener">Positioning Map</a>
     </div>
@@ -253,7 +255,7 @@
 
   <div class="hero-ctas">
     <a href="/sim" class="cta cta-pulse">Try Live Demo <svg><use href="#i-arrow"/></svg></a>
-    <a href="#waitlist" class="cta cta-secondary">Request Early Access</a>
+    <a href="#get-started" class="cta cta-secondary">Install from npm</a>
     <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" class="btn-ghost">★ Star Paracosm</a>
   </div>
 
@@ -699,7 +701,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
 
     <!-- System flow diagram. Click-to-expand opens a zoomable modal with
          pan/zoom/keyboard controls; see the script near </body>. -->
-    <figure class="flow-diagram rv" style="margin:36px auto 0;max-width:1080px;padding:16px 12px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.25),0 0 30px rgba(232,180,74,0.05);position:relative;">
+    <figure class="flow-diagram rv" id="how-it-works" style="scroll-margin-top:80px;margin:36px auto 0;max-width:1080px;padding:16px 12px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.25),0 0 30px rgba(232,180,74,0.05);position:relative;">
       <button type="button" class="flow-diagram-trigger" data-diagram-src="/diagrams/paracosm-flow.svg" data-diagram-title="Paracosm system flow" aria-label="Open the Paracosm system flow diagram in a zoomable full-screen viewer" style="display:block;width:100%;padding:0;background:transparent;border:0;cursor:zoom-in;position:relative;color:inherit;font:inherit;">
         <img src="/diagrams/paracosm-flow.svg" alt="Paracosm system flow: world source through Scenario Compiler, ScenarioPackage, Deterministic Kernel, Runtime Orchestrator turn loop (Director then Departments in parallel then Commander then Reactions, with Tool Forge in a V8 sandbox, an LLM Judge, HEXACO drift, and AgentMemory side modules), Agent Swarm of about a hundred personality-typed cells, and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn into divergent branches." width="1200" height="1180" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;border-radius:8px;">
         <span class="flow-diagram-badge" aria-hidden="true" style="position:absolute;top:18px;right:18px;display:inline-flex;align-items:center;gap:0.35rem;padding:0.35rem 0.6rem;font-family:var(--mono);font-size:11px;font-weight:600;color:#fff;background:rgba(15,12,8,0.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.25);pointer-events:none;letter-spacing:0.04em;opacity:0.88;transition:opacity 0.15s ease,transform 0.15s ease;">
@@ -716,7 +718,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
       .flow-diagram-trigger:hover img { opacity: 0.96; }
     </style>
 
-    <div class="arch rv" style="margin-top:32px">
+    <div class="arch rv" id="features" style="margin-top:32px;scroll-margin-top:80px">
       <div class="arch-row" style="border-left:3px solid var(--amber)">
         <svg style="color:var(--amber);width:24px;height:24px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="13" y1="14" x2="17" y2="14"/></svg>
         <div class="arch-label" style="color:var(--amber)">Structured state, deterministic spine</div>
@@ -852,47 +854,33 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
   </div>
 </section>
 
-<section class="sec sec-alt" id="hosted">
+<section class="sec sec-alt" id="get-started">
   <div class="sec-inner">
-    <h2 class="sec-title rv">Coming soon: enterprise SaaS dashboard</h2>
-    <p class="sec-desc rv">The open-source engine ships today on npm. The hosted product layer is in development at Frame.dev for organizations that need decision intelligence at scale: defense, government, frontier AI labs, corporate strategy, R&amp;D, alignment teams. No pricing tiers yet. The list below is what's on the roadmap.</p>
+    <h2 class="sec-title rv">Use Paracosm today</h2>
+    <p class="sec-desc rv">Paracosm is open source and its dashboard is live. Try a run in the browser, install the package from npm, or read the API references.</p>
 
     <div class="feat-grid" style="margin-top:24px">
       <div class="feat rv rv-d1">
-        <h3>Full analytics suite</h3>
-        <p>Per-leader cohort analysis, A/B benchmarks across HEXACO archetypes, scenario regression dashboards, decision-quality scoring, fleet-wide trajectory diff. Every artifact streams into the analytics warehouse with the universal RunArtifact schema.</p>
-        <div class="feat-ref">analytics warehouse: per-run, per-leader, per-decision, per-forge</div>
+        <h3>Run a simulation in your browser</h3>
+        <p>Open the hosted demo at <a href="https://paracosm.agentos.sh/sim">paracosm.agentos.sh/sim</a>, give it a brief, a URL or a PDF, and watch each actor's run play out turn by turn. It asks for no account. On the host's API keys a run is capped in size and each IP address has a daily limit; your own OpenAI or Anthropic key, added in <a href="https://paracosm.agentos.sh/sim?tab=settings">Settings</a>, lifts both.</p>
       </div>
       <div class="feat rv rv-d2">
-        <h3>Fleet orchestration</h3>
-        <p>Run 10, 50, or 500+ leaders through the same scenario in parallel across distributed worker nodes. Aggregate comparison views. Live progress streaming. Automated batch sweeps with shared seeds and shared compiled scenarios. Cancel-on-divergence policies for early stopping.</p>
-        <div class="feat-ref">distributed worker pool, queue-backed dispatch, autoscaling</div>
+        <h3>Install the package</h3>
+        <div class="code-block" style="margin:12px 0">
+          <div class="code-header"><span>npm</span><button class="code-copy" onclick="copyCode(this,'npm install paracosm')">Copy</button></div>
+          <div tabindex="0" class="code-body">npm install paracosm</div>
+        </div>
+        <p>ESM for Node 22 or newer, under Apache-2.0. Import <code>run</code>, <code>runMany</code> or <code>WorldModel</code> and call them with your own OpenAI or Anthropic key. Its CLI is included, and <code>npx paracosm dashboard</code> serves this dashboard from your machine at <code>http://localhost:3456</code>.</p>
       </div>
       <div class="feat rv rv-d3">
-        <h3>Persistent memory + replay</h3>
-        <p>Multi-session agent memory with consolidation, eviction, and stance drift across runs. Reload any past run. Replay any artifact for byte-equal kernel verification. Compare runs across paracosm versions to localize behavior changes between releases.</p>
-        <div class="feat-ref">durable agent memory, kernel replay, version-diff regression</div>
-      </div>
-      <div class="feat rv rv-d1">
-        <h3>Team workspaces</h3>
-        <p>Shared scenario libraries, leader rosters, and run history with role-based access. Approval gates on production simulations. Audit trails on every run. Scenario authoring studio with a visual form-based editor on top of the canonical JSON contract.</p>
-        <div class="feat-ref">SSO, RBAC, audit log, scenario marketplace, version control</div>
-      </div>
-      <div class="feat rv rv-d2">
-        <h3>Business intelligence</h3>
-        <p>Leadership-decision modeling for organizations: model M&amp;A scenarios, market-entry plays, workforce planning, governance experiments, alignment red-team sweeps, defense wargames. Integrate with internal data warehouses and identity providers for real-context scenario seeding.</p>
-        <div class="feat-ref">SQL connector, S3/Snowflake/BigQuery seed ingestion, SSO</div>
-      </div>
-      <div class="feat rv rv-d3">
-        <h3>Private deployment</h3>
-        <p>Dedicated cluster or VPC deployment for organizations that need data sovereignty, on-prem inference, air-gapped runs, or regulated compliance posture. Custom scenario authoring services. Integration with internal LLM gateways. SLA, dedicated support, custom rate limits.</p>
-        <div class="feat-ref">VPC / on-prem / air-gapped, custom inference gateway, SLA</div>
+        <h3>Read the API references</h3>
+        <p>The <a href="/docs">API reference</a> covers the package's six entry points: <code>paracosm</code> and its <code>compiler</code>, <code>schema</code>, <code>swarm</code>, <code>digital-twin</code> and <code>core</code> subpaths. The <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API reference</a> documents the dashboard server's <code>/api/v1</code> routes with their request and response shapes and status codes. The <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook</a> walks through the SDK with input and output JSON captured from real runs.</p>
       </div>
     </div>
 
     <div style="margin-top:32px;text-align:center">
-      <a href="#waitlist" class="cta">Request early access <svg><use href="#i-arrow"/></svg></a>
-      <a href="https://agentos.sh/en/contact/" target="_blank" rel="noopener" class="btn-ghost" style="margin-left:12px">Custom engagements</a>
+      <a href="/sim" class="cta">Open the live demo <svg><use href="#i-arrow"/></svg></a>
+      <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" class="btn-ghost" style="margin-left:12px">View on npm</a>
     </div>
   </div>
 </section>
@@ -1031,227 +1019,6 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
   </div>
 </section>
 
-<!-- WHITEPAPER COMING SOON -->
-<section class="sec sec-alt whitepaper-sec" id="whitepaper" aria-label="Paracosm whitepaper coming soon">
-  <div class="sec-inner whitepaper-inner">
-    <div class="whitepaper-card rv">
-      <span class="whitepaper-pill" aria-label="Whitepaper status">
-        <svg class="whitepaper-pill-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        WHITEPAPER &middot; COMING SOON
-      </span>
-      <h2 class="whitepaper-title">The Paracosm Technical Whitepaper</h2>
-      <p class="whitepaper-dek">
-        The full architecture and methodology, written for engineers and researchers
-        who want a citable PDF instead of scrolling docs. Deterministic kernel design,
-        HEXACO leader differentiation, LLM-as-a-judge event grounding, runtime tool
-        forging with sandboxed safety, reproducible counterfactual surfaces (fork /
-        replay / intervene), and the `RunArtifact` schema with Zod
-        validation for byte-equal reproducibility at fixed seeds.
-      </p>
-      <div class="whitepaper-grid">
-        <div class="whitepaper-grid-item">
-          <div class="whitepaper-grid-label">Architecture</div>
-          <div class="whitepaper-grid-body">
-            ScenarioPackage compilation, deterministic kernel, HEXACO leader engine, LLM event director, judge layer, snapshot capture for fork &amp; replay.
-          </div>
-        </div>
-        <div class="whitepaper-grid-item">
-          <div class="whitepaper-grid-label">Methodology</div>
-          <div class="whitepaper-grid-body">
-            Counterfactual surfaces (fork at turn N, replay byte-equal, intervene as digital twin), divergence metrics, KPI rollups, judge verdict semantics.
-          </div>
-        </div>
-        <div class="whitepaper-grid-item">
-          <div class="whitepaper-grid-label">Reproducibility</div>
-          <div class="whitepaper-grid-body">
-            Single-CLI run, seed-pinned kernel, Zod-validated artifacts, sandboxed tool forging with explicit safety bounds, end-to-end COOKBOOK with real input + output JSON.
-          </div>
-        </div>
-      </div>
-      <div class="whitepaper-cta-row">
-        <button type="button" class="whitepaper-cta-disabled" disabled aria-disabled="true" title="Whitepaper PDF coming later this year">
-          PDF &middot; Coming soon
-        </button>
-        <a href="https://wilds.ai/discord" target="_blank" rel="noopener" class="whitepaper-cta-notify">
-          Notify me when it drops
-        </a>
-        <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener" class="whitepaper-cta-secondary">
-          Read the cookbook while you wait
-        </a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- WAITLIST -->
-<section id="waitlist" class="sec waitlist-section">
-  <div class="waitlist-inner">
-    <div class="waitlist-eyebrow">Early access · shipping Q3 2026</div>
-    <h2 class="waitlist-heading">Request <span class="waitlist-heading-accent">early access</span></h2>
-    <p class="waitlist-sub">Join the waitlist for the hosted dashboard, fleet orchestration, and team workspaces. We'll reach out as features ship.</p>
-    <form id="waitlist-form" class="waitlist-form" novalidate>
-      <label class="waitlist-field">
-        <span>Email <span class="waitlist-required">*</span></span>
-        <input type="email" name="email" required maxlength="254" autocomplete="email" placeholder="you@example.com">
-        <span class="waitlist-field-hint" aria-live="polite"></span>
-      </label>
-      <label class="waitlist-field">
-        <span>Name (optional)</span>
-        <input type="text" name="name" maxlength="120" autocomplete="name" placeholder="Your name">
-        <span class="waitlist-field-hint" aria-live="polite"></span>
-      </label>
-      <label class="waitlist-field">
-        <span>I'm a (optional)</span>
-        <select name="userType" class="waitlist-select">
-          <option value="hobbyist" selected>Hobbyist</option>
-          <option value="developer">Developer</option>
-          <option value="researcher">Researcher</option>
-          <option value="professional">Professional user</option>
-          <option value="enterprise">Enterprise</option>
-          <option value="vc">VC</option>
-          <option value="investor">Investor</option>
-          <option value="other">Other</option>
-        </select>
-      </label>
-      <label class="waitlist-field">
-        <span>Use case (optional)</span>
-        <textarea name="useCase" maxlength="2000" rows="3" placeholder="What problem are you trying to solve with agent simulation?"></textarea>
-        <span class="waitlist-field-hint" aria-live="polite"></span>
-      </label>
-      <button type="submit" class="waitlist-submit">Join waitlist <svg><use href="#i-arrow"/></svg></button>
-      <p class="waitlist-fineprint">No spam. One confirmation email from <code>team@frame.dev</code>. Unsubscribe anytime.</p>
-    </form>
-    <div id="waitlist-success" class="waitlist-success" hidden>
-      <div class="waitlist-success-icon">✓</div>
-      <h3>You're on the list</h3>
-      <p id="waitlist-success-msg"></p>
-    </div>
-    <div id="waitlist-error" class="waitlist-error" hidden role="alert">
-      <strong>Something went wrong.</strong>
-      <span id="waitlist-error-msg"></span>
-    </div>
-  </div>
-</section>
-
-<script>
-(function () {
-  var form = document.getElementById('waitlist-form');
-  if (!form) return;
-  var successEl = document.getElementById('waitlist-success');
-  var successMsg = document.getElementById('waitlist-success-msg');
-  var errorEl = document.getElementById('waitlist-error');
-  var errorMsg = document.getElementById('waitlist-error-msg');
-
-  // Real-time validation: mark each field as ok/err/empty as the user
-  // types. Avoids the :invalid-fires-on-paint problem where empty
-  // required inputs look broken before the user has touched them.
-  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  function setFieldState(field, state, hintText) {
-    field.setAttribute('data-validity', state);
-    var hint = field.querySelector('.waitlist-field-hint');
-    if (hint) hint.textContent = hintText || '';
-  }
-  var emailField = form.email && form.email.closest('.waitlist-field');
-  var nameField = form.name && form.name.closest('.waitlist-field');
-  var useCaseField = form.useCase && form.useCase.closest('.waitlist-field');
-  function validateEmail() {
-    if (!emailField) return;
-    var v = (form.email.value || '').trim();
-    if (!v) { setFieldState(emailField, 'empty', ''); return; }
-    if (EMAIL_RE.test(v) && v.length <= 254) {
-      setFieldState(emailField, 'ok', 'Looks good.');
-    } else {
-      setFieldState(emailField, 'err', 'That doesn’t look like an email.');
-    }
-  }
-  function validateName() {
-    if (!nameField) return;
-    var v = (form.name.value || '').trim();
-    if (!v) { setFieldState(nameField, 'empty', ''); return; }
-    if (v.length > 120) {
-      setFieldState(nameField, 'err', 'Keep names under 120 characters.');
-    } else {
-      setFieldState(nameField, 'ok', '');
-    }
-  }
-  function validateUseCase() {
-    if (!useCaseField) return;
-    var v = (form.useCase.value || '').trim();
-    if (!v) { setFieldState(useCaseField, 'empty', ''); return; }
-    if (v.length > 2000) {
-      setFieldState(useCaseField, 'err', 'Keep use case under 2000 characters.');
-    } else {
-      setFieldState(useCaseField, 'ok', '');
-    }
-  }
-  if (form.email) {
-    form.email.addEventListener('input', validateEmail);
-    form.email.addEventListener('blur', validateEmail);
-  }
-  if (form.name) {
-    form.name.addEventListener('input', validateName);
-  }
-  if (form.useCase) {
-    form.useCase.addEventListener('input', validateUseCase);
-  }
-
-  function getSource() {
-    try {
-      var p = new URLSearchParams(window.location.search);
-      var s = p.get('utm_source') || '';
-      return s.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || null;
-    } catch (_) { return null; }
-  }
-
-  form.addEventListener('submit', async function (e) {
-    e.preventDefault();
-    errorEl.hidden = true;
-    var btn = form.querySelector('button[type=submit]');
-    var originalHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.textContent = 'Submitting…';
-    try {
-      var fd = new FormData(form);
-      var payload = {
-        email: String(fd.get('email') || '').trim(),
-        name: String(fd.get('name') || '').trim() || undefined,
-        useCase: String(fd.get('useCase') || '').trim() || undefined,
-        userType: String(fd.get('userType') || '').trim() || undefined,
-        source: getSource() || undefined,
-      };
-      var res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      var data = {};
-      try { data = await res.json(); } catch (_) {}
-      if (!res.ok) {
-        var msg = (data && data.error) ? data.error : ('HTTP ' + res.status);
-        if (res.status === 429) msg = 'You already signed up recently. Check your inbox or try again in a few minutes.';
-        throw new Error(msg);
-      }
-      var pos = data.position || '?';
-      var sentLine = data.emailSent
-        ? 'You’re #' + pos + '. Check your inbox for confirmation from team@frame.dev.'
-        : 'You’re #' + pos + '. Email confirmation is delayed; we’ll be in touch.';
-      if (data.alreadyOnList) sentLine = 'You’re already on the list at #' + pos + '. We’ll be in touch.';
-      successMsg.textContent = sentLine;
-      form.hidden = true;
-      successEl.hidden = false;
-    } catch (err) {
-      errorMsg.textContent = (err && err.message) ? err.message : 'Network error. Please try again.';
-      errorEl.hidden = false;
-      btn.disabled = false;
-      btn.innerHTML = originalHtml;
-    }
-  });
-})();
-</script>
-
 <!-- FAQ -->
 <section class="sec" id="faq">
   <div class="sec-inner">
@@ -1289,7 +1056,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
 
       <details class="faq-item"><summary>How does runtime tool forging work, and is it safe?</summary><div class="faq-body">
         When a department agent needs a calculation the codebase doesn't provide, it writes one. A medical officer facing a radiation crisis writes a dose calculator. An engineer writes a structural load analyzer. The pipeline: specialist proposes a tool → Zod-validated input/output schema → JavaScript body authored by the LLM → run in an in-process <a href="https://nodejs.org/api/vm.html" target="_blank" rel="noopener"><code>node:vm</code> context</a> with a 10-second wall-clock limit, its heap use reported against a nominal 128 MB budget. The forge always rejects code that uses <code>eval</code>, <code>Function</code>, <code>require</code>, dynamic <code>import</code>, <code>process</code>, <code>child_process</code> or destructive <code>fs.*</code> calls, and paracosm grants forged code no network, file or crypto access. An LLM judge reviews the output against the specialist's stated intent — match approves, mismatch rejects. Approved tools land in a discoverable registry that subsequent turns and other actors pull from. Reuse via <code>call_forged_tool</code> costs tens of tokens; fresh forges cost full LLM tokens for proposal + body + scaffolding + judge. After turn three, most decisions invoke a previously-forged tool and total run cost flattens.
-        <div class="faq-cite">Implementation: AgentOS <code>EmergentCapabilityEngine</code> + <code>EmergentJudge</code> + <code>ForgeToolMetaTool</code> + <code>CodeSandbox</code>. Preemptive limits via <code>isolated-vm</code> are queued for the hosted multi-tenant tier.</div>
+        <div class="faq-cite">Implementation: AgentOS <code>EmergentCapabilityEngine</code> + <code>EmergentJudge</code> + <code>ForgeToolMetaTool</code> + <code>CodeSandbox</code>.</div>
       </div></details>
 
       <details class="faq-item"><summary>What is the HEXACO personality model and why use it?</summary><div class="faq-body">
@@ -1340,15 +1107,15 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
       </div></details>
 
       <details class="faq-item"><summary>Does Paracosm need an internet connection?</summary><div class="faq-body">
-        Yes — for research grounding (web search) and the LLM calls themselves. Offline mode falls back to LLM-only event generation without research citations; the artifact records the offline flag so runs are auditable for whether they were grounded. For air-gapped deployments, the hosted enterprise tier supports a custom inference gateway and pre-ingested research bundles.
+        Yes. Compiling a scenario and running it both call the OpenAI or Anthropic API. Web search is optional. Live search is off by default for a run, and department research then comes from the scenario's knowledge bundle.
       </div></details>
 
       <details class="faq-item"><summary>Is Paracosm free?</summary><div class="faq-body">
-        The engine is open source under <a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener">Apache-2.0</a>. Use it in commercial products without restriction: install from npm, fork the repo, build on it. You provide LLM API keys; running a 6-turn quality-preset run costs roughly $1-3 on OpenAI, $3-7 on Anthropic. A hosted enterprise SaaS dashboard with full analytics, fleet orchestration, team workspaces, and private-deployment options is in development for Q3 2026 — request early access at the bottom of this page.
+        The engine is open source under <a href="https://opensource.org/licenses/Apache-2.0" target="_blank" rel="noopener">Apache-2.0</a>. Use it in commercial products without restriction: install from npm, fork the repo, build on it. You provide LLM API keys; running a 6-turn quality-preset run costs roughly $1-3 on OpenAI, $3-7 on Anthropic. The hosted demo at <a href="https://paracosm.agentos.sh/sim">paracosm.agentos.sh/sim</a> is free to try. It runs on the host's API keys with capped run size and a daily limit per IP address, and your own OpenAI or Anthropic key lifts both.
       </div></details>
 
       <details class="faq-item"><summary>Where can I read more or contribute?</summary><div class="faq-body">
-        Source: <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener">github.com/framerslab/paracosm</a>. Cookbook: <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">docs/COOKBOOK.md</a>. Architecture write-up: <a href="https://github.com/framerslab/paracosm/blob/master/docs/ARCHITECTURE.md" target="_blank" rel="noopener">docs/ARCHITECTURE.md</a>. Long-form launch post (the wilds.ai vault story + engine reference, Johnny Dunn): <a href="https://agentos.sh/blog/paracosm-launch" target="_blank" rel="noopener">agentos.sh/blog/paracosm-launch</a>. AgentOS runtime: <a href="https://github.com/framerslab/agentos" target="_blank" rel="noopener">github.com/framerslab/agentos</a>. Benchmarks: <a href="https://github.com/framerslab/agentos-bench" target="_blank" rel="noopener">github.com/framerslab/agentos-bench</a>. Reading lists: <a href="https://github.com/AGI-Edgerunners/LLM-Agents-Papers" target="_blank" rel="noopener">LLM-Agents-Papers</a>, <a href="https://github.com/leofan90/Awesome-World-Models" target="_blank" rel="noopener">Awesome World Models</a>. Issues, PRs, and waitlist signups all welcome.
+        Source: <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener">github.com/framerslab/paracosm</a>. Cookbook: <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">docs/COOKBOOK.md</a>. Architecture write-up: <a href="https://github.com/framerslab/paracosm/blob/master/docs/ARCHITECTURE.md" target="_blank" rel="noopener">docs/ARCHITECTURE.md</a>. Long-form launch post (the wilds.ai vault story + engine reference, Johnny Dunn): <a href="https://agentos.sh/blog/paracosm-launch" target="_blank" rel="noopener">agentos.sh/blog/paracosm-launch</a>. AgentOS runtime: <a href="https://github.com/framerslab/agentos" target="_blank" rel="noopener">github.com/framerslab/agentos</a>. Benchmarks: <a href="https://github.com/framerslab/agentos-bench" target="_blank" rel="noopener">github.com/framerslab/agentos-bench</a>. Reading lists: <a href="https://github.com/AGI-Edgerunners/LLM-Agents-Papers" target="_blank" rel="noopener">LLM-Agents-Papers</a>, <a href="https://github.com/leofan90/Awesome-World-Models" target="_blank" rel="noopener">Awesome World Models</a>. Issues and pull requests are welcome.
       </div></details>
 
     </div>
@@ -1374,6 +1141,8 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     <nav class="ft-links" aria-label="Footer">
       <a href="https://agentos.sh">agentos.sh</a>
       <a href="/docs">API Docs</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook</a>
       <a href="https://agentos.sh/blog" target="_blank" rel="noopener">Blog</a>
       <a href="https://github.com/framerslab/paracosm">GitHub</a>
       <a href="https://www.npmjs.com/package/paracosm">npm</a>

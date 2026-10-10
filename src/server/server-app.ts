@@ -50,9 +50,8 @@ import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
-import { createWaitlistStore, type WaitlistStore } from './stores/waitlist.js';
-import { handleWaitlist } from './routes/waitlist.js';
-import { sendEmail } from './services/email.js';
+import { createWaitlistStore } from './stores/waitlist.js';
+import { handleWaitlistClosed } from './routes/waitlist.js';
 import { handlePublicDemoRoute } from './routes/public-demo.js';
 import { handlePlatformApiRoute } from './routes/platform-api.js';
 import { validateForkSetupPreconditions } from './fork-preconditions.js';
@@ -731,11 +730,27 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   }
   const runHistoryStore = options.runHistoryStore ?? resolveRunHistoryStore(env);
 
-  // Waitlist store for enterprise-access signups on the landing page.
-  // Sync factory; SQLite adapter is built lazily on first POST.
-  const waitlistDbPath = resolve(env.APP_DIR || '.', 'data', 'waitlist.db');
-  const waitlistStore: WaitlistStore = createWaitlistStore({ dbPath: waitlistDbPath });
-  const waitlistFrom = env['WAITLIST_FROM'] || 'Paracosm <team@frame.dev>';
+  // The landing-page waitlist is closed (routes/waitlist.ts answers
+  // 410), so the server leaves the signups it collected in
+  // `${APP_DIR}/data/waitlist.db` alone and does not open the file.
+  // PARACOSM_WAITLIST_STORE=1 opens an existing store at startup and
+  // logs how many signups it holds, for the operator who is about to
+  // export them (`scripts/send-waitlist-broadcast.ts --dry-run` lists
+  // the addresses). Opening runs the store's own schema bootstrap;
+  // no server code inserts, updates or deletes a signup.
+  if (env.PARACOSM_WAITLIST_STORE === '1') {
+    const waitlistDbPath = resolve(env.APP_DIR || '.', 'data', 'waitlist.db');
+    if (existsSync(waitlistDbPath)) {
+      createWaitlistStore({ dbPath: waitlistDbPath })
+        .count()
+        .then((n) => console.log(
+          `  [waitlist] Opened waitlist store at ${waitlistDbPath} (${n} signup${n === 1 ? '' : 's'} stored; the route accepts no new ones)`,
+        ))
+        .catch((err) => console.log(`  [waitlist] Failed to read waitlist store: ${err}`));
+    } else {
+      console.log(`  [waitlist] No waitlist store at ${waitlistDbPath}; nothing to read`);
+    }
+  }
 
   // Coalesce disk writes so a burst of broadcasts (e.g. 50 forge_attempt
   // events during a turn) only triggers one persist call. 500ms debounce
@@ -1696,25 +1711,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // Landing-page enterprise-access waitlist. Captures email, sends a
-    // branded confirmation via Resend, dedupes per-email, rate-limits
-    // 1 submission / IP / 5 min. When `rateLimiter` is null (self-hosted
-    // unlimited mode), fall through to allow-all because there is only
-    // one operator to protect from abusive submissions.
+    // The landing-page waitlist is closed: the route answers 410
+    // `{ error: 'waitlist_closed' }` without reading the body or
+    // touching the stored signups.
     if (req.url === '/api/waitlist' && req.method === 'POST') {
-      const body = await readBody(req, maxRequestBodyBytes);
-      await handleWaitlist(req, res, body, {
-        waitlistStore,
-        sendEmail,
-        rateLimiter: {
-          consumeWaitlist: (ip) =>
-            rateLimiter
-              ? rateLimiter.consumeWaitlist(ip)
-              : { allowed: true, remaining: 0, resetAt: Date.now() + 1, limit: 1 },
-          getClientIp: (r) => IpRateLimiter.getIp(r),
-        },
-        waitlistFrom,
-      });
+      handleWaitlistClosed(res);
       return;
     }
 
@@ -2856,9 +2857,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Serve hand-crafted diagram SVGs (system flow, etc). Single source
-    // at `assets/diagrams/` — referenced from landing.html, the dashboard
-    // AboutPage, and the README. Same path-traversal guard as `/brand/`
-    // and `/demo/`; same file types; same cache policy.
+    // at `assets/diagrams/` — referenced from landing.html and the
+    // README. Same path-traversal guard as `/brand/` and `/demo/`; same
+    // file types; same cache policy.
     if (req.url?.split('?')[0].startsWith('/diagrams/')) {
       try {
         const diagramRoot = resolve(__dirname, '..', '..', 'assets', 'diagrams');

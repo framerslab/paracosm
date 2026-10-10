@@ -512,18 +512,17 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 
 ---
 
-## Open source vs hosted
+## Hosted demo or your own install
 
-|                  | Open source (Apache-2.0)                                           | Hosted (planned)                                                      |
-|------------------|--------------------------------------------------------------------|------------------------------------------------------------------------|
-| Actors           | Unlimited via API. Dashboard renders the full cohort side-by-side, constellation view past 50. | Fleet management UI on top.                          |
-| Simulations      | In-process parallelism via the bounded worker pool.                | Distributed parallelization across worker nodes.                       |
-| Scenarios        | JSON + compiler, unlimited.                                         | Visual scenario editor, team sharing, version control.                |
-| Agent chat       | Available after the first turn completes.                           | Persistent agents with durable memory across sessions.                |
-| Cost             | Free forever. The user supplies LLM API keys.                       | Tiered pricing for teams, organizations, and government agencies.     |
-| Support          | Community via Discord and GitHub.                                   | SLA, dedicated support, private deployment.                            |
+| | Hosted demo | Your own install (Apache-2.0) |
+|---|---|---|
+| Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. |
+| Model keys | The host's keys, or your own OpenAI or Anthropic key entered in Settings. | Your own keys, from the environment or a `.env` file. |
+| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | None in the SDK and `paracosm run`. The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
+| Cost | Free to try. | Free. You pay your model provider for the runs you make. |
+| Support | Community via Discord and GitHub. | Community via Discord and GitHub. |
 
-The open-source engine is the permanent foundation. The hosted product targets organizations that need to run dozens or hundreds of simulations in parallel: defense agencies stress-testing doctrine, corporations modeling leadership scenarios, game studios generating divergent NPC civilizations at scale. Contact [team@frame.dev](mailto:team@frame.dev) for early access.
+Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:team@frame.dev).
 
 ---
 
@@ -534,6 +533,8 @@ The open-source engine is the permanent foundation. The hosted product targets o
 | Live demo      | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim)   |
 | Landing page   | [paracosm.agentos.sh](https://paracosm.agentos.sh)           |
 | API docs       | [paracosm.agentos.sh/docs](https://paracosm.agentos.sh/docs) |
+| HTTP API       | [docs/HTTP_API.md](https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md) |
+| Cookbook       | [docs/COOKBOOK.md](https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md) |
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |
