@@ -2857,9 +2857,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Serve hand-crafted diagram SVGs (system flow, etc). Single source
-    // at `assets/diagrams/` — referenced from landing.html, the dashboard
-    // AboutPage, and the README. Same path-traversal guard as `/brand/`
-    // and `/demo/`; same file types; same cache policy.
+    // at `assets/diagrams/` — referenced from landing.html and the
+    // README. Same path-traversal guard as `/brand/` and `/demo/`; same
+    // file types; same cache policy.
     if (req.url?.split('?')[0].startsWith('/diagrams/')) {
       try {
         const diagramRoot = resolve(__dirname, '..', '..', 'assets', 'diagrams');
