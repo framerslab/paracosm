@@ -177,6 +177,7 @@
       <button class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false" type="button">Docs <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="nav-dropdown-menu" role="menu">
         <a href="/docs" role="menuitem">API Reference</a>
+        <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener" role="menuitem">HTTP API Reference</a>
         <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener" role="menuitem">Cookbook (markdown)</a>
         <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener" role="menuitem">Positioning Map</a>
       </div>
@@ -210,6 +211,7 @@
     <summary><span>Docs</span></summary>
     <div class="nav-mobile-group-body">
       <a href="/docs">API Reference</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API Reference</a>
       <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook (markdown)</a>
       <a href="https://github.com/framerslab/paracosm/blob/master/docs/positioning/world-model-mapping.md" target="_blank" rel="noopener">Positioning Map</a>
     </div>
@@ -855,7 +857,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
 <section class="sec sec-alt" id="get-started">
   <div class="sec-inner">
     <h2 class="sec-title rv">Use Paracosm today</h2>
-    <p class="sec-desc rv">Paracosm is open source and its dashboard is live. Try a run in the browser, install the package from npm, or read the API reference.</p>
+    <p class="sec-desc rv">Paracosm is open source and its dashboard is live. Try a run in the browser, install the package from npm, or read the API references.</p>
 
     <div class="feat-grid" style="margin-top:24px">
       <div class="feat rv rv-d1">
@@ -871,8 +873,8 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
         <p>ESM for Node 22 or newer, under Apache-2.0. Import <code>run</code>, <code>runMany</code> or <code>WorldModel</code> and call them with your own OpenAI or Anthropic key. Its CLI is included, and <code>npx paracosm dashboard</code> serves this dashboard from your machine at <code>http://localhost:3456</code>.</p>
       </div>
       <div class="feat rv rv-d3">
-        <h3>Read the API reference</h3>
-        <p>The <a href="/docs">API reference</a> covers the package's six entry points: <code>paracosm</code> and its <code>compiler</code>, <code>schema</code>, <code>swarm</code>, <code>digital-twin</code> and <code>core</code> subpaths.</p>
+        <h3>Read the API references</h3>
+        <p>The <a href="/docs">API reference</a> covers the package's six entry points: <code>paracosm</code> and its <code>compiler</code>, <code>schema</code>, <code>swarm</code>, <code>digital-twin</code> and <code>core</code> subpaths. The <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API reference</a> documents the dashboard server's <code>/api/v1</code> routes with their request and response shapes and status codes. The <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook</a> walks through the SDK with input and output JSON captured from real runs.</p>
       </div>
     </div>
 
@@ -1139,6 +1141,8 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     <nav class="ft-links" aria-label="Footer">
       <a href="https://agentos.sh">agentos.sh</a>
       <a href="/docs">API Docs</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md" target="_blank" rel="noopener">HTTP API</a>
+      <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md" target="_blank" rel="noopener">Cookbook</a>
       <a href="https://agentos.sh/blog" target="_blank" rel="noopener">Blog</a>
       <a href="https://github.com/framerslab/paracosm">GitHub</a>
       <a href="https://www.npmjs.com/package/paracosm">npm</a>

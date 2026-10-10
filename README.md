@@ -533,6 +533,8 @@ Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:
 | Live demo      | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim)   |
 | Landing page   | [paracosm.agentos.sh](https://paracosm.agentos.sh)           |
 | API docs       | [paracosm.agentos.sh/docs](https://paracosm.agentos.sh/docs) |
+| HTTP API       | [docs/HTTP_API.md](https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md) |
+| Cookbook       | [docs/COOKBOOK.md](https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md) |
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |
