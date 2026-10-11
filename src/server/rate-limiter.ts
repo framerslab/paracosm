@@ -41,6 +41,22 @@ export interface RateLimitDecision {
   limit: number;
 }
 
+/**
+ * Reads a limit from the server's environment as a whole number of zero or
+ * more, written in digits. Unset or empty gives `fallback`. Any other value
+ * (abc, -1, 2.5, 10abc, 1e3) also gives `fallback` and logs one warning that
+ * names it. parseInt would read those as NaN, a negative number or a
+ * truncated one, and a NaN or negative RATE_LIMIT turns the limit off, which
+ * on the hosted demo means unlimited use of the host's keys.
+ */
+export function readLimitFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  if (/^\d+$/.test(raw.trim())) return Number(raw.trim());
+  console.warn(`  [rate-limit] ${name}=${JSON.stringify(raw)} is not a whole number of zero or more; using ${fallback}.`);
+  return fallback;
+}
+
 export class IpRateLimiter {
   private simStore = new Map<string, RateLimitEntry>();
   private compileStore = new Map<string, RateLimitEntry>();

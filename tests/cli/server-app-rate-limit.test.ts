@@ -3,7 +3,7 @@
  * keys, reads as a whole number of zero or more. Any other value keeps the
  * default of one run and logs one warning that names it, so a typo in the
  * server's environment cannot switch the limit off. The hourly chat limits
- * read the same way.
+ * and the cap on concurrent chat calls read the same way.
  */
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ interface RateLimitStatus {
 async function rateLimitWith(env: NodeJS.ProcessEnv): Promise<{ status: RateLimitStatus; warnings: string[] }> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-rate-limit-'));
   const warn = mock.method(console, 'warn', () => {});
-  const unset = { RATE_LIMIT: undefined, CHAT_RATE_LIMIT: undefined, CHAT_RATE_LIMIT_GLOBAL: undefined };
+  const unset = { RATE_LIMIT: undefined, CHAT_RATE_LIMIT: undefined, CHAT_RATE_LIMIT_GLOBAL: undefined, CHAT_CONCURRENCY: undefined };
   const server = createMarsServer({ env: { ...process.env, ...unset, ...env, APP_DIR: appDir }, runPairSimulations: async () => {} });
   try {
     server.listen(0);
@@ -32,7 +32,7 @@ async function rateLimitWith(env: NodeJS.ProcessEnv): Promise<{ status: RateLimi
     assert.equal(res.status, 200);
     const warnings = warn.mock.calls
       .map((call) => call.arguments.map(String).join(' '))
-      .filter((line) => line.includes('RATE_LIMIT'));
+      .filter((line) => line.includes('[rate-limit]'));
     return { status: (await res.json()) as RateLimitStatus, warnings };
   } finally {
     warn.mock.restore();
@@ -70,10 +70,11 @@ test('RATE_LIMIT=3 allows three runs and RATE_LIMIT=0 turns the limit off, witho
 });
 
 test('a chat limit that is not a whole number logs a warning that names it', async () => {
-  const { status, warnings } = await rateLimitWith({ CHAT_RATE_LIMIT: 'many', CHAT_RATE_LIMIT_GLOBAL: 'lots' });
+  const { status, warnings } = await rateLimitWith({ CHAT_RATE_LIMIT: 'many', CHAT_RATE_LIMIT_GLOBAL: 'lots', CHAT_CONCURRENCY: 'four' });
 
   assert.equal(status.limit, 1);
-  assert.equal(warnings.length, 2, `expected one warning per chat limit: ${warnings.join(' | ')}`);
+  assert.equal(warnings.length, 3, `expected one warning per chat limit: ${warnings.join(' | ')}`);
   assert.ok(warnings.some((line) => line.includes('CHAT_RATE_LIMIT=') && line.includes('"many"')));
   assert.ok(warnings.some((line) => line.includes('CHAT_RATE_LIMIT_GLOBAL=') && line.includes('"lots"')));
+  assert.ok(warnings.some((line) => line.includes('CHAT_CONCURRENCY=') && line.includes('"four"')));
 });

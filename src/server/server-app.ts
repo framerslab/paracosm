@@ -31,7 +31,7 @@ import {
   persistCompiledScenario,
   type PersistedCompiledMeta,
 } from '../cli/persisted-compiled-scenarios.js';
-import { IpRateLimiter } from './rate-limiter.js';
+import { IpRateLimiter, readLimitFromEnv } from './rate-limiter.js';
 import {
   aggregateSchemaRetries,
   aggregateForgeStats,
@@ -344,8 +344,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
   // $30 × unique-daily-IPs. Users who want more runs provide their own
   // key, which fully bypasses rate limiting. Override with RATE_LIMIT
-  // env var or maxSimsPerDay option when hosting on your own infra.
-  const maxSims = options.maxSimsPerDay ?? parseInt(env.RATE_LIMIT || '1', 10);
+  // env var or maxSimsPerDay option when hosting on your own infra. A
+  // RATE_LIMIT that is not a whole number keeps the default, with a warning.
+  const maxSims = options.maxSimsPerDay ?? readLimitFromEnv(env, 'RATE_LIMIT', 1);
   const adminWrite = (env.ADMIN_WRITE || 'false').toLowerCase() === 'true';
   // Per-request token gate for /admin/* routes. When ADMIN_WRITE=true,
   // ADMIN_TOKEN must be set to a non-empty secret (paracosm fails the
@@ -393,13 +394,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // against the host key — 30 messages/hr is enough for a real user
   // exploring colonist conversations, well under host-budget noise.
   // Override with CHAT_RATE_LIMIT env var if a local fork wants more.
-  const chatPerHour = parseInt(env.CHAT_RATE_LIMIT || '30', 10);
+  const chatPerHour = readLimitFromEnv(env, 'CHAT_RATE_LIMIT', 30);
   // Global /chat cap (hourly, across all IPs). Defends against IP
   // rotation: even if an attacker burns a fresh per-IP quota every
   // request via a proxy pool, they can't exceed the aggregate budget
   // for the host's chat traffic. 500/hr ≈ $1-2 worst-case host spend
   // per hour. Override via CHAT_RATE_LIMIT_GLOBAL.
-  const chatGlobalPerHour = parseInt(env.CHAT_RATE_LIMIT_GLOBAL || '500', 10);
+  const chatGlobalPerHour = readLimitFromEnv(env, 'CHAT_RATE_LIMIT_GLOBAL', 500);
   const rateLimiter = maxSims > 0
     ? new IpRateLimiter(maxSims, 5, chatPerHour, rateLimitStatePath, chatGlobalPerHour)
     : null;
@@ -409,7 +410,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // before any per-IP / global counter has had a chance to throw.
   // Excess requests get a 429 (clients can retry); we don't queue
   // because long queues hide the back-pressure from clients.
-  const chatConcurrencyCap = parseInt(env.CHAT_CONCURRENCY || '4', 10);
+  const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
 
   // Output retention: sweep simulation output JSON older than
