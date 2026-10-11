@@ -321,6 +321,8 @@ jobs:
     permissions:
       contents: write
       actions: write
+      # npm trusted publishing exchanges this job's OIDC token for a publish token.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -436,6 +438,11 @@ jobs:
           else
             echo "CHANGELOG unchanged; no commit-back."
           fi
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: npm 11.20.0 for trusted publishing
+        if: steps.changes.outputs.library_changed == 'true'
+        run: npm install -g npm@11.20.0 && npm --version
 
       - name: Publish to npm
         if: steps.changes.outputs.library_changed == 'true'
