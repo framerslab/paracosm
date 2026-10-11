@@ -41,14 +41,26 @@ export interface RateLimitDecision {
   limit: number;
 }
 
+/**
+ * Reads a limit from the server's environment as a whole number of zero or
+ * more, written in digits. Unset or empty gives `fallback`. Any other value
+ * (abc, -1, 2.5, 10abc, 1e3) also gives `fallback` and logs one warning that
+ * names it. parseInt would read those as NaN, a negative number or a
+ * truncated one, and a NaN or negative RATE_LIMIT turns the limit off, which
+ * on the hosted demo means unlimited use of the host's keys.
+ */
+export function readLimitFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  if (/^\d+$/.test(raw.trim())) return Number(raw.trim());
+  console.warn(`  [rate-limit] ${name}=${JSON.stringify(raw)} is not a whole number of zero or more; using ${fallback}.`);
+  return fallback;
+}
+
 export class IpRateLimiter {
   private simStore = new Map<string, RateLimitEntry>();
   private compileStore = new Map<string, RateLimitEntry>();
   private chatStore = new Map<string, RateLimitEntry>();
-  /** Last waitlist-submission timestamp per IP (Unix ms). 5-minute
-   *  sliding window — abuse mitigation only; genuine users only
-   *  submit once. */
-  private waitlistLastSeen = new Map<string, number>();
   /** Single-bucket global counter for /chat. Per-IP caps are
    *  trivially evaded by IP rotation (VPNs, proxy pools, residential
    *  proxies), so we additionally cap the hosted-key chat budget
@@ -250,31 +262,6 @@ export class IpRateLimiter {
     return ipResult;
   }
 
-  /** Per-IP 5-minute sliding cooldown for waitlist submissions.
-   *  Decision shape matches the bucket-based methods so callers can
-   *  treat them uniformly. Genuine users only ever submit once;
-   *  the cap exists as abuse mitigation, not a budget. */
-  consumeWaitlist(ip: string): RateLimitDecision {
-    const COOLDOWN_MS = 5 * 60 * 1000;
-    const now = Date.now();
-    const last = this.waitlistLastSeen.get(ip);
-    if (last !== undefined && now - last < COOLDOWN_MS) {
-      return {
-        allowed: false,
-        remaining: 0,
-        resetAt: last + COOLDOWN_MS,
-        limit: 1,
-      };
-    }
-    this.waitlistLastSeen.set(ip, now);
-    return {
-      allowed: true,
-      remaining: 0,
-      resetAt: now + COOLDOWN_MS,
-      limit: 1,
-    };
-  }
-
   /** Get stats for monitoring endpoints. */
   stats(): {
     totalIps: number;
@@ -301,14 +288,6 @@ export class IpRateLimiter {
           store.delete(ip);
           mutated = true;
         }
-      }
-    }
-    const WAITLIST_COOLDOWN_MS = 5 * 60 * 1000;
-    for (const [ip, last] of this.waitlistLastSeen) {
-      if (now - last >= WAITLIST_COOLDOWN_MS) {
-        this.waitlistLastSeen.delete(ip);
-        // No persist() — waitlistLastSeen is in-memory only; the
-        // persistence path only writes the count-based buckets.
       }
     }
     if (mutated) this.persist();

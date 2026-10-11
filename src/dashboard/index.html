@@ -70,32 +70,34 @@
   </head>
   <body>
     <a href="#main-content" class="skip-to-content">Skip to main content</a>
-    <!--
-      Server-rendered semantic shell for crawlers + screen readers. The
-      React app mounts into #root and replaces these placeholders, but
-      until hydration the page has a real H1, H2, and a noscript fallback
-      explaining what Paracosm is and pointing at the marketing site.
-    -->
-    <div id="seo-shell" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">
-      <h1>Paracosm Dashboard — Agent Swarm Simulation for Structured World Modeling with LLMs</h1>
-      <h2>Live multi-agent simulation runtime</h2>
-      <p>Configure scenarios, run deterministic kernels, generate HEXACO-personality leaders, fork and replay runs, and forge tools at runtime. Open-source TypeScript, built on AgentOS.</p>
-    </div>
-    <noscript>
-      <main style="max-width:720px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6">
-        <h1>Paracosm Dashboard</h1>
-        <p>The Paracosm dashboard is an interactive React app and requires JavaScript. Visit the
-          <a href="https://paracosm.agentos.sh">project landing page</a> for an overview, or read the
-          <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md">cookbook</a>
-          for code examples that don't require the dashboard.</p>
-      </main>
-    </noscript>
     <!-- Skip-link target: wraps #root so the keyboard/screen-reader
          "Skip to main content" anchor at the top of the page lands here
          regardless of whether JS is enabled. React mounts inside #root
          and never touches this wrapper. -->
     <main id="main-content">
-      <div id="root"></div>
+      <div id="root">
+        <!--
+          Server-rendered semantic shell for crawlers and screen readers
+          without JavaScript: a real H1 and H2, and a noscript fallback
+          that points at the landing page. React clears everything inside
+          #root on its first render, so once the dashboard mounts, its
+          heading for the active tab is the page's only H1.
+        -->
+        <div id="seo-shell" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">
+          <h1>Paracosm Dashboard — Agent Swarm Simulation for Structured World Modeling with LLMs</h1>
+          <h2>Live multi-agent simulation runtime</h2>
+          <p>Configure scenarios, run deterministic kernels, generate HEXACO-personality leaders, fork and replay runs, and forge tools at runtime. Open-source TypeScript, built on AgentOS.</p>
+        </div>
+        <noscript>
+          <div style="max-width:720px;margin:4rem auto;padding:0 1.5rem;font-family:system-ui,sans-serif;line-height:1.6">
+            <h2>Paracosm Dashboard</h2>
+            <p>The Paracosm dashboard is an interactive React app and requires JavaScript. Visit the
+              <a href="https://paracosm.agentos.sh">project landing page</a> for an overview, or read the
+              <a href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md">cookbook</a>
+              for code examples that don't require the dashboard.</p>
+          </div>
+        </noscript>
+      </div>
     </main>
     <script type="module" src="/src/main.tsx"></script>
   </body>
