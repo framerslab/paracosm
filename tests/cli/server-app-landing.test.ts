@@ -113,6 +113,24 @@ test('links from the landing page into this repository point at files that exist
   assert.deepEqual(files.filter((file) => !existsSync(resolve(root, file))), []);
 });
 
+test('the scenarios section lists exactly the scenario files in scenarios/', () => {
+  const listed = [...section('scenarios').matchAll(/<summary>([^<]+)<\/summary>/g)]
+    .map((match) => match[1].split('\u00b7')[0].trim())
+    .sort();
+  const inRepository = readdirSync(resolve(root, 'scenarios'))
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => JSON.parse(readFileSync(resolve(root, 'scenarios', name), 'utf8')) as { id?: unknown; labels?: { name?: string } })
+    .filter((draft) => typeof draft.id === 'string')
+    .map((draft) => draft.labels?.name)
+    .sort();
+
+  assert.deepEqual(
+    listed,
+    inRepository,
+    'a scenario was added to or removed from scenarios/: update the cards, the count in the heading and the FAQ answer',
+  );
+});
+
 test("the landing page's structured data parses and every FAQ entry has an answer", () => {
   const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
     (match) => JSON.parse(match[1]) as { '@type'?: string; mainEntity?: Array<{ name?: string; acceptedAnswer?: { text?: string } }> },
