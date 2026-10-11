@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Sitemap check: every /docs URL in src/dashboard/public/sitemap.xml names a
- * file the TypeDoc build wrote to docs/api, and the sitemap lists every module
- * page that build wrote to docs/api/modules. Run after `npm run docs`.
+ * file the TypeDoc build wrote to docs/api, the sitemap lists every module
+ * page that build wrote to docs/api/modules, and every URL carries a
+ * <lastmod> date that is not in the future. Run after `npm run docs`.
  *
  * Why this check exists: TypeDoc names a module page after the entry point's
  * `@module` tag (`paracosm/compiler` becomes modules/paracosm_compiler.html),
@@ -25,8 +26,24 @@ if (!existsSync(DOCS_DIR)) {
   process.exit(1);
 }
 
-const locs = [...readFileSync(SITEMAP, 'utf8').matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map((m) => m[1]);
+const xml = readFileSync(SITEMAP, 'utf8');
+const locs = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/g)].map((m) => m[1]);
 const problems = [];
+
+// The sitemap is written by hand, so nothing else keeps its dates: each URL
+// carries a W3C date (YYYY-MM-DD, optionally with a time) no later than today.
+const today = new Date().toISOString().slice(0, 10);
+for (const [, entry] of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+  const loc = entry.match(/<loc>\s*([^<]+?)\s*<\/loc>/)?.[1] ?? 'a <url> without a <loc>';
+  const lastmod = entry.match(/<lastmod>\s*([^<]+?)\s*<\/lastmod>/)?.[1];
+  if (!lastmod) {
+    problems.push(`${loc}: no <lastmod>`);
+  } else if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2}))?$/.test(lastmod)) {
+    problems.push(`${loc}: <lastmod> ${lastmod} is not a W3C date`);
+  } else if (lastmod.slice(0, 10) > today) {
+    problems.push(`${loc}: <lastmod> ${lastmod} is in the future`);
+  }
+}
 const listedModulePages = new Set();
 
 for (const loc of locs) {
