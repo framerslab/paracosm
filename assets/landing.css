@@ -858,14 +858,6 @@ a:hover { text-decoration: underline; }
   width: 100%;
 }
 
-/* ── Pricing ──────────────────────────────────────────────────────────────── */
-
-.pricing-banner { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 40px; text-align: center; max-width: 700px; margin: 0 auto; backdrop-filter: blur(12px); }
-.pricing-banner h3 { font-family: var(--mono); font-size: var(--font-2xl); font-weight: 700; color: var(--t1); margin-bottom: 8px; }
-.pricing-banner p { font-size: var(--font-lg); color: var(--t2); line-height: 1.8; margin-bottom: 8px; }
-.pricing-tiers { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 20px 0; }
-.pricing-tier { font-family: var(--mono); font-size: var(--font-sm); font-weight: 700; padding: 6px 16px; border-radius: 6px; background: var(--bg4); color: var(--t2); border: 1px solid var(--border); }
-
 /* ── Code Blocks ──────────────────────────────────────────────────────────── */
 
 .code-sec { margin-top: 56px; width: 100%; max-width: 720px; }
@@ -1221,7 +1213,6 @@ html:not(.js) .rv {
   .arch { grid-template-columns: 1fr; }
   .contact-grid { grid-template-columns: 1fr; }
   .hero-chips { gap: 6px; }
-  .pricing-tiers { flex-direction: column; align-items: center; }
 }
 
 
@@ -1263,7 +1254,6 @@ html:not(.js) .rv {
 }
 
 .light .arch-row { background: rgba(248, 242, 228, .7); border-color: var(--border); box-shadow: 0 2px 8px rgba(60, 40, 10, .06); }
-.light .pricing-banner { background: var(--bg3); border-color: var(--border); }
 .light .contact-card { background: var(--bg3); border-color: var(--border); }
 .light .faq-item { border-bottom-color: var(--border); }
 
@@ -1299,7 +1289,6 @@ html:not(.js) .rv {
 .light footer { background: var(--bg2); border-top-color: var(--border); }
 .light .banner::before { opacity: .15; }
 .light .pc-badge { background: var(--bg4); color: var(--amber); border-color: var(--border); }
-.light .pricing-tier { background: var(--bg); color: var(--t2); border-color: var(--border); }
 .light .theme-toggle { color: var(--t3); border-color: var(--border); }
 .light .theme-toggle:hover { color: var(--t1); border-color: var(--border-hl); }
 
