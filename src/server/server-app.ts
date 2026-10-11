@@ -165,7 +165,7 @@ export interface CreateMarsServerOptions {
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   scenarioDir?: string;
-  /** Max simulations per IP per day. 0 = unlimited. Default: 3. Set via RATE_LIMIT env var. */
+  /** Max simulations per IP per day. 0 = unlimited. Overrides the RATE_LIMIT env var; with neither set the limit is 1. */
   maxSimsPerDay?: number;
   /**
    * Grace period (ms) between the last SSE client disconnecting and the
