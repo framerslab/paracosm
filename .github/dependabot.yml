@@ -30,6 +30,13 @@ updates:
       # typedoc release supports TypeScript 7 (TypeStrong/typedoc#3098).
       - dependency-name: "typescript"
         versions: [">=7.0.0"]
+      # better-sqlite3 13 has no install script and no prebuilt binaries, so
+      # npm runs node-gyp on every install, which needs make and a C++
+      # compiler. The deploy server has neither (the 13.0.3 bump in #114 took
+      # the site down), and neither do many machines installing paracosm.
+      # Remove this once a 13.x release ships prebuilt binaries again.
+      - dependency-name: "better-sqlite3"
+        versions: [">=13.0.0"]
 
   - package-ecosystem: "npm"
     directory: "/src/dashboard"
