@@ -44,6 +44,12 @@ const PAGES = [
   ['/favicon.png', 'image/png', null],
 ];
 
+/**
+ * Hosts the visitor analytics load from. Only the hosted demo adds them (src/server/site-analytics.ts),
+ * and the landing page's privacy section tells visitors a copy installed from npm loads none of them.
+ */
+const ANALYTICS_HOSTS = ['analytics.manic.agency', 'googletagmanager.com', 'clarity.ms'];
+
 /** [path, Location of the redirect]: the package ships no docs/api, so the docs links go to the hosted reference. */
 const REDIRECTS = [
   ['/docs', 'https://docs.agentos.sh/paracosm'],
@@ -133,6 +139,12 @@ async function main() {
       if (!contentType.startsWith(type)) throw new Error(`GET ${path} answered ${contentType}, not ${type}`);
       if (marker !== null && !(await response.text()).includes(marker)) throw new Error(`GET ${path} has no ${marker}`);
       console.log(`GET ${path}: ${response.status} ${contentType}`);
+    }
+    for (const path of ['/', '/sim']) {
+      const page = await (await fetch(`${base}${path}`)).text();
+      const found = ANALYTICS_HOSTS.filter((host) => page.includes(host));
+      if (found.length > 0) throw new Error(`GET ${path} loads analytics from ${found.join(', ')}`);
+      console.log(`GET ${path}: no analytics`);
     }
     // The dashboard's bundle: every /assets/ file the /sim page loads must answer with its type.
     const dashboardPage = await (await fetch(`${base}/sim`)).text();
