@@ -6,6 +6,14 @@ import { useEffect } from 'react';
  *
  * Set VITE_GA_MEASUREMENT_ID and VITE_CLARITY_PROJECT_ID in your
  * dashboard .env or deployment environment. If not set, no scripts load.
+ * deploy.yml sets them for the hosted demo's build only, so the dashboard
+ * the npm package ships reports to no analytics. The hosted server adds
+ * Plausible to the page (src/server/site-analytics.ts).
+ *
+ * Google Analytics runs with Google signals and ad personalization off.
+ * Clarity runs with the whole page masked: data-clarity-mask on <body>
+ * masks the text and images of everything inside it, whatever the
+ * project's masking mode. The landing page's privacy section names both.
  */
 
 // Read via optional chaining + cast so node:test runs (which load this
@@ -43,14 +51,17 @@ export function Analytics() {
         gtag('js', new Date());
         gtag('config', '${GA_ID}', {
           page_path: window.location.pathname,
-          anonymize_ip: true
+          anonymize_ip: true,
+          allow_google_signals: false,
+          allow_ad_personalization_signals: false
         });
       `);
       injectScript('ga-js', `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`);
     }
 
-    // Microsoft Clarity
+    // Microsoft Clarity, with the page masked before its script loads.
     if (CLARITY_ID) {
+      document.body.setAttribute('data-clarity-mask', 'True');
       injectInline('clarity-init', `
         (function(c,l,a,r,i,t,y){
           c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};

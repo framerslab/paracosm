@@ -459,7 +459,7 @@ Programmatic surfaces: `paracosm` root (`run`, `runMany`, `WorldModel`, `compile
 
 For non-SSE consumers there's `POST /simulate` (gated on `PARACOSM_ENABLE_SIMULATE_ENDPOINT=true`) and nine read-and-replay routes under `/api/v1/*`. Wire-level details: [`docs/HTTP_API.md`](docs/HTTP_API.md).
 
-Storage: SQLite by default, Postgres / sql.js / IndexedDB via `STORAGE_ADAPTER=` env. Run history (Library) and session blobs (Load menu) share the same schema. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer; off by default.
+Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer; off by default.
 
 ---
 
@@ -467,27 +467,40 @@ Storage: SQLite by default, Postgres / sql.js / IndexedDB via `STORAGE_ADAPTER=`
 
 ```
 src/
-  engine/         the npm package
-    core/         deterministic kernel: RNG, state, progression, personality drift
-    compiler/     scenario draft + source grounding to ScenarioPackage compiler
-    mars/         Mars Genesis scenario
-    lunar/        Lunar Outpost scenario
+  index.ts             the package root: run, runMany, WorldModel, compileScenario,
+                       the built-in scenarios, trait models, presets and types
+  api/                 run() and runMany()
+  engine/              scenario contract, compiler and deterministic kernel
+    core/              kernel: seeded RNG, state, snapshots, progression (paracosm/core)
+    compiler/          scenario draft + source grounding to ScenarioPackage (paracosm/compiler)
+    schema/            RunArtifact types and Zod schemas (paracosm/schema)
+    digital-twin/      WorldModel as DigitalTwin (paracosm/digital-twin)
+    scenarios/         loads Mars Genesis and Lunar Outpost from scenarios/*.json
+    data-driven-hooks/ turns a scenario's JSON hooks into runtime hooks
+    physics/           per-agent progression physics a scenario names in its JSON
+    traits/            trait models: HEXACO and the AI-agent model
+    registries/        effects, events and metrics
+    presets/           actor presets
+    provider/          provider key resolution
 
-  runtime/        orchestration (not exported)
-    orchestrator           turn pipeline: director, kernel, departments, commander
-    director               emergent event generation from simulation state
-    departments            parallel department analysis agents
-    agent-reactions        batched agent reactions, 10 agents per LLM call
-    agent-memory           persistent memory, consolidation, stance drift
-    chat-agents            post-simulation conversational agents
-    schemas/               Zod schemas for every structured LLM call
-    llm-invocations/       generateValidatedObject + sendAndValidate wrappers
-    hexaco-cues/           trajectory and reaction cue translation helpers
+  runtime/             simulation execution
+    orchestrator/      turn pipeline: event director, departments, commander, reactions
+    agents/            agent reactions, memory and post-run chat
+    world-model/       the WorldModel facade: simulate, replay, fork, intervene, batch
+    swarm/             views over a run's agent swarm (paracosm/swarm)
+    research/          citation and research memory
+    validators/        Zod validators for LLM responses
+    economics/         cost tracking and pricing
+    io/                output writer, artifact assembly, SSE envelopes
+    util/              parsers and shared helpers
 
-  cli/            server + dashboard (not exported)
-    serve.ts      HTTP + SSE server
-    dashboard/    React + Vite live visualization, cellular automata viz
+  llm/                 validated LLM calls shared by the runtime and the compiler
+  cli/                 the paracosm command
+  server/              the dashboard's HTTP and SSE server
+  dashboard/           the React + Vite dashboard at /sim, and the landing page
 ```
+
+[docs/architecture/INTERNAL_LAYOUT.md](https://github.com/framerslab/paracosm/blob/master/docs/architecture/INTERNAL_LAYOUT.md) describes each folder.
 
 The engine owns the chassis. The scenario owns the domain. The kernel handles state, time, randomness, and invariants. The scenario handles event categories, department instructions, progression hooks, and research citations. The orchestrator connects them.
 
@@ -512,18 +525,17 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 
 ---
 
-## Open source vs hosted
+## Hosted demo or your own install
 
-|                  | Open source (Apache-2.0)                                           | Hosted (planned)                                                      |
-|------------------|--------------------------------------------------------------------|------------------------------------------------------------------------|
-| Actors           | Unlimited via API. Dashboard renders the full cohort side-by-side, constellation view past 50. | Fleet management UI on top.                          |
-| Simulations      | In-process parallelism via the bounded worker pool.                | Distributed parallelization across worker nodes.                       |
-| Scenarios        | JSON + compiler, unlimited.                                         | Visual scenario editor, team sharing, version control.                |
-| Agent chat       | Available after the first turn completes.                           | Persistent agents with durable memory across sessions.                |
-| Cost             | Free forever. The user supplies LLM API keys.                       | Tiered pricing for teams, organizations, and government agencies.     |
-| Support          | Community via Discord and GitHub.                                   | SLA, dedicated support, private deployment.                            |
+| | Hosted demo | Your own install (Apache-2.0) |
+|---|---|---|
+| Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. |
+| Model keys | The host's keys, or your own OpenAI or Anthropic key entered in Settings. | Your own keys, from the environment or a `.env` file. |
+| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | No hosted quotas: the SDK and `paracosm run` cap no turns, population, departments or daily runs. The API has its own bounds: `runMany()` and `WorldModel.quickstart()` take 2 to 6 actors and throw outside that range, `run()` runs two and returns the first, and a dashboard run takes 2 to 300 actors (a fork takes 1). The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
+| Cost | Free to try. | Free. You pay your model provider for the runs you make. |
+| Support | Community via Discord and GitHub. | Community via Discord and GitHub. |
 
-The open-source engine is the permanent foundation. The hosted product targets organizations that need to run dozens or hundreds of simulations in parallel: defense agencies stress-testing doctrine, corporations modeling leadership scenarios, game studios generating divergent NPC civilizations at scale. Contact [team@frame.dev](mailto:team@frame.dev) for early access.
+Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:team@frame.dev).
 
 ---
 
@@ -534,6 +546,8 @@ The open-source engine is the permanent foundation. The hosted product targets o
 | Live demo      | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim)   |
 | Landing page   | [paracosm.agentos.sh](https://paracosm.agentos.sh)           |
 | API docs       | [paracosm.agentos.sh/docs](https://paracosm.agentos.sh/docs) |
+| HTTP API       | [docs/HTTP_API.md](https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md) |
+| Cookbook       | [docs/COOKBOOK.md](https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md) |
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |

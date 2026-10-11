@@ -99,7 +99,8 @@ export function LibraryTab(): JSX.Element {
   return (
     <div className={styles.tab}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Library</h1>
+        {/* h2: the page's h1 is the sr-only "Paracosm — Library" heading App.tsx renders for the tab. */}
+        <h2 className={styles.title}>Library</h2>
         <div className={styles.viewToggle} role="group" aria-label="View mode">
           <button
             className={view === 'gallery' ? styles.viewActive : styles.viewBtn}
