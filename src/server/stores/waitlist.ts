@@ -1,9 +1,12 @@
 /**
- * SQL-backed waitlist store. Mirrors `sqlite-run-history-store.ts`:
- * uses `@framers/sql-storage-adapter` so the same code works on
- * better-sqlite3 (default), sql.js (fallback), and Postgres (set
- * STORAGE_ADAPTER=postgres + DATABASE_URL). Email lookups are
- * case-insensitive (we lowercase on write).
+ * SQL-backed waitlist store. Mirrors `sqlite-run-history.ts`:
+ * built on `@framers/sql-storage-adapter`. Given only `dbPath`, the
+ * store opens better-sqlite3, or sql.js when the native module cannot
+ * load; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect, because
+ * `createDatabase({ file })` fixes that order in Node. Another backend,
+ * such as Postgres, takes `databaseOptions` (for example
+ * `{ type: 'postgres', url }`). Email lookups are case-insensitive (we
+ * lowercase on write).
  *
  * @module paracosm/cli/server/waitlist-store
  */
@@ -64,7 +67,7 @@ export interface WaitlistStore {
 }
 
 export interface CreateWaitlistStoreOptions {
-  /** SQLite file path. Ignored when STORAGE_ADAPTER selects Postgres. */
+  /** SQLite file path, opened unless `databaseOptions` is given. */
   dbPath?: string;
   /** Direct override for `createDatabase`. Tests pass `{ file: ':memory:' }`. */
   databaseOptions?: DatabaseOptions;

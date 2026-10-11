@@ -11,58 +11,38 @@
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_compiler.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm_core.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_schema.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm_compiler.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_digital-twin.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm_schema.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_mars.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm_digital-twin.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_lunar.html</loc>
+    <loc>https://paracosm.agentos.sh/docs/modules/paracosm_swarm.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/engine_leader-presets.html</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/runtime.html</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/runtime_world-model.html</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://paracosm.agentos.sh/docs/modules/runtime_swarm.html</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.7</priority>
   </url>
 </urlset>

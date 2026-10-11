@@ -1,11 +1,11 @@
 /**
  * SQL-backed implementation of {@link RunHistoryStore}, built on
- * `@framers/sql-storage-adapter` so the same code works on SQLite,
- * Postgres, sql.js, and IndexedDB without touching call sites. The
- * default adapter is better-sqlite3 (or sql.js fallback when the
- * native module isn't installable). Set `STORAGE_ADAPTER=postgres`
- * with `DATABASE_URL` to switch backends; the resolver inside
- * sql-storage-adapter handles the rest.
+ * `@framers/sql-storage-adapter`. Given only `dbPath`, it opens
+ * better-sqlite3, or sql.js when the native module isn't installable;
+ * `STORAGE_ADAPTER` and `DATABASE_URL` have no effect, because
+ * `createDatabase({ file })` fixes that order in Node. Another backend,
+ * such as Postgres, takes `databaseOptions` (for example
+ * `{ type: 'postgres', url }`).
  *
  * Single `runs` table with composite per-filter indexes. Run records
  * are tiny (~200 bytes); 100K rows fits in 20 MB. No retention cap;
@@ -20,16 +20,12 @@ import type { RunRecord } from '../services/run-record.js';
 import type { ListRunsFilters, RunHistoryStore, RunsAggregate } from './run-history.js';
 
 export interface SqliteRunHistoryStoreOptions {
-  /**
-   * SQLite database path. Used when the resolver picks better-sqlite3
-   * or sql.js. Ignored when STORAGE_ADAPTER selects a remote backend
-   * such as Postgres (DATABASE_URL takes precedence there).
-   */
+  /** SQLite database path, opened unless `databaseOptions` is given. */
   dbPath: string;
   /**
    * Optional override forwarded to `createDatabase`. Tests use this to
    * pin `type: 'memory'` for hermetic isolation; production code
-   * leaves it undefined and lets the env-driven resolver pick.
+   * leaves it undefined, so the store opens `dbPath` with SQLite.
    */
   databaseOptions?: DatabaseOptions;
 }

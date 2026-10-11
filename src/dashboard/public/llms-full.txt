@@ -20,7 +20,7 @@ This file is a curated, token-efficient full-content map of Paracosm for large l
 
 Paracosm is a structured world-model engine for LLM agent swarms. You define or ground a world as a `ScenarioPackage` (departments, metrics, crisis templates, progression hooks). The engine populates it, generates events from live state, and resolves outcomes through a seeded deterministic kernel. LLM-driven stages diverge because every prompt carries the leader's HEXACO profile.
 
-Two scenarios ship in the box: Mars Genesis and Lunar Outpost. New ones compile from a JSON draft, prompt, brief, or URL.
+The npm package exports two scenarios, Mars Genesis and Lunar Outpost (`marsScenario`, `lunarScenario`), and the repository's `scenarios/` folder holds five more as JSON. New ones compile from a JSON draft, prompt, brief, or URL.
 
 ## Two kinds of world model — Paracosm is the structured kind
 

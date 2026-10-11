@@ -137,6 +137,9 @@ jobs:
           npm run docs
           cp assets/docs-theme/paracosm-override.css docs/api/assets/paracosm-override.css
 
+      - name: Check the sitemap against the API docs
+        run: npm run check:sitemap
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -82,3 +82,6 @@ jobs:
 
       - name: Build API docs (TypeDoc)
         run: npm run docs
+
+      - name: Check the sitemap against the API docs
+        run: npm run check:sitemap

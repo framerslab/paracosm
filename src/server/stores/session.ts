@@ -7,9 +7,11 @@
  * triggering a fresh LLM-powered run. Bounded ring of N most recent
  * saves (oldest evicted) keeps the file size predictable.
  *
- * Backed by `@framers/sql-storage-adapter` so the same code runs against
- * SQLite, Postgres, sql.js, or IndexedDB without changing call sites.
- * Override the resolver via `STORAGE_ADAPTER=postgres` + `DATABASE_URL`.
+ * Backed by `@framers/sql-storage-adapter`. Given only a path, the store
+ * opens better-sqlite3, or sql.js when the native module cannot load;
+ * `STORAGE_ADAPTER` and `DATABASE_URL` have no effect, because
+ * `createDatabase({ file })` fixes that order in Node. Another backend,
+ * such as Postgres, takes `databaseOptions` in `OpenSessionStoreOptions`.
  *
  * Single-table schema with the event array stored as a JSON blob — for
  * a ring of 10 saved runs the row count is trivial and full-row reads
@@ -146,7 +148,7 @@ export interface OpenSessionStoreOptions {
   /**
    * Optional override forwarded to `createDatabase`. Tests use this to
    * pin `type: 'memory'` for hermetic isolation; production code leaves
-   * it undefined and lets the env-driven resolver pick.
+   * it undefined, so the store opens `dbPath` with SQLite.
    */
   databaseOptions?: DatabaseOptions;
 }

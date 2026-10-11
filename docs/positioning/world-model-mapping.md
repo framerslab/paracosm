@@ -30,7 +30,7 @@ Paracosm should not be described as "from JSON" as if JSON were the whole produc
 
 | Layer | What users provide | What Paracosm does |
 |---|---|---|
-| Source material | Prompt, pasted brief, PDF text, policy memo, fiction, web URL, or hand-written scenario JSON | Extracts topics, facts, citations, constraints, and likely dynamics. Today this is exposed through `seedText` / `seedUrl`; the roadmap API should expose it as `compileWorld()` or `WorldModel.fromPrompt()`. |
+| Source material | Prompt, pasted brief, PDF text, policy memo, fiction, web URL, or hand-written scenario JSON | Extracts topics, facts, citations, constraints, and likely dynamics. `WorldModel.fromPrompt({ seedText, sourceUrl, domainHint })` drafts and compiles a scenario from the material alone, and `run()` / `runMany()` wrap it; `compileScenario()` takes the same material as `seedText` / `seedUrl` to ground a hand-written draft. |
 | Canonical contract | `ScenarioPackage` / scenario JSON draft | Validates five state bags, labels, departments, metrics, setup defaults, and generated hooks. This is the checkpointable world model the kernel can replay. |
 | Simulation state | Kernel snapshot + `RunArtifact` | Persists deterministic replay state, fork lineage, decisions, timepoints, citations, forged tools, costs, and final world snapshot. |
 
