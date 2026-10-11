@@ -8,7 +8,7 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 
 ## Base URL and gating
 
-- Local: `http://localhost:3456` (override with `PARACOSM_PORT`)
+- Local: `http://localhost:3456` (override with `PORT`, set in the environment or in a `.env` file in the directory you start the server from)
 - All `/api/v1/runs*` and `/api/v1/bundles/*` routes return **403 `run_history_routes_disabled`** when the server is started with `PARACOSM_ENABLE_RUN_HISTORY_ROUTES=false`. Default is `true` except in `hosted_demo` mode.
 - Routes are CORS-permissive (`Access-Control-Allow-Origin: *`) for local dashboard development.
 

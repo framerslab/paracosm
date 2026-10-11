@@ -31,7 +31,7 @@ import {
   persistCompiledScenario,
   type PersistedCompiledMeta,
 } from '../cli/persisted-compiled-scenarios.js';
-import { IpRateLimiter } from './rate-limiter.js';
+import { IpRateLimiter, readLimitFromEnv } from './rate-limiter.js';
 import {
   aggregateSchemaRetries,
   aggregateForgeStats,
@@ -46,6 +46,7 @@ import { createCompilerTelemetry, type CompilerTelemetry } from '../engine/compi
 import { openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
+import { withSiteAnalytics } from './site-analytics.js';
 import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -335,13 +336,17 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
+  // copy run from the package or a clone sends its pages without them.
+  const siteAnalytics = serverMode === 'hosted_demo';
   // Rate limit default: 1 simulation per IP per day for the public-demo
   // path. Even on DEMO_MODELS + DEMO_EXECUTION a run costs ~$0.40 against
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
   // $30 × unique-daily-IPs. Users who want more runs provide their own
   // key, which fully bypasses rate limiting. Override with RATE_LIMIT
-  // env var or maxSimsPerDay option when hosting on your own infra.
-  const maxSims = options.maxSimsPerDay ?? parseInt(env.RATE_LIMIT || '1', 10);
+  // env var or maxSimsPerDay option when hosting on your own infra. A
+  // RATE_LIMIT that is not a whole number keeps the default, with a warning.
+  const maxSims = options.maxSimsPerDay ?? readLimitFromEnv(env, 'RATE_LIMIT', 1);
   const adminWrite = (env.ADMIN_WRITE || 'false').toLowerCase() === 'true';
   // Per-request token gate for /admin/* routes. When ADMIN_WRITE=true,
   // ADMIN_TOKEN must be set to a non-empty secret (paracosm fails the
@@ -389,13 +394,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // against the host key — 30 messages/hr is enough for a real user
   // exploring colonist conversations, well under host-budget noise.
   // Override with CHAT_RATE_LIMIT env var if a local fork wants more.
-  const chatPerHour = parseInt(env.CHAT_RATE_LIMIT || '30', 10);
+  const chatPerHour = readLimitFromEnv(env, 'CHAT_RATE_LIMIT', 30);
   // Global /chat cap (hourly, across all IPs). Defends against IP
   // rotation: even if an attacker burns a fresh per-IP quota every
   // request via a proxy pool, they can't exceed the aggregate budget
   // for the host's chat traffic. 500/hr ≈ $1-2 worst-case host spend
   // per hour. Override via CHAT_RATE_LIMIT_GLOBAL.
-  const chatGlobalPerHour = parseInt(env.CHAT_RATE_LIMIT_GLOBAL || '500', 10);
+  const chatGlobalPerHour = readLimitFromEnv(env, 'CHAT_RATE_LIMIT_GLOBAL', 500);
   const rateLimiter = maxSims > 0
     ? new IpRateLimiter(maxSims, 5, chatPerHour, rateLimitStatePath, chatGlobalPerHour)
     : null;
@@ -405,7 +410,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // before any per-IP / global counter has had a chance to throw.
   // Excess requests get a 429 (clients can retry); we don't queue
   // because long queues hide the back-pressure from clients.
-  const chatConcurrencyCap = parseInt(env.CHAT_CONCURRENCY || '4', 10);
+  const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
 
   // Output retention: sweep simulation output JSON older than
@@ -458,15 +463,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // for specific IDs. New builtins ship by adding one more
   // customScenarioCatalog.set(id, { scenario, source: 'builtin' }) here.
   const customScenarioCatalog = loadDiskCustomScenarios(scenarioDir);
-  // Hand-coded TypeScript builtins. Mars + Lunar have genuine domain
-  // hooks (bone density decay, regolith exposure curves, lunar gravity
-  // multiplier) that don't fit the data-driven-hooks DSL — they stay
-  // as engine modules. Every other scenario lives in `scenarios/*.json`
-  // with a `dataDrivenHooks` block and gets lifted at boot via
-  // `loadDiskCustomScenarios` → `liftDataDrivenDraft` →
-  // `buildDataDrivenHooksFromJson`. Adding a 4th, 5th, Nth AI / SaaS
-  // / governance scenario is now just a JSON file checked into
-  // `scenarios/` — no engine module per scenario.
+  // The two builtins are JSON as well. src/engine/scenarios/index.ts lifts
+  // scenarios/mars.json and scenarios/lunar.json, with their knowledge
+  // bundles, when it is imported, and the per-agent physics the data-driven
+  // hooks DSL cannot express (radiation dose and bone-density decay on Mars,
+  // regolith exposure and atrophy under 1/6 g on the Moon) is the
+  // src/engine/physics module each file names in
+  // `dataDrivenHooks.progressionPhysics`. They register as 'builtin', in
+  // place of any entry the disk loader made from the same files, because
+  // the package exports them, a fresh server starts on Mars, and the
+  // catalog refuses to rename or delete a builtin. Every other scenario in
+  // `scenarios/` is lifted at boot by `loadDiskCustomScenarios` →
+  // `liftDataDrivenDraft` → `buildDataDrivenHooksFromJson`, so a new one is
+  // a JSON file checked into `scenarios/`.
   customScenarioCatalog.set(marsScenario.id, { scenario: marsScenario, source: 'builtin' });
   customScenarioCatalog.set(lunarScenario.id, { scenario: lunarScenario, source: 'builtin' });
 
@@ -3056,12 +3065,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // (`0.1.0` lingered in the HTML long after we shipped 0.4.x).
         // The placeholder is what lives on disk; we swap it per-request
         // since it's a one-line string replace on a cached template.
-        const html = readFileSync(landingPath, 'utf-8').replace(
+        const page = readFileSync(landingPath, 'utf-8').replace(
           /__PARACOSM_VERSION__/g,
           PARACOSM_VERSION,
         );
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-        res.end(html);
+        res.end(siteAnalytics ? withSiteAnalytics(page, 'all') : page);
         return;
       }
     }
@@ -3077,8 +3086,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end();
         return;
       }
+      // A permanent redirect: the navigation, the footers and the structured
+      // data all link /docs, and the module index is its page.
       if (pathname === '/docs' || pathname === '/docs/') {
-        res.writeHead(302, { Location: '/docs/modules.html' });
+        res.writeHead(301, { Location: '/docs/modules.html' });
         res.end();
         return;
       }
@@ -3252,11 +3263,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     <a href="https://www.npmjs.com/package/paracosm">npm</a>
     <a href="https://frame.dev">Frame.dev</a>
     <a href="https://frame.dev">Frame</a>
+    <a href="/#privacy">Privacy</a>
   </div>
   <span><span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-weight:700;letter-spacing:.08em;font-size:10px">PARA<span style="color:#e8b44a">COSM</span></span> &middot; Apache-2.0 &middot; <a href="https://frame.dev">Frame.dev</a></span>
 </div></body>`);
             res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-            res.end(html);
+            res.end(siteAnalytics ? withSiteAnalytics(html, 'all') : html);
             return;
           }
 
@@ -3317,7 +3329,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (hasViteBuild) {
         const html = readFileSync(resolve(distDir, 'index.html'), 'utf-8');
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(html);
+        // The bundle loads Google Analytics and Clarity itself when deploy.yml builds it with their ids.
+        res.end(siteAnalytics ? withSiteAnalytics(html, 'plausible') : html);
         return;
       }
       // A source checkout has no dashboard build until it runs one; the npm

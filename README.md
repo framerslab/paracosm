@@ -467,27 +467,40 @@ Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.j
 
 ```
 src/
-  engine/         the npm package
-    core/         deterministic kernel: RNG, state, progression, personality drift
-    compiler/     scenario draft + source grounding to ScenarioPackage compiler
-    mars/         Mars Genesis scenario
-    lunar/        Lunar Outpost scenario
+  index.ts             the package root: run, runMany, WorldModel, compileScenario,
+                       the built-in scenarios, trait models, presets and types
+  api/                 run() and runMany()
+  engine/              scenario contract, compiler and deterministic kernel
+    core/              kernel: seeded RNG, state, snapshots, progression (paracosm/core)
+    compiler/          scenario draft + source grounding to ScenarioPackage (paracosm/compiler)
+    schema/            RunArtifact types and Zod schemas (paracosm/schema)
+    digital-twin/      WorldModel as DigitalTwin (paracosm/digital-twin)
+    scenarios/         loads Mars Genesis and Lunar Outpost from scenarios/*.json
+    data-driven-hooks/ turns a scenario's JSON hooks into runtime hooks
+    physics/           per-agent progression physics a scenario names in its JSON
+    traits/            trait models: HEXACO and the AI-agent model
+    registries/        effects, events and metrics
+    presets/           actor presets
+    provider/          provider key resolution
 
-  runtime/        orchestration (not exported)
-    orchestrator           turn pipeline: director, kernel, departments, commander
-    director               emergent event generation from simulation state
-    departments            parallel department analysis agents
-    agent-reactions        batched agent reactions, 10 agents per LLM call
-    agent-memory           persistent memory, consolidation, stance drift
-    chat-agents            post-simulation conversational agents
-    schemas/               Zod schemas for every structured LLM call
-    llm-invocations/       generateValidatedObject + sendAndValidate wrappers
-    hexaco-cues/           trajectory and reaction cue translation helpers
+  runtime/             simulation execution
+    orchestrator/      turn pipeline: event director, departments, commander, reactions
+    agents/            agent reactions, memory and post-run chat
+    world-model/       the WorldModel facade: simulate, replay, fork, intervene, batch
+    swarm/             views over a run's agent swarm (paracosm/swarm)
+    research/          citation and research memory
+    validators/        Zod validators for LLM responses
+    economics/         cost tracking and pricing
+    io/                output writer, artifact assembly, SSE envelopes
+    util/              parsers and shared helpers
 
-  cli/            server + dashboard (not exported)
-    serve.ts      HTTP + SSE server
-    dashboard/    React + Vite live visualization, cellular automata viz
+  llm/                 validated LLM calls shared by the runtime and the compiler
+  cli/                 the paracosm command
+  server/              the dashboard's HTTP and SSE server
+  dashboard/           the React + Vite dashboard at /sim, and the landing page
 ```
+
+[docs/architecture/INTERNAL_LAYOUT.md](https://github.com/framerslab/paracosm/blob/master/docs/architecture/INTERNAL_LAYOUT.md) describes each folder.
 
 The engine owns the chassis. The scenario owns the domain. The kernel handles state, time, randomness, and invariants. The scenario handles event categories, department instructions, progression hooks, and research citations. The orchestrator connects them.
 
