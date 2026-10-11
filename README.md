@@ -459,7 +459,7 @@ Programmatic surfaces: `paracosm` root (`run`, `runMany`, `WorldModel`, `compile
 
 For non-SSE consumers there's `POST /simulate` (gated on `PARACOSM_ENABLE_SIMULATE_ENDPOINT=true`) and nine read-and-replay routes under `/api/v1/*`. Wire-level details: [`docs/HTTP_API.md`](docs/HTTP_API.md).
 
-Storage: SQLite by default, Postgres / sql.js / IndexedDB via `STORAGE_ADAPTER=` env. Run history (Library) and session blobs (Load menu) share the same schema. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer; off by default.
+Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer; off by default.
 
 ---
 
