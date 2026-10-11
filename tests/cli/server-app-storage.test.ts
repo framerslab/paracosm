@@ -12,24 +12,28 @@ import { once } from 'node:events';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMarsServer } from '../../src/server/server-app.js';
+import { createMarsServer, type MarsServer } from '../../src/server/server-app.js';
 
 test('STORAGE_ADAPTER and DATABASE_URL leave run history and saved sessions in SQLite files under APP_DIR', async () => {
   const saved = { STORAGE_ADAPTER: process.env.STORAGE_ADAPTER, DATABASE_URL: process.env.DATABASE_URL };
-  // The storage library reads these from process.env, not from the env the server is given.
-  // Nothing listens on port 9, so a Postgres connection attempt fails at once.
-  process.env.STORAGE_ADAPTER = 'postgres';
-  process.env.DATABASE_URL = 'postgres://paracosm:unused@127.0.0.1:9/unused';
-
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-storage-'));
-  const env: NodeJS.ProcessEnv = { ...process.env, APP_DIR: appDir, PARACOSM_ENABLE_RUN_HISTORY_ROUTES: 'true' };
-  delete env.PARACOSM_DISABLE_RUN_HISTORY;
-  delete env.PARACOSM_RUN_HISTORY_DB_PATH;
-  const server = createMarsServer({ env, runPairSimulations: async () => {} });
-  server.listen(0);
-  await once(server, 'listening');
-  const { port } = server.address() as { port: number };
+  let server: MarsServer | undefined;
+  // Everything after the directory exists runs inside the try, so a server that fails to
+  // start still has its directory removed and the two variables restored.
   try {
+    // The storage library reads these from process.env, not from the env the server is given.
+    // Nothing listens on port 9, so a Postgres connection attempt fails at once.
+    process.env.STORAGE_ADAPTER = 'postgres';
+    process.env.DATABASE_URL = 'postgres://paracosm:unused@127.0.0.1:9/unused';
+
+    const env: NodeJS.ProcessEnv = { ...process.env, APP_DIR: appDir, PARACOSM_ENABLE_RUN_HISTORY_ROUTES: 'true' };
+    delete env.PARACOSM_DISABLE_RUN_HISTORY;
+    delete env.PARACOSM_RUN_HISTORY_DB_PATH;
+    server = createMarsServer({ env, runPairSimulations: async () => {} });
+    server.listen(0);
+    await once(server, 'listening');
+    const { port } = server.address() as { port: number };
+
     const sessions = await fetch(`http://127.0.0.1:${port}/sessions`);
     const sessionsBody = await sessions.text();
     assert.equal(sessions.status, 200, `GET /sessions answered ${sessions.status}: ${sessionsBody}`);
@@ -41,8 +45,10 @@ test('STORAGE_ADAPTER and DATABASE_URL leave run history and saved sessions in S
     assert.ok(existsSync(join(appDir, 'data', 'sessions.db')), 'saved sessions belong in data/sessions.db');
     assert.ok(existsSync(join(appDir, 'data', 'runs.db')), 'run history belongs in data/runs.db');
   } finally {
-    server.close();
-    await once(server, 'close');
+    if (server?.listening) {
+      server.close();
+      await once(server, 'close');
+    }
     rmSync(appDir, { recursive: true, force: true });
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
