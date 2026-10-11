@@ -344,3 +344,11 @@ test('/docs and /docs/ answer a permanent redirect to the API reference', async 
     assert.equal(res.headers.get('location'), '/docs/modules.html', `${path} must point at the module index`);
   }
 });
+
+test('the landing page title fits in 60 characters and its meta description in 120 to 160', () => {
+  const title = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
+  const description = html.match(/<meta name="description" content="([^"]*)">/)?.[1] ?? '';
+
+  assert.ok(title.length > 0 && title.length <= 60, `the title has ${title.length} characters: ${title}`);
+  assert.ok(description.length >= 120 && description.length <= 160, `the description has ${description.length} characters: ${description}`);
+});
