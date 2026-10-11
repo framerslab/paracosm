@@ -352,3 +352,17 @@ test('the landing page title fits in 60 characters and its meta description in 1
   assert.ok(title.length > 0 && title.length <= 60, `the title has ${title.length} characters: ${title}`);
   assert.ok(description.length >= 120 && description.length <= 160, `the description has ${description.length} characters: ${description}`);
 });
+
+test("the dashboard page's one static h1 sits inside #root, which React clears when the dashboard mounts", async (t) => {
+  const res = await fetch(`${localSite}/sim`);
+  if (res.status === 503) {
+    t.skip('the dashboard is not built in this checkout (CI builds it before the tests)');
+    return;
+  }
+  const page = await res.text();
+  const h1s = [...page.matchAll(/<h1[\s>]/g)].map((match) => match.index ?? -1);
+
+  // Mounted, the dashboard renders its own h1 for the active tab (App.tsx).
+  assert.equal(h1s.length, 1, 'the page must carry one static h1');
+  assert.ok(h1s[0] > page.indexOf('<div id="root">'), 'the static h1 must sit inside #root');
+});
