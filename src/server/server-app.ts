@@ -3081,8 +3081,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end();
         return;
       }
+      // A permanent redirect: the navigation, the footers and the structured
+      // data all link /docs, and the module index is its page.
       if (pathname === '/docs' || pathname === '/docs/') {
-        res.writeHead(302, { Location: '/docs/modules.html' });
+        res.writeHead(301, { Location: '/docs/modules.html' });
         res.end();
         return;
       }
