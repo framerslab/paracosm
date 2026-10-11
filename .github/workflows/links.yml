@@ -27,6 +27,11 @@ jobs:
             --remap "^https://github\.com/framerslab/paracosm/(blob|tree)/master/ file://${{ github.workspace }}/"
             --exclude-path CHANGELOG.md
             './*.md' './.github/**/*.md'
+      # This repository's own master links are already checked against the
+      # checkout above. The remap turns them into file paths that the include
+      # pattern does not match, so this step sends github.com only links into
+      # other repositories. GitHub throttles anonymous blob-page requests from
+      # runners with 503 responses.
       - name: Links to other first-party repositories
         if: github.event_name != 'pull_request'
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
@@ -34,5 +39,6 @@ jobs:
           args: >-
             --no-progress
             --include '^https://github\.com/(framerslab|jddunn|manicinc)/[^/]+/(blob|tree)/'
+            --remap "^https://github\.com/framerslab/paracosm/(blob|tree)/master/ file://${{ github.workspace }}/"
             --exclude-path CHANGELOG.md
             './*.md' './.github/**/*.md' './.github/ISSUE_TEMPLATE/*.yml'
