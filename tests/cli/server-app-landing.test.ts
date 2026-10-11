@@ -6,11 +6,18 @@
  * the API reference it also offers the HTTP API reference and the
  * Cookbook. The promise-free rule holds for every page source under
  * src/dashboard and assets as well.
+ *
+ * Visitor analytics run on the hosted demo only. There every page the
+ * server sends loads Plausible, and the landing page and the API docs
+ * also load Google Analytics and Microsoft Clarity with their privacy
+ * settings; a copy run from the package or a clone loads none of them.
+ * The landing page's privacy section names the three tools, and /docs
+ * answers a permanent redirect to the API reference.
  */
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -33,11 +40,14 @@ function promisesIn(text: string): string[] {
 }
 
 let html = '';
+let localSite = '';
 let closeServer: () => Promise<void> = async () => {};
 
 before(async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-landing-'));
-  const server = createMarsServer({ env: { ...process.env, APP_DIR: appDir }, runPairSimulations: async () => {} });
+  // A copy run from the npm package or a clone, which is not the hosted demo.
+  const env = { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: undefined };
+  const server = createMarsServer({ env, runPairSimulations: async () => {} });
   server.listen(0);
   await once(server, 'listening');
   const { port } = server.address() as { port: number };
@@ -46,7 +56,8 @@ before(async () => {
     await once(server, 'close');
     rmSync(appDir, { recursive: true, force: true });
   };
-  const res = await fetch(`http://127.0.0.1:${port}/`);
+  localSite = `http://127.0.0.1:${port}`;
+  const res = await fetch(`${localSite}/`);
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type') ?? '', /^text\/html/);
   html = await res.text();
@@ -201,4 +212,135 @@ test('no page source under src/dashboard or assets promises a waitlist, early ac
   }
 
   assert.deepEqual(offenders, []);
+});
+
+/** The script each analytics tool loads, as it appears in a page's markup. */
+const ANALYTICS_SCRIPTS: ReadonlyArray<readonly [string, string]> = [
+  ['Plausible', 'https://analytics.manic.agency/js/script.js'],
+  ['Google Analytics', 'https://www.googletagmanager.com/gtag/js'],
+  ['Microsoft Clarity', 'https://www.clarity.ms/tag/'],
+];
+
+const PLAUSIBLE_TAG = '<script defer data-domain="paracosm.agentos.sh" src="https://analytics.manic.agency/js/script.js"></script>';
+
+function analyticsIn(page: string): string[] {
+  return ANALYTICS_SCRIPTS.filter(([, script]) => page.includes(script)).map(([tool]) => tool);
+}
+
+/** The markup of a page up to its closing head tag. */
+function headOf(page: string): string {
+  const end = page.indexOf('</head>');
+  assert.notEqual(end, -1, 'the page has no </head>');
+  return page.slice(0, end);
+}
+
+let hostedDemo: Promise<{ site: string; close: () => Promise<void> }> | undefined;
+
+/** The origin of a server started the way the hosted demo at paracosm.agentos.sh runs (PARACOSM_HOSTED_DEMO=true). */
+async function hostedSite(): Promise<string> {
+  hostedDemo ??= (async () => {
+    const appDir = mkdtempSync(join(tmpdir(), 'paracosm-hosted-'));
+    const env = { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: 'true', PARACOSM_PLATFORM_API: undefined };
+    const server = createMarsServer({ env, runPairSimulations: async () => {} });
+    server.listen(0);
+    await once(server, 'listening');
+    const { port } = server.address() as { port: number };
+    return {
+      site: `http://127.0.0.1:${port}`,
+      close: async () => {
+        server.close();
+        await once(server, 'close');
+        rmSync(appDir, { recursive: true, force: true });
+      },
+    };
+  })();
+  return (await hostedDemo).site;
+}
+
+after(async () => {
+  if (hostedDemo) await (await hostedDemo).close();
+});
+
+/**
+ * Serves a minimal page from docs/api, where the server reads the API
+ * reference that TypeDoc writes, for the duration of `use`.
+ */
+async function withDocsPage<T>(use: (path: string) => Promise<T>): Promise<T> {
+  const docsDir = resolve(root, 'docs', 'api');
+  const name = `analytics-check-${process.pid}.html`;
+  mkdirSync(docsDir, { recursive: true });
+  writeFileSync(join(docsDir, name), '<!DOCTYPE html><html><head><title>check</title></head><body><p>check</p></body></html>');
+  try {
+    return await use(`/docs/${name}`);
+  } finally {
+    rmSync(join(docsDir, name), { force: true });
+  }
+}
+
+test('a copy of Paracosm run from the package or a clone loads no analytics on its landing page or its API docs', async () => {
+  assert.deepEqual(analyticsIn(html), [], 'the landing page');
+  const docsPage = await withDocsPage(async (path) => (await fetch(`${localSite}${path}`)).text());
+  assert.deepEqual(analyticsIn(docsPage), [], 'an API docs page');
+});
+
+test('the hosted demo loads Plausible first on the landing page, then Google Analytics and Clarity with their privacy settings', async () => {
+  const res = await fetch(`${await hostedSite()}/`);
+  assert.equal(res.status, 200);
+  const page = await res.text();
+  const head = headOf(page);
+
+  const plausible = head.indexOf(PLAUSIBLE_TAG);
+  const google = head.indexOf('src="https://www.googletagmanager.com/gtag/js?id=G-4KEEK15KWZ"');
+  const clarity = head.indexOf('"https://www.clarity.ms/tag/"');
+  assert.notEqual(plausible, -1, 'the head must load Plausible for paracosm.agentos.sh');
+  assert.ok(google > plausible, 'the head must load Google Analytics, after Plausible');
+  assert.ok(clarity > google, 'the head must load Microsoft Clarity, after Google Analytics');
+
+  const config = head.match(/gtag\(\s*'config'\s*,\s*'G-4KEEK15KWZ'\s*,\s*\{([^}]*)\}\s*\)/);
+  assert.ok(config, 'the head must configure the Google Analytics property');
+  assert.match(config[1], /['"]?allow_google_signals['"]?\s*:\s*false/, 'Google signals must be off');
+  assert.match(config[1], /['"]?allow_ad_personalization_signals['"]?\s*:\s*false/, 'ad personalization must be off');
+  assert.ok(head.includes('"ukky5yykaj"'), 'the head must load the Clarity project');
+  assert.match(page, /<body[^>]*\sdata-clarity-mask="True"/, 'Clarity must mask the text and images of the whole page');
+});
+
+test('on the hosted demo the dashboard loads Plausible and the API docs load all three tools', async (t) => {
+  const site = await hostedSite();
+
+  const docsPage = await withDocsPage(async (path) => (await fetch(`${site}${path}`)).text());
+  assert.deepEqual(analyticsIn(headOf(docsPage)), ['Plausible', 'Google Analytics', 'Microsoft Clarity'], 'an API docs page');
+  assert.match(docsPage, /<body[^>]*\sdata-clarity-mask="True"/, 'Clarity must mask the API docs page');
+
+  const sim = await fetch(`${site}/sim`);
+  if (sim.status === 503) {
+    t.skip('the dashboard is not built in this checkout (CI builds it before the tests)');
+    return;
+  }
+  assert.equal(sim.status, 200);
+  const dashboard = await sim.text();
+  // The dashboard's bundle loads Google Analytics and Clarity itself when it is built with their ids (deploy.yml),
+  // so the server adds Plausible alone.
+  assert.deepEqual(analyticsIn(headOf(dashboard)), ['Plausible'], 'the dashboard page');
+  assert.equal(headOf(dashboard).split(PLAUSIBLE_TAG).length - 1, 1, 'the dashboard must load Plausible once');
+  assert.match(dashboard, /<body[^>]*\sdata-clarity-mask="True"/, 'Clarity must mask the dashboard');
+});
+
+test("the landing page's privacy section names the three tools, their processors and what they collect, and the footer links it", () => {
+  const privacy = section('privacy');
+
+  for (const tool of ['Plausible', 'Google Analytics', 'Microsoft Clarity']) {
+    assert.ok(privacy.includes(tool), `the privacy section must name ${tool}`);
+  }
+  assert.match(privacy, /Google is our processor/, 'the privacy section must name Google as a processor');
+  assert.match(privacy, /Microsoft is our processor/, 'the privacy section must name Microsoft as a processor');
+  assert.match(privacy, /uses no cookies/, 'the privacy section must say Plausible is cookieless');
+  assert.ok(between('<nav class="ft-links"', '</nav>').includes('href="#privacy"'), 'the footer must link the privacy section');
+});
+
+test('/docs and /docs/ answer a permanent redirect to the API reference', async () => {
+  for (const path of ['/docs', '/docs/']) {
+    const res = await fetch(`${localSite}${path}`, { redirect: 'manual' });
+    assert.equal(res.status, 301, `${path} must answer 301`);
+    assert.equal(res.headers.get('location'), '/docs/modules.html', `${path} must point at the module index`);
+  }
 });
