@@ -1210,18 +1210,6 @@ window.addEventListener('load', () => {
   }, 1500);
 });
 
-// Animate flow line when How It Works section is visible
-const flowObs = new IntersectionObserver(entries => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      const fill = document.getElementById('flow-fill');
-      if (fill) fill.classList.add('active');
-    }
-  });
-}, { threshold: 0.3 });
-const flowWrap = document.querySelector('.flow-wrap');
-if (flowWrap) flowObs.observe(flowWrap);
-
 // Theme toggle synced with dashboard. The HEAD inline-script applies
 // the saved class before first paint to kill the theme-flash; this
 // block (a) syncs the button glyph to the resolved theme, (b) wires
@@ -1264,20 +1252,6 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
     if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
-
-// Animate divergence bars on scroll
-const barObs = new IntersectionObserver(entries => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      e.target.querySelectorAll('.diverge-fill').forEach(bar => {
-        const w = bar.style.width;
-        bar.style.width = '0';
-        requestAnimationFrame(() => { bar.style.width = w; });
-      });
-    }
-  });
-}, { threshold: 0.5 });
-document.querySelectorAll('.diverge').forEach(el => barObs.observe(el));
 
 // Hamburger menu toggle. A11y additions:
 // - aria-expanded on the trigger reflects open/closed state for SRs.
