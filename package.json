@@ -69,6 +69,7 @@
     "check:dashboard": "node --check src/dashboard/main.legacy.js",
     "check:doc-examples": "npx tsx scripts/check-doc-examples.ts",
     "check:boundary": "node scripts/check-engine-runtime-boundary.mjs",
+    "check:sitemap": "node scripts/check-sitemap.mjs",
     "typecheck:dashboard": "tsc -p src/dashboard",
     "test": "npm run check:boundary && npm run typecheck:dashboard && node --import tsx --import ./scripts/test-css-stub.mjs --test 'tests/**/*.test.ts' 'src/api/**/*.test.ts' 'src/cli/**/*.test.ts' 'src/engine/**/*.test.ts' 'src/runtime/**/*.test.ts' 'src/llm/**/*.test.ts' 'src/server/**/*.test.ts' 'src/dashboard/src/**/*.test.ts' 'src/dashboard/src/**/*.test.tsx'",
     "test:e2e": "playwright test",
@@ -86,10 +87,10 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.12.8",
+    "@framers/agentos": "^0.13.19",
     "@framers/sql-storage-adapter": "^0.6.9",
     "better-sqlite3": "^12.9.0",
-    "resend": "^6.32.0",
+    "resend": "^6.32.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

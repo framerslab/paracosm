@@ -4,14 +4,9 @@
  * The dashboard cannot construct a WorldModel client-side because the
  * runtime layer imports `@framers/agentos`, which has server-only
  * dependencies (irc-framework, node:crypto, http, fs/promises) that
- * vite cannot bundle for the browser. So replay is invoked via a
- * future server endpoint (POST /api/v1/runs/:runId/replay) and this
+ * vite cannot bundle for the browser. So replay runs on the server
+ * (POST /api/v1/runs/:runId/replay, see docs/HTTP_API.md) and this
  * hook is the dashboard-side dispatcher.
- *
- * Until that endpoint lands, the hook returns a graceful "not yet
- * available" error. The Replay button still works (clickable, surfaces
- * the message) so the UX path is exercised end to end and the panel
- * remains visible in the Library detail drawer.
  *
  * @module paracosm/dashboard/library/hooks/useReplayRun
  */
@@ -40,9 +35,8 @@ export function useReplayRun(): {
         setResult({ kind: 'error', error: 'Artifact has no runId.' });
         return;
       }
-      // Server-side replay endpoint; not yet implemented. When it
-      // lands, this dispatcher receives { matches, divergence } and
-      // forwards to the result strip.
+      // The server re-executes the kernel against the stored artifact
+      // and answers { matches, divergence }, which the result strip shows.
       const res = typeof fetch !== 'undefined'
         ? await fetch(`/api/v1/runs/${encodeURIComponent(runId)}/replay`, { method: 'POST' })
         : null;
@@ -51,7 +45,7 @@ export function useReplayRun(): {
         return;
       }
       if (res.status === 404) {
-        setResult({ kind: 'error', error: 'Replay endpoint not yet available; coming in a follow-up release.' });
+        setResult({ kind: 'error', error: 'The server has no stored run with this id, so there is nothing to replay.' });
         return;
       }
       if (!res.ok) {

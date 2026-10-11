@@ -46,7 +46,7 @@ import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ReportView } from './components/reports/ReportView';
 import { ChatPanel } from './components/chat/ChatPanel';
 import { SwarmViz } from './components/viz/SwarmViz';
-// AboutPage consolidated into landing page at /
+// The About tab has no panel here: setActiveTab sends it to the landing page at /
 import { Footer } from './components/layout/Footer';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
