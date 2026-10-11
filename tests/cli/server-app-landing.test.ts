@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
+import * as builtInScenarioModule from '../../src/engine/scenarios/index.js';
 
 const root = resolve(import.meta.dirname, '..', '..');
 
@@ -113,7 +114,16 @@ test('links from the landing page into this repository point at files that exist
   assert.deepEqual(files.filter((file) => !existsSync(resolve(root, file))), []);
 });
 
-test('the scenarios section lists exactly the scenario files in scenarios/', () => {
+/** Number words the landing page uses for small counts, indexed by value. */
+const COUNT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+
+function countWord(count: number): string {
+  const word = COUNT_WORDS[count];
+  assert.ok(word, `no word for ${count}: extend COUNT_WORDS`);
+  return word;
+}
+
+test('the scenarios section lists exactly the scenario files in scenarios/, and every scenario count on the page matches them', () => {
   const listed = [...section('scenarios').matchAll(/<summary>([^<]+)<\/summary>/g)]
     .map((match) => match[1].split('\u00b7')[0].trim())
     .sort();
@@ -129,6 +139,26 @@ test('the scenarios section lists exactly the scenario files in scenarios/', () 
     inRepository,
     'a scenario was added to or removed from scenarios/: update the cards, the count in the heading and the FAQ answer',
   );
+
+  // The package root re-exports every built-in scenario from this module.
+  const builtIns = Object.values(builtInScenarioModule).filter(
+    (value) => typeof value === 'object' && value !== null && 'id' in value && 'labels' in value,
+  ).length;
+  const total = countWord(inRepository.length);
+  const exported = countWord(builtIns);
+  const more = countWord(inRepository.length - builtIns);
+  const heading = `${total.charAt(0).toUpperCase()}${total.slice(1)} scenarios to start from`;
+
+  assert.ok(section('scenarios').includes(`>${heading}</h2>`), `the section heading must read "${heading}"`);
+  assert.ok(section('scenarios').includes(`All ${total} below`), `the section must say "All ${total} below"`);
+  const faqCount = new RegExp(`exports ${exported} scenarios[^.]*?holds ${more} more`, 'g');
+  assert.equal(
+    [...html.matchAll(faqCount)].length,
+    2,
+    `the visible FAQ answer and its structured data must both say the package exports ${exported} and the repository holds ${more} more`,
+  );
+  const llmsFull = readFileSync(resolve(root, 'src', 'dashboard', 'public', 'llms-full.txt'), 'utf8');
+  assert.match(llmsFull, new RegExp(`exports ${exported} scenarios[^.]*?holds ${more} more`), 'llms-full.txt must give the same counts');
 });
 
 test("the landing page's structured data parses and every FAQ entry has an answer", () => {
