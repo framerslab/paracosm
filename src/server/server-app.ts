@@ -46,6 +46,7 @@ import { createCompilerTelemetry, type CompilerTelemetry } from '../engine/compi
 import { openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
+import { withSiteAnalytics } from './site-analytics.js';
 import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -335,6 +336,9 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
+  // copy run from the package or a clone sends its pages without them.
+  const siteAnalytics = serverMode === 'hosted_demo';
   // Rate limit default: 1 simulation per IP per day for the public-demo
   // path. Even on DEMO_MODELS + DEMO_EXECUTION a run costs ~$0.40 against
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
@@ -3056,12 +3060,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // (`0.1.0` lingered in the HTML long after we shipped 0.4.x).
         // The placeholder is what lives on disk; we swap it per-request
         // since it's a one-line string replace on a cached template.
-        const html = readFileSync(landingPath, 'utf-8').replace(
+        const page = readFileSync(landingPath, 'utf-8').replace(
           /__PARACOSM_VERSION__/g,
           PARACOSM_VERSION,
         );
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-        res.end(html);
+        res.end(siteAnalytics ? withSiteAnalytics(page, 'all') : page);
         return;
       }
     }
@@ -3256,7 +3260,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   <span><span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-weight:700;letter-spacing:.08em;font-size:10px">PARA<span style="color:#e8b44a">COSM</span></span> &middot; Apache-2.0 &middot; <a href="https://frame.dev">Frame.dev</a></span>
 </div></body>`);
             res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-            res.end(html);
+            res.end(siteAnalytics ? withSiteAnalytics(html, 'all') : html);
             return;
           }
 
@@ -3317,7 +3321,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (hasViteBuild) {
         const html = readFileSync(resolve(distDir, 'index.html'), 'utf-8');
         res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(html);
+        // The bundle loads Google Analytics and Clarity itself when deploy.yml builds it with their ids.
+        res.end(siteAnalytics ? withSiteAnalytics(html, 'plausible') : html);
         return;
       }
       // A source checkout has no dashboard build until it runs one; the npm
