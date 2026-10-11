@@ -3256,6 +3256,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     <a href="https://www.npmjs.com/package/paracosm">npm</a>
     <a href="https://frame.dev">Frame.dev</a>
     <a href="https://frame.dev">Frame</a>
+    <a href="/#privacy">Privacy</a>
   </div>
   <span><span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-weight:700;letter-spacing:.08em;font-size:10px">PARA<span style="color:#e8b44a">COSM</span></span> &middot; Apache-2.0 &middot; <a href="https://frame.dev">Frame.dev</a></span>
 </div></body>`);
