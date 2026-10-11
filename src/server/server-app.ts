@@ -463,15 +463,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // for specific IDs. New builtins ship by adding one more
   // customScenarioCatalog.set(id, { scenario, source: 'builtin' }) here.
   const customScenarioCatalog = loadDiskCustomScenarios(scenarioDir);
-  // Hand-coded TypeScript builtins. Mars + Lunar have genuine domain
-  // hooks (bone density decay, regolith exposure curves, lunar gravity
-  // multiplier) that don't fit the data-driven-hooks DSL — they stay
-  // as engine modules. Every other scenario lives in `scenarios/*.json`
-  // with a `dataDrivenHooks` block and gets lifted at boot via
-  // `loadDiskCustomScenarios` → `liftDataDrivenDraft` →
-  // `buildDataDrivenHooksFromJson`. Adding a 4th, 5th, Nth AI / SaaS
-  // / governance scenario is now just a JSON file checked into
-  // `scenarios/` — no engine module per scenario.
+  // The two builtins are JSON as well. src/engine/scenarios/index.ts lifts
+  // scenarios/mars.json and scenarios/lunar.json, with their knowledge
+  // bundles, when it is imported, and the per-agent physics the data-driven
+  // hooks DSL cannot express (radiation dose and bone-density decay on Mars,
+  // regolith exposure and atrophy under 1/6 g on the Moon) is the
+  // src/engine/physics module each file names in
+  // `dataDrivenHooks.progressionPhysics`. They register as 'builtin', in
+  // place of any entry the disk loader made from the same files, because
+  // the package exports them, a fresh server starts on Mars, and the
+  // catalog refuses to rename or delete a builtin. Every other scenario in
+  // `scenarios/` is lifted at boot by `loadDiskCustomScenarios` →
+  // `liftDataDrivenDraft` → `buildDataDrivenHooksFromJson`, so a new one is
+  // a JSON file checked into `scenarios/`.
   customScenarioCatalog.set(marsScenario.id, { scenario: marsScenario, source: 'builtin' });
   customScenarioCatalog.set(lunarScenario.id, { scenario: lunarScenario, source: 'builtin' });
 
