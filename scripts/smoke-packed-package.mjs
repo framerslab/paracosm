@@ -11,15 +11,42 @@
  * `npm run check:package`. It runs the prepack copy itself
  * (scripts/pack-dashboard.mjs), then packs with scripts off so the standard
  * output of `npm pack --json` stays parseable.
+ *
+ * `--tarball <file>` checks a tarball packed already, the one the deploy
+ * workflow publishes, instead of packing. `--reinstall-from-lockfile` then
+ * removes the project's node_modules and installs it again with `npm ci` from
+ * the lockfile the first install wrote, before starting the command: the
+ * install of a user who commits a lockfile. The deploy workflow runs that on
+ * Node 22 in an image with no make, compiler or Python, where a lockfile
+ * install that needs a toolchain fails.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** The command line: `--tarball <file>` and `--reinstall-from-lockfile`. */
+function parseArgs(argv) {
+  const options = { tarball: undefined, reinstallFromLockfile: false };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--tarball' && argv[i + 1]) options.tarball = resolve(argv[++i]);
+    else if (argv[i] === '--reinstall-from-lockfile') options.reinstallFromLockfile = true;
+    else throw new Error(`unknown argument ${argv[i]} (expected --tarball <file> or --reinstall-from-lockfile)`);
+  }
+  return options;
+}
+
+/** The tarball's file paths, without npm's `package/` prefix. */
+function tarballPaths(tarball) {
+  return execFileSync('tar', ['-tzf', tarball], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\n')
+    .filter((entry) => entry && !entry.endsWith('/'))
+    .map((entry) => entry.replace(/^package\//, ''));
+}
 
 /** Tarball paths the dashboard command reads. */
 const REQUIRED_FILES = [
@@ -88,15 +115,22 @@ async function waitForServer(url, timeoutMs, server, closed) {
 }
 
 async function main() {
+  const options = parseArgs(process.argv.slice(2));
   const work = mkdtempSync(join(tmpdir(), 'paracosm-pack-'));
   let child;
   let serverOutput = '';
   try {
-    execFileSync(process.execPath, [join(root, 'scripts/pack-dashboard.mjs')], { cwd: root, stdio: 'inherit' });
-    const packed = JSON.parse(
-      execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', work], { cwd: root, encoding: 'utf8' }),
-    )[0];
-    const paths = new Set(packed.files.map((file) => file.path));
+    let tarball;
+    if (options.tarball) {
+      tarball = options.tarball;
+    } else {
+      execFileSync(process.execPath, [join(root, 'scripts/pack-dashboard.mjs')], { cwd: root, stdio: 'inherit' });
+      const packed = JSON.parse(
+        execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', work], { cwd: root, encoding: 'utf8' }),
+      )[0];
+      tarball = join(work, packed.filename);
+    }
+    const paths = new Set(tarballPaths(tarball));
     const missing = REQUIRED_FILES.filter((path) => !paths.has(path));
     if (missing.length > 0) throw new Error(`the tarball lacks ${missing.join(', ')}`);
     if (![...paths].some((path) => path.startsWith('dist/dashboard/dist/assets/') && path.endsWith('.js'))) {
@@ -104,13 +138,22 @@ async function main() {
     }
     const videos = [...paths].filter((path) => path.endsWith('.mp4'));
     if (videos.length > 0) throw new Error(`the tarball ships video files: ${videos.join(', ')}`);
-    console.log(`packed ${packed.filename}: ${packed.entryCount} files, ${(packed.unpackedSize / 1e6).toFixed(1)} MB unpacked`);
+    console.log(`${basename(tarball)}: ${paths.size} files, ${(statSync(tarball).size / 1e6).toFixed(1)} MB packed`);
 
     // Install the tarball as a user would, into a project with nothing else in it.
     const project = join(work, 'project');
     mkdirSync(project);
     writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'paracosm-package-smoke', private: true }));
-    execFileSync('npm', ['install', join(work, packed.filename), '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
+    execFileSync('npm', ['install', tarball, '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
+    if (options.reinstallFromLockfile) {
+      // The lockfile the install wrote, installed again as `npm ci` installs it: npm builds a
+      // package from its lockfile entry, which can differ from the fresh install (a package
+      // whose entry records no `gypfile` gets `node-gyp rebuild`, which needs make and Python).
+      if (!existsSync(join(project, 'package-lock.json'))) throw new Error('the install wrote no package-lock.json');
+      rmSync(join(project, 'node_modules'), { recursive: true, force: true });
+      execFileSync('npm', ['ci', '--no-audit', '--no-fund'], { cwd: project, stdio: 'inherit' });
+      console.log(`reinstalled from package-lock.json with npm ci on Node ${process.version}`);
+    }
 
     const port = await freePort();
     // The installed command: its bin link, executable bit and shebang, not the file it points to.
@@ -118,7 +161,7 @@ async function main() {
     child = spawn(command, [], {
       cwd: project,
       // APP_DIR roots the server's state (sessions, run history, rate limits); keep it in the
-      // temp project, whatever the environment says (the deploy workflow's publish job has one).
+      // temp project, whatever the environment says.
       env: { ...process.env, PORT: String(port), APP_DIR: project },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

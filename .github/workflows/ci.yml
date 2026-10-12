@@ -6,7 +6,9 @@ name: CI
 # end-to-end test: Playwright's web server rebuilds src/dashboard/dist without
 # the analytics settings deploy.yml builds with, and deploy.yml uploads that
 # directory, so the test runs here only. The packed-package check runs here
-# and in deploy.yml's publish job, before npm publish, on the build it publishes.
+# and in deploy.yml's package-check job, which packs the tarball the publish
+# job ships and checks those bytes, also reinstalled from their lockfile on
+# Node 22 with no toolchain.
 #
 # The weekly bump workflow dispatches CI on its pull request branch, because
 # GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
@@ -71,6 +73,21 @@ jobs:
       - name: Check the packed package
         run: npm run check:package
 
+      # The same check on Node 22 in an image with no make, compiler or Python,
+      # after reinstalling the project from the lockfile its install wrote with
+      # npm ci, as deploy.yml's package-check runs it before a publish.
+      - name: Check the packed package reinstalled from its lockfile on Node 22 with no toolchain
+        run: |
+          node scripts/pack-dashboard.mjs
+          mkdir -p "$RUNNER_TEMP/package"
+          tarball=$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP/package" \
+            | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].filename)")
+          docker run --rm \
+            -v "$RUNNER_TEMP/package:/package:ro" \
+            -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
+            node:22-bookworm-slim \
+            node /scripts/smoke-packed-package.mjs --tarball "/package/$tarball" --reinstall-from-lockfile
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
@@ -85,3 +102,20 @@ jobs:
 
       - name: Check the sitemap against the API docs
         run: npm run check:sitemap
+
+  # The install the server runs after a deploy, as deploy.yml's server-install
+  # job runs it: the production dependencies from the lockfile on Node 22, in
+  # an image with no make, compiler or Python.
+  server-install:
+    name: Server install
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: node:22-bookworm-slim
+    steps:
+      # The image has no git; checkout downloads the commit through the API.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install production dependencies from the lockfile, as the server does
+        run: npm ci --omit=dev --no-audit --no-fund

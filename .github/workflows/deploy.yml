@@ -11,8 +11,10 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
+# Read only: build, server-install and package-check run dependency code
+# (install scripts, tsc, Vite). publish asks for what it writes.
 permissions:
-  contents: write
+  contents: read
 
 env:
   # Node 24 ships npm 11.x which matches the developer-machine npm that
@@ -27,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -111,8 +115,8 @@ jobs:
         run: npm run check:doc-examples
 
       # The build job's checkout has the dev-floor version (0.9.0) from
-      # package.json. The publish job auto-bumps to 0.9.${run_number} in
-      # its own checkout, so the build job never sees the published
+      # package.json. package-check sets 0.9.${run_number} in its own
+      # checkout before it packs, so the build job never sees the published
       # version. typedoc has `includeVersion: true` and reads
       # package.json directly, which is why early v0.8 deploys advertised
       # "v0.8.0" while npm shipped 0.8.${prev_run_number}.
@@ -163,14 +167,36 @@ jobs:
             .env.example
           retention-days: 1
 
+  # The install the server runs after a deploy (`npm ci --omit=dev` from the
+  # repository lockfile, in deploy below), on Node 22 as production runs it,
+  # in an image with no make, compiler or Python. npm builds a package from
+  # its lockfile entry, which can need a toolchain where a fresh install does
+  # not: better-sqlite3 13.0.3 got `node-gyp rebuild` from the lockfile and
+  # the server's install failed on the missing make (run 38104598958, PR
+  # #125). Deploy waits for this job, so such a dependency stops the deploy
+  # instead of breaking the running site.
+  server-install:
+    runs-on: ubuntu-latest
+    container: node:22-bookworm-slim
+    permissions:
+      contents: read
+    steps:
+      # The image has no git; checkout downloads the commit through the API.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install production dependencies from the lockfile, as the server does
+        run: npm ci --omit=dev --no-audit --no-fund
+
   deploy:
-    needs: build
+    needs: [build, server-install]
     runs-on: ubuntu-latest
     # SERVER_IP + APP_DIR resolved from GitHub Actions repo secrets so
     # deploy topology isn't encoded in the public workflow file. Set both
     # at repo → Settings → Secrets and variables → Actions → Secrets. Only
-    # this job reads them; the publish job's package check starts a server
-    # that would otherwise write its state under APP_DIR.
+    # this job reads them; package-check starts the packed dashboard command,
+    # whose state would otherwise go under APP_DIR.
     env:
       SERVER_IP: ${{ secrets.SERVER_IP }}
       APP_DIR: ${{ secrets.APP_DIR }}
@@ -257,19 +283,25 @@ jobs:
           echo "Paracosm deployed and running"
           REMOTE
 
-  # The tarball check, away from the publish job's write token and npm token. It
-  # installs the tarball into an empty project, where npm resolves every
-  # dependency afresh (no lockfile) and runs their install scripts, so a
-  # dependency release published inside a semver range runs here: a job with a
-  # read-only token, no stored git credentials and no secrets, on its own
-  # runner. It builds the same commit from the same lockfiles as publish, which
-  # waits for it.
+  # Builds and packs the tarball publish ships, and checks those bytes, away
+  # from the publish job's tokens. Building runs dependency code (install
+  # scripts, tsc, Vite), and the checks install the tarball into an empty
+  # project, where npm resolves every dependency afresh and runs their install
+  # scripts, so a dependency release published inside a semver range runs
+  # here: a job with a read-only token, no stored git credentials and no
+  # secrets, on its own runner. The tarball is hashed and uploaded before
+  # anything installs it; publish checks the hash and ships it as it is.
   package-check:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
     permissions:
       contents: read
+    outputs:
+      library_changed: ${{ steps.changes.outputs.library_changed }}
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -282,7 +314,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       # A push that publishes nothing (no shipped file changed since the last
-      # release tag) skips the rest: publish would skip too.
+      # release tag) skips the rest, and publish publishes nothing.
       - name: Does this push publish?
         id: changes
         run: |
@@ -301,17 +333,74 @@ jobs:
         if: steps.changes.outputs.library_changed == 'true'
         run: cd src/dashboard && npm ci
 
-      # Without analytics settings, as publish builds it.
+      # Without analytics settings, unlike the build job's, so a dashboard run
+      # from the npm package reports to no analytics.
       - name: Build the dashboard the package ships
         if: steps.changes.outputs.library_changed == 'true'
         run: npm run dashboard:build
+
+      # major.minor from package.json, the workflow run number as the patch:
+      # always unique, with no commit back. publish tags and announces it.
+      - name: Version from the run number
+        if: steps.changes.outputs.library_changed == 'true'
+        id: version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR _ <<< "$CURRENT"
+          NEXT="${MAJOR}.${MINOR}.${{ github.run_number }}"
+          node -e "const p=require('./package.json'); p.version='${NEXT}'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n')"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Packing ${NEXT} (run #${{ github.run_number }})"
+
+      # The prepack copy (scripts/pack-dashboard.mjs), then npm pack with
+      # scripts off, which runs only this repository's code and npm.
+      - name: Pack the package publish ships
+        if: steps.changes.outputs.library_changed == 'true'
+        id: pack
+        run: |
+          node scripts/pack-dashboard.mjs
+          mkdir -p "$RUNNER_TEMP/package"
+          tarball=$(npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP/package" \
+            | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8'))[0].filename)")
+          sha256=$(sha256sum "$RUNNER_TEMP/package/$tarball" | cut -d ' ' -f 1)
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "Packed $tarball, SHA-256 $sha256"
+
+      - name: Upload the tarball
+        if: steps.changes.outputs.library_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ runner.temp }}/package/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 1
 
       # Installed into an empty project, paracosm-dashboard must serve the landing
       # page, the dashboard, its bundle and their assets (scripts/smoke-packed-package.mjs).
       - name: Check the packed package
         if: steps.changes.outputs.library_changed == 'true'
-        run: npm run check:package
+        run: node scripts/smoke-packed-package.mjs --tarball "$RUNNER_TEMP/package/${{ steps.pack.outputs.tarball }}"
 
+      # The same check on Node 22, the oldest the package supports, in an image
+      # with no make, compiler or Python, after reinstalling the project from the
+      # lockfile its install wrote with npm ci: the install of a user who commits
+      # a lockfile. npm builds from a lockfile entry what a fresh install takes
+      # prebuilt in some cases (better-sqlite3 13.0.3, run 38104598958).
+      - name: Check it reinstalled from its lockfile on Node 22 with no toolchain
+        if: steps.changes.outputs.library_changed == 'true'
+        run: |
+          docker run --rm \
+            -v "$RUNNER_TEMP/package:/package:ro" \
+            -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
+            node:22-bookworm-slim \
+            node /scripts/smoke-packed-package.mjs --tarball "/package/${{ steps.pack.outputs.tarball }}" --reinstall-from-lockfile
+
+  # Publishes the tarball package-check built and checked, and runs no code
+  # from a dependency: no install, no build, no package script. Its tokens
+  # (the write token, the npm token, and the OIDC token npm trusted
+  # publishing exchanges for a publish token) are never beside an install
+  # script or a build tool; those run in package-check.
   publish:
     needs: [build, package-check]
     runs-on: ubuntu-latest
@@ -331,6 +420,9 @@ jobs:
           # only the previous-commit diff (fetch-depth: 2) for library-
           # change detection.
           fetch-depth: 0
+          # No stored token: the steps that push or call GitHub get it in
+          # their own environment.
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -345,6 +437,7 @@ jobs:
         id: changes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHECKED: ${{ needs.package-check.outputs.library_changed }}
         run: |
           # A newer commit on master has its own run, which publishes everything since the
           # last release, so this run publishes only while it is master's head. That also
@@ -376,6 +469,13 @@ jobs:
           VERDICT=$(bash scripts/library-changed-since-release.sh)
           case "$VERDICT" in
             true)
+              # The tarball comes from package-check, which made the same comparison.
+              # When it found nothing to publish (a release tag made or deleted between
+              # the two jobs, or this job re-run alone), no checked tarball exists.
+              if [ "$CHECKED" != "true" ]; then
+                echo "::error::A shipped file changed since the last release, but package-check found nothing to publish and checked no tarball. Re-run the whole workflow."
+                exit 1
+              fi
               echo "library_changed=true" >> "$GITHUB_OUTPUT"
               echo "A shipped file changed — will publish."
               ;;
@@ -389,38 +489,32 @@ jobs:
               ;;
           esac
 
-      - name: Install dependencies
+      - name: Download the checked tarball
         if: steps.changes.outputs.library_changed == 'true'
-        run: npm ci
+        uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: ${{ runner.temp }}/package
 
-      - name: Build
-        if: steps.changes.outputs.library_changed == 'true'
-        run: npm run build
-
-      # The package ships the dashboard: npm publish runs the prepack script,
-      # which copies src/dashboard/dist into dist/dashboard/ and stops when the
-      # build is missing. This build has no analytics settings, unlike the build
-      # job's, so a dashboard run from the npm package reports to no analytics.
-      - name: Install dashboard dependencies
-        if: steps.changes.outputs.library_changed == 'true'
-        run: cd src/dashboard && npm ci
-
-      - name: Build the dashboard the package ships
-        if: steps.changes.outputs.library_changed == 'true'
-        run: npm run dashboard:build
-
-      - name: Auto-version from run number
+      # The bytes package-check hashed, of the version it packed. The changelog
+      # and the release notes read the version from package.json.
+      - name: Verify the tarball and take its version
         if: steps.changes.outputs.library_changed == 'true'
         id: version
+        env:
+          TARBALL: ${{ runner.temp }}/package/${{ needs.package-check.outputs.tarball }}
+          SHA256: ${{ needs.package-check.outputs.sha256 }}
+          VERSION: ${{ needs.package-check.outputs.version }}
         run: |
-          # Use major.minor from package.json + GitHub run number as patch
-          # Always unique, never collides, no commit-back needed
-          CURRENT=$(node -p "require('./package.json').version")
-          IFS='.' read -r MAJOR MINOR _ <<< "$CURRENT"
-          NEXT="${MAJOR}.${MINOR}.${{ github.run_number }}"
-          node -e "const p=require('./package.json'); p.version='${NEXT}'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n')"
-          echo "version=$NEXT" >> $GITHUB_OUTPUT
-          echo "Publishing ${NEXT} (run #${{ github.run_number }})"
+          echo "${SHA256}  ${TARBALL}" | sha256sum --check --strict -
+          PACKED=$(tar -xzOf "$TARBALL" package/package.json | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf8')).version)")
+          if [ "$PACKED" != "$VERSION" ]; then
+            echo "::error::The tarball holds version ${PACKED}, not ${VERSION}."
+            exit 1
+          fi
+          node -e "const p=require('./package.json'); p.version=process.env.VERSION; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${VERSION} (run #${{ github.run_number }})"
 
       - name: Generate CHANGELOG and release notes
         if: steps.changes.outputs.library_changed == 'true'
@@ -428,27 +522,32 @@ jobs:
 
       - name: Commit CHANGELOG if changed
         if: steps.changes.outputs.library_changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ! git diff --quiet CHANGELOG.md; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add CHANGELOG.md
             git commit -m "chore: update CHANGELOG"
-            git push origin HEAD:master
+            # The header checkout would have stored, for this push alone.
+            AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
+            echo "::add-mask::$AUTH"
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:master
           else
             echo "CHANGELOG unchanged; no commit-back."
           fi
 
-      # Trusted publishing needs npm 11.5.1 or later.
-      - name: npm 11.20.0 for trusted publishing
-        if: steps.changes.outputs.library_changed == 'true'
-        run: npm install -g npm@11.20.0 && npm --version
-
+      # The checked tarball as it is, with scripts off. Trusted publishing
+      # needs npm 11.5.1 or later, which Node 24 ships.
       - name: Publish to npm
         if: steps.changes.outputs.library_changed == 'true'
-        run: npm publish --access public
+        run: |
+          echo "npm $(npm --version)"
+          npm publish "$TARBALL" --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TARBALL: ${{ runner.temp }}/package/${{ needs.package-check.outputs.tarball }}
 
       - name: Create GitHub Release
         if: steps.changes.outputs.library_changed == 'true'
