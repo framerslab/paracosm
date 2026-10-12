@@ -1,0 +1,45 @@
+name: Deprecate a version
+
+# Marks a published version of the npm package as deprecated, with the
+# message npm shows on install, or clears the mark with an empty message.
+# Maintainers start it by hand (Actions → Deprecate a version → Run
+# workflow); it holds the npm token, so it runs nothing but npm. A version
+# is never unpublished: deprecation keeps every lockfile that names it
+# installable.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The version to deprecate, such as 0.9.1031'
+        required: true
+      message:
+        description: 'Why, and which version to use instead; empty clears the deprecation'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      # The inputs reach the shell as variables, never as workflow expressions.
+      - name: npm deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$VERSION' is not a version such as 0.9.1031."
+            exit 1
+          fi
+          npm view "paracosm@${VERSION}" version >/dev/null
+          npm deprecate "paracosm@${VERSION}" "$MESSAGE"
+          echo "paracosm@${VERSION}: $(npm view "paracosm@${VERSION}" deprecated || true)"
