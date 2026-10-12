@@ -82,6 +82,8 @@ When the changelog changed, its commit is pushed before `npm publish` runs, so a
 
 Never edit `CHANGELOG.md` or the version in `package.json` to release, and never run `npm publish` by hand.
 
+To deprecate a published version, such as one whose install fails, run the [Deprecate a version](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deprecate.yml) workflow by hand with the version and a message that says why and which version to use instead; an empty message clears the mark. A published version is never unpublished, so every lockfile that names it stays installable.
+
 ## Code of Conduct
 
 By participating you agree to follow the [Code of Conduct](https://github.com/framerslab/paracosm/blob/master/.github/CODE_OF_CONDUCT.md).
