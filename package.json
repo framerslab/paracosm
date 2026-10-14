@@ -91,7 +91,7 @@
     "@framers/sql-storage-adapter": "^0.6.11",
     "better-sqlite3": "^12.11.1",
     "resend": "^6.32.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
