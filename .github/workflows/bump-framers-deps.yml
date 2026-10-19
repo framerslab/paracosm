@@ -16,7 +16,17 @@ name: Bump @framers/* deps
 # GitHub, "Triggering a workflow from a workflow":
 # https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
 # So the pull request's own events start CI and Links, and their check runs
-# land on its head commit, as on any other pull request.
+# land on its head commit, as on any other pull request. A run that fails is
+# re-run the same way (gh run rerun <run id> --failed). A bump run that leaves
+# the branch as it was starts no new run; one that moves it (a new release, or
+# a change on master) starts CI and Links again.
+#
+# Those runs get the token permissions their workflow declares and can read any
+# repository secret a step references, as the runs of any pull request from a
+# branch of this repository can, while the branch carries dependency updates
+# nobody has read yet, whose install scripts ci.yml's npm ci runs. ci.yml and
+# links.yml declare `permissions: contents: read` and reference no repository
+# secret; keep it that way.
 
 on:
   schedule:
