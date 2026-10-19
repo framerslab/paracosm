@@ -10,7 +10,8 @@ name: CI
 # job ships and checks those bytes, also reinstalled from their lockfile on
 # Node 22 with no toolchain.
 #
-# The weekly bump workflow dispatches CI on its pull request branch, because
+# The weekly bump workflow opens its pull request with a personal access token
+# (FRAMERS_BUMP_TOKEN), so the pull request's own events start this workflow:
 # GitHub holds the pull_request runs of a pull request that GITHUB_TOKEN opens
 # until a maintainer approves them.
 on:
@@ -22,8 +23,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  # A newer push to a pull request replaces its run; dispatched runs queue, since the bump
-  # workflow waits for the run it dispatched and posts its result.
+  # A newer push to a pull request replaces its run; a run started by hand waits for the
+  # one before it on the same branch.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
