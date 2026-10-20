@@ -87,8 +87,8 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.13.80",
-    "@framers/sql-storage-adapter": "^0.6.11",
+    "@framers/agentos": "^0.14.7",
+    "@framers/sql-storage-adapter": "^0.7.15",
     "better-sqlite3": "^12.11.1",
     "resend": "^6.32.1",
     "zod": "^4.6.5"
