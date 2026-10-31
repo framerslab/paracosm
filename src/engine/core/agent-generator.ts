@@ -60,21 +60,38 @@ export interface KeyPersonnel {
   featured: boolean;
 }
 
-/** Lowercase with accents folded: "José" reads as "jose". */
+/** Latin letters that carry no combining accent, spelled in plain letters. */
+const PLAIN_LETTERS: Record<string, string> = {
+  'ø': 'o', 'ł': 'l', 'đ': 'd', 'ð': 'd', 'þ': 'th', 'æ': 'ae', 'œ': 'oe', 'ß': 'ss', 'ı': 'i',
+};
+
+/** Lowercase with accents folded: "José" reads as "jose", "Søren" as "soren". */
 function foldName(text: string): string {
-  return text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[øłđðþæœßı]/g, c => PLAIN_LETTERS[c]);
 }
 
+/** Anything that is not a letter, a combining mark or a digit, in any alphabet. */
+const NOT_WORD = /[^\p{L}\p{M}\p{N}]+/gu;
+
 /**
- * The roster id for a person's name: `col-` and the name in lowercase
- * letters, digits and hyphens. Periods and apostrophes drop out, so
- * "Dr. Priya Singh" is `col-dr-priya-singh` and "Aoife O'Brien" is
- * `col-aoife-obrien`, the forms a model writes back when it names them.
+ * The roster id for a person's name: `col-` and the name's words in
+ * lowercase, joined by hyphens. Accents are folded and periods and
+ * apostrophes drop out, so "Dr. Priya Singh" is `col-dr-priya-singh`
+ * and "Aoife O'Brien" is `col-aoife-obrien`, the forms a model writes
+ * back when it names them; a Latin name gives only letters, digits and
+ * hyphens. Letters of other alphabets stay as they are ("Олег Иванов"
+ * is `col-олег-иванов`), so two such names never share an id.
+ * {@link generateInitialPopulation} adds -2, -3 and so on when two
+ * names still give the same id ("José Silva" and "Jose Silva").
  */
 export function agentIdFromName(name: string): string {
   const slug = foldName(name)
     .replace(/['\u2019.]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(NOT_WORD, '-')
     .replace(/^-+|-+$/g, '');
   return `col-${slug || 'agent'}`;
 }
@@ -83,13 +100,14 @@ const TITLES = new Set(['dr', 'prof', 'mr', 'mrs', 'ms', 'mx']);
 
 /**
  * Comparison keys for an agent id a model wrote, loosest last: the id
- * with everything but letters and digits dropped, then the same without
- * a leading title ("col-priya-singh" for "Dr. Priya Singh"). Saved runs
- * hold ids made before {@link agentIdFromName} ("col-dr.-priya-singh"),
- * and these keys match them too.
+ * with everything but letters, marks and digits dropped, then the same
+ * without a leading title ("col-priya-singh" for "Dr. Priya Singh").
+ * Saved runs hold ids made before {@link agentIdFromName}
+ * ("col-dr.-priya-singh", "col-josé-silva"), and these keys match them
+ * too.
  */
 export function agentIdKeys(id: string): [string, string] {
-  const words = foldName(id).split(/[^a-z0-9]+/).filter(Boolean);
+  const words = foldName(id).split(NOT_WORD).filter(Boolean);
   const bare = words.join('');
   const rest = words[0] === 'col' ? words.slice(1) : words;
   const untitled = rest.length > 1 && TITLES.has(rest[0]) ? rest.slice(1) : rest;
@@ -105,10 +123,19 @@ export function generateInitialPopulation(
   const rng = new SeededRng(seed);
   const colonists: Agent[] = [];
   const usedNames = new Set<string>();
+  const usedIds = new Set<string>();
+  /** The id for `name`, with -2, -3 and so on when someone already holds it. */
+  const claimId = (name: string): string => {
+    const base = agentIdFromName(name);
+    let id = base;
+    for (let n = 2; usedIds.has(id); n++) id = `${base}-${n}`;
+    usedIds.add(id);
+    return id;
+  };
 
   for (const kp of keyPersonnel) {
     usedNames.add(kp.name);
-    colonists.push(createColonist(kp.name, startTime - kp.age, kp.department, kp.role, kp.specialization, false, kp.featured, randomHexaco(rng), startTime));
+    colonists.push(createColonist(claimId(kp.name), kp.name, startTime - kp.age, kp.department, kp.role, kp.specialization, false, kp.featured, randomHexaco(rng), startTime));
   }
 
   const remaining = Math.max(0, totalPopulation - keyPersonnel.length);
@@ -125,7 +152,7 @@ export function generateInitialPopulation(
     const rank = age > 40 ? (rng.chance(0.3) ? 'lead' : 'senior') : (rng.chance(0.2) ? 'senior' : 'junior');
 
     const c = createColonist(
-      name, startTime - age, dept,
+      claimId(name), name, startTime - age, dept,
       `${rank.charAt(0).toUpperCase() + rank.slice(1)} ${spec} Specialist`,
       spec, false, false, randomHexaco(rng), startTime,
     );
@@ -138,12 +165,12 @@ export function generateInitialPopulation(
 }
 
 function createColonist(
-  name: string, birthTime: number, department: Department,
+  id: string, name: string, birthTime: number, department: Department,
   role: string, specialization: string, marsborn: boolean, featured: boolean,
   hexaco: HexacoProfile, startTime: number,
 ): Agent {
   return {
-    core: { id: agentIdFromName(name), name, birthTime, marsborn, department, role },
+    core: { id, name, birthTime, marsborn, department, role },
     health: { alive: true, boneDensityPct: marsborn ? 88 : 100, cumulativeRadiationMsv: 0, psychScore: 0.8, conditions: [] },
     career: { specialization, yearsExperience: 0, rank: 'senior', achievements: [] },
     social: { childrenIds: [], friendIds: [], earthContacts: marsborn ? 0 : 5 },

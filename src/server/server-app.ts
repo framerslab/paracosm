@@ -1194,6 +1194,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       console.log(`  [watchdog] No SSE clients for ${disconnectGraceMs}ms — aborting active simulation.`);
       activeSimAbortController.abort();
     }, disconnectGraceMs);
+    // The timer alone never keeps the process alive: a listening server
+    // or a simulation still at work does that, and the watchdog fires
+    // for them as before, while a process whose server has closed can
+    // exit without waiting out the grace.
+    disconnectWatchdogTimer.unref?.();
   };
   const disarmDisconnectWatchdog = () => {
     if (disconnectWatchdogTimer) {
