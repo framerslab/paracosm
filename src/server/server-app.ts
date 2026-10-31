@@ -170,15 +170,11 @@ export interface CreateMarsServerOptions {
   maxSimsPerDay?: number;
   /**
    * Grace period (ms) between the last SSE client disconnecting and the
-   * server cancelling the active simulation. Default 30_000ms (30s),
-   * which covers the common case of a user clicking an internal link
-   * (e.g. /docs, /, another dashboard tab that triggers a full page
-   * navigation) and returning within half a minute. Shorter values
-   * (the previous 1500ms) surfaced "Interrupted" badges on routine
-   * in-domain navigation — a bad tradeoff, since the per-LLM-call
-   * abort gates in the orchestrator already cap the worst-case
-   * wasted-spend at a single in-flight call regardless of how long
-   * the grace window is.
+   * server cancelling the active simulation. Default 600_000ms (10
+   * minutes): a hosted demo run takes about 4 to 5 minutes, and a phone
+   * drops its stream as soon as the visitor switches apps, so a shorter
+   * grace stops runs whose viewer is coming back. See the watchdog
+   * comment in createMarsServer for the case that set it.
    */
   disconnectGraceMs?: number;
   /**
@@ -1166,17 +1162,23 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // the run "Unfinished" via the sim_aborted SSE event the orchestrator
   // emits on cancel.
   //
-  // Grace period handles the legitimate refresh / in-domain navigation
-  // case: EventSource disconnects briefly, then reconnects. The default
-  // 30_000ms (30s) covers a user clicking an internal link (e.g. the
-  // About tab, which redirects to `/`) and returning within half a
-  // minute — the previous 1500ms surfaced "Interrupted" badges whenever
-  // the user navigated away and back. Combined with the per-LLM-call
-  // abort gates in the orchestrator (runtime/orchestrator.ts), at most
-  // one in-flight call finishes after the watchdog trips regardless of
-  // how long the grace window is, so widening it has no worst-case
-  // wasted-spend cost.
-  const disconnectGraceMs = options.disconnectGraceMs ?? 30_000;
+  // The grace period covers a viewer who leaves and comes back: a
+  // refresh, an internal link, or a phone that drops its EventSource
+  // the moment the visitor switches apps. The default is 10 minutes.
+  // A hosted demo run takes about 4 to 5 minutes (30 October 2026:
+  // 20:24:31 to 20:29:11 UTC). With the earlier 30 s grace, on 31
+  // October 2026 a phone visitor's second /events stream ended 26 s
+  // after POST /setup, nothing reconnected, and the watchdog aborted
+  // the run about 30 s later after one turn, with nothing saved. Ten
+  // minutes outlasts a whole demo run, so a viewer who returns finds it
+  // finished, and a run nobody returns to still stops. The spend a
+  // longer grace allows is bounded: a demo run costs under $0.30 on the
+  // economy profile, the hosted demo caps a run at 6 turns, and the
+  // per-IP limit (50 runs a day on the hosted server) caps how many one
+  // visitor can start. The per-LLM-call abort gates in the orchestrator
+  // still let at most one in-flight call finish after the watchdog
+  // trips.
+  const disconnectGraceMs = options.disconnectGraceMs ?? 600_000;
   /** Current sim's AbortController, or null when no sim is running. */
   let activeSimAbortController: AbortController | null = null;
   /** Timer id for the pending disconnect-watchdog fire. Null when disarmed. */
