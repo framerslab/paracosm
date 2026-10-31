@@ -176,7 +176,9 @@ test('closing the server does not keep the process alive for the rest of the gra
   // The grace is 10 minutes; a process the watchdog holds is still up at 60 s.
   const kill = setTimeout(() => child.kill('SIGKILL'), 60_000);
   try {
-    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    // 'close' comes after the child's stdout and stderr have ended, so
+    // `output` holds everything it printed; 'exit' can come before that.
+    const [code, signal] = await once(child, 'close') as [number | null, NodeJS.Signals | null];
     assert.ok(output.includes('fixture: server closed'), `the child did not reach server.close(): ${output}`);
     assert.equal(signal, null, `the process was still running 60 s after it started, held by the watchdog timer: ${output}`);
     assert.equal(code, 0, output);
