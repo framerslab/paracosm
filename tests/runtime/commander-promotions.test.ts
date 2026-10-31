@@ -119,3 +119,26 @@ test('a saved run that holds an old id with the period still takes promotions', 
     /Agent col-nobody-at-all not found/,
   );
 });
+
+test('names in another alphabet, and names that differ only by an accent, keep their own ids and promotions', async () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', [
+    { name: 'Олег Иванов', department: 'alignment_research', role: 'Senior Researcher', specialization: 'Interpretability', age: 44, featured: true },
+    { name: 'Анна Петрова', department: 'governance', role: 'Policy Lead', specialization: 'Model Policy', age: 39, featured: true },
+    { name: 'José Silva', department: 'communications', role: 'Writer', specialization: 'Comms', age: 31, featured: false },
+    { name: 'Jose Silva', department: 'deployment_engineering', role: 'Engineer', specialization: 'Infrastructure', age: 33, featured: false },
+  ], { startTime: 1, initialPopulation: 24 });
+  const ids = kernel.getState().agents.map(a => a.core.id);
+  assert.equal(new Set(ids).size, ids.length, `duplicate ids: ${ids.join(', ')}`);
+
+  // The commander picks Анна for governance by the id it was shown; the
+  // fallback fills the other four departments by roster id.
+  const anna = kernel.getState().agents.find(a => a.core.name === 'Анна Петрова')!;
+  const { logs } = await promote(kernel, [{ agentId: anna.core.id, department: 'governance', role: 'Chief Policy Officer' }]);
+
+  const state = kernel.getState();
+  assert.equal(state.agents.find(a => a.core.name === 'Анна Петрова')!.promotion?.department, 'governance', `logs: ${logs.join(' | ')}`);
+  for (const d of atlasLab.departments) {
+    const heads = state.agents.filter(a => a.promotion?.department === d.id).map(a => a.core.name);
+    assert.equal(heads.length, 1, `${d.id} heads: ${JSON.stringify(heads)}`);
+  }
+});

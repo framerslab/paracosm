@@ -8,10 +8,12 @@
  */
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMarsServer } from '../../src/server/server-app.js';
 
 const hexaco = { openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, emotionality: 0.5, honestyHumility: 0.5 };
@@ -130,7 +132,7 @@ test('a run with no viewer for 60 s keeps going, and stops once the 10 minute gr
   assert.equal(run.signal().aborted, true, 'still running 10 minutes after the viewer left');
 });
 
-test('a viewer who comes back inside the grace clears the timer; leaving again re-arms it', async (t) => {
+test('a viewer who comes back inside the grace clears the timer; leaving again starts a new grace', async (t) => {
   const run = await startRun(t);
   const leave = await run.connect();
   run.mockTimers();
@@ -140,13 +142,47 @@ test('a viewer who comes back inside the grace clears the timer; leaving again r
   t.mock.timers.tick(5 * 60_000);
   assert.equal(run.signal().aborted, false);
 
+  // Back at 5 minutes, gone again at 6.
   const leaveAgain = await run.connect();
-  t.mock.timers.tick(20 * 60_000);
+  t.mock.timers.tick(60_000);
   assert.equal(run.signal().aborted, false, 'the watchdog fired although the viewer came back');
-
   const armed = run.watchdogArms();
   leaveAgain();
   await waitUntil(() => run.watchdogArms() > armed, 'the watchdog to re-arm');
-  t.mock.timers.tick(10 * 60_000);
+
+  // 10 minutes after the first leave: the first timer, had the
+  // reconnect not cleared it, would fire here.
+  t.mock.timers.tick(4 * 60_000 + 1);
+  assert.equal(run.signal().aborted, false, 'the first grace still ran after the viewer came back');
+
+  // 10 minutes after the second leave.
+  t.mock.timers.tick(6 * 60_000 - 1);
   assert.equal(run.signal().aborted, true, 'the run kept going after the viewer left a second time');
+});
+
+test('closing the server does not keep the process alive for the rest of the grace', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-watchdog-exit-'));
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+  // Without the test runner's marker, so the child runs as a plain script.
+  const { NODE_TEST_CONTEXT: _testContext, ...childEnv } = process.env;
+  const child = spawn(
+    process.execPath,
+    ['--import', 'tsx', '--import', './scripts/test-css-stub.mjs', fileURLToPath(new URL('./fixtures/server-close-after-leave.ts', import.meta.url))],
+    { cwd: repoRoot, env: { ...childEnv, APP_DIR: appDir }, stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let output = '';
+  child.stdout.on('data', d => { output += d; });
+  child.stderr.on('data', d => { output += d; });
+  // The grace is 10 minutes; a process the watchdog holds is still up at 60 s.
+  const kill = setTimeout(() => child.kill('SIGKILL'), 60_000);
+  try {
+    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    assert.ok(output.includes('fixture: server closed'), `the child did not reach server.close(): ${output}`);
+    assert.equal(signal, null, `the process was still running 60 s after it started, held by the watchdog timer: ${output}`);
+    assert.equal(code, 0, output);
+  } finally {
+    clearTimeout(kill);
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    rmSync(appDir, { recursive: true, force: true });
+  }
 });
