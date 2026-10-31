@@ -1,10 +1,13 @@
 import type { CSSProperties } from 'react';
 import styles from './HeroScoreboard.module.scss';
+import { formatScenarioStat, scenarioStatRows, statLeader } from '../sim/verdict-stats';
 
 /**
  * Top-of-report scoreboard. Shows winner + one-sentence divergence +
- * seven-stat A-vs-B comparison bars. Sources from verdict.finalStats
- * so the numbers match the existing VerdictPanel exactly.
+ * A-vs-B comparison bars: the scenario's header scores
+ * (verdict.finalStats.metrics) plus tools forged, or the seven colony
+ * stats for a verdict saved without them. Sources from
+ * verdict.finalStats so the numbers match the VerdictPanel exactly.
  *
  * When verdict is absent (sim still in progress) the stats block hides
  * and a one-line "simulation in progress" message takes its place. The
@@ -86,13 +89,37 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
     headline?: string;
     summary?: string;
     keyDivergence?: string;
-    finalStats?: { a?: Partial<FinalStats>; b?: Partial<FinalStats> };
+    finalStats?: { a?: Partial<FinalStats>; b?: Partial<FinalStats>; metrics?: unknown };
   } | null | undefined;
   const winnerName = v?.winnerName || '';
   const headline = v?.headline || v?.summary || '';
   const keyDivergence = v?.keyDivergence || '';
   const finalA = v?.finalStats?.a;
   const finalB = v?.finalStats?.b;
+  // One row shape for both sources: the scenario's header scores when
+  // the verdict carries them, the fixed colony stats otherwise.
+  const scenarioRows = scenarioStatRows(v?.finalStats);
+  const rows: Array<{ key: string; label: string; a: number; b: number; text: (n: number) => string; better?: 'higher' | 'lower' }> = finalA && finalB
+    ? scenarioRows
+      ? [
+          ...scenarioRows.map(r => ({
+            key: r.id,
+            label: r.label,
+            a: Number(r.a ?? 0),
+            b: Number(r.b ?? 0),
+            text: (n: number) => formatScenarioStat(n, r.format),
+            better: r.better,
+          })),
+          { key: 'tools', label: 'Tools Forged', a: Number(finalA.tools ?? 0), b: Number(finalB.tools ?? 0), text: (n: number) => fmt(n, 'int') },
+        ]
+      : STAT_ROWS.map(row => ({
+          key: row.key,
+          label: row.label,
+          a: Number(finalA[row.key] ?? 0),
+          b: Number(finalB[row.key] ?? 0),
+          text: (n: number) => fmt(n, row.format),
+        }))
+    : [];
 
   const scroll = props.onViewFullVerdict ?? (() => {
     if (typeof document !== 'undefined') {
@@ -116,10 +143,9 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
             <span>Final stats</span>
             <span className={styles.nameB}>{props.leaderBName}</span>
           </div>
-          {STAT_ROWS.map(row => {
-            const a = Number(finalA[row.key] ?? 0);
-            const b = Number(finalB[row.key] ?? 0);
-            const winner: 'a' | 'b' | 'tie' = a > b ? 'a' : b > a ? 'b' : 'tie';
+          {rows.map(row => {
+            const { a, b } = row;
+            const winner: 'a' | 'b' | 'tie' = statLeader(a, b, row.better) ?? 'tie';
             return (
               <div key={row.key} className={styles.statRow}>
                 <div className={styles.statRowHead}>
@@ -130,7 +156,7 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
                       '--val-weight': winner === 'a' ? '700' : '500',
                     } as CSSProperties}
                   >
-                    {fmt(a, row.format)}
+                    {row.text(a)}
                   </span>
                   <span className={styles.statLabel}>{row.label}</span>
                   <span
@@ -140,7 +166,7 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
                       '--val-weight': winner === 'b' ? '700' : '500',
                     } as CSSProperties}
                   >
-                    {fmt(b, row.format)}
+                    {row.text(b)}
                   </span>
                 </div>
                 <StatBar a={a} b={b} winner={winner} />

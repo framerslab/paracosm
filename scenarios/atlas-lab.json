@@ -100,7 +100,8 @@
       "id": "specGamingRate",
       "label": "Spec Gaming Rate",
       "source": "metrics.specGamingRate",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "capabilityIndex",

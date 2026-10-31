@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, type CSSProperties } from 'react';
 import { CohortVerdictDetails } from '../layout/VerdictModal';
 import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './VerdictCard.module.scss';
+import { finalStatsTitle, formatScenarioStat, scenarioStatRows, statLeader, type ScenarioStatRow } from './verdict-stats';
 
 interface VerdictData {
   winner: 'A' | 'B' | 'tie';
@@ -15,9 +16,13 @@ interface VerdictData {
   };
   leaderA: { name: string; archetype: string; unit: string };
   leaderB: { name: string; archetype: string; unit: string };
+  /** The scenario's word for the settlement (lab, colony, station). */
+  settlementNoun?: string;
   finalStats: {
     a: { population: number; morale: number; food: number; power: number; modules: number; science: number; tools: number };
     b: { population: number; morale: number; food: number; power: number; modules: number; science: number; tools: number };
+    /** The scenario's header scores; absent on verdicts saved before they were sent. */
+    metrics?: ScenarioStatRow[];
   };
 }
 
@@ -66,13 +71,23 @@ function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
   );
 }
 
-function StatRow({ label, a, b, format }: { label: string; a: number; b: number; format?: 'percent' | 'decimal' | 'number' }) {
+function StatRow({ label, a, b, format, scenarioFormat, direction }: {
+  label: string;
+  a: number;
+  b: number;
+  format?: 'percent' | 'decimal' | 'number';
+  /** A scenario score's own format; takes over from `format` when set. */
+  scenarioFormat?: ScenarioStatRow['format'];
+  /** Which way is better for a scenario score (higher by default). */
+  direction?: 'higher' | 'lower';
+}) {
   const fmt = (v: number) => {
+    if (scenarioFormat) return formatScenarioStat(v, scenarioFormat);
     if (format === 'percent') return `${Math.round(v * 100)}%`;
     if (format === 'decimal') return v.toFixed(1);
     return String(Math.round(v));
   };
-  const better = a > b ? 'a' : b > a ? 'b' : null;
+  const better = statLeader(a, b, direction);
   return (
     <div className={styles.statRow}>
       <span
@@ -126,17 +141,25 @@ function buildMarkdownExport(v: VerdictData): string {
     lines.push(`| Innovation | ${v.scores.a?.innovation ?? 0} | ${v.scores.b?.innovation ?? 0} |`);
   }
   if (v.finalStats) {
+    const scenarioRows = scenarioStatRows(v.finalStats);
+    const title = finalStatsTitle(v.settlementNoun).toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
     lines.push('');
-    lines.push('## Final Colony Stats');
+    lines.push(`## ${title}`);
     lines.push('');
     lines.push('| Stat | ' + (v.leaderA?.name || 'A') + ' | ' + (v.leaderB?.name || 'B') + ' |');
     lines.push('|---|---|---|');
-    lines.push(`| Population | ${v.finalStats.a?.population ?? 0} | ${v.finalStats.b?.population ?? 0} |`);
-    lines.push(`| Morale | ${Math.round((v.finalStats.a?.morale ?? 0) * 100)}% | ${Math.round((v.finalStats.b?.morale ?? 0) * 100)}% |`);
-    lines.push(`| Food (months) | ${(v.finalStats.a?.food ?? 0).toFixed(1)} | ${(v.finalStats.b?.food ?? 0).toFixed(1)} |`);
-    lines.push(`| Power (kW) | ${(v.finalStats.a?.power ?? 0).toFixed(1)} | ${(v.finalStats.b?.power ?? 0).toFixed(1)} |`);
-    lines.push(`| Modules | ${(v.finalStats.a?.modules ?? 0).toFixed(1)} | ${(v.finalStats.b?.modules ?? 0).toFixed(1)} |`);
-    lines.push(`| Science | ${v.finalStats.a?.science ?? 0} | ${v.finalStats.b?.science ?? 0} |`);
+    if (scenarioRows) {
+      for (const r of scenarioRows) {
+        lines.push(`| ${r.label} | ${formatScenarioStat(r.a, r.format)} | ${formatScenarioStat(r.b, r.format)} |`);
+      }
+    } else {
+      lines.push(`| Population | ${v.finalStats.a?.population ?? 0} | ${v.finalStats.b?.population ?? 0} |`);
+      lines.push(`| Morale | ${Math.round((v.finalStats.a?.morale ?? 0) * 100)}% | ${Math.round((v.finalStats.b?.morale ?? 0) * 100)}% |`);
+      lines.push(`| Food (months) | ${(v.finalStats.a?.food ?? 0).toFixed(1)} | ${(v.finalStats.b?.food ?? 0).toFixed(1)} |`);
+      lines.push(`| Power (kW) | ${(v.finalStats.a?.power ?? 0).toFixed(1)} | ${(v.finalStats.b?.power ?? 0).toFixed(1)} |`);
+      lines.push(`| Modules | ${(v.finalStats.a?.modules ?? 0).toFixed(1)} | ${(v.finalStats.b?.modules ?? 0).toFixed(1)} |`);
+      lines.push(`| Science | ${v.finalStats.a?.science ?? 0} | ${v.finalStats.b?.science ?? 0} |`);
+    }
     lines.push(`| Tools Forged | ${v.finalStats.a?.tools ?? 0} | ${v.finalStats.b?.tools ?? 0} |`);
   }
   lines.push('');
@@ -213,13 +236,17 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
 
       {v.finalStats && (
         <div className={styles.finalStats}>
-          <div className={styles.finalStatsLabel}>FINAL COLONY STATS</div>
-          <StatRow label="Population" a={v.finalStats.a?.population ?? 0} b={v.finalStats.b?.population ?? 0} />
-          <StatRow label="Morale" a={v.finalStats.a?.morale ?? 0} b={v.finalStats.b?.morale ?? 0} format="percent" />
-          <StatRow label="Food (mo)" a={v.finalStats.a?.food ?? 0} b={v.finalStats.b?.food ?? 0} format="decimal" />
-          <StatRow label="Power (kW)" a={v.finalStats.a?.power ?? 0} b={v.finalStats.b?.power ?? 0} format="decimal" />
-          <StatRow label="Modules" a={v.finalStats.a?.modules ?? 0} b={v.finalStats.b?.modules ?? 0} format="decimal" />
-          <StatRow label="Science" a={v.finalStats.a?.science ?? 0} b={v.finalStats.b?.science ?? 0} />
+          <div className={styles.finalStatsLabel}>{finalStatsTitle(v.settlementNoun)}</div>
+          {scenarioStatRows(v.finalStats)?.map(r => (
+            <StatRow key={r.id} label={r.label} a={r.a ?? 0} b={r.b ?? 0} scenarioFormat={r.format} direction={r.better} />
+          )) ?? (<>
+            <StatRow label="Population" a={v.finalStats.a?.population ?? 0} b={v.finalStats.b?.population ?? 0} />
+            <StatRow label="Morale" a={v.finalStats.a?.morale ?? 0} b={v.finalStats.b?.morale ?? 0} format="percent" />
+            <StatRow label="Food (mo)" a={v.finalStats.a?.food ?? 0} b={v.finalStats.b?.food ?? 0} format="decimal" />
+            <StatRow label="Power (kW)" a={v.finalStats.a?.power ?? 0} b={v.finalStats.b?.power ?? 0} format="decimal" />
+            <StatRow label="Modules" a={v.finalStats.a?.modules ?? 0} b={v.finalStats.b?.modules ?? 0} format="decimal" />
+            <StatRow label="Science" a={v.finalStats.a?.science ?? 0} b={v.finalStats.b?.science ?? 0} />
+          </>)}
           <StatRow label="Tools Forged" a={v.finalStats.a?.tools ?? 0} b={v.finalStats.b?.tools ?? 0} />
         </div>
       )}
