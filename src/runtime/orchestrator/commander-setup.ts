@@ -157,9 +157,9 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
   }
   for (const p of promoDecision.promotions) {
     try {
-      kernel.promoteAgent(p.agentId, p.department as Department, p.role, leader.name);
-      console.log(`  ✦ ${p.agentId} → ${p.role}: ${p.reason?.slice(0, 80)}`);
-      emit('promotion', { agentId: p.agentId, department: p.department, role: p.role, reason: p.reason?.slice(0, 120) });
+      const agentId = kernel.promoteAgent(p.agentId, p.department as Department, p.role, leader.name);
+      console.log(`  ✦ ${agentId} → ${p.role}: ${p.reason?.slice(0, 80)}`);
+      emit('promotion', { agentId, department: p.department, role: p.role, reason: p.reason?.slice(0, 120) });
     } catch (err) { console.log(`  ✦ Promotion failed: ${err}`); }
   }
 

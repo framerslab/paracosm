@@ -2,7 +2,7 @@ import type { SimulationState, Agent, TurnEvent, HexacoProfile, TurnOutcome, Dep
 import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
-import { generateInitialPopulation, type KeyPersonnel } from './agent-generator.js';
+import { agentIdKeys, generateInitialPopulation, type KeyPersonnel } from './agent-generator.js';
 import { progressBetweenTurns, applyPersonalityDrift, ROLE_ACTIVATIONS } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
@@ -279,7 +279,7 @@ export class SimulationKernel {
 
     if (patches.agentUpdates) {
       for (const u of patches.agentUpdates) {
-        const col = this.state.agents.find(c => c.core.id === u.agentId);
+        const col = this.findAgent(u.agentId);
         if (!col) continue;
         if (u.health) Object.assign(col.health, u.health);
         if (u.career) Object.assign(col.career, u.career);
@@ -334,9 +334,34 @@ export class SimulationKernel {
       .map(x => x.colonist);
   }
 
-  /** Promote a colonist to a department head role. */
-  promoteAgent(agentId: string, dept: Department, role: string, promotedBy: string): void {
-    const c = this.state.agents.find(col => col.core.id === agentId);
+  /**
+   * Find an agent by an id a model wrote. An exact id wins; otherwise the
+   * id is compared with punctuation dropped on both sides, then also
+   * without a leading title (see {@link agentIdKeys}). A loose match
+   * counts only when it names exactly one agent.
+   */
+  findAgent(agentId: string): Agent | undefined {
+    if (typeof agentId !== 'string') return undefined;
+    const agents = this.state.agents;
+    const exact = agents.find(a => a.core.id === agentId);
+    if (exact) return exact;
+    const wanted = agentIdKeys(agentId);
+    const keyed = agents.map(a => ({ agent: a, keys: agentIdKeys(a.core.id) }));
+    for (const i of [0, 1] as const) {
+      if (!wanted[i]) continue;
+      const hits = keyed.filter(k => k.keys[i] === wanted[i]);
+      if (hits.length === 1) return hits[0].agent;
+    }
+    return undefined;
+  }
+
+  /**
+   * Promote a colonist to a department head role. Returns the roster id
+   * the promotion resolved to, which can differ from `agentId` in
+   * punctuation or a dropped title.
+   */
+  promoteAgent(agentId: string, dept: Department, role: string, promotedBy: string): string {
+    const c = this.findAgent(agentId);
     if (!c) throw new Error(`Agent ${agentId} not found`);
     c.promotion = { department: dept, role, turnPromoted: this.state.metadata.currentTurn, promotedBy };
     c.core.department = dept;
@@ -353,9 +378,10 @@ export class SimulationKernel {
       time: this.state.metadata.currentTime,
       type: 'promotion',
       description: `${c.core.name} promoted to ${role}`,
-      agentId,
+      agentId: c.core.id,
       data: { department: dept, promotedBy },
     });
+    return c.core.id;
   }
 
   /** Apply additive deltas to world systems (not absolute values). */
@@ -399,7 +425,7 @@ export class SimulationKernel {
   /** Apply featured colonist updates from department reports. */
   applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string }>): void {
     for (const u of updates) {
-      const col = this.state.agents.find(c => c.core.id === u.agentId);
+      const col = this.findAgent(u.agentId);
       if (!col || !col.health.alive) continue;
 
       if (u.health) {

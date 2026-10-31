@@ -60,6 +60,42 @@ export interface KeyPersonnel {
   featured: boolean;
 }
 
+/** Lowercase with accents folded: "José" reads as "jose". */
+function foldName(text: string): string {
+  return text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
+ * The roster id for a person's name: `col-` and the name in lowercase
+ * letters, digits and hyphens. Periods and apostrophes drop out, so
+ * "Dr. Priya Singh" is `col-dr-priya-singh` and "Aoife O'Brien" is
+ * `col-aoife-obrien`, the forms a model writes back when it names them.
+ */
+export function agentIdFromName(name: string): string {
+  const slug = foldName(name)
+    .replace(/['\u2019.]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `col-${slug || 'agent'}`;
+}
+
+const TITLES = new Set(['dr', 'prof', 'mr', 'mrs', 'ms', 'mx']);
+
+/**
+ * Comparison keys for an agent id a model wrote, loosest last: the id
+ * with everything but letters and digits dropped, then the same without
+ * a leading title ("col-priya-singh" for "Dr. Priya Singh"). Saved runs
+ * hold ids made before {@link agentIdFromName} ("col-dr.-priya-singh"),
+ * and these keys match them too.
+ */
+export function agentIdKeys(id: string): [string, string] {
+  const words = foldName(id).split(/[^a-z0-9]+/).filter(Boolean);
+  const bare = words.join('');
+  const rest = words[0] === 'col' ? words.slice(1) : words;
+  const untitled = rest.length > 1 && TITLES.has(rest[0]) ? rest.slice(1) : rest;
+  return [bare, untitled.join('')];
+}
+
 export function generateInitialPopulation(
   seed: number,
   startTime: number,
@@ -107,7 +143,7 @@ function createColonist(
   hexaco: HexacoProfile, startTime: number,
 ): Agent {
   return {
-    core: { id: `col-${name.toLowerCase().replace(/\s+/g, '-')}`, name, birthTime, marsborn, department, role },
+    core: { id: agentIdFromName(name), name, birthTime, marsborn, department, role },
     health: { alive: true, boneDensityPct: marsborn ? 88 : 100, cumulativeRadiationMsv: 0, psychScore: 0.8, conditions: [] },
     career: { specialization, yearsExperience: 0, rank: 'senior', achievements: [] },
     social: { childrenIds: [], friendIds: [], earthContacts: marsborn ? 0 : 5 },
