@@ -1,0 +1,121 @@
+/**
+ * Turn-0 promotions against the ids the commander actually returns.
+ *
+ * The roster id of "Dr. Priya Singh" used to keep the period
+ * ("col-dr.-priya-singh") while commanders wrote it without
+ * ("col-dr-priya-singh") or without the title ("col-priya-singh"), so
+ * the kernel threw "Agent ... not found" and a fallback head took the
+ * department instead of the commander's pick. These tests drive
+ * runDepartmentPromotions (the function the orchestrator calls) with
+ * Atlas Lab's departments from scenarios/atlas-lab.json and a stubbed
+ * commander reply in place of the model call.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { SimulationKernel } from '../../src/engine/core/kernel.js';
+import type { KeyPersonnel } from '../../src/engine/core/agent-generator.js';
+import { runDepartmentPromotions } from '../../src/runtime/orchestrator/commander-setup.js';
+import type { ActorConfig, ScenarioPackage } from '../../src/engine/types.js';
+
+const atlasLab = JSON.parse(
+  readFileSync(new URL('../../scenarios/atlas-lab.json', import.meta.url), 'utf-8'),
+) as ScenarioPackage;
+
+const leader = { name: 'Marcus Reinhardt' } as ActorConfig;
+
+const keyPersonnel: KeyPersonnel[] = [
+  { name: 'Dr. Priya Singh', department: 'alignment_research', role: 'Senior Researcher', specialization: 'Interpretability', age: 41, featured: true },
+  { name: 'Dr. Yuki Tanaka', department: 'governance', role: 'Policy Lead', specialization: 'Model Policy', age: 38, featured: true },
+];
+
+async function promote(kernel: SimulationKernel, promotions: Array<{ agentId: string; department: string; role: string }>) {
+  const emitted: Array<Record<string, unknown>> = [];
+  const logs: string[] = [];
+  const realLog = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  try {
+    await runDepartmentPromotions({
+      kernel,
+      scenario: atlasLab,
+      leader,
+      startTime: 1,
+      sendToCommander: async () => ({
+        text: JSON.stringify({ promotions: promotions.map(p => ({ ...p, reason: 'test pick' })) }),
+      }),
+      trackUsage: () => {},
+      emit: (_type, data) => { if (data) emitted.push(data); },
+    });
+  } finally {
+    console.log = realLog;
+  }
+  return { emitted, logs };
+}
+
+test('promotions resolve ids written with or without the period, and an unknown id still fails', async () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24 });
+  const { emitted, logs } = await promote(kernel, [
+    { agentId: 'col-dr-priya-singh', department: 'alignment_research', role: 'Head of Interpretability' },
+    { agentId: 'col-dr.-yuki-tanaka', department: 'governance', role: 'Chief Policy Strategist' },
+    { agentId: 'col-nobody-at-all', department: 'communications', role: 'Voice of the Lab' },
+  ]);
+
+  const state = kernel.getState();
+  const priya = state.agents.find(a => a.core.name === 'Dr. Priya Singh')!;
+  const yuki = state.agents.find(a => a.core.name === 'Dr. Yuki Tanaka')!;
+
+  assert.equal(priya.promotion?.role, 'Head of Interpretability', `logs: ${logs.join(' | ')}`);
+  assert.equal(priya.promotion?.promotedBy, 'Marcus Reinhardt');
+  assert.equal(yuki.promotion?.role, 'Chief Policy Strategist', `logs: ${logs.join(' | ')}`);
+  assert.ok(!logs.some(l => l.includes('col-dr-priya-singh not found')), 'Priya promotion failed');
+  assert.ok(!logs.some(l => l.includes('col-dr.-yuki-tanaka not found')), 'Yuki promotion failed');
+
+  // The SSE event carries the roster id, so the dashboard can match it.
+  const emittedIds = emitted.map(e => e.agentId);
+  assert.ok(emittedIds.includes(priya.core.id), `emitted ${JSON.stringify(emittedIds)}`);
+  assert.ok(emittedIds.includes(yuki.core.id), `emitted ${JSON.stringify(emittedIds)}`);
+
+  // An id that names nobody fails as before, and the fallback fills its department.
+  assert.ok(logs.some(l => l.includes('Promotion failed: Error: Agent col-nobody-at-all not found')), `logs: ${logs.join(' | ')}`);
+  assert.ok(!emittedIds.includes('col-nobody-at-all'));
+  const commsHead = state.agents.find(a => a.promotion?.department === 'communications');
+  assert.equal(commsHead?.promotion?.role, 'Head of Comms');
+
+  // New ids hold only lowercase letters, digits and hyphens.
+  assert.equal(priya.core.id, 'col-dr-priya-singh');
+  assert.equal(yuki.core.id, 'col-dr-yuki-tanaka');
+  for (const a of state.agents) assert.match(a.core.id, /^col-[a-z0-9]+(-[a-z0-9]+)*$/);
+});
+
+test('a commander that drops the title still reaches the titled person; an exact id wins', async () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', [
+    ...keyPersonnel,
+    { name: 'Yuki Tanaka', department: 'communications', role: 'Writer', specialization: 'Comms', age: 30, featured: false },
+  ], { startTime: 1, initialPopulation: 24 });
+  await promote(kernel, [
+    { agentId: 'col-priya-singh', department: 'alignment_research', role: 'Head of Interpretability' },
+    { agentId: 'col-yuki-tanaka', department: 'communications', role: 'Head of Lab Voice' },
+  ]);
+  const state = kernel.getState();
+  assert.equal(state.agents.find(a => a.core.name === 'Dr. Priya Singh')!.promotion?.role, 'Head of Interpretability');
+  assert.equal(state.agents.find(a => a.core.name === 'Yuki Tanaka')!.promotion?.role, 'Head of Lab Voice');
+  assert.notEqual(state.agents.find(a => a.core.name === 'Dr. Yuki Tanaka')!.promotion?.role, 'Head of Lab Voice');
+});
+
+test('a saved run that holds an old id with the period still takes promotions', () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24 });
+  const snap = kernel.toSnapshot('atlas-lab');
+  const saved = snap.state.agents.find(a => a.core.name === 'Dr. Priya Singh')!;
+  saved.core.id = 'col-dr.-priya-singh';
+  const forked = SimulationKernel.fromSnapshot(JSON.parse(JSON.stringify(snap)), 'atlas-lab');
+
+  forked.promoteAgent('col-dr-priya-singh', 'alignment_research', 'Head of Interpretability', 'Marcus Reinhardt');
+
+  const priya = forked.getState().agents.find(a => a.core.name === 'Dr. Priya Singh')!;
+  assert.equal(priya.core.id, 'col-dr.-priya-singh');
+  assert.equal(priya.promotion?.role, 'Head of Interpretability');
+  assert.throws(
+    () => forked.promoteAgent('col-nobody-at-all', 'governance', 'Anything', 'Marcus Reinhardt'),
+    /Agent col-nobody-at-all not found/,
+  );
+});
