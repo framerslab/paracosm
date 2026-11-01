@@ -1,0 +1,85 @@
+{
+  "source": "Atlas Lab pair run on paracosm.agentos.sh, 30 Oct 2026 20:24:31 to 20:29:11 UTC, seed 11, 6 turns; judged 'Tie'. Final states trimmed to the fields the verdict reads.",
+  "runs": [
+    {
+      "leaderName": "Marcus Reinhardt",
+      "runId": "atlas-lab-the-cautious-methodical-evaluator-1793392151226",
+      "finalState": {
+        "metrics": {
+          "population": 34,
+          "powerKw": 388.0000000000001,
+          "foodMonthsReserve": 19.999999999999993,
+          "waterLitersPerDay": 800,
+          "pressurizedVolumeM3": 3000,
+          "lifeSupportCapacity": 120,
+          "infrastructureModules": 3,
+          "scienceOutput": 5,
+          "morale": 0.8734279500000001,
+          "alignmentBench": 0.7999999999999999,
+          "specGamingRate": 0.042,
+          "capabilityIndex": 0.8400000000000001,
+          "releaseReadiness": 0.6200000000000001,
+          "redTeamCoverage": 0.5900000000000001,
+          "burnRate": 12111557.08,
+          "runwayMonths": 18.74,
+          "trainingRunsPerMonth": 4,
+          "redTeamPassesPerMonth": 6
+        },
+        "politics": {
+          "earthDependencyPct": 95,
+          "governanceStatus": "earth-governed",
+          "independencePressure": 0.05,
+          "boardConfidence": 45,
+          "investorPressure": 70
+        },
+        "statuses": {
+          "rspTier": "asl-2"
+        }
+      },
+      "fingerprint": {
+        "summary": "moderate \u00b7 competitive \u00b7 held",
+        "innovation": "prolific"
+      }
+    },
+    {
+      "leaderName": "Priya Kapoor",
+      "runId": "atlas-lab-the-compounding-edge-capabilities-lead-1793392102149",
+      "finalState": {
+        "metrics": {
+          "population": 32,
+          "powerKw": 397.6,
+          "foodMonthsReserve": 19.999999999999993,
+          "waterLitersPerDay": 800,
+          "pressurizedVolumeM3": 3000,
+          "lifeSupportCapacity": 120,
+          "infrastructureModules": 3,
+          "scienceOutput": 5,
+          "morale": 0.8734279500000001,
+          "alignmentBench": 0.87,
+          "specGamingRate": 0.022,
+          "capabilityIndex": 0.8400000000000001,
+          "releaseReadiness": 0.76,
+          "redTeamCoverage": 0.6400000000000001,
+          "burnRate": 12123220.84,
+          "runwayMonths": 18.82,
+          "trainingRunsPerMonth": 4,
+          "redTeamPassesPerMonth": 6
+        },
+        "politics": {
+          "earthDependencyPct": 95,
+          "governanceStatus": "earth-governed",
+          "independencePressure": 0.05,
+          "boardConfidence": 55,
+          "investorPressure": 62
+        },
+        "statuses": {
+          "rspTier": "asl-2"
+        }
+      },
+      "fingerprint": {
+        "summary": "high \u00b7 competitive \u00b7 held",
+        "innovation": "prolific"
+      }
+    }
+  ]
+}

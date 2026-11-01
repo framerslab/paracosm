@@ -51,6 +51,7 @@ export const DraftScenarioSchema = z.object({
   metrics: z.array(z.object({
     id: z.string().min(2).max(32).regex(/^[a-z0-9-]+$/),
     format: z.enum(['number', 'percent', 'currency']).default('number'),
+    better: z.enum(['higher', 'lower']).optional(),
   })).min(2).max(12),
   theme: z.string().min(10).max(400).optional(),
 });
@@ -96,6 +97,7 @@ DEPARTMENTS (2-8 entries)
 
 METRICS (2-12 entries)
 - format: one of "number", "percent", "currency".
+- better (optional): "lower" for a metric that improves as it falls (a churn rate, a defect count, a risk). Omit it for the rest.
 - Pick the metrics the leader actually steers on, not every available stat.
 
 LABELS

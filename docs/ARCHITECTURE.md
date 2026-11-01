@@ -363,7 +363,21 @@ The economic argument: a 1000-agent bottom-up sim runs ~1000 LLM calls per turn 
 
 ### LLM Verdict
 
-After a pair run completes all turns, an LLM compares the two commanders' final states and produces a verdict. Cohort runs (N >= 3) skip the verdict because pairwise comparison is ambiguous across N; the dashboard surfaces group-median deltas and the constellation view instead.
+After a pair run completes all turns, an LLM compares the two leaders' final states and produces a verdict ([`judgePair`](../src/cli/pair-runner.ts)). A cohort run of up to 50 leaders gets a ranked `cohort_verdict` instead ([`judgeCohort`](../src/cli/pair-runner.ts)); past 50 the verdict is skipped and the dashboard shows group-median deltas and the constellation view.
+
+Both judges weigh the scores the scenario declares, not a fixed colony list. [`verdict-scores.ts`](../src/cli/verdict-scores.ts) reads every entry of the scenario's `metrics` (the `ui.headerMetrics` ones first) from each run's final state and puts them side by side, with each score's label, format and unit; a metric whose world field has unit `frac` reads as a percentage, and a percent score held on a 0 to 100 scale (Submarine's Hull Integrity) is brought to the same scale. A metric with no `source` (a seed-compiled draft declares only `id` and `format`) reads `metrics.<id>`. A score no run holds a value for is left out; where none remain, the final state's numeric metrics stand in. A metric that sets `better: "lower"` (Atlas Lab's Spec Gaming Rate, T2D's HbA1c) is marked so, and the card and the scoreboard colour the lower side as the leader; a metric that does not set it is treated as better higher on those two screens. The status and politics fields the scenario declares are added where the runs differ, and the prompt uses the scenario's own words (`labels.name`, `settlementNoun`, `populationNoun`, `actorNounPlural`, `tagline`). The judge is told that a lead on most of the scores is a win and that a tie is only for runs whose scores are the same.
+
+```text
+ATLAS LAB SCORES (each run's final value, A | B)
+  Researchers: A 34 | B 32
+  AlignmentBench: A 0.80 | B 0.87
+  Spec Gaming Rate: A 4.2% | B 2.2% (lower is better)
+  Capability Index: A 0.84 | B 0.84
+  Release Readiness: A 62% | B 76%
+  Red-team Coverage: A 59% | B 64%
+  Monthly Burn (USD/mo): A 12111557 | B 12123221 (lower is better)
+  Runway (months): A 18.7 | B 18.8
+```
 
 ```json
 {
@@ -379,7 +393,7 @@ After a pair run completes all turns, an LLM compares the two commanders' final 
 }
 ```
 
-The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard as a comparison card with score bars.
+The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard as a comparison card with score bars. Its `finalStats` carries the colony fields (`a`, `b`) and `metrics`, the scenario's header scores (every score when the scenario names no header) with both leaders' values, percent scores as fractions; the card and the report scoreboard list `metrics` when it is present, under the scenario's settlement word (`settlementNoun`). A value a run does not hold reads n/a and names no leader. A failed verdict call broadcasts `verdict_skipped` and the run still reaches `complete`.
 
 ### Character Chat
 

@@ -160,12 +160,28 @@ export interface DepartmentDefinition {
 // Metrics, effects, events
 // ---------------------------------------------------------------------------
 
-/** Defines a derived metric displayed in the dashboard header. */
+/**
+ * A score the scenario declares: shown in the dashboard header when
+ * `ui.headerMetrics` names it, and weighed by the verdict judge that
+ * compares finished runs.
+ */
 export interface MetricDefinition {
   id: string;
   label: string;
+  /**
+   * Path into the world snapshot, e.g. `metrics.population`. A
+   * seed-compiled draft declares only id and format; readers fall back
+   * to `metrics.<id>`.
+   */
   source: string;
   format: 'number' | 'percent' | 'currency' | 'duration';
+  /**
+   * Which way is better for this score. The verdict judge is told so
+   * when it compares runs. Omit it when the score's name and the
+   * scenario make it plain (most scores are better higher); set
+   * `'lower'` for scores such as an error or failure rate.
+   */
+  better?: 'higher' | 'lower';
 }
 
 /** Defines an effect category with base deltas applied on crisis outcomes. */

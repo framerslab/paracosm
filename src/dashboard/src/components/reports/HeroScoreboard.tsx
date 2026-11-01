@@ -1,14 +1,22 @@
+import * as React from 'react';
 import type { CSSProperties } from 'react';
 import styles from './HeroScoreboard.module.scss';
+import { formatScenarioStat, scenarioStatLabel, scenarioStatRows, statLeader } from '../sim/verdict-stats';
+
+void React;
 
 /**
  * Top-of-report scoreboard. Shows winner + one-sentence divergence +
- * seven-stat A-vs-B comparison bars. Sources from verdict.finalStats
- * so the numbers match the existing VerdictPanel exactly.
+ * A-vs-B comparison bars: the scenario's header scores
+ * (verdict.finalStats.metrics) plus tools forged, or the seven colony
+ * stats for a verdict saved without them. Sources from
+ * verdict.finalStats so the numbers match the VerdictPanel exactly.
  *
  * When verdict is absent (sim still in progress) the stats block hides
  * and a one-line "simulation in progress" message takes its place. The
- * hero itself stays so the first fold is still a real summary.
+ * hero itself stays so the first fold is still a real summary. A cohort
+ * verdict renders nothing here: its `finalStats` is a per-actor list and
+ * the report's CohortVerdict section is its own view.
  *
  * @module paracosm/dashboard/reports/HeroScoreboard
  */
@@ -86,13 +94,39 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
     headline?: string;
     summary?: string;
     keyDivergence?: string;
-    finalStats?: { a?: Partial<FinalStats>; b?: Partial<FinalStats> };
+    finalStats?: { a?: Partial<FinalStats>; b?: Partial<FinalStats>; metrics?: unknown };
+    mode?: string;
   } | null | undefined;
+  if (v?.mode === 'cohort') return null;
   const winnerName = v?.winnerName || '';
   const headline = v?.headline || v?.summary || '';
   const keyDivergence = v?.keyDivergence || '';
   const finalA = v?.finalStats?.a;
   const finalB = v?.finalStats?.b;
+  // One row shape for both sources: the scenario's header scores when
+  // the verdict carries them, the fixed colony stats otherwise.
+  const scenarioRows = scenarioStatRows(v?.finalStats);
+  const rows: Array<{ key: string; label: string; a: number | undefined; b: number | undefined; text: (n: number | undefined) => string; better?: 'higher' | 'lower' }> = finalA && finalB
+    ? scenarioRows
+      ? [
+          ...scenarioRows.map(r => ({
+            key: r.id,
+            label: scenarioStatLabel(r),
+            a: r.a,
+            b: r.b,
+            text: (n: number | undefined) => formatScenarioStat(n, r.format, r.currency),
+            better: r.better,
+          })),
+          { key: 'tools', label: 'Tools Forged', a: Number(finalA.tools ?? 0), b: Number(finalB.tools ?? 0), text: (n: number | undefined) => fmt(n ?? 0, 'int') },
+        ]
+      : STAT_ROWS.map(row => ({
+          key: row.key,
+          label: row.label,
+          a: Number(finalA[row.key] ?? 0),
+          b: Number(finalB[row.key] ?? 0),
+          text: (n: number | undefined) => fmt(n ?? 0, row.format),
+        }))
+    : [];
 
   const scroll = props.onViewFullVerdict ?? (() => {
     if (typeof document !== 'undefined') {
@@ -116,10 +150,9 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
             <span>Final stats</span>
             <span className={styles.nameB}>{props.leaderBName}</span>
           </div>
-          {STAT_ROWS.map(row => {
-            const a = Number(finalA[row.key] ?? 0);
-            const b = Number(finalB[row.key] ?? 0);
-            const winner: 'a' | 'b' | 'tie' = a > b ? 'a' : b > a ? 'b' : 'tie';
+          {rows.map(row => {
+            const { a, b } = row;
+            const winner: 'a' | 'b' | 'tie' = statLeader(a, b, row.better) ?? 'tie';
             return (
               <div key={row.key} className={styles.statRow}>
                 <div className={styles.statRowHead}>
@@ -130,7 +163,7 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
                       '--val-weight': winner === 'a' ? '700' : '500',
                     } as CSSProperties}
                   >
-                    {fmt(a, row.format)}
+                    {row.text(a)}
                   </span>
                   <span className={styles.statLabel}>{row.label}</span>
                   <span
@@ -140,10 +173,10 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
                       '--val-weight': winner === 'b' ? '700' : '500',
                     } as CSSProperties}
                   >
-                    {fmt(b, row.format)}
+                    {row.text(b)}
                   </span>
                 </div>
-                <StatBar a={a} b={b} winner={winner} />
+                <StatBar a={a ?? 0} b={b ?? 0} winner={winner} />
               </div>
             );
           })}
