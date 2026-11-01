@@ -1,9 +1,21 @@
 import { DEFAULT_KEY_PERSONNEL, type NormalizedSimulationConfig } from './sim-config.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { apiKeyForProvider } from '../engine/provider/credentials.js';
-import { generateValidatedObject } from '../llm/generateValidatedObject.js';
+import { generateValidatedObject, type ValidatedObjectOptions } from '../llm/generateValidatedObject.js';
+import type { ZodType } from 'zod';
+import type { ActorConfig } from '../runtime/orchestrator/index.js';
 import { VerdictSchema, CohortVerdictSchema } from '../runtime/validators/verdict.js';
 import type { ScenarioPackage } from '../engine/types.js';
+import {
+  cardRows,
+  differingStateRows,
+  formatScoreTable,
+  formatStateTable,
+  scenarioScoreRows,
+  verdictWords,
+  type ScoreRow,
+  type VerdictWords,
+} from './verdict-scores.js';
 import type { ResolvedEconomicsProfile } from '../runtime/economics/economics-profile.js';
 
 /**
@@ -26,13 +38,16 @@ const MAX_COHORT_VERDICT_N = 50;
  *              "#3 Captain Reyes", etc.)
  * @param leader actor config (carries HEXACO + archetype + unit)
  * @param result completed RunArtifact for this actor
- * @param col `result.finalState.metrics`, hoisted for clarity
+ * @param words the scenario's nouns
+ *
+ * The final scores are not in this block: the verdict prompts carry
+ * them side by side for every actor (see `verdict-scores.ts`).
  */
 function formatActorSummary(
   label: string,
-  leader: import('../runtime/orchestrator/index.js').ActorConfig,
+  leader: ActorConfig,
   result: any,
-  col: any,
+  words: VerdictWords,
 ): string {
   const fp = result.fingerprint || {};
   const toolbox = result.forgedToolbox || [];
@@ -48,7 +63,7 @@ function formatActorSummary(
     ? Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(', ')
     : 'no deaths';
   return [
-    `${label}: ${leader.name} "${leader.archetype}" (${leader.unit})`,
+    `${label}: ${leader.name} "${leader.archetype}"${leader.unit ? ` (${leader.unit})` : ''}`,
     // Optional-chain every HEXACO axis so actors using the ai-agent
     // (or any other) trait model — where `leader.hexaco` is undefined
     // because the profile lives under `traitProfile` instead — don't
@@ -56,9 +71,8 @@ function formatActorSummary(
     // to 0.50 (the schema default) so the prompt still carries a
     // structurally complete HEXACO line for the LLM to reason from.
     `  HEXACO: O${(leader.hexaco?.openness ?? 0.5).toFixed(2)} C${(leader.hexaco?.conscientiousness ?? 0.5).toFixed(2)} E${(leader.hexaco?.extraversion ?? 0.5).toFixed(2)} A${(leader.hexaco?.agreeableness ?? 0.5).toFixed(2)} Em${(leader.hexaco?.emotionality ?? 0.5).toFixed(2)} HH${(leader.hexaco?.honestyHumility ?? 0.5).toFixed(2)}`,
-    `  Final: Pop ${col?.population ?? '?'}, Morale ${Math.round((col?.morale ?? 0) * 100)}%, Food ${col?.foodMonthsReserve?.toFixed(1) ?? '?'}mo, Power ${col?.powerKw?.toFixed(0) ?? '?'}kW, Modules ${col?.infrastructureModules?.toFixed(1) ?? '?'}, Science ${col?.scienceOutput ?? '?'}`,
-    `  Mortality: ${deathEvents.length} total (${causeSummary})`,
-    `  Innovation: ${toolbox.length} unique tools forged (${fp.innovation || 'n/a'}), citations ${result.totalCitations}`,
+    `  Mortality: ${deathEvents.length} ${words.population} died (${causeSummary})`,
+    `  Innovation: ${toolbox.length} unique tools forged (${fp.innovation || 'n/a'}), citations ${result.totalCitations ?? 0}`,
     topTools ? `  Top tools: ${topTools}` : '  No tools forged',
     `  Fingerprint: ${fp.summary || 'n/a'}`,
     `  Cost: $${result.cost?.totalCostUSD?.toFixed(4) ?? '?'} over ${result.cost?.llmCalls ?? '?'} LLM calls`,
@@ -246,8 +260,6 @@ export async function runPairSimulations(
   if (settled.length === 2) {
     try {
       const [a, b] = settled;
-      const colA = a.result.finalState?.metrics;
-      const colB = b.result.finalState?.metrics;
       const verdictModel = resolveVerdictModel(simConfig.provider || 'openai', simConfig.economics);
       if (!verdictModel) {
         broadcast('complete', {
@@ -257,87 +269,7 @@ export async function runPairSimulations(
         });
         return;
       }
-      // Build a richer per-leader summary including innovation telemetry
-      // (forged toolbox details, fingerprint classification) so the LLM
-      // verdict actually reasons about emergent tool use, not just final
-      // colony numbers.
-      // Pair verdict shares the module-level `formatActorSummary`
-      // helper with the cohort verdict so the per-leader prompt block
-      // (HEXACO, cause-of-death rollup, forged toolbox, fingerprint,
-      // cost) stays canonical across both code paths instead of
-      // drifting between two near-identical closure copies.
-      const formatLeader = (label: string, v: any, col: any) =>
-        formatActorSummary(label, v.leader, v.result, col);
-
-      // Verdict runs once per completed sim and is the single most
-      // user-facing synthesis call in the pipeline: it reads both
-      // final states, the per-leader cause-of-death breakdown, the
-      // forged toolbox, and writes the headline + summary that the
-      // user sees first when the run finishes. Cheap-tier output on
-      // this call was noticeably flatter than flagship output, so
-      // pay the ~$0.02-0.05 per run for the better read.
-      try {
-        const { object: verdict, fromFallback } = await generateValidatedObject({
-          provider: simConfig.provider || 'openai',
-          model: verdictModel,
-          apiKey: apiKeyForProvider(simConfig.provider || 'openai', simConfig),
-          schema: VerdictSchema,
-          schemaName: 'Verdict',
-          prompt: `You are judging a colony simulation. Two AI commanders with opposing HEXACO personality profiles led identical colonies through ${turns} turns from the same starting conditions and deterministic seed. Your job is to write a verdict that explains WHY the runs diverged the way they did, not just WHO won.
-
-${formatLeader('LEADER A', a, colA)}
-
-${formatLeader('LEADER B', b, colB)}
-
-TRADEOFFS TO WEIGH
-Tool forging is a cost / capability tradeoff: every forged tool spent a judge LLM call and ate analyst attention; failed forges hurt morale and produced no reusable capability; successful tools let later decisions reason about concrete numbers. A leader who built few tools and reused them many times has a disciplined, cost-efficient signature. A leader who forged many novel tools has an exploratory signature with broader capability surface. Both are valid strategies and your scoring should reflect that trade, not punish either extreme.
-
-Mortality is a cause-specific signal, not a number. The "Mortality" line above names HOW each colonist died. A leader who lost 5 to starvation made different resource-allocation decisions than a leader who lost 5 to radiation cancer; a leader with despair deaths presided over a colony in psychological freefall. Reference the specific causes when they shape the story.
-
-REASONING — populate the "reasoning" field of your JSON response with a numbered list covering:
-  (1) Population trajectory — how did each colony's population evolve, and which tradeoffs produced that shape?
-  (2) Morale + psychological state — which leader's colony held together emotionally, and what does that say about HEXACO + decision style?
-  (3) Resource efficiency — food, power, infrastructure — which side ran leaner, which hit crises?
-  (4) Innovation signature — tools forged vs reused, breadth vs depth. What does each leader's toolbox say about their cognition?
-  (5) Mortality story — which causes dominated each side, and what does THAT say about the leader's priorities?
-  (6) The single most impactful divergence — resource decision, crisis response, tool strategy, or emergent behavior. Name it precisely.
-  (7) Weighing the tradeoffs, who won and why.
-
-Then fill out:
-  winner: "A" or "B" or "tie"
-  winnerName: the winning leader's name, or "Tie" for a tie
-  headline: one-line verdict grounded in the key divergence (max 80 chars)
-  summary: 2-3 sentences naming the personality + tool-use + mortality pattern that drove the divergence
-  keyDivergence: the single most impactful difference between the two runs
-  scores: { a: { survival, prosperity, morale, innovation }, b: { survival, prosperity, morale, innovation } } — each 0-10`,
-        });
-        if (fromFallback) {
-          console.log('  Verdict schema fallback; skipping broadcast');
-          // Pair verdict fell back the same way the cohort version
-          // does — emit the same explanatory event so the UI surfaces
-          // a "no verdict" banner instead of going silent.
-          broadcast('verdict_skipped', {
-            mode: 'pair',
-            reason: 'generation_failed',
-            detail: 'Schema validation fallback exhausted',
-          });
-        } else {
-          broadcast('verdict', {
-            ...verdict,
-            leaderA: { name: a.leader.name, archetype: a.leader.archetype, unit: a.leader.unit },
-            leaderB: { name: b.leader.name, archetype: b.leader.archetype, unit: b.leader.unit },
-            finalStats: {
-              a: { population: colA?.population, morale: colA?.morale, food: colA?.foodMonthsReserve, power: colA?.powerKw, modules: colA?.infrastructureModules, science: colA?.scienceOutput, tools: a.result.totalToolsForged },
-              b: { population: colB?.population, morale: colB?.morale, food: colB?.foodMonthsReserve, power: colB?.powerKw, modules: colB?.infrastructureModules, science: colB?.scienceOutput, tools: b.result.totalToolsForged },
-            },
-          });
-          console.log(`\n  VERDICT: ${verdict.headline}`);
-          console.log(`  Winner: ${verdict.winnerName} (${verdict.winner})`);
-          console.log(`  ${verdict.summary}\n`);
-        }
-      } catch (verdictErr) {
-        console.log('  Verdict generation failed:', verdictErr);
-      }
+      await judgePair({ credentials: simConfig, verdictModel, turns, scenario, broadcast, a, b });
     } catch (outerErr) {
       console.log('  Verdict outer failure:', outerErr);
     }
@@ -634,103 +566,7 @@ export async function runBatchSimulations(
     }
 
     if (verdictModel && cleanRuns.length >= 2 && cleanRuns.length <= MAX_COHORT_VERDICT_N) {
-      const summaries = cleanRuns.map(({ leader, index, result }) => {
-        const col = result.finalState?.metrics;
-        return formatActorSummary(`#${index + 1} ${leader.name}`, leader, result, col);
-      }).join('\n\n');
-
-      try {
-        const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
-          provider: simConfig.provider || 'openai',
-          model: verdictModel,
-          apiKey: apiKeyForProvider(simConfig.provider || 'openai', simConfig),
-          schema: CohortVerdictSchema,
-          schemaName: 'CohortVerdict',
-          prompt: `You are judging a cohort simulation. ${cleanRuns.length} AI commanders with different HEXACO personality profiles led identical worlds through ${turns} turns from the same starting conditions and deterministic seed. Your job is to rank them from best to worst and explain WHY each placed where it did.
-
-ACTOR SUMMARIES (in launch order):
-
-${summaries}
-
-TRADEOFFS TO WEIGH
-Tool forging is a cost/capability tradeoff: every forged tool spent a judge LLM call and ate analyst attention; failed forges hurt morale and produced no reusable capability; successful tools let later decisions reason about concrete numbers. A leader who built few tools and reused them many times has a disciplined, cost-efficient signature; a leader who forged many novel tools has an exploratory signature with broader capability surface. Both are valid strategies and your scoring should reflect that trade, not punish either extreme.
-
-Mortality is a cause-specific signal, not a number. The "Mortality" line names HOW each colonist died. Starvation deaths reveal resource-allocation choices; radiation-cancer deaths reveal shielding priorities; despair deaths reveal a colony in psychological freefall. Reference specific causes when they shape the story.
-
-REASONING — populate the "reasoning" field with a numbered breakdown covering:
-  (1) Population trajectory across the cohort — which actors held the line, which collapsed?
-  (2) Morale + psychological state — which actor's colony held together emotionally?
-  (3) Resource efficiency — food, power, infrastructure — which ran leanest, which hit crises?
-  (4) Innovation signature — breadth vs depth in the forged toolbox across actors.
-  (5) Mortality story — which causes dominated, and what does that say about each actor's priorities?
-  (6) The single most impactful divergence across the cohort.
-  (7) The full ranking with brief why-this-rank.
-
-Then fill out:
-  winner: the name of the top-ranked actor (exact match from one of the names above)
-  winnerIndex: the 0-based launch-order index of the winner
-  headline: one-line verdict (max 80 chars) grounded in the key cohort divergence
-  summary: 2-3 sentences naming the personality + tool-use + mortality pattern that drove the winner's success relative to the rest of the cohort
-  keyDivergence: the single most impactful difference between the winner and the next-best actor
-  rankings: every actor as a separate entry, with rank (1 = winner), actorName, actorIndex, scores { survival, prosperity, morale, innovation } each 0-10, and a 1-2 sentence rationale specific to that actor`,
-        });
-        if (fromFallback) {
-          console.log('  Cohort verdict schema fallback; skipping broadcast');
-          // Schema-validation fallback exhausted on the cohort verdict
-          // call. The original code logged this and silently dropped
-          // the broadcast, leaving the dashboard with no verdict and
-          // no explanation — exactly the user-reported "I see no
-          // victor for cohort runs" failure. Cheap-tier models
-          // (gpt-5.4-nano, claude-haiku-4-5) hit the rankings array
-          // schema (min 2 entries, each with rank + scores + rationale)
-          // more often than they hit the simpler pair Verdict schema,
-          // so cohort runs lost the banner where pair runs kept it.
-          broadcast('verdict_skipped', {
-            mode: 'cohort',
-            reason: 'generation_failed',
-            detail: 'Schema validation fallback exhausted',
-            actorCount: cleanRuns.length,
-          });
-        } else {
-          broadcast('cohort_verdict', {
-            ...cohortVerdict,
-            actors: cleanRuns.map(({ leader, index }) => ({
-              name: leader.name,
-              archetype: leader.archetype,
-              unit: leader.unit,
-              index,
-            })),
-            finalStats: cleanRuns.map(({ leader, index, result }) => ({
-              actorName: leader.name,
-              actorIndex: index,
-              population: result.finalState?.metrics?.population,
-              morale: result.finalState?.metrics?.morale,
-              food: result.finalState?.metrics?.foodMonthsReserve,
-              power: result.finalState?.metrics?.powerKw,
-              modules: result.finalState?.metrics?.infrastructureModules,
-              science: result.finalState?.metrics?.scienceOutput,
-              tools: result.totalToolsForged,
-            })),
-          });
-          console.log(`\n  COHORT VERDICT: ${cohortVerdict.headline}`);
-          console.log(`  Winner: ${cohortVerdict.winner} (#${cohortVerdict.winnerIndex + 1})`);
-          console.log(`  ${cohortVerdict.summary}\n`);
-        }
-      } catch (verdictErr) {
-        const detail = verdictErr instanceof Error ? verdictErr.message : String(verdictErr);
-        console.log('  Cohort verdict generation failed:', verdictErr);
-        // Surface the failure to the dashboard so the user isn't left
-        // staring at a finished run with no verdict + no explanation.
-        // Without this event, a transient LLM error during the cohort
-        // ranking call (rate limit, schema fallback exhausted) just
-        // logged server-side and the UI silently dropped the banner.
-        broadcast('verdict_skipped', {
-          mode: 'cohort',
-          reason: 'generation_failed',
-          detail,
-          actorCount: cleanRuns.length,
-        });
-      }
+      await judgeCohort({ credentials: simConfig, verdictModel, turns, scenario, broadcast, runs: cleanRuns });
     } else if (verdictModel && cleanRuns.length > MAX_COHORT_VERDICT_N) {
       console.log(`  [batch] Cohort verdict skipped: ${cleanRuns.length} actors exceeds MAX_COHORT_VERDICT_N=${MAX_COHORT_VERDICT_N}`);
       broadcast('verdict_skipped', {
@@ -757,4 +593,288 @@ Then fill out:
     batch: true,
     ...(allAborted ? { aborted: true } : {}),
   });
+}
+
+/** One finished run handed to a verdict call. */
+export interface JudgedRun {
+  leader: ActorConfig;
+  /** Launch-order index (cohort runs). */
+  index: number;
+  /** The completed RunArtifact. */
+  result: any;
+}
+
+/** What a verdict call needs besides the runs it judges. */
+export interface VerdictCallOptions {
+  /** Provider and keys; the run's normalized config satisfies it. */
+  credentials: Pick<NormalizedSimulationConfig, 'provider' | 'apiKey' | 'anthropicKey'>;
+  verdictModel: string;
+  turns: number;
+  /** The scenario the runs played; its labels and scores frame the verdict. */
+  scenario: ScenarioPackage;
+  broadcast: BroadcastFn;
+  /**
+   * Replaces the provider call (tests). Production callers omit it and
+   * generateValidatedObject uses AgentOS.
+   */
+  generateObjectImpl?: ValidatedObjectOptions<ZodType>['_generateObjectImpl'];
+}
+
+const TOOL_TRADEOFF = 'Tool forging is a cost / capability tradeoff: every forged tool spent a judge LLM call and ate analyst attention; failed forges hurt morale and produced no reusable capability; successful tools let later decisions reason about concrete numbers. A leader who built few tools and reused them many times has a disciplined, cost-efficient signature. A leader who forged many novel tools has an exploratory signature with broader capability surface. Both are valid strategies and your scoring should reflect that trade, not punish either extreme.';
+
+/** How the card shows a score row: everything but the values. */
+function scoreRowDisplay(r: ScoreRow, words: VerdictWords) {
+  return {
+    id: r.id,
+    label: r.label,
+    format: r.format,
+    ...(r.better ? { better: r.better } : {}),
+    ...(r.unit ? { unit: r.unit } : {}),
+    ...(r.format === 'currency' && words.currency ? { currency: words.currency } : {}),
+  };
+}
+
+/** The opening and the score blocks both verdict prompts share. */
+function verdictContext(scenario: ScenarioPackage, runs: JudgedRun[], tags: string[]) {
+  const words = verdictWords(scenario);
+  const states = runs.map(r => r.result?.finalState);
+  const rows = scenarioScoreRows(scenario, states);
+  const stateRows = differingStateRows(scenario, states);
+  const intro = `You are judging runs of ${words.name}, a simulation of ${words.aSettlement}.${words.tagline ? ` ${words.tagline}` : ''}`;
+  const scores = `${words.name.toUpperCase()} SCORES (each run's final value, ${tags.join(' | ')})\n${formatScoreTable(rows, tags, words)}`;
+  const otherState = stateRows.length > 0
+    ? `\n\nOTHER STATE THAT DIFFERS (${tags.join(' | ')})\n${formatStateTable(stateRows, tags)}`
+    : '';
+  const mortality = `Mortality is a cause-specific signal, not a number. The "Mortality" line names how many of each ${words.settlement}'s ${words.population} died and of what. Different causes point at different decisions; reference the specific causes when they shape the story.`;
+  return { words, rows, intro, scoreBlock: scores + otherState, mortality };
+}
+
+/** The judge request for two finished runs, with the words and rows the broadcast reuses. */
+function pairVerdictRequest(turns: number, scenario: ScenarioPackage, a: JudgedRun, b: JudgedRun) {
+  const { words, rows, intro, scoreBlock, mortality } = verdictContext(scenario, [a, b], ['A', 'B']);
+  const prompt = `${intro}
+
+Two AI ${words.actors} with opposing HEXACO personality profiles each ran the same ${words.settlement} through ${turns} turns from the same starting conditions and deterministic seed. Your job is to decide which of them ran the ${words.settlement} better on ${words.name}'s own scores, and to explain WHY the runs diverged the way they did, not just WHO won.
+
+${scoreBlock}
+
+${formatActorSummary('LEADER A', a.leader, a.result, words)}
+
+${formatActorSummary('LEADER B', b.leader, b.result, words)}
+
+HOW TO DECIDE
+The scores above are how ${words.name} measures ${words.aSettlement}; decide the winner on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. A leader who leads on most of the scores wins, even when each lead is small. A tie is only for outcomes that are the same on these scores; runs whose scores differ are never a tie on account of style, toolbox or cost.
+
+TRADEOFFS TO WEIGH
+${TOOL_TRADEOFF}
+
+${mortality}
+
+REASONING: populate the "reasoning" field of your JSON response with a numbered list covering:
+  (1) Score by score: for each score above, who leads and by how much, and which decisions produced the gap?
+  (2) The ${words.population}: how did each ${words.settlement}'s ${words.population} and their morale fare, and what does that say about HEXACO + decision style?
+  (3) Innovation signature: tools forged vs reused, breadth vs depth. What does each leader's toolbox say about their cognition?
+  (4) Mortality story: which causes dominated each side, if any, and what does THAT say about the leader's priorities?
+  (5) The single most impactful divergence: ${words.eventSingular} response, resource decision, tool strategy, or emergent behavior. Name it precisely.
+  (6) Weighing the scores and the tradeoffs, who won and why.
+
+Then fill out:
+  winner: "A" or "B" or "tie"
+  winnerName: the winning leader's name, or "Tie" for a tie
+  headline: one-line verdict grounded in the key divergence (max 80 chars)
+  summary: 2-3 sentences naming the personality + tool-use pattern and the scores that decided it
+  keyDivergence: the single most impactful difference between the two runs
+  scores: { a: { survival, prosperity, morale, innovation }, b: { survival, prosperity, morale, innovation } }: each 0-10, where survival is how well the ${words.settlement} and its ${words.population} came through, prosperity is the standing on ${words.name}'s scores above, morale is the ${words.population}' morale and innovation is the tool signature`;
+  return { prompt, words, rows };
+}
+
+/**
+ * Pair verdict: builds the judge request for two finished runs from the
+ * scenario's own scores and words, calls the verdict model and
+ * broadcasts `verdict`, or `verdict_skipped` with the reason when the
+ * request or the model call fails. Never throws, so the run still
+ * reaches its `complete` event.
+ */
+export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: JudgedRun }): Promise<void> {
+  const { credentials, verdictModel, turns, scenario, broadcast, a, b, generateObjectImpl } = opts;
+  const colA = a.result.finalState?.metrics;
+  const colB = b.result.finalState?.metrics;
+  try {
+    const { prompt, words, rows } = pairVerdictRequest(turns, scenario, a, b);
+    const { object: verdict, fromFallback } = await generateValidatedObject({
+      provider: credentials.provider || 'openai',
+      model: verdictModel,
+      apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      _generateObjectImpl: generateObjectImpl,
+      schema: VerdictSchema,
+      schemaName: 'Verdict',
+      prompt,
+    });
+    if (fromFallback) {
+      console.log('  Verdict schema fallback; skipping broadcast');
+      // Pair verdict fell back the same way the cohort version
+      // does — emit the same explanatory event so the UI surfaces
+      // a "no verdict" banner instead of going silent.
+      broadcast('verdict_skipped', {
+        mode: 'pair',
+        reason: 'generation_failed',
+        detail: 'Schema validation fallback exhausted',
+      });
+    } else {
+      broadcast('verdict', {
+        ...verdict,
+        leaderA: { name: a.leader.name, archetype: a.leader.archetype, unit: a.leader.unit },
+        leaderB: { name: b.leader.name, archetype: b.leader.archetype, unit: b.leader.unit },
+        settlementNoun: words.settlement,
+        finalStats: {
+          a: { population: colA?.population, morale: colA?.morale, food: colA?.foodMonthsReserve, power: colA?.powerKw, modules: colA?.infrastructureModules, science: colA?.scienceOutput, tools: a.result.totalToolsForged },
+          b: { population: colB?.population, morale: colB?.morale, food: colB?.foodMonthsReserve, power: colB?.powerKw, modules: colB?.infrastructureModules, science: colB?.scienceOutput, tools: b.result.totalToolsForged },
+          // The scenario's header scores, in header order, for the
+          // verdict card and the report scoreboard.
+          metrics: cardRows(rows).map(r => ({
+            ...scoreRowDisplay(r, words),
+            a: r.values[0],
+            b: r.values[1],
+          })),
+        },
+      });
+      console.log(`\n  VERDICT: ${verdict.headline}`);
+      console.log(`  Winner: ${verdict.winnerName} (${verdict.winner})`);
+      console.log(`  ${verdict.summary}\n`);
+    }
+  } catch (verdictErr) {
+    console.log('  Verdict generation failed:', verdictErr);
+    broadcast('verdict_skipped', {
+      mode: 'pair',
+      reason: 'generation_failed',
+      detail: verdictErr instanceof Error ? verdictErr.message : String(verdictErr),
+    });
+  }
+}
+
+/** The ranking request for a cohort's finished runs, with the words and rows the broadcast reuses. */
+function cohortVerdictRequest(turns: number, scenario: ScenarioPackage, cleanRuns: JudgedRun[]) {
+  const tags = cleanRuns.map(({ index }) => `#${index + 1}`);
+  const { words, rows, intro, scoreBlock, mortality } = verdictContext(scenario, cleanRuns, tags);
+  const summaries = cleanRuns.map(({ leader, index, result }) =>
+    formatActorSummary(`#${index + 1}`, leader, result, words),
+  ).join('\n\n');
+  const prompt = `${intro}
+
+${cleanRuns.length} AI ${words.actors} with different HEXACO personality profiles each ran the same ${words.settlement} through ${turns} turns from the same starting conditions and deterministic seed. Your job is to rank them from best to worst on ${words.name}'s own scores and explain WHY each placed where it did.
+
+${scoreBlock}
+
+ACTOR SUMMARIES (in launch order):
+
+${summaries}
+
+HOW TO RANK
+The scores above are how ${words.name} measures ${words.aSettlement}; rank on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. An actor who leads another on most of the scores ranks above it, even when each lead is small; style, toolbox and cost break a ranking only between actors whose scores are the same.
+
+TRADEOFFS TO WEIGH
+${TOOL_TRADEOFF}
+
+${mortality}
+
+REASONING: populate the "reasoning" field with a numbered breakdown covering:
+  (1) Score by score across the cohort: who leads each score, who trails, and by how much?
+  (2) The ${words.population}: how did each ${words.settlement}'s ${words.population} and their morale fare?
+  (3) Innovation signature: breadth vs depth in the forged toolbox across actors.
+  (4) Mortality story: which causes dominated, if any, and what does that say about each actor's priorities?
+  (5) The single most impactful divergence across the cohort.
+  (6) The full ranking with brief why-this-rank.
+
+Then fill out:
+  winner: the name of the top-ranked actor (exact match from one of the names above)
+  winnerIndex: the 0-based launch-order index of the winner
+  headline: one-line verdict (max 80 chars) grounded in the key cohort divergence
+  summary: 2-3 sentences naming the personality + tool-use pattern and the scores that put the winner ahead of the rest of the cohort
+  keyDivergence: the single most impactful difference between the winner and the next-best actor
+  rankings: every actor as a separate entry, with rank (1 = winner), actorName, actorIndex, scores { survival, prosperity, morale, innovation } each 0-10 (survival: how well the ${words.settlement} and its ${words.population} came through; prosperity: the standing on ${words.name}'s scores above), and a 1-2 sentence rationale specific to that actor`;
+  return { prompt, words, rows };
+}
+
+/**
+ * Cohort verdict (the clean runs of a batch): builds the ranking
+ * request from the scenario's own scores and words, calls the verdict
+ * model and broadcasts `cohort_verdict`, or `verdict_skipped` with the
+ * reason when the request or the model call fails. Never throws, so the
+ * run still reaches its `complete` event.
+ */
+export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[] }): Promise<void> {
+  const { credentials, verdictModel, turns, scenario, broadcast, runs: cleanRuns, generateObjectImpl } = opts;
+  try {
+    const { prompt, words, rows } = cohortVerdictRequest(turns, scenario, cleanRuns);
+    const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
+      provider: credentials.provider || 'openai',
+      model: verdictModel,
+      apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      _generateObjectImpl: generateObjectImpl,
+      schema: CohortVerdictSchema,
+      schemaName: 'CohortVerdict',
+      prompt,
+    });
+    if (fromFallback) {
+      console.log('  Cohort verdict schema fallback; skipping broadcast');
+      // Schema-validation fallback exhausted on the cohort verdict
+      // call. The original code logged this and silently dropped
+      // the broadcast, leaving the dashboard with no verdict and
+      // no explanation — exactly the user-reported "I see no
+      // victor for cohort runs" failure. Cheap-tier models
+      // (gpt-5.4-nano, claude-haiku-4-5) hit the rankings array
+      // schema (min 2 entries, each with rank + scores + rationale)
+      // more often than they hit the simpler pair Verdict schema,
+      // so cohort runs lost the banner where pair runs kept it.
+      broadcast('verdict_skipped', {
+        mode: 'cohort',
+        reason: 'generation_failed',
+        detail: 'Schema validation fallback exhausted',
+        actorCount: cleanRuns.length,
+      });
+    } else {
+      broadcast('cohort_verdict', {
+        ...cohortVerdict,
+        actors: cleanRuns.map(({ leader, index }) => ({
+          name: leader.name,
+          archetype: leader.archetype,
+          unit: leader.unit,
+          index,
+        })),
+        settlementNoun: words.settlement,
+        finalStats: cleanRuns.map(({ leader, index, result }, i) => ({
+          actorName: leader.name,
+          actorIndex: index,
+          population: result.finalState?.metrics?.population,
+          morale: result.finalState?.metrics?.morale,
+          food: result.finalState?.metrics?.foodMonthsReserve,
+          power: result.finalState?.metrics?.powerKw,
+          modules: result.finalState?.metrics?.infrastructureModules,
+          science: result.finalState?.metrics?.scienceOutput,
+          tools: result.totalToolsForged,
+          metrics: cardRows(rows).map(r => ({
+            ...scoreRowDisplay(r, words),
+            value: r.values[i],
+          })),
+        })),
+      });
+      console.log(`\n  COHORT VERDICT: ${cohortVerdict.headline}`);
+      console.log(`  Winner: ${cohortVerdict.winner} (#${cohortVerdict.winnerIndex + 1})`);
+      console.log(`  ${cohortVerdict.summary}\n`);
+    }
+  } catch (verdictErr) {
+    const detail = verdictErr instanceof Error ? verdictErr.message : String(verdictErr);
+    console.log('  Cohort verdict generation failed:', verdictErr);
+    // Surface the failure to the dashboard so the user isn't left
+    // staring at a finished run with no verdict + no explanation.
+    // Without this event, a transient LLM error during the cohort
+    // ranking call (rate limit, schema fallback exhausted) just
+    // logged server-side and the UI silently dropped the banner.
+    broadcast('verdict_skipped', {
+      mode: 'cohort',
+      reason: 'generation_failed',
+      detail,
+      actorCount: cleanRuns.length,
+    });
+  }
 }

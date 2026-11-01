@@ -106,13 +106,15 @@
       "id": "deceptionIndex",
       "label": "Deception Index",
       "source": "metrics.deceptionIndex",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "deploymentRisk",
       "label": "Deployment Risk",
       "source": "metrics.deploymentRisk",
-      "format": "percent"
+      "format": "percent",
+      "better": "lower"
     },
     {
       "id": "redTeamCoverage",
