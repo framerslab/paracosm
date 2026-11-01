@@ -296,6 +296,13 @@ test('a fork continues its parent\'s timeline, whatever the scenario declares', 
   assert.equal(explicit.startTime, 7);
   assert.equal(explicit.timePerTurn, 2);
 
+  // A parent on the accelerating schedule (time per turn 0 in its body)
+  // has no one step; a step read from its first two snapshots would put
+  // turn 7 at 12, before the snapshot's 14.
+  const accelerating = normalizeSimulationConfig(forkBody(parentArtifact(0, [0, 2, 5, 8, 11, 14]), 6, 8), labPackage);
+  assert.equal(accelerating.timePerTurn, 0);
+  assert.equal(buildTimeSchedule(accelerating.startTime, accelerating.turns, accelerating.timePerTurn)[6], 18);
+
   // A malformed parent is the fork validator's to refuse, after this runs.
   const malformed = normalizeSimulationConfig(
     { ...forkBody(parentArtifact(1, [1]), 1), forkFrom: { parentArtifact: {}, atTurn: 1 } } as unknown as SimulationSetupPayload,
