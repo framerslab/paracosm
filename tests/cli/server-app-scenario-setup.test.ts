@@ -325,7 +325,7 @@ test('a fork that omits turns runs past its fork turn', () => {
 test('a fork reads its parent\'s schedule from the times the parent ran at', () => {
   // A parent launched with time per turn 0.1. The gaps between 2035, 2035.1
   // and 2035.2 differ in the last bits of a double, which is no accelerating
-  // schedule: that one would put the turn after the snapshot at 2040.
+  // schedule: that one would put the turn after the snapshot at 2043.
   const fractional = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035, 2035.1, 2035.2]), 3), labPackage);
   assert.ok(Math.abs((fractional.timePerTurn ?? 0) - 0.1) < 1e-6, `time per turn ${fractional.timePerTurn}`);
 
