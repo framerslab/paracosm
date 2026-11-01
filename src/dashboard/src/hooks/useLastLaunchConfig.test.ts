@@ -12,6 +12,7 @@ import {
   writeLastLaunchConfig,
   readKeyOverrides,
   buildNextRunConfig,
+  isLastLaunchFor,
   type KeyOverrides,
 } from './useLastLaunchConfig.js';
 
@@ -119,4 +120,14 @@ test('buildNextRunConfig: missing override keys are not added to output', () => 
   assert.equal(next.apiKey, 'sk-o');
   assert.equal('anthropicKey' in next, false);
   assert.equal('serperKey' in next, false);
+});
+
+test('isLastLaunchFor: only a config launched on the active scenario can be re-run on it', () => {
+  // A Settings launch on Mars Genesis stays in storage after the person
+  // moves to Atlas Lab; re-running it there would post Mars's leaders,
+  // start time and population to the lab.
+  assert.equal(isLastLaunchFor({ scenarioId: 'atlas-lab', seed: 11 }, 'atlas-lab'), true);
+  assert.equal(isLastLaunchFor({ scenarioId: 'mars-genesis', seed: 950 }, 'atlas-lab'), false);
+  // Stored before configs named their scenario: nothing says which it was for.
+  assert.equal(isLastLaunchFor({ seed: 950 }, 'atlas-lab'), false);
 });

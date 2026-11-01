@@ -68,6 +68,19 @@ export function readLastLaunchConfig(
 }
 
 /**
+ * Whether a stored launch config was launched on this scenario. It stays
+ * in storage when the person moves to another scenario, and it holds the
+ * old one's leaders, start time and population. A config stored before
+ * configs named their scenario does not match.
+ */
+export function isLastLaunchFor(
+  config: Record<string, unknown>,
+  scenarioId: string,
+): boolean {
+  return config.scenarioId === scenarioId;
+}
+
+/**
  * Write the last-launch config. Silently swallows storage errors
  * (quota exceeded etc.) — the UI flow shouldn't break on storage
  * failure.

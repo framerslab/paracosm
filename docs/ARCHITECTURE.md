@@ -130,7 +130,7 @@ The `SimulationKernel` manages all numerical state. It is deterministic: given t
 
 The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
-- **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data
+- **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data. Generated people work in the scenario's own departments, under their labels; Mars Genesis keeps its own trades
 - **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift)
 
 The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality probability, birth events, personality drift magnitudes. Two simulations with the same seed produce the same colonist names, the same birth/death events, and the same base progression.
@@ -458,7 +458,7 @@ Two surfaces:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments |
+| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments; a setup value the body omits (start time, time per turn, population, seed, turns, key personnel) comes from the active scenario, an omitted population being at least one person per department; a fork's omitted start time and time per turn come from its parent's snapshots, a fork with no turn left answers 400, and a body naming another scenario than the active one answers 409 before the daily run limit counts it; a parent snapshot at a turn that is not whole or is above 10,000 gives no timeline |
 | `GET` | `/events` | SSE stream of simulation events (`systems_snapshot` carries the swarm) |
 | `POST` | `/clear` | Clear simulation state and chat agent pool |
 | `POST` | `/chat` | Chat with a colonist agent |

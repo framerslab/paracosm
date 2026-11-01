@@ -255,6 +255,29 @@ test('compile-from-seed: cache-hit start returns scenario inline (200, not 202)'
   assert.equal(r2body.body.scenarioId, ASYNC_TEST_SCENARIO.id);
 });
 
+test('compile-from-seed: a cache hit makes its scenario the active one again', async () => {
+  // Another scenario can have become active since this brief compiled. /setup
+  // refuses a body naming a scenario that is not active, so without this the
+  // same brief would be refused until the compile job expired.
+  _resetCompileJobsForTest();
+  const installed: ScenarioPackage[] = [];
+  const d = deferred<ScenarioPackage>();
+  const deps = fakeDeps({
+    compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
+    setActiveScenario: (sc) => { installed.push(sc); },
+  });
+  await handleCompileFromSeed({} as IncomingMessage, fakeRes().res, { seedText: VALID_SEED }, deps);
+  d.resolve(ASYNC_TEST_SCENARIO);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(installed.length, 1);
+
+  const hit = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, hit.res, { seedText: VALID_SEED }, deps);
+  assert.equal(hit.get().status, 200);
+  assert.equal(installed.length, 2);
+  assert.equal(installed[1]?.id, ASYNC_TEST_SCENARIO.id);
+});
+
 test('compile-from-seed/status: unknown jobId returns 404', async () => {
   _resetCompileJobsForTest();
   const { res, get } = fakeRes();

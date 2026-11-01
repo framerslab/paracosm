@@ -405,8 +405,14 @@ export interface RunOptions extends RuntimeCredentialOptions {
   costPreset?: CostPreset;
   economics?: ResolvedEconomicsProfile;
   initialPopulation?: number;
-  startingResources?: StartingResources;
-  startingPolitics?: StartingPolitics;
+  /**
+   * Caller overlay on the kernel's starting metrics: only the values
+   * given are applied, over the engine's base values and the scenario's
+   * own declarations.
+   */
+  startingResources?: Partial<StartingResources>;
+  /** Caller overlay on the kernel's starting politics; see startingResources. */
+  startingPolitics?: Partial<StartingPolitics>;
   startingStatuses?: Record<string, string | boolean>;
   startingEnvironment?: Record<string, number | string | boolean>;
   execution?: Partial<SimulationExecutionConfig>;

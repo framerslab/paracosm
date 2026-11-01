@@ -1,5 +1,8 @@
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { Department } from '../engine/core/state.js';
+import type { ScenarioPackage } from '../engine/types.js';
+import { marsScenario } from '../engine/scenarios/index.js';
+import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
 import {
   resolveEconomicsProfile,
@@ -103,6 +106,11 @@ export interface SimulationSetupPayload {
    */
   captureSnapshots?: boolean;
   /**
+   * The scenario this body was written for. `/setup` refuses a body whose
+   * scenario is no longer the active one (`quickstart.scenarioId` as well).
+   */
+  scenarioId?: string;
+  /**
    * Optional Quickstart metadata. When present, the run is a quickstart
    * session: leaders were LLM-generated from a seed, and the dashboard
    * routes the completion to the Quickstart tab instead of the Reports
@@ -123,8 +131,15 @@ export interface NormalizedSimulationConfig {
   activeDepartments: Department[];
   customEvents: Array<{ turn: number; title: string; description: string }>;
   keyPersonnel: KeyPersonnel[];
-  startingResources: StartingResources;
-  startingPolitics: StartingPolitics;
+  /**
+   * Only the resource values the payload supplied. The kernel layers its
+   * base values, then the scenario's own declarations, then this overlay,
+   * so an omitted value is the scenario's (or the engine's), never a
+   * number chosen here.
+   */
+  startingResources: Partial<StartingResources>;
+  /** Only the politics values the payload supplied; see startingResources. */
+  startingPolitics: Partial<StartingPolitics>;
   execution: SimulationExecutionConfig;
   models: SimulationModelConfig;
   economics: ResolvedEconomicsProfile;
@@ -142,6 +157,13 @@ export interface NormalizedSimulationConfig {
   quickstart?: { scenarioId: string };
 }
 
+/**
+ * Mars Genesis's key personnel for the `paracosm run` path, which runs
+ * that scenario. `normalizeSimulationConfig` does not use this list: a
+ * run's personnel come from its payload or from the scenario's own
+ * preset (`scenarioKeyPersonnel`), so a non-Mars scenario never starts
+ * with these five.
+ */
 export const DEFAULT_KEY_PERSONNEL: KeyPersonnel[] = [
   { name: 'Dr. Yuki Tanaka', department: 'medical', role: 'Chief Medical Officer', specialization: 'Radiation Medicine', age: 38, featured: true },
   { name: 'Erik Lindqvist', department: 'engineering', role: 'Chief Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
@@ -346,8 +368,6 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxActiveDepartments: 3,
 };
 
-const DEFAULT_ACTIVE_DEPARTMENTS: Department[] = ['medical', 'engineering', 'agriculture', 'psychology', 'governance'];
-
 export function inferProviderFromModel(model?: string): LlmProvider | undefined {
   if (!model) return undefined;
   if (model.startsWith('claude-')) return 'anthropic';
@@ -452,19 +472,36 @@ function normalizeCustomEvents(
     .sort((a, b) => a.turn - b.turn);
 }
 
-function normalizeActiveDepartments(input: SimulationSetupPayload['activeDepartments']): Department[] {
+/**
+ * The departments the run keeps active, in the scenario's own order.
+ * With none requested, or none the scenario declares, all of the
+ * scenario's departments; otherwise the requested ones it declares, plus
+ * medical and engineering
+ * whenever the scenario declares them (the Mars Genesis rule, kept for
+ * the scenarios that have those departments). The orchestrator runs an
+ * event's departments only when they are active, so a list from another
+ * scenario would match none of them.
+ */
+function normalizeActiveDepartments(
+  input: SimulationSetupPayload['activeDepartments'],
+  scenario: ScenarioPackage,
+): Department[] {
+  const declared: Department[] = scenario.departments.map(d => d.id);
   if (!Array.isArray(input) || input.length === 0) {
-    return [...DEFAULT_ACTIVE_DEPARTMENTS];
+    return declared;
   }
 
-  const requested = input;
-  const active = new Set<Department>(['medical', 'engineering']);
-
-  for (const dept of requested) {
-    if (DEFAULT_ACTIVE_DEPARTMENTS.includes(dept)) active.add(dept);
+  const active = new Set<Department>();
+  for (const dept of input) {
+    if (declared.includes(dept)) active.add(dept);
+  }
+  // A list from another scenario names none of this one's departments.
+  if (active.size === 0) return declared;
+  for (const dept of ['medical', 'engineering']) {
+    if (declared.includes(dept)) active.add(dept);
   }
 
-  return DEFAULT_ACTIVE_DEPARTMENTS.filter(dept => active.has(dept));
+  return declared.filter(dept => active.has(dept));
 }
 
 /**
@@ -517,7 +554,133 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   };
 }
 
-export function normalizeSimulationConfig(input: SimulationSetupPayload): NormalizedSimulationConfig {
+/**
+ * The key personnel a scenario declares for itself: the `personnel` list
+ * of its `default` preset, or of its first preset. Mars Genesis and Lunar
+ * Outpost declare five each. A scenario that declares none (Atlas Lab)
+ * gets an empty list, and the kernel builds the whole roster from the
+ * population, with nobody featured until the commander promotes someone.
+ */
+export function scenarioKeyPersonnel(scenario: ScenarioPackage): KeyPersonnel[] {
+  const presets = scenario.presets ?? [];
+  const preset = presets.find(p => p.id === 'default') ?? presets[0];
+  return (preset?.personnel ?? []).map(p => ({
+    name: p.name,
+    department: p.department,
+    role: p.role,
+    specialization: p.specialization,
+    age: p.age,
+    featured: p.featured,
+  }));
+}
+
+/**
+ * The starting resources the payload supplied, in the kernel's field
+ * names, and nothing else: an omitted value stays undefined so the
+ * kernel's base value or the scenario's declaration stands. Morale
+ * arrives as a percentage and is stored as a fraction.
+ */
+function suppliedStartingResources(
+  input: SimulationSetupPayload['startingResources'],
+): Partial<StartingResources> {
+  const out: Partial<StartingResources> = {};
+  if (!input) return out;
+  if (input.food != null) out.foodMonthsReserve = input.food;
+  if (input.water != null) out.waterLitersPerDay = input.water;
+  if (input.power != null) out.powerKw = input.power;
+  if (input.morale != null) out.morale = input.morale / 100;
+  if (input.pressurizedVolumeM3 != null) out.pressurizedVolumeM3 = input.pressurizedVolumeM3;
+  if (input.lifeSupportCapacity != null) out.lifeSupportCapacity = input.lifeSupportCapacity;
+  if (input.infrastructureModules != null) out.infrastructureModules = input.infrastructureModules;
+  if (input.scienceOutput != null) out.scienceOutput = input.scienceOutput;
+  return out;
+}
+
+/** The starting politics the payload supplied, and nothing else; see suppliedStartingResources. */
+function suppliedStartingPolitics(
+  input: SimulationSetupPayload['startingPolitics'],
+): Partial<StartingPolitics> {
+  const out: Partial<StartingPolitics> = {};
+  if (input?.earthDependencyPct != null) out.earthDependencyPct = input.earthDependencyPct;
+  return out;
+}
+
+/**
+ * The timeline of the run a fork resumes, read from its per-turn kernel
+ * snapshots: the start time they carry and the step that puts every
+ * snapshot at the time it ran at. The scenario's own schedule comes first
+ * and is left to the caller's fallback, since a short segment can fit a
+ * fixed step and the accelerating schedule alike. Then a fixed step, then
+ * 0, which selects the accelerating schedule. A fork's schedule has to
+ * continue from the snapshot's time, and a parent can have started
+ * anywhere: a saved run, a start time chosen in Settings. The parent is
+ * not validated yet when this runs (the fork validator does that next),
+ * so a field that is not a number, a turn that is not whole and a turn
+ * above MAX_FORK_SNAPSHOT_TURN are left out.
+ */
+/**
+ * The highest snapshot turn forkParentTimeline reads, well above any real
+ * run's length. The step check builds one schedule entry per turn up to
+ * the last snapshot's turn, before the fork validator has seen the body.
+ */
+const MAX_FORK_SNAPSHOT_TURN = 10_000;
+
+function forkParentTimeline(
+  forkFrom: SimulationSetupPayload['forkFrom'],
+  scenarioTimePerTurn: number | undefined,
+): { startTime?: number; timePerTurn?: number } {
+  const snapshots = (forkFrom?.parentArtifact?.scenarioExtensions as { kernelSnapshotsPerTurn?: unknown } | undefined)
+    ?.kernelSnapshotsPerTurn;
+  if (!Array.isArray(snapshots)) return {};
+  const ticks = (snapshots as Array<{ turn?: unknown; time?: unknown; startTime?: unknown }>)
+    .filter((s): s is { turn: number; time: number; startTime?: unknown } =>
+      typeof s?.turn === 'number' && Number.isInteger(s.turn) && s.turn >= 1 && s.turn <= MAX_FORK_SNAPSHOT_TURN
+      && typeof s?.time === 'number')
+    .sort((a, b) => a.turn - b.turn);
+  const [first, second] = ticks;
+  if (!first || typeof first.startTime !== 'number') return {};
+  const startTime = first.startTime;
+  const fits = (timePerTurn: number) => {
+    const schedule = buildTimeSchedule(startTime, ticks[ticks.length - 1].turn, timePerTurn);
+    return ticks.every(tick => Math.abs(schedule[tick.turn - 1] - tick.time) < 1e-6);
+  };
+  // The orchestrator's own default when a scenario declares no step.
+  if (fits(scenarioTimePerTurn ?? 1)) return { startTime };
+  const step = second
+    ? (second.time - first.time) / (second.turn - first.turn)
+    : first.turn > 1 ? (first.time - startTime) / (first.turn - 1) : undefined;
+  if (step !== undefined && Number.isFinite(step) && step > 0 && fits(step)) return { startTime, timePerTurn: step };
+  return { startTime, timePerTurn: 0 };
+}
+
+/**
+ * Turn a `/setup` payload into the config the runners take.
+ *
+ * Every setup value the payload omits comes from the scenario the run
+ * is for: `turns`, `seed`, `startTime`, `timePerTurn` and `population`
+ * from `scenario.setup`, and `keyPersonnel` from the scenario's own
+ * preset (see `scenarioKeyPersonnel`). Starting resources and politics
+ * carry only what the payload supplied, so the kernel's base values and
+ * the scenario's declarations stand for the rest. The server passes the
+ * active scenario; with none given, the defaults are Mars Genesis's own,
+ * read from `scenarios/mars.json`, which is what the CLI runs.
+ *
+ * A fork continues its parent: an omitted start time and time per turn
+ * come from the parent's snapshots, and omitted turns run the scenario's
+ * own count past the fork turn, since `turns` is the absolute final turn.
+ * A compiled or uploaded scenario can carry a partial setup, so the last
+ * fallback for each value is the engine's default. An omitted population
+ * is at least one person per department.
+ *
+ * Before this took a scenario, an omitted field was filled with a Mars
+ * value (start time 2035, population 100, the five Mars colonists), so
+ * a Quickstart run of Atlas Lab, whose body carries only the leaders,
+ * turns and seed, started at "Month 2035" with Mars's people.
+ */
+export function normalizeSimulationConfig(
+  input: SimulationSetupPayload,
+  scenario: ScenarioPackage = marsScenario,
+): NormalizedSimulationConfig {
   // Fork setup takes exactly one actor (the override for the forked
   // branch). Regular pair setup takes exactly two and dispatches to
   // runPairSimulations with verdict comparison. Swarm setups (3+
@@ -563,7 +726,10 @@ export function normalizeSimulationConfig(input: SimulationSetupPayload): Normal
     inferProviderFromModel(input.models?.departments) ??
     inferProviderFromModel(input.models?.judge) ??
     'openai';
-  const startTime = input.startTime ?? 2035;
+  const { setup } = scenario;
+  const forkTimeline = forkParentTimeline(input.forkFrom, setup.defaultTimePerTurn);
+  const startTime = input.startTime ?? forkTimeline.startTime ?? setup.defaultStartTime ?? 0;
+  const scenarioTurns = setup.defaultTurns ?? 12;
   const economics = resolveEconomicsProfile({
     profileId: input.economics?.profileId,
     provider: inferredProvider,
@@ -575,28 +741,20 @@ export function normalizeSimulationConfig(input: SimulationSetupPayload): Normal
   return {
     actors: input.actors,
     provider: inferredProvider,
-    turns: input.turns ?? 12,
-    seed: input.seed ?? 950,
+    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
-    timePerTurn: input.timePerTurn,
-    initialPopulation: input.population ?? 100,
+    timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
+    // Each person heads at most one department, so a roster smaller than
+    // the department list leaves the rest without a report. A population
+    // the body names stays the person's own choice.
+    initialPopulation: input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length),
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
-    activeDepartments: normalizeActiveDepartments(input.activeDepartments),
+    activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),
-    keyPersonnel: input.keyPersonnel?.length ? input.keyPersonnel : DEFAULT_KEY_PERSONNEL,
-    startingResources: {
-      foodMonthsReserve: input.startingResources?.food ?? 18,
-      waterLitersPerDay: input.startingResources?.water ?? 800,
-      powerKw: input.startingResources?.power ?? 400,
-      morale: (input.startingResources?.morale ?? 85) / 100,
-      pressurizedVolumeM3: input.startingResources?.pressurizedVolumeM3 ?? 3000,
-      lifeSupportCapacity: input.startingResources?.lifeSupportCapacity ?? 120,
-      infrastructureModules: input.startingResources?.infrastructureModules ?? 3,
-      scienceOutput: input.startingResources?.scienceOutput ?? 0,
-    },
-    startingPolitics: {
-      earthDependencyPct: input.startingPolitics?.earthDependencyPct ?? 95,
-    },
+    keyPersonnel: input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario),
+    startingResources: suppliedStartingResources(input.startingResources),
+    startingPolitics: suppliedStartingPolitics(input.startingPolitics),
     execution: {
       commanderMaxSteps: input.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
       departmentMaxSteps: input.execution?.departmentMaxSteps ?? DEFAULT_EXECUTION.departmentMaxSteps,
