@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLeaderPresets, estimateForkCost, parseCustomEvents } from './ForkModal.helpers.js';
+import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, canForkAtTurn, forkFinalTurn } from './ForkModal.helpers.js';
 import { marsScenario } from '../../../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 
@@ -102,4 +102,23 @@ test('parseCustomEvents: empty, whitespace, and malformed lines are dropped', ()
   assert.equal(events[0].turn, 4);
   assert.equal(events[0].title, 'valid');
   assert.equal(events[0].description, 'yes');
+});
+
+test('canForkAtTurn: no fork at the run\'s last turn, where nothing is left to run', () => {
+  // The Reports tab offered a fork at turn 6 of a 6-turn run and posted
+  // turns 6; /setup answers 400 for it, so the button must not be there.
+  const parent = {
+    trajectory: { timepoints: [1, 2, 3, 4, 5, 6].map(t => ({ t })) },
+    scenarioExtensions: { kernelSnapshotsPerTurn: [1, 2, 3, 4, 5, 6].map(turn => ({ turn })) },
+  };
+  assert.equal(forkFinalTurn(parent), 6);
+  assert.equal(canForkAtTurn(parent, 5), true);
+  assert.equal(canForkAtTurn(parent, 6), false);
+  assert.equal(canForkAtTurn(parent, 7), false);
+  // A turn with no snapshot cannot be forked.
+  assert.equal(canForkAtTurn({ ...parent, scenarioExtensions: { kernelSnapshotsPerTurn: [{ turn: 2 }] } }, 3), false);
+  assert.equal(canForkAtTurn({ trajectory: parent.trajectory }, 3), false);
+  // Without timepoints the last snapshot is the final turn.
+  assert.equal(forkFinalTurn({ scenarioExtensions: parent.scenarioExtensions }), 6);
+  assert.equal(canForkAtTurn({ scenarioExtensions: parent.scenarioExtensions }, 6), false);
 });
