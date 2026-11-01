@@ -601,7 +601,8 @@ function suppliedStartingPolitics(
 
 /**
  * The timeline of the run a fork resumes, read from its per-turn kernel
- * snapshots: the start time they carry and the time between turns. A
+ * snapshots: the start time they carry and the time between turns (0 for
+ * the accelerating schedule, whose steps differ). A
  * fork's schedule has to continue from the snapshot's time, and a parent
  * can have started anywhere: a saved run, a start time chosen in
  * Settings. The parent is not validated yet when this runs (the fork
@@ -619,8 +620,11 @@ function forkParentTimeline(
   const [first, second] = ticks;
   if (!first) return {};
   const startTime = typeof first.startTime === 'number' ? first.startTime : undefined;
+  const steps = ticks.slice(1).map((tick, i) => (tick.time - ticks[i].time) / (tick.turn - ticks[i].turn));
+  // Steps that differ are the accelerating schedule, which 0 selects.
+  if (steps.some(step => step !== steps[0])) return { startTime, timePerTurn: 0 };
   const step = second
-    ? (second.time - first.time) / (second.turn - first.turn)
+    ? steps[0]
     : startTime !== undefined && first.turn > 1 ? (first.time - startTime) / (first.turn - 1) : undefined;
   return { startTime, timePerTurn: step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined };
 }
