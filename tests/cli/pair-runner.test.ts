@@ -313,7 +313,9 @@ test('scores keep their units for the judge and the card', async () => {
   const atlas = await judgeStates(atlasLab, a.result.finalState, b.result.finalState);
   assert.match(atlas.prompt, /Monthly Burn \(USD\/mo\)[^\n]*lower is better/);
   assert.match(atlas.prompt, /Runway \(months\)/);
-  assert.doesNotMatch(atlas.prompt, /\((score|frac|people|%)\):/);
+  // A unit the label or the format already says is not repeated on a score row.
+  const scoreBlock = atlas.prompt.slice(atlas.prompt.indexOf('SCORES ('), atlas.prompt.indexOf('OTHER STATE'));
+  assert.doesNotMatch(scoreBlock, /\((score|frac|people|%)\):/);
 });
 
 test('the prompt reads right before a settlement word that starts with a vowel', async () => {
