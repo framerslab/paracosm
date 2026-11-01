@@ -2655,7 +2655,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
 
-        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload);
+        // The active scenario supplies every setup value the body omits
+        // (start time, time per turn, population, seed, turns, key
+        // personnel). The Quickstart tab posts only the leaders, turns
+        // and seed, so without the scenario here an Atlas Lab run
+        // started at "Month 2035" with the Mars colonists.
+        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, activeScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.

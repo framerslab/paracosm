@@ -231,6 +231,25 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const [startTime, setStartTime] = useState(scenario.setup.defaultStartTime);
   const [timePerTurn, setTimePerTurn] = useState(scenario.setup.defaultTimePerTurn || 0);
   const [population, setPopulation] = useState(scenario.setup.defaultPopulation);
+  // Follow the active scenario. useScenario starts with the Mars Genesis
+  // fallback until GET /scenario resolves, so a form mounted before that
+  // would otherwise keep Mars's start time, seed and population and
+  // launch a different scenario with them. The effect also picks up a
+  // scenario that changes under a mounted form.
+  useEffect(() => {
+    setTurns(scenario.setup.defaultTurns);
+    setSeed(scenario.setup.defaultSeed);
+    setStartTime(scenario.setup.defaultStartTime);
+    setTimePerTurn(scenario.setup.defaultTimePerTurn || 0);
+    setPopulation(scenario.setup.defaultPopulation);
+  }, [
+    scenario.id,
+    scenario.setup.defaultTurns,
+    scenario.setup.defaultSeed,
+    scenario.setup.defaultStartTime,
+    scenario.setup.defaultTimePerTurn,
+    scenario.setup.defaultPopulation,
+  ]);
   const [provider, setProvider] = useState('openai');
   const [liveSearch, setLiveSearch] = useState(false);
   const [economicsProfile, setEconomicsProfile] = useState<DashboardEconomicsProfileId>('balanced');
@@ -595,7 +614,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
           </div>
           <div>
             <label htmlFor="time-input" style={SETTINGS_LABEL_STYLE}>Start {labels.Time}</label>
-            <input id="time-input" type="number" value={startTime} onChange={e => setStartTime(parseInt(e.target.value) || 2035)} className={styles.input} />
+            <input id="time-input" type="number" value={startTime} onChange={e => setStartTime(parseInt(e.target.value) || scenario.setup.defaultStartTime)} className={styles.input} />
           </div>
           <div>
             <label htmlFor="pop-input" style={SETTINGS_LABEL_STYLE}>
