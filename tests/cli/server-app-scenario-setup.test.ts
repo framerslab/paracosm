@@ -155,11 +155,12 @@ test('POST /setup fills the omitted setup from the active scenario: Atlas Lab st
 async function withServer(
   runPairSimulations: (config: NormalizedSimulationConfig, signal: AbortSignal | undefined, scenario: ScenarioPackage | undefined) => Promise<void>,
   body: (post: (path: string, payload: unknown) => Promise<Response>) => Promise<void>,
+  maxSimsPerDay = 0,
 ): Promise<void> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-scenario-setup-'));
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '' },
-    maxSimsPerDay: 0,
+    maxSimsPerDay,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: (config, _broadcast, signal, scenario) => runPairSimulations(config, signal, scenario),
   });
@@ -233,6 +234,24 @@ test('POST /setup with departments the active scenario does not declare keeps al
       const config = await waitFor(() => launches[0] ?? null);
       assert.deepEqual(config.activeDepartments, atlasLab.departments.map(d => d.id));
     },
+  );
+});
+
+test('POST /setup does not count a body refused for another scenario against the daily run limit', async () => {
+  // The hosted demo allows one run per visitor a day. A page left on another
+  // scenario is told to reload and run again; that run has to go through.
+  const launches: NormalizedSimulationConfig[] = [];
+  await withServer(
+    async config => { launches.push(config); },
+    async post => {
+      assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
+      const stale = await post('/setup', quickstartBody(mars));
+      assert.equal(stale.status, 409);
+      const reloaded = await post('/setup', quickstartBody(atlasLab));
+      assert.equal(reloaded.status, 200);
+      await waitFor(() => launches[0] ?? null);
+    },
+    1,
   );
 });
 
@@ -310,6 +329,17 @@ test('a fork continues its parent\'s timeline, whatever the scenario declares', 
     labPackage,
   );
   assert.equal(malformed.startTime, 1);
+});
+
+test('a fork reads no timeline from a parent snapshot at a turn no run reaches or a turn that is not whole', () => {
+  // The parent is read before the fork validator runs, and the step check
+  // builds one schedule entry per turn up to the last snapshot's turn, so a
+  // snapshot at turn 1e9 in a /setup body would allocate a billion numbers.
+  // Such a snapshot gives no start time; the scenario's own (month 1) stands.
+  const farTurn = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035], 20_000), 1), labPackage);
+  assert.equal(farTurn.startTime, 1);
+  const halfTurn = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035], 1.5), 1), labPackage);
+  assert.equal(halfTurn.startTime, 1);
 });
 
 test('a fork that omits turns runs past its fork turn', () => {
