@@ -388,3 +388,32 @@ test('POST /setup refuses a fork with no turn left to run instead of answering 2
     },
   );
 });
+
+test('POST /setup refuses a body written for another scenario than the active one', async () => {
+  // The active scenario is the server's, so another page can move it while
+  // this page still holds the old one. Its leaders and setup values would
+  // then run in the other scenario's world.
+  const launches: NormalizedSimulationConfig[] = [];
+  await withServer(
+    async config => { launches.push(config); },
+    async post => {
+      assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
+
+      // Settings and the re-run button name it at the top level.
+      const rerun = await post('/setup', { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id });
+      assert.equal(rerun.status, 409);
+      assert.match(((await rerun.json()) as { error: string }).error, /reload/i);
+
+      // The Quickstart tab names it under quickstart.
+      const quickstart = await post('/setup', quickstartBody(mars));
+      assert.equal(quickstart.status, 409);
+      assert.equal(launches.length, 0);
+
+      // A body for the active scenario launches.
+      const own = await post('/setup', { ...quickstartBody(atlasLab), scenarioId: atlasLab.id });
+      assert.equal(own.status, 200);
+      await waitFor(() => launches[0] ?? null);
+    },
+  );
+});
+
