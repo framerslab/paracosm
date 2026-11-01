@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../../src/engine/core/kernel.js';
 import type { KeyPersonnel } from '../../../src/engine/core/agent-generator.js';
+import { readFileSync } from 'node:fs';
+import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
+import type { ScenarioPackage } from '../../../src/engine/types.js';
 
 const keyPersonnel: KeyPersonnel[] = [
   {
@@ -61,6 +64,41 @@ test('SimulationKernel: an empty key-personnel list builds the whole roster from
   assert.equal(state.metrics.population, 30);
   assert.ok(state.agents.every(a => !a.narrative.featured));
   assert.ok(!state.agents.some(a => a.core.name === 'Dr. Yuki Tanaka'));
+});
+
+test('SimulationKernel: a scenario\'s roster works in its own departments, under their own names', () => {
+  // The commander picks heads from this list: "spec: Hydroponics" on an
+  // Atlas Lab run is how a lab got a "Chief of Hydroponics & Food Security".
+  const atlasLab = JSON.parse(readFileSync(new URL('../../../scenarios/atlas-lab.json', import.meta.url), 'utf-8')) as ScenarioPackage;
+  const kernel = new SimulationKernel(11, 'Marcus Reinhardt', [], { startTime: 1, initialPopulation: 30, scenario: atlasLab });
+  const { agents } = kernel.getState();
+  const ids = atlasLab.departments.map(d => d.id);
+  const labels = atlasLab.departments.map(d => d.label);
+
+  assert.equal(agents.length, 30);
+  assert.deepEqual(agents.filter(a => !ids.includes(a.core.department)).map(a => a.core.department), []);
+  assert.deepEqual(agents.filter(a => !labels.includes(a.career.specialization)).map(a => a.career.specialization), []);
+  assert.ok(new Set(agents.map(a => a.core.department)).size > 1, 'the people spread across the departments');
+
+  // A department the trait table does not know ranks its own people first.
+  const inAlignment = agents.filter(a => a.core.department === 'alignment_research').length;
+  assert.ok(inAlignment > 0);
+  const candidates = kernel.getCandidates('alignment_research', 5);
+  assert.deepEqual(
+    candidates.slice(0, Math.min(5, inAlignment)).map(a => a.core.department),
+    Array(Math.min(5, inAlignment)).fill('alignment_research'),
+  );
+
+  const lunar = new SimulationKernel(1200, 'x', [], { startTime: 2030, initialPopulation: 50, scenario: lunarScenario });
+  const lunarIds = lunarScenario.departments.map(d => d.id);
+  assert.deepEqual(lunar.getState().agents.filter(a => !lunarIds.includes(a.core.department)).map(a => a.core.department), []);
+});
+
+test('SimulationKernel: Mars Genesis keeps the roster it has always had at a given seed', () => {
+  const roster = (scenario?: ScenarioPackage) => new SimulationKernel(950, 'x', [], { startTime: 2035, initialPopulation: 100, scenario })
+    .getState().agents.map(a => [a.core.name, a.core.department, a.career.specialization, a.core.role]);
+  assert.deepEqual(roster(marsScenario), roster());
+  assert.ok(roster(marsScenario).some(([, department]) => department === 'agriculture'));
 });
 
 test('SimulationKernel: initial state always has statuses and environment as empty objects when no scenario provided', () => {

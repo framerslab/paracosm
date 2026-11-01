@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeSimulationConfig, resolveSimulationModels } from '../../src/cli/sim-config.js';
+import { applyDemoCaps, normalizeSimulationConfig, resolveSimulationModels } from '../../src/cli/sim-config.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 
 const leaderA = {
@@ -93,6 +93,22 @@ test('normalizeSimulationConfig takes omitted setup values and people from the s
   const explicit = normalizeSimulationConfig({ actors: [leaderA, leaderB], startTime: 2042, population: 12 }, lunarScenario);
   assert.equal(explicit.startTime, 2042);
   assert.equal(explicit.initialPopulation, 12);
+});
+
+test('normalizeSimulationConfig gives a whole config for a scenario with a partial setup', () => {
+  // compile-from-seed drafts carry no defaultSeed, and POST /compile takes
+  // an uploaded scenario's setup as written. Under the hosted demo's caps
+  // Math.min(undefined, 30) is NaN, and the kernel builds nobody from NaN.
+  const partial = { ...lunarScenario, setup: { defaultStartTime: 2040 } } as unknown as typeof lunarScenario;
+  const config = applyDemoCaps(normalizeSimulationConfig({ actors: [leaderA, leaderB] }, partial));
+
+  assert.equal(config.startTime, 2040);
+  assert.equal(config.turns, 6, '12 from the engine, capped to the demo\'s 6');
+  assert.equal(config.initialPopulation, 30, '100 from the engine, capped to the demo\'s 30');
+  assert.equal(config.seed, 42);
+
+  const none = normalizeSimulationConfig({ actors: [leaderA, leaderB] }, { ...lunarScenario, setup: {} } as unknown as typeof lunarScenario);
+  assert.equal(none.startTime, 0);
 });
 
 test('normalizeSimulationConfig preserves explicit setup overrides', () => {
