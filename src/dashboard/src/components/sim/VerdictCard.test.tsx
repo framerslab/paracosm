@@ -23,7 +23,7 @@ function verdict(metrics: unknown[]): any {
     settlementNoun: 'clinic',
     finalStats: {
       a: { tools: 1 },
-      b: { tools: 2 },
+      b: { tools: 1 },
       metrics,
     },
   };

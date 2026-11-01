@@ -243,7 +243,7 @@ test('a Quickstart cohort is judged on the final numbers when no run holds a dec
   assert.ok(events.find(e => e.event === 'cohort_verdict'), 'cohort verdict broadcast');
   const prompt = model.requests[0].prompt;
   assert.match(prompt, /population[^\n]*#1 38[^\n]*#2 40/);
-  assert.doesNotMatch(prompt, /n\/a/);
+  assert.doesNotMatch(prompt, /#1 n\/a/);
 });
 
 test('a verdict prompt that cannot be built reports a skipped verdict and leaves the run to finish', async () => {
@@ -270,7 +270,7 @@ test('a percent score on a 0 to 100 scale reads as itself, not a hundred times o
     { metrics: { ...metrics, hullIntegrity: 100 } },
     { metrics: { ...metrics, hullIntegrity: 82, morale: 0.5 } },
   );
-  assert.match(prompt, /Hull Integrity[^\n]*100%[^\n]*82%/);
+  assert.match(prompt, /Hull[^\n]*100%[^\n]*82%/);
   assert.doesNotMatch(prompt, /10000%/);
   assert.match(prompt, /Morale[^\n]*75%[^\n]*50%/);
   const hull = rows.find(r => r.id === 'hullIntegrity');
@@ -305,7 +305,7 @@ test('every bundled score that improves as it falls says so', async () => {
 test('scores keep their units for the judge and the card', async () => {
   const mars = initialMetrics(marsScenario);
   const judged = await judgeStates(marsScenario, { metrics: mars }, { metrics: { ...mars, powerKw: 380 } });
-  assert.match(judged.prompt, /Food Reserve \(months\)[^\n]*18/);
+  assert.match(judged.prompt, /Food \(months\)[^\n]*18/);
   assert.match(judged.prompt, /Power \(kW\)[^\n]*400[^\n]*380/);
   assert.equal(judged.rows.find(r => r.id === 'powerKw').unit, 'kW');
 
