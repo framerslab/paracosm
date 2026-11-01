@@ -24,6 +24,7 @@ import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import { normalizeSimulationConfig, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../../src/cli/sim-config.js';
 import { buildTimeSchedule } from '../../src/runtime/util/runtime-helpers.js';
+import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
 interface ScenarioJson {
@@ -236,7 +237,7 @@ test('POST /setup with departments the active scenario does not declare keeps al
 });
 
 /** The parent a saved run hands to a fork: per-turn kernel snapshots. */
-function parentArtifact(startTime: number, times: number[]) {
+function parentArtifact(startTime: number, times: number[], firstTurn = 1) {
   return {
     metadata: {
       runId: 'parent-1',
@@ -248,7 +249,7 @@ function parentArtifact(startTime: number, times: number[]) {
       kernelSnapshotsPerTurn: times.map((time, index) => ({
         snapshotVersion: 1,
         scenarioId: atlasLab.id,
-        turn: index + 1,
+        turn: index + firstTurn,
         time,
         state: {},
         rngState: 0,
@@ -319,4 +320,71 @@ test('a fork that omits turns runs past its fork turn', () => {
     labPackage,
   );
   assert.equal(config.turns, 12, 'the fork turn plus the scenario\'s own turn count');
+});
+
+test('a fork reads its parent\'s schedule from the times the parent ran at', () => {
+  // A parent launched with time per turn 0.1. The gaps between 2035, 2035.1
+  // and 2035.2 differ in the last bits of a double, which is no accelerating
+  // schedule: that one would put the turn after the snapshot at 2040.
+  const fractional = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035, 2035.1, 2035.2]), 3), labPackage);
+  assert.ok(Math.abs((fractional.timePerTurn ?? 0) - 0.1) < 1e-6, `time per turn ${fractional.timePerTurn}`);
+
+  // The fork of a fork holds only the turns after its own fork turn. On the
+  // accelerating schedule turns 4, 5 and 6 are 8, 11 and 14: equal gaps of 3
+  // at times a fixed step of 3 would have put at 9, 12 and 15.
+  const segment = normalizeSimulationConfig(forkBody(parentArtifact(0, [8, 11, 14], 4), 6, 8), labPackage);
+  assert.equal(segment.timePerTurn, 0);
+
+  // Two snapshots fit a fixed step and the accelerating schedule alike; the
+  // scenario's own declaration settles which one the parent ran on.
+  const acceleratingScenario = {
+    ...labPackage,
+    setup: { ...labPackage.setup, defaultTimePerTurn: 0 },
+  } as ScenarioPackage;
+  const declared = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035, 2037]), 2, 4), acceleratingScenario);
+  assert.equal(buildTimeSchedule(declared.startTime, declared.turns, declared.timePerTurn)[2], 2040);
+});
+
+test('a run that omits its population has someone to head each department', () => {
+  // t2d-glp1-protocol.json declares one person and five departments, and each
+  // person heads one department, so a run of one person would give the other
+  // four empty reports. The commander-setup fallback is the loop below.
+  const t2d = readScenario('t2d-glp1-protocol.json');
+  const t2dPackage = t2d as unknown as ScenarioPackage;
+  const body = quickstartBody(t2d) as unknown as SimulationSetupPayload;
+  const config = normalizeSimulationConfig(body, t2dPackage);
+  assert.equal(config.initialPopulation, t2d.departments.length);
+
+  const kernel = new SimulationKernel(config.seed, 'Leader', config.keyPersonnel, {
+    startTime: config.startTime,
+    initialPopulation: config.initialPopulation,
+    scenario: t2dPackage,
+  });
+  for (const { id } of t2dPackage.departments) {
+    const top = kernel.getCandidates(id, 1)[0];
+    if (top) kernel.promoteAgent(top.core.id, id, `Head of ${id}`, 'Leader');
+  }
+  const heads = kernel.getState().agents.filter(a => a.promotion).map(a => a.promotion?.department);
+  assert.deepEqual(heads.sort(), t2d.departments.map(d => d.id).sort());
+
+  // A population the body names stays the person's own choice.
+  assert.equal(normalizeSimulationConfig({ ...body, population: 2 }, t2dPackage).initialPopulation, 2);
+});
+
+test('POST /setup refuses a fork with no turn left to run instead of answering 200 and failing behind it', async () => {
+  // The Reports tab offers a fork at a run's last turn and posts the parent's
+  // turn count, which equals the fork turn. WorldModel.simulate refuses that
+  // after /setup has answered, and the optimistic branch stays running.
+  const launches: NormalizedSimulationConfig[] = [];
+  await withServer(
+    async config => { launches.push(config); },
+    async post => {
+      assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
+      const setup = await post('/setup', forkBody(parentArtifact(1, [1, 2, 3, 4, 5, 6]), 6, 6));
+      assert.equal(setup.status, 400);
+      const { error } = (await setup.json()) as { error: string };
+      assert.match(error, /fork at turn 6 has no turn left/i);
+      assert.equal(launches.length, 0);
+    },
+  );
 });
