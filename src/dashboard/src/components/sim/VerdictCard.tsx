@@ -1,12 +1,9 @@
 import * as React from 'react';
-import * as React from 'react';
 import { useEffect, useState, useCallback, type CSSProperties } from 'react';
 import { CohortVerdictDetails } from '../layout/VerdictModal';
 import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './VerdictCard.module.scss';
-import { finalStatsTitle, formatScenarioStat, scenarioStatLabel, scenarioStatRows, statLeader, type ScenarioStatRow } from './verdict-stats';
-
-void React;
+import { finalStatsTitle, formatScenarioStat, scenarioStatRows, statLeader, type ScenarioStatRow } from './verdict-stats';
 
 void React;
 
@@ -77,25 +74,21 @@ function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
   );
 }
 
-function StatRow({ label, a, b, format, scenarioFormat, currency, direction }: {
+function StatRow({ label, a, b, format, scenarioFormat, direction }: {
   label: string;
-  /** Undefined only for a scenario score a run does not hold; it reads n/a. */
-  a: number | undefined;
-  b: number | undefined;
+  a: number;
+  b: number;
   format?: 'percent' | 'decimal' | 'number';
   /** A scenario score's own format; takes over from `format` when set. */
   scenarioFormat?: ScenarioStatRow['format'];
-  /** The scenario's currency, on a `currency` score. */
-  currency?: string;
   /** Which way is better for a scenario score (higher by default). */
   direction?: 'higher' | 'lower';
 }) {
-  const fmt = (v: number | undefined) => {
-    if (scenarioFormat) return formatScenarioStat(v, scenarioFormat, currency);
-    const n = v ?? 0;
-    if (format === 'percent') return `${Math.round(n * 100)}%`;
-    if (format === 'decimal') return n.toFixed(1);
-    return String(Math.round(n));
+  const fmt = (v: number) => {
+    if (scenarioFormat) return formatScenarioStat(v, scenarioFormat);
+    if (format === 'percent') return `${Math.round(v * 100)}%`;
+    if (format === 'decimal') return v.toFixed(1);
+    return String(Math.round(v));
   };
   const better = statLeader(a, b, direction);
   return (
@@ -160,7 +153,7 @@ function buildMarkdownExport(v: VerdictData): string {
     lines.push('|---|---|---|');
     if (scenarioRows) {
       for (const r of scenarioRows) {
-        lines.push(`| ${scenarioStatLabel(r)} | ${formatScenarioStat(r.a, r.format, r.currency)} | ${formatScenarioStat(r.b, r.format, r.currency)} |`);
+        lines.push(`| ${r.label} | ${formatScenarioStat(r.a, r.format)} | ${formatScenarioStat(r.b, r.format)} |`);
       }
     } else {
       lines.push(`| Population | ${v.finalStats.a?.population ?? 0} | ${v.finalStats.b?.population ?? 0} |`);
@@ -248,7 +241,7 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
         <div className={styles.finalStats}>
           <div className={styles.finalStatsLabel}>{finalStatsTitle(v.settlementNoun)}</div>
           {scenarioStatRows(v.finalStats)?.map(r => (
-            <StatRow key={r.id} label={scenarioStatLabel(r)} a={r.a} b={r.b} scenarioFormat={r.format} currency={r.currency} direction={r.better} />
+            <StatRow key={r.id} label={r.label} a={r.a ?? 0} b={r.b ?? 0} scenarioFormat={r.format} direction={r.better} />
           )) ?? (<>
             <StatRow label="Population" a={v.finalStats.a?.population ?? 0} b={v.finalStats.b?.population ?? 0} />
             <StatRow label="Morale" a={v.finalStats.a?.morale ?? 0} b={v.finalStats.b?.morale ?? 0} format="percent" />

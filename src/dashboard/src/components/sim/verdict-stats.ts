@@ -12,10 +12,6 @@ export interface ScenarioStatRow {
   label: string;
   format: 'number' | 'percent' | 'currency' | 'duration';
   better?: 'higher' | 'lower';
-  /** The field's unit where it adds to the label (`kW`, `months`). */
-  unit?: string;
-  /** The scenario's currency, on a `currency` score. */
-  currency?: string;
   a?: number;
   b?: number;
 }
@@ -29,20 +25,10 @@ export function scenarioStatRows(finalStats: unknown): ScenarioStatRow[] | null 
   return valid.length > 0 ? valid : null;
 }
 
-/** A score's label with its unit. */
-export function scenarioStatLabel(row: Pick<ScenarioStatRow, 'label' | 'unit'>): string {
-  return row.unit ? `${row.label} (${row.unit})` : row.label;
-}
-
 /** A final value in the score's format; a percent score is a fraction shown as a percentage. */
-export function formatScenarioStat(v: number | undefined, format: ScenarioStatRow['format'], currency?: string): string {
+export function formatScenarioStat(v: number | undefined, format: ScenarioStatRow['format']): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/a';
   if (format === 'percent') return `${Math.round(v * 1000) / 10}%`;
-  const text = formatPlain(v);
-  return format === 'currency' && currency ? `${text} ${currency}` : text;
-}
-
-function formatPlain(v: number): string {
   if (Number.isInteger(v)) return String(v);
   const abs = Math.abs(v);
   if (abs >= 100) return String(Math.round(v));
@@ -51,12 +37,9 @@ function formatPlain(v: number): string {
   return v.toFixed(3);
 }
 
-/**
- * Which side leads on a score, reading the scenario's direction (higher
- * is better by default). No side leads when either value is missing.
- */
-export function statLeader(a: number | undefined, b: number | undefined, better?: 'higher' | 'lower'): 'a' | 'b' | null {
-  if (typeof a !== 'number' || typeof b !== 'number' || a === b) return null;
+/** Which side leads on a score, reading the scenario's direction (higher is better by default). */
+export function statLeader(a: number, b: number, better?: 'higher' | 'lower'): 'a' | 'b' | null {
+  if (a === b) return null;
   const aHigher = a > b;
   return (better === 'lower' ? !aHigher : aHigher) ? 'a' : 'b';
 }
