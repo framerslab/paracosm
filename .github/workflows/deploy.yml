@@ -405,7 +405,7 @@ jobs:
     needs: [build, package-check]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
-    # contents: the changelog push and the GitHub release; actions: the run it
+    # contents: the GitHub release; actions: the run it
     # dispatches when master's head has no run of its own.
     permissions:
       contents: write
@@ -420,8 +420,8 @@ jobs:
           # only the previous-commit diff (fetch-depth: 2) for library-
           # change detection.
           fetch-depth: 0
-          # No stored token: the steps that push or call GitHub get it in
-          # their own environment.
+          # No stored token: the steps that call GitHub get it in their own
+          # environment.
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -440,8 +440,7 @@ jobs:
           CHECKED: ${{ needs.package-check.outputs.library_changed }}
         run: |
           # A newer commit on master has its own run, which publishes everything since the
-          # last release, so this run publishes only while it is master's head. That also
-          # keeps its changelog commit from being pushed onto a master that moved.
+          # last release, so this run publishes only while it is master's head.
           git fetch -q origin master
           if [ "$(git rev-parse origin/master)" != "$(git rev-parse HEAD)" ]; then
             echo "library_changed=false" >> "$GITHUB_OUTPUT"
@@ -496,8 +495,8 @@ jobs:
           name: package
           path: ${{ runner.temp }}/package
 
-      # The bytes package-check hashed, of the version it packed. The changelog
-      # and the release notes read the version from package.json.
+      # The bytes package-check hashed, of the version it packed. The release
+      # notes read the version from package.json.
       - name: Verify the tarball and take its version
         if: steps.changes.outputs.library_changed == 'true'
         id: version
@@ -516,27 +515,14 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing ${VERSION} (run #${{ github.run_number }})"
 
-      - name: Generate CHANGELOG and release notes
+      # A deploy run never writes to master, which accepts only merged pull requests.
+      # Each release's changes live in its GitHub release notes, written here to
+      # release-notes.md. The script also rewrites CHANGELOG.md in this workspace, where
+      # nothing reads it: the tarball comes from package-check and does not ship that file.
+      # The copy on master changes by pull request (CONTRIBUTING.md says when).
+      - name: Generate release notes
         if: steps.changes.outputs.library_changed == 'true'
         run: node scripts/generate-changelog.mjs
-
-      - name: Commit CHANGELOG if changed
-        if: steps.changes.outputs.library_changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ! git diff --quiet CHANGELOG.md; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add CHANGELOG.md
-            git commit -m "chore: update CHANGELOG"
-            # The header checkout would have stored, for this push alone.
-            AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
-            echo "::add-mask::$AUTH"
-            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" push origin HEAD:master
-          else
-            echo "CHANGELOG unchanged; no commit-back."
-          fi
 
       # The checked tarball as it is, with scripts off. Trusted publishing
       # needs npm 11.5.1 or later, which Node 24 ships.
@@ -552,8 +538,8 @@ jobs:
       - name: Create GitHub Release
         if: steps.changes.outputs.library_changed == 'true'
         run: |
-          # The tag marks the commit this job published (the changelog commit when there
-          # is one), which the next run's change detection compares with.
+          # The tag marks the commit this job published, which the next run's change
+          # detection compares with.
           gh release create "v${{ steps.version.outputs.version }}" \
             --target "$(git rev-parse HEAD)" \
             --title "v${{ steps.version.outputs.version }}" \
