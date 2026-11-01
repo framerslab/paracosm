@@ -349,6 +349,9 @@ export async function handleCompileFromSeed(
       return;
     }
     if (existing && existing.status === 'done' && existing.scenario) {
+      // Another scenario can have become active since this one compiled,
+      // and /setup refuses a body naming a scenario that is not active.
+      deps.setActiveScenario(existing.scenario, parsed.data.seedText);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         jobId: existing.jobId,
