@@ -515,10 +515,11 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing ${VERSION} (run #${{ github.run_number }})"
 
-      # A deploy run never writes to master, which accepts only merged pull requests.
-      # Each release's changes live in its GitHub release notes, written here to
-      # release-notes.md. The script also rewrites CHANGELOG.md in this workspace, where
-      # nothing reads it: the tarball comes from package-check and does not ship that file.
+      # A deploy run never writes to master: its protection requires checks that a commit
+      # made here would not have. Each release's changes live in its GitHub release notes,
+      # written here to release-notes.md. The script also rewrites CHANGELOG.md in this
+      # workspace, where nothing reads it: the tarball comes from package-check and does
+      # not ship that file.
       # The copy on master changes by pull request (CONTRIBUTING.md says when).
       - name: Generate release notes
         if: steps.changes.outputs.library_changed == 'true'
