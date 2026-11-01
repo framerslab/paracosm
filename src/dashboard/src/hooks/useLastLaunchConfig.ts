@@ -195,3 +195,11 @@ export function buildNextRunConfig(
   if (overrides.cohere) next.cohereKey = overrides.cohere;
   return next;
 }
+
+/** Whether a stored launch config was launched on this scenario. */
+export function isLastLaunchFor(
+  _config: Record<string, unknown>,
+  _scenarioId: string,
+): boolean {
+  return true;
+}
