@@ -205,6 +205,13 @@ export interface CreateMarsServerOptions {
  */
 export interface StartConfigHooks {
   /**
+   * The scenario the config was normalized for. /setup captures it before
+   * its awaits, so a /scenario/switch during them cannot pair one
+   * scenario's values with another's world and hooks. Absent: the active
+   * scenario.
+   */
+  scenario?: ScenarioPackage;
+  /**
    * Fired once per completed leader artifact. Failures inside the hook
    * are caught and logged by the runner; they do not abort the run.
    */
@@ -2617,6 +2624,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           forkFrom?: unknown;
         };
 
+        // The active scenario supplies every setup value the body omits
+        // (start time, time per turn, population, seed, turns, key
+        // personnel). The Quickstart tab posts only the leaders, turns
+        // and seed, so without the scenario here an Atlas Lab run
+        // started at "Month 2035" with the Mars colonists.
+        const runScenario = activeScenario;
+        const runScenarioSeedText = activeScenarioSeedText;
+        // The active scenario is the server's, so another page can move it
+        // while this one still holds the old one. Its leaders and setup
+        // values would then run in the other scenario's world.
+        const bodyScenarioId = config.scenarioId ?? (config.quickstart as { scenarioId?: unknown } | undefined)?.scenarioId;
+        if (typeof bodyScenarioId === 'string' && bodyScenarioId !== runScenario.id) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `This page was set up for ${bodyScenarioId}, and the server has moved to ${runScenario.labels?.name ?? runScenario.id}. Reload the page and run again.`,
+          }));
+          return;
+        }
+        // The check above comes before the rate limit, so the run the page
+        // is told to start again after a reload is not refused as a second
+        // run of the day.
+
         // Rate limit check: bypass when user provides real API keys.
         const requestCredentials = {
           apiKey: normalizeCredential(config.apiKey),
@@ -2662,7 +2691,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
 
-        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload);
+        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.
@@ -2672,7 +2701,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           const forkValidation = validateForkSetupPreconditions({
             parentArtifact,
             atTurn: forkTurn,
-            activeScenarioId: activeScenario.id,
+            activeScenarioId: runScenario.id,
             activeRunInProgress: simRunning && !!activeSimAbortController,
           });
           if (!forkValidation.ok) {
@@ -2704,6 +2733,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           );
         }
 
+        // `turns` is the absolute final turn, after the demo cap. A fork
+        // with none left would answer 200 here and fail in the runner.
+        if (simConfig.forkFrom && simConfig.turns <= simConfig.forkFrom.atTurn) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `A fork at turn ${simConfig.forkFrom.atTurn} has no turn left to run: this run ends at turn ${simConfig.turns}. Fork at an earlier turn.`,
+          }));
+          return;
+        }
+
         // Capture into a local non-null reference BEFORE the first
         // await. Earlier code only captured at the startWithConfig call
         // site (line ~2367), but every read of `simConfig` between the
@@ -2732,8 +2771,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const { generateBundleId } = await import('./services/bundle-id.js');
         const bundleId = launchConfig.actors.length >= 2 ? generateBundleId() : undefined;
         const runRecord = createRunRecord({
-          scenarioId: activeScenario.id,
-          scenarioVersion: activeScenario.version,
+          scenarioId: runScenario.id,
+          scenarioVersion: runScenario.version,
           actorConfigHash: hashActorConfig({
             actors: launchConfig.actors,
             turns: launchConfig.turns,
@@ -2804,29 +2843,29 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // immediately which scenario is active vs what's in their
         // editor.
         broadcast('active_scenario', {
-          id: activeScenario.id,
-          name: activeScenario.labels?.name ?? activeScenario.id,
-          settlementNoun: activeScenario.labels?.settlementNoun,
-          populationNoun: activeScenario.labels?.populationNoun,
-          departments: activeScenario.departments?.length ?? 0,
+          id: runScenario.id,
+          name: runScenario.labels?.name ?? runScenario.id,
+          settlementNoun: runScenario.labels?.settlementNoun,
+          populationNoun: runScenario.labels?.populationNoun,
+          departments: runScenario.departments?.length ?? 0,
           // Carry the original seed prompt through when the run came
           // out of compile-from-seed; null for built-in scenarios.
-          seedText: activeScenarioSeedText,
+          seedText: runScenarioSeedText,
         });
-        console.log(`  Running scenario: "${activeScenario.labels?.name ?? activeScenario.id}" (${activeScenario.id})`);
+        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
 
         // launchConfig was captured above (right after applyDemoCaps)
         // so it stays non-null even if a concurrent /clear nulls out
         // the closure-level simConfig during one of the awaits.
-        marsServer.startWithConfig(launchConfig, { onArtifact: onArtifactPersist }).catch((error) => {
+        marsServer.startWithConfig(launchConfig, { scenario: runScenario, onArtifact: onArtifactPersist }).catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           redirect: '/sim',
-          scenarioId: activeScenario.id,
-          scenarioName: activeScenario.labels?.name,
+          scenarioId: runScenario.id,
+          scenarioName: runScenario.labels?.name,
           run: {
             id: runRecord.runId,
             sourceMode: runRecord.sourceMode,
@@ -3367,8 +3406,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // started, breaking the disconnect watchdog's abort path.
       const controller = new AbortController();
       activeSimAbortController = controller;
+      const runScenario = hooks?.scenario ?? activeScenario;
       try {
-        // Thread the currently-active scenario through to the pair
+        // Thread the run's scenario through to the pair
         // runner. Without this the runner defaults to Mars regardless
         // of which scenario the user compiled, so the page title would
         // show the custom name but the simulation would run Mars
@@ -3376,13 +3416,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // runForkSimulation instead of the pair runner when the
         // config carries a forkFrom reference.
         if (config.forkFrom) {
-          await runForkSimulation(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await runForkSimulation(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else if (config.actors.length >= 3) {
           // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
           // runner (same SSE contract per leader, no verdict).
-          await runBatchSimulations(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await runBatchSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else {
-          await startSimulations(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await startSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         }
       } finally {
         disarmDisconnectWatchdog();

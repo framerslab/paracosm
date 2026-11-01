@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDashboardNavigation, useScenarioContext } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { getActorColorVar } from '../../hooks/useGameState';
@@ -231,6 +231,29 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const [startTime, setStartTime] = useState(scenario.setup.defaultStartTime);
   const [timePerTurn, setTimePerTurn] = useState(scenario.setup.defaultTimePerTurn || 0);
   const [population, setPopulation] = useState(scenario.setup.defaultPopulation);
+  // Follow the active scenario. useScenario starts with the Mars Genesis
+  // fallback until GET /scenario resolves, so a form mounted before that
+  // would otherwise keep Mars's start time, seed and population and
+  // launch a different scenario with them. The effect also picks up a
+  // scenario that changes under a mounted form. A field the person has
+  // already typed in keeps their value; the scenario dropdown reloads the
+  // page, which starts the form over.
+  const editedSetupFields = useRef(new Set<'turns' | 'seed' | 'startTime' | 'timePerTurn' | 'population'>());
+  useEffect(() => {
+    const edited = editedSetupFields.current;
+    if (!edited.has('turns')) setTurns(scenario.setup.defaultTurns);
+    if (!edited.has('seed')) setSeed(scenario.setup.defaultSeed);
+    if (!edited.has('startTime')) setStartTime(scenario.setup.defaultStartTime);
+    if (!edited.has('timePerTurn')) setTimePerTurn(scenario.setup.defaultTimePerTurn || 0);
+    if (!edited.has('population')) setPopulation(scenario.setup.defaultPopulation);
+  }, [
+    scenario.id,
+    scenario.setup.defaultTurns,
+    scenario.setup.defaultSeed,
+    scenario.setup.defaultStartTime,
+    scenario.setup.defaultTimePerTurn,
+    scenario.setup.defaultPopulation,
+  ]);
   const [provider, setProvider] = useState('openai');
   const [liveSearch, setLiveSearch] = useState(false);
   const [economicsProfile, setEconomicsProfile] = useState<DashboardEconomicsProfileId>('balanced');
@@ -359,6 +382,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         provider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
         activeDepartments: scenario.departments.map(d => d.id),
         economics: { profileId: effectiveEconomicsProfile },
+        // Names the scenario this config is for, so the re-run button
+        // never posts it to another one (isLastLaunchFor).
+        scenarioId: scenario.id,
       };
       // Persist the last-launched config shape so a "re-run with seed+1"
       // button on the completed-sim screen can reuse it without asking
@@ -567,7 +593,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
               id="turns-input"
               type="number"
               value={isLocked ? demoCaps.maxTurns : turns}
-              onChange={e => setTurns(parseInt(e.target.value) || 12)}
+              onChange={e => { editedSetupFields.current.add('turns'); setTurns(parseInt(e.target.value) || scenario.setup.defaultTurns); }}
               min={1}
               max={20}
               disabled={isLocked}
@@ -581,7 +607,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
               id="ypt-input"
               type="number"
               value={timePerTurn}
-              onChange={e => setTimePerTurn(parseInt(e.target.value) || 0)}
+              onChange={e => { editedSetupFields.current.add('timePerTurn'); setTimePerTurn(parseInt(e.target.value) || 0); }}
               min={0}
               max={50}
               placeholder="auto"
@@ -591,11 +617,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
           </div>
           <div>
             <label htmlFor="seed-input" style={SETTINGS_LABEL_STYLE}>Seed</label>
-            <input id="seed-input" type="number" value={seed} onChange={e => setSeed(parseInt(e.target.value) || 950)} className={styles.input} />
+            <input id="seed-input" type="number" value={seed} onChange={e => { editedSetupFields.current.add('seed'); setSeed(parseInt(e.target.value) || scenario.setup.defaultSeed); }} className={styles.input} />
           </div>
           <div>
             <label htmlFor="time-input" style={SETTINGS_LABEL_STYLE}>Start {labels.Time}</label>
-            <input id="time-input" type="number" value={startTime} onChange={e => setStartTime(parseInt(e.target.value) || 2035)} className={styles.input} />
+            <input id="time-input" type="number" value={startTime} onChange={e => { editedSetupFields.current.add('startTime'); setStartTime(parseInt(e.target.value) || scenario.setup.defaultStartTime); }} className={styles.input} />
           </div>
           <div>
             <label htmlFor="pop-input" style={SETTINGS_LABEL_STYLE}>
@@ -610,7 +636,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
               id="pop-input"
               type="number"
               value={isLocked ? 30 : population}
-              onChange={e => setPopulation(parseInt(e.target.value) || 100)}
+              onChange={e => { editedSetupFields.current.add('population'); setPopulation(parseInt(e.target.value) || scenario.setup.defaultPopulation); }}
               disabled={isLocked}
               className={inputCls(isLocked)}
               title={isLocked ? 'Locked at 30 in hosted demo mode. Add your own OpenAI or Anthropic key above to unlock full scope.' : ''}

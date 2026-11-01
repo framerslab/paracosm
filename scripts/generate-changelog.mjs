@@ -1,7 +1,7 @@
 /**
  * Paracosm CHANGELOG + release-notes generator.
  *
- * Produces CHANGELOG.md (committed; grouped by major.minor) and
+ * Produces CHANGELOG.md (committed by pull request; grouped by major.minor) and
  * release-notes.md (ephemeral CI artifact; passed to `gh release create
  * --notes-file`). Runs offline with zero deps; only shells out to `git`.
  *

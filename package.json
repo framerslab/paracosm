@@ -90,7 +90,7 @@
     "@framers/agentos": "^0.15.58",
     "@framers/sql-storage-adapter": "^0.8.3",
     "better-sqlite3": "^12.11.1",
-    "resend": "^6.32.1",
+    "resend": "^6.35.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

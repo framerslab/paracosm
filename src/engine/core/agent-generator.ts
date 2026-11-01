@@ -114,11 +114,18 @@ export function agentIdKeys(id: string): [string, string] {
   return [bare, untitled.join('')];
 }
 
+/**
+ * Build a run's roster: the key personnel, then generated people up to
+ * `totalPopulation`. With `departments`, the generated people work in
+ * those departments under their labels. Without them they come from
+ * Mars Genesis's own trades (DEPARTMENT_DISTRIBUTION, SPECIALIZATIONS).
+ */
 export function generateInitialPopulation(
   seed: number,
   startTime: number,
   keyPersonnel: KeyPersonnel[],
   totalPopulation: number = 100,
+  departments?: ReadonlyArray<{ id: Department; label: string }>,
 ): Agent[] {
   const rng = new SeededRng(seed);
   const colonists: Agent[] = [];
@@ -146,8 +153,9 @@ export function generateInitialPopulation(
     } while (usedNames.has(name));
     usedNames.add(name);
 
-    const dept = rng.pick(DEPARTMENT_DISTRIBUTION);
-    const spec = rng.pick(SPECIALIZATIONS[dept]);
+    const own = departments ? rng.pick(departments) : undefined;
+    const dept = own ? own.id : rng.pick(DEPARTMENT_DISTRIBUTION);
+    const spec = own ? own.label || own.id : rng.pick(SPECIALIZATIONS[dept]);
     const age = rng.int(25, 55);
     const rank = age > 40 ? (rng.chance(0.3) ? 'lead' : 'senior') : (rng.chance(0.2) ? 'senior' : 'junior');
 

@@ -84,6 +84,6 @@ Never commit API keys or tokens; keep `.env` out of commits (`.env.example` is t
 ## Do not
 
 - Edit `dist/`, `docs/api/` or `src/dashboard/dist/`, or commit build output.
-- Edit `CHANGELOG.md` by hand; the publish job regenerates it.
+- Edit `CHANGELOG.md` by hand; `npm run changelog` generates it.
 - Add scripts or data files at the repository root that are not part of the package.
 - Change `deploy.yml` without a maintainer.

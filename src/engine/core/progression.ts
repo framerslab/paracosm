@@ -430,9 +430,9 @@ export function progressBetweenTurns(
     const child: Agent = {
       core: { id: childId, name: childName, birthTime: time, marsborn: true, department: 'science', role: 'Child' },
       health: { alive: true, boneDensityPct: 88, cumulativeRadiationMsv: 0, psychScore: 0.9, conditions: [] },
-      career: { specialization: 'Undetermined', yearsExperience: 0, rank: 'junior', achievements: ['Born on Mars'] },
+      career: { specialization: 'Undetermined', yearsExperience: 0, rank: 'junior', achievements: ['Born in the settlement'] },
       social: { childrenIds: [], friendIds: [], earthContacts: 0 },
-      narrative: { lifeEvents: [{ time, event: `Born on Mars to ${p1.core.name} and ${p2.core.name}`, source: 'kernel' }], featured: false },
+      narrative: { lifeEvents: [{ time, event: `Born to ${p1.core.name} and ${p2.core.name}`, source: 'kernel' }], featured: false },
       hexaco: childHexaco,
       hexacoHistory: [{ turn, time, hexaco: { ...childHexaco } }],
       memory: { shortTerm: [], longTerm: [], stances: {}, relationships: {} },
