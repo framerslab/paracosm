@@ -209,6 +209,13 @@ export interface CreateMarsServerOptions {
  */
 export interface StartConfigHooks {
   /**
+   * The scenario the config was normalized for. /setup captures it before
+   * its awaits, so a /scenario/switch during them cannot pair one
+   * scenario's values with another's world and hooks. Absent: the active
+   * scenario.
+   */
+  scenario?: ScenarioPackage;
+  /**
    * Fired once per completed leader artifact. Failures inside the hook
    * are caught and logged by the runner; they do not abort the run.
    */
@@ -2660,7 +2667,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // personnel). The Quickstart tab posts only the leaders, turns
         // and seed, so without the scenario here an Atlas Lab run
         // started at "Month 2035" with the Mars colonists.
-        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, activeScenario);
+        const runScenario = activeScenario;
+        const runScenarioSeedText = activeScenarioSeedText;
+        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.
@@ -2670,7 +2679,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           const forkValidation = validateForkSetupPreconditions({
             parentArtifact,
             atTurn: forkTurn,
-            activeScenarioId: activeScenario.id,
+            activeScenarioId: runScenario.id,
             activeRunInProgress: simRunning && !!activeSimAbortController,
           });
           if (!forkValidation.ok) {
@@ -2730,8 +2739,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const { generateBundleId } = await import('./services/bundle-id.js');
         const bundleId = launchConfig.actors.length >= 2 ? generateBundleId() : undefined;
         const runRecord = createRunRecord({
-          scenarioId: activeScenario.id,
-          scenarioVersion: activeScenario.version,
+          scenarioId: runScenario.id,
+          scenarioVersion: runScenario.version,
           actorConfigHash: hashActorConfig({
             actors: launchConfig.actors,
             turns: launchConfig.turns,
@@ -2802,29 +2811,29 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // immediately which scenario is active vs what's in their
         // editor.
         broadcast('active_scenario', {
-          id: activeScenario.id,
-          name: activeScenario.labels?.name ?? activeScenario.id,
-          settlementNoun: activeScenario.labels?.settlementNoun,
-          populationNoun: activeScenario.labels?.populationNoun,
-          departments: activeScenario.departments?.length ?? 0,
+          id: runScenario.id,
+          name: runScenario.labels?.name ?? runScenario.id,
+          settlementNoun: runScenario.labels?.settlementNoun,
+          populationNoun: runScenario.labels?.populationNoun,
+          departments: runScenario.departments?.length ?? 0,
           // Carry the original seed prompt through when the run came
           // out of compile-from-seed; null for built-in scenarios.
-          seedText: activeScenarioSeedText,
+          seedText: runScenarioSeedText,
         });
-        console.log(`  Running scenario: "${activeScenario.labels?.name ?? activeScenario.id}" (${activeScenario.id})`);
+        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
 
         // launchConfig was captured above (right after applyDemoCaps)
         // so it stays non-null even if a concurrent /clear nulls out
         // the closure-level simConfig during one of the awaits.
-        marsServer.startWithConfig(launchConfig, { onArtifact: onArtifactPersist }).catch((error) => {
+        marsServer.startWithConfig(launchConfig, { scenario: runScenario, onArtifact: onArtifactPersist }).catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           redirect: '/sim',
-          scenarioId: activeScenario.id,
-          scenarioName: activeScenario.labels?.name,
+          scenarioId: runScenario.id,
+          scenarioName: runScenario.labels?.name,
           run: {
             id: runRecord.runId,
             sourceMode: runRecord.sourceMode,
@@ -3365,8 +3374,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // started, breaking the disconnect watchdog's abort path.
       const controller = new AbortController();
       activeSimAbortController = controller;
+      const runScenario = hooks?.scenario ?? activeScenario;
       try {
-        // Thread the currently-active scenario through to the pair
+        // Thread the run's scenario through to the pair
         // runner. Without this the runner defaults to Mars regardless
         // of which scenario the user compiled, so the page title would
         // show the custom name but the simulation would run Mars
@@ -3374,13 +3384,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // runForkSimulation instead of the pair runner when the
         // config carries a forkFrom reference.
         if (config.forkFrom) {
-          await runForkSimulation(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await runForkSimulation(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else if (config.actors.length >= 3) {
           // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
           // runner (same SSE contract per leader, no verdict).
-          await runBatchSimulations(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await runBatchSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else {
-          await startSimulations(config, broadcast, controller.signal, activeScenario, hooks?.onArtifact);
+          await startSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         }
       } finally {
         disarmDisconnectWatchdog();

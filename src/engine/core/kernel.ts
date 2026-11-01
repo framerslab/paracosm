@@ -97,7 +97,13 @@ export class SimulationKernel {
   constructor(seed: number, leaderId: string, keyPersonnel: KeyPersonnel[], init: SimulationInitOverrides = {}) {
     this.rng = new SeededRng(seed);
     const startTime = init.startTime ?? 2035;
-    const agents = generateInitialPopulation(seed, startTime, keyPersonnel, init.initialPopulation ?? 100);
+    // Mars Genesis's roster is the generator's own distribution, trades
+    // beyond its five declared departments included. Any other scenario's
+    // people work in the departments it declares.
+    const rosterDepartments = init.scenario && init.scenario.id !== 'mars-genesis' && init.scenario.departments?.length
+      ? init.scenario.departments
+      : undefined;
+    const agents = generateInitialPopulation(seed, startTime, keyPersonnel, init.initialPopulation ?? 100, rosterDepartments);
 
     // Layer sources: Mars-heritage defaults → scenario declarations →
     // caller overlays (last writer wins). Scenario declarations flow
@@ -329,7 +335,10 @@ export class SimulationKernel {
         score: Object.entries(activation).reduce((s, [trait, target]) =>
           s + (1 - Math.abs((c.hexaco as any)[trait] - (target as number))), 0),
       }))
-      .sort((a, b) => b.score - a.score)
+      // Equal scores (a department the trait table does not know scores
+      // everyone 0) go to the department's own people first.
+      .sort((a, b) => b.score - a.score
+        || Number(b.colonist.core.department === dept) - Number(a.colonist.core.department === dept))
       .slice(0, topN)
       .map(x => x.colonist);
   }

@@ -468,8 +468,9 @@ function normalizeCustomEvents(
 
 /**
  * The departments the run keeps active, in the scenario's own order.
- * With none requested, all of the scenario's departments; otherwise the
- * requested ones the scenario declares, plus medical and engineering
+ * With none requested, or none the scenario declares, all of the
+ * scenario's departments; otherwise the requested ones it declares, plus
+ * medical and engineering
  * whenever the scenario declares them (the Mars Genesis rule, kept for
  * the scenarios that have those departments). The orchestrator runs an
  * event's departments only when they are active, so a list from another
@@ -485,10 +486,12 @@ function normalizeActiveDepartments(
   }
 
   const active = new Set<Department>();
-  for (const dept of ['medical', 'engineering']) {
+  for (const dept of input) {
     if (declared.includes(dept)) active.add(dept);
   }
-  for (const dept of input) {
+  // A list from another scenario names none of this one's departments.
+  if (active.size === 0) return declared;
+  for (const dept of ['medical', 'engineering']) {
     if (declared.includes(dept)) active.add(dept);
   }
 
@@ -597,6 +600,32 @@ function suppliedStartingPolitics(
 }
 
 /**
+ * The timeline of the run a fork resumes, read from its per-turn kernel
+ * snapshots: the start time they carry and the time between turns. A
+ * fork's schedule has to continue from the snapshot's time, and a parent
+ * can have started anywhere: a saved run, a start time chosen in
+ * Settings. The parent is not validated yet when this runs (the fork
+ * validator does that next), so a field that is not a number is left out.
+ */
+function forkParentTimeline(
+  forkFrom: SimulationSetupPayload['forkFrom'],
+): { startTime?: number; timePerTurn?: number } {
+  const snapshots = (forkFrom?.parentArtifact?.scenarioExtensions as { kernelSnapshotsPerTurn?: unknown } | undefined)
+    ?.kernelSnapshotsPerTurn;
+  if (!Array.isArray(snapshots)) return {};
+  const ticks = (snapshots as Array<{ turn?: unknown; time?: unknown; startTime?: unknown }>)
+    .filter((s): s is { turn: number; time: number; startTime?: unknown } => typeof s?.turn === 'number' && typeof s?.time === 'number')
+    .sort((a, b) => a.turn - b.turn);
+  const [first, second] = ticks;
+  if (!first) return {};
+  const startTime = typeof first.startTime === 'number' ? first.startTime : undefined;
+  const step = second
+    ? (second.time - first.time) / (second.turn - first.turn)
+    : startTime !== undefined && first.turn > 1 ? (first.time - startTime) / (first.turn - 1) : undefined;
+  return { startTime, timePerTurn: step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined };
+}
+
+/**
  * Turn a `/setup` payload into the config the runners take.
  *
  * Every setup value the payload omits comes from the scenario the run
@@ -607,6 +636,12 @@ function suppliedStartingPolitics(
  * the scenario's declarations stand for the rest. The server passes the
  * active scenario; with none given, the defaults are Mars Genesis's own,
  * read from `scenarios/mars.json`, which is what the CLI runs.
+ *
+ * A fork continues its parent: an omitted start time and time per turn
+ * come from the parent's snapshots, and omitted turns run the scenario's
+ * own count past the fork turn, since `turns` is the absolute final turn.
+ * A compiled or uploaded scenario can carry a partial setup, so the last
+ * fallback for each value is the engine's default.
  *
  * Before this took a scenario, an omitted field was filled with a Mars
  * value (start time 2035, population 100, the five Mars colonists), so
@@ -663,7 +698,9 @@ export function normalizeSimulationConfig(
     inferProviderFromModel(input.models?.judge) ??
     'openai';
   const { setup } = scenario;
-  const startTime = input.startTime ?? setup.defaultStartTime;
+  const forkTimeline = forkParentTimeline(input.forkFrom);
+  const startTime = input.startTime ?? forkTimeline.startTime ?? setup.defaultStartTime ?? 0;
+  const scenarioTurns = setup.defaultTurns ?? 12;
   const economics = resolveEconomicsProfile({
     profileId: input.economics?.profileId,
     provider: inferredProvider,
@@ -675,11 +712,11 @@ export function normalizeSimulationConfig(
   return {
     actors: input.actors,
     provider: inferredProvider,
-    turns: input.turns ?? setup.defaultTurns,
-    seed: input.seed ?? setup.defaultSeed,
+    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
-    timePerTurn: input.timePerTurn ?? setup.defaultTimePerTurn,
-    initialPopulation: input.population ?? setup.defaultPopulation,
+    timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
+    initialPopulation: input.population ?? setup.defaultPopulation ?? 100,
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
     activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),

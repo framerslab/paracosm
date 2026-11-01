@@ -11,8 +11,10 @@
  * @module paracosm/cli/dashboard/components/sim/RerunPanel
  */
 import { useCallback, useState } from 'react';
+import { useScenarioContext } from '../../App';
 import {
   buildNextRunConfig,
+  isLastLaunchFor,
   readKeyOverrides,
   readLastLaunchConfig,
   writeActiveRunActors,
@@ -30,14 +32,15 @@ interface RerunPanelProps {
 
 export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
+  const scenario = useScenarioContext();
 
   const handleClick = useCallback(async () => {
     if (launching) return;
     setLaunching(true);
     try {
       const prev = readLastLaunchConfig(window.localStorage);
-      if (!prev) {
-        alert('No previous launch config found. Run once from Settings first.');
+      if (!prev || !isLastLaunchFor(prev, scenario.id)) {
+        alert(`No previous launch config found for ${scenario.labels.name}. Run once from Settings first.`);
         return;
       }
       const overrides = readKeyOverrides(window.localStorage);
@@ -89,7 +92,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
     } finally {
       setLaunching(false);
     }
-  }, [launching]);
+  }, [launching, scenario.id, scenario.labels.name]);
 
   if (!enabled) return null;
 
