@@ -49,6 +49,20 @@ test('SimulationKernel respects initial population and starting resources', () =
   assert.equal(state.politics.earthDependencyPct, 70);
 });
 
+test('SimulationKernel: an empty key-personnel list builds the whole roster from the generator', () => {
+  // What a scenario that declares no personnel (atlas-lab.json) gets:
+  // the generator fills the population, nobody is featured until the
+  // commander promotes someone, and no Mars colonist is placed.
+  const kernel = new SimulationKernel(11, 'Marcus Reinhardt', [], { startTime: 1, initialPopulation: 30 });
+  const state = kernel.getState();
+
+  assert.equal(state.metadata.startTime, 1);
+  assert.equal(state.agents.length, 30);
+  assert.equal(state.metrics.population, 30);
+  assert.ok(state.agents.every(a => !a.narrative.featured));
+  assert.ok(!state.agents.some(a => a.core.name === 'Dr. Yuki Tanaka'));
+});
+
 test('SimulationKernel: initial state always has statuses and environment as empty objects when no scenario provided', () => {
   const kernel = new SimulationKernel(42, 'test-leader', []);
   const state = kernel.getState();
