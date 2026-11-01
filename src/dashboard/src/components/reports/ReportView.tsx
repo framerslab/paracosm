@@ -976,7 +976,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         <ForkModal
           parentArtifact={parentArtifact}
           atTurn={forkModalAtTurn}
-          maxTurns={parentArtifact.trajectory?.timepoints?.length ?? 6}
+          maxTurns={forkFinalTurn(parentArtifact)}
           costPreset="economy"
           provider="openai"
           onConfirm={handleForkConfirm}

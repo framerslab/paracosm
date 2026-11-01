@@ -125,15 +125,18 @@ function snapshotTurns(parent: ForkParent): number[] {
 }
 
 /**
- * The parent run's final turn: the turn count a fork posts to `/setup`
- * as `turns`. The trajectory's timepoints count it; without them the
- * last snapshot's turn, then 6.
+ * The parent run's final turn: the absolute turn a fork posts to
+ * `/setup` as `turns`. Snapshots carry absolute turn numbers, so the
+ * last snapshot's turn decides; the trajectory's timepoint count only
+ * when it is larger, then 6. A forked run's trajectory holds only the
+ * turns it ran (turns 4 to 6 of a fork at turn 3 give 3 timepoints), so
+ * the count alone put its final turn at 3.
  */
 export function forkFinalTurn(parent: ForkParent): number {
-  const points = parent.trajectory?.timepoints?.length;
-  if (points) return points;
+  const points = parent.trajectory?.timepoints?.length ?? 0;
   const turns = snapshotTurns(parent);
-  return turns.length ? Math.max(...turns) : 6;
+  const last = Math.max(points, ...turns);
+  return last > 0 ? last : 6;
 }
 
 /**

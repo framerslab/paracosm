@@ -149,6 +149,22 @@ Then set selectedOptionId, decision, and rationale. The rationale compresses the
 }
 
 /**
+ * The departments a run keeps, in the scenario's order: the requested
+ * ids the scenario declares, or every scenario department when the list
+ * is absent or names none of them (an empty list, or one written for
+ * another scenario). The promotions and the turn loop both read it, so
+ * the heads promoted are the departments that receive events.
+ */
+export function resolveActiveDepartments(
+  requested: readonly string[] | undefined,
+  departments: ReadonlyArray<{ id: string }>,
+): string[] {
+  const wanted = new Set(requested ?? []);
+  const kept = departments.filter(d => wanted.has(d.id)).map(d => d.id);
+  return kept.length ? kept : departments.map(d => d.id);
+}
+
+/**
  * Find the scenario department a model's department text means: the
  * exact id; else the id or the label with case and punctuation dropped
  * ("Alignment Research", "alignment-research"); else a short form, the
@@ -222,11 +238,8 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
   const { kernel, scenario, leader, startTime, sendToCommander, trackUsage, recordSchemaAttempt, emit } = args;
 
   console.log('  [Turn 0] Commander evaluating roster for promotions...');
-  // A list that names none of the scenario's departments keeps them all,
-  // as the turn loop does when no active department fits an event.
-  const active = new Set(args.activeDepartments ?? []);
-  const kept = scenario.departments.filter(d => active.has(d.id));
-  const departments = kept.length ? kept : scenario.departments;
+  const active = new Set(resolveActiveDepartments(args.activeDepartments, scenario.departments));
+  const departments = scenario.departments.filter(d => active.has(d.id));
   const promotionDepts: Department[] = departments.map(d => d.id as Department);
   const roleNames: Record<string, string> = Object.fromEntries(departments.map(d => [d.id, d.role]));
   const candidateSummaries = departments.map(d => {

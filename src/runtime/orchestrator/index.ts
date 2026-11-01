@@ -28,6 +28,7 @@ import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
+  resolveActiveDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
@@ -1028,7 +1029,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
   const effectRegistry = new EffectRegistry(sc.effects[0]?.categoryDefaults ?? {});
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
-  const activeDepartments = new Set<Department>(opts.activeDepartments ?? sc.departments.map(d => d.id));
+  const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
 
   // Track whether the run was cancelled by an external AbortSignal so
   // the final result object can carry an `aborted: true` flag and the
@@ -1256,8 +1257,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
       if (!depts.length) {
         // None of the event's departments is active: the first two the
         // run keeps answer it, since only those have heads and sessions.
-        const activeList = validDepts.filter(d => activeDepartments.has(d));
-        depts.push(...(activeList.length ? activeList : validDepts).slice(0, 2));
+        depts.push(...validDepts.filter(d => activeDepartments.has(d)).slice(0, 2));
       }
 
       // Snapshot per-dept bucket lengths BEFORE this event's parallel
