@@ -2711,6 +2711,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           );
         }
 
+        // `turns` is the absolute final turn, after the demo cap. A fork
+        // with none left would answer 200 here and fail in the runner.
+        if (simConfig.forkFrom && simConfig.turns <= simConfig.forkFrom.atTurn) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `A fork at turn ${simConfig.forkFrom.atTurn} has no turn left to run: this run ends at turn ${simConfig.turns}. Fork at an earlier turn.`,
+          }));
+          return;
+        }
+
         // Capture into a local non-null reference BEFORE the first
         // await. Earlier code only captured at the startWithConfig call
         // site (line ~2367), but every read of `simConfig` between the

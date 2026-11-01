@@ -2,6 +2,7 @@ import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { Department } from '../engine/core/state.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import { marsScenario } from '../engine/scenarios/index.js';
+import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
 import {
   resolveEconomicsProfile,
@@ -601,32 +602,40 @@ function suppliedStartingPolitics(
 
 /**
  * The timeline of the run a fork resumes, read from its per-turn kernel
- * snapshots: the start time they carry and the time between turns (0 for
- * the accelerating schedule, whose steps differ). A
- * fork's schedule has to continue from the snapshot's time, and a parent
- * can have started anywhere: a saved run, a start time chosen in
- * Settings. The parent is not validated yet when this runs (the fork
- * validator does that next), so a field that is not a number is left out.
+ * snapshots: the start time they carry and the step that puts every
+ * snapshot at the time it ran at. The scenario's own schedule comes first
+ * and is left to the caller's fallback, since a short segment can fit a
+ * fixed step and the accelerating schedule alike. Then a fixed step, then
+ * 0, which selects the accelerating schedule. A fork's schedule has to
+ * continue from the snapshot's time, and a parent can have started
+ * anywhere: a saved run, a start time chosen in Settings. The parent is
+ * not validated yet when this runs (the fork validator does that next),
+ * so a field that is not a number is left out.
  */
 function forkParentTimeline(
   forkFrom: SimulationSetupPayload['forkFrom'],
+  scenarioTimePerTurn: number | undefined,
 ): { startTime?: number; timePerTurn?: number } {
   const snapshots = (forkFrom?.parentArtifact?.scenarioExtensions as { kernelSnapshotsPerTurn?: unknown } | undefined)
     ?.kernelSnapshotsPerTurn;
   if (!Array.isArray(snapshots)) return {};
   const ticks = (snapshots as Array<{ turn?: unknown; time?: unknown; startTime?: unknown }>)
-    .filter((s): s is { turn: number; time: number; startTime?: unknown } => typeof s?.turn === 'number' && typeof s?.time === 'number')
+    .filter((s): s is { turn: number; time: number; startTime?: unknown } => typeof s?.turn === 'number' && s.turn >= 1 && typeof s?.time === 'number')
     .sort((a, b) => a.turn - b.turn);
   const [first, second] = ticks;
-  if (!first) return {};
-  const startTime = typeof first.startTime === 'number' ? first.startTime : undefined;
-  const steps = ticks.slice(1).map((tick, i) => (tick.time - ticks[i].time) / (tick.turn - ticks[i].turn));
-  // Steps that differ are the accelerating schedule, which 0 selects.
-  if (steps.some(step => step !== steps[0])) return { startTime, timePerTurn: 0 };
+  if (!first || typeof first.startTime !== 'number') return {};
+  const startTime = first.startTime;
+  const fits = (timePerTurn: number) => {
+    const schedule = buildTimeSchedule(startTime, ticks[ticks.length - 1].turn, timePerTurn);
+    return ticks.every(tick => Math.abs(schedule[tick.turn - 1] - tick.time) < 1e-6);
+  };
+  // The orchestrator's own default when a scenario declares no step.
+  if (fits(scenarioTimePerTurn ?? 1)) return { startTime };
   const step = second
-    ? steps[0]
-    : startTime !== undefined && first.turn > 1 ? (first.time - startTime) / (first.turn - 1) : undefined;
-  return { startTime, timePerTurn: step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined };
+    ? (second.time - first.time) / (second.turn - first.turn)
+    : first.turn > 1 ? (first.time - startTime) / (first.turn - 1) : undefined;
+  if (step !== undefined && Number.isFinite(step) && step > 0 && fits(step)) return { startTime, timePerTurn: step };
+  return { startTime, timePerTurn: 0 };
 }
 
 /**
@@ -645,7 +654,8 @@ function forkParentTimeline(
  * come from the parent's snapshots, and omitted turns run the scenario's
  * own count past the fork turn, since `turns` is the absolute final turn.
  * A compiled or uploaded scenario can carry a partial setup, so the last
- * fallback for each value is the engine's default.
+ * fallback for each value is the engine's default. An omitted population
+ * is at least one person per department.
  *
  * Before this took a scenario, an omitted field was filled with a Mars
  * value (start time 2035, population 100, the five Mars colonists), so
@@ -702,7 +712,7 @@ export function normalizeSimulationConfig(
     inferProviderFromModel(input.models?.judge) ??
     'openai';
   const { setup } = scenario;
-  const forkTimeline = forkParentTimeline(input.forkFrom);
+  const forkTimeline = forkParentTimeline(input.forkFrom, setup.defaultTimePerTurn);
   const startTime = input.startTime ?? forkTimeline.startTime ?? setup.defaultStartTime ?? 0;
   const scenarioTurns = setup.defaultTurns ?? 12;
   const economics = resolveEconomicsProfile({
@@ -720,7 +730,10 @@ export function normalizeSimulationConfig(
     seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
     timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
-    initialPopulation: input.population ?? setup.defaultPopulation ?? 100,
+    // Each person heads at most one department, so a roster smaller than
+    // the department list leaves the rest without a report. A population
+    // the body names stays the person's own choice.
+    initialPopulation: input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length),
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
     activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),
