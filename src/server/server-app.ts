@@ -2617,6 +2617,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           forkFrom?: unknown;
         };
 
+        // The active scenario supplies every setup value the body omits
+        // (start time, time per turn, population, seed, turns, key
+        // personnel). The Quickstart tab posts only the leaders, turns
+        // and seed, so without the scenario here an Atlas Lab run
+        // started at "Month 2035" with the Mars colonists.
+        const runScenario = activeScenario;
+        const runScenarioSeedText = activeScenarioSeedText;
+        // The active scenario is the server's, so another page can move it
+        // while this one still holds the old one. Its leaders and setup
+        // values would then run in the other scenario's world.
+        const bodyScenarioId = config.scenarioId ?? (config.quickstart as { scenarioId?: unknown } | undefined)?.scenarioId;
+        if (typeof bodyScenarioId === 'string' && bodyScenarioId !== runScenario.id) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `This page was set up for ${bodyScenarioId}, and the server has moved to ${runScenario.labels?.name ?? runScenario.id}. Reload the page and run again.`,
+          }));
+          return;
+        }
+        // The check above comes before the rate limit, so the run the page
+        // is told to start again after a reload is not refused as a second
+        // run of the day.
+
         // Rate limit check: bypass when user provides real API keys.
         const requestCredentials = {
           apiKey: normalizeCredential(config.apiKey),
@@ -2662,24 +2684,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
 
-        // The active scenario supplies every setup value the body omits
-        // (start time, time per turn, population, seed, turns, key
-        // personnel). The Quickstart tab posts only the leaders, turns
-        // and seed, so without the scenario here an Atlas Lab run
-        // started at "Month 2035" with the Mars colonists.
-        const runScenario = activeScenario;
-        const runScenarioSeedText = activeScenarioSeedText;
-        // The active scenario is the server's, so another page can move it
-        // while this one still holds the old one. Its leaders and setup
-        // values would then run in the other scenario's world.
-        const bodyScenarioId = config.scenarioId ?? (config.quickstart as { scenarioId?: unknown } | undefined)?.scenarioId;
-        if (typeof bodyScenarioId === 'string' && bodyScenarioId !== runScenario.id) {
-          res.writeHead(409, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: `This page was set up for ${bodyScenarioId}, and the server has moved to ${runScenario.labels?.name ?? runScenario.id}. Reload the page and run again.`,
-          }));
-          return;
-        }
         simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied

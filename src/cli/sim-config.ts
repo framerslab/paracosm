@@ -615,8 +615,16 @@ function suppliedStartingPolitics(
  * continue from the snapshot's time, and a parent can have started
  * anywhere: a saved run, a start time chosen in Settings. The parent is
  * not validated yet when this runs (the fork validator does that next),
- * so a field that is not a number is left out.
+ * so a field that is not a number, a turn that is not whole and a turn
+ * above MAX_FORK_SNAPSHOT_TURN are left out.
  */
+/**
+ * The highest snapshot turn forkParentTimeline reads, well above any real
+ * run's length. The step check builds one schedule entry per turn up to
+ * the last snapshot's turn, before the fork validator has seen the body.
+ */
+const MAX_FORK_SNAPSHOT_TURN = 10_000;
+
 function forkParentTimeline(
   forkFrom: SimulationSetupPayload['forkFrom'],
   scenarioTimePerTurn: number | undefined,
@@ -625,7 +633,9 @@ function forkParentTimeline(
     ?.kernelSnapshotsPerTurn;
   if (!Array.isArray(snapshots)) return {};
   const ticks = (snapshots as Array<{ turn?: unknown; time?: unknown; startTime?: unknown }>)
-    .filter((s): s is { turn: number; time: number; startTime?: unknown } => typeof s?.turn === 'number' && s.turn >= 1 && typeof s?.time === 'number')
+    .filter((s): s is { turn: number; time: number; startTime?: unknown } =>
+      typeof s?.turn === 'number' && Number.isInteger(s.turn) && s.turn >= 1 && s.turn <= MAX_FORK_SNAPSHOT_TURN
+      && typeof s?.time === 'number')
     .sort((a, b) => a.turn - b.turn);
   const [first, second] = ticks;
   if (!first || typeof first.startTime !== 'number') return {};

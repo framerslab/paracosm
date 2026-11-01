@@ -458,7 +458,7 @@ Two surfaces:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments; a setup value the body omits (start time, time per turn, population, seed, turns, key personnel) comes from the active scenario, an omitted population being at least one person per department; a fork's omitted start time and time per turn come from its parent's snapshots, a fork with no turn left answers 400, and a body naming another scenario than the active one answers 409 |
+| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments; a setup value the body omits (start time, time per turn, population, seed, turns, key personnel) comes from the active scenario, an omitted population being at least one person per department; a fork's omitted start time and time per turn come from its parent's snapshots, a fork with no turn left answers 400, and a body naming another scenario than the active one answers 409 before the daily run limit counts it; a parent snapshot at a turn that is not whole or is above 10,000 gives no timeline |
 | `GET` | `/events` | SSE stream of simulation events (`systems_snapshot` carries the swarm) |
 | `POST` | `/clear` | Clear simulation state and chat agent pool |
 | `POST` | `/chat` | Chat with a colonist agent |

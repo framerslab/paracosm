@@ -340,6 +340,9 @@ test('a fork reads no timeline from a parent snapshot at a turn no run reaches o
   assert.equal(farTurn.startTime, 1);
   const halfTurn = normalizeSimulationConfig(forkBody(parentArtifact(2035, [2035], 1.5), 1), labPackage);
   assert.equal(halfTurn.startTime, 1);
+  // The input the review named, which before the cap ran out of memory.
+  const billionth = normalizeSimulationConfig(forkBody(parentArtifact(0, [0], 1e9), 1), labPackage);
+  assert.equal(billionth.startTime, 1);
 });
 
 test('a fork that omits turns runs past its fork turn', () => {
