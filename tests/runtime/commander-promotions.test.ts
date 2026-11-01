@@ -142,3 +142,110 @@ test('names in another alphabet, and names that differ only by an accent, keep t
     assert.equal(heads.length, 1, `${d.id} heads: ${JSON.stringify(heads)}`);
   }
 });
+
+/**
+ * The live Atlas Lab pair of 1 November 2026 (run_b535e0f2): one
+ * commander named departments by label ("Alignment Research"), the other
+ * by a short form ("alignment"). promoteAgent wrote that text into the
+ * head's department, so the head left its real department, the fallback
+ * found no head there and promoted a second one: 10 heads for 5
+ * departments. Ids that named nobody ("col-s-erna-??") failed as well.
+ */
+async function promoteWithPrompt(
+  kernel: SimulationKernel,
+  promotions: Array<{ agentId: string; department: string; role: string }>,
+  activeDepartments?: string[],
+) {
+  const prompts: string[] = [];
+  const logs: string[] = [];
+  const realLog = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  try {
+    await runDepartmentPromotions({
+      kernel,
+      scenario: atlasLab,
+      leader,
+      startTime: 1,
+      ...(activeDepartments ? { activeDepartments } : {}),
+      sendToCommander: async (prompt: string) => {
+        prompts.push(prompt);
+        return { text: JSON.stringify({ promotions: promotions.map(p => ({ ...p, reason: 'test pick' })) }) };
+      },
+      trackUsage: () => {},
+      emit: () => {},
+    } as Parameters<typeof runDepartmentPromotions>[0]);
+  } finally {
+    console.log = realLog;
+  }
+  return { prompts, logs };
+}
+
+test('departments named by label or short form reach the scenario department; unknown ones are refused; each department ends with one head', async () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', [
+    ...keyPersonnel,
+    { name: 'Ada Brandt', department: 'capability_research', role: 'Researcher', specialization: 'Scaling', age: 35, featured: false },
+    { name: 'Ken Ito', department: 'deployment_engineering', role: 'Engineer', specialization: 'Infrastructure', age: 33, featured: false },
+  ], { startTime: 1, initialPopulation: 24 });
+  const id = (name: string) => kernel.getState().agents.find(a => a.core.name === name)!.core.id;
+
+  const { prompts, logs } = await promoteWithPrompt(kernel, [
+    { agentId: id('Dr. Priya Singh'), department: 'Alignment Research', role: 'Director of Alignment' },
+    { agentId: id('Ada Brandt'), department: 'capability', role: 'Director of Capability' },
+    { agentId: id('Dr. Yuki Tanaka'), department: 'governance', role: 'Chief Policy Officer' },
+    // A second head for a department that already has one.
+    { agentId: id('Ken Ito'), department: 'Governance', role: 'Deputy Policy Officer' },
+    // A department the scenario does not have.
+    { agentId: id('Ken Ito'), department: 'Marketing', role: 'Head of Marketing' },
+    // An id that names nobody, as the live run returned.
+    { agentId: 'col-s-erna-??', department: 'communications', role: 'Head of Comms' },
+  ]);
+
+  const state = kernel.getState();
+  const deptIds = atlasLab.departments.map(d => d.id);
+  for (const d of deptIds) {
+    const heads = state.agents.filter(a => a.promotion?.department === d).map(a => a.core.name);
+    assert.equal(heads.length, 1, `${d} heads: ${JSON.stringify(heads)}; logs: ${logs.join(' | ')}`);
+  }
+  assert.equal(state.agents.filter(a => a.promotion).length, deptIds.length);
+  // No head is moved out of the scenario's departments.
+  for (const a of state.agents.filter(a => a.promotion)) {
+    assert.ok(deptIds.includes(a.core.department), `${a.core.name} moved to ${a.core.department}`);
+    assert.equal(a.core.department, a.promotion!.department);
+  }
+  // The label and the short form reached the commander's picks.
+  assert.equal(state.agents.find(a => a.core.name === 'Dr. Priya Singh')!.promotion?.department, 'alignment_research');
+  assert.equal(state.agents.find(a => a.core.name === 'Ada Brandt')!.promotion?.department, 'capability_research');
+  assert.equal(state.agents.find(a => a.core.name === 'Dr. Yuki Tanaka')!.promotion?.role, 'Chief Policy Officer');
+  assert.notEqual(state.agents.find(a => a.core.name === 'Ken Ito')!.promotion?.role, 'Deputy Policy Officer');
+  assert.notEqual(state.agents.find(a => a.core.name === 'Ken Ito')!.promotion?.role, 'Head of Marketing');
+  // Each refusal is one log line.
+  assert.equal(logs.filter(l => l.includes('Marketing')).length, 1, `logs: ${logs.join(' | ')}`);
+  assert.equal(logs.filter(l => l.includes('col-s-erna-??')).length, 1, `logs: ${logs.join(' | ')}`);
+
+  // The prompt is the lab's own: its departments by id and label, its
+  // population noun, a count from its departments, no Mars example.
+  const prompt = prompts[0];
+  assert.ok(prompt, 'no prompt sent');
+  for (const d of atlasLab.departments) {
+    assert.ok(prompt.includes(d.id), `prompt lacks ${d.id}`);
+    assert.ok(prompt.includes(d.label), `prompt lacks ${d.label}`);
+  }
+  assert.match(prompt, /promote 5 researchers/);
+  assert.doesNotMatch(prompt, /colonist/i);
+  assert.doesNotMatch(prompt, /medical/i);
+});
+
+test('promotions fill only the departments the run keeps active', async () => {
+  // The hosted demo keeps three departments; the commander and the
+  // fallback promoted heads for all five, and the run reported 10 heads.
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24 });
+  const active = ['alignment_research', 'capability_research', 'governance'];
+  const { prompts } = await promoteWithPrompt(kernel, [
+    { agentId: kernel.getState().agents.find(a => a.core.name === 'Dr. Priya Singh')!.core.id, department: 'alignment_research', role: 'Director of Alignment' },
+  ], active);
+
+  const heads = kernel.getState().agents.filter(a => a.promotion).map(a => a.promotion!.department);
+  assert.deepEqual(heads.sort(), [...active].sort());
+  assert.match(prompts[0], /promote 3 researchers/);
+  assert.doesNotMatch(prompts[0], /deployment_engineering|communications/);
+});
