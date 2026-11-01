@@ -122,3 +122,16 @@ test('canForkAtTurn: no fork at the run\'s last turn, where nothing is left to r
   assert.equal(forkFinalTurn({ scenarioExtensions: parent.scenarioExtensions }), 6);
   assert.equal(canForkAtTurn({ scenarioExtensions: parent.scenarioExtensions }, 6), false);
 });
+
+test('forkFinalTurn: a forked run counts its turns from its snapshots', () => {
+  // A run forked at turn 3 of 6 holds timepoints for turns 4 to 6 only,
+  // while its snapshots keep the absolute turns.
+  const child = {
+    trajectory: { timepoints: [4, 5, 6].map(t => ({ t })) },
+    scenarioExtensions: { kernelSnapshotsPerTurn: [4, 5, 6].map(turn => ({ turn })) },
+  };
+  assert.equal(forkFinalTurn(child), 6);
+  assert.equal(canForkAtTurn(child, 4), true);
+  assert.equal(canForkAtTurn(child, 5), true);
+  assert.equal(canForkAtTurn(child, 6), false);
+});

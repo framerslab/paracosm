@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import type { KeyPersonnel } from '../../src/engine/core/agent-generator.js';
-import { runDepartmentPromotions } from '../../src/runtime/orchestrator/commander-setup.js';
+import { resolveActiveDepartments, runDepartmentPromotions } from '../../src/runtime/orchestrator/commander-setup.js';
 import type { ActorConfig, ScenarioPackage } from '../../src/engine/types.js';
 
 const atlasLab = JSON.parse(
@@ -248,4 +248,24 @@ test('promotions fill only the departments the run keeps active', async () => {
   assert.deepEqual(heads.sort(), [...active].sort());
   assert.match(prompts[0], /promote 3 researchers/);
   assert.doesNotMatch(prompts[0], /deployment_engineering|communications/);
+});
+
+test('an active list that names none of the scenario\'s departments keeps them all, for promotions and the turn loop alike', async () => {
+  // The turn loop and the promotions read the same list. With an empty
+  // list, or one from another scenario, the promotions filled every
+  // department while the turn loop sent events to the first two only.
+  const all = atlasLab.departments.map(d => d.id);
+  assert.deepEqual(resolveActiveDepartments(undefined, atlasLab.departments), all);
+  assert.deepEqual(resolveActiveDepartments([], atlasLab.departments), all);
+  assert.deepEqual(resolveActiveDepartments(['medical', 'engineering'], atlasLab.departments), all);
+  // A list in another order comes back in the scenario's order.
+  assert.deepEqual(
+    resolveActiveDepartments(['governance', 'medical', 'alignment_research'], atlasLab.departments),
+    ['alignment_research', 'governance'],
+  );
+
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24, scenario: atlasLab });
+  await promoteWithPrompt(kernel, [], ['medical']);
+  const heads = kernel.getState().agents.filter(a => a.promotion).map(a => a.promotion!.department);
+  assert.deepEqual(heads.sort(), [...all].sort());
 });
