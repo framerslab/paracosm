@@ -106,6 +106,11 @@ export interface SimulationSetupPayload {
    */
   captureSnapshots?: boolean;
   /**
+   * The scenario this body was written for. `/setup` refuses a body whose
+   * scenario is no longer the active one (`quickstart.scenarioId` as well).
+   */
+  scenarioId?: string;
+  /**
    * Optional Quickstart metadata. When present, the run is a quickstart
    * session: leaders were LLM-generated from a seed, and the dashboard
    * routes the completion to the Quickstart tab instead of the Reports

@@ -2669,6 +2669,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // started at "Month 2035" with the Mars colonists.
         const runScenario = activeScenario;
         const runScenarioSeedText = activeScenarioSeedText;
+        // The active scenario is the server's, so another page can move it
+        // while this one still holds the old one. Its leaders and setup
+        // values would then run in the other scenario's world.
+        const bodyScenarioId = config.scenarioId ?? (config.quickstart as { scenarioId?: unknown } | undefined)?.scenarioId;
+        if (typeof bodyScenarioId === 'string' && bodyScenarioId !== runScenario.id) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `This page was set up for ${bodyScenarioId}, and the server has moved to ${runScenario.labels?.name ?? runScenario.id}. Reload the page and run again.`,
+          }));
+          return;
+        }
         simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied

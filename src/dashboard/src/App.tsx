@@ -836,6 +836,7 @@ function AppContent() {
           startTime: scenario.setup.defaultStartTime,
           population: scenario.setup.defaultPopulation,
           activeDepartments: scenario.departments.map(d => d.id),
+          scenarioId: scenario.id,
           // Tier 2 Spec 2B: always capture kernel snapshots on
           // UI-initiated runs so the Reports tab's "Fork at turn N"
           // button is enabled by default.
