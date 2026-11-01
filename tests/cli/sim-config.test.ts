@@ -77,6 +77,7 @@ test('normalizeSimulationConfig takes omitted setup values and people from the s
   assert.equal(config.startTime, 2030);
   assert.equal(config.timePerTurn, undefined, 'lunar.json declares no defaultTimePerTurn; the orchestrator falls back to 1');
   assert.equal(config.initialPopulation, 50);
+  assert.deepEqual(config.activeDepartments, lunarScenario.departments.map(d => d.id));
   assert.deepEqual(
     config.keyPersonnel.map(p => [p.name, p.department]),
     [

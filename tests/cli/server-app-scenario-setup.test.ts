@@ -34,6 +34,7 @@ interface ScenarioJson {
     defaultTimePerTurn?: number;
     defaultPopulation: number;
   };
+  departments: Array<{ id: string }>;
   presets: Array<{
     id: string;
     leaders: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions: string }>;
@@ -119,6 +120,15 @@ test('POST /setup fills the omitted setup from the active scenario: Atlas Lab st
     }
     assert.deepEqual(lab.config.startingResources, {}, 'omitted resources are left to the engine and the scenario');
     assert.deepEqual(lab.config.startingPolitics, {}, 'omitted politics are left to the engine and the scenario');
+    // The orchestrator runs only the event's departments that are active;
+    // with Mars's list here a lab run never matched one and fell back to
+    // its first two departments on every event.
+    assert.deepEqual(
+      lab.config.activeDepartments,
+      atlasLab.departments.map(d => d.id),
+      'omitted activeDepartments are all of atlas-lab.json departments',
+    );
+    assert.ok(!lab.config.activeDepartments.includes('medical'));
 
     const back = await post('/scenario/switch', { id: mars.id });
     assert.equal(back.status, 200);
@@ -131,6 +141,7 @@ test('POST /setup fills the omitted setup from the active scenario: Atlas Lab st
     assert.equal(marsRun.config.timePerTurn, 8);
     assert.equal(marsRun.config.initialPopulation, 100);
     assert.deepEqual(marsRun.config.keyPersonnel.map(p => p.name), marsColonists);
+    assert.deepEqual(marsRun.config.activeDepartments, mars.departments.map(d => d.id));
   } finally {
     server.close();
     await once(server, 'close');
