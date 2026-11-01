@@ -87,25 +87,29 @@
       "id": "hba1c",
       "label": "HbA1c",
       "source": "metrics.hba1c",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "fastingGlucose",
       "label": "Fasting Glucose",
       "source": "metrics.fastingGlucose",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "weight",
       "label": "Weight",
       "source": "metrics.weight",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "bmi",
       "label": "BMI",
       "source": "metrics.bmi",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "exerciseAdherence",
@@ -129,7 +133,8 @@
       "id": "mortalityRisk",
       "label": "10-yr Mortality",
       "source": "metrics.mortalityRisk",
-      "format": "percent"
+      "format": "percent",
+      "better": "lower"
     },
     {
       "id": "cardioFitness",
@@ -141,7 +146,8 @@
       "id": "sideEffectBurden",
       "label": "Side-effect Load",
       "source": "metrics.sideEffectBurden",
-      "format": "percent"
+      "format": "percent",
+      "better": "lower"
     }
   ],
   "events": [

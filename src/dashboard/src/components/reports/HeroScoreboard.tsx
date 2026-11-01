@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import styles from './HeroScoreboard.module.scss';
-import { formatScenarioStat, scenarioStatRows, statLeader } from '../sim/verdict-stats';
+import { formatScenarioStat, scenarioStatLabel, scenarioStatRows, statLeader } from '../sim/verdict-stats';
 
 void React;
 
@@ -14,7 +14,9 @@ void React;
  *
  * When verdict is absent (sim still in progress) the stats block hides
  * and a one-line "simulation in progress" message takes its place. The
- * hero itself stays so the first fold is still a real summary.
+ * hero itself stays so the first fold is still a real summary. A cohort
+ * verdict renders nothing here: its `finalStats` is a per-actor list and
+ * the report's CohortVerdict section is its own view.
  *
  * @module paracosm/dashboard/reports/HeroScoreboard
  */
@@ -93,7 +95,9 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
     summary?: string;
     keyDivergence?: string;
     finalStats?: { a?: Partial<FinalStats>; b?: Partial<FinalStats>; metrics?: unknown };
+    mode?: string;
   } | null | undefined;
+  if (v?.mode === 'cohort') return null;
   const winnerName = v?.winnerName || '';
   const headline = v?.headline || v?.summary || '';
   const keyDivergence = v?.keyDivergence || '';
@@ -102,25 +106,25 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
   // One row shape for both sources: the scenario's header scores when
   // the verdict carries them, the fixed colony stats otherwise.
   const scenarioRows = scenarioStatRows(v?.finalStats);
-  const rows: Array<{ key: string; label: string; a: number; b: number; text: (n: number) => string; better?: 'higher' | 'lower' }> = finalA && finalB
+  const rows: Array<{ key: string; label: string; a: number | undefined; b: number | undefined; text: (n: number | undefined) => string; better?: 'higher' | 'lower' }> = finalA && finalB
     ? scenarioRows
       ? [
           ...scenarioRows.map(r => ({
             key: r.id,
-            label: r.label,
-            a: Number(r.a ?? 0),
-            b: Number(r.b ?? 0),
-            text: (n: number) => formatScenarioStat(n, r.format),
+            label: scenarioStatLabel(r),
+            a: r.a,
+            b: r.b,
+            text: (n: number | undefined) => formatScenarioStat(n, r.format, r.currency),
             better: r.better,
           })),
-          { key: 'tools', label: 'Tools Forged', a: Number(finalA.tools ?? 0), b: Number(finalB.tools ?? 0), text: (n: number) => fmt(n, 'int') },
+          { key: 'tools', label: 'Tools Forged', a: Number(finalA.tools ?? 0), b: Number(finalB.tools ?? 0), text: (n: number | undefined) => fmt(n ?? 0, 'int') },
         ]
       : STAT_ROWS.map(row => ({
           key: row.key,
           label: row.label,
           a: Number(finalA[row.key] ?? 0),
           b: Number(finalB[row.key] ?? 0),
-          text: (n: number) => fmt(n, row.format),
+          text: (n: number | undefined) => fmt(n ?? 0, row.format),
         }))
     : [];
 
@@ -172,7 +176,7 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
                     {row.text(b)}
                   </span>
                 </div>
-                <StatBar a={a} b={b} winner={winner} />
+                <StatBar a={a ?? 0} b={b ?? 0} winner={winner} />
               </div>
             );
           })}

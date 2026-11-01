@@ -168,7 +168,11 @@ export interface DepartmentDefinition {
 export interface MetricDefinition {
   id: string;
   label: string;
-  /** Path into the world snapshot, e.g. `metrics.population`. */
+  /**
+   * Path into the world snapshot, e.g. `metrics.population`. A
+   * seed-compiled draft declares only id and format; readers fall back
+   * to `metrics.<id>`.
+   */
   source: string;
   format: 'number' | 'percent' | 'currency' | 'duration';
   /**

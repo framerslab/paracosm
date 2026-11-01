@@ -125,7 +125,8 @@
       "id": "burnRate",
       "label": "Monthly Burn",
       "source": "metrics.burnRate",
-      "format": "number"
+      "format": "number",
+      "better": "lower"
     },
     {
       "id": "runwayMonths",

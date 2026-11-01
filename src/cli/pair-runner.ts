@@ -13,6 +13,7 @@ import {
   formatStateTable,
   scenarioScoreRows,
   verdictWords,
+  type ScoreRow,
   type VerdictWords,
 } from './verdict-scores.js';
 import type { ResolvedEconomicsProfile } from '../runtime/economics/economics-profile.js';
@@ -621,13 +622,25 @@ export interface VerdictCallOptions {
 
 const TOOL_TRADEOFF = 'Tool forging is a cost / capability tradeoff: every forged tool spent a judge LLM call and ate analyst attention; failed forges hurt morale and produced no reusable capability; successful tools let later decisions reason about concrete numbers. A leader who built few tools and reused them many times has a disciplined, cost-efficient signature. A leader who forged many novel tools has an exploratory signature with broader capability surface. Both are valid strategies and your scoring should reflect that trade, not punish either extreme.';
 
+/** How the card shows a score row: everything but the values. */
+function scoreRowDisplay(r: ScoreRow, words: VerdictWords) {
+  return {
+    id: r.id,
+    label: r.label,
+    format: r.format,
+    ...(r.better ? { better: r.better } : {}),
+    ...(r.unit ? { unit: r.unit } : {}),
+    ...(r.format === 'currency' && words.currency ? { currency: words.currency } : {}),
+  };
+}
+
 /** The opening and the score blocks both verdict prompts share. */
 function verdictContext(scenario: ScenarioPackage, runs: JudgedRun[], tags: string[]) {
   const words = verdictWords(scenario);
   const states = runs.map(r => r.result?.finalState);
   const rows = scenarioScoreRows(scenario, states);
   const stateRows = differingStateRows(scenario, states);
-  const intro = `You are judging runs of ${words.name}, a simulation of a ${words.settlement}.${words.tagline ? ` ${words.tagline}` : ''}`;
+  const intro = `You are judging runs of ${words.name}, a simulation of ${words.aSettlement}.${words.tagline ? ` ${words.tagline}` : ''}`;
   const scores = `${words.name.toUpperCase()} SCORES (each run's final value, ${tags.join(' | ')})\n${formatScoreTable(rows, tags, words)}`;
   const otherState = stateRows.length > 0
     ? `\n\nOTHER STATE THAT DIFFERS (${tags.join(' | ')})\n${formatStateTable(stateRows, tags)}`
@@ -636,16 +649,8 @@ function verdictContext(scenario: ScenarioPackage, runs: JudgedRun[], tags: stri
   return { words, rows, intro, scoreBlock: scores + otherState, mortality };
 }
 
-/**
- * Pair verdict: builds the judge request for two finished runs from the
- * scenario's own scores and words, calls the verdict model and
- * broadcasts `verdict` (or `verdict_skipped`). Errors from the model
- * call are logged, never thrown.
- */
-export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: JudgedRun }): Promise<void> {
-  const { credentials, verdictModel, turns, scenario, broadcast, a, b, generateObjectImpl } = opts;
-  const colA = a.result.finalState?.metrics;
-  const colB = b.result.finalState?.metrics;
+/** The judge request for two finished runs, with the words and rows the broadcast reuses. */
+function pairVerdictRequest(turns: number, scenario: ScenarioPackage, a: JudgedRun, b: JudgedRun) {
   const { words, rows, intro, scoreBlock, mortality } = verdictContext(scenario, [a, b], ['A', 'B']);
   const prompt = `${intro}
 
@@ -658,7 +663,7 @@ ${formatActorSummary('LEADER A', a.leader, a.result, words)}
 ${formatActorSummary('LEADER B', b.leader, b.result, words)}
 
 HOW TO DECIDE
-The scores above are how ${words.name} measures a ${words.settlement}; decide the winner on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. A leader who leads on most of the scores wins, even when each lead is small. A tie is only for outcomes that are the same on these scores; runs whose scores differ are never a tie on account of style, toolbox or cost.
+The scores above are how ${words.name} measures ${words.aSettlement}; decide the winner on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. A leader who leads on most of the scores wins, even when each lead is small. A tie is only for outcomes that are the same on these scores; runs whose scores differ are never a tie on account of style, toolbox or cost.
 
 TRADEOFFS TO WEIGH
 ${TOOL_TRADEOFF}
@@ -680,7 +685,22 @@ Then fill out:
   summary: 2-3 sentences naming the personality + tool-use pattern and the scores that decided it
   keyDivergence: the single most impactful difference between the two runs
   scores: { a: { survival, prosperity, morale, innovation }, b: { survival, prosperity, morale, innovation } }: each 0-10, where survival is how well the ${words.settlement} and its ${words.population} came through, prosperity is the standing on ${words.name}'s scores above, morale is the ${words.population}' morale and innovation is the tool signature`;
+  return { prompt, words, rows };
+}
+
+/**
+ * Pair verdict: builds the judge request for two finished runs from the
+ * scenario's own scores and words, calls the verdict model and
+ * broadcasts `verdict`, or `verdict_skipped` with the reason when the
+ * request or the model call fails. Never throws, so the run still
+ * reaches its `complete` event.
+ */
+export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: JudgedRun }): Promise<void> {
+  const { credentials, verdictModel, turns, scenario, broadcast, a, b, generateObjectImpl } = opts;
+  const colA = a.result.finalState?.metrics;
+  const colB = b.result.finalState?.metrics;
   try {
+    const { prompt, words, rows } = pairVerdictRequest(turns, scenario, a, b);
     const { object: verdict, fromFallback } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
@@ -712,10 +732,7 @@ Then fill out:
           // The scenario's header scores, in header order, for the
           // verdict card and the report scoreboard.
           metrics: cardRows(rows).map(r => ({
-            id: r.id,
-            label: r.label,
-            format: r.format,
-            ...(r.better ? { better: r.better } : {}),
+            ...scoreRowDisplay(r, words),
             a: r.values[0],
             b: r.values[1],
           })),
@@ -727,17 +744,16 @@ Then fill out:
     }
   } catch (verdictErr) {
     console.log('  Verdict generation failed:', verdictErr);
+    broadcast('verdict_skipped', {
+      mode: 'pair',
+      reason: 'generation_failed',
+      detail: verdictErr instanceof Error ? verdictErr.message : String(verdictErr),
+    });
   }
 }
 
-/**
- * Cohort verdict (three or more finished runs): builds the ranking
- * request from the scenario's own scores and words, calls the verdict
- * model and broadcasts `cohort_verdict` (or `verdict_skipped` with the
- * reason).
- */
-export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[] }): Promise<void> {
-  const { credentials, verdictModel, turns, scenario, broadcast, runs: cleanRuns, generateObjectImpl } = opts;
+/** The ranking request for a cohort's finished runs, with the words and rows the broadcast reuses. */
+function cohortVerdictRequest(turns: number, scenario: ScenarioPackage, cleanRuns: JudgedRun[]) {
   const tags = cleanRuns.map(({ index }) => `#${index + 1}`);
   const { words, rows, intro, scoreBlock, mortality } = verdictContext(scenario, cleanRuns, tags);
   const summaries = cleanRuns.map(({ leader, index, result }) =>
@@ -754,7 +770,7 @@ ACTOR SUMMARIES (in launch order):
 ${summaries}
 
 HOW TO RANK
-The scores above are how ${words.name} measures a ${words.settlement}; rank on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. An actor who leads another on most of the scores ranks above it, even when each lead is small; style, toolbox and cost break a ranking only between actors whose scores are the same.
+The scores above are how ${words.name} measures ${words.aSettlement}; rank on them. Where a line says which way is better, use it; where it does not, judge the direction from the score's name and the scenario. An actor who leads another on most of the scores ranks above it, even when each lead is small; style, toolbox and cost break a ranking only between actors whose scores are the same.
 
 TRADEOFFS TO WEIGH
 ${TOOL_TRADEOFF}
@@ -776,7 +792,20 @@ Then fill out:
   summary: 2-3 sentences naming the personality + tool-use pattern and the scores that put the winner ahead of the rest of the cohort
   keyDivergence: the single most impactful difference between the winner and the next-best actor
   rankings: every actor as a separate entry, with rank (1 = winner), actorName, actorIndex, scores { survival, prosperity, morale, innovation } each 0-10 (survival: how well the ${words.settlement} and its ${words.population} came through; prosperity: the standing on ${words.name}'s scores above), and a 1-2 sentence rationale specific to that actor`;
+  return { prompt, words, rows };
+}
+
+/**
+ * Cohort verdict (the clean runs of a batch): builds the ranking
+ * request from the scenario's own scores and words, calls the verdict
+ * model and broadcasts `cohort_verdict`, or `verdict_skipped` with the
+ * reason when the request or the model call fails. Never throws, so the
+ * run still reaches its `complete` event.
+ */
+export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[] }): Promise<void> {
+  const { credentials, verdictModel, turns, scenario, broadcast, runs: cleanRuns, generateObjectImpl } = opts;
   try {
+    const { prompt, words, rows } = cohortVerdictRequest(turns, scenario, cleanRuns);
     const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
@@ -824,10 +853,7 @@ Then fill out:
           science: result.finalState?.metrics?.scienceOutput,
           tools: result.totalToolsForged,
           metrics: cardRows(rows).map(r => ({
-            id: r.id,
-            label: r.label,
-            format: r.format,
-            ...(r.better ? { better: r.better } : {}),
+            ...scoreRowDisplay(r, words),
             value: r.values[i],
           })),
         })),

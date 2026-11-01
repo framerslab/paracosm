@@ -20,8 +20,11 @@ export interface ScoreRow {
   format: ScoreFormat;
   /** Which way is better, when the scenario declares it. */
   better?: 'higher' | 'lower';
+  /** The world field's unit, where it adds to the label (`kW`, `months`). */
+  unit?: string;
   /** True when the score is one of the scenario's `ui.headerMetrics`. */
   header: boolean;
+  /** Final values in run order; a `percent` score is a fraction (0.82 reads 82%). */
   values: Array<number | undefined>;
 }
 
@@ -37,13 +40,15 @@ export interface VerdictWords {
   name: string;
   tagline: string;
   settlement: string;
+  /** The settlement word with its article: "a lab", "an outpost". */
+  aSettlement: string;
   population: string;
   actors: string;
   eventSingular: string;
   currency: string;
 }
 
-type WorldBag = Record<string, { label?: string; unit?: string; type?: string } | undefined>;
+type WorldBag = Record<string, { label?: string; unit?: string; type?: string; initial?: unknown; max?: unknown } | undefined>;
 
 function worldBag(scenario: ScenarioPackage, bag: string): WorldBag {
   const world = (scenario.world ?? {}) as unknown as Record<string, WorldBag | undefined>;
@@ -70,55 +75,104 @@ function worldDef(scenario: ScenarioPackage, source: string) {
   return key ? worldBag(scenario, bag)[key] : undefined;
 }
 
+/** Units the label or the format already says, so the row does not repeat them. */
+const SILENT_UNITS = new Set(['', '%', 'frac', 'score', 'people']);
+
+type ScoreDef = { id: string; label?: string; source: string; format: ScoreFormat; better?: 'higher' | 'lower'; header: boolean };
+
+function declaredDirection(better: unknown): 'higher' | 'lower' | undefined {
+  return better === 'higher' || better === 'lower' ? better : undefined;
+}
+
+function isMetricDefinition(m: unknown): m is MetricDefinition {
+  return typeof m === 'object' && m !== null && typeof (m as MetricDefinition).id === 'string';
+}
+
+/**
+ * Whether a percent score holds 0 to 100 rather than a 0 to 1 fraction:
+ * the world field's declared ceiling says so (Hull Integrity declares
+ * max 100), then its starting value, then the values themselves.
+ */
+function holdsHundreds(def: ReturnType<typeof worldDef>, values: Array<number | undefined>): boolean {
+  const declared = [def?.max, def?.initial].find(v => typeof v === 'number') as number | undefined;
+  if (declared !== undefined) return declared > 1;
+  return values.some(v => v !== undefined && Math.abs(v) > 1);
+}
+
+function scoreRow(scenario: ScenarioPackage, d: ScoreDef, states: unknown[]): ScoreRow {
+  const def = worldDef(scenario, d.source);
+  const format: ScoreFormat = d.format === 'percent' || def?.unit === 'frac' ? 'percent' : d.format;
+  const raw = states.map(s => readNumber(s, d.source));
+  const values = format === 'percent' && holdsHundreds(def, raw)
+    ? raw.map(v => (v === undefined ? v : v / 100))
+    : raw;
+  const unit = format === 'number' && def?.unit && !SILENT_UNITS.has(def.unit) ? def.unit : undefined;
+  return {
+    id: d.id,
+    label: d.label || d.id,
+    format,
+    ...(d.better ? { better: d.better } : {}),
+    ...(unit ? { unit } : {}),
+    header: d.header,
+    values,
+  };
+}
+
+/** Rows some run holds a value for; a score no run reached tells the judge nothing. */
+function rowsWithValues(scenario: ScenarioPackage, defs: ScoreDef[], states: unknown[]): ScoreRow[] {
+  return defs
+    .map(d => scoreRow(scenario, d, states))
+    .filter(r => r.values.some(v => v !== undefined));
+}
+
 /**
  * Every score the scenario declares, header scores first in their
- * header order, then the rest of `scenario.metrics`. A score whose
- * world field is a fraction (unit `frac`) reads as a percentage. With
- * no declared scores, the world's metric fields stand in; with none of
- * those either, every numeric field of the runs' final metrics.
+ * header order, then the rest of `scenario.metrics`. A metric with no
+ * `source` (a seed-compiled draft declares only id and format) reads
+ * `metrics.<id>`. A fraction (unit `frac`) reads as a percentage, and
+ * a percent score on a 0 to 100 scale is brought down to a fraction, so
+ * every percent value in a row is on one scale. Scores no run holds a
+ * value for are left out. Where that leaves none, the world's metric
+ * fields stand in, then every numeric field of the runs' final metrics.
  */
 export function scenarioScoreRows(scenario: ScenarioPackage, states: unknown[]): ScoreRow[] {
-  const metrics = Array.isArray(scenario.metrics) ? scenario.metrics : [];
+  const metrics = (Array.isArray(scenario.metrics) ? scenario.metrics : []).filter(isMetricDefinition);
   const byId = new Map(metrics.map(m => [m.id, m]));
-  const headerIds = (scenario.ui?.headerMetrics ?? []).map(h => h.id);
-  const defs: Array<{ id: string; label?: string; source: string; format: ScoreFormat; better?: 'higher' | 'lower'; header: boolean }> = [];
+  const headerMetrics = (Array.isArray(scenario.ui?.headerMetrics) ? scenario.ui.headerMetrics : []).filter(h => typeof h?.id === 'string');
+  const defs: ScoreDef[] = [];
   const seen = new Set<string>();
-  for (const h of scenario.ui?.headerMetrics ?? []) {
+  for (const h of headerMetrics) {
     if (seen.has(h.id)) continue;
     seen.add(h.id);
     const m = byId.get(h.id);
-    const source = m?.source ?? `metrics.${h.id}`;
-    defs.push({ id: h.id, label: m?.label ?? worldDef(scenario, source)?.label, source, format: m?.format ?? h.format, better: m?.better, header: true });
+    const source = m?.source || `metrics.${h.id}`;
+    defs.push({ id: h.id, label: m?.label ?? worldDef(scenario, source)?.label, source, format: m?.format ?? h.format, better: declaredDirection(m?.better), header: true });
   }
   for (const m of metrics) {
     if (seen.has(m.id)) continue;
     seen.add(m.id);
-    defs.push({ id: m.id, label: m.label, source: m.source, format: m.format, better: m.better, header: headerIds.includes(m.id) });
+    const source = m.source || `metrics.${m.id}`;
+    defs.push({ id: m.id, label: m.label ?? worldDef(scenario, source)?.label, source, format: m.format, better: declaredDirection(m.better), header: false });
   }
-  if (defs.length === 0) {
-    for (const [id, def] of Object.entries(worldBag(scenario, 'metrics'))) {
-      if (def?.type && def.type !== 'number') continue;
-      defs.push({ id, label: def?.label, source: `metrics.${id}`, format: 'number', header: false });
+  const declared = rowsWithValues(scenario, defs, states);
+  if (declared.length > 0) return declared;
+
+  const worldDefs: ScoreDef[] = [];
+  for (const [id, def] of Object.entries(worldBag(scenario, 'metrics'))) {
+    if (def?.type && def.type !== 'number') continue;
+    worldDefs.push({ id, label: def?.label, source: `metrics.${id}`, format: 'number', header: false });
+  }
+  const fromWorld = rowsWithValues(scenario, worldDefs, states);
+  if (fromWorld.length > 0) return fromWorld;
+
+  const ids = new Set<string>();
+  for (const s of states) {
+    const bag = readPath(s, 'metrics');
+    if (bag && typeof bag === 'object') {
+      for (const [k, v] of Object.entries(bag)) if (typeof v === 'number') ids.add(k);
     }
   }
-  if (defs.length === 0) {
-    const ids = new Set<string>();
-    for (const s of states) {
-      const bag = readPath(s, 'metrics');
-      if (bag && typeof bag === 'object') {
-        for (const [k, v] of Object.entries(bag)) if (typeof v === 'number') ids.add(k);
-      }
-    }
-    for (const id of ids) defs.push({ id, source: `metrics.${id}`, format: 'number', header: false });
-  }
-  return defs.map(d => ({
-    id: d.id,
-    label: d.label || d.id,
-    format: d.format === 'percent' || worldDef(scenario, d.source)?.unit === 'frac' ? 'percent' : d.format,
-    ...(d.better ? { better: d.better } : {}),
-    header: d.header,
-    values: states.map(s => readNumber(s, d.source)),
-  }));
+  return rowsWithValues(scenario, [...ids].map(id => ({ id, source: `metrics.${id}`, format: 'number' as const, header: false })), states);
 }
 
 /** Status and politics fields the scenario declares whose final values differ between runs. */
@@ -156,10 +210,12 @@ export function formatScoreValue(v: unknown, format: ScoreFormat, currency = '')
 /** The scenario's own nouns, with neutral words where a label is missing. */
 export function verdictWords(scenario: ScenarioPackage): VerdictWords {
   const l = scenario.labels ?? ({} as ScenarioPackage['labels']);
+  const settlement = l.settlementNoun || 'settlement';
   return {
     name: l.name || 'the scenario',
     tagline: l.tagline ?? '',
-    settlement: l.settlementNoun || 'settlement',
+    settlement,
+    aSettlement: `${/^[aeiou]/i.test(settlement) ? 'an' : 'a'} ${settlement}`,
     population: l.populationNoun || 'members',
     actors: l.actorNounPlural || (l.actorNoun ? `${l.actorNoun}s` : 'leaders'),
     eventSingular: l.eventNounSingular || 'event',
@@ -176,7 +232,8 @@ export function formatScoreTable(rows: ScoreRow[], tags: string[], words: Verdic
   return rows.map(r => {
     const values = r.values.map((v, i) => `${tags[i]} ${formatScoreValue(v, r.format, words.currency)}`).join(' | ');
     const direction = r.better ? ` (${r.better} is better)` : '';
-    return `  ${r.label}: ${values}${direction}`;
+    const unit = r.unit ? ` (${r.unit})` : '';
+    return `  ${r.label}${unit}: ${values}${direction}`;
   }).join('\n');
 }
 
