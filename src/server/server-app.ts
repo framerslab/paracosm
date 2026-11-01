@@ -1179,10 +1179,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // the run about 30 s later after one turn, with nothing saved. Ten
   // minutes outlasts a whole demo run, so a viewer who returns finds it
   // finished, and a run nobody returns to still stops. The spend a
-  // longer grace allows is bounded: a demo run costs under $0.30 on the
-  // economy profile, the hosted demo caps a run at 6 turns, and the
-  // per-IP limit (50 runs a day on the hosted server) caps how many one
-  // visitor can start. The per-LLM-call abort gates in the orchestrator
+  // longer grace allows is bounded: the hosted demo caps a run at 6
+  // turns on the economy profile, and the per-IP limit (50 runs a day on
+  // the hosted server) caps how many one visitor can start. At that cap
+  // a demo pair cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499
+  // for its two leaders) and 1.6138 USD on 30 October 2026 (1.0529 and
+  // 0.5609). The per-LLM-call abort gates in the orchestrator
   // still let at most one in-flight call finish after the watchdog
   // trips.
   const disconnectGraceMs = options.disconnectGraceMs ?? 600_000;

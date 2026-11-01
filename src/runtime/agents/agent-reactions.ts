@@ -21,6 +21,8 @@ import { buildMemoryContext } from './agent-memory.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 import { ReactionBatchSchema } from '../validators/reactions.js';
 import { buildReactionCues } from './cues/hexaco/translation.js';
+import type { ScenarioLabels } from '../../engine/types.js';
+import { scenarioWords } from '../util/scenario-words.js';
 
 export interface AgentReaction {
   agentId: string;
@@ -39,7 +41,8 @@ export interface AgentReaction {
   radiation: number;
 }
 
-interface ReactionContext {
+/** The turn's situation every reaction in a batch shares. */
+export interface ReactionContext {
   eventTitle: string;
   eventCategory: string;
   /** Null on the first turn before the outcome roll, or when the
@@ -57,6 +60,8 @@ interface ReactionContext {
    *  reads "Turn N, Quarter T" for scenarios that aren't Mars-year
    *  shaped. Default `tick` when absent. */
   timeUnitNoun?: string;
+  /** The scenario's labels: the people, the place and the leader. */
+  labels?: Partial<ScenarioLabels>;
 }
 
 /**
@@ -79,8 +84,11 @@ interface ReactionContext {
  * was the fix that turned the reaction cache from "writes only" into
  * "reads on every cohort actor's reaction call after the first."
  */
-function buildBatchSystemPrompt(): string {
-  return `You are each of several colony members reacting to what just happened at your settlement. Based on each person's personality, health, relationships, and memories, give a short reaction in their voice.
+export function buildBatchSystemPrompt(labels?: Partial<ScenarioLabels>): string {
+  // The words are the scenario's, so the prompt stays one string per
+  // scenario and keeps serving from the provider's prompt cache.
+  const w = scenarioWords(labels);
+  return `You are each of several ${w.population} reacting to what just happened at your ${w.settlement}. Based on each person's personality, health, relationships, and memories, give a short reaction in their voice.
 
 Keep reactions real. No heroic speeches. People under stress say blunt, honest things. Each person's reaction must sound distinctly like THAT person — their personality, health, and memories should color their voice. Do NOT start any reaction with "I can't believe".
 
@@ -101,12 +109,11 @@ One entry per agent, in the same order, matching each agentId EXACTLY as given. 
  * turn/event/actor change. The model still sees identical structural
  * content; only the position relative to the cache boundary differs.
  */
-function buildBatchSituationContext(ctx: ReactionContext): string {
-  const timeNounRaw = ctx.timeUnitNoun ?? 'tick';
-  const TimeNoun = timeNounRaw.charAt(0).toUpperCase() + timeNounRaw.slice(1);
+export function buildBatchSituationContext(ctx: ReactionContext): string {
+  const w = scenarioWords({ ...ctx.labels, timeUnitNoun: ctx.timeUnitNoun ?? ctx.labels?.timeUnitNoun });
   return `SHARED SITUATION:
-Turn ${ctx.turn}, ${TimeNoun} ${ctx.time}. Event: "${ctx.eventTitle}" (${ctx.eventCategory}).
-Commander decided: ${ctx.decision.slice(0, 200)}
+Turn ${ctx.turn}, ${w.TimeUnit} ${ctx.time}. Event: "${ctx.eventTitle}" (${ctx.eventCategory}).
+${w.Actor} decided: ${ctx.decision.slice(0, 200)}
 Outcome: ${ctx.outcome}. Current morale: ${Math.round(ctx.colonyMorale * 100)}%. Population: ${ctx.colonyPopulation}.`;
 }
 
@@ -129,7 +136,8 @@ function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHoo
   if ((c.health.cumulativeRadiationMsv ?? 0) > 1500) socialBits.push('high rad exposure');
   if (c.health.psychScore < 0.4) socialBits.push('depressed');
 
-  const recentLine = c.narrative.lifeEvents.slice(-2).map(e => `Y${e.time}: ${e.event}`).join('; ');
+  const { TimeUnit } = scenarioWords({ ...ctx.labels, timeUnitNoun: ctx.timeUnitNoun ?? ctx.labels?.timeUnitNoun });
+  const recentLine = c.narrative.lifeEvents.slice(-2).map(e => `${TimeUnit} ${e.time}: ${e.event}`).join('; ');
   const recentMem = (c.memory?.shortTerm ?? []).slice(-2).map(m => m.content.slice(0, 80)).join(' | ');
   const beliefs = (c.memory?.longTerm ?? []).slice(-2).join(' | ');
 
@@ -282,7 +290,7 @@ export async function generateAgentReactions(
     chunks.push(alive.slice(i, i + batchSize));
   }
 
-  const systemPrompt = buildBatchSystemPrompt();
+  const systemPrompt = buildBatchSystemPrompt(ctx.labels);
   const situationContext = buildBatchSituationContext(ctx);
   const reactions: AgentReaction[] = [];
   let firstBatchError: unknown = null;

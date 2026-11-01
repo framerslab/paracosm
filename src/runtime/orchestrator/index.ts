@@ -27,6 +27,7 @@ import { createCostTracker } from '../economics/cost-tracker.js';
 import {
   buildPersonalityCue,
   buildCommanderBootstrap,
+  buildCommanderTurnPrompt,
   runDepartmentPromotions,
 } from './commander-setup.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
@@ -759,7 +760,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   // compute on a run that has no hope of producing valid output.
   try {
     trackUsage(
-      await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco))),
+      await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco), sc.labels)),
       'commander',
     );
   } catch (err) {
@@ -783,6 +784,9 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       scenario: sc,
       leader,
       startTime,
+      // Heads only for the departments the run keeps: the hosted demo
+      // keeps three, and heads in the other two ran nothing.
+      activeDepartments: opts.activeDepartments,
       sendToCommander: (prompt) => cmdSess.send(prompt),
       trackUsage,
       recordSchemaAttempt,
@@ -1139,6 +1143,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
         // recallResearch/getResearchFromBundle can surface citations downstream.
         knowledgeTopics: Object.keys(sc.knowledge?.topics ?? {}),
         knowledgeCategories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
+        labels: sc.labels,
       };
       emit('turn_start', { turn, time, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: preState.metrics });
       // Abort gate: if the client already left during the gap between
@@ -1248,7 +1253,12 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
       const validDepts: Department[] = sc.departments.map(d => d.id as Department);
       const rawDepts = milestone ? getDepartmentsForTurn(turn) : event.relevantDepartments;
       const depts = rawDepts.filter(d => validDepts.includes(d) && activeDepartments.has(d));
-      if (!depts.length) depts.push(validDepts[0] || 'medical', validDepts[1] || 'engineering');
+      if (!depts.length) {
+        // None of the event's departments is active: the first two the
+        // run keeps answer it, since only those have heads and sessions.
+        const activeList = validDepts.filter(d => activeDepartments.has(d));
+        depts.push(...(activeList.length ? activeList : validDepts).slice(0, 2));
+      }
 
       // Snapshot per-dept bucket lengths BEFORE this event's parallel
       // dept calls run, so the eventForges tally below can slice only
@@ -1282,7 +1292,7 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
       const deptPromises = depts.map(async (dept) => {
         const sess = deptSess.get(dept);
         if (!sess) return emptyReport(dept);
-        const baseCtx = buildDepartmentContext(dept, kernel.getState(), scenario, packet, deptMemory.get(dept), sc.hooks.departmentPromptHook);
+        const baseCtx = buildDepartmentContext(dept, kernel.getState(), scenario, packet, deptMemory.get(dept), sc.hooks.departmentPromptHook, sc.labels);
         // Turn-1 bootstrap forge floor. Without a tool forged on turn 1
         // there is nothing for later turns to reuse, and high-discipline
         // dept heads on both sides converged on "existing knowledge is
@@ -1601,24 +1611,23 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
       const trajectoryCue = commanderTraitProfileLive.modelId === 'hexaco'
         ? buildTrajectoryCue(commanderHexacoHistory, commanderHexacoLive)
         : buildTrajectoryCueGeneric(commanderTraitProfileHistory, commanderTraitProfileLive);
-      const cmdPrompt =
-`TURN ${turn}${eventLabel} — ${time}: ${event.title}
-
-${event.description}
-${trajectoryCue ? `\n${trajectoryCue}\n` : ''}
-DEPARTMENT REPORTS:
-${summaries}
-${commanderToolboxBlock}
-State: Pop ${kernel.getState().metrics.population} | Morale ${Math.round(kernel.getState().metrics.morale * 100)}% | Food ${kernel.getState().metrics.foodMonthsReserve.toFixed(1)}mo${optionText}${effectsText}
-
-REASONING — populate the "reasoning" field of your JSON response BEFORE committing to selectedOptionId. Numbered list, one point per line:
-  (1) What does my personality profile push me toward on this call? Name the specific trait poles at play.
-  (2) Do the department reports converge or conflict? If they conflict, which voice do I trust given my profile?
-  (3) Which forged-tool outputs in the toolbox above directly inform this decision? Cite the numeric output if available.
-  (4) What risk am I accepting vs refusing? My rationale must name the specific trade.
-  (5) Final choice + one-line justification.
-
-Then set selectedOptionId, decision, and rationale. The rationale compresses the reasoning into a single paragraph for default UI display; the "reasoning" field stores the full working.`;
+      const cmdState = kernel.getState().metrics;
+      const cmdPrompt = buildCommanderTurnPrompt({
+        turn,
+        time,
+        eventLabel,
+        title: event.title,
+        description: event.description,
+        trajectoryCue,
+        summaries,
+        toolboxBlock: commanderToolboxBlock,
+        population: cmdState.population,
+        morale: cmdState.morale,
+        foodMonthsReserve: cmdState.foodMonthsReserve,
+        optionText,
+        effectsText,
+        labels: sc.labels,
+      });
 
       // Abort gate: skip the commander LLM call if the client left
       // between dept analysis and commander decision. Breaking the

@@ -185,7 +185,7 @@ test('departments named by label or short form reach the scenario department; un
     ...keyPersonnel,
     { name: 'Ada Brandt', department: 'capability_research', role: 'Researcher', specialization: 'Scaling', age: 35, featured: false },
     { name: 'Ken Ito', department: 'deployment_engineering', role: 'Engineer', specialization: 'Infrastructure', age: 33, featured: false },
-  ], { startTime: 1, initialPopulation: 24 });
+  ], { startTime: 1, initialPopulation: 24, scenario: atlasLab });
   const id = (name: string) => kernel.getState().agents.find(a => a.core.name === name)!.core.id;
 
   const { prompts, logs } = await promoteWithPrompt(kernel, [
@@ -238,7 +238,7 @@ test('departments named by label or short form reach the scenario department; un
 test('promotions fill only the departments the run keeps active', async () => {
   // The hosted demo keeps three departments; the commander and the
   // fallback promoted heads for all five, and the run reported 10 heads.
-  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24 });
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24, scenario: atlasLab });
   const active = ['alignment_research', 'capability_research', 'governance'];
   const { prompts } = await promoteWithPrompt(kernel, [
     { agentId: kernel.getState().agents.find(a => a.core.name === 'Dr. Priya Singh')!.core.id, department: 'alignment_research', role: 'Director of Alignment' },

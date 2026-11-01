@@ -109,3 +109,39 @@ export function parseCustomEvents(
   }
   return events;
 }
+
+/** The parts of a parent run the fork controls read. */
+export interface ForkParent {
+  trajectory?: { timepoints?: unknown[] };
+  scenarioExtensions?: unknown;
+}
+
+function snapshotTurns(parent: ForkParent): number[] {
+  const snaps = (parent.scenarioExtensions as { kernelSnapshotsPerTurn?: Array<{ turn?: unknown }> } | undefined)
+    ?.kernelSnapshotsPerTurn;
+  return Array.isArray(snaps)
+    ? snaps.map(s => s?.turn).filter((t): t is number => typeof t === 'number' && Number.isFinite(t))
+    : [];
+}
+
+/**
+ * The parent run's final turn: the turn count a fork posts to `/setup`
+ * as `turns`. The trajectory's timepoints count it; without them the
+ * last snapshot's turn, then 6.
+ */
+export function forkFinalTurn(parent: ForkParent): number {
+  const points = parent.trajectory?.timepoints?.length;
+  if (points) return points;
+  const turns = snapshotTurns(parent);
+  return turns.length ? Math.max(...turns) : 6;
+}
+
+/**
+ * Whether the Reports tab offers a fork at `turn`: the parent holds a
+ * snapshot for it, and a turn is left to run after it. A fork at the
+ * final turn posts `turns` equal to its fork turn, which `/setup`
+ * refuses, so the control is not shown there.
+ */
+export function canForkAtTurn(parent: ForkParent, turn: number): boolean {
+  return snapshotTurns(parent).includes(turn) && turn < forkFinalTurn(parent);
+}

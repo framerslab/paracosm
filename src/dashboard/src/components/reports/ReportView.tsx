@@ -6,6 +6,7 @@ import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
+import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
 import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
@@ -210,9 +211,8 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
     (turnNum: number): boolean => {
       if (!parentArtifact) return false;
       if (state.isRunning) return false;
-      const snaps = (parentArtifact.scenarioExtensions as { kernelSnapshotsPerTurn?: Array<{ turn: number }> } | undefined)?.kernelSnapshotsPerTurn;
-      if (!snaps || snaps.length === 0) return false;
-      return snaps.some(s => s.turn === turnNum);
+      // No fork at the final turn: nothing is left to run after it.
+      return canForkAtTurn(parentArtifact, turnNum);
     },
     [parentArtifact, state.isRunning],
   );
@@ -227,7 +227,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         actorName: payload.leader.name,
         actorArchetype: payload.leader.archetype,
       });
-      const parentTurns = payload.parentArtifact.trajectory?.timepoints?.length ?? 6;
+      const parentTurns = forkFinalTurn(payload.parentArtifact);
       const seed = payload.seedOverride ?? payload.parentArtifact.metadata.seed ?? 42;
       try {
         const res = await fetch('/setup', {

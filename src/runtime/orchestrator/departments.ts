@@ -1,6 +1,7 @@
 import type { Department, SimulationState, Agent } from '../../engine/core/state.js';
 import type { DepartmentReport, CrisisResearchPacket } from '../contracts.js';
-import type { Scenario } from '../../engine/types.js';
+import type { Scenario, ScenarioLabels } from '../../engine/types.js';
+import { scenarioWords } from '../util/scenario-words.js';
 import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
 
 /** Summary of a department's previous turn for session continuity */
@@ -21,7 +22,10 @@ export function buildDepartmentContext(
   researchPacket: CrisisResearchPacket,
   previousTurns?: DepartmentTurnMemory[],
   departmentPromptHook?: (ctx: { department: string; state: SimulationState; scenario: Scenario; researchPacket: CrisisResearchPacket }) => string[],
+  /** The scenario's labels: the heading names its time unit ("MONTH 1"). */
+  labels?: Partial<ScenarioLabels>,
 ): string {
+  const words = scenarioWords(labels);
   const alive = state.agents.filter(c => c.health.alive);
   const featured = alive.filter(c => c.narrative.featured);
   const deptNote = researchPacket.departmentNotes[dept] || '';
@@ -73,14 +77,14 @@ export function buildDepartmentContext(
     if (h.emotionality > 0.7) {
       cues.push('Your high emotionality weighs human impact heavily. Elevate morale, mental health, and mortality risks even when numerically small. Reject options that accept casualties for efficiency.');
     } else if (h.emotionality < 0.3) {
-      cues.push('Your low emotionality treats headcount as a capacity number. Recommend options that trade individual mortality for structural colony survival when the math supports it.');
+      cues.push(`Your low emotionality treats headcount as a capacity number. Recommend options that trade individual mortality for structural ${words.settlement} survival when the math supports it.`);
     }
 
     // Honesty-Humility: certainty presentation
     if (h.honestyHumility > 0.7) {
       cues.push('Your high honesty-humility exposes data gaps and low-confidence assumptions openly. Do not inflate certainty for the commander\'s benefit.');
     } else if (h.honestyHumility < 0.3) {
-      cues.push('Your low honesty-humility presents recommendations with more confidence than the raw data strictly warrants when doing so advances the colony\'s strategic interest.');
+      cues.push(`Your low honesty-humility presents recommendations with more confidence than the raw data strictly warrants when doing so advances the ${words.settlement}'s strategic interest.`);
     }
 
     hexacoBlock.push(
@@ -108,7 +112,7 @@ export function buildDepartmentContext(
   }
 
   const lines = [
-    `TURN ${state.metadata.currentTurn} — YEAR ${state.metadata.currentTime}: ${scenario.title}`,
+    `TURN ${state.metadata.currentTurn}, ${words.timeUnit.toUpperCase()} ${state.metadata.currentTime}: ${scenario.title}`,
     ...hexacoBlock,
     ...memoryBlock,
     '', scenario.crisis, '',

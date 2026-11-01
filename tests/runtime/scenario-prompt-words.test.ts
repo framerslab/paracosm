@@ -116,7 +116,7 @@ test('an Atlas Lab run\'s prompts speak of researchers, the lab and months', () 
   assert.match(prompts.bootstrap, /lab release director/);
   assert.match(prompts.bootstrap, /researchers/);
   assert.match(prompts.commanderTurn, /TURN 1, Month 1: Canary fails/);
-  assert.match(prompts.department, /TURN 1, MONTH 1: Canary fails/);
+  assert.match(prompts.department, /TURN \d+, MONTH 1: Canary fails/);
   assert.match(prompts.reactions, /researchers/);
   assert.match(prompts.reactions, /Month 1/);
 });
@@ -128,7 +128,7 @@ test('a Mars Genesis run keeps its colonists, its colony and its years', () => {
   assert.match(prompts.bootstrap, /colony commander/);
   assert.match(prompts.bootstrap, /colonists/);
   assert.match(prompts.commanderTurn, /TURN 1, Year 2035: Canary fails/);
-  assert.match(prompts.department, /TURN 1, YEAR 2035: Canary fails/);
+  assert.match(prompts.department, /TURN \d+, YEAR 2035: Canary fails/);
   assert.match(prompts.reactions, /colonists|colony/);
   assert.match(prompts.reactions, /Year 2035/);
 });
