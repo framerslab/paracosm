@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn } from '../cli/pair-runner.js';
 import {
@@ -1318,7 +1319,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    * the saved session records which scenario and brief the run came from.
    * The event goes out after the clear, so it stays in the buffer for every
    * page that connects later, and the trim keeps it first. A page that
-   * skips a buffered run since its switch shows the run from this event.
+   * skips a buffered run since its switch shows the run from this event,
+   * and its `runKey` tells a page a new run from a replay of the one it
+   * holds.
    */
   const openRunBuffer = (scenario: ScenarioPackage, seedText: string | null): void => {
     clearEventBuffer();
@@ -1332,6 +1335,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // The original seed prompt when the run came out of
       // compile-from-seed; null for built-in scenarios.
       seedText,
+      // This run's own key. A page that reconnects is replayed the same
+      // key, so it keeps what it holds; a different key is a new run,
+      // which the page shows on its own.
+      runKey: randomUUID(),
     });
     currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
   };
