@@ -236,15 +236,13 @@ export class SimulationKernel {
       metrics: {
         // Every run has people and morale; the heritage resources only
         // where the scenario declares them (or there is no scenario).
+        population: agents.length,
         ...withoutUndeclaredHeritage(HERITAGE_METRICS, HERITAGE_METRICS, declaredMetrics),
         morale: 0.85,
         // Scenario declarations (metrics + capacities flattened)
         ...scenarioSystems,
         // Caller overlay wins, within what the scenario carries
         ...withoutUndeclaredHeritage(init.startingResources, HERITAGE_METRICS, declaredMetrics),
-        // The roster is the head count, whatever a scenario declares for a
-        // full-size run: a demo run of Atlas Lab has 30 people, not 480.
-        population: agents.length,
       } as WorldMetrics,
       agents,
       politics: {
@@ -262,6 +260,9 @@ export class SimulationKernel {
       },
       eventLog: [],
     };
+    // The roster is the head count, whatever a scenario declares for a
+    // full-size run: a demo run of Atlas Lab has 30 people, not 480.
+    this.state.metrics.population = agents.length;
     this.setRanges(init.scenario);
   }
 
