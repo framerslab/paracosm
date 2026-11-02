@@ -26,18 +26,21 @@ export interface HeaderMetricDisplay {
   format: string;
   /** The world field's declared ceiling, from GET /scenario. */
   max?: number;
+  /** The world field's starting value, from GET /scenario. */
+  initial?: number;
 }
 
 /**
  * The number a header metric shows. A percent metric is held either as a
  * fraction (Release Readiness, 0.65 of max 1) or in percent already (Hull
- * Integrity, 100 of max 100); only a fraction is scaled. A metric with no
- * declared ceiling is read by its value.
+ * Integrity, 100 of max 100); only a fraction is scaled. The ceiling says
+ * which, then the starting value, so a metric scales the same on every turn.
+ * A metric with neither is a fraction, as a percent score is everywhere else.
  */
 export function headerMetricValue(value: number, metric: HeaderMetricDisplay): number {
   if (metric.format !== 'percent') return value;
-  const isFraction = metric.max !== undefined ? metric.max <= 1 : Math.abs(value) <= 1;
-  return isFraction ? value * 100 : value;
+  const ceiling = metric.max ?? metric.initial;
+  return ceiling === undefined || ceiling <= 1 ? value * 100 : value;
 }
 
 /** A header metric's value as the stats bar shows it. */

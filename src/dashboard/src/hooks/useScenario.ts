@@ -56,9 +56,9 @@ export interface ScenarioClientPayload {
     personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   }>;
   ui: {
-    /** `max` is the world field's declared ceiling: a percent metric held
-     *  on 0 to 1 declares 1, one held on 0 to 100 declares 100. */
-    headerMetrics: Array<{ id: string; format: string; max?: number }>;
+    /** `max` and `initial` are the world field's: a percent metric held on
+     *  0 to 1 declares max 1, one held on 0 to 100 declares max 100. */
+    headerMetrics: Array<{ id: string; format: string; max?: number; initial?: number }>;
     tooltipFields: string[];
     reportSections: Array<'crisis' | 'departments' | 'decision' | 'outcome' | 'quotes' | 'causality'>;
     departmentIcons: Record<string, string>;

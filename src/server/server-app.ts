@@ -68,9 +68,15 @@ function projectScenarioForClient(sc: ScenarioPackage) {
     setup: sc.setup,
     departments: sc.departments.map(d => ({ id: d.id, label: d.label, role: d.role, icon: d.icon })),
     presets: sc.presets,
-    // A percent metric reads 0.65 or 65 by its world field's ceiling, which the
-    // dashboard needs to show it once.
-    ui: { ...sc.ui, headerMetrics: sc.ui?.headerMetrics?.map(m => ({ ...m, max: sc.world?.metrics?.[m.id]?.max })) },
+    // A percent metric is held as 0.65 or as 65. The dashboard needs its world
+    // field's ceiling, or failing that its starting value, to show it once.
+    ui: {
+      ...sc.ui,
+      headerMetrics: sc.ui?.headerMetrics?.map(m => {
+        const field = sc.world?.metrics?.[m.id];
+        return { ...m, max: field?.max, initial: typeof field?.initial === 'number' ? field.initial : undefined };
+      }),
+    },
     policies: {
       // Compiled scenarios can express policies either as
       // { toolForging: true } (boolean shorthand) or as

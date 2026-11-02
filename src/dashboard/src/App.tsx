@@ -73,11 +73,14 @@ export function useScenarioContext() {
   return ctx;
 }
 
-// True once GET /scenario has answered and ScenarioContext holds the server's
-// active scenario, not the Mars fallback the page starts on. A control that
-// starts a run waits for it. A render given a scenario directly, outside
-// App, has it ready.
 const ScenarioReadyContext = createContext(true);
+
+/**
+ * True once GET /scenario has answered and ScenarioContext holds the server's
+ * active scenario, not the Mars fallback the page starts on. A control that
+ * starts a run waits for it. A render given a scenario directly, outside App,
+ * has it ready.
+ */
 export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
 }
