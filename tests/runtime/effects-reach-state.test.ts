@@ -17,9 +17,10 @@ import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { EffectRegistry, type OutcomeModifiers, type TurnOutcome } from '../../src/engine/registries/effects.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 import { StreamEventSchema } from '../../src/engine/schema/stream.js';
-import type { ScenarioPackage } from '../../src/engine/types.js';
+import type { ActorConfig, ScenarioPackage } from '../../src/engine/types.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
 import { applyOutcomeEffects, systemsSnapshotTotals } from '../../src/runtime/orchestrator/outcome-effects.js';
+import { genericFingerprint } from '../../src/runtime/util/generic-fingerprint.js';
 import { decisionToPolicy, emptyDecision, emptyReport, selectableEffects } from '../../src/runtime/util/parsers.js';
 import type { CommanderDecision, DepartmentReport } from '../../src/runtime/contracts.js';
 
@@ -577,4 +578,17 @@ test('a key named in both of a selection\'s bags moves once, by their sum, and r
   const cancelled = high.applyPolicy(policyFrom([{ id: 'a', systemDelta: { boardConfidence: 5 }, politicsDelta: { boardConfidence: -5 } }], ['a']));
   assert.equal(high.getState().politics.boardConfidence, 98);
   assert.equal(cancelled.boardConfidence, 0);
+});
+
+test('a departure moves no survival figure: someone who left did not die', () => {
+  const kernel = kernelFor(atlasLab, 40);
+  const dead = kernel.getState().agents.slice(0, 5).map(a => ({ agentId: a.core.id, health: { alive: false } }));
+  kernel.applyPolicy({ description: 'x', patches: { agentUpdates: dead }, events: [] });
+  const fingerprint = () => genericFingerprint(kernel.getState(), [], { name: 'Priya Kapoor' } as ActorConfig, {}, 6);
+
+  assert.equal(fingerprint().survivalRate, '0.88');
+  assert.equal(fingerprint().resilience, 'stable');
+  assert.equal(kernel.applySystemDeltas({ population: -20 }).population, -20);
+  assert.equal(fingerprint().survivalRate, '0.88');
+  assert.equal(fingerprint().resilience, 'stable');
 });
