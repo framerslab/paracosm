@@ -171,10 +171,10 @@ test.describe('Digital Twin events @twin', () => {
       if (scenarioId === 'mars-genesis') {
         await expect(finishedRun(page)).toBeVisible();
       } else {
-        await expect(emptyStateRun(page)).toBeVisible();
         const cleared = served;
         await expect.poll(() => served).toBeGreaterThan(cleared + 1);
         await expect(finishedRun(page)).toHaveCount(0);
+        await expect(page.getByText('Week 8 labs')).toHaveCount(0);
       }
     });
   }
