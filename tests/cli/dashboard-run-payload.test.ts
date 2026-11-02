@@ -9,14 +9,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import { defaultRunSetup } from '../../src/dashboard/src/run-payload.js';
-import { formatHeaderMetric } from '../../src/dashboard/src/components/layout/StatsBar.helpers.js';
+import { formatHeaderMetric, headerMetricValue } from '../../src/dashboard/src/components/layout/StatsBar.helpers.js';
 import type { ScenarioClientPayload } from '../../src/dashboard/src/hooks/useScenario.js';
 
 async function withServer(
@@ -25,6 +25,7 @@ async function withServer(
     post: (path: string, payload: unknown) => Promise<Response>;
     launches: NormalizedSimulationConfig[];
   }) => Promise<void>,
+  scenarioDir?: string,
 ): Promise<void> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-dashboard-run-'));
   const launches: NormalizedSimulationConfig[] = [];
@@ -33,6 +34,7 @@ async function withServer(
     maxSimsPerDay: 0,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: async config => { launches.push(config); },
+    ...(scenarioDir ? { scenarioDir } : {}),
   });
   server.listen(0);
   await once(server, 'listening');
@@ -110,4 +112,33 @@ test('a percent header metric is scaled once: by the ceiling /scenario sends wit
     assert.equal(formatHeaderMetric(0.65, metric(await scenario('atlas-lab'), 'releaseReadiness')), '65%');
     assert.equal(formatHeaderMetric(0.85, metric(await scenario('mars-genesis'), 'morale')), '85%');
   });
+});
+
+test('a percent header metric with no declared ceiling is scaled by its starting value, the same on every turn', async () => {
+  // Submarine with the ceilings taken off: Hull Integrity starts at 100, morale at 0.75.
+  const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-no-ceiling-'));
+  const submarine = JSON.parse(readFileSync(new URL('../../scenarios/submarine.json', import.meta.url), 'utf-8')) as {
+    world: { metrics: Record<string, { max?: number }> };
+  };
+  delete submarine.world.metrics.hullIntegrity.max;
+  delete submarine.world.metrics.morale.max;
+  writeFileSync(join(scenarioDir, 'submarine.json'), JSON.stringify(submarine));
+
+  try {
+    await withServer(async ({ scenario }) => {
+      const metrics = (await scenario('deep-ocean-station')).ui.headerMetrics;
+      const hull = metrics.find(m => m.id === 'hullIntegrity');
+      const morale = metrics.find(m => m.id === 'morale');
+      assert.ok(hull && morale);
+
+      // A hull down to 0.8 reads 0.8 of 100, and 2 falling to 1 is a change of one point.
+      assert.equal(formatHeaderMetric(0.8, hull), '1%');
+      assert.equal(headerMetricValue(1, hull) - headerMetricValue(2, hull), -1);
+      assert.equal(formatHeaderMetric(100, hull), '100%');
+      assert.equal(formatHeaderMetric(0.75, morale), '75%');
+      assert.equal(formatHeaderMetric(1.2, morale), '120%');
+    }, scenarioDir);
+  } finally {
+    rmSync(scenarioDir, { recursive: true, force: true });
+  }
 });

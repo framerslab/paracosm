@@ -199,8 +199,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // Depend on presets length because the fallback has presets:[] but
   // the same id. Preserves the user's actor count when the preset has
   // fewer entries than the current form (no shrink on scenario load).
-  // A slot the preset does not fill keeps its person, and a unit still
-  // named by default for the last scenario takes the new scenario's word.
+  // A slot the preset does not fill keeps its person. A unit still named by
+  // default for the last scenario takes the new scenario's word; one the
+  // person typed while the scenario loaded stays.
   const lastScenario = useRef<ScenarioLabelsInput>(scenario);
   useEffect(() => {
     const previous = lastScenario.current;
@@ -209,15 +210,14 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     const leaders = p?.leaders ?? p?.actors;
     setActors(prev => prev.map((existing, idx) => {
       const preset = leaders?.[idx];
+      const unitIsDefault = existing.unit === leaderUnit(previous, idx);
       if (!preset) {
-        return existing.unit === leaderUnit(previous, idx)
-          ? { ...existing, unit: leaderUnit(scenario, idx) }
-          : existing;
+        return unitIsDefault ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
       }
       return {
         name: preset.name,
         archetype: preset.archetype,
-        unit: preset.unit ?? leaderUnit(scenario, idx),
+        unit: unitIsDefault ? preset.unit ?? leaderUnit(scenario, idx) : existing.unit,
         instructions: preset.instructions,
         hexaco: { ...preset.hexaco },
       };
