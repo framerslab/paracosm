@@ -1,0 +1,142 @@
+/**
+ * Two runs side by side in one process each keep their own research.
+ *
+ * In the live Atlas Lab pair of 2 November 2026 the first leader's run ended
+ * at 19:57:00 and closed the research memory while the second ran on to
+ * 19:58:16. The second leader's month 6 events then cited Arcadia Planitia and
+ * Valles Marineris, Mars facts, in a scenario about an AI lab. These tests hold
+ * the scenarios as the server loads them from scenarios/, the real memory store,
+ * and no model call.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadDiskCustomScenarios } from '../../../src/cli/custom-scenarios.js';
+import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
+import type { KnowledgeBundle, ScenarioPackage } from '../../../src/engine/types.js';
+import type { CrisisResearchPacket } from '../../../src/runtime/contracts.js';
+import { closeResearchMemory, initResearchMemory, recallResearch } from '../../../src/runtime/research/research-memory.js';
+import { getResearchFromBundle } from '../../../src/runtime/research/scenario-research.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const catalog = loadDiskCustomScenarios(resolve(here, '../../../scenarios'));
+const atlasLab = catalog.get('atlas-lab')?.scenario as ScenarioPackage;
+assert.ok(atlasLab, 'scenarios/ holds atlas-lab');
+
+/** What each run does with its research: open at its start, recall, close at its end. */
+async function openRun(knowledge?: KnowledgeBundle) {
+  await initResearchMemory(knowledge);
+  return { recall: recallResearch, close: closeResearchMemory };
+}
+
+/** The second leader's month 6 event in the live pair. */
+const ATLAS_EVENT = {
+  query: 'Month 6: Checkpoint Forensics Finds Drift. Spec-Gaming Regression Reappears Under New Multimodal Prompt Mix',
+  keywords: ['spec gaming', 'checkpoint forensics', 'multimodal'],
+  category: 'safety_breach',
+};
+
+/** A lunar event the lunar scenario's knowledge speaks to. */
+const LUNAR_EVENT = {
+  query: 'Regolith dust storm fouls the habitat seals',
+  keywords: ['regolith', 'dust'],
+  category: 'environmental',
+};
+
+function citedIn(bundle: KnowledgeBundle): Set<string> {
+  const urls = new Set<string>();
+  for (const topic of Object.values(bundle.topics)) {
+    for (const f of topic.canonicalFacts ?? []) urls.add(f.url);
+    for (const c of topic.counterpoints ?? []) urls.add(c.url);
+  }
+  return urls;
+}
+
+function claims(packet: CrisisResearchPacket): string[] {
+  return [...packet.canonicalFacts, ...packet.counterpoints].map(f => f.claim);
+}
+
+test('the other leader closing its run leaves a scenario with no citations with none, not Mars facts', async () => {
+  assert.equal(citedIn(atlasLab.knowledge).size, 0, 'scenarios/atlas-lab.json holds no citations');
+  const first = await openRun(atlasLab.knowledge);
+  const second = await openRun(atlasLab.knowledge);
+  await first.close();
+  try {
+    const packet = await second.recall(ATLAS_EVENT.query, ATLAS_EVENT.keywords, ATLAS_EVENT.category);
+    assert.deepEqual(claims(packet), []);
+    assert.deepEqual(packet.departmentNotes, {});
+  } finally {
+    await second.close();
+  }
+});
+
+test('the other leader closing its run leaves this run its own citations', async () => {
+  const first = await openRun(lunarScenario.knowledge);
+  const second = await openRun(lunarScenario.knowledge);
+  await first.close();
+  try {
+    const packet = await second.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
+    const lunar = citedIn(lunarScenario.knowledge);
+    assert.ok(packet.canonicalFacts.length >= 2, `recalled ${packet.canonicalFacts.length} facts`);
+    for (const f of packet.canonicalFacts) assert.ok(lunar.has(f.url), `${f.url} is in the lunar knowledge`);
+  } finally {
+    await second.close();
+  }
+});
+
+test('two runs in two scenarios each recall from their own knowledge', async () => {
+  const atlas = await openRun(atlasLab.knowledge);
+  const lunar = await openRun(lunarScenario.knowledge);
+  try {
+    const lunarPacket = await lunar.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
+    const atlasPacket = await atlas.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
+    assert.ok(lunarPacket.canonicalFacts.length >= 2, `the lunar run recalled ${lunarPacket.canonicalFacts.length} facts`);
+    assert.deepEqual(claims(atlasPacket), [], 'the same question in the other run finds nothing of the lunar run');
+  } finally {
+    await atlas.close();
+    await lunar.close();
+  }
+});
+
+test('a recalled packet holds what the department prompt reads: facts, counterpoints and notes', async () => {
+  const run = await openRun(lunarScenario.knowledge);
+  try {
+    const packet = await run.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
+    const regolith = lunarScenario.knowledge.topics.regolith;
+    assert.ok(
+      packet.canonicalFacts.some(f => f.claim === regolith.canonicalFacts[0].claim),
+      'the store finds the regolith fact by its words',
+    );
+    assert.ok(packet.counterpoints.length > 0, 'counterpoints reach the department prompt');
+    assert.equal(packet.departmentNotes.medical, regolith.departmentNotes?.medical);
+    const facts = new Set(packet.canonicalFacts.map(f => f.claim));
+    for (const c of packet.counterpoints) assert.ok(!facts.has(c.claim), `"${c.claim}" is a counterpoint and not a fact`);
+  } finally {
+    await run.close();
+  }
+});
+
+test('a scenario with no knowledge at all gets an empty packet, not Mars facts', async () => {
+  const run = await openRun(undefined);
+  try {
+    const packet = await run.recall(ATLAS_EVENT.query, ATLAS_EVENT.keywords, ATLAS_EVENT.category);
+    assert.deepEqual(claims(packet), []);
+    assert.deepEqual(packet.departmentNotes, {});
+  } finally {
+    await run.close();
+  }
+  assert.deepEqual(claims(getResearchFromBundle(undefined, 'infrastructure', ['ice'])), []);
+});
+
+for (const scenario of [marsScenario, lunarScenario]) {
+  test(`${scenario.labels.name}: both milestone categories find facts in the scenario's own knowledge`, () => {
+    // runSimulation forces turn 1 to the first categoryMapping key and the
+    // final turn to the last.
+    const keys = Object.keys(scenario.knowledge.categoryMapping);
+    for (const category of [keys[0], keys[keys.length - 1]]) {
+      const packet = getResearchFromBundle(scenario.knowledge, category);
+      assert.ok(packet.canonicalFacts.length > 0, `${category} finds facts`);
+    }
+  });
+}
