@@ -239,9 +239,11 @@ test.describe('Scenario per visitor @scenario', () => {
     body = runBody('atlas-lab', 'run-2', 'Marcus Reinhardt');
     await expect(page.getByRole('status', { name: /^Interrupted\./ }).first()).toBeVisible();
 
+    // Each mocked stream ends after its replay, so the pill of a run in
+    // progress reads Reconnecting more often than Live between connects.
     body = runBody('mars-genesis', 'run-3', 'Aria Chen');
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
     await expect(page.getByRole('status', { name: /^Interrupted\./ })).toHaveCount(0);
+    await expect(page.getByRole('status', { name: /^(Live|Reconnecting)\./ }).first()).toBeVisible();
   });
 
   test('a page keeps the run it holds while a fork of it runs', async ({ page }) => {
