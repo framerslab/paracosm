@@ -53,10 +53,12 @@ export function resolveLeaderPresets(
 }
 
 /** Per-turn cost envelope in USD. Rough numbers anchored to the
- *  paracosm README "Cost envelope" table and updated as models shift.
+ *  paracosm README "Cost envelope" table and updated as models shift;
+ *  OpenAI economy is the mean of the four hosted demo runs measured on
+ *  30 October and 1 November 2026 (0.59 USD over 6 turns).
  *  Used only for the fork modal's display-estimate; not billing-grade. */
 const PER_TURN_COST: Record<'openai' | 'anthropic', Record<'quality' | 'economy', number>> = {
-  openai: { quality: 0.3, economy: 0.03 },
+  openai: { quality: 0.3, economy: 0.1 },
   anthropic: { quality: 0.75, economy: 0.6 },
 };
 

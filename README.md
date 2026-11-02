@@ -78,7 +78,7 @@ console.log(branch.metadata.forkedFrom);  // { parentRunId, atTurn: 3 }
 console.log(trunk.fingerprint, branch.fingerprint);
 ```
 
-`captureSnapshots` defaults to `false` so that ordinary runs stay lean. The dashboard flips it on for every UI run; the Reports tab shows a fork button on each completed turn, posts to `/setup` with the parent artifact, and routes the new run into a Branches tab where forks accumulate as cards with per-metric deltas as they stream.
+`captureSnapshots` defaults to `false` so that ordinary runs stay lean. The dashboard flips it on for every UI run; the Reports tab shows a fork button on each completed turn but the last, posts to `/setup` with the parent artifact, and routes the new run into a Branches tab where forks accumulate as cards with per-metric deltas as they stream. Those buttons fork the session's trunk run: opening a branch card shows the Reports tab without moving them to that branch.
 
 ### Replay any run for audit
 
