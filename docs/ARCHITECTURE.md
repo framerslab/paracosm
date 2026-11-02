@@ -93,8 +93,11 @@ KNOWLEDGE BUNDLE                (topics[].canonicalFacts[], categoryMapping)
   ↓ runtime init
 RESEARCH MEMORY                 (AgentOS AgentMemory.sqlite, one per run: full-text recall)
   ↓ per event
-research.recall(query, keywords) (memory recall, fall back to bundle,
-                                  fall back to live web search if liveSearch=on)
+research.recall(query, keywords, category)  (memory recall within the category's topics)
+  ↓
+LIVE SEARCH OR BUNDLE           (with liveSearch on: `aggressive` always searches, `adaptive`
+                                  when recall found under 2 facts, `gated` when it found none;
+                                  no search or no results: the recalled facts, or the bundle)
   ↓
 DEPARTMENT PROMPT               (citations injected as `[claim](url)` markdown)
   ↓
@@ -107,7 +110,7 @@ SSE specialist_done event       (citationList[]: text, url, doi)
 DASHBOARD REPORTS TAB           (clickable citation links beneath each summary)
 ```
 
-Each run makes its own research memory at its start and closes it at its end, so the two leaders of a pair share no store and no recall cache, and the first to finish leaves the other's untouched. A scenario reads only its own bundle: one with no citations (Atlas Lab ships none) gets empty packets. A milestone event reads the bundle by category. A recalled packet carries the facts the store found, with the counterpoints and department notes of the event's category.
+Each run makes its own research memory at its start and closes it at its end, so the two leaders of a pair share no store and no recall cache, and the first to finish leaves the other's untouched. A scenario reads only its own bundle: one with no citations (Atlas Lab ships none) gets empty packets. A milestone event reads the bundle by category. A recalled packet carries the facts the store found among the topics of the event's category (any topic, when the bundle does not map the category), with that category's counterpoints and department notes.
 
 The Event Director also receives the knowledge bundle's `topics` and `categories`. Its `researchKeywords` and `category` fields stay grounded in actual citation entries, so retrieval downstream finds matches.
 
