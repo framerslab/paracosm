@@ -23,6 +23,7 @@ interface SetupBody {
   scenarioId?: string;
   startTime?: number;
   population?: number;
+  seed?: number;
   quickstart?: { scenarioId?: string };
 }
 
@@ -142,6 +143,83 @@ test.describe('Run controls @run', () => {
 
     await expect.poll(() => bodies.length).toBe(1);
     expect(bodies[0].actors.map(a => a.unit)).toEqual(['Alpha Wing', 'Lab Beta']);
+  });
+
+  test('a name typed while GET /scenario loads is kept when the leaders arrive', async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    const names = page.getByRole('textbox', { name: 'Name', exact: true });
+    await names.first().fill('Zed Okafor');
+
+    release();
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(names.nth(1)).toHaveValue('Priya Kapoor');
+    await expect(names.first()).toHaveValue('Zed Okafor');
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.name)).toEqual(['Zed Okafor', 'Priya Kapoor']);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta']);
+  });
+
+  test("a unit left by another scenario's run takes this scenario's word", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    // The last launch was on Deep Ocean Station, and Settings' scenario switch
+    // reloads the page onto Atlas Lab with the form open.
+    await page.addInitScript(() => {
+      localStorage.setItem('paracosm:activeRunActors', JSON.stringify([
+        { name: 'Captain Ingrid Halvorsen', archetype: 'The Captain', unit: 'Station Alpha' },
+        { name: 'Commander Takeshi Morimoto', archetype: 'The Commander', unit: 'Station Beta' },
+        { name: 'Dr. Amara Osei', archetype: 'The Scientist', unit: 'Station Gamma' },
+      ]));
+    });
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    await expect(page.getByRole('textbox', { name: 'Unit', exact: true }).first()).toHaveValue('Station Alpha');
+
+    release();
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(page.getByRole('textbox', { name: 'Name', exact: true }).first()).toHaveValue('Marcus Reinhardt');
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.slice(0, 2).map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'Lab Gamma']);
+  });
+
+  test("a finished run's Run again waits for GET /scenario", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    // The server's event stream replays a finished run, and the last launch on
+    // this device was Atlas Lab's. Until the scenario answers, the page holds
+    // the Mars fallback and would say it has no launch to run again.
+    await page.route('**/events', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\n',
+    }));
+    await page.addInitScript(() => {
+      localStorage.setItem('paracosm:lastLaunchConfig', JSON.stringify({
+        scenarioId: 'atlas-lab',
+        seed: 7,
+        actors: [{ name: 'Marcus Reinhardt' }, { name: 'Priya Kapoor' }],
+      }));
+    });
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=sim');
+    const runAgain = page.getByText('Spin up a new run').locator('..').getByRole('button');
+
+    await expect(runAgain).toBeDisabled();
+    await expect(runAgain).toHaveText(/Loading scenario/);
+
+    release();
+    await expect(runAgain).toBeEnabled();
+    await expect(runAgain).toHaveText(/Run again/);
+    await runAgain.click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].scenarioId).toBe('atlas-lab');
+    expect(bodies[0].seed).toBe(8);
   });
 
   test('a failed GET /scenario keeps Run waiting, and the page tries again', async ({ page }) => {
