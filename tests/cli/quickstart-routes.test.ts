@@ -291,3 +291,38 @@ test('compile-from-seed/status: missing jobId returns 400', async () => {
   await handleCompileFromSeedStatus({} as IncomingMessage, res, {}, fakeDeps());
   assert.equal(get().status, 400);
 });
+
+test('compile-from-seed: the done answers carry the visitor\'s pick, a pending one does not', async () => {
+  // The compile resolves in the background, where no response can carry a
+  // cookie. The answers the visitor does receive once it is done set the
+  // pick, so the page the Quickstart run redirects to opens on it.
+  _resetCompileJobsForTest();
+  const d = deferred<ScenarioPackage>();
+  const deps = fakeDeps({
+    compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
+    pickHeaders: (id: string) => ({ 'Set-Cookie': `paracosm_scenario=${id}` }),
+  } as Partial<QuickstartDeps>);
+  const start = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, start.res, { seedText: VALID_SEED }, deps);
+  assert.equal(start.get().status, 202);
+  assert.equal(start.get().headers['Set-Cookie'], undefined);
+  const jobId = start.get().body.jobId;
+
+  const pending = fakeRes();
+  await handleCompileFromSeedStatus({} as IncomingMessage, pending.res, { jobId }, deps);
+  assert.equal(pending.get().body.status, 'pending');
+  assert.equal(pending.get().headers['Set-Cookie'], undefined);
+
+  d.resolve(ASYNC_TEST_SCENARIO);
+  await new Promise((r) => setTimeout(r, 0));
+  const done = fakeRes();
+  await handleCompileFromSeedStatus({} as IncomingMessage, done.res, { jobId }, deps);
+  assert.equal(done.get().body.status, 'done');
+  assert.equal(done.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
+  assert.equal(done.get().headers['Content-Type'], 'application/json');
+
+  const hit = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, hit.res, { seedText: VALID_SEED }, deps);
+  assert.equal(hit.get().status, 200);
+  assert.equal(hit.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
+});
