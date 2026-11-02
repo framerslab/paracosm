@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useMemo, useRef, useEffect } from 'react';
 import type { ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
