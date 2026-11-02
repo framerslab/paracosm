@@ -244,6 +244,41 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.getByRole('status', { name: /^Interrupted\./ })).toHaveCount(0);
   });
 
+  test('a page keeps the run it holds while a fork of it runs', async ({ page }) => {
+    // A fork opens with a key of its own, as every run does, and names its
+    // parent. The page that forked shows the fork as a branch of the run it
+    // holds, so it keeps that run instead of starting clean on the new key.
+    const opening = (runKey: string, forkedFrom: unknown) =>
+      `event: active_scenario\ndata: ${JSON.stringify({ id: 'mars-genesis', runKey, forkedFrom })}`;
+    const parentRun = [
+      'event: connected\ndata: {}',
+      opening('run-1', null),
+      `event: sim\ndata: ${JSON.stringify({ type: 'turn_start', leader: 'Aria Chen', data: { turn: 1, time: 2035, title: 'Dust storm' } })}`,
+      'event: complete\ndata: {}',
+      'event: replay_done\ndata: {}',
+    ].join('\n\n') + '\n\n';
+    const forkRun = [
+      'event: connected\ndata: {}',
+      opening('run-2', { parentRunId: 'parent-1', atTurn: 1 }),
+      `event: status\ndata: ${JSON.stringify({ phase: 'fork-running', leader: { name: 'Aria Chen', archetype: 'The Visionary' }, parentRunId: 'parent-1', atTurn: 1 })}`,
+      'event: replay_done\ndata: {}',
+    ].join('\n\n') + '\n\n';
+    let body = parentRun;
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
+    });
+    await openSettings(page);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+
+    body = forkRun;
+    const forked = served;
+    await expect.poll(() => served).toBeGreaterThan(forked + 1);
+    await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+  });
+
   test("a loaded run offers a fork only in the page's own scenario", async ({ page, baseURL }) => {
     // A fork runs in its parent's scenario and a page shows a run only in
     // its own, so a Mars Genesis page that forked a loaded Atlas Lab run

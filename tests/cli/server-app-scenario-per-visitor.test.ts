@@ -327,6 +327,37 @@ test("each run's opening event carries a key of its own, so a page can tell a ne
     assert.equal(second?.event, 'active_scenario');
     assert.equal(second.data.id, 'mars-genesis');
     assert.notEqual(second.data.runKey, first.data.runKey);
+    assert.equal(second.data.forkedFrom, null, 'a run that is not a fork names no parent');
+  });
+});
+
+test("a fork's opening event names its parent, so the page that forked keeps the run it holds", async () => {
+  // A fork opens with a key of its own like any run, but the page that
+  // posted it shows it as a branch of the run it holds; a page that started
+  // clean on every new key would drop that run and the branch with it.
+  await withVisitors(async ({ visitor, launches, base }) => {
+    const v = visitor();
+    const fork = await v.post('/setup', {
+      actors: [atlasLab.presets[0].leaders[0]],
+      turns: 6,
+      seed: 11,
+      captureSnapshots: true,
+      forkFrom: { parentArtifact: atlasParent(), atTurn: 1 },
+    });
+    assert.equal(fork.status, 200);
+    const opening = (await readReplay(base))[0];
+    assert.equal(opening?.event, 'active_scenario');
+    assert.equal(opening.data.id, 'atlas-lab');
+    assert.equal(typeof opening.data.runKey, 'string');
+    assert.deepEqual(opening.data.forkedFrom, { parentRunId: 'parent-1', atTurn: 1 });
+
+    // The next run replaces the fork, and names no parent.
+    assert.equal((await v.post('/setup', settingsBody(atlasLab))).status, 200);
+    await waitFor(() => launches[0], 'the run after the fork');
+    const next = (await readReplay(base))[0];
+    assert.equal(next?.event, 'active_scenario');
+    assert.notEqual(next.data.runKey, opening.data.runKey);
+    assert.equal(next.data.forkedFrom, null);
   });
 });
 
