@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
 import { useScenarioContext, useScenarioReady } from '../../App';
+import { markScenarioSwitched } from '../../scenario-sync';
 import styles from './LoadedScenarioCTA.module.scss';
 
 void React;
@@ -120,11 +121,12 @@ export function LoadedScenarioCTA({
         body: JSON.stringify({ id }),
       });
       if (res.ok) {
-        // Server-side activeScenario flipped. Reload so useScenario
+        // The answer set this visitor's pick cookie. Reload so useScenario
         // re-fetches /scenario, ScenarioContext re-binds with the new
         // labels/presets/policies, and every downstream surface
         // (CTA copy, leaders row, scenario titles) stays consistent.
         // Same pattern SettingsPanel uses for its own switcher.
+        markScenarioSwitched();
         window.location.reload();
       } else if (mountedRef.current) {
         setSwitchingScenario(false);

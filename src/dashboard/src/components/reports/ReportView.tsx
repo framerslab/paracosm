@@ -3,7 +3,7 @@ import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import { useBranchesContext } from '../branches/BranchesContext';
-import { useDashboardNavigation } from '../../App';
+import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
 import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
@@ -207,14 +207,22 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   const labels = useScenarioLabels();
   const [forkModalAtTurn, setForkModalAtTurn] = useState<number | null>(null);
   const parentArtifact = branchesState.parent;
+  const pageScenario = useScenarioContext();
+  const pageScenarioReady = useScenarioReady();
+  // A fork runs in its parent's scenario, and the live feed shows a run
+  // only in the page's own, so a run loaded from another scenario's file
+  // is not forked from this page: its fork would never show here.
+  const parentScenario = parentArtifact?.metadata?.scenario;
+  const parentInOtherScenario = typeof parentScenario?.id === 'string' && parentScenario.id !== pageScenario.id;
   const canFork = useCallback(
     (turnNum: number): boolean => {
       if (!parentArtifact) return false;
       if (state.isRunning) return false;
+      if (!pageScenarioReady || parentInOtherScenario) return false;
       // No fork at the final turn: nothing is left to run after it.
       return canForkAtTurn(parentArtifact, turnNum);
     },
-    [parentArtifact, state.isRunning],
+    [parentArtifact, state.isRunning, pageScenarioReady, parentInOtherScenario],
   );
   const handleForkConfirm = useCallback(
     async (payload: ForkConfirmPayload) => {
@@ -471,6 +479,11 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         role="region"
         aria-label="Turn-by-turn report"
       >
+      {pageScenarioReady && parentInOtherScenario && (
+        <p className={styles.forkNotice} role="note">
+          This run is in {parentScenario?.name ?? parentScenario?.id}, and a fork runs in its parent&apos;s scenario. Switch to {parentScenario?.name ?? parentScenario?.id} to fork it.
+        </p>
+      )}
       {/* Key Insight tile — the TL;DR card at the very top so users
           who aren't going to scroll the full report still see the
           verdict headline + the three most important stat deltas.

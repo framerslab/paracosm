@@ -73,6 +73,7 @@ import {
 import { applyCustomEventToCrisis, buildTimeSchedule } from '../util/runtime-helpers.js';
 import { classifyProviderError, shouldAbortRun, type ClassifiedProviderError } from '../util/provider-errors.js';
 import { EffectRegistry } from '../../engine/registries/effects.js';
+import { applyOutcomeEffects, systemsSnapshotTotals } from './outcome-effects.js';
 import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
 import type { ResolvedEconomicsProfile } from '../economics/economics-profile.js';
@@ -210,7 +211,8 @@ export interface SimEventPayloadMap {
     agents: unknown[];
     population: number;
     morale: number;
-    foodReserve: number;
+    /** Present when the scenario carries `foodMonthsReserve`. */
+    foodReserve?: number;
     births: number;
     deaths: number;
   };
@@ -1620,12 +1622,17 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         };
       })();
 
-      const systemDeltas = effectRegistry.applyOutcome(event.category, outcome, {
-        personalityBonus,
-        noise: outcomeEffectRng.next() * 0.2 - 0.1,
-        toolModifiers: eventForges,
+      const systemDeltas = applyOutcomeEffects(kernel, effectRegistry, {
+        category: event.category,
+        outcome,
+        modifiers: {
+          personalityBonus,
+          noise: outcomeEffectRng.next() * 0.2 - 0.1,
+          toolModifiers: eventForges,
+        },
+        turn,
+        time,
       });
-      kernel.applySystemDeltas(systemDeltas as any, [{ turn, time, type: 'system', description: `Outcome effect (${outcome}): ${Object.entries(systemDeltas).map(([k, v]) => `${k} ${v >= 0 ? '+' : ''}${v}`).join(', ')}` }]);
 
       const polDelta = sc.hooks.politicsHook?.(event.category, outcome);
       if (polDelta) kernel.applyPoliticsDeltas(polDelta);
@@ -1785,7 +1792,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
     if (opts.captureSnapshots) {
       kernelSnapshotsPerTurn.push(kernel.toSnapshot(sc.id));
     }
-    console.log(`  State: Pop ${after.metrics.population} | Morale ${Math.round(after.metrics.morale * 100)}% | Food ${after.metrics.foodMonthsReserve.toFixed(1)}mo`);
+    const foodLine = typeof after.metrics.foodMonthsReserve === 'number' ? ` | Food ${after.metrics.foodMonthsReserve.toFixed(1)}mo` : '';
+    console.log(`  State: Pop ${after.metrics.population} | Morale ${Math.round(after.metrics.morale * 100)}%${foodLine}`);
     // Death cause breakdown for this turn: maps attributed causes from
     // the kernel (natural causes, radiation cancer, starvation, despair,
     // fatal fracture, accident: X) to counts so the dashboard can
@@ -1859,9 +1867,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
     emit('systems_snapshot', {
       turn, time,
       agents: snapshotAgents,
-      population: after.metrics.population,
-      morale: after.metrics.morale,
-      foodReserve: after.metrics.foodMonthsReserve,
+      ...systemsSnapshotTotals(after.metrics),
       births, deaths,
     });
     latestSwarmSnapshot = {
@@ -1892,9 +1898,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       }));
       emit('systems_snapshot', {
         turn, time, agents: fallbackAgents,
-        population: kernel.getState().metrics.population,
-        morale: kernel.getState().metrics.morale,
-        foodReserve: kernel.getState().metrics.foodMonthsReserve,
+        ...systemsSnapshotTotals(kernel.getState().metrics),
         births: 0, deaths: 0,
       });
       {

@@ -8,15 +8,17 @@
  * with "Actor A" and "Actor B" in units named "Colony Alpha" and "Colony
  * Beta".
  *
- * The page talks to the real server, switched to Atlas Lab. /setup is
- * intercepted, so nothing here starts a run or calls a model; the body the
- * real server takes is covered in tests/cli/dashboard-run-payload.test.ts.
- * Each test switches the one server's active scenario, so the file runs
- * one test at a time.
+ * The page talks to the real server, with its own browser context
+ * switched to Atlas Lab. /setup is intercepted, so nothing here starts a
+ * run or calls a model; the body the real server takes is covered in
+ * tests/cli/dashboard-run-payload.test.ts. The pick is the context's own
+ * paracosm_scenario cookie, so the tests run in parallel without moving
+ * one another's scenario.
  */
 import { test, expect, type Page } from '@playwright/test';
 
-test.describe.configure({ mode: 'default' });
+// Each browser context holds its own pick, so the tests need no order.
+test.describe.configure({ mode: 'parallel' });
 
 interface SetupBody {
   actors: Array<{ name: string; unit?: string }>;
@@ -54,8 +56,10 @@ const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Si
 const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
 
 test.describe('Run controls @run', () => {
-  test.beforeEach(async ({ request }) => {
-    const switched = await request.post('/scenario/switch', { data: { id: 'atlas-lab' } });
+  test.beforeEach(async ({ page }) => {
+    // page.request shares the page's cookies, so the pick it gets is the
+    // page's; the request fixture would keep it in a jar of its own.
+    const switched = await page.request.post('/scenario/switch', { data: { id: 'atlas-lab' } });
     expect(switched.ok()).toBe(true);
   });
 
@@ -213,6 +217,59 @@ test.describe('Run controls @run', () => {
     expect(bodies[1].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'East Wing']);
   });
 
+  test("a unit from this scenario's last run stays on a preset leader", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const units = page.getByRole('textbox', { name: 'Unit', exact: true });
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await units.first().fill('East Wing');
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta']);
+
+    // A fresh load starts from that run's leaders on the Mars fallback. When
+    // GET /scenario answers, Atlas Lab's start time (1, not Mars's 2035) lands
+    // in the same render as its preset leaders, so the unit is read after the
+    // preset has been applied.
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    await expect(units.first()).toHaveValue('East Wing');
+    release();
+    await expect(page.locator('#time-input')).toHaveValue('1');
+    await expect(units.first()).toHaveValue('East Wing');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(2);
+    expect(bodies[1].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta']);
+  });
+
+  test("this scenario's last run is in Settings when it opens again from another tab", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const units = page.getByRole('textbox', { name: 'Unit', exact: true });
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await units.first().fill('East Wing');
+    await page.getByRole('button', { name: 'Add another actor to the cohort' }).click();
+    await units.nth(2).fill('West Wing');
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta', 'West Wing']);
+
+    // The launch opens the Sim tab without a reload, so Atlas Lab and its
+    // preset are already in hand when Settings mounts again.
+    await expect(page).toHaveURL(/[?&]tab=sim\b/);
+    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(units).toHaveCount(3);
+    await expect(units.first()).toHaveValue('East Wing');
+    await expect(units.nth(2)).toHaveValue('West Wing');
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(2);
+    expect(bodies[1].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta', 'West Wing']);
+  });
+
   test("a finished run's Run again waits for GET /scenario", async ({ page }) => {
     const bodies = await captureSetup(page);
     // The server's event stream replays a finished run, and the last launch on
@@ -305,19 +362,18 @@ test.describe('Run controls @run', () => {
 
   test('a catalog switch whose answer is lost leaves no run for the next load', async ({ page }) => {
     const bodies = await captureSetup(page);
-    // The server takes the switch, and its answer never reaches the page.
-    await page.route('**/scenario/switch', async route => {
-      await route.fetch();
-      await route.abort();
-    });
+    // The switch's answer never reaches the page, so no cookie is set.
+    await page.route('**/scenario/switch', route => route.abort());
     await page.goto('/sim?tab=quickstart');
     await page.getByRole('button', { name: /against Deep Ocean Station$/ }).click();
     await expect(page.getByText('Scenario switch failed', { exact: true })).toBeVisible();
     expect(await page.evaluate(() => sessionStorage.getItem('paracosm:catalogPendingRun'))).toBeNull();
 
-    // The server is on Deep Ocean Station now; a reload must not run it.
+    // The reload finds the page's own pick, Atlas Lab, and runs nothing.
     await page.reload();
-    await expect(page.getByRole('button', { name: /against Atlas Lab$/ })).toBeEnabled();
+    await expect(page.getByRole('heading', { name: /loaded scenario: Atlas Lab$/ })).toBeVisible();
+    // The loaded scenario's card and its catalog card both offer the run.
+    await expect(page.getByRole('button', { name: /against Atlas Lab$/ }).first()).toBeEnabled();
     await page.waitForTimeout(1_000);
     expect(bodies).toHaveLength(0);
   });

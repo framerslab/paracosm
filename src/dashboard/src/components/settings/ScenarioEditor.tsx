@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react';
-import { emitScenarioUpdated, subscribeScenarioUpdates } from '../../scenario-sync';
+import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import { buildScenarioCompileRequest } from './scenarioCompileRequest';
 import { SETTINGS_LABEL_STYLE } from './shared/settingsStyles';
 import styles from './ScenarioEditor.module.scss';
@@ -32,6 +32,20 @@ const EXAMPLE_SCENARIO = {
   presets: [],
 };
 
+/** The compile result the editor shows again after the reload that follows a compile. */
+const COMPILE_RESULT_KEY = 'paracosm:editorCompileResult';
+
+function readCompileResult(): { success: boolean; message: string } | null {
+  try {
+    const raw = window.sessionStorage.getItem(COMPILE_RESULT_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { success?: unknown; message?: unknown };
+    return typeof saved.message === 'string' ? { success: saved.success === true, message: saved.message } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function ScenarioEditor() {
   const [adminConfig, setAdminConfig] = useState<AdminConfig>({ adminWrite: false, memoryScenarios: [] });
   const [jsonText, setJsonText] = useState('');
@@ -45,12 +59,14 @@ export function ScenarioEditor() {
   const [compiling, setCompiling] = useState(false);
   const [storing, setStoring] = useState(false);
   const [progress, setProgress] = useState<CompileProgress[]>([]);
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(() => readCompileResult());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     fetch('/admin-config').then(r => r.json()).then(setAdminConfig).catch(() => {});
+    // Shown once: the next load starts without it.
+    try { window.sessionStorage.removeItem(COMPILE_RESULT_KEY); } catch { /* private mode */ }
   }, []);
 
   // Auto-load the active scenario JSON into the editor on mount and when scenario changes
@@ -216,8 +232,41 @@ export function ScenarioEditor() {
                 });
               }
               if (data.id) {
-                emitScenarioUpdated(window);
-                setResult({ success: true, message: `Compiled: ${data.id} (${data.departments} departments, ${data.hooks} hooks). Go to Settings to configure actors and launch.` });
+                // The compile put it in the catalog for everyone and made it
+                // nobody's pick; switching makes it this visitor's, as the
+                // compile used to make it everyone's.
+                let switchError: string | null = null;
+                try {
+                  const switched = await fetch('/scenario/switch', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: data.id }),
+                  });
+                  if (!switched.ok) {
+                    const body = await switched.json().catch(() => ({} as { error?: string }));
+                    switchError = body.error ?? `HTTP ${switched.status}`;
+                  }
+                } catch (err) {
+                  switchError = String(err);
+                }
+                if (switchError) {
+                  setResult({ success: false, message: `Compiled ${data.id}, but switching to it failed: ${switchError}` });
+                  continue;
+                }
+                // Reload onto the compiled scenario, as the other switches
+                // do, so the page skips the run the server still holds
+                // instead of showing it under the new scenario's nouns.
+                // The result shows again after the reload.
+                try {
+                  window.sessionStorage.setItem(COMPILE_RESULT_KEY, JSON.stringify({
+                    success: true,
+                    message: `Compiled: ${data.id} (${data.departments} departments, ${data.hooks} hooks). Configure actors below and launch.`,
+                  }));
+                } catch {
+                  // Private mode: the reload comes up without the message.
+                }
+                markScenarioSwitched();
+                window.location.reload();
+                return;
               }
               if (data.error) setResult({ success: false, message: data.error });
             } catch {}

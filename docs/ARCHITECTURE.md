@@ -74,7 +74,7 @@ A scenario JSON file is the runtime contract that describes the simulation domai
 
 **Any domain works.** Mars colonies, submarine habitats, space stations, medieval kingdoms. The engine is domain-agnostic. The compiled scenario contract defines what gets simulated.
 
-**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook. The run's prompts read the same labels through [`scenario-words.ts`](../src/runtime/util/scenario-words.ts), `labels.actorNoun` naming the leader, and read the world through [`scenario-state.ts`](../src/runtime/util/scenario-state.ts): the kernel keeps its Mars-heritage metrics and politics in every run because its progression reads them, and a prompt names them only when the scenario declares them in `world`.
+**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook. The run's prompts read the same labels through [`scenario-words.ts`](../src/runtime/util/scenario-words.ts), `labels.actorNoun` naming the leader, and read the world through [`scenario-state.ts`](../src/runtime/util/scenario-state.ts): the kernel seeds its Mars-heritage metrics and politics (power, food, water, pressurized volume, life support, modules, science, Earth dependency, governance, independence pressure) only in a run whose scenario declares them in `world`, or a run with no scenario, so a run's state, turn events, outcome effects and saved run carry only what its scenario declares, plus the population and morale every run has. Progression reads food and life support only where a run carries them. A saved run that carries the Mars defaults loads, forks and replays with them, and a prompt names them only when the scenario declares them.
 
 ### Seed Enrichment & Citation Flow
 
@@ -339,7 +339,7 @@ The swarm is first-class on every consumer surface:
 | **`paracosm/swarm`** | Pure projections: `getSwarm`, `swarmByDepartment`, `swarmFamilyTree`, `aliveCount`, `deathCount`, `moodHistogram`, `departmentHeadcount`. |
 | **`paracosm`** | `WorldModel.swarm(artifact)` and the same helpers as static methods. |
 | **HTTP** | `GET /api/v1/runs/:runId/swarm` returns just the swarm snapshot — lighter than the full artifact. |
-| **SSE stream** | `systems_snapshot` event fires every turn with the full agent roster + per-turn births/deaths/morale. |
+| **SSE stream** | `systems_snapshot` event fires every turn with the full agent roster + per-turn births/deaths/morale, and the food reserve in a run that carries `foodMonthsReserve`. |
 
 ```ts
 import { getSwarm, swarmByDepartment, moodHistogram } from 'paracosm/swarm';
@@ -458,8 +458,10 @@ Two surfaces:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/scenario` | The active scenario for the dashboard: labels, setup, departments, presets (with `leaders`) and `ui`. Each `ui.headerMetrics` entry carries its world field's `max` and numeric `initial` where the field declares them, so a percent metric held on 0 to 1 reads the same as one held on 0 to 100. The dashboard's Run controls stay disabled until this answers |
-| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments; a setup value the body omits (start time, time per turn, population, seed, turns, key personnel) comes from the active scenario, an omitted population being at least one person per department; a fork's omitted start time and time per turn come from its parent's snapshots, a fork with no turn left answers 400, and a body naming another scenario than the active one answers 409 before the daily run limit counts it; a parent snapshot at a turn that is not whole or is above 10,000 gives no timeline |
+| `GET` | `/scenario` | The caller's scenario: the one `?id=` names (404 when the catalog has no such id), else the visitor's pick (the `paracosm_scenario` cookie), else the server's default, Mars Genesis. Labels, setup, departments, presets (with `leaders`) and `ui`. Each `ui.headerMetrics` entry carries its world field's `max` and numeric `initial` where the field declares them, so a percent metric held on 0 to 1 reads the same as one held on 0 to 100. A pick still compiling after a restart answers 503 with `Retry-After: 5`. The dashboard's Run controls stay disabled until this answers 200 |
+| `GET` | `/scenarios` | The scenario catalog, with `active` the visitor's pick or the default |
+| `POST` | `/scenario/switch` | `{ "id": "<scenario id>" }`: checks the id against the catalog (400 for an unknown id or a stored draft that is not runnable) and answers `{ active, name }` with the `paracosm_scenario` cookie, which holds that id for 30 days. Changes nothing for other visitors |
+| `POST` | `/setup` | Start a new simulation with leaders, turns, seed, departments. The run's scenario is the body's `scenarioId` (or `quickstart.scenarioId`, or a fork's parent's), else the visitor's pick, else the default; a named id the catalog lacks answers 400, and one still compiling after a restart 503, before the daily run limit counts the request. A run in a scenario that is not the visitor's pick answers with the `paracosm_scenario` cookie for that scenario, so the `/sim` page the dashboard opens next shows the run. A setup value the body omits (start time, time per turn, population, seed, turns, key personnel) comes from the run's scenario, an omitted population being at least one person per department; a fork's omitted start time and time per turn come from its parent's snapshots, a fork with no turn left answers 400; a parent snapshot at a turn that is not whole or is above 10,000 gives no timeline |
 | `GET` | `/events` | SSE stream of simulation events (`systems_snapshot` carries the swarm) |
 | `POST` | `/clear` | Clear simulation state and chat agent pool |
 | `POST` | `/chat` | Chat with a colonist agent |
@@ -467,6 +469,8 @@ Two surfaces:
 | `GET` | `/rate-limit` | Check rate limit status |
 | `POST` | `/compile` | Compile a custom scenario draft with optional `seedText` / `seedUrl` grounding |
 | `GET` | `/retry-stats` | Cross-run reliability rollup (schemas + forges + caches + providerErrors) over the last N completed runs. Query param: `?limit=N` |
+
+The scenario pick is a first-party cookie, `paracosm_scenario` (`Path=/; Max-Age=2592000; SameSite=Lax; HttpOnly`, plus `Secure` on the hosted demo), that holds only the scenario's id. `/scenario/switch` sets it, and so does a `/setup` run in a scenario other than the pick; two tabs of one browser share it. A browser sends it on same-origin requests alone, so a cross-origin caller under the server's `Access-Control-Allow-Origin: *` names its scenario in the `/setup` body or with `?id=`. `GET /scenario` and `GET /scenarios` answer `Cache-Control: no-store` and `Vary: Cookie`. The run itself is still one at a time for the whole server: the event buffer, `/results`, `/chat` and `/clear` belong to the last run started, whoever started it. Every run opens its buffer with an `active_scenario` event naming its scenario, and the dashboard shows the run only when that scenario is the page's own, so a page on another scenario comes up without it; a run loaded from a file is not the feed's, and stays when the page learns its scenario. The event also carries a `runKey` of its own: a reconnect replays the same key, so the page keeps what it holds, and a new key in the page's scenario is a new run, which the page shows on its own. A fork's event names its parent run and turn (`forkedFrom`, null on every other run), and the page that forked keeps the run it holds and shows the fork as a branch of it. A page that was showing a run in progress when a run in another scenario took the server's place shows its run as interrupted.
 
 **Platform API** (multi-tenant, run history persisted — see [`docs/HTTP_API.md`](HTTP_API.md))
 
@@ -537,9 +541,9 @@ Dashboard flow:
 
 1. Paste or load JSON into the Scenario Editor.
 2. Click **Compile**: watches the SSE progress stream (`compile_hook` events per hook generated). Cost is billed against the user-supplied API key when provided, else the host's.
-3. After `compile_done`, the scenario is both added to `customScenarioCatalog` AND set as the active scenario. The Sim tab will run it on the next RUN click.
+3. After `compile_done`, the scenario is added to `customScenarioCatalog`, and the page that compiled it switches to it; the pick is that visitor's. The Sim tab will run it on the next RUN click.
 
-Common mistake: clicking **Store** (saves the JSON draft, does not generate hooks) and then hitting RUN. The run proceeds with whichever scenario was previously active (Mars by default): the editor still shows Mercury, the page title pulls the label from the stored JSON, but the simulation runs Mars. Fix: click Compile, not Store.
+Common mistake: clicking **Store** (saves the JSON draft, does not generate hooks) and then hitting RUN. The run proceeds with whichever scenario the page had picked (Mars by default): the editor still shows Mercury, the page title pulls the label from the stored JSON, but the simulation runs Mars. Fix: click Compile, not Store.
 
 Programmatic flow:
 

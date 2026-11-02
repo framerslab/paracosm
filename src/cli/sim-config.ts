@@ -106,8 +106,10 @@ export interface SimulationSetupPayload {
    */
   captureSnapshots?: boolean;
   /**
-   * The scenario this body was written for. `/setup` refuses a body whose
-   * scenario is no longer the active one (`quickstart.scenarioId` as well).
+   * The scenario the run goes to (`quickstart.scenarioId` names it as
+   * well). Absent: a fork's parent's scenario, else the visitor's pick
+   * (the `paracosm_scenario` cookie), else the server's default. A run in
+   * a scenario other than the pick makes it the pick.
    */
   scenarioId?: string;
   /**

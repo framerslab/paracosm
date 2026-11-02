@@ -3,12 +3,12 @@
  *
  * The dashboard's Quickstart tab posts /setup with the leaders and the
  * scenario's turns and seed, and nothing else about the setup; the
- * server fills the omitted fields. They must come from the active
+ * server fills the omitted fields. They must come from the run's
  * scenario, not from Mars Genesis. Four hosted Atlas Lab runs on 29 and
  * 30 October 2026 started at "Month 2035" with the five Mars colonists
  * as key personnel because normalizeSimulationConfig filled startTime,
  * population and keyPersonnel with Mars constants without seeing the
- * active scenario.
+ * scenario.
  *
  * Both halves go through the server's own /scenario/switch and /setup
  * handlers with the scenario JSON under scenarios/, and read the config
@@ -82,7 +82,7 @@ async function waitFor<T>(read: () => T | null, ms = 2000): Promise<T> {
   }
 }
 
-test('POST /setup fills the omitted setup from the active scenario: Atlas Lab starts at month 1 with no Mars colonist, Mars at 2035 with its five', async () => {
+test('POST /setup fills the omitted setup from the run\'s scenario: Atlas Lab starts at month 1 with no Mars colonist, Mars at 2035 with its five', async () => {
   const launches: Array<{ config: NormalizedSimulationConfig; scenario: ScenarioPackage | undefined }> = [];
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-scenario-setup-'));
   const server = createMarsServer({
@@ -221,7 +221,7 @@ test('POST /setup keeps one scenario for the whole launch when another request s
   );
 });
 
-test('POST /setup with departments the active scenario does not declare keeps all of its own', async () => {
+test('POST /setup with departments the run\'s scenario does not declare keeps all of its own', async () => {
   // A form launched on the Mars fallback before GET /scenario resolved, or
   // an API caller holding another scenario's list. An empty active set
   // would send every event to the scenario's first two departments.
@@ -235,24 +235,6 @@ test('POST /setup with departments the active scenario does not declare keeps al
       const config = await waitFor(() => launches[0] ?? null);
       assert.deepEqual(config.activeDepartments, atlasLab.departments.map(d => d.id));
     },
-  );
-});
-
-test('POST /setup does not count a body refused for another scenario against the daily run limit', async () => {
-  // The hosted demo allows one run per visitor a day. A page left on another
-  // scenario is told to reload and run again; that run has to go through.
-  const launches: NormalizedSimulationConfig[] = [];
-  await withServer(
-    async config => { launches.push(config); },
-    async post => {
-      assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
-      const stale = await post('/setup', quickstartBody(mars));
-      assert.equal(stale.status, 409);
-      const reloaded = await post('/setup', quickstartBody(atlasLab));
-      assert.equal(reloaded.status, 200);
-      await waitFor(() => launches[0] ?? null);
-    },
-    1,
   );
 });
 
@@ -442,30 +424,32 @@ test('POST /setup on the hosted demo refuses a fork past its turn cap instead of
   );
 });
 
-test('POST /setup refuses a body written for another scenario than the active one', async () => {
-  // The active scenario is the server's, so another page can move it while
-  // this page still holds the old one. Its leaders and setup values would
-  // then run in the other scenario's world.
-  const launches: NormalizedSimulationConfig[] = [];
+test('POST /setup runs the scenario the body names, whatever was switched', async () => {
+  // A switch is one visitor's pick, and these posts carry no cookie. A page
+  // set up for Mars runs Mars in Mars's world, with Mars's start values.
+  const launches: Array<{ config: NormalizedSimulationConfig; scenario: ScenarioPackage | undefined }> = [];
   await withServer(
-    async config => { launches.push(config); },
+    async (config, _signal, scenario) => { launches.push({ config, scenario }); },
     async post => {
       assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
 
       // Settings and the re-run button name it at the top level.
       const rerun = await post('/setup', { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id });
-      assert.equal(rerun.status, 409);
-      assert.match(((await rerun.json()) as { error: string }).error, /reload/i);
+      assert.equal(rerun.status, 200);
+      const first = await waitFor(() => launches[0] ?? null);
+      assert.equal(first.scenario?.id, 'mars-genesis');
+      assert.equal(first.config.startTime, 2035);
 
       // The Quickstart tab names it under quickstart.
       const quickstart = await post('/setup', quickstartBody(mars));
-      assert.equal(quickstart.status, 409);
-      assert.equal(launches.length, 0);
+      assert.equal(quickstart.status, 200);
+      assert.equal((await waitFor(() => launches[1] ?? null)).scenario?.id, 'mars-genesis');
 
-      // A body for the active scenario launches.
-      const own = await post('/setup', { ...quickstartBody(atlasLab), scenarioId: atlasLab.id });
-      assert.equal(own.status, 200);
-      await waitFor(() => launches[0] ?? null);
+      const lab = await post('/setup', { ...quickstartBody(atlasLab), scenarioId: atlasLab.id });
+      assert.equal(lab.status, 200);
+      const third = await waitFor(() => launches[2] ?? null);
+      assert.equal(third.scenario?.id, 'atlas-lab');
+      assert.equal(third.config.startTime, 1);
     },
   );
 });
