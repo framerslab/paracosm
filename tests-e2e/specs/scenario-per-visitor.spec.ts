@@ -186,6 +186,33 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toBeVisible();
   });
 
+  test('a page whose run another scenario\'s run replaced shows it interrupted, not running', async ({ page }) => {
+    // The page holds a Mars Genesis run in progress. Another visitor starts
+    // an Atlas Lab run, which aborts it on the server and opens the buffer
+    // with its own active_scenario event. The page skips the Atlas Lab
+    // run, and with it the end of its own, so it must end that run itself.
+    const runBody = (scenarioId: string, leader: string) => [
+      'event: connected\ndata: {}',
+      `event: active_scenario\ndata: ${JSON.stringify({ id: scenarioId })}`,
+      `event: status\ndata: ${JSON.stringify({ phase: 'parallel', maxTurns: 6, actors: [{ name: leader, archetype: 'The Visionary' }] })}`,
+      'event: replay_done\ndata: {}',
+    ].join('\n\n') + '\n\n';
+    let body = runBody('mars-genesis', 'Aria Chen');
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
+    });
+    await openSettings(page);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    const opened = served;
+    await expect.poll(() => served).toBeGreaterThan(opened + 1);
+    await expect(finishedRun(page)).toHaveCount(0);
+
+    body = runBody('atlas-lab', 'Marcus Reinhardt');
+    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: another run started on the server/ }).first()).toBeVisible();
+  });
+
   test('the privacy section names the cookie that holds the pick', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#privacy')).toContainText('paracosm_scenario');
