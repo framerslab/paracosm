@@ -86,7 +86,7 @@ export function buildPersonalityCue(h: HexacoProfile): string {
 export function buildCommanderBootstrap(personalityCue: string, labels?: Partial<ScenarioLabels>): string {
   const w = scenarioWords(labels);
   return (
-    `You are the ${w.settlement} ${w.actor}. You receive department reports and make strategic decisions. ` +
+    `You are the ${w.leaderTitle}. You receive department reports and make strategic decisions. ` +
     `The people you lead are ${w.population}, and each turn moves time forward in ${w.timeUnitPlural}. ` +
     `${personalityCue} ` +
     `Your personality MUST visibly shape your choices — do not converge on a centrist option just because ` +
@@ -112,9 +112,8 @@ export interface CommanderTurnPromptArgs {
   summaries: string;
   /** The forged-toolbox block, or "". */
   toolboxBlock: string;
-  population: number;
-  morale: number;
-  foodMonthsReserve: number;
+  /** The scenario's metrics on one line (see `formatStateLine`). */
+  stateLine: string;
   /** The options block with its selectedOptionId instruction, or "". */
   optionText: string;
   /** The available policy effects block, or "". */
@@ -136,7 +135,7 @@ ${a.trajectoryCue ? `\n${a.trajectoryCue}\n` : ''}
 DEPARTMENT REPORTS:
 ${a.summaries}
 ${a.toolboxBlock}
-State: Pop ${a.population} | Morale ${Math.round(a.morale * 100)}% | Food ${a.foodMonthsReserve.toFixed(1)}mo${a.optionText}${a.effectsText}
+State: ${a.stateLine}${a.optionText}${a.effectsText}
 
 REASONING — populate the "reasoning" field of your JSON response BEFORE committing to selectedOptionId. Numbered list, one point per line:
   (1) What does my personality profile push me toward on this call? Name the specific trait poles at play.
@@ -190,6 +189,22 @@ export function resolveDepartmentId(
 }
 
 /**
+ * The departments that analyse an event: the ones it names that the run
+ * keeps, matched as the promotions match them, in the order named. When it
+ * names none of them (a director's guess, a canned event written for Mars)
+ * the first two the run keeps answer, since only those have heads.
+ */
+export function resolveEventDepartments(
+  named: readonly unknown[] | undefined,
+  departments: ReadonlyArray<{ id: string; label?: string }>,
+  active: ReadonlySet<string>,
+): string[] {
+  const kept = departments.filter(d => active.has(d.id));
+  const resolved = (named ?? []).map(text => resolveDepartmentId(text, kept)).filter((id): id is string => !!id);
+  return resolved.length ? [...new Set(resolved)] : kept.slice(0, 2).map(d => d.id);
+}
+
+/**
  * Candidate-summary dependencies needed to run the turn-0 promotion.
  * Kept minimal so the flow doesn't couple to the full kernel surface —
  * tests can stub getCandidates + promoteAgent with ~20 lines of fakes.
@@ -229,10 +244,14 @@ export interface RunPromotionArgs {
  *
  * A promotion is accepted when its department resolves to one of the
  * run's departments (see {@link resolveDepartmentId}), that department
- * has no head yet, and its agent exists and heads no other department.
+ * has no living head, and its agent is alive and heads no other department.
  * Anything else is refused with one log line. The fallback then promotes
  * the top kernel candidate for each department still without a head, so
- * every department enters turn 1 with exactly one.
+ * every department enters turn 1 with exactly one living head.
+ *
+ * A fork restores its heads with the snapshot and comes through here too.
+ * The commander is asked only about a department whose head has died, and
+ * not at all when every department has one.
  */
 export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<void> {
   const { kernel, scenario, leader, startTime, sendToCommander, trackUsage, recordSchemaAttempt, emit } = args;
@@ -242,7 +261,13 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
   const departments = scenario.departments.filter(d => active.has(d.id));
   const promotionDepts: Department[] = departments.map(d => d.id as Department);
   const roleNames: Record<string, string> = Object.fromEntries(departments.map(d => [d.id, d.role]));
-  const candidateSummaries = departments.map(d => {
+  const headOf = (dept: string) => kernel.getState().agents.find(c => c.promotion?.department === dept && c.health.alive);
+  const open = departments.filter(d => !headOf(d.id));
+  if (open.length === 0) {
+    console.log('  [Turn 0] Every department has a living head; no promotions to make');
+    return;
+  }
+  const candidateSummaries = open.map(d => {
     const candidates = kernel.getCandidates(d.id as Department, 5);
     return `## ${d.label || d.id} (department id "${d.id}"): Top 5 Candidates:\n${candidates.map(c => {
       const age = startTime - c.core.birthTime;
@@ -255,7 +280,7 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
     session: { send: sendToCommander as (p: string) => Promise<{ text: string; usage?: any }> },
     prompt: buildPromotionPrompt(
       candidateSummaries,
-      departments.map(d => ({ id: d.id, label: d.label || d.id, role: d.role })),
+      open.map(d => ({ id: d.id, label: d.label || d.id, role: d.role })),
       scenario.labels,
     ),
     schema: PromotionsSchema,
@@ -268,7 +293,6 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
   if (fromFallback) {
     console.log('  [promotion] schema fallback; commander promotions skipped (fallback pass below will fill)');
   }
-  const headOf = (dept: string) => kernel.getState().agents.find(c => c.promotion?.department === dept);
   for (const p of promoDecision.promotions) {
     const dept = resolveDepartmentId(p.department, departments);
     if (!dept) {
@@ -283,6 +307,10 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
     const agent = kernel.findAgent(p.agentId);
     if (!agent) {
       console.log(`  ✦ Promotion failed: Error: Agent ${p.agentId} not found; the fallback fills ${dept}`);
+      continue;
+    }
+    if (!agent.health.alive) {
+      console.log(`  ✦ Promotion refused: ${agent.core.id} has died; the fallback fills ${dept}`);
       continue;
     }
     if (agent.promotion) {
@@ -303,8 +331,11 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
     if (!headOf(dept)) {
       const top = kernel.getCandidates(dept, 1)[0];
       if (top) {
-        kernel.promoteAgent(top.core.id, dept, roleNames[dept] || `Head of ${dept}`, leader.name);
-        console.log(`  ✦ [fallback] ${top.core.name} → ${roleNames[dept]}`);
+        const role = roleNames[dept] || `Head of ${dept}`;
+        const agentId = kernel.promoteAgent(top.core.id, dept, role, leader.name);
+        console.log(`  ✦ [fallback] ${top.core.name} → ${role}`);
+        // The dashboard's feed lists a head from this event.
+        emit('promotion', { agentId, department: dept, role, reason: 'Top candidate for the department.' });
       }
     }
   }

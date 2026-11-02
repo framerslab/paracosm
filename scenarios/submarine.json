@@ -11,6 +11,8 @@
     "currency": "credits",
     "timeUnitNoun": "year",
     "timeUnitNounPlural": "years",
+    "actorNoun": "captain",
+    "actorNounPlural": "captains",
     "tagline": "Deep Ocean Station: a 50-crew benthic research outpost. Pressure incidents, supply runs, mood spirals, and isolation politics run through two captain archetypes."
   },
   "theme": {

@@ -171,10 +171,10 @@ test('an event\'s departments reach the scenario\'s, by id, label or short form'
   assert.deepEqual(resolveEventDepartments(undefined, atlasLab.departments, kept), ['alignment_research', 'capability_research']);
   // A milestone's own departments, which the turn loop used to replace
   // with a list written for Mars ("medical", "engineering" on the Moon).
-  const arrival = (lunar as unknown as { dataDrivenHooks: { milestones: Array<{ title: string; relevantDepartments: string[] }> } })
-    .dataDrivenHooks.milestones.find(m => m.title === 'Lunar Arrival')!;
+  const arrival = (lunar as unknown as { dataDrivenHooks: { milestones: Array<{ event: { title: string; relevantDepartments: string[] } }> } })
+    .dataDrivenHooks.milestones.find(m => m.event.title === 'Lunar Arrival')!;
   assert.deepEqual(
-    resolveEventDepartments(arrival.relevantDepartments, lunar.departments, new Set(lunar.departments.map(d => d.id))),
+    resolveEventDepartments(arrival.event.relevantDepartments, lunar.departments, new Set(lunar.departments.map(d => d.id))),
     ['engineering', 'mining'],
   );
 });

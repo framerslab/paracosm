@@ -227,7 +227,7 @@ The authoring contract is JSON because JSON validates, diffs, caches, and snapsh
 }
 ```
 
-Every scenario declares its own vocabulary via `labels.populationNoun` (plural), `labels.settlementNoun` (singular), and `labels.timeUnitNoun`. The dashboard, kernel, and progression hooks pick those up everywhere user-facing copy renders. Without overrides, paracosm falls back to `colonists` / `colony` / `tick`.
+Every scenario declares its own vocabulary via `labels.populationNoun` (plural), `labels.settlementNoun` (singular), and `labels.timeUnitNoun`. The dashboard, kernel, and progression hooks pick those up everywhere user-facing copy renders. Without overrides, paracosm falls back to `colonists` / `colony` / `tick`. `labels.actorNoun` names the leader (`release director`, `CEO`); the run's prompts say `leader` without it. The prompts name only the metrics and politics a scenario declares in `world`, so the kernel's Mars-heritage values (food, water, `earthDependencyPct`) stay out of a scenario that does not declare them.
 
 Time is unit-agnostic. `setup.defaultTimePerTurn` and `setup.defaultStartTime` are plain numbers; whether they represent years, quarters, hours, or ticks is decided by `timeUnitNoun`. The dashboard turn header reads `Quarter 5`, `Day 22`, or `Year 2043` straight from the label.
 

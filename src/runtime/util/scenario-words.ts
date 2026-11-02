@@ -8,7 +8,7 @@
  * years and called its researchers colonists. Each prompt builder takes
  * the scenario's labels and reads its words here. A scenario without a
  * label gets the neutral word below; Mars Genesis declares its own
- * ("colonists", "colony", "year") and keeps them.
+ * ("colonists", "colony", "year", "commander") and keeps them.
  *
  * @module paracosm/runtime/util/scenario-words
  */
@@ -30,6 +30,12 @@ export interface ScenarioWords {
   actor: string;
   /** The leader, capitalised: "Release director", "Commander". */
   Actor: string;
+  /**
+   * The leader with the place, each named once: "lab release director",
+   * "colony commander", and "council lead" where the leader's own word
+   * already holds the place.
+   */
+  leaderTitle: string;
 }
 
 const capitalise = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
@@ -42,20 +48,32 @@ function word(value: unknown, fallback: string): string {
 /**
  * Read a scenario's words from its labels.
  *
- * The leader defaults to "commander", the word the prompts used before
- * scenarios could name it, so a scenario that names no `actorNoun`
- * (Mars Genesis) reads as it did.
+ * The leader defaults to "leader". The compiler labels a draft that names
+ * none "actor", the engine's word for the type; in a sentence that reads
+ * as a performer ("You are the company actor"), so it counts as unnamed.
  */
 export function scenarioWords(labels?: Partial<ScenarioLabels> | null): ScenarioWords {
   const timeUnit = word(labels?.timeUnitNoun, 'tick').toLowerCase();
-  const actor = word(labels?.actorNoun, 'commander');
+  const named = word(labels?.actorNoun, 'leader');
+  const actor = named.toLowerCase() === 'actor' ? 'leader' : named;
+  const settlement = word(labels?.settlementNoun, 'settlement');
   return {
     population: word(labels?.populationNoun, 'members'),
-    settlement: word(labels?.settlementNoun, 'settlement'),
+    settlement,
     timeUnit,
     TimeUnit: capitalise(timeUnit),
     timeUnitPlural: word(labels?.timeUnitNounPlural, `${timeUnit}s`).toLowerCase(),
     actor,
     Actor: capitalise(actor),
+    leaderTitle: actor.toLowerCase().split(/\s+/).includes(settlement.toLowerCase()) ? actor : `${settlement} ${actor}`,
   };
+}
+
+/**
+ * The time unit a saved run records. A compiled scenario names the unit
+ * and no plural, and the run recorded "quarter" with "years".
+ */
+export function artifactTimeUnit(labels?: Partial<ScenarioLabels> | null): { singular: string; plural: string } {
+  const singular = word(labels?.timeUnitNoun, 'time');
+  return { singular, plural: word(labels?.timeUnitNounPlural, `${singular}s`) };
 }

@@ -14,7 +14,8 @@
  */
 
 import { agent as createAgent, AgentMemory } from '@framers/agentos';
-import type { LlmProvider } from '../../engine/types.js';
+import type { LlmProvider, ScenarioLabels } from '../../engine/types.js';
+import { scenarioWords } from '../util/scenario-words.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
@@ -121,6 +122,8 @@ export async function getOrCreateChatAgent(
     anthropicKey?: string;
     settlementNoun?: string;
     populationNoun?: string;
+    /** The scenario's labels: the leader and the time the character speaks of. */
+    labels?: Partial<ScenarioLabels>;
     /** Full colony roster, used for name grounding. Optional for
      *  backward compatibility; pass [] and the agent will reply "I don't
      *  have my roster loaded" when asked about anyone other than itself,
@@ -195,7 +198,7 @@ export async function getOrCreateChatAgent(
     honesty: colonist.hexaco.HH ?? 0.5,
   } : undefined;
 
-  const instructions = buildInstructions(colonist, settlement, popNoun, roster);
+  const instructions = buildInstructions(colonist, settlement, popNoun, roster, opts.labels);
 
   const model = provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini';
 
@@ -276,12 +279,14 @@ function renderRosterLine(entry: ColonistRosterEntry, settlement?: string): stri
  *        agent. Rendered as a fixed-format list the model is told to
  *        treat as authoritative.
  */
-function buildInstructions(
+export function buildInstructions(
   colonist: ColonistProfile,
   settlement: string,
   popNoun: string,
   roster: ColonistRosterEntry[],
+  labels?: Partial<ScenarioLabels>,
 ): string {
+  const words = scenarioWords(labels);
   // Singular form of the scenario's population noun for inline use.
   // "colonists" → "colonist", "crew" → "crew member", "agents" → "agent".
   const singular = popNoun.endsWith('s') ? popNoun.replace(/s$/, '') : `${popNoun} member`;
@@ -348,12 +353,12 @@ function buildInstructions(
     `IMPORTANT: You are a CHARACTER, not an assistant. You lived through this simulation. ` +
     `An outside observer is reviewing what happened and asking you about it. ` +
     `Your job: discuss the SPECIFIC events you experienced, the decisions your ` +
-    `commander made, the outcomes, the people you worked with.`
+    `${words.actor} made, the outcomes, the people you worked with.`
   );
   lines.push(
-    `Ground every answer in specific turns, years, decisions, people, or events from your ` +
-    `memory. Cite turn numbers and years (e.g. "Turn 3, time 2043"). Name the ` +
-    `commander's choice that affected you. Name the people involved. ` +
+    `Ground every answer in specific turns, ${words.timeUnitPlural}, decisions, people, or events from your ` +
+    `memory. Cite turn numbers and ${words.timeUnitPlural} (e.g. "Turn 3, ${words.TimeUnit} 3"). Name the ` +
+    `${words.actor}'s choice that affected you. Name the people involved. ` +
     `If you have no relevant memory, say so and pivot to the closest event you do recall.`
   );
   // Anti-hallucination: name grounding against the roster.
@@ -402,8 +407,11 @@ export function extractColonistMemories(
    * memory text without leaking Mars-specific "Year" phrasing.
    */
   timeUnitNoun?: string,
+  /** The scenario's labels: who the memory says decided. */
+  labels?: Partial<ScenarioLabels>,
 ): ColonistMemoryEntry[] {
   const memories: ColonistMemoryEntry[] = [];
+  const { actor } = scenarioWords(labels);
   const timeNounRaw = timeUnitNoun ?? 'tick';
   const TimeNoun = timeNounRaw.charAt(0).toUpperCase() + timeNounRaw.slice(1);
 
@@ -452,7 +460,7 @@ export function extractColonistMemories(
       memories.push({
         type: 'decision',
         turn, time,
-        text: `Turn ${turn}: The commander decided: ${String(d.decision || '').slice(0, 300)}`,
+        text: `Turn ${turn}: The ${actor} decided: ${String(d.decision || '').slice(0, 300)}`,
         tags: ['decision', `turn-${turn}`],
       });
     }
@@ -462,7 +470,7 @@ export function extractColonistMemories(
       memories.push({
         type: 'outcome',
         turn, time,
-        text: `Turn ${turn}: Outcome was ${d.outcome}. Colony effects applied.`,
+        text: `Turn ${turn}: Outcome was ${d.outcome}. Effects applied.`,
         tags: ['outcome', `turn-${turn}`],
       });
     }

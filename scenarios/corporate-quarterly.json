@@ -13,6 +13,8 @@
     "eventNounSingular": "decision",
     "timeUnitNoun": "quarter",
     "timeUnitNounPlural": "quarters",
+    "actorNoun": "CEO",
+    "actorNounPlural": "CEOs",
     "tagline": "Q-Scope Corp: four quarters of a mid-stage company driven by two CEO archetypes. Hires, layoffs, ship dates, and PR fires fall under HEXACO-graded calls."
   },
   "theme": {

@@ -32,7 +32,8 @@ export function buildPromotionPrompt(
   const example = first
     ? `{"agentId":"<the id in parentheses after the person's name>","department":"${first.id}","role":"${first.role}","reason":"..."}`
     : '{"agentId":"<the id in parentheses after the person\'s name>","department":"<department id>","role":"...","reason":"..."}';
-  return `You must promote ${departments.length} ${population} to department head roles, one head for each department below. Evaluate these candidates based on their personality traits and specialization. Choose people who align with YOUR leadership style.
+  const count = departments.length === 1 ? `one of your ${population}` : `${departments.length} ${population}`;
+  return `You must promote ${count} to department head roles, one head for each department below. Evaluate these candidates based on their personality traits and specialization. Choose people who align with YOUR leadership style.
 
 DEPARTMENTS (write the quoted id in "department", exactly as shown):
 ${list}
