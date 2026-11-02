@@ -32,13 +32,33 @@ const MAX_COHORT_VERDICT_N = 50;
 const NOT_RECORDED = 'not recorded in this run';
 
 /**
+ * The tools a finished run forged. A forge attempt the reviewers rejected
+ * stays in the artifact's toolbox flagged `approved: false`, and it is no
+ * tool of the run's.
+ */
+function forgedToolsOf(result: any): any[] {
+  return (result.forgedTools ?? []).filter((tool: any) => tool.approved !== false);
+}
+
+/**
  * How many tools a finished run forged, or undefined when its artifact
  * does not record them. `buildRunArtifact` drops an empty `forgedTools`
  * list, so a turn-loop run that forged nothing answers from the count
  * the orchestrator keeps under `paracosmInternal`.
  */
 function runToolCount(result: any): number | undefined {
-  return result.forgedTools?.length ?? result.scenarioExtensions?.paracosmInternal?.totalToolsForged;
+  return result.forgedTools
+    ? forgedToolsOf(result).length
+    : result.scenarioExtensions?.paracosmInternal?.totalToolsForged;
+}
+
+/**
+ * A tool's name or department as one bounded field of the prompt. A
+ * department's model writes both, and neither may open a line of its own
+ * in the text the judge reads.
+ */
+function promptField(value: unknown): string {
+  return String(value).replace(/[\s\p{Cc}]+/gu, ' ').trim().slice(0, 120);
 }
 
 /**
@@ -49,10 +69,11 @@ function runToolCount(result: any): number | undefined {
 function formatTool(tool: any): string {
   const department = tool.firstForgedDepartment ?? tool.department;
   const details = [
-    ...(department ? [department] : []),
+    ...(department ? [promptField(department)] : []),
     ...(tool.reuseCount === undefined ? [] : [`reused ${tool.reuseCount}x`]),
   ];
-  return details.length > 0 ? `${tool.name}(${details.join(', ')})` : tool.name;
+  const name = promptField(tool.name);
+  return details.length > 0 ? `${name}(${details.join(', ')})` : name;
 }
 
 /**
@@ -107,13 +128,16 @@ function formatActorSummary(
     : `${toolCount} unique tools forged${fp.innovation ? ` (${fp.innovation})` : ''}`;
   const citationCount = result.citations?.length ?? internal?.totalCitations;
   const citations = `citations ${citationCount ?? NOT_RECORDED}`;
-  const mostUsed = [...(result.forgedTools ?? [])]
-    .sort((a: any, b: any) => (b.reuseCount ?? 0) - (a.reuseCount ?? 0))
+  const forged = forgedToolsOf(result);
+  // Only reuse counts can rank the tools: without them the line lists the
+  // first five and says it holds no ranking.
+  const ranked = forged.some((tool: any) => tool.reuseCount !== undefined);
+  const listed = (ranked ? [...forged].sort((a: any, b: any) => (b.reuseCount ?? 0) - (a.reuseCount ?? 0)) : forged)
     .slice(0, 5)
     .map(formatTool)
     .join('; ');
-  const toolLine = mostUsed
-    ? `  Top tools: ${mostUsed}`
+  const toolLine = listed
+    ? `  ${ranked ? 'Top tools' : `Tools (reuse ${NOT_RECORDED})`}: ${listed}`
     : toolCount === 0 ? '  No tools forged' : `  Top tools: ${NOT_RECORDED}`;
 
   const cost = result.cost;
@@ -278,7 +302,7 @@ export async function runPairSimulations(
         summary: {
           population: result.finalState?.metrics?.population,
           morale: result.finalState?.metrics?.morale,
-          toolsForged: result.forgedTools?.length ?? 0,
+          toolsForged: runToolCount(result) ?? 0,
           citations: result.citations?.length ?? 0,
         },
         fingerprint: result.fingerprint ?? null,
@@ -436,7 +460,7 @@ export async function runForkSimulation(
       summary: {
         population: result.finalState?.metrics?.population,
         morale: result.finalState?.metrics?.morale,
-        toolsForged: result.forgedTools?.length ?? 0,
+        toolsForged: runToolCount(result) ?? 0,
         citations: result.citations?.length ?? 0,
       },
       fingerprint: result.fingerprint ?? null,
@@ -558,7 +582,7 @@ export async function runBatchSimulations(
         summary: {
           population: result.finalState?.metrics?.population,
           morale: result.finalState?.metrics?.morale,
-          toolsForged: result.forgedTools?.length ?? 0,
+          toolsForged: runToolCount(result) ?? 0,
           citations: result.citations?.length ?? 0,
         },
         fingerprint: result.fingerprint ?? null,
