@@ -756,3 +756,15 @@
   color: var(--text-3);
   margin-top: 2px;
 }
+
+// Shown above the report when the run's parent artifact is in another
+// scenario than the page's, in place of the fork controls.
+.forkNotice {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--text-2);
+  font-size: var(--font-sm);
+}

@@ -9,7 +9,7 @@ import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
 import { EventLogPanel } from '../log/EventLogPanel';
 import { SubTabNav } from '../shared/SubTabNav';
 import { getDashboardTabFromHref, resolveSetupRedirectHref, setSubTabUrlParam } from '../../tab-routing';
-import { subscribeScenarioUpdates } from '../../scenario-sync';
+import { markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import type { SimEvent } from '../../hooks/useSSE';
 import {
   ECONOMICS_PROFILE_OPTIONS,
@@ -409,6 +409,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         body: JSON.stringify({ id }),
       });
       if (res.ok) {
+        // The pick is this visitor's cookie now; the reload loads it and
+        // skips the run the server still holds from before.
+        markScenarioSwitched();
         window.location.reload();
       }
     } catch {}

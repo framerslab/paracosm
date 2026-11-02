@@ -133,14 +133,20 @@ const DEFAULT_DIGITAL_TWIN_LEADER: ActorConfig = {
 };
 
 export interface QuickstartDeps {
-  /** Installs a compiled scenario as the active scenario. The optional
-   *  `seedText` is the user's original natural-language prompt — server
-   *  state stashes it so the next /setup → active_scenario broadcast can
-   *  carry it through to the session store, which surfaces it on the
-   *  replay banner and Replay-Last-Run CTA. */
-  setActiveScenario: (scenario: ScenarioPackage, seedText?: string) => void;
-  /** Resolves an in-memory scenario id against the server catalog. */
+  /** Installs a compiled scenario into the server catalog and persists it.
+   *  It becomes nobody's pick by itself: the visitor who compiled it gets
+   *  it through `pickHeaders` on the answers they receive. The optional
+   *  `seedText` is the user's original natural-language prompt; the server
+   *  keeps it with the scenario so a run's active_scenario event can carry
+   *  it through to the session store, which surfaces it on the replay
+   *  banner and Replay-Last-Run CTA. */
+  installCompiledScenario: (scenario: ScenarioPackage, seedText?: string) => void;
+  /** Resolves a scenario id against the server catalog. */
   getScenarioById: (id: string) => ScenarioPackage | undefined;
+  /** The headers that make a scenario the requesting visitor's pick (the
+   *  paracosm_scenario cookie). Spread into the compile answers that report
+   *  a finished scenario. Optional: without it those answers set nothing. */
+  pickHeaders?: (scenarioId: string) => Record<string, string>;
   /** Fetches a URL's main text content. Returns `{text, title, sourceUrl}`. */
   fetchSeedFromUrl: (url: string) => Promise<{ text: string; title: string; sourceUrl: string }>;
   /** Default provider + model for the LLM calls. */
@@ -178,8 +184,11 @@ export interface QuickstartDeps {
    * digital-twin run starts. Mirrors what /setup does on a fresh sim:
    * without it, prior events from another run bleed into the
    * dashboard's gameState while the new intervention is streaming.
+   * Given the run's scenario, the server also opens the buffer with the
+   * run's active_scenario event and takes the run's nouns for /chat
+   * from it.
    */
-  resetEventBuffer?: () => void;
+  resetEventBuffer?: (scenario?: ScenarioPackage) => void;
   /**
    * Test seam: substitute the actual compile pipeline. Production
    * uses the real `compileFromSeed`; tests can inject a deterministic
@@ -250,7 +259,7 @@ export async function handleFetchSeed(
  * Job state is in-memory; resolved jobs are kept for 10 minutes so a
  * slow user retry hits the cached scenario instantly. Beyond that the
  * compiled scenario is still in customScenarioCatalog (via
- * setActiveScenario) — the job map is purely the compile-pipeline
+ * installCompiledScenario); the job map is purely the compile-pipeline
  * deduplicator.
  */
 const JOB_TTL_MS = 10 * 60 * 1000;
@@ -350,10 +359,11 @@ export async function handleCompileFromSeed(
       return;
     }
     if (existing && existing.status === 'done' && existing.scenario) {
-      // Another scenario can have become active since this one compiled,
-      // and /setup refuses a body naming a scenario that is not active.
-      deps.setActiveScenario(existing.scenario, parsed.data.seedText);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // An admin can have deleted the scenario from the catalog since it
+      // compiled, so install it again; the answer makes it this visitor's
+      // pick, as the status answer does for the visitor who waited.
+      deps.installCompiledScenario(existing.scenario, parsed.data.seedText);
+      res.writeHead(200, { 'Content-Type': 'application/json', ...deps.pickHeaders?.(existing.scenario.id) });
       res.end(JSON.stringify({
         jobId: existing.jobId,
         status: 'done',
@@ -392,7 +402,7 @@ export async function handleCompileFromSeed(
     stored.scenario = scenario;
     stored.status = 'done';
     stored.resolvedAt = Date.now();
-    deps.setActiveScenario(scenario, parsed.data.seedText);
+    deps.installCompiledScenario(scenario, parsed.data.seedText);
   }).catch((err: unknown) => {
     const stored = compileJobs.get(jobId);
     if (!stored) return;
@@ -409,7 +419,7 @@ export async function handleCompileFromSeedStatus(
   _req: IncomingMessage,
   res: ServerResponse,
   body: unknown,
-  _deps: QuickstartDeps,
+  deps: QuickstartDeps,
 ): Promise<void> {
   const parsed = CompileFromSeedStatusSchema.safeParse(body);
   if (!parsed.success) {
@@ -429,7 +439,11 @@ export async function handleCompileFromSeedStatus(
     }));
     return;
   }
-  res.writeHead(200, { 'Content-Type': 'application/json' });
+  // The compile resolved in the background, where no response could carry
+  // the visitor's pick; the done answer the polling page receives sets it,
+  // so the page it redirects to opens on the scenario it compiled.
+  const pick = job.status === 'done' && job.scenario ? deps.pickHeaders?.(job.scenario.id) : undefined;
+  res.writeHead(200, { 'Content-Type': 'application/json', ...pick });
   res.end(JSON.stringify({
     jobId: job.jobId,
     status: job.status,
@@ -603,8 +617,9 @@ export async function handleSimulateIntervention(
 
   // Reset the SSE event buffer before broadcasting this run's events so
   // the dashboard's gameState does not interleave them with whatever
-  // run came before. /setup does the same thing at its top.
-  deps.resetEventBuffer?.();
+  // run came before, and name the run's scenario. /setup does the same
+  // thing at its top.
+  deps.resetEventBuffer?.(world.scenario);
 
   // Build an onEvent shim that forwards each typed SimEvent emitted by
   // runSimulation to the SSE broadcast bus. Without it, the dashboard

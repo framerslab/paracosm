@@ -4,10 +4,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
-  handleGenerateActors,
+  handleGenerateActors, handleSimulateIntervention,
   _resetCompileJobsForTest,
   type QuickstartDeps,
 } from '../../src/server/routes/quickstart.js';
+import type { WorldModel } from '../../src/runtime/world-model/index.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
@@ -31,7 +32,7 @@ function fakeRes() {
 
 function fakeDeps(overrides: Partial<QuickstartDeps> = {}): QuickstartDeps {
   return {
-    setActiveScenario: () => {},
+    installCompiledScenario: () => {},
     getScenarioById: (id) => id === marsScenario.id ? marsScenario : undefined,
     fetchSeedFromUrl: async () => ({ text: 'test content', title: 'T', sourceUrl: 'https://x.test' }),
     defaultProvider: 'anthropic',
@@ -178,7 +179,7 @@ test('compile-from-seed: status returns done with scenario after compile resolve
   const installed: ScenarioPackage[] = [];
   const deps = fakeDeps({
     compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
-    setActiveScenario: (sc) => { installed.push(sc); },
+    installCompiledScenario: (sc) => { installed.push(sc); },
   });
   const start = fakeRes();
   await handleCompileFromSeed({} as IncomingMessage, start.res, { seedText: VALID_SEED }, deps);
@@ -193,7 +194,7 @@ test('compile-from-seed: status returns done with scenario after compile resolve
   assert.equal(sr.status, 200);
   assert.equal(sr.body.status, 'done');
   assert.equal(sr.body.scenarioId, ASYNC_TEST_SCENARIO.id);
-  assert.equal(installed[0]?.id, ASYNC_TEST_SCENARIO.id, 'setActiveScenario should fire when compile resolves');
+  assert.equal(installed[0]?.id, ASYNC_TEST_SCENARIO.id, 'installCompiledScenario should fire when compile resolves');
 });
 
 test('compile-from-seed: status returns error when compile rejects', async () => {
@@ -255,16 +256,16 @@ test('compile-from-seed: cache-hit start returns scenario inline (200, not 202)'
   assert.equal(r2body.body.scenarioId, ASYNC_TEST_SCENARIO.id);
 });
 
-test('compile-from-seed: a cache hit makes its scenario the active one again', async () => {
-  // Another scenario can have become active since this brief compiled. /setup
-  // refuses a body naming a scenario that is not active, so without this the
-  // same brief would be refused until the compile job expired.
+test('compile-from-seed: a cache hit installs its scenario again', async () => {
+  // An admin can have deleted the scenario from the catalog since this brief
+  // compiled. Without the install the cache hit would hand back a scenario
+  // /setup no longer finds, until the compile job expired.
   _resetCompileJobsForTest();
   const installed: ScenarioPackage[] = [];
   const d = deferred<ScenarioPackage>();
   const deps = fakeDeps({
     compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
-    setActiveScenario: (sc) => { installed.push(sc); },
+    installCompiledScenario: (sc) => { installed.push(sc); },
   });
   await handleCompileFromSeed({} as IncomingMessage, fakeRes().res, { seedText: VALID_SEED }, deps);
   d.resolve(ASYNC_TEST_SCENARIO);
@@ -290,4 +291,61 @@ test('compile-from-seed/status: missing jobId returns 400', async () => {
   const { res, get } = fakeRes();
   await handleCompileFromSeedStatus({} as IncomingMessage, res, {}, fakeDeps());
   assert.equal(get().status, 400);
+});
+
+test('compile-from-seed: the done answers carry the visitor\'s pick, a pending one does not', async () => {
+  // The compile resolves in the background, where no response can carry a
+  // cookie. The answers the visitor does receive once it is done set the
+  // pick, so the page the Quickstart run redirects to opens on it.
+  _resetCompileJobsForTest();
+  const d = deferred<ScenarioPackage>();
+  const deps = fakeDeps({
+    compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
+    pickHeaders: (id: string) => ({ 'Set-Cookie': `paracosm_scenario=${id}` }),
+  });
+  const start = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, start.res, { seedText: VALID_SEED }, deps);
+  assert.equal(start.get().status, 202);
+  assert.equal(start.get().headers['Set-Cookie'], undefined);
+  const jobId = start.get().body.jobId;
+
+  const pending = fakeRes();
+  await handleCompileFromSeedStatus({} as IncomingMessage, pending.res, { jobId }, deps);
+  assert.equal(pending.get().body.status, 'pending');
+  assert.equal(pending.get().headers['Set-Cookie'], undefined);
+
+  d.resolve(ASYNC_TEST_SCENARIO);
+  await new Promise((r) => setTimeout(r, 0));
+  const done = fakeRes();
+  await handleCompileFromSeedStatus({} as IncomingMessage, done.res, { jobId }, deps);
+  assert.equal(done.get().body.status, 'done');
+  assert.equal(done.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
+  assert.equal(done.get().headers['Content-Type'], 'application/json');
+
+  const hit = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, hit.res, { seedText: VALID_SEED }, deps);
+  assert.equal(hit.get().status, 200);
+  assert.equal(hit.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
+});
+
+test('simulate-intervention hands the server the scenario its run is in when it opens the run', async () => {
+  // The intervention replaces the shared event buffer as a /setup run does.
+  // The server opens that buffer with the run's active_scenario event and
+  // reads the run's nouns for /chat from the scenario handed over here; with
+  // nothing handed over, /chat kept the previous run's nouns.
+  const opened: Array<ScenarioPackage | undefined> = [];
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async () => ({ metadata: { runId: 'twin-1' } }),
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, {
+    subject: { id: 'subject-1', name: 'Maria Chen' },
+    intervention: { id: 'glp1', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
+  }, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    resetEventBuffer: (scenario?: ScenarioPackage) => { opened.push(scenario); },
+  }));
+  assert.equal(get().status, 200);
+  assert.deepEqual(opened.map(scenario => scenario?.id), [ASYNC_TEST_SCENARIO.id]);
 });

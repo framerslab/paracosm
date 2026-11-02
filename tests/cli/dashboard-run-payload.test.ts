@@ -1,8 +1,10 @@
 /**
  * What the dashboard reads from GET /scenario and posts back to /setup.
  *
- * Each test switches the real server to a scenario under scenarios/, reads
- * its /scenario answer, and hands that to the dashboard's own helpers. The
+ * Each test switches a visitor of the real server to a scenario under
+ * scenarios/, reads its /scenario answer with the cookie the switch set, as
+ * the page does after its reload, and hands that to the dashboard's own
+ * helpers. The
  * run is a stub that records the config the server hands the runner, so no
  * model is called.
  */
@@ -18,6 +20,7 @@ import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import { defaultRunSetup } from '../../src/dashboard/src/run-payload.js';
 import { formatHeaderMetric, headerMetricValue } from '../../src/dashboard/src/components/layout/StatsBar.helpers.js';
 import type { ScenarioClientPayload } from '../../src/dashboard/src/hooks/useScenario.js';
+import { visitor } from './helpers/visitor.js';
 
 async function withServer(
   body: (api: {
@@ -46,8 +49,9 @@ async function withServer(
     body: JSON.stringify(payload),
   });
   const scenario = async (id: string) => {
-    assert.equal((await post('/scenario/switch', { id })).status, 200);
-    const res = await fetch(url('/scenario'));
+    const page = visitor(url(''));
+    assert.equal((await page.post('/scenario/switch', { id })).status, 200);
+    const res = await page.get('/scenario');
     assert.equal(res.status, 200);
     return await res.json() as ScenarioClientPayload;
   };
