@@ -40,6 +40,32 @@ async function openSettings(page: Page): Promise<void> {
   await expect(settingsLaunch(page)).toBeEnabled();
 }
 
+/** A saved run file, as the dashboard's Save writes it: two turns and a forkable artifact. */
+function savedRun(scenarioId: string, name: string, leader: string) {
+  return {
+    schemaVersion: 3,
+    startedAt: '2026-11-02T00:00:00.000Z',
+    completedAt: '2026-11-02T00:10:00.000Z',
+    events: [1, 2].flatMap(turn => ['turn_start', 'turn_done'].map(type => ({
+      type, leader, data: { turn, time: turn, title: `${name} turn ${turn}` },
+    }))),
+    results: [{
+      leader,
+      summary: {},
+      fingerprint: null,
+      artifact: {
+        metadata: { runId: `parent-${scenarioId}`, scenario: { id: scenarioId, name }, mode: 'turn-loop', startedAt: '2026-11-02T00:00:00.000Z', seed: 11 },
+        scenarioExtensions: {
+          kernelSnapshotsPerTurn: [1, 2].map(turn => ({
+            snapshotVersion: 1, scenarioId, turn, time: turn, state: {}, rngState: 0, startTime: 1, seed: 11,
+          })),
+        },
+      },
+    }],
+    verdict: null,
+  };
+}
+
 test.describe('Scenario per visitor @scenario', () => {
   test("another visitor's switch leaves this page on its own scenario", async ({ browser }) => {
     const contextA = await browser.newContext();
@@ -285,28 +311,6 @@ test.describe('Scenario per visitor @scenario', () => {
     // A fork runs in its parent's scenario and a page shows a run only in
     // its own, so a Mars Genesis page that forked a loaded Atlas Lab run
     // would never see the fork: its branch would read running for good.
-    const savedRun = (scenarioId: string, name: string, leader: string) => ({
-      schemaVersion: 3,
-      startedAt: '2026-11-02T00:00:00.000Z',
-      completedAt: '2026-11-02T00:10:00.000Z',
-      events: [1, 2].flatMap(turn => ['turn_start', 'turn_done'].map(type => ({
-        type, leader, data: { turn, time: turn, title: `${name} turn ${turn}` },
-      }))),
-      results: [{
-        leader,
-        summary: {},
-        fingerprint: null,
-        artifact: {
-          metadata: { runId: `parent-${scenarioId}`, scenario: { id: scenarioId, name }, mode: 'turn-loop', startedAt: '2026-11-02T00:00:00.000Z', seed: 11 },
-          scenarioExtensions: {
-            kernelSnapshotsPerTurn: [1, 2].map(turn => ({
-              snapshotVersion: 1, scenarioId, turn, time: turn, state: {}, rngState: 0, startTime: 1, seed: 11,
-            })),
-          },
-        },
-      }],
-      verdict: null,
-    });
     const runs: Record<string, ReturnType<typeof savedRun>> = {
       'mars-genesis': savedRun('mars-genesis', 'Mars Genesis', 'Aria Chen'),
       'atlas-lab': savedRun('atlas-lab', 'Atlas Lab', 'Marcus Reinhardt'),
@@ -332,6 +336,43 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.locator('#turn-1')).toBeVisible();
     await expect(page.getByRole('note')).toContainText('This run is in Atlas Lab');
     await expect(forkButton()).toHaveCount(0);
+  });
+
+  test('a run loaded from a file before the page knows its scenario stays once it does', async ({ page, baseURL }) => {
+    // The server's buffer holds another visitor's finished Atlas Lab run. A
+    // share link loads a saved Mars Genesis run before GET /scenario has
+    // answered. When it answers, the page leaves out the Atlas Lab run from
+    // the feed, and keeps the run the visitor loaded.
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: `event: connected\ndata: {}\n\nevent: active_scenario\ndata: ${JSON.stringify({ id: 'atlas-lab' })}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n`,
+      });
+    });
+    let answerScenario = () => {};
+    const scenarioHeld = new Promise<void>(resolve => { answerScenario = resolve; });
+    await page.route('**/scenario', async route => {
+      await scenarioHeld;
+      await route.continue();
+    });
+    await page.route('**/saved-runs/*.json', async route => {
+      // The live feed's first connect clears the page's events, so the
+      // saved run is answered once the feed has delivered the buffered run.
+      await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(savedRun('mars-genesis', 'Mars Genesis', 'Aria Chen')) });
+    });
+    await page.goto(`/sim?load=${encodeURIComponent(`${baseURL}/saved-runs/mars-genesis.json`)}&autoload=1&tab=reports`);
+    await expect(page.locator('#turn-1')).toBeVisible();
+
+    const answered = page.waitForResponse(response => new URL(response.url()).pathname === '/scenario');
+    answerScenario();
+    await answered;
+    const known = served;
+    await expect.poll(() => served).toBeGreaterThan(known + 1);
+    await expect(page.locator('#turn-1')).toBeVisible();
   });
 
   test('the privacy section names the cookie that holds the pick', async ({ page }) => {
