@@ -132,6 +132,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
       case 'quota_exhausted': return 'provider credits exhausted';
       case 'user_aborted': return 'cancelled by the user';
       case 'provider_error': return 'provider returned an unrecoverable error';
+      case 'another_run_started': return 'another run started on the server';
       case 'unknown': return 'reason not recorded by the server';
       default: return raw;
     }

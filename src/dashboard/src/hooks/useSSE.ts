@@ -477,6 +477,21 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         } catch { /* no id: the run is shown, as one from before runs named it */ }
         runScenarioIdRef.current = id;
         skipBufferedRunRef.current = false;
+        // A new run took the server's place: the server aborts the run in
+        // flight to start another. When the new one is in another scenario
+        // than the page's, the page skips it, and with it the last events of
+        // the run it shows, so it ends that run here instead of showing it
+        // running for good. A run the page already saw finish stays as it is.
+        if (skipped()) {
+          setState(prev => (prev.events.length > 0 && !prev.isComplete
+            ? {
+                ...prev,
+                isComplete: true,
+                isAborted: true,
+                abortReason: prev.abortReason ?? { reason: 'another_run_started' },
+              }
+            : prev));
+        }
       });
 
       // Status events carry run-wide metadata: the effective maxTurns
