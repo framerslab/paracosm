@@ -156,10 +156,11 @@ async function withServer(
   runPairSimulations: (config: NormalizedSimulationConfig, signal: AbortSignal | undefined, scenario: ScenarioPackage | undefined) => Promise<void>,
   body: (post: (path: string, payload: unknown) => Promise<Response>) => Promise<void>,
   maxSimsPerDay = 0,
+  env: Record<string, string> = {},
 ): Promise<void> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-scenario-setup-'));
   const server = createMarsServer({
-    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '' },
+    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '', ...env },
     maxSimsPerDay,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: (config, _broadcast, signal, scenario) => runPairSimulations(config, signal, scenario),
@@ -419,6 +420,25 @@ test('POST /setup refuses a fork with no turn left to run instead of answering 2
       assert.match(error, /fork at turn 6 has no turn left/i);
       assert.equal(launches.length, 0);
     },
+  );
+});
+
+test('POST /setup on the hosted demo refuses a fork past its turn cap instead of answering 200', async () => {
+  // A 12-turn parent forked at turn 8 on the hosted demo: the demo cap
+  // trims the run to 6 turns, which ends before the fork turn.
+  const launches: NormalizedSimulationConfig[] = [];
+  const twelve = Array.from({ length: 12 }, (_, i) => i + 1);
+  await withServer(
+    async config => { launches.push(config); },
+    async post => {
+      assert.equal((await post('/scenario/switch', { id: atlasLab.id })).status, 200);
+      const setup = await post('/setup', forkBody(parentArtifact(1, twelve), 8, 12));
+      assert.equal(setup.status, 400);
+      assert.match(((await setup.json()) as { error: string }).error, /fork at turn 8 has no turn left/i);
+      assert.equal(launches.length, 0);
+    },
+    0,
+    { PARACOSM_HOSTED_DEMO: 'true' },
   );
 });
 

@@ -527,8 +527,9 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   // ~$2/M tokens on full runs — a 6-turn public demo was costing
   // ~$2-3. The economy profile uses `gpt-5.4-mini` for departments
   // (validated for structured-schema work) and `gpt-5.4-nano` for the
-  // shorter selection / reaction calls, which drops the public-demo
-  // cost to well under $0.30/run. Users who provide their own keys
+  // shorter selection / reaction calls. A 6-turn hosted Atlas Lab pair
+  // cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499 for its two
+  // leaders). Users who provide their own keys
   // keep their selected profile — this path only fires when the
   // server is running on host-provided keys in hosted-demo mode.
   const economics = resolveEconomicsProfile({

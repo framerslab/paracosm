@@ -53,10 +53,12 @@ export function resolveLeaderPresets(
 }
 
 /** Per-turn cost envelope in USD. Rough numbers anchored to the
- *  paracosm README "Cost envelope" table and updated as models shift.
+ *  paracosm README "Cost envelope" table and updated as models shift;
+ *  OpenAI economy is the mean of the four hosted demo runs measured on
+ *  30 October and 1 November 2026 (0.59 USD over 6 turns).
  *  Used only for the fork modal's display-estimate; not billing-grade. */
 const PER_TURN_COST: Record<'openai' | 'anthropic', Record<'quality' | 'economy', number>> = {
-  openai: { quality: 0.3, economy: 0.03 },
+  openai: { quality: 0.3, economy: 0.1 },
   anthropic: { quality: 0.75, economy: 0.6 },
 };
 
@@ -108,4 +110,43 @@ export function parseCustomEvents(
     events.push({ turn, title, description });
   }
   return events;
+}
+
+/** The parts of a parent run the fork controls read. */
+export interface ForkParent {
+  trajectory?: { timepoints?: unknown[] };
+  scenarioExtensions?: unknown;
+}
+
+function snapshotTurns(parent: ForkParent): number[] {
+  const snaps = (parent.scenarioExtensions as { kernelSnapshotsPerTurn?: Array<{ turn?: unknown }> } | undefined)
+    ?.kernelSnapshotsPerTurn;
+  return Array.isArray(snaps)
+    ? snaps.map(s => s?.turn).filter((t): t is number => typeof t === 'number' && Number.isFinite(t))
+    : [];
+}
+
+/**
+ * The parent run's final turn: the absolute turn a fork posts to
+ * `/setup` as `turns`. Snapshots carry absolute turn numbers, so the
+ * last snapshot's turn decides; the trajectory's timepoint count only
+ * when it is larger, then 6. A forked run's trajectory holds only the
+ * turns it ran (turns 4 to 6 of a fork at turn 3 give 3 timepoints), so
+ * the count alone put its final turn at 3.
+ */
+export function forkFinalTurn(parent: ForkParent): number {
+  const points = parent.trajectory?.timepoints?.length ?? 0;
+  const turns = snapshotTurns(parent);
+  const last = Math.max(points, ...turns);
+  return last > 0 ? last : 6;
+}
+
+/**
+ * Whether the Reports tab offers a fork at `turn`: the parent holds a
+ * snapshot for it, and a turn is left to run after it. A fork at the
+ * final turn posts `turns` equal to its fork turn, which `/setup`
+ * refuses, so the control is not shown there.
+ */
+export function canForkAtTurn(parent: ForkParent, turn: number): boolean {
+  return snapshotTurns(parent).includes(turn) && turn < forkFinalTurn(parent);
 }

@@ -27,6 +27,7 @@ import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim
 import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type {
   LlmProvider,
+  ScenarioLabels,
   ScenarioPackage,
   SimulationModelConfig,
 } from '../../engine/types.js';
@@ -56,6 +57,8 @@ export interface ReactionContext {
    * (corporate-quarterly, submarine-daily, benchmark-tick).
    */
   timeUnitNoun?: string;
+  /** The scenario's labels: the people, the place and the leader. */
+  labels?: Partial<ScenarioLabels>;
 }
 
 export interface RunReactionStepArgs {
@@ -114,6 +117,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
     colonyMorale: kernel.getState().metrics.morale,
     colonyPopulation: kernel.getState().metrics.population,
     timeUnitNoun: scenario.labels?.timeUnitNoun,
+    labels: scenario.labels,
   };
 
   // Progressive reactions: turn 1 always runs the full colony so
@@ -223,7 +227,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
   const moodParts = Object.entries(moodCounts)
     .sort((a, b) => b[1] - a[1])
     .map(([m, c]) => `${Math.round(c / reactions.length * 100)}% ${m}`);
-  const moodSummary = `${reactions.length} colonists: ${moodParts.join(', ')}`;
+  const moodSummary = `${reactions.length} ${scenario.labels?.populationNoun || 'members'}: ${moodParts.join(', ')}`;
 
   // Bulletin: 4 quotes sampled via a seeded RNG so the same run always
   // produces the same bulletin on replay. Turn-offset so turn N doesn't

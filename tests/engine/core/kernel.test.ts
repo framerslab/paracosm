@@ -260,3 +260,20 @@ test('SimulationKernel: type-appropriate zeros when initial is absent', () => {
   assert.equal(state.statuses.someFlag, false);
   assert.equal(state.environment.someText, '');
 });
+
+test('SimulationKernel: a child is no candidate for a department head', () => {
+  // A fork can replace a head who died, and the roster by then holds the
+  // people born since. The trait score does not read age.
+  const parent = new SimulationKernel(11, 'Aria Chen', keyPersonnel, { startTime: 2035, initialPopulation: 12 });
+  const snap = JSON.parse(JSON.stringify(parent.toSnapshot('mars-genesis')));
+  const childIds: string[] = [];
+  for (const agent of snap.state.agents.slice(0, 3)) {
+    agent.core.birthTime = 2030;
+    childIds.push(agent.core.id);
+  }
+  const forked = SimulationKernel.fromSnapshot(snap, 'mars-genesis');
+
+  const candidates = forked.getCandidates('medical', 12).map(a => a.core.id);
+  assert.equal(candidates.length, 12 - childIds.length);
+  assert.deepEqual(candidates.filter(id => childIds.includes(id)), []);
+});

@@ -42,7 +42,8 @@ const CompileFromSeedSchema = z.object({
 
 const GenerateActorsSchema = z.object({
   scenarioId: z.string().min(3).max(64),
-  // Max 300 actors per bundle. Each actor is ~$0.30 LLM spend; the
+  // Max 300 actors per bundle. A hosted demo actor cost 0.29 to 1.05 USD
+  // in the pairs measured on 30 October and 1 November 2026; the
   // SeedInput cost preview surfaces the running total so users opt in
   // consciously. The runtime feeds them through the batch runner with
   // an economics-profile concurrency cap (default 8 in batch mode) so
