@@ -525,3 +525,21 @@ test("a long run's replay still opens with its scenario after the buffer trims",
     },
   });
 });
+
+test('on the hosted demo the pick cookie is Secure, in the answers to a switch and a run', async () => {
+  // Browsers reach the hosted demo over HTTPS. Without Secure, a browser would
+  // also send the pick in the clear on a plain http:// request to the host,
+  // before the host's redirect to https://.
+  await withVisitors(async ({ visitor, launches }) => {
+    const switched = await visitor().post('/scenario/switch', { id: 'atlas-lab' });
+    assert.equal(switched.status, 200);
+    const [switchCookie] = switched.headers.getSetCookie();
+    assert.ok(switchCookie.split('; ').includes('Secure'), switchCookie);
+
+    const ran = await visitor().post('/setup', quickstartBody(atlasLab));
+    assert.equal(ran.status, 200);
+    await waitFor(() => launches[0], 'the run');
+    const [runCookie] = ran.headers.getSetCookie();
+    assert.ok(runCookie.split('; ').includes('Secure'), runCookie);
+  }, { env: { PARACOSM_HOSTED_DEMO: 'true' } });
+});
