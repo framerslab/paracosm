@@ -523,6 +523,15 @@
                 "type": "number"
               }
             },
+            "politicsDeltas": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "number"
+              }
+            },
             "eventIndex": {
               "type": "integer",
               "minimum": 0,

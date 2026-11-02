@@ -91,10 +91,13 @@ SEARCH                          (AgentOS WebSearchService: Firecrawl + Tavily +
   ↓
 KNOWLEDGE BUNDLE                (topics[].canonicalFacts[], categoryMapping)
   ↓ runtime init
-RESEARCH MEMORY                 (AgentOS AgentMemory.sqlite: semantic recall)
+RESEARCH MEMORY                 (AgentOS AgentMemory.sqlite, one per run: full-text recall)
   ↓ per event
-recallResearch(query, keywords) (semantic memory recall, fall back to bundle,
-                                  fall back to live web search if liveSearch=on)
+research.recall(query, keywords, category)  (memory recall within the category's topics)
+  ↓
+LIVE SEARCH OR BUNDLE           (with liveSearch on: `aggressive` always searches, `adaptive`
+                                  when recall found under 2 facts, `gated` when it found none;
+                                  no search or no results: the recalled facts, or the bundle)
   ↓
 DEPARTMENT PROMPT               (citations injected as `[claim](url)` markdown)
   ↓
@@ -107,6 +110,8 @@ SSE specialist_done event       (citationList[]: text, url, doi)
 DASHBOARD REPORTS TAB           (clickable citation links beneath each summary)
 ```
 
+Each run makes its own research memory at its start and closes it at its end, so the two leaders of a pair share no store and no recall cache, and the first to finish leaves the other's untouched. A scenario reads only its own bundle: one with no citations (Atlas Lab ships none) gets empty packets. A milestone event reads the bundle by category. A recalled packet carries the facts the store found among the topics of the event's category (any topic, when the bundle does not map the category), with that category's counterpoints and department notes.
+
 The Event Director also receives the knowledge bundle's `topics` and `categories`. Its `researchKeywords` and `category` fields stay grounded in actual citation entries, so retrieval downstream finds matches.
 
 ### Scenario Compiler
@@ -118,7 +123,7 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 | `progressionHook` | Between-turn state updates (radiation, bone density, etc.) | Between every turn |
 | `departmentPromptHook` | Department-specific analysis context | Before each department analyzes |
 | `fingerprintHook` | Timeline classification from final state | After simulation completes |
-| `politicsHook` | Political/social effects for relevant events | After political/social crises |
+| `politicsHook` | Political/social effects for each category and outcome | After each event's outcome |
 | `getMilestoneEvent` | Fixed narrative events (Turn 1 founding, final assessment) | Turn 1 and final turn |
 | `reactionsHook` | Colonist personality-aware reactions | After each commander decision |
 
@@ -132,6 +137,14 @@ The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
 - **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data. Generated people work in the scenario's own departments, under their labels; Mars Genesis keeps its own trades
 - **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift)
+
+Three things move the numbers during a turn, and each adds to the value it names, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`):
+
+- **A selected policy effect.** The effects a commander selects are added to the current values, and two on one key add up. Every department numbers its effects from `effect_1`, so the commander's list names each as `<department>/<id>`; a bare id reads the first report that holds it, and an effect selected twice counts once. A department's legacy `proposedPatches` still set a value outright, and never the head count.
+- **An outcome's category table.** The scenario's `effects` table scales by outcome. A key moves the metric or the politics value the run holds under it; a key the run holds in neither is dropped.
+- **The politics hook.** `politicsHook` names a change for each category and outcome. Where it names a key, its change replaces the category table's, so a key moves once. The `outcome` stream event reports what moved in `systemDeltas` and `politicsDeltas`.
+
+`metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death: it counts in no mortality figure, the fingerprint's survival rate counts the person as having survived, and nobody new takes the id or the name of someone who left. One delta brings in at most as many people as the roster holds, and hires stop at 2,000 people or the `max` the scenario declares for `population`. Department heads and children do not leave, and a departure stops at the `min` the scenario declares. So a delta can move fewer people than it asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.
 
 The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality probability, birth events, personality drift magnitudes. Two simulations with the same seed produce the same colonist names, the same birth/death events, and the same base progression.
 
@@ -659,7 +672,7 @@ Paracosm uses AgentOS for all agent orchestration, LLM calls, tool forging, and 
 | `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt, reaction batch system) |
 | `EmergentCapabilityEngine` | Runtime tool forging in an in-process node:vm context |
 | `EmergentJudge` | LLM-as-judge safety review of forged tools |
-| `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG |
+| `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG; each run's research memory |
 | HEXACO personality | Trait-modulated decision making, memory retrieval, mood adaptation |
 
 ## Top-level `src/` layout

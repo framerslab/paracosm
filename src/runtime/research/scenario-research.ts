@@ -1,7 +1,5 @@
 /**
- * Scenario-aware research lookup.
- * Reads from the scenario's KnowledgeBundle instead of hardcoded Mars citations.
- * Replaces getResearchForCategory() for non-Mars scenarios.
+ * Research lookup in a scenario's own KnowledgeBundle.
  */
 
 import type { CrisisResearchPacket } from '../contracts.js';
@@ -10,20 +8,22 @@ import type { KnowledgeBundle } from '../../engine/types.js';
 /**
  * Get research citations from a scenario's knowledge bundle for a given crisis category.
  * Uses the bundle's categoryMapping to find relevant topics, then merges citations.
+ * A scenario with no knowledge gets an empty packet.
  */
 export function getResearchFromBundle(
-  bundle: KnowledgeBundle,
+  bundle: KnowledgeBundle | undefined,
   category: string,
   keywords: string[] = [],
 ): CrisisResearchPacket {
-  const topicIds = bundle.categoryMapping[category] || [];
+  const topics: KnowledgeBundle['topics'] = bundle?.topics ?? {};
+  const topicIds = bundle?.categoryMapping?.[category] ?? [];
   const facts: CrisisResearchPacket['canonicalFacts'] = [];
   const counters: CrisisResearchPacket['counterpoints'] = [];
   const notes: CrisisResearchPacket['departmentNotes'] = {};
   const seen = new Set<string>();
 
   for (const topicId of topicIds) {
-    const topic = bundle.topics[topicId];
+    const topic = topics[topicId];
     if (!topic) continue;
 
     // Defensive defaults: topics from compileFromSeed-generated bundles
@@ -54,7 +54,7 @@ export function getResearchFromBundle(
   // If category mapping yielded nothing, try keyword matching across all topics
   if (facts.length === 0 && keywords.length > 0) {
     const kwLower = keywords.map(k => k.toLowerCase());
-    for (const [, topic] of Object.entries(bundle.topics)) {
+    for (const topic of Object.values(topics)) {
       for (const f of topic.canonicalFacts ?? []) {
         if (seen.has(f.claim)) continue;
         if (kwLower.some(kw => f.claim.toLowerCase().includes(kw) || f.source.toLowerCase().includes(kw))) {

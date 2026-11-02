@@ -521,7 +521,7 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 | `EmergentCapabilityEngine`   | Runtime tool forging in an in-process node:vm context                 |
 | `EmergentJudge`              | LLM-as-judge safety review of forged tools                            |
 | `WebSearchService`           | Multi-provider seed enrichment with Firecrawl, Tavily, Serper, Brave  |
-| `AgentMemory`                | Per-run citation memory with semantic recall                          |
+| `AgentMemory`                | Per-run citation memory with full-text recall                         |
 
 ---
 

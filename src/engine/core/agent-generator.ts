@@ -114,6 +114,64 @@ export function agentIdKeys(id: string): [string, string] {
   return [bare, untitled.join('')];
 }
 
+/** The id for `name`, with -2, -3 and so on when someone already holds it. */
+function claimAgentId(name: string, usedIds: Set<string>): string {
+  const base = agentIdFromName(name);
+  let id = base;
+  for (let n = 2; usedIds.has(id); n++) id = `${base}-${n}`;
+  usedIds.add(id);
+  return id;
+}
+
+/**
+ * New adults who join a run already under way, in the departments and
+ * specializations of the people on the roster, so a fork that has no
+ * scenario to hand places them the same way. Returns none when nobody on
+ * the roster can show where they would work. Nobody new takes the id or
+ * the name of someone in `former`, the people who left: past snapshots
+ * still hold them, and a reader follows a person through those by id.
+ */
+export function generateJoiners(
+  rng: SeededRng,
+  time: number,
+  turn: number,
+  count: number,
+  roster: readonly Agent[],
+  former: ReadonlyArray<{ id: string; name: string }> = [],
+): Agent[] {
+  const peers = roster.filter(a => a.health.alive && a.core.role !== 'Child');
+  if (peers.length === 0) return [];
+  const usedNames = new Set([...roster.map(a => a.core.name), ...former.map(p => p.name)]);
+  const usedIds = new Set([...roster.map(a => a.core.id), ...former.map(p => p.id)]);
+  const joiners: Agent[] = [];
+  for (let i = 0; i < count; i++) {
+    let name = '';
+    // A full name list falls through to a repeated name with its own id.
+    for (let tries = 0; tries < 200; tries++) {
+      name = `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
+      if (!usedNames.has(name)) break;
+    }
+    usedNames.add(name);
+
+    const peer = rng.pick(peers);
+    const spec = peer.career.specialization;
+    const age = rng.int(25, 55);
+    const rank = age > 40 ? (rng.chance(0.3) ? 'lead' : 'senior') : (rng.chance(0.2) ? 'senior' : 'junior');
+    const hexaco = randomHexaco(rng);
+    const joiner = createColonist(
+      claimAgentId(name, usedIds), name, time - age, peer.core.department,
+      `${rank.charAt(0).toUpperCase() + rank.slice(1)} ${spec} Specialist`,
+      spec, false, false, hexaco, time,
+    );
+    joiner.career.rank = rank;
+    joiner.career.yearsExperience = rng.int(2, age - 22);
+    joiner.hexacoHistory = [{ turn, time, hexaco: { ...hexaco } }];
+    joiner.narrative.lifeEvents.push({ time, event: `Joined as ${joiner.core.role}`, source: 'kernel' });
+    joiners.push(joiner);
+  }
+  return joiners;
+}
+
 /**
  * Build a run's roster: the key personnel, then generated people up to
  * `totalPopulation`. With `departments`, the generated people work in
@@ -131,14 +189,7 @@ export function generateInitialPopulation(
   const colonists: Agent[] = [];
   const usedNames = new Set<string>();
   const usedIds = new Set<string>();
-  /** The id for `name`, with -2, -3 and so on when someone already holds it. */
-  const claimId = (name: string): string => {
-    const base = agentIdFromName(name);
-    let id = base;
-    for (let n = 2; usedIds.has(id); n++) id = `${base}-${n}`;
-    usedIds.add(id);
-    return id;
-  };
+  const claimId = (name: string): string => claimAgentId(name, usedIds);
 
   for (const kp of keyPersonnel) {
     usedNames.add(kp.name);

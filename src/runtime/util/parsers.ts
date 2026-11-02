@@ -41,10 +41,22 @@ export function emptyDecision(d: Department[]): CommanderDecision {
 }
 
 /**
+ * The effects a commander can select, each under a key of its own. Every
+ * department numbers its effects from `effect_1`, so an id alone names one
+ * in each report; the key names the department too.
+ */
+export function selectableEffects(reports: DepartmentReport[]) {
+  return reports.flatMap(r => (r.recommendedEffects || []).map(effect => ({ key: `${r.department}/${effect.id}`, effect })));
+}
+
+/**
  * Turn a commander's decision + the dept reports into a PolicyEffect
- * the kernel can apply. Combines legacy `proposedPatches` from reports
- * (backward compat) with typed `recommendedEffects` the commander
- * selected by id.
+ * the kernel can apply. Legacy `proposedPatches` from reports (backward
+ * compat) set values outright; the typed `recommendedEffects` the
+ * commander selected are changes, added to the current values and to each
+ * other. A selection is a key from {@link selectableEffects}, or a bare id,
+ * which reads the first report that holds it; an effect selected twice
+ * counts once.
  */
 export function decisionToPolicy(
   decision: CommanderDecision,
@@ -61,25 +73,21 @@ export function decisionToPolicy(
     if (r.proposedPatches.agentUpdates) patches.agentUpdates = [...(patches.agentUpdates || []), ...r.proposedPatches.agentUpdates];
   }
 
-  // Apply typed effects selected by commander.
+  // Add up the typed effects selected by the commander.
+  const deltas: Required<NonNullable<PolicyEffect['deltas']>> = { metrics: {}, politics: {} };
   if (decision.selectedEffectIds?.length) {
-    const allEffects = reports.flatMap(r => r.recommendedEffects || []);
-    for (const effectId of decision.selectedEffectIds) {
-      const effect = allEffects.find(e => e.id === effectId);
-      if (!effect) continue;
-      if (effect.systemDelta) {
-        patches.metrics = patches.metrics || {};
-        for (const [key, delta] of Object.entries(effect.systemDelta)) {
-          const current = (patches.metrics as any)[key] ?? 0;
-          (patches.metrics as any)[key] = current + (delta as number);
-        }
+    const effects = selectableEffects(reports);
+    const picked = new Set(decision.selectedEffectIds.map(chosen => (
+      effects.find(e => e.key === chosen) ?? effects.find(e => e.effect.id === chosen)
+    )));
+    for (const entry of picked) {
+      if (!entry) continue;
+      const { effect } = entry;
+      for (const [key, delta] of Object.entries(effect.systemDelta ?? {})) {
+        deltas.metrics[key] = (deltas.metrics[key] ?? 0) + (delta as number);
       }
-      if (effect.politicsDelta) {
-        patches.politics = patches.politics || {};
-        for (const [key, delta] of Object.entries(effect.politicsDelta)) {
-          const current = (patches.politics as any)[key] ?? 0;
-          (patches.politics as any)[key] = current + (delta as number);
-        }
+      for (const [key, delta] of Object.entries(effect.politicsDelta ?? {})) {
+        deltas.politics[key] = (deltas.politics[key] ?? 0) + (delta as number);
       }
     }
   }
@@ -87,6 +95,7 @@ export function decisionToPolicy(
   return {
     description: decision.decision,
     patches,
+    deltas,
     events: [{ turn, time, type: 'decision', description: decision.decision.slice(0, 200), data: { policies: decision.selectedPolicies } }],
   };
 }

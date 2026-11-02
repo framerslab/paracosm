@@ -179,7 +179,7 @@ export function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3)
 
   // Knowledge grounding: tell the director what topics/categories the scenario
   // has citations for, so its researchKeywords match real entries in the bundle.
-  // This drives downstream citation retrieval (recallResearch + getResearchFromBundle).
+  // This drives downstream citation retrieval (the run's research memory + getResearchFromBundle).
   const knowledgeBlock: string[] = [];
   if (ctx.knowledgeTopics?.length) {
     knowledgeBlock.push(
