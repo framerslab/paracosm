@@ -449,16 +449,17 @@ export class SimulationKernel {
 
   /**
    * Apply additive deltas to world systems (not absolute values). A delta
-   * for a metric the run does not carry is dropped. Returns the deltas
-   * applied, which is what the run reports.
+   * for a metric the run does not carry is dropped. Returns the change
+   * each metric made, which is what the run reports: the delta itself, or
+   * less where a floor or ceiling stopped it (morale at 1, power at 0).
    */
   applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): Record<string, number> {
     const c = this.state.metrics;
-    const applied: Record<string, number> = {};
+    const requested: Array<[string, number, number]> = [];
     for (const [k, v] of Object.entries(deltas)) {
       if (v !== undefined && typeof v === 'number' && typeof (c as Record<string, unknown>)[k] === 'number') {
+        requested.push([k, v, c[k]]);
         (c as any)[k] = (c as any)[k] + v;
-        applied[k] = v;
       }
     }
     clampField(c, 'morale', 0, 1);
@@ -467,6 +468,12 @@ export class SimulationKernel {
     clampField(c, 'population', 0);
     clampField(c, 'lifeSupportCapacity', 0);
     clampField(c, 'infrastructureModules', 0);
+    const applied: Record<string, number> = {};
+    for (const [k, v, before] of requested) {
+      const moved = c[k] - before;
+      // An unclamped change is the delta; the subtraction would add float noise.
+      applied[k] = Math.abs(moved - v) < 1e-9 ? v : Math.round(moved * 1e6) / 1e6;
+    }
     this.state.eventLog.push(...events);
     return applied;
   }

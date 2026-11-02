@@ -143,6 +143,11 @@ export interface Agent {
  * corporation's quarterlyRevenue) live alongside via `[key: string]: number`.
  */
 export interface WorldMetrics {
+  // The seven settlement fields after morale are in a run only when its
+  // scenario declares them in `world` (or the run has no scenario). They
+  // stay typed as numbers because the index signature below types every
+  // metric as a number; a reader outside a Mars-shaped scenario checks
+  // `typeof metrics.powerKw === 'number'` first.
   /** Alive headcount. */
   population: number;
   /** Aggregate morale, 0..1. */
@@ -177,6 +182,9 @@ export interface WorldMetrics {
  * engine core.
  */
 export interface WorldPolitics {
+  // The three Mars fields are in a run only when its scenario declares
+  // them in `world.politics` or `world.statuses` (or the run has no
+  // scenario); see WorldMetrics.
   /**
    * Mars/Lunar-specific: percentage of supplies still relying on the
    * parent body (Earth, planet, etc.). Custom scenarios may ignore.
