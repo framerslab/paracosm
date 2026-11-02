@@ -47,9 +47,8 @@ import { driftLeaderProfile } from '../../engine/traits/drift.js';
 import type { DepartmentReport, CommanderDecision, TurnArtifact } from '../contracts.js';
 import { SimulationKernel } from '../../engine/core/kernel.js';
 import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
-import { getResearchPacket } from '../research/research.js';
 import { getResearchFromBundle } from '../research/scenario-research.js';
-import { initResearchMemory, recallResearch, closeResearchMemory } from '../research/research-memory.js';
+import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext } from './departments.js';
 import { artifactTimeUnit, scenarioWords } from '../util/scenario-words.js';
 import { declaredMetrics, declaredPolitics, formatStateLine } from '../util/scenario-state.js';
@@ -454,6 +453,16 @@ export interface RunOptions extends RuntimeCredentialOptions {
 }
 
 export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
+  // Each run owns its research memory and closes it however the run ends.
+  const research = await createResearchMemory((opts.scenario ?? marsScenario).knowledge);
+  try {
+    return await runWithResearch(research, leader, keyPersonnel, opts);
+  } finally {
+    await research.close();
+  }
+}
+
+async function runWithResearch(research: ResearchMemory, leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions): Promise<RunArtifact> {
   const startedAtIso = new Date().toISOString();
   const { agent } = await import('@framers/agentos');
   const sc = opts.scenario ?? marsScenario;
@@ -634,9 +643,6 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   console.log(`  Commander: ${leader.name} — "${leader.archetype}"`);
   console.log(`  Turns: ${maxTurns} | Live search: ${opts.liveSearch ? 'yes' : 'no'}`);
   console.log(`${'═'.repeat(60)}\n`);
-
-  // Initialize research memory from scenario knowledge bundle
-  await initResearchMemory(sc.knowledge);
 
   const seed = opts.seed ?? 950;
   // WorldModel.fork() path: resume from a prior KernelSnapshot instead
@@ -1041,7 +1047,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         recentToolOutputs: lastTurnToolOutputs,
         agentMoodSummary: lastTurnMoodSummary,
         // Ground director's researchKeywords / category in real bundle entries so
-        // recallResearch/getResearchFromBundle can surface citations downstream.
+        // the research recall and getResearchFromBundle can surface citations downstream.
         knowledgeTopics: Object.keys(sc.knowledge?.topics ?? {}),
         knowledgeCategories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
         labels: sc.labels,
@@ -1122,33 +1128,19 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       let packet: import('../contracts.js').CrisisResearchPacket;
       if (milestone) {
         packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-        if (packet.canonicalFacts.length === 0) packet = getResearchPacket(turn);
       } else {
-        const memPacket = await recallResearch(event.title + ' ' + event.description.slice(0, 100), event.researchKeywords, event.category);
-        if (memPacket.canonicalFacts.length >= 2) {
-          packet = memPacket;
-          console.log(`  [research] Memory recall: ${packet.canonicalFacts.length} citations`);
-        } else {
-          const searchMode = opts.economics?.search.mode ?? 'adaptive';
-          const allowsSearch =
-            opts.liveSearch &&
-            event.researchKeywords.length > 0 &&
-            (searchMode === 'aggressive' || (searchMode === 'adaptive' && memPacket.canonicalFacts.length < 2) || (searchMode === 'gated' && memPacket.canonicalFacts.length === 0));
-          if (allowsSearch) {
-          try {
-            const keywordBudget = Math.max(1, Math.min(3, opts.economics?.search.maxSearches ?? 3));
-            const query = event.researchKeywords.slice(0, keywordBudget).join(' ') + ' ' + sc.labels.settlementNoun + ' science';
+        packet = await researchEmergentEvent({
+          research,
+          knowledge: sc.knowledge,
+          event,
+          liveSearch: opts.liveSearch,
+          search: opts.economics?.search,
+          settlementNoun: sc.labels.settlementNoun,
+          webSearch: async query => {
             const searchResult = await webSearchTool.execute({ query }, { gmiId: sid, personaId: sid, userContext: {} } as any);
-            const results = (searchResult as any)?.output?.results || [];
-            packet = { canonicalFacts: results.slice(0, 5).map((r: any) => ({ claim: r.snippet || r.title || '', source: r.title || 'web search', url: r.url || '' })), counterpoints: [], departmentNotes: {} };
-          } catch (err) {
-            console.log(`  [research] Live search failed: ${err}`);
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-          } else {
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-        }
+            return (searchResult as any)?.output?.results || [];
+          },
+        });
       }
 
       // Departments
@@ -2068,7 +2060,6 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
 
   engine.cleanupSession(sid);
-  await closeResearchMemory();
   await commander.close();
   for (const a of deptAgents.values()) await a.close();
   return output;
