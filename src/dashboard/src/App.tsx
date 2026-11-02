@@ -3,7 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
-import { useSSE } from './hooks/useSSE';
+import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
 import { useGamePersistence } from './hooks/useGamePersistence';
 import { useLocalHistory } from './hooks/useLocalHistory';
@@ -169,6 +169,9 @@ function tabHeadingFor(tab: DashboardTab): string {
   }
 }
 
+/** The events of a page that holds no run of its own in another scenario. */
+const NO_EVENTS: SimEvent[] = [];
+
 function AppContent() {
   const { scenario, ready: scenarioReady } = useScenario();
   const replaySessionId = useReplaySessionId();
@@ -221,12 +224,10 @@ function AppContent() {
   const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
   const effectiveComplete = useDemoData ? true : sse.isComplete;
   const gameState = useGameState(effectiveEvents, effectiveComplete);
-  // What the Digital Twin views read: the run this page started, which every
-  // other view leaves out when it is in another scenario than the page's.
-  const interventionState = useGameState(
-    sse.ownRun?.events ?? effectiveEvents,
-    sse.ownRun?.isComplete ?? effectiveComplete,
-  );
+  // What the Digital Twin views read: the run this page started when the
+  // page's own state is not it, and the page's state otherwise.
+  const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
+  const interventionState = sse.ownRun ? ownRunState : gameState;
 
   // Forge-attempt toast pipeline (sessionStorage + watermark + toasted-key
   // set). Three-layer gating extracted to hooks/useForgeToasts.ts; see

@@ -203,6 +203,12 @@ export interface QuickstartDeps {
    */
   isCurrentRun?: (runKey: string) => boolean;
   /**
+   * True when a run has already opened with this key. Pages tell runs apart
+   * by key and read each key off the stream, so a request naming a used key
+   * would have its run taken for that one.
+   */
+  isRunKeyUsed?: (runKey: string) => boolean;
+  /**
    * Test seam: substitute the actual compile pipeline. Production
    * uses the real `compileFromSeed`; tests can inject a deterministic
    * fake to exercise the async-job state machine without LLM calls.
@@ -632,6 +638,11 @@ export async function handleSimulateIntervention(
   // the dashboard's gameState does not interleave them with whatever
   // run came before, and name the run's scenario. /setup does the same
   // thing at its top.
+  if (requestedRunKey && deps.isRunKeyUsed?.(requestedRunKey)) {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'That run key has already opened a run.' }));
+    return;
+  }
   const runKey = requestedRunKey ?? randomUUID();
   deps.resetEventBuffer?.(world.scenario, runKey);
 

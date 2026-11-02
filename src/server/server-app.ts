@@ -554,6 +554,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // answer, and a saved session replays in the two-column layout, which has
   // no place for it, so it is not auto-saved.
   let digitalTwinRunKey: string | null = null;
+  // The event that opened a digital-twin run still writing to the buffer,
+  // null otherwise. A clear puts it back at the head of the buffer.
+  let digitalTwinOpening: Record<string, unknown> | null = null;
+  // The keys runs have opened with, oldest first. A request that names a key
+  // may not name one of these: pages tell runs apart by key.
+  const openedRunKeys = new Set<string>();
+  const OPENED_RUN_KEYS_MAX = 1024;
   // Raw custom scenario JSON payloads authored during this session.
   const memoryScenarios = new Map<string, unknown>();
   // Runnable scenarios that can appear in the catalog and be switched to.
@@ -1300,6 +1307,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // emits it on every SSE event, so the last event has the complete
     // picture.
     if (event === 'complete') {
+      digitalTwinOpening = null;
       captureRetrySnapshot();
       autoSaveOnComplete().catch((err) => {
         console.error('[sessions] auto-save failed:', err);
@@ -1334,6 +1342,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     try {
       if (existsSync(eventBufferPath)) unlinkSync(eventBufferPath);
     } catch { /* nothing to clean up */ }
+    // A digital-twin run goes on writing after a clear (a page's Run posts
+    // /clear and the run together, and the /clear can land second), so the
+    // buffer opens with the run's event again. Without it, a page that cleared
+    // or connects from here on has no scenario to judge the run's later events
+    // by, and shows them as a run of its own.
+    if (digitalTwinOpening) {
+      broadcast('active_scenario', digitalTwinOpening);
+      currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+    }
   };
 
   /**
@@ -1355,11 +1372,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     seedText: string | null,
     forkedFrom: { parentRunId: string; atTurn: number } | null = null,
     runKey: string = randomUUID(),
-  ): void => {
+  ): Record<string, unknown> => {
+    digitalTwinOpening = null;
     clearEventBuffer();
     currentRunScenario = scenario;
     currentRunKey = runKey;
-    broadcast('active_scenario', {
+    openedRunKeys.add(runKey);
+    if (openedRunKeys.size > OPENED_RUN_KEYS_MAX) {
+      openedRunKeys.delete(openedRunKeys.values().next().value as string);
+    }
+    const opening: Record<string, unknown> = {
       id: scenario.id,
       name: scenario.labels?.name ?? scenario.id,
       settlementNoun: scenario.labels?.settlementNoun,
@@ -1374,8 +1396,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runKey,
       // A fork's parent run and turn, null for every other run.
       forkedFrom,
-    });
+    };
+    broadcast('active_scenario', opening);
     currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+    return opening;
   };
 
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
@@ -2039,10 +2063,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               clearEventBuffer();
               return;
             }
-            openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null, null, runKey);
+            // A /setup run in flight stops, as a second /setup stops it: the
+            // buffer is no longer its own, and it would go on spending for
+            // nobody to see.
+            activeSimAbortController?.abort();
+            digitalTwinOpening = openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null, null, runKey);
             digitalTwinRunKey = currentRunKey;
           },
           isCurrentRun: (runKey) => currentRunKey === runKey,
+          isRunKeyUsed: (runKey) => openedRunKeys.has(runKey),
         };
         // compile-from-seed is the first call in a new Quickstart
         // launch flow. Clearing the event buffer here means that any
@@ -3647,6 +3676,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,
       );
+      // The run writes to the buffer only while it holds it. Once another run
+      // has opened, its last events and its end would land in that run.
+      const runKey = currentRunKey;
+      const runBroadcast: BroadcastFn = (event, data, actorId) => {
+        if (currentRunKey === runKey) broadcast(event, data, actorId);
+      };
       simConfig = config;
       simRunning = true;
       // Per-run AbortController. Held in a local so the finally block
@@ -3665,13 +3700,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // runForkSimulation instead of the pair runner when the
         // config carries a forkFrom reference.
         if (config.forkFrom) {
-          await startFork(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await startFork(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else if (config.actors.length >= 3) {
           // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
           // runner (same SSE contract per leader, no verdict).
-          await runBatchSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await runBatchSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else {
-          await startSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await startSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         }
       } finally {
         disarmDisconnectWatchdog();

@@ -149,10 +149,17 @@ interface SSEState {
    * else the page holds no run.
    */
   ownRunScenarioId: string | null;
+  /**
+   * The page's own run as it stood when a run in the page's scenario took the
+   * feed from it. The server writes no more of it by then, and the feed's
+   * state is the new run's, so the Digital Twin views read this one until the
+   * page leaves its own run.
+   */
+  heldOwnRun: OwnRun | null;
 }
 
 /**
- * The run this page started itself in another scenario than the page's: the
+ * The run this page started itself when the feed's state is not it: the
  * events the Digital Twin views read, and whether the run has ended.
  */
 export interface OwnRun {
@@ -184,7 +191,7 @@ export interface UseSSEOptions {
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
@@ -211,6 +218,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     validationFallbacks: [],
     replayDone: false,
     ownRunScenarioId: null,
+    heldOwnRun: null,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -301,6 +309,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       // receive are live by definition.
       replayDone: true,
       ownRunScenarioId: null,
+      heldOwnRun: null,
     }));
     try {
       await fetch('/clear', { method: 'POST' });
@@ -331,8 +340,8 @@ export function useSSE(options: UseSSEOptions = {}) {
     const elsewhere = runScenarioId !== null && runScenarioId !== pageScenarioIdRef.current;
     if (elsewhere) seenEventKeysRef.current.clear();
     setState(prev => (elsewhere
-      ? { ...prev, ...emptyRun(), ownRunScenarioId: null }
-      : { ...prev, ownRunScenarioId: null }));
+      ? { ...prev, ...emptyRun(), ownRunScenarioId: null, heldOwnRun: null }
+      : { ...prev, ownRunScenarioId: null, heldOwnRun: null }));
   }, []);
 
   const loadEvents = useCallback((events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null) => {
@@ -381,6 +390,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       // downstream toast gating should treat the replay as finished.
       replayDone: true,
       ownRunScenarioId: null,
+      heldOwnRun: null,
     });
   }, []);
 
@@ -552,10 +562,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         } catch { /* no id: the run is shown, as one from before runs named it */ }
         const previousRunKey = runKeyRef.current;
         const newRun = previousRunKey !== null && runKey !== null && runKey !== previousRunKey;
+        const isOwnRun = runKey !== null && runKey === ownRunKeyRef.current;
+        const tookOwnRun = newRun && previousRunKey === ownRunKeyRef.current;
         runKeyRef.current = runKey;
         runScenarioIdRef.current = id;
         skipBufferedRunRef.current = false;
-        if (runKey !== null && runKey === ownRunKeyRef.current) {
+        if (isOwnRun) {
           setState(prev => ({ ...prev, ownRunScenarioId: id }));
         }
         // A new run took the server's place: the server aborts the run in
@@ -572,17 +584,22 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
                 abortReason: prev.abortReason ?? { reason: 'another_run_started' },
               }
             : prev));
-        } else if (newRun && !fork && !replaySessionId) {
+        } else if (newRun && (!fork || tookOwnRun) && !replaySessionId) {
           // A new run in the page's scenario that is not a fork: the page
           // shows it on its own, with none of the last run's state, events
           // or dedupe keys, as reset() leaves them. A fork continues the
-          // run the page holds, which shows the fork as a branch of it.
+          // run the page holds, which shows the fork as a branch of it. A run
+          // that takes the feed from the page's own run leaves that run to
+          // the Digital Twin views, whose artifact is still that run's.
           seenEventKeys.clear();
           shownFromFileRef.current = false;
           setState(prev => ({
             ...prev,
             ...emptyRun(),
-            ownRunScenarioId: runKey === ownRunKeyRef.current ? id : null,
+            ownRunScenarioId: isOwnRun ? id : null,
+            heldOwnRun: prev.ownRunScenarioId !== null && !isOwnRun
+              ? { events: prev.events, isComplete: true }
+              : prev.heldOwnRun,
           }));
         }
       });
@@ -827,7 +844,8 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
   // scenario's) and out of its history. The Digital Twin views read `ownRun`.
   // A provider error stays: it is about the account, not the scenario.
   const ownRunElsewhere = state.ownRunScenarioId !== null && state.ownRunScenarioId !== scenarioId;
-  const ownRun: OwnRun | null = ownRunElsewhere ? { events: state.events, isComplete: state.isComplete } : null;
+  const ownRun: OwnRun | null = state.heldOwnRun
+    ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete } : null);
   const shown = ownRunElsewhere ? { ...state, ...NO_RUN, providerError: state.providerError } : state;
   return { ...shown, ownRun, reset, loadEvents, followRun, leaveOwnRun };
 }
