@@ -36,12 +36,25 @@ export default defineConfig({
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
-    : {
-        command: 'npm run dashboard:build && PORT=3456 npx tsx src/cli/serve.ts',
-        url: 'http://127.0.0.1:3456',
-        timeout: 180_000,
-        reuseExistingServer: !process.env.CI,
-        stdout: 'pipe',
-        stderr: 'pipe',
-      },
+    : [
+        {
+          command: 'npm run dashboard:build && PORT=3456 npx tsx src/cli/serve.ts',
+          url: 'http://127.0.0.1:3456',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with a stub Digital Twin engine, for the spec that
+        // runs one: a run replaces its server's event buffer, so it gets a
+        // server of its own.
+        {
+          command: 'PORT=3457 npx tsx tests-e2e/support/digital-twin-server.ts',
+          url: 'http://127.0.0.1:3457',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      ],
 });

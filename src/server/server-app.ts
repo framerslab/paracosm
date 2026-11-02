@@ -265,6 +265,12 @@ export interface CreateMarsServerOptions {
   runHistoryStore?: RunHistoryStore;
   /** Maximum accepted HTTP request body size. Defaults to 5 MiB. */
   maxRequestBodyBytes?: number;
+  /**
+   * Supplies the digital-twin world in place of compiling
+   * scenarios/t2d-glp1-protocol.json, so a test can run the route with a stub
+   * engine. Absent: the compile, which calls a model on its first use.
+   */
+  getDigitalTwinWorld?: () => Promise<WorldModel | null>;
 }
 
 /**
@@ -726,6 +732,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   let digitalTwinWorld: WorldModel | null = null;
   let digitalTwinCompilePromise: Promise<WorldModel | null> | null = null;
   const getDigitalTwinWorld = (): Promise<WorldModel | null> => {
+    if (options.getDigitalTwinWorld) return options.getDigitalTwinWorld();
     if (digitalTwinWorld) return Promise.resolve(digitalTwinWorld);
     if (digitalTwinCompilePromise) return digitalTwinCompilePromise;
     digitalTwinCompilePromise = (async () => {
