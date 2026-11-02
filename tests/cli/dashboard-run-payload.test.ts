@@ -142,3 +142,23 @@ test('a percent header metric with no declared ceiling is scaled by its starting
     rmSync(scenarioDir, { recursive: true, force: true });
   }
 });
+
+test("the Run button keeps a one-leader preset's leader and fills only the empty slot", async () => {
+  const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-one-leader-'));
+  const atlasLab = JSON.parse(readFileSync(new URL('../../scenarios/atlas-lab.json', import.meta.url), 'utf-8')) as {
+    presets: Array<{ leaders: unknown[] }>;
+  };
+  atlasLab.presets[0].leaders = atlasLab.presets[0].leaders.slice(0, 1);
+  writeFileSync(join(scenarioDir, 'atlas-lab.json'), JSON.stringify(atlasLab));
+
+  try {
+    await withServer(async ({ scenario, post, launches }) => {
+      assert.equal((await post('/setup', defaultRunSetup(await scenario('atlas-lab')))).status, 200);
+      const config = await launched(launches);
+      assert.deepEqual(config.actors.map(a => a.name), ['Marcus Reinhardt', 'Actor B']);
+      assert.deepEqual(config.actors.map(a => a.unit), ['Lab Alpha', 'Lab Beta']);
+    }, scenarioDir);
+  } finally {
+    rmSync(scenarioDir, { recursive: true, force: true });
+  }
+});
