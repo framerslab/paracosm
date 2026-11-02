@@ -47,7 +47,7 @@ import type { DepartmentReport, CommanderDecision, TurnArtifact } from '../contr
 import { SimulationKernel } from '../../engine/core/kernel.js';
 import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
 import { getResearchFromBundle } from '../research/scenario-research.js';
-import { createResearchMemory, type ResearchMemory } from '../research/research-memory.js';
+import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext } from './departments.js';
 import { artifactTimeUnit, scenarioWords } from '../util/scenario-words.js';
 import { declaredMetrics, declaredPolitics, formatStateLine } from '../util/scenario-state.js';
@@ -1126,31 +1126,18 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       if (milestone) {
         packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
       } else {
-        const memPacket = await research.recall(event.title + ' ' + event.description.slice(0, 100), event.researchKeywords, event.category);
-        if (memPacket.canonicalFacts.length >= 2) {
-          packet = memPacket;
-          console.log(`  [research] Memory recall: ${packet.canonicalFacts.length} citations`);
-        } else {
-          const searchMode = opts.economics?.search.mode ?? 'adaptive';
-          const allowsSearch =
-            opts.liveSearch &&
-            event.researchKeywords.length > 0 &&
-            (searchMode === 'aggressive' || (searchMode === 'adaptive' && memPacket.canonicalFacts.length < 2) || (searchMode === 'gated' && memPacket.canonicalFacts.length === 0));
-          if (allowsSearch) {
-          try {
-            const keywordBudget = Math.max(1, Math.min(3, opts.economics?.search.maxSearches ?? 3));
-            const query = event.researchKeywords.slice(0, keywordBudget).join(' ') + ' ' + sc.labels.settlementNoun + ' science';
+        packet = await researchEmergentEvent({
+          research,
+          knowledge: sc.knowledge,
+          event,
+          liveSearch: opts.liveSearch,
+          search: opts.economics?.search,
+          settlementNoun: sc.labels.settlementNoun,
+          webSearch: async query => {
             const searchResult = await webSearchTool.execute({ query }, { gmiId: sid, personaId: sid, userContext: {} } as any);
-            const results = (searchResult as any)?.output?.results || [];
-            packet = { canonicalFacts: results.slice(0, 5).map((r: any) => ({ claim: r.snippet || r.title || '', source: r.title || 'web search', url: r.url || '' })), counterpoints: [], departmentNotes: {} };
-          } catch (err) {
-            console.log(`  [research] Live search failed: ${err}`);
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-          } else {
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-        }
+            return (searchResult as any)?.output?.results || [];
+          },
+        });
       }
 
       // Departments

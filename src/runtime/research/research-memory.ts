@@ -122,3 +122,47 @@ export async function createResearchMemory(knowledge?: KnowledgeBundle): Promise
     },
   };
 }
+
+/** A web search result as the search tool returns it. */
+export interface WebSearchResult {
+  title?: string;
+  snippet?: string;
+  url?: string;
+}
+
+/** What it takes to choose the research for an emergent event. */
+export interface EmergentEventResearch {
+  research: ResearchMemory;
+  knowledge: KnowledgeBundle | undefined;
+  event: { title: string; description: string; category: string; researchKeywords: string[] };
+  liveSearch: boolean | undefined;
+  /** The run's economics profile's search policy. */
+  search?: { mode: 'off' | 'gated' | 'adaptive' | 'aggressive'; maxSearches: number };
+  settlementNoun: string;
+  webSearch(query: string): Promise<WebSearchResult[]>;
+}
+
+/** Choose an emergent event's research: recall, the bundle, or a live search. */
+export async function researchEmergentEvent(args: EmergentEventResearch): Promise<CrisisResearchPacket> {
+  const { research, knowledge, event, liveSearch, search, settlementNoun, webSearch } = args;
+  const memPacket = await research.recall(event.title + ' ' + event.description.slice(0, 100), event.researchKeywords, event.category);
+  if (memPacket.canonicalFacts.length >= 2) {
+    console.log(`  [research] Memory recall: ${memPacket.canonicalFacts.length} citations`);
+    return memPacket;
+  }
+  const searchMode = search?.mode ?? 'adaptive';
+  const allowsSearch =
+    liveSearch &&
+    event.researchKeywords.length > 0 &&
+    (searchMode === 'aggressive' || (searchMode === 'adaptive' && memPacket.canonicalFacts.length < 2) || (searchMode === 'gated' && memPacket.canonicalFacts.length === 0));
+  if (!allowsSearch) return getResearchFromBundle(knowledge, event.category, event.researchKeywords);
+  try {
+    const keywordBudget = Math.max(1, Math.min(3, search?.maxSearches ?? 3));
+    const query = event.researchKeywords.slice(0, keywordBudget).join(' ') + ' ' + settlementNoun + ' science';
+    const results = await webSearch(query);
+    return { canonicalFacts: results.slice(0, 5).map(r => ({ claim: r.snippet || r.title || '', source: r.title || 'web search', url: r.url || '' })), counterpoints: [], departmentNotes: {} };
+  } catch (err) {
+    console.log(`  [research] Live search failed: ${err}`);
+    return getResearchFromBundle(knowledge, event.category, event.researchKeywords);
+  }
+}

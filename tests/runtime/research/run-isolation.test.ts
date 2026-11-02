@@ -16,7 +16,7 @@ import { loadDiskCustomScenarios } from '../../../src/cli/custom-scenarios.js';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
 import type { KnowledgeBundle, ScenarioPackage } from '../../../src/engine/types.js';
 import type { CrisisResearchPacket } from '../../../src/runtime/contracts.js';
-import { createResearchMemory } from '../../../src/runtime/research/research-memory.js';
+import { createResearchMemory, researchEmergentEvent, type EmergentEventResearch } from '../../../src/runtime/research/research-memory.js';
 import { getResearchFromBundle } from '../../../src/runtime/research/scenario-research.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -140,3 +140,113 @@ for (const scenario of [marsScenario, lunarScenario]) {
     }
   });
 }
+
+/** Every citation a category's topics hold in a bundle. */
+function claimsInCategory(bundle: KnowledgeBundle, category: string): Set<string> {
+  const out = new Set<string>();
+  for (const topicId of bundle.categoryMapping[category] ?? []) {
+    const topic = bundle.topics[topicId];
+    for (const f of topic?.canonicalFacts ?? []) out.add(f.claim);
+    for (const c of topic?.counterpoints ?? []) out.add(c.claim);
+  }
+  return out;
+}
+
+test('a recall keeps to the topics of the event\'s category', async () => {
+  // Mars maps psychological events to psychology, isolation and generational.
+  // These words name the radiation topic's facts, which that category does not hold.
+  const run = await createResearchMemory(marsScenario.knowledge);
+  try {
+    const packet = await run.recall('Radiation dose fears after the solar event', ['radiation', 'dose'], 'psychological');
+    const inCategory = claimsInCategory(marsScenario.knowledge, 'psychological');
+    for (const f of packet.canonicalFacts) assert.ok(inCategory.has(f.claim), `"${f.claim}" is outside the psychological topics`);
+  } finally {
+    await run.close();
+  }
+});
+
+test('a recall for a category the scenario does not map still finds citations by their words', async () => {
+  const run = await createResearchMemory(lunarScenario.knowledge);
+  try {
+    const packet = await run.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, 'not_a_mapped_category');
+    assert.ok(packet.canonicalFacts.some(f => /regolith/i.test(f.claim)));
+  } finally {
+    await run.close();
+  }
+});
+
+/** The emergent-event research of a lunar run, with the web search stubbed and counted. */
+async function lunarEventResearch(
+  overrides: Partial<EmergentEventResearch>,
+  results: Awaited<ReturnType<EmergentEventResearch['webSearch']>> | Error = [{ title: 'Web source', snippet: 'A web finding', url: 'https://example.org/finding' }],
+) {
+  const research = await createResearchMemory(lunarScenario.knowledge);
+  const queries: string[] = [];
+  try {
+    const packet = await researchEmergentEvent({
+      research,
+      knowledge: lunarScenario.knowledge,
+      event: { title: LUNAR_EVENT.query, description: '', category: LUNAR_EVENT.category, researchKeywords: LUNAR_EVENT.keywords },
+      liveSearch: true,
+      search: { mode: 'adaptive', maxSearches: 3 },
+      settlementNoun: 'outpost',
+      webSearch: async query => {
+        queries.push(query);
+        if (results instanceof Error) throw results;
+        return results;
+      },
+      ...overrides,
+    });
+    return { packet, queries };
+  } finally {
+    await research.close();
+  }
+}
+
+test('the aggressive search policy searches even when recall found enough', async () => {
+  const { packet, queries } = await lunarEventResearch({ search: { mode: 'aggressive', maxSearches: 5 } });
+  assert.equal(queries.length, 1);
+  assert.deepEqual(packet.canonicalFacts.map(f => f.url), ['https://example.org/finding']);
+});
+
+test('the aggressive search policy keeps the recalled facts when the search finds nothing', async () => {
+  const { packet, queries } = await lunarEventResearch({ search: { mode: 'aggressive', maxSearches: 5 } }, []);
+  assert.equal(queries.length, 1);
+  assert.ok(packet.canonicalFacts.some(f => /regolith/i.test(f.claim)));
+});
+
+test('the adaptive and gated policies do not search when recall found enough', async () => {
+  for (const mode of ['adaptive', 'gated'] as const) {
+    const { packet, queries } = await lunarEventResearch({ search: { mode, maxSearches: 3 } });
+    assert.equal(queries.length, 0, mode);
+    assert.ok(packet.canonicalFacts.some(f => /regolith/i.test(f.claim)), mode);
+  }
+});
+
+test('no policy searches with live search off or with the off policy', async () => {
+  for (const overrides of [
+    { liveSearch: false, search: { mode: 'aggressive', maxSearches: 5 } },
+    { search: { mode: 'off', maxSearches: 0 } },
+  ] satisfies Array<Partial<EmergentEventResearch>>) {
+    const { packet, queries } = await lunarEventResearch(overrides);
+    assert.equal(queries.length, 0);
+    assert.ok(packet.canonicalFacts.length > 0);
+  }
+});
+
+/** Words no citation holds: recall finds nothing, the category still has facts. */
+const UNMATCHED = { title: 'Zzqv', description: '', category: LUNAR_EVENT.category, researchKeywords: ['xxqq'] };
+
+test('a search that finds nothing, or fails, falls back to the category in the scenario\'s bundle', async () => {
+  for (const results of [[], new Error('No search API keys configured')]) {
+    const { packet, queries } = await lunarEventResearch({ event: UNMATCHED }, results);
+    assert.equal(queries.length, 1);
+    assert.ok(packet.canonicalFacts.length > 0, 'the bundle holds facts for this category');
+  }
+});
+
+test('a search that finds something answers when recall found too little', async () => {
+  const { packet, queries } = await lunarEventResearch({ event: UNMATCHED });
+  assert.deepEqual(queries, ['xxqq outpost science']);
+  assert.deepEqual(packet.canonicalFacts, [{ claim: 'A web finding', source: 'Web source', url: 'https://example.org/finding' }]);
+});
