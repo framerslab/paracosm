@@ -20,3 +20,13 @@ export function formatBagTooltip(bag: Record<string, string | number | boolean> 
     return `${k}: ${display}`;
   }).join('\n');
 }
+
+/** A header metric's value as the stats bar shows it. */
+export function formatHeaderMetric(value: number, metric: { format: string }): string {
+  if (metric.format === 'percent') return `${Math.round(value * 100)}%`;
+  if (metric.format === 'number') {
+    const r = Math.round(value * 10) / 10;
+    return Number.isInteger(r) ? String(r) : r.toFixed(1);
+  }
+  return String(value);
+}

@@ -3,7 +3,7 @@ import type { ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
 import { useScenarioContext } from '../../App';
-import { formatBagTooltip } from './StatsBar.helpers';
+import { formatBagTooltip, formatHeaderMetric } from './StatsBar.helpers';
 import styles from './StatsBar.module.scss';
 
 export interface StatsBarLeader {
@@ -21,15 +21,6 @@ interface StatsBarProps {
    *  counts so users can see how much each actor leaned on emergent tools
    *  across the run. */
   toolRegistry?: ToolRegistry;
-}
-
-function fmtVal(value: number, format: string): string {
-  if (format === 'percent') return `${Math.round(value * 100)}%`;
-  if (format === 'number') {
-    const r = Math.round(value * 10) / 10;
-    return Number.isInteger(r) ? String(r) : r.toFixed(1);
-  }
-  return String(value);
 }
 
 function fmtSuffix(id: string): string {
@@ -193,8 +184,8 @@ export function StatsBar({ actors, crisisText, toolRegistry }: StatsBarProps) {
         const valB = metricsB?.[metric.id] ?? 0;
         const dA = delta(valA, prevMetricsA?.[metric.id]);
         const dB = delta(valB, prevMetricsB?.[metric.id]);
-        const fA = fmtVal(valA, metric.format);
-        const fB = fmtVal(valB, metric.format);
+        const fA = formatHeaderMetric(valA, metric);
+        const fB = formatHeaderMetric(valB, metric);
         const suffix = fmtSuffix(metric.id);
         const label = SHORT_LABELS[metric.id] || metric.id.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
         const icon = ICON_LABELS[metric.id] || label.charAt(0);
