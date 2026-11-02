@@ -63,7 +63,8 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
   // here.
   // Cap 300 mirrors GenerateLeadersSchema (raised from 50 once the
   // batch runner gained real concurrency limiting via
-  // economics.batch.maxConcurrency). Each actor is ~$0.30 LLM spend;
+  // economics.batch.maxConcurrency). A hosted demo actor cost 0.29 to
+  // 1.05 USD in the pairs measured on 30 October and 1 November 2026;
   // the cost preview surfaces the running total below the slider.
   const [actorCount, setActorCount] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);

@@ -122,7 +122,7 @@ Outcome: ${ctx.outcome}. Current morale: ${Math.round(ctx.colonyMorale * 100)}%.
  * Kept compact because a batch of 10 agents runs 10× this block in the
  * user prompt; even small per-agent inflation compounds fast.
  */
-function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHook?: (agent: any, ctx: any) => string): string {
+export function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHook?: (agent: any, ctx: any) => string): string {
   const age = ctx.time - c.core.birthTime;
   const h = c.hexaco;
   const bornLine = reactionContextHook ? reactionContextHook(c, ctx) : (c.core.marsborn ? 'Native-born.' : 'Arrived from outside.');
@@ -132,7 +132,7 @@ function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHoo
   if (c.social.childrenIds.length) socialBits.push(`${c.social.childrenIds.length} kids`);
   if (c.social.earthContacts > 3) socialBits.push(`${c.social.earthContacts} outside contacts`);
   if (c.social.earthContacts === 0 && !c.core.marsborn) socialBits.push('lost all outside contact');
-  if ((c.health.boneDensityPct ?? 0) < 70) socialBits.push('severe bone loss');
+  if ((c.health.boneDensityPct ?? 100) < 70) socialBits.push('severe bone loss');
   if ((c.health.cumulativeRadiationMsv ?? 0) > 1500) socialBits.push('high rad exposure');
   if (c.health.psychScore < 0.4) socialBits.push('depressed');
 
@@ -140,6 +140,13 @@ function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHoo
   const recentLine = c.narrative.lifeEvents.slice(-2).map(e => `${TimeUnit} ${e.time}: ${e.event}`).join('; ');
   const recentMem = (c.memory?.shortTerm ?? []).slice(-2).map(m => m.content.slice(0, 80)).join(' | ');
   const beliefs = (c.memory?.longTerm ?? []).slice(-2).join(' | ');
+
+  // Bone and radiation move only under the Mars and Lunar physics; a
+  // researcher in a lab has neither to report.
+  const healthBits: string[] = [];
+  if ((c.health.boneDensityPct ?? 100) < 100) healthBits.push(`bone ${(c.health.boneDensityPct ?? 100).toFixed(0)}%`);
+  if ((c.health.cumulativeRadiationMsv ?? 0) > 0) healthBits.push(`rad ${(c.health.cumulativeRadiationMsv ?? 0).toFixed(0)}mSv`);
+  healthBits.push(`psych ${c.health.psychScore.toFixed(2)}`);
 
   const cues = buildReactionCues(h);
   const lines = [
@@ -149,7 +156,7 @@ function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHoo
   ];
   if (cues) lines.push(cues);
   lines.push(
-    `Health: bone ${(c.health.boneDensityPct ?? 0).toFixed(0)}% rad ${(c.health.cumulativeRadiationMsv ?? 0).toFixed(0)}mSv psych ${c.health.psychScore.toFixed(2)}${socialBits.length ? ` | ${socialBits.join(', ')}` : ''}`,
+    `Health: ${healthBits.join(' ')}${socialBits.length ? ` | ${socialBits.join(', ')}` : ''}`,
   );
   if (c.promotion) lines.push(`Promoted: ${c.promotion.role} by ${c.promotion.promotedBy}`);
   if (recentLine) lines.push(`History: ${recentLine}`);
