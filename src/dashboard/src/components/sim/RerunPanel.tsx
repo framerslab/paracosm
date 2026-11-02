@@ -11,7 +11,7 @@
  * @module paracosm/cli/dashboard/components/sim/RerunPanel
  */
 import { useCallback, useState } from 'react';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
 import {
   buildNextRunConfig,
   isLastLaunchFor,
@@ -33,9 +33,10 @@ interface RerunPanelProps {
 export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
   const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
 
   const handleClick = useCallback(async () => {
-    if (launching) return;
+    if (launching || !scenarioReady) return;
     setLaunching(true);
     try {
       const prev = readLastLaunchConfig(window.localStorage);
@@ -92,7 +93,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
     } finally {
       setLaunching(false);
     }
-  }, [launching, scenario.id, scenario.labels.name]);
+  }, [launching, scenarioReady, scenario.id, scenario.labels.name]);
 
   if (!enabled) return null;
 
@@ -106,9 +107,9 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         type="button"
         className={styles.button}
         onClick={handleClick}
-        disabled={launching}
+        disabled={launching || !scenarioReady}
       >
-        {launching ? 'Launching…' : 'Run again with seed+1 ›'}
+        {launching ? 'Launching…' : scenarioReady ? 'Run again with seed+1 ›' : 'Loading scenario…'}
       </button>
     </div>
   );

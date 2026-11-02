@@ -199,9 +199,12 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // Depend on presets length because the fallback has presets:[] but
   // the same id. Preserves the user's actor count when the preset has
   // fewer entries than the current form (no shrink on scenario load).
-  // A slot the preset does not fill keeps its person. A unit still named by
-  // default for the last scenario takes the new scenario's word; one the
-  // person typed while the scenario loaded stays.
+  // What the person has changed in each slot since the page opened stays. A
+  // slot the preset does not fill keeps its person. Its unit takes the new
+  // scenario's word when it is the last scenario's default, or when this
+  // scenario has leaders of its own, since that slot then came from a stored
+  // roster that may be another scenario's.
+  const edits = useRef<Array<Partial<ActorFormData>>>([]);
   const lastScenario = useRef<ScenarioLabelsInput>(scenario);
   useEffect(() => {
     const previous = lastScenario.current;
@@ -209,23 +212,30 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     const p = scenario.presets.find(p => p.id === 'default');
     const leaders = p?.leaders ?? p?.actors;
     setActors(prev => prev.map((existing, idx) => {
+      const edited = edits.current[idx];
       const preset = leaders?.[idx];
-      const unitIsDefault = existing.unit === leaderUnit(previous, idx);
       if (!preset) {
-        return unitIsDefault ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
+        const unitIsStale = leaders !== undefined || existing.unit === leaderUnit(previous, idx);
+        return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
       }
       return {
         name: preset.name,
         archetype: preset.archetype,
-        unit: unitIsDefault ? preset.unit ?? leaderUnit(scenario, idx) : existing.unit,
+        unit: preset.unit ?? leaderUnit(scenario, idx),
         instructions: preset.instructions,
         hexaco: { ...preset.hexaco },
+        ...edited,
       };
     }));
   }, [scenario.id, scenario.presets.length]);
 
   const updateActor = useCallback((idx: number, next: ActorFormData) => {
-    setActors(prev => prev.map((a, i) => (i === idx ? next : a)));
+    setActors(prev => prev.map((a, i) => {
+      if (i !== idx) return a;
+      const changed = (Object.keys(next) as Array<keyof ActorFormData>).filter(key => next[key] !== a[key]);
+      edits.current[idx] = { ...edits.current[idx], ...Object.fromEntries(changed.map(key => [key, next[key]])) };
+      return next;
+    }));
   }, []);
 
   const addActor = useCallback(() => {
@@ -233,6 +243,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   }, [scenario]);
 
   const removeActor = useCallback((idx: number) => {
+    edits.current.splice(idx, 1);
     setActors(prev => (prev.length > MIN_ACTORS ? prev.filter((_, i) => i !== idx) : prev));
   }, []);
   const [turns, setTurns] = useState(scenario.setup.defaultTurns);
