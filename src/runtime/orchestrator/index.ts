@@ -19,6 +19,7 @@ import {
   emptyReport,
   emptyDecision,
   decisionToPolicy,
+  selectableEffects,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
@@ -185,6 +186,8 @@ export interface SimEventPayloadMap {
     category: string;
     emergent: boolean;
     systemDeltas: Record<string, number>;
+    /** Changes to the politics bag, when the outcome made any. */
+    politicsDeltas?: Record<string, number>;
     eventIndex: number;
   };
   /** Per-turn HEXACO drift for promoted agents + the commander. */
@@ -647,7 +650,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // scenarioVersion + scenarioId; the restored kernel is
   // byte-equivalent to the one that produced the snapshot.
   const kernel = opts._resumeFrom
-    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id)
+    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id, sc)
     : new SimulationKernel(seed, leader.name, keyPersonnel, {
         startTime,
         initialPopulation: opts.initialPopulation,
@@ -1468,7 +1471,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         return `## ${r.department.toUpperCase()} (conf: ${r.confidence})\n${r.summary}\nRisks: ${risksLine}\nRecs: ${recsLine}`;
       }).join('\n\n');
       const optionText = event.options.length ? '\n\nOPTIONS:\n' + event.options.map(o => `- ${o.id}: ${o.label} — ${o.description}${o.isRisky ? ' [RISKY]' : ''}`).join('\n') + '\n\nYou MUST include "selectedOptionId" in your JSON response.' : '';
-      const effectsList = reports.flatMap(r => (r.recommendedEffects || []).map(e => `  - ${e.id} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`));
+      const effectsList = selectableEffects(reports).map(({ key, effect: e }) => `  - ${key} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`);
       const effectsText = effectsList.length ? '\n\nAVAILABLE POLICY EFFECTS:\n' + effectsList.join('\n') : '';
       // Expose the current forged toolbox to the commander so their
       // rationale can cite specific tool outputs (e.g. "per Medical's
@@ -1550,7 +1553,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      const policyDeltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      if (Object.keys(policyDeltas).length > 0) console.log(`  [policy] effects: ${JSON.stringify(policyDeltas)}`);
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1614,7 +1618,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         };
       })();
 
-      const systemDeltas = applyOutcomeEffects(kernel, effectRegistry, {
+      const { systemDeltas, politicsDeltas } = applyOutcomeEffects(kernel, effectRegistry, {
         category: event.category,
         outcome,
         modifiers: {
@@ -1624,10 +1628,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         },
         turn,
         time,
+        politicsHook: sc.hooks.politicsHook,
       });
-
-      const polDelta = sc.hooks.politicsHook?.(event.category, outcome);
-      if (polDelta) kernel.applyPoliticsDeltas(polDelta);
 
       outcomeLog.push({ turn, time, outcome });
       eventHistory.push({ turn, title: event.title, category: event.category, selectedOptionId: resolvedOptionId, decision: decision.decision.slice(0, 200), outcome });
@@ -1642,8 +1644,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       lastOutcome = outcome;
       lastEventCategory = event.category;
 
-      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}`);
-      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, eventIndex: ei });
+      const movedPolitics = Object.keys(politicsDeltas).length > 0;
+      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}${movedPolitics ? ` politics: ${JSON.stringify(politicsDeltas)}` : ''}`);
+      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, ...(movedPolitics ? { politicsDeltas } : {}), eventIndex: ei });
       } catch (err) {
         // Classify event-loop errors. Provider-side failures (auth,
         // quota, rate_limit, network) route through reportProviderError
@@ -2142,7 +2145,7 @@ export async function replaySimulation(
   for (let i = 0; i < inputSnaps.length - 1; i++) {
     const here = inputSnaps[i];
     const next = inputSnaps[i + 1];
-    const kernel = SimulationKernel.fromSnapshot(here, scenario.id);
+    const kernel = SimulationKernel.fromSnapshot(here, scenario.id, scenario);
     kernel.advanceTurn(next.turn, next.time, scenario.hooks?.progressionHook);
     freshSnapshots.push(kernel.toSnapshot(scenario.id));
   }

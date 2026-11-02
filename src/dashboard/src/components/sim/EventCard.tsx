@@ -448,7 +448,10 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const rationale = String(dd._rationale || '');
       const reasoning = String(dd._reasoning || '');
       const policies = (dd._policies as string[]) || [];
-      const systemDeltas = dd.systemDeltas as Record<string, number> | undefined;
+      const systemDeltas = {
+        ...(dd.systemDeltas as Record<string, number> | undefined),
+        ...(dd.politicsDeltas as Record<string, number> | undefined),
+      };
       const turnNum = String(dd.turn || '');
       const toolCount = Number(dd._toolCount ?? 0);
       const citeCount = Number(dd._citeCount ?? 0);
@@ -474,7 +477,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
           {/* Decision text */}
           <div className={styles.outcomeText}>{decision}</div>
           {/* System deltas in teal mono */}
-          {systemDeltas && Object.keys(systemDeltas).length > 0 && (
+          {Object.keys(systemDeltas).length > 0 && (
             <div className={styles.outcomeDeltas}>
               {Object.entries(systemDeltas).map(([k, v]) => (
                 <span key={k} className={styles.outcomeDeltaSpan}>

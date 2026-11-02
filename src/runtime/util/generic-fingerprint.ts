@@ -31,8 +31,10 @@ export function genericFingerprint(
   const successRate = successCount / totalDecisions;
   const riskRate = riskyCount / totalDecisions;
 
-  const alive = finalState.agents.filter(a => a.health.alive).length;
-  const totalAgents = finalState.agents.length || 1;
+  // Someone who left the roster did not die: they count among the survivors.
+  const left = finalState.eventLog.filter(e => e.type === 'departure').length;
+  const alive = finalState.agents.filter(a => a.health.alive).length + left;
+  const totalAgents = finalState.agents.length + left || 1;
   const survivalRate = alive / totalAgents;
 
   // Innovation index from the toolbox: total unique tools forged across

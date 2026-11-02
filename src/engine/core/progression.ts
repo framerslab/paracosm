@@ -283,14 +283,14 @@ export function progressBetweenTurns(
       }
     }
 
-    // 2c. Starvation — settlement-wide food reserve below a month triggers
-    // per-colonist starvation risk. Every colonist is equally at risk;
-    // it is settlement-scale, not individual.
+    // 2c. Starvation — a food reserve below a month triggers per-person
+    // starvation risk. Everyone is equally at risk; the shortage is
+    // shared, not individual.
     if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 1.0) {
       const starveProb = (1.0 - metrics.foodMonthsReserve) * 0.15 * timeDelta;
       if (turnRng.chance(Math.min(starveProb, 0.3))) {
         killColonist(c, 'starvation',
-          `died at age ${age} of starvation (settlement food reserve ${metrics.foodMonthsReserve.toFixed(1)} months)`);
+          `died at age ${age} of starvation (food reserve ${metrics.foodMonthsReserve.toFixed(1)} months)`);
         continue;
       }
     }
@@ -320,10 +320,11 @@ export function progressBetweenTurns(
       }
     }
 
-    // 2f. Baseline accident risk — small but non-zero, reflecting
-    // mundane EVA / construction / life-support hazards that exist in
-    // any Mars habitat. Weighted by role: engineering + medical
-    // colonists are more often in hazardous positions than governance.
+    // 2f. Baseline accident risk — small but non-zero. A run with a
+    // pressurized habitat (it carries that metric) has EVA / life-support
+    // hazards; any other run has everyday ones. Weighted by role:
+    // engineering + medical people are more often in hazardous positions
+    // than governance.
     const roleAccidentWeight: Record<string, number> = {
       engineering: 1.5,
       medical: 1.2,
@@ -335,10 +336,13 @@ export function progressBetweenTurns(
     const accidentBase = 0.003 * timeDelta;
     const accidentProb = accidentBase * (roleAccidentWeight[c.core.department ?? 'science'] ?? 1.0);
     if (age >= 18 && turnRng.chance(accidentProb)) {
-      const descriptors = ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover'];
+      const descriptors = typeof metrics.pressurizedVolumeM3 === 'number'
+        ? ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover']
+        : ['equipment failure', 'vehicle accident', 'fall', 'electrical fault', 'workplace accident'];
       const descriptor = turnRng.pick(descriptors);
+      const article = /^[aeiou]/i.test(descriptor) ? 'an' : 'a';
       killColonist(c, `accident: ${descriptor}`,
-        `died at age ${age} in a ${descriptor}`);
+        `died at age ${age} in ${article} ${descriptor}`);
       continue;
     }
   }
@@ -425,7 +429,7 @@ export function progressBetweenTurns(
     // deterministic shared block below; inlined so both paths reuse the
     // same child-creation logic without duplicating the heavy literal.
     const childName = `${turnRng.pick(['Nova', 'Kai', 'Sol', 'Tera', 'Eos', 'Zan', 'Lyra', 'Orion', 'Vega', 'Juno', 'Atlas', 'Iris', 'Clio', 'Pax', 'Io', 'Thea'])} ${p1.core.name.split(' ').pop()}`;
-    const childId = `col-mars-${time}-${turnRng.int(1000, 9999)}`;
+    const childId = `col-born-${time}-${turnRng.int(1000, 9999)}`;
     const childHexaco: any = {};
     for (const trait of ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'emotionality', 'honestyHumility'] as const) {
       childHexaco[trait] = Math.max(0.05, Math.min(0.95,
@@ -433,9 +437,10 @@ export function progressBetweenTurns(
       ));
     }
     const child: Agent = {
-      core: { id: childId, name: childName, birthTime: time, marsborn: true, department: 'science', role: 'Child' },
+      // A roster with no science department counts the child with a parent's.
+      core: { id: childId, name: childName, birthTime: time, marsborn: true, department: colonists.some(c => c.core.department === 'science') ? 'science' : p1.core.department, role: 'Child' },
       health: { alive: true, boneDensityPct: 88, cumulativeRadiationMsv: 0, psychScore: 0.9, conditions: [] },
-      career: { specialization: 'Undetermined', yearsExperience: 0, rank: 'junior', achievements: ['Born in the settlement'] },
+      career: { specialization: 'Undetermined', yearsExperience: 0, rank: 'junior', achievements: ['Born here'] },
       social: { childrenIds: [], friendIds: [], earthContacts: 0 },
       narrative: { lifeEvents: [{ time, event: `Born to ${p1.core.name} and ${p2.core.name}`, source: 'kernel' }], featured: false },
       hexaco: childHexaco,
@@ -466,9 +471,11 @@ export function progressBetweenTurns(
     if (!c.health.alive) continue;
     const age = time - c.core.birthTime;
 
-    // Mars-born children enter workforce at 18
+    // Children born in the run enter the workforce at 18, in a trade the
+    // roster has; otherwise they stay in the department they were counted in.
     if (c.core.role === 'Child' && age >= 18) {
-      c.core.department = turnRng.pick(['medical', 'engineering', 'agriculture', 'science'] as const);
+      const trade = turnRng.pick(['medical', 'engineering', 'agriculture', 'science'] as const);
+      if (colonists.some(other => other.core.department === trade)) c.core.department = trade;
       c.career.specialization = turnRng.pick(['General', 'Support', 'Research']);
       c.core.role = `Junior ${c.career.specialization} Specialist`;
       c.career.rank = 'junior';

@@ -9,6 +9,7 @@ import {
 } from './flareQueue.js';
 import type { TurnSnapshot, GridPosition } from '../viz-types.js';
 import { useMediaQuery, REDUCED_MOTION_QUERY } from './useMediaQuery.js';
+import { rosterChanges } from './roster-changes.js';
 
 export interface ForgeAttempt {
   turn: number;
@@ -88,39 +89,29 @@ export function useGridState(
     if (!prev) return;
     const positions = positionLookup();
 
-    const prevIds = new Set(prev.cells.map(c => c.agentId));
-    const currIds = new Set(snap.cells.map(c => c.agentId));
-
-    for (const c of snap.cells) {
-      if (!prevIds.has(c.agentId) && c.alive) {
-        const pos = positions.get(c.agentId);
-        if (pos) {
-          pushFlare(flareQueueRef.current, {
-            kind: 'birth',
-            x: pos.x,
-            y: pos.y,
-            totalFrames: 30,
-            sourceId: c.agentId,
-          });
-        }
+    const { born, died } = rosterChanges(prev.cells, snap.cells);
+    for (const c of born) {
+      const pos = positions.get(c.agentId);
+      if (pos) {
+        pushFlare(flareQueueRef.current, {
+          kind: 'birth',
+          x: pos.x,
+          y: pos.y,
+          totalFrames: 30,
+          sourceId: c.agentId,
+        });
       }
     }
-    for (const prevCell of prev.cells) {
-      const curr = snap.cells.find(c => c.agentId === prevCell.agentId);
-      const died =
-        (curr && prevCell.alive && !curr.alive) ||
-        (prevCell.alive && !currIds.has(prevCell.agentId));
-      if (died) {
-        const pos = positions.get(prevCell.agentId);
-        if (pos) {
-          pushFlare(flareQueueRef.current, {
-            kind: 'death',
-            x: pos.x,
-            y: pos.y,
-            totalFrames: 60,
-            sourceId: prevCell.agentId,
-          });
-        }
+    for (const c of died) {
+      const pos = positions.get(c.agentId);
+      if (pos) {
+        pushFlare(flareQueueRef.current, {
+          kind: 'death',
+          x: pos.x,
+          y: pos.y,
+          totalFrames: 60,
+          sourceId: c.agentId,
+        });
       }
     }
 
