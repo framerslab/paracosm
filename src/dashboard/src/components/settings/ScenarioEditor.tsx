@@ -216,6 +216,26 @@ export function ScenarioEditor() {
                 });
               }
               if (data.id) {
+                // The compile put it in the catalog for everyone and made it
+                // nobody's pick; switching makes it this visitor's, as the
+                // compile used to make it everyone's.
+                let switchError: string | null = null;
+                try {
+                  const switched = await fetch('/scenario/switch', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: data.id }),
+                  });
+                  if (!switched.ok) {
+                    const body = await switched.json().catch(() => ({} as { error?: string }));
+                    switchError = body.error ?? `HTTP ${switched.status}`;
+                  }
+                } catch (err) {
+                  switchError = String(err);
+                }
+                if (switchError) {
+                  setResult({ success: false, message: `Compiled ${data.id}, but switching to it failed: ${switchError}` });
+                  continue;
+                }
                 emitScenarioUpdated(window);
                 setResult({ success: true, message: `Compiled: ${data.id} (${data.departments} departments, ${data.hooks} hooks). Go to Settings to configure actors and launch.` });
               }

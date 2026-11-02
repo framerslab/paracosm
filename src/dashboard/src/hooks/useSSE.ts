@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateLegacyEventShape } from './migrateLegacyEventShape';
+import { consumeScenarioSwitched } from '../scenario-sync';
 import type { RunArtifact } from '../../../engine/schema/index.js';
 
 /**
@@ -180,6 +181,20 @@ export function useSSE(options: UseSSEOptions = {}) {
   // would be filtered out on the server's buffer replay (or its absence
   // would still leave the set populated forever).
   const seenEventKeysRef = useRef<Set<string>>(new Set());
+  // True after this tab switched its scenario (the mark the switch callers
+  // set before their reload). The server's buffer still holds the run from
+  // before the switch, any visitor's in any scenario, and replays it on
+  // every connect, so the page skips that run: every event until a run
+  // starts after the page loaded (a live active_scenario event) or the
+  // page resets. A ref read when an event arrives, never React state: the
+  // listeners are created once per subscription and would keep the value
+  // they first saw. The live /events feed only; a saved-session replay is
+  // the run the page asked for, and ends without a replay_done.
+  const skipBufferedRunRef = useRef<boolean | null>(null);
+  if (skipBufferedRunRef.current === null) {
+    const switched = typeof window !== 'undefined' && consumeScenarioSwitched();
+    skipBufferedRunRef.current = replaySessionId ? false : switched;
+  }
 
   /**
    * Clear all client-side SSE state AND tell the server to drop its
@@ -189,6 +204,7 @@ export function useSSE(options: UseSSEOptions = {}) {
    */
   const reset = useCallback(async () => {
     seenEventKeysRef.current.clear();
+    skipBufferedRunRef.current = false;
     setState(prev => ({
       // Preserve current connection status so the UI doesn't flash
       // "Connecting..." just because the user pressed Clear.
@@ -295,6 +311,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
      * automatically. Backoff caps at 10s; reset on successful 'connected'.
      */
     let connectCount = 0;
+    // True from `connected` to `replay_done`: the events in between are the
+    // server's buffer replayed, not live ones.
+    let replaying = false;
+    // An event of the run this tab skips since its switch
+    // (skipBufferedRunRef). Never on a saved-session replay.
+    const skipped = () => !replaySessionId && skipBufferedRunRef.current === true;
     // The dedupe set is owned by seenEventKeysRef so reset() can clear it.
     // Tracks event identity so we can dedupe across reconnects without
     // wiping state.events (which would lose the user's view of completed
@@ -370,6 +392,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       es.addEventListener('connected', () => {
         attempt = 0;
         connectCount += 1;
+        replaying = true;
         // On the FIRST connect we want a clean slate (the server replays
         // its full buffer right after 'connected'). On reconnects we keep
         // existing events so a browser-managed reconnect after the sim
@@ -392,7 +415,15 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('replay_done', () => {
+        replaying = false;
         setState(prev => ({ ...prev, replayDone: true }));
+      });
+
+      // Every run opens with active_scenario. One that arrives live started
+      // after this page loaded, so a page that skipped the buffered run
+      // shows this one from its first event.
+      es.addEventListener('active_scenario', () => {
+        if (!replaying) skipBufferedRunRef.current = false;
       });
 
       // Status events carry run-wide metadata: the effective maxTurns
@@ -403,6 +434,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       // Normalize into a SimEvent so useGameState's existing `status`
       // branch at line 235 picks it up without another code path.
       es.addEventListener('status', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'status', leader: '', data };
@@ -414,6 +446,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('sim', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const rawData = JSON.parse(e.data) as SimEvent;
           // Pre-0.5.0 session replays emit events with legacy field
@@ -505,6 +538,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('result', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           setState(prev => ({ ...prev, results: [...prev.results, data] }));
@@ -512,6 +546,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('verdict', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           // Tag the pair-mode shape so VerdictBanner can branch
@@ -522,6 +557,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('cohort_verdict', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           setState(prev => ({ ...prev, verdict: { ...data, mode: 'cohort' } }));
@@ -529,6 +565,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('verdict_skipped', (e: MessageEvent) => {
+        if (skipped()) return;
         // Server-side cohort verdict was attempted and failed (LLM
         // error, schema fallback, or cohort too large). Park a stub
         // payload so the dashboard can surface "verdict unavailable"
@@ -545,6 +582,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('complete', (e: MessageEvent) => {
+        if (skipped()) return;
         // pair-runner emits `complete` with an optional `aborted: true`
         // flag when either leader was cancelled. Fold that into
         // isAborted here too, so the Interrupted badge shows up even if
@@ -567,6 +605,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('sim_error', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           const msg = String(data.error || 'Unknown simulation error');
@@ -582,6 +621,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       // pipeline. Dedupe keyed on status+id so buffer replay after
       // reconnect doesn't double-toast the same save.
       es.addEventListener('sim_saved', (e: MessageEvent) => {
+        if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'sim_saved', leader: '', data };

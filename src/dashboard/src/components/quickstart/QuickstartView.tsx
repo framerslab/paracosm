@@ -20,6 +20,7 @@ import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '..
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { compileScenarioWithPolling } from './compile-poll';
+import { markScenarioSwitched } from '../../scenario-sync';
 import styles from './QuickstartView.module.scss';
 
 /** Shape returned by /api/quickstart/ground-scenario, surfaced to the
@@ -327,8 +328,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   }, [scenario, sse, onRunStarted, toast]);
 
   /**
-   * Catalog-grid handoff: clicking Run on a scenario card switches the
-   * server's active scenario (if needed) and runs it. When the picked
+   * Catalog-grid handoff: clicking Run on a scenario card switches this
+   * visitor's scenario (if needed) and runs it. When the picked
    * scenario is already active we just route through the same code
    * path the LoadedScenarioCTA uses. When it's NOT active, we POST
    * /scenario/switch + reload so useScenario re-fetches /scenario and
@@ -361,10 +362,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         const body = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(body.error ?? `Scenario switch failed: HTTP ${res.status}`);
       }
+      markScenarioSwitched();
       window.location.reload();
     } catch (err) {
-      // The server may have taken the switch even though its answer was
-      // lost, so a later reload must not find a run to start.
+      // A lost answer means no cookie, so the reload finds the old
+      // scenario; the pending run is dropped so nothing runs by surprise.
       try { sessionStorage.removeItem(CATALOG_PENDING_KEY); } catch { /* silent */ }
       const friendly = mapLaunchErrorToMessage((err as Error)?.message ?? String(err));
       setErrorBanner(friendly);
@@ -375,12 +377,13 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   // Auto-resume after a /scenario/switch reload. The catalog-grid Run
   // path stashes { scenarioId, actorCount } in sessionStorage; on mount we
   // read it back and trigger handleLoadedScenarioRun once, and only when
-  // the scenario that loaded is the one the person picked (another switch
-  // can land between theirs and the reload). The flag is
+  // the scenario that loaded is the one the person picked (another tab of
+  // the same browser can switch between theirs and the reload, since the
+  // pick is a cookie). The flag is
   // consumed (removed) on read so a manual reload after an unrelated
   // click never re-triggers a stale auto-run. It waits for GET /scenario:
-  // on mount the context still holds the Mars fallback, whose id the server
-  // would refuse.
+  // on mount the context still holds the Mars fallback, and a run named
+  // for it would run Mars.
   useEffect(() => {
     if (!scenarioReady) return;
     let pending: { scenarioId?: unknown; actorCount?: unknown } | null = null;
@@ -393,7 +396,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       return;
     }
     if (pending?.scenarioId !== scenario.id) {
-      toast('error', 'Scenario changed', "The server's scenario changed before the run you picked could start, so nothing ran. Pick it in the catalog again.", 8000);
+      toast('error', 'Scenario changed', 'Another tab of this browser picked a different scenario before the run you picked could start, so nothing ran. Pick it in the catalog again.', 8000);
       return;
     }
     const count = typeof pending?.actorCount === 'number' && pending.actorCount > 0
