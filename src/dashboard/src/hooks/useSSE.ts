@@ -217,6 +217,12 @@ export function useSSE(options: UseSSEOptions = {}) {
   // arrives on this connection (a buffer from before runs named their
   // scenario, or an empty one). Read when an event arrives, as above.
   const runScenarioIdRef = useRef<string | null>(null);
+  // The key of the last run the live feed opened (active_scenario's
+  // runKey), kept across reconnects; null before one arrives and after
+  // reset(). A reconnect replays the same key. A different key is a new
+  // run, which the page starts clean on unless it is a fork, the branch
+  // of the run the page holds. Read when an event arrives, as above.
+  const runKeyRef = useRef<string | null>(null);
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
@@ -243,6 +249,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     skipBufferedRunRef.current = false;
     // The buffer is cleared below; the next run names its scenario.
     runScenarioIdRef.current = null;
+    runKeyRef.current = null;
     setState(prev => ({
       // Preserve current connection status so the UI doesn't flash
       // "Connecting..." just because the user pressed Clear.
@@ -471,10 +478,17 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       // the replay.
       es.addEventListener('active_scenario', (e: MessageEvent) => {
         let id: string | null = null;
+        let runKey: string | null = null;
+        let fork = false;
         try {
-          const data = JSON.parse(e.data) as { id?: unknown } | null;
+          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown } | null;
           id = typeof data?.id === 'string' ? data.id : null;
+          runKey = typeof data?.runKey === 'string' ? data.runKey : null;
+          fork = data?.forkedFrom != null;
         } catch { /* no id: the run is shown, as one from before runs named it */ }
+        const previousRunKey = runKeyRef.current;
+        const newRun = previousRunKey !== null && runKey !== null && runKey !== previousRunKey;
+        runKeyRef.current = runKey;
         runScenarioIdRef.current = id;
         skipBufferedRunRef.current = false;
         // A new run took the server's place: the server aborts the run in
@@ -491,6 +505,13 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
                 abortReason: prev.abortReason ?? { reason: 'another_run_started' },
               }
             : prev));
+        } else if (newRun && !fork && !replaySessionId) {
+          // A new run in the page's scenario that is not a fork: the page
+          // shows it on its own, with none of the last run's state, events
+          // or dedupe keys, as reset() leaves them. A fork continues the
+          // run the page holds, which shows the fork as a branch of it.
+          seenEventKeys.clear();
+          setState(prev => ({ ...prev, ...emptyRun() }));
         }
       });
 

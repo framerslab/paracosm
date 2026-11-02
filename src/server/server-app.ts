@@ -1321,9 +1321,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    * page that connects later, and the trim keeps it first. A page that
    * skips a buffered run since its switch shows the run from this event,
    * and its `runKey` tells a page a new run from a replay of the one it
-   * holds.
+   * holds. A fork names its parent (`forkedFrom`): the page that forked
+   * keeps the run it holds and shows the fork as a branch of it.
    */
-  const openRunBuffer = (scenario: ScenarioPackage, seedText: string | null): void => {
+  const openRunBuffer = (
+    scenario: ScenarioPackage,
+    seedText: string | null,
+    forkedFrom: { parentRunId: string; atTurn: number } | null = null,
+  ): void => {
     clearEventBuffer();
     currentRunScenario = scenario;
     broadcast('active_scenario', {
@@ -1337,8 +1342,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       seedText,
       // This run's own key. A page that reconnects is replayed the same
       // key, so it keeps what it holds; a different key is a new run,
-      // which the page shows on its own.
+      // which the page shows on its own unless the run is a fork.
       runKey: randomUUID(),
+      // A fork's parent run and turn, null for every other run.
+      forkedFrom,
     });
     currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
   };
@@ -3602,7 +3609,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     async startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks) {
       // Clear previous run data
       const runScenario = hooks?.scenario ?? marsScenario;
-      openRunBuffer(runScenario, hooks?.seedText ?? null);
+      openRunBuffer(
+        runScenario,
+        hooks?.seedText ?? null,
+        config.forkFrom
+          ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
+          : null,
+      );
       simConfig = config;
       simRunning = true;
       // Per-run AbortController. Held in a local so the finally block
