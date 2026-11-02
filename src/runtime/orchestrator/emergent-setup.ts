@@ -58,7 +58,7 @@ export function createWebSearchTool(
 ): ITool {
   return {
     id: 'tool.web_search', name: 'web_search', displayName: 'Multi-Provider Web Search',
-    description: 'Search for scientific papers, NASA data, and Mars research using AgentOS WebSearchService with multi-provider fusion (Serper, Tavily, Firecrawl, Brave) and Cohere neural reranking.',
+    description: 'Search the web for papers, data and primary sources using AgentOS WebSearchService with multi-provider fusion (Serper, Tavily, Firecrawl, Brave) and Cohere neural reranking.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
     hasSideEffects: false,
     async execute(args: Record<string, unknown>) {

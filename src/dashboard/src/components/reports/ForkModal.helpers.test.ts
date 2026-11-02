@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLeaderPresets, estimateForkCost, parseCustomEvents } from './ForkModal.helpers.js';
+import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, canForkAtTurn, forkFinalTurn } from './ForkModal.helpers.js';
 import { marsScenario } from '../../../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 
@@ -72,6 +72,13 @@ test('estimateForkCost: 3 turns remaining on OpenAI economy', () => {
   assert.match(cost, /^~\$0\.\d{2}$/, `expected "~$0.xx", got ${cost}`);
 });
 
+test('estimateForkCost: a whole economy run lies within what measured runs cost', () => {
+  // One leader's 6 turns on the hosted demo cost 0.2898, 0.4499, 0.5609
+  // and 1.0529 USD in the pairs of 30 October and 1 November 2026.
+  const cost = Number(estimateForkCost(0, 6, 'economy', 'openai').replace('~$', ''));
+  assert.ok(cost >= 0.2898 && cost <= 1.0529, `six turns priced at ${cost}`);
+});
+
 test('estimateForkCost: 6 turns remaining on Anthropic quality rounds up cleanly', () => {
   const cost = estimateForkCost(0, 6, 'quality', 'anthropic');
   assert.match(cost, /^~\$4\.\d{2}$/, `expected ~$4.xx, got ${cost}`);
@@ -102,4 +109,36 @@ test('parseCustomEvents: empty, whitespace, and malformed lines are dropped', ()
   assert.equal(events[0].turn, 4);
   assert.equal(events[0].title, 'valid');
   assert.equal(events[0].description, 'yes');
+});
+
+test('canForkAtTurn: no fork at the run\'s last turn, where nothing is left to run', () => {
+  // The Reports tab offered a fork at turn 6 of a 6-turn run and posted
+  // turns 6; /setup answers 400 for it, so the button must not be there.
+  const parent = {
+    trajectory: { timepoints: [1, 2, 3, 4, 5, 6].map(t => ({ t })) },
+    scenarioExtensions: { kernelSnapshotsPerTurn: [1, 2, 3, 4, 5, 6].map(turn => ({ turn })) },
+  };
+  assert.equal(forkFinalTurn(parent), 6);
+  assert.equal(canForkAtTurn(parent, 5), true);
+  assert.equal(canForkAtTurn(parent, 6), false);
+  assert.equal(canForkAtTurn(parent, 7), false);
+  // A turn with no snapshot cannot be forked.
+  assert.equal(canForkAtTurn({ ...parent, scenarioExtensions: { kernelSnapshotsPerTurn: [{ turn: 2 }] } }, 3), false);
+  assert.equal(canForkAtTurn({ trajectory: parent.trajectory }, 3), false);
+  // Without timepoints the last snapshot is the final turn.
+  assert.equal(forkFinalTurn({ scenarioExtensions: parent.scenarioExtensions }), 6);
+  assert.equal(canForkAtTurn({ scenarioExtensions: parent.scenarioExtensions }, 6), false);
+});
+
+test('forkFinalTurn: a forked run counts its turns from its snapshots', () => {
+  // A run forked at turn 3 of 6 holds timepoints for turns 4 to 6 only,
+  // while its snapshots keep the absolute turns.
+  const child = {
+    trajectory: { timepoints: [4, 5, 6].map(t => ({ t })) },
+    scenarioExtensions: { kernelSnapshotsPerTurn: [4, 5, 6].map(turn => ({ turn })) },
+  };
+  assert.equal(forkFinalTurn(child), 6);
+  assert.equal(canForkAtTurn(child, 4), true);
+  assert.equal(canForkAtTurn(child, 5), true);
+  assert.equal(canForkAtTurn(child, 6), false);
 });

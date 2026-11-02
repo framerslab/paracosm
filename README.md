@@ -78,7 +78,7 @@ console.log(branch.metadata.forkedFrom);  // { parentRunId, atTurn: 3 }
 console.log(trunk.fingerprint, branch.fingerprint);
 ```
 
-`captureSnapshots` defaults to `false` so that ordinary runs stay lean. The dashboard flips it on for every UI run; the Reports tab shows a fork button on each completed turn, posts to `/setup` with the parent artifact, and routes the new run into a Branches tab where forks accumulate as cards with per-metric deltas as they stream.
+`captureSnapshots` defaults to `false` so that ordinary runs stay lean. The dashboard flips it on for every UI run; the Reports tab shows a fork button on each completed turn but the last, posts to `/setup` with the parent artifact, and routes the new run into a Branches tab where forks accumulate as cards with per-metric deltas as they stream. Those buttons fork the session's trunk run: opening a branch card shows the Reports tab without moving them to that branch.
 
 ### Replay any run for audit
 
@@ -227,7 +227,7 @@ The authoring contract is JSON because JSON validates, diffs, caches, and snapsh
 }
 ```
 
-Every scenario declares its own vocabulary via `labels.populationNoun` (plural), `labels.settlementNoun` (singular), and `labels.timeUnitNoun`. The dashboard, kernel, and progression hooks pick those up everywhere user-facing copy renders. Without overrides, paracosm falls back to `colonists` / `colony` / `tick`.
+Every scenario declares its own vocabulary via `labels.populationNoun` (plural), `labels.settlementNoun` (singular), and `labels.timeUnitNoun`. The dashboard, kernel, and progression hooks pick those up everywhere user-facing copy renders. Without overrides, paracosm falls back to `colonists` / `colony` / `tick`. `labels.actorNoun` names the leader (`release director`, `CEO`); the run's prompts say `leader` without it. The prompts name only the metrics and politics a scenario declares in `world`, so the kernel's Mars-heritage values (food, water, `earthDependencyPct`) stay out of a scenario that does not declare them.
 
 Time is unit-agnostic. `setup.defaultTimePerTurn` and `setup.defaultStartTime` are plain numbers; whether they represent years, quarters, hours, or ticks is decided by `timeUnitNoun`. The dashboard turn header reads `Quarter 5`, `Day 22`, or `Year 2043` straight from the label.
 

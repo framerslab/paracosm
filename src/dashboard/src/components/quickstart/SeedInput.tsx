@@ -12,6 +12,7 @@ import { ViewAsCodePanel } from './ViewAsCodePanel';
 import { LoadedScenarioCTA } from './LoadedScenarioCTA';
 import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
+import { estimateQuickstartCostUSD } from './SeedInput.helpers';
 import styles from './SeedInput.module.scss';
 
 export interface SeedInputProps {
@@ -63,7 +64,8 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
   // here.
   // Cap 300 mirrors GenerateLeadersSchema (raised from 50 once the
   // batch runner gained real concurrency limiting via
-  // economics.batch.maxConcurrency). Each actor is ~$0.30 LLM spend;
+  // economics.batch.maxConcurrency). A hosted demo actor cost 0.29 to
+  // 1.05 USD in the pairs measured on 30 October and 1 November 2026;
   // the cost preview surfaces the running total below the slider.
   const [actorCount, setActorCount] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -366,7 +368,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
           aria-label="Number of parallel actors to run"
         />
         <span className={styles.actorCountPreview} aria-live="polite">
-          ~${(0.10 + 0.30 * actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
+          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
         </span>
       </div>
 
@@ -384,7 +386,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
         onClick={submit}
         disabled={disabled || seedText.trim().length < 200}
       >
-        Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${(0.10 + 0.30 * actorCount).toFixed(2)})
+        Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${estimateQuickstartCostUSD(actorCount).toFixed(2)})
       </button>
     </div>
   );

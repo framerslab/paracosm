@@ -13,7 +13,8 @@
 
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import type { CrisisOption } from '../contracts.js';
-import type { LlmProvider } from '../../engine/types.js';
+import type { LlmProvider, ScenarioLabels } from '../../engine/types.js';
+import { scenarioWords } from '../util/scenario-words.js';
 import { SCENARIOS } from '../research/scenarios.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 import { DirectorEventBatchSchema } from '../validators/director.js';
@@ -93,6 +94,18 @@ export interface DirectorContext {
   previousCrises?: DirectorContext['previousEvents'];
   /** @deprecated Use nativeBornCount */
   marsBornCount?: number;
+  /**
+   * The scenario's labels. The prompt names the time unit, the people,
+   * the place and the leader with them ("TURN 1, MONTH 1", "researchers");
+   * without them it reads "TICK" and neutral words.
+   */
+  labels?: Partial<ScenarioLabels>;
+  /**
+   * The departments the run keeps. The prompt lists their ids, since only
+   * those can analyse an event: without the list the director guessed,
+   * and 13 events of a live Atlas Lab pair reached two of its three.
+   */
+  departments?: ReadonlyArray<{ id: string; label?: string }>;
 }
 
 const DEFAULT_DIRECTOR_INSTRUCTIONS = `You are the Event Director for a simulation. You observe simulation state and generate events that test the settlement's weaknesses, exploit consequences of prior decisions, and create narrative tension.
@@ -138,8 +151,13 @@ REASONING — populate the "reasoning" field of the response before the events a
   (3) Which categories are still available given the no-repeat rule?
 The events array must reference back to these points. Decide on the pacing (calm/normal/intense) AFTER this reasoning, not before.`;
 
-/** Build the prompt for the director given simulation context. */
-function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3): string {
+/**
+ * Build the prompt for the director given simulation context. Its
+ * heading named every scenario's time a YEAR, and the director's first
+ * Atlas Lab event opened "Year 1 / Turn 1" in a scenario that counts
+ * months; the words now come from `ctx.labels`.
+ */
+export function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3): string {
   const events = ctx.previousEvents ?? ctx.previousCrises ?? [];
   const prevHistory = events.length
     ? events.map(e => `  Turn ${e.turn}: "${e.title}" (${e.category}) -> ${e.outcome}${e.decision ? ': ' + e.decision.slice(0, 80) : ''}`).join('\n')
@@ -185,57 +203,63 @@ function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3): strin
     );
   }
 
-  return `GENERATE EVENT FOR TURN ${ctx.turn}, YEAR ${ctx.time}
+  const departmentBlock = ctx.departments?.length
+    ? `\nDEPARTMENTS THIS RUN KEEPS (write these exact ids in relevantDepartments, and no other):\n${ctx.departments.map(d => `  - ${d.id}${d.label ? ` (${d.label})` : ''}`).join('\n')}\n`
+    : '';
+
+  const w = scenarioWords(ctx.labels);
+  const ACTOR = w.actor.toUpperCase();
+  return `GENERATE EVENT FOR TURN ${ctx.turn}, ${w.timeUnit.toUpperCase()} ${ctx.time}
 
 SIMULATION STATE:
-- Commander: ${ctx.actorName} (${ctx.actorArchetype})
-- Population: ${ctx.aliveCount} alive (${ctx.nativeBornCount} native-born)
+- ${w.Actor}: ${ctx.actorName} (${ctx.actorArchetype})
+- Population: ${ctx.aliveCount} ${w.population} alive${ctx.nativeBornCount ? ` (${ctx.nativeBornCount} native-born)` : ''}
 - Recent: +${ctx.recentBirths} births, -${ctx.recentDeaths} deaths
 ${stateLines}
 ${politicsLines ? `\nPOLITICS/SOCIAL:\n${politicsLines}` : ''}
 - Tools forged so far: ${ctx.toolsForged.length}
 
-COMMANDER PERSONALITY (HEXACO):
+${ACTOR} PERSONALITY (HEXACO):
 O: ${ctx.leaderHexaco.openness.toFixed(2)} C: ${ctx.leaderHexaco.conscientiousness.toFixed(2)} E: ${ctx.leaderHexaco.extraversion.toFixed(2)}
 A: ${ctx.leaderHexaco.agreeableness.toFixed(2)} Em: ${ctx.leaderHexaco.emotionality.toFixed(2)} HH: ${ctx.leaderHexaco.honestyHumility.toFixed(2)}
 ${ctx.leaderHexacoHistory ? buildTrajectoryCue(ctx.leaderHexacoHistory, ctx.leaderHexaco) : ''}
 
-Use this profile to colour (not determine) the next event. A high-openness commander should face events that reward novel responses and punish rigid thinking. A high-conscientiousness commander should face events that reward procedure and expose improvisation gaps. A high-emotionality commander should face events that test how their human-impact weighting plays against the math. Events are not rigged against the commander; they reflect the colony they shaped. Two commanders with opposing profiles should diverge into genuinely different pressures by turn 3.
+Use this profile to colour (not determine) the next event. A high-openness ${w.actor} should face events that reward novel responses and punish rigid thinking. A high-conscientiousness ${w.actor} should face events that reward procedure and expose improvisation gaps. A high-emotionality ${w.actor} should face events that test how their human-impact weighting plays against the math. Events are not rigged against the ${w.actor}; they reflect the ${w.settlement} they shaped. Two ${w.actor}s with opposing profiles should diverge into genuinely different pressures by turn 3. Write times as ${w.timeUnitPlural} ("${w.TimeUnit} ${ctx.time}"), and call the people ${w.population}.
 
 DECISION HISTORY:
 ${prevHistory}
 ${ctx.recentToolOutputs.length ? `\nTOOL INTELLIGENCE (what department agents computed last turn):\n${ctx.recentToolOutputs.slice(0, 4).map(t => `  [${t.department}] ${t.name}: ${t.output.slice(0, 120)}`).join('\n')}\nUse these findings to generate an event that follows from what the tools revealed.` : ''}
 ${ctx.agentMoodSummary ? `\nAGENT MOOD: ${ctx.agentMoodSummary}` : ''}
 ${knowledgeBlock.join('\n')}
-
+${departmentBlock}
 CONSTRAINT: Do NOT use category "${lastCategory}" (used last turn). Pick a different category.
 
 Generate 1 to ${maxEvents} events for this turn. Each event should feel like a consequence of what happened before. If the world is stable, 1 event is fine. If pressure is mounting, generate more. Return JSON with an "events" array.`;
 }
 
-/** Fallback events if director fails. */
-const FALLBACK_EVENTS: DirectorEvent[] = [
+/** Fallback events if director fails, in words that fit any scenario. */
+export const FALLBACK_EVENTS: DirectorEvent[] = [
   {
     title: 'System Malfunction',
-    description: 'A critical support component has developed an intermittent failure. Operating at 60% efficiency. Reserves are becoming dangerously low.',
+    description: 'A critical support system has developed an intermittent failure. Operating at 60% efficiency. Reserves are becoming dangerously low.',
     options: [
-      { id: 'option_a', label: 'Emergency repair', description: 'Divert all engineering to immediate repair. Safe but halts all other construction for 2 weeks.', isRisky: false },
+      { id: 'option_a', label: 'Emergency repair', description: 'Divert all available staff to an immediate repair. Safe but halts all other work for 2 weeks.', isRisky: false },
       { id: 'option_b', label: 'Improvised bypass', description: 'Build a bypass from non-standard parts. Faster but untested. Could fail catastrophically.', isRisky: true },
     ],
     riskyOptionId: 'option_b', riskSuccessProbability: 0.5, category: 'infrastructure',
-    researchKeywords: ['life support failure', 'ECLSS redundancy'], relevantDepartments: ['engineering', 'medical'],
-    turnSummary: 'Infrastructure strain triggered a life support component failure.',
+    researchKeywords: ['critical system failure', 'system redundancy'], relevantDepartments: ['engineering', 'medical'],
+    turnSummary: 'Infrastructure strain triggered a critical system failure.',
   },
   {
     title: 'Supply Shortage',
-    description: 'Unexpected contamination of reserves has rendered 30% of stored supplies unusable. The settlement must decide how to manage the shortfall.',
+    description: 'An unexpected loss has rendered 30% of stored reserves unusable. Leadership must decide how to manage the shortfall.',
     options: [
-      { id: 'option_a', label: 'Strict rationing', description: 'Reduce caloric intake by 25% colony-wide for 3 months. Morale will drop.', isRisky: false },
-      { id: 'option_b', label: 'Emergency crop acceleration', description: 'Boost grow lights to 24/7, triple nutrient concentration. Could yield 2x harvest or kill the crops.', isRisky: true },
+      { id: 'option_a', label: 'Strict rationing', description: 'Cut consumption by 25% across the board for 3 months. Morale will drop.', isRisky: false },
+      { id: 'option_b', label: 'Emergency resupply', description: 'Commit heavily to an untested supply channel. Could double reserves or lose the investment.', isRisky: true },
     ],
     riskyOptionId: 'option_b', riskSuccessProbability: 0.55, category: 'resource',
-    researchKeywords: ['food security mars', 'hydroponic acceleration'], relevantDepartments: ['agriculture', 'medical'],
-    turnSummary: 'Food contamination created an unexpected supply crisis.',
+    researchKeywords: ['supply disruption', 'reserve management'], relevantDepartments: ['agriculture', 'medical'],
+    turnSummary: 'A loss of reserves created an unexpected supply crisis.',
   },
   {
     title: 'Social Unrest',

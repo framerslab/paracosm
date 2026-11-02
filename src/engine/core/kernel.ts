@@ -325,11 +325,16 @@ export class SimulationKernel {
     }
   }
 
-  /** Get top N candidates for a department role, scored by trait fit. */
+  /**
+   * Get top N candidates for a department role, scored by trait fit. The
+   * living adults with no department to head: a fork's roster holds the
+   * people born since the start, and the score does not read age.
+   */
   getCandidates(dept: Department, topN: number = 5): Agent[] {
     const activation = ROLE_ACTIVATIONS[dept] ?? {};
+    const now = this.state.metadata.currentTime;
     return this.state.agents
-      .filter(c => c.health.alive && !c.promotion)
+      .filter(c => c.health.alive && !c.promotion && now - c.core.birthTime >= 18)
       .map(c => ({
         colonist: c,
         score: Object.entries(activation).reduce((s, [trait, target]) =>

@@ -74,7 +74,7 @@ A scenario JSON file is the runtime contract that describes the simulation domai
 
 **Any domain works.** Mars colonies, submarine habitats, space stations, medieval kingdoms. The engine is domain-agnostic. The compiled scenario contract defines what gets simulated.
 
-**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook.
+**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook. The run's prompts read the same labels through [`scenario-words.ts`](../src/runtime/util/scenario-words.ts), `labels.actorNoun` naming the leader, and read the world through [`scenario-state.ts`](../src/runtime/util/scenario-state.ts): the kernel keeps its Mars-heritage metrics and politics in every run because its progression reads them, and a prompt names them only when the scenario declares them in `world`.
 
 ### Seed Enrichment & Citation Flow
 

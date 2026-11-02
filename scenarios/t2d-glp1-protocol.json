@@ -13,6 +13,8 @@
     "eventNounSingular": "decision",
     "timeUnitNoun": "week",
     "timeUnitNounPlural": "weeks",
+    "actorNoun": "lead clinician",
+    "actorNounPlural": "lead clinicians",
     "tagline": "T2D + GLP-1 Care: a 24-month patient cohort under two clinician archetypes. GLP-1 dose titration, A1c trajectory, and adherence drift are the per-patient state."
   },
   "theme": {

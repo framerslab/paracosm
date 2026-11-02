@@ -13,6 +13,8 @@
     "eventNounSingular": "crisis",
     "timeUnitNoun": "year",
     "timeUnitNounPlural": "years",
+    "actorNoun": "commander",
+    "actorNounPlural": "commanders",
     "tagline": "First permanent Mars colony, 100 colonists in hostile terrain. The Visionary (Aria) bets on bold experimentation, the Engineer (Dietrich) on proven systems. HEXACO traits shape every crisis call."
   },
   "theme": {
