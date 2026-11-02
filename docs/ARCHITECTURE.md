@@ -91,9 +91,9 @@ SEARCH                          (AgentOS WebSearchService: Firecrawl + Tavily +
   ↓
 KNOWLEDGE BUNDLE                (topics[].canonicalFacts[], categoryMapping)
   ↓ runtime init
-RESEARCH MEMORY                 (AgentOS AgentMemory.sqlite: semantic recall)
+RESEARCH MEMORY                 (AgentOS AgentMemory.sqlite, one per run: full-text recall)
   ↓ per event
-recallResearch(query, keywords) (semantic memory recall, fall back to bundle,
+research.recall(query, keywords) (memory recall, fall back to bundle,
                                   fall back to live web search if liveSearch=on)
   ↓
 DEPARTMENT PROMPT               (citations injected as `[claim](url)` markdown)
@@ -106,6 +106,8 @@ SSE specialist_done event       (citationList[]: text, url, doi)
   ↓
 DASHBOARD REPORTS TAB           (clickable citation links beneath each summary)
 ```
+
+Each run makes its own research memory at its start and closes it at its end, so the two leaders of a pair share no store and no recall cache, and the first to finish leaves the other's untouched. A scenario reads only its own bundle: one with no citations (Atlas Lab ships none) gets empty packets. A milestone event reads the bundle by category. A recalled packet carries the facts the store found, with the counterpoints and department notes of the event's category.
 
 The Event Director also receives the knowledge bundle's `topics` and `categories`. Its `researchKeywords` and `category` fields stay grounded in actual citation entries, so retrieval downstream finds matches.
 
@@ -657,7 +659,7 @@ Paracosm uses AgentOS for all agent orchestration, LLM calls, tool forging, and 
 | `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt, reaction batch system) |
 | `EmergentCapabilityEngine` | Runtime tool forging in an in-process node:vm context |
 | `EmergentJudge` | LLM-as-judge safety review of forged tools |
-| `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG |
+| `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG; each run's research memory |
 | HEXACO personality | Trait-modulated decision making, memory retrieval, mood adaptation |
 
 ## Top-level `src/` layout

@@ -17,7 +17,7 @@ tests/
                         names, prompts, reactions, fingerprint, etc.)
     *.test.ts           Engine surface: types, registries, taxonomy
   runtime/              Orchestrator helpers, agent memory, batch runner
-    research/           Scenario research bundle lookup
+    research/           Scenario research bundle lookup; each run's own research memory
 ```
 
 Dashboard component tests stay colocated under

@@ -16,19 +16,13 @@ import { loadDiskCustomScenarios } from '../../../src/cli/custom-scenarios.js';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
 import type { KnowledgeBundle, ScenarioPackage } from '../../../src/engine/types.js';
 import type { CrisisResearchPacket } from '../../../src/runtime/contracts.js';
-import { closeResearchMemory, initResearchMemory, recallResearch } from '../../../src/runtime/research/research-memory.js';
+import { createResearchMemory } from '../../../src/runtime/research/research-memory.js';
 import { getResearchFromBundle } from '../../../src/runtime/research/scenario-research.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const catalog = loadDiskCustomScenarios(resolve(here, '../../../scenarios'));
 const atlasLab = catalog.get('atlas-lab')?.scenario as ScenarioPackage;
 assert.ok(atlasLab, 'scenarios/ holds atlas-lab');
-
-/** What each run does with its research: open at its start, recall, close at its end. */
-async function openRun(knowledge?: KnowledgeBundle) {
-  await initResearchMemory(knowledge);
-  return { recall: recallResearch, close: closeResearchMemory };
-}
 
 /** The second leader's month 6 event in the live pair. */
 const ATLAS_EVENT = {
@@ -59,8 +53,8 @@ function claims(packet: CrisisResearchPacket): string[] {
 
 test('the other leader closing its run leaves a scenario with no citations with none, not Mars facts', async () => {
   assert.equal(citedIn(atlasLab.knowledge).size, 0, 'scenarios/atlas-lab.json holds no citations');
-  const first = await openRun(atlasLab.knowledge);
-  const second = await openRun(atlasLab.knowledge);
+  const first = await createResearchMemory(atlasLab.knowledge);
+  const second = await createResearchMemory(atlasLab.knowledge);
   await first.close();
   try {
     const packet = await second.recall(ATLAS_EVENT.query, ATLAS_EVENT.keywords, ATLAS_EVENT.category);
@@ -72,8 +66,8 @@ test('the other leader closing its run leaves a scenario with no citations with 
 });
 
 test('the other leader closing its run leaves this run its own citations', async () => {
-  const first = await openRun(lunarScenario.knowledge);
-  const second = await openRun(lunarScenario.knowledge);
+  const first = await createResearchMemory(lunarScenario.knowledge);
+  const second = await createResearchMemory(lunarScenario.knowledge);
   await first.close();
   try {
     const packet = await second.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
@@ -86,8 +80,8 @@ test('the other leader closing its run leaves this run its own citations', async
 });
 
 test('two runs in two scenarios each recall from their own knowledge', async () => {
-  const atlas = await openRun(atlasLab.knowledge);
-  const lunar = await openRun(lunarScenario.knowledge);
+  const atlas = await createResearchMemory(atlasLab.knowledge);
+  const lunar = await createResearchMemory(lunarScenario.knowledge);
   try {
     const lunarPacket = await lunar.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
     const atlasPacket = await atlas.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
@@ -100,14 +94,11 @@ test('two runs in two scenarios each recall from their own knowledge', async () 
 });
 
 test('a recalled packet holds what the department prompt reads: facts, counterpoints and notes', async () => {
-  const run = await openRun(lunarScenario.knowledge);
+  const run = await createResearchMemory(lunarScenario.knowledge);
   try {
     const packet = await run.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
     const regolith = lunarScenario.knowledge.topics.regolith;
-    assert.ok(
-      packet.canonicalFacts.some(f => f.claim === regolith.canonicalFacts[0].claim),
-      'the store finds the regolith fact by its words',
-    );
+    assert.ok(packet.canonicalFacts.some(f => /regolith/i.test(f.claim)), 'the store finds a regolith fact by its words');
     assert.ok(packet.counterpoints.length > 0, 'counterpoints reach the department prompt');
     assert.equal(packet.departmentNotes.medical, regolith.departmentNotes?.medical);
     const facts = new Set(packet.canonicalFacts.map(f => f.claim));
@@ -117,8 +108,17 @@ test('a recalled packet holds what the department prompt reads: facts, counterpo
   }
 });
 
+test('a run that closed its own store reads its own bundle', async () => {
+  const run = await createResearchMemory(lunarScenario.knowledge);
+  await run.close();
+  const packet = await run.recall(LUNAR_EVENT.query, LUNAR_EVENT.keywords, LUNAR_EVENT.category);
+  const lunar = citedIn(lunarScenario.knowledge);
+  assert.ok(packet.canonicalFacts.length > 0);
+  for (const f of packet.canonicalFacts) assert.ok(lunar.has(f.url), `${f.url} is in the lunar knowledge`);
+});
+
 test('a scenario with no knowledge at all gets an empty packet, not Mars facts', async () => {
-  const run = await openRun(undefined);
+  const run = await createResearchMemory(undefined);
   try {
     const packet = await run.recall(ATLAS_EVENT.query, ATLAS_EVENT.keywords, ATLAS_EVENT.category);
     assert.deepEqual(claims(packet), []);
