@@ -31,7 +31,7 @@ function fakeRes() {
 
 function fakeDeps(overrides: Partial<QuickstartDeps> = {}): QuickstartDeps {
   return {
-    setActiveScenario: () => {},
+    installCompiledScenario: () => {},
     getScenarioById: (id) => id === marsScenario.id ? marsScenario : undefined,
     fetchSeedFromUrl: async () => ({ text: 'test content', title: 'T', sourceUrl: 'https://x.test' }),
     defaultProvider: 'anthropic',
@@ -178,7 +178,7 @@ test('compile-from-seed: status returns done with scenario after compile resolve
   const installed: ScenarioPackage[] = [];
   const deps = fakeDeps({
     compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
-    setActiveScenario: (sc) => { installed.push(sc); },
+    installCompiledScenario: (sc) => { installed.push(sc); },
   });
   const start = fakeRes();
   await handleCompileFromSeed({} as IncomingMessage, start.res, { seedText: VALID_SEED }, deps);
@@ -193,7 +193,7 @@ test('compile-from-seed: status returns done with scenario after compile resolve
   assert.equal(sr.status, 200);
   assert.equal(sr.body.status, 'done');
   assert.equal(sr.body.scenarioId, ASYNC_TEST_SCENARIO.id);
-  assert.equal(installed[0]?.id, ASYNC_TEST_SCENARIO.id, 'setActiveScenario should fire when compile resolves');
+  assert.equal(installed[0]?.id, ASYNC_TEST_SCENARIO.id, 'installCompiledScenario should fire when compile resolves');
 });
 
 test('compile-from-seed: status returns error when compile rejects', async () => {
@@ -255,16 +255,16 @@ test('compile-from-seed: cache-hit start returns scenario inline (200, not 202)'
   assert.equal(r2body.body.scenarioId, ASYNC_TEST_SCENARIO.id);
 });
 
-test('compile-from-seed: a cache hit makes its scenario the active one again', async () => {
-  // Another scenario can have become active since this brief compiled. /setup
-  // refuses a body naming a scenario that is not active, so without this the
-  // same brief would be refused until the compile job expired.
+test('compile-from-seed: a cache hit installs its scenario again', async () => {
+  // An admin can have deleted the scenario from the catalog since this brief
+  // compiled. Without the install the cache hit would hand back a scenario
+  // /setup no longer finds, until the compile job expired.
   _resetCompileJobsForTest();
   const installed: ScenarioPackage[] = [];
   const d = deferred<ScenarioPackage>();
   const deps = fakeDeps({
     compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
-    setActiveScenario: (sc) => { installed.push(sc); },
+    installCompiledScenario: (sc) => { installed.push(sc); },
   });
   await handleCompileFromSeed({} as IncomingMessage, fakeRes().res, { seedText: VALID_SEED }, deps);
   d.resolve(ASYNC_TEST_SCENARIO);
@@ -301,7 +301,7 @@ test('compile-from-seed: the done answers carry the visitor\'s pick, a pending o
   const deps = fakeDeps({
     compileFn: (() => d.promise) as unknown as QuickstartDeps['compileFn'],
     pickHeaders: (id: string) => ({ 'Set-Cookie': `paracosm_scenario=${id}` }),
-  } as Partial<QuickstartDeps>);
+  });
   const start = fakeRes();
   await handleCompileFromSeed({} as IncomingMessage, start.res, { seedText: VALID_SEED }, deps);
   assert.equal(start.get().status, 202);

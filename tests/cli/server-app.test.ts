@@ -8,6 +8,7 @@ import { buildResultsPayloadFromEventBuffer, createMarsServer } from '../../src/
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { RunRecord } from '../../src/server/services/run-record.js';
 import type { RunHistoryStore } from '../../src/server/stores/run-history.js';
+import { visitor } from './helpers/visitor.js';
 
 const leaderA = {
   name: 'Aria Chen',
@@ -384,19 +385,16 @@ test('POST /scenario/store makes a custom scenario switchable through the live c
     const catalogJson = await catalog.json();
     assert.ok(catalogJson.scenarios.some((scenario: any) => scenario.id === customScenario.id));
 
-    const switched = await fetch(`http://127.0.0.1:${port}/scenario/switch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: customScenario.id }),
-    });
+    // The switch makes it this visitor's pick, carried by its cookie.
+    const author = visitor(`http://127.0.0.1:${port}`);
+    const switched = await author.post('/scenario/switch', { id: customScenario.id });
     assert.equal(switched.status, 200);
     assert.deepEqual(await switched.json(), {
       active: customScenario.id,
       name: customScenario.labels.name,
     });
 
-    const active = await fetch(`http://127.0.0.1:${port}/scenario`);
-    const activeJson = await active.json();
+    const activeJson = await author.json<{ id: string; labels: { name: string } }>('/scenario');
     assert.equal(activeJson.id, customScenario.id);
     assert.equal(activeJson.labels.name, customScenario.labels.name);
   } finally {
@@ -618,27 +616,24 @@ test('POST /compile persists the compiled scenario for later switching and forwa
     assert.equal(cap.options.webSearch, false);
     assert.equal(cap.options.maxSearches, 7);
 
-    const active = await fetch(`http://127.0.0.1:${port}/scenario`);
-    const activeJson = await active.json();
-    assert.equal(activeJson.id, compiledScenario.id);
+    // The compile installs the scenario into the catalog and makes it
+    // nobody's pick; the editor that compiled it switches to it.
+    const editor = visitor(`http://127.0.0.1:${port}`);
+    const catalog = await editor.json<{ scenarios: Array<{ id: string }>; active: string }>('/scenarios');
+    assert.ok(catalog.scenarios.some(scenario => scenario.id === compiledScenario.id));
+    assert.equal(catalog.active, 'mars-genesis');
 
-    const backToMars = await fetch(`http://127.0.0.1:${port}/scenario/switch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'mars-genesis' }),
-    });
-    assert.equal(backToMars.status, 200);
-
-    const backToCompiled = await fetch(`http://127.0.0.1:${port}/scenario/switch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: compiledScenario.id }),
-    });
-    assert.equal(backToCompiled.status, 200);
-    assert.deepEqual(await backToCompiled.json(), {
+    const toCompiled = await editor.post('/scenario/switch', { id: compiledScenario.id });
+    assert.equal(toCompiled.status, 200);
+    assert.deepEqual(await toCompiled.json(), {
       active: compiledScenario.id,
       name: compiledScenario.labels.name,
     });
+    assert.equal((await editor.json<{ id: string }>('/scenario')).id, compiledScenario.id);
+
+    const backToMars = await editor.post('/scenario/switch', { id: 'mars-genesis' });
+    assert.equal(backToMars.status, 200);
+    assert.equal((await editor.json<{ id: string }>('/scenario')).id, 'mars-genesis');
   } finally {
     server.close();
     await once(server, 'close');

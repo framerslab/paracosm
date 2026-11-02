@@ -97,6 +97,65 @@ function projectScenarioForClient(sc: ScenarioPackage) {
   };
 }
 
+/** The first-party cookie that holds the scenario a visitor picked. */
+export const SCENARIO_PICK_COOKIE = 'paracosm_scenario';
+/** Thirty days, in seconds: a returning visitor finds the scenario they picked. */
+const SCENARIO_PICK_MAX_AGE_SECONDS = 2_592_000;
+/**
+ * The longest cookie value held as a pick. RFC 6265 section 6.1 asks a
+ * browser for at least 4096 bytes per cookie, name and attributes
+ * included; 1024 leaves them room.
+ */
+const SCENARIO_PICK_MAX_BYTES = 1024;
+
+/**
+ * The scenario id in the request's `paracosm_scenario` cookie: the first
+ * such pair of the Cookie header, percent-decoded. Null when there is
+ * none, when its value is over 1024 bytes, or when it does not decode.
+ */
+export function readVisitorScenarioId(req: IncomingMessage): string | null {
+  const header = req.headers.cookie;
+  if (typeof header !== 'string' || header.length === 0) return null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq < 0 || part.slice(0, eq).trim() !== SCENARIO_PICK_COOKIE) continue;
+    const raw = part.slice(eq + 1).trim();
+    if (raw.length === 0 || Buffer.byteLength(raw) > SCENARIO_PICK_MAX_BYTES) return null;
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The Set-Cookie value that records a visitor's pick. The id is
+ * percent-encoded, since a cookie value may not hold whitespace, quotes,
+ * commas, semicolons or backslashes and a stored scenario's id can be any
+ * string. Null when the encoded id is over 1024 bytes or does not encode.
+ * No `Secure`: `SameSite=Lax` does not need it, and the server answers
+ * plain HTTP behind its proxy and on a developer's machine.
+ */
+export function pickCookie(id: string): string | null {
+  let value: string;
+  try {
+    value = encodeURIComponent(id);
+  } catch {
+    return null;
+  }
+  if (Buffer.byteLength(value) > SCENARIO_PICK_MAX_BYTES) return null;
+  return `${SCENARIO_PICK_COOKIE}=${value}; Path=/; Max-Age=${SCENARIO_PICK_MAX_AGE_SECONDS}; SameSite=Lax; HttpOnly`;
+}
+
+/**
+ * GET /scenario and GET /scenarios answer each visitor by their cookie, so
+ * no shared cache in front of the server may hand one visitor's answer to
+ * another.
+ */
+const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Resolved paracosm version from package.json (for docs header and API responses). */
@@ -208,17 +267,22 @@ export interface CreateMarsServerOptions {
  * Optional hooks the /setup handler can pass to startWithConfig so that
  * per-artifact post-flight work (Library-tab record persistence, future
  * webhook notifications, etc.) can run with /setup-handler scope (which
- * is where hasUserKeys, the runRecord base, and the active scenario
+ * is where hasUserKeys, the runRecord base, and the run's scenario
  * already live).
  */
 export interface StartConfigHooks {
   /**
-   * The scenario the config was normalized for. /setup captures it before
-   * its awaits, so a /scenario/switch during them cannot pair one
-   * scenario's values with another's world and hooks. Absent: the active
-   * scenario.
+   * The scenario the config was normalized for: the one the /setup body
+   * named, a fork's parent's, or the visitor's pick. Absent: the server's
+   * default, Mars Genesis.
    */
   scenario?: ScenarioPackage;
+  /**
+   * The natural-language brief the scenario was compiled from, when it came
+   * out of compile-from-seed. It rides on the run's `active_scenario` event
+   * into the saved session, whose replay banner shows it.
+   */
+  seedText?: string | null;
   /**
    * Fired once per completed leader artifact. Failures inside the hook
    * are caught and logged by the runner; they do not abort the run.
@@ -458,14 +522,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   })();
   let simConfig: NormalizedSimulationConfig | null = null;
   let simRunning = false;
-  let activeScenario: ScenarioPackage = marsScenario;
-  // Original natural-language prompt that produced `activeScenario`,
-  // when the run originated from compile-from-seed. Threaded through
-  // the active_scenario SSE broadcast and into the session store so
-  // the replay banner can show users WHAT they prompted, not just a
-  // run title and an event count. Reset to null whenever a non-seed
-  // scenario gets installed.
-  let activeScenarioSeedText: string | null = null;
+  // There is no server-wide scenario. Each request runs in or reads the
+  // scenario it names, else the visitor's pick (the paracosm_scenario
+  // cookie), else Mars Genesis; see resolveRequestScenario.
+  //
+  // The scenario of the run whose events the buffer holds, recorded by
+  // startWithConfig. /chat builds its agents from the buffer, so it reads
+  // its nouns from here. Mars Genesis until the first run, and after a
+  // restart that rehydrates a buffer until the next one.
+  let currentRunScenario: ScenarioPackage = marsScenario;
+  // That run's `active_scenario` frame, first in the buffer. The trim in
+  // broadcast() keeps it, so a late replay and a saved session still say
+  // which scenario the run is. Null once the buffer is cleared.
+  let currentRunMetaFrame: string | null = null;
   // Raw custom scenario JSON payloads authored during this session.
   const memoryScenarios = new Map<string, unknown>();
   // Runnable scenarios that can appear in the catalog and be switched to.
@@ -500,6 +569,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // and every consumer of `customScenarioCatalog` stays unchanged.
   const compiledScenarioMeta = new Map<string, PersistedCompiledMeta>();
 
+  // Ids of the persisted compiled drafts boot is still re-compiling. Filled
+  // before the first compile starts and emptied one id at a time as each
+  // lands in the catalog or fails. A visitor whose pick is one of them is
+  // told to wait (503 with Retry-After) instead of being run in Mars
+  // Genesis: the first reload after a deploy would otherwise answer Mars,
+  // and the page would stop retrying and run Mars against a valid pick.
+  const hydratingScenarioIds = new Set<string>();
+
   // Boot-time hydration of persisted compile-from-seed scenarios.
   // Drafts on disk get lazy-compiled in the background — server boot
   // doesn't await this so a cold cache (50 drafts × 30s LLM each)
@@ -516,6 +593,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
     if (drafts.length === 0) return;
+    for (const { id } of drafts) hydratingScenarioIds.add(id);
     console.log(`[scenarios] re-compiling ${drafts.length} persisted compiled draft(s) from disk…`);
     // Wrap the dynamic import + per-draft loop in its own try-catch
     // so a module-resolution failure (deploy with broken compiler
@@ -542,12 +620,76 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           console.log(`[scenarios] hydrated ${compiled.id} (${meta.compiledAt})`);
         } catch (err) {
           console.warn(`[scenarios] failed to re-compile persisted draft ${id}:`, err);
+        } finally {
+          hydratingScenarioIds.delete(id);
         }
       }
     } catch (err) {
       console.warn('[scenarios] compiler import failed during hydration:', err);
+    } finally {
+      // Nothing is loading any more: a pick that never landed reads as
+      // unknown, so its visitor gets the default.
+      hydratingScenarioIds.clear();
     }
   })();
+
+  type ScenarioResolution =
+    | { scenario: ScenarioPackage }
+    | { unknown: string }
+    | { notRunnable: string }
+    | { loading: string };
+
+  /**
+   * The scenario a request runs in or reads. In order: an id the request
+   * names (`explicitId`: ?id= on GET /scenario, the /setup body's
+   * scenarioId or quickstart.scenarioId, the id /scenario/switch is given),
+   * else a fork's parent's (`parentId`), else the visitor's pick, else the
+   * server's default, Mars Genesis, which never changes at run time.
+   *
+   * A named id must be in the catalog. A pick that is not (a deleted or
+   * unknown id) reads as no pick, so its visitor gets the default. An id
+   * boot is still re-compiling answers `loading` either way.
+   */
+  const resolveRequestScenario = (req: IncomingMessage, explicitId?: unknown, parentId?: unknown): ScenarioResolution => {
+    const named = typeof explicitId === 'string' ? explicitId : typeof parentId === 'string' ? parentId : null;
+    if (named !== null) {
+      const entry = customScenarioCatalog.get(named);
+      if (entry) return { scenario: entry.scenario };
+      if (hydratingScenarioIds.has(named)) return { loading: named };
+      if (memoryScenarios.has(named)) return { notRunnable: named };
+      return { unknown: named };
+    }
+    const picked = readVisitorScenarioId(req);
+    if (picked !== null) {
+      const entry = customScenarioCatalog.get(picked);
+      if (entry) return { scenario: entry.scenario };
+      if (hydratingScenarioIds.has(picked)) return { loading: picked };
+    }
+    return { scenario: marsScenario };
+  };
+
+  /** Answers a request whose scenario did not resolve: 503 while it loads, 400 otherwise. */
+  const writeScenarioRefusal = (
+    res: ServerResponse,
+    refusal: Exclude<ScenarioResolution, { scenario: ScenarioPackage }>,
+    headers: Record<string, string> = {},
+  ): void => {
+    if ('loading' in refusal) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '5', ...headers });
+      res.end(JSON.stringify({ error: `Scenario ${refusal.loading} is still loading after a restart. Try again in a few seconds.` }));
+      return;
+    }
+    res.writeHead(400, { 'Content-Type': 'application/json', ...headers });
+    if ('notRunnable' in refusal) {
+      res.end(JSON.stringify({
+        error: `Scenario "${refusal.notRunnable}" is stored but not runnable: it is a source JSON (missing hooks, world, or canonical policies shape). Click Compile in the Scenario Editor to generate its hooks first.`,
+        storedButUnrunnable: true,
+        id: refusal.notRunnable,
+      }));
+      return;
+    }
+    res.end(JSON.stringify({ error: `Unknown scenario: ${refusal.unknown}. Use /compile or /scenario/store for custom scenarios.` }));
+  };
 
   // Side-channel for ground-scenario citations keyed by scenario id.
   // ScenarioPackage has no free-form metadata slot today; this Map
@@ -1088,11 +1230,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // cap. Live clients only see future events; reconnect-after-trim
     // is the only client that loses anything (it misses the dropped
     // prefix). Splice is O(n) so we hysteresis-trim by 10% to amortize.
+    // The run's active_scenario frame stays first: without it a late
+    // replay and the saved session lose which scenario the run is and the
+    // brief it came from.
     if (eventBuffer.length > EVENT_BUFFER_TRIM_AT) {
-      const drop = eventBuffer.length - EVENT_BUFFER_MAX_ENTRIES;
-      eventBuffer.splice(0, drop);
-      eventTimestamps.splice(0, drop);
-      eventActorIds.splice(0, drop);
+      const keep = currentRunMetaFrame !== null && eventBuffer[0] === currentRunMetaFrame ? 1 : 0;
+      const drop = eventBuffer.length - EVENT_BUFFER_MAX_ENTRIES - keep;
+      eventBuffer.splice(keep, drop);
+      eventTimestamps.splice(keep, drop);
+      eventActorIds.splice(keep, drop);
       if (!bufferCapWarned) {
         console.warn(
           `[event-buffer] Capped at ${EVENT_BUFFER_MAX_ENTRIES} events; dropped oldest ${drop}. ` +
@@ -1148,6 +1294,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     currentRunSaved = false;
     currentRunErrored = false;
     currentRunInsertedRunIds.length = 0;
+    currentRunMetaFrame = null;
     eventBuffer.length = 0;
     eventTimestamps.length = 0;
     eventActorIds.length = 0;
@@ -1399,17 +1546,38 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    if (req.url === '/scenario' && req.method === 'GET') {
-      const payload = JSON.stringify(projectScenarioForClient(activeScenario));
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(payload);
+    // The scenario for this caller: ?id= when given, else the visitor's
+    // pick, else the server's default. The dashboard never sends ?id=; its
+    // Run controls stay disabled until this answers 200, so a 503 while the
+    // pick re-compiles after a restart makes the page wait and try again.
+    if ((req.url === '/scenario' || req.url?.startsWith('/scenario?')) && req.method === 'GET') {
+      let namedId: string | undefined;
+      if (req.url?.includes('?')) {
+        try {
+          namedId = new URL(req.url, 'http://localhost').searchParams.get('id') ?? undefined;
+        } catch {
+          namedId = undefined;
+        }
+      }
+      const resolved = resolveRequestScenario(req, namedId);
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS };
+      if ('scenario' in resolved) {
+        res.writeHead(200, headers);
+        res.end(JSON.stringify(projectScenarioForClient(resolved.scenario)));
+      } else if ('loading' in resolved) {
+        writeScenarioRefusal(res, resolved, { 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS });
+      } else {
+        res.writeHead(404, headers);
+        res.end(JSON.stringify({ error: `Unknown scenario: ${'unknown' in resolved ? resolved.unknown : resolved.notRunnable}` }));
+      }
       return;
     }
 
     // List scenarios that can be switched to. Builtins, disk-loaded,
-    // in-memory runnable customs, and any currently-active compiled
-    // scenario all live in the same catalog — this endpoint is a
-    // uniform iteration over it. No hardcoded IDs.
+    // in-memory runnable customs and compiled scenarios all live in the
+    // same catalog, and this endpoint is a uniform iteration over it. No
+    // hardcoded IDs. `active` is this visitor's pick (or the default),
+    // so the answer varies by cookie.
     //
     // Each entry now carries persistence metadata + a run-count from
     // the run-history store so the dashboard's scenario picker can
@@ -1442,18 +1610,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           seedText: meta?.seedText,
         });
       }
-      if (!customScenarioCatalog.has(activeScenario.id)) {
-        const meta = compiledScenarioMeta.get(activeScenario.id);
-        entries.push({
-          id: activeScenario.id,
-          name: activeScenario.labels?.name || activeScenario.id,
-          description: 'Custom compiled scenario',
-          departments: activeScenario.departments?.length || 0,
-          source: 'compiled',
-          compiledAt: meta?.compiledAt,
-          seedText: meta?.seedText,
-        });
-      }
+      // While the pick re-compiles after a restart, `active` is its id, so
+      // the selector shows it once the list holds it.
+      const pick = resolveRequestScenario(req);
+      const active = 'scenario' in pick ? pick.scenario.id : 'loading' in pick ? pick.loading : marsScenario.id;
       // Best-effort run-count enrichment. Aggregate one query per
       // scenario id rather than one bulk because aggregateStats
       // already accepts a scenarioId filter; the cost is bounded by
@@ -1469,8 +1629,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
         }));
       }
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ scenarios: entries, active: activeScenario.id }));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS });
+      res.end(JSON.stringify({ scenarios: entries, active }));
       return;
     }
 
@@ -1528,10 +1688,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end(JSON.stringify({ error: 'name_required' }));
         return;
       }
-      // Mutate the scenario's labels.name in place. Same object lives
-      // in customScenarioCatalog + activeScenario (when active), so
-      // every reader (TopBar, /scenario, /scenarios listing) sees the
-      // new name on the next request without an explicit fan-out.
+      // Mutate the scenario's labels.name in place. Every reader
+      // (TopBar, /scenario, /scenarios listing) looks it up in
+      // customScenarioCatalog, so each sees the new name on the next
+      // request without an explicit fan-out.
       // Clone the labels record so we don't pin a mutable reference
       // back into the engine's frozen scenario builtins by accident.
       const sc = entry.scenario;
@@ -1709,35 +1869,31 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // Switch active scenario. Uniform catalog lookup — builtins
-    // (mars-genesis, lunar-outpost) are registered into the same map
-    // at server init, so this handler has NO hardcoded IDs. Any ID
-    // that resolves to a runnable entry switches; source JSONs that
-    // were /scenario/store'd but never compiled get a specific
-    // "needs compile" error instead of the misleading "Unknown".
+    // Record this visitor's pick. Uniform catalog lookup: builtins
+    // (mars-genesis, lunar-outpost) are registered into the same map at
+    // server init, so this handler has no hardcoded ids. Any id that
+    // resolves to a runnable entry is answered with the paracosm_scenario
+    // cookie; source JSONs that were /scenario/store'd but never compiled
+    // get a specific "needs compile" error instead of the misleading
+    // "Unknown". The pick is the visitor's alone: the event buffer and the
+    // run in it belong to whoever ran it, so nothing shared changes here.
     if (req.url === '/scenario/switch' && req.method === 'POST') {
       try {
-        const { id } = JSON.parse(await readBody(req, maxRequestBodyBytes));
-        const entry = customScenarioCatalog.get(id);
-        if (entry) {
-          activeScenario = entry.scenario;
-        } else if (memoryScenarios.has(id)) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: `Scenario "${id}" is stored but not runnable — it's a source JSON (missing hooks, world, or canonical policies shape). Click Compile in the Scenario Editor to generate hooks before switching to it.`,
-            storedButUnrunnable: true,
-            id,
-          }));
-          return;
-        } else {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: `Unknown scenario: ${id}. Use /compile or /scenario/store for custom scenarios.` }));
+        const { id } = JSON.parse(await readBody(req, maxRequestBodyBytes)) as { id?: unknown };
+        const named = typeof id === 'string' ? id : String(id);
+        const resolved = resolveRequestScenario(req, named);
+        if (!('scenario' in resolved)) {
+          writeScenarioRefusal(res, resolved);
           return;
         }
-        clearEventBuffer();
-        simConfig = null;
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ active: activeScenario.id, name: activeScenario.labels?.name }));
+        const cookie = pickCookie(named);
+        if (!cookie) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Scenario id is too long to hold as a pick: it must percent-encode to at most ${SCENARIO_PICK_MAX_BYTES} bytes.` }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Set-Cookie': cookie });
+        res.end(JSON.stringify({ active: resolved.scenario.id, name: resolved.scenario.labels?.name }));
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1757,14 +1913,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const quickstartDeps: QuickstartDeps = {
-          setActiveScenario: (sc, seedText) => {
-            activeScenario = sc;
-            activeScenarioSeedText = typeof seedText === 'string' && seedText.trim().length > 0
+          installCompiledScenario: (sc, seedText) => {
+            const seed = typeof seedText === 'string' && seedText.trim().length > 0
               ? seedText.slice(0, 1000)
               : null;
             // Quickstart-compiled scenarios reuse the 'compiled' source
             // tag; same post-compile semantics, no new source state
-            // required.
+            // required. Nothing becomes active for anyone: the visitor who
+            // compiled it gets it as their pick through pickHeaders on the
+            // answers they receive.
             customScenarioCatalog.set(sc.id, { scenario: sc, source: 'compiled' });
             // Auto-persist to disk so the catalog survives server
             // restarts. The hooks themselves are excluded (functions
@@ -1779,15 +1936,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // in-memory map so subsequent /scenarios responses agree
             // with what a fresh restart would re-load. Re-deriving the
             // timestamp here would drift by however long writeFileSync
-            // took to flush.
-            const persistResult = persistCompiledScenario(scenarioDir, sc, activeScenarioSeedText);
-            if (persistResult) {
-              compiledScenarioMeta.set(sc.id, persistResult.meta);
-            }
+            // took to flush. A failed write still records the meta in
+            // memory, so /setup carries the brief into the run either way.
+            const persistResult = persistCompiledScenario(scenarioDir, sc, seed);
+            compiledScenarioMeta.set(sc.id, persistResult?.meta ?? { compiledAt: new Date().toISOString(), seedText: seed });
           },
-          getScenarioById: (id) => {
-            if (id === activeScenario.id) return activeScenario;
-            return customScenarioCatalog.get(id)?.scenario;
+          getScenarioById: (id) => customScenarioCatalog.get(id)?.scenario,
+          pickHeaders: (id) => {
+            const cookie = pickCookie(id);
+            return cookie ? { 'Set-Cookie': cookie } : {};
           },
           fetchSeedFromUrl,
           // Default to OpenAI to match compileScenario's existing
@@ -2014,8 +2171,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
         });
 
-        // Update the active scenario for GET /scenario
-        activeScenario = compiled;
+        // Into the catalog only. The response is a stream whose headers went
+        // out before the compile, so it cannot carry a cookie; the editor
+        // that compiled it posts /scenario/switch with the id from
+        // `complete`, which makes it that visitor's pick.
         memoryScenarios.set(compiled.id, compiled);
         customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
 
@@ -2209,8 +2368,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           radiation: colonist?.radiation,
         };
 
-        // Extract simulation memories for this colonist
-        const memories = extractColonistMemories(agentId, simEvents, activeScenario.labels?.timeUnitNoun, activeScenario.labels);
+        // Extract simulation memories for this colonist. The nouns are the
+        // buffered run's, whatever scenario this visitor has picked since.
+        const runLabels = currentRunScenario.labels;
+        const memories = extractColonistMemories(agentId, simEvents, runLabels?.timeUnitNoun, runLabels);
         // Extract the full agent roster from the latest systems_snapshot so
         // the chat agent knows who else exists. Without this, the agent
         // confabulates fake bios for any name the user invents.
@@ -2223,9 +2384,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           provider,
           apiKey: chatCredentials.apiKey,
           anthropicKey: chatCredentials.anthropicKey,
-          settlementNoun: activeScenario.labels?.settlementNoun,
-          populationNoun: activeScenario.labels?.populationNoun,
-          labels: activeScenario.labels,
+          settlementNoun: runLabels?.settlementNoun,
+          populationNoun: runLabels?.populationNoun,
+          labels: runLabels,
           roster,
         });
 
@@ -2404,17 +2565,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       // Compiled-from-seed scenarios: drop disk file (best-effort) +
-      // in-memory catalog + meta map. If the active scenario was the
-      // one we just deleted, fall back to marsScenario so /scenario
-      // and /setup keep returning a valid runnable. Same fallback as
-      // the legacy non-existent-scenario path.
+      // in-memory catalog + meta map. A visitor whose cookie still names
+      // it reads as having no pick and gets the default, Mars Genesis.
       const fileDeleted = deletePersistedCompiledScenario(scenarioDir, id);
       const catalogDeleted = customScenarioCatalog.delete(id);
       const metaDeleted = compiledScenarioMeta.delete(id);
-      if (activeScenario.id === id) {
-        activeScenario = marsScenario;
-        activeScenarioSeedText = null;
-      }
       console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted})`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({
@@ -2635,27 +2790,30 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           forkFrom?: unknown;
         };
 
-        // The active scenario supplies every setup value the body omits
-        // (start time, time per turn, population, seed, turns, key
-        // personnel). The Quickstart tab posts only the leaders, turns
-        // and seed, so without the scenario here an Atlas Lab run
-        // started at "Month 2035" with the Mars colonists.
-        const runScenario = activeScenario;
-        const runScenarioSeedText = activeScenarioSeedText;
-        // The active scenario is the server's, so another page can move it
-        // while this one still holds the old one. Its leaders and setup
-        // values would then run in the other scenario's world.
+        // The run's scenario: the one the body names (Settings and the
+        // re-run button at the top level, the Quickstart tab under
+        // quickstart), else a fork's parent's, else the visitor's pick,
+        // else the server's default. It supplies every setup value the body
+        // omits (start time, time per turn, population, seed, turns, key
+        // personnel). The Quickstart tab posts only the leaders, turns and
+        // seed, so without the scenario here an Atlas Lab run started at
+        // "Month 2035" with the Mars colonists. Resolved before the rate
+        // limit, so a refused or waiting request does not spend the day's run.
         const bodyScenarioId = config.scenarioId ?? (config.quickstart as { scenarioId?: unknown } | undefined)?.scenarioId;
-        if (typeof bodyScenarioId === 'string' && bodyScenarioId !== runScenario.id) {
-          res.writeHead(409, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: `This page was set up for ${bodyScenarioId}, and the server has moved to ${runScenario.labels?.name ?? runScenario.id}. Reload the page and run again.`,
-          }));
+        const forkParentScenarioId = (config.forkFrom as
+          | { parentArtifact?: { metadata?: { scenario?: { id?: unknown } } } }
+          | undefined)?.parentArtifact?.metadata?.scenario?.id;
+        const resolvedScenario = resolveRequestScenario(
+          req,
+          typeof bodyScenarioId === 'string' ? bodyScenarioId : undefined,
+          config.forkFrom ? forkParentScenarioId : undefined,
+        );
+        if (!('scenario' in resolvedScenario)) {
+          writeScenarioRefusal(res, resolvedScenario);
           return;
         }
-        // The check above comes before the rate limit, so the run the page
-        // is told to start again after a reload is not refused as a second
-        // run of the day.
+        const runScenario = resolvedScenario.scenario;
+        const runScenarioSeedText = compiledScenarioMeta.get(runScenario.id)?.seedText ?? null;
 
         // Rate limit check: bypass when user provides real API keys.
         const requestCredentials = {
@@ -2847,28 +3005,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
         }
 
-        // Broadcast the scenario about to run BEFORE kicking off the
-        // simulation. Closes the loop on "I uploaded Mercury JSON but
-        // the run looked like Mars" — the dashboard can render a
-        // prominent 'Running: Mars Genesis' banner so the user sees
-        // immediately which scenario is active vs what's in their
-        // editor.
-        broadcast('active_scenario', {
-          id: runScenario.id,
-          name: runScenario.labels?.name ?? runScenario.id,
-          settlementNoun: runScenario.labels?.settlementNoun,
-          populationNoun: runScenario.labels?.populationNoun,
-          departments: runScenario.departments?.length ?? 0,
-          // Carry the original seed prompt through when the run came
-          // out of compile-from-seed; null for built-in scenarios.
-          seedText: runScenarioSeedText,
-        });
+        // startWithConfig opens the run's buffer with its active_scenario
+        // event, so a page that connects later replays it too.
         console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
 
         // launchConfig was captured above (right after applyDemoCaps)
         // so it stays non-null even if a concurrent /clear nulls out
         // the closure-level simConfig during one of the awaits.
-        marsServer.startWithConfig(launchConfig, { scenario: runScenario, onArtifact: onArtifactPersist }).catch((error) => {
+        marsServer.startWithConfig(launchConfig, {
+          scenario: runScenario,
+          seedText: runScenarioSeedText,
+          onArtifact: onArtifactPersist,
+        }).catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
 
@@ -3408,6 +3556,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     async startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks) {
       // Clear previous run data
       clearEventBuffer();
+      const runScenario = hooks?.scenario ?? marsScenario;
+      currentRunScenario = runScenario;
+      // The run's first event names its scenario, so the dashboard can
+      // render 'Running: Mars Genesis' and the saved session records which
+      // scenario and brief the run came from. It goes out after the clear,
+      // so it stays in the buffer for every page that connects later, and
+      // the trim keeps it first.
+      broadcast('active_scenario', {
+        id: runScenario.id,
+        name: runScenario.labels?.name ?? runScenario.id,
+        settlementNoun: runScenario.labels?.settlementNoun,
+        populationNoun: runScenario.labels?.populationNoun,
+        departments: runScenario.departments?.length ?? 0,
+        // The original seed prompt when the run came out of
+        // compile-from-seed; null for built-in scenarios.
+        seedText: hooks?.seedText ?? null,
+      });
+      currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
       simConfig = config;
       simRunning = true;
       // Per-run AbortController. Held in a local so the finally block
@@ -3417,7 +3583,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // started, breaking the disconnect watchdog's abort path.
       const controller = new AbortController();
       activeSimAbortController = controller;
-      const runScenario = hooks?.scenario ?? activeScenario;
       try {
         // Thread the run's scenario through to the pair
         // runner. Without this the runner defaults to Mars regardless
