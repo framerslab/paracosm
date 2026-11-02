@@ -58,6 +58,53 @@ function seedAnyBag(
   return out;
 }
 
+/**
+ * The kernel's Mars-heritage world: the settlement resources and Earth
+ * politics the Mars and Lunar scenarios run on. A run with no scenario
+ * starts with all of them, as it always has. A run of a scenario carries
+ * only the ones its `world` declares (Mars and the Moon declare them all;
+ * the deep-ocean station declares power and food), so an AI lab has no
+ * power plant, food store or Earth dependency in its state, its stream,
+ * its outcome effects or its saved run.
+ */
+const HERITAGE_METRICS: Readonly<Record<string, number>> = {
+  powerKw: 400,
+  foodMonthsReserve: 18,
+  waterLitersPerDay: 800,
+  pressurizedVolumeM3: 3000,
+  lifeSupportCapacity: 120,
+  infrastructureModules: 3,
+  scienceOutput: 0,
+};
+
+const HERITAGE_POLITICS: Readonly<Record<string, number | string>> = {
+  earthDependencyPct: 95,
+  governanceStatus: 'earth-governed',
+  independencePressure: 0.05,
+};
+
+/**
+ * Drop the heritage keys `declared` does not hold. `declared` null means
+ * the run has no scenario world, and everything stays.
+ */
+function withoutUndeclaredHeritage<T extends Record<string, unknown>>(
+  values: T | undefined,
+  heritage: Readonly<Record<string, unknown>>,
+  declared: ReadonlySet<string> | null,
+): Partial<T> {
+  if (!values) return {};
+  if (!declared) return { ...values };
+  return Object.fromEntries(
+    Object.entries(values).filter(([key]) => !(key in heritage) || declared.has(key)),
+  ) as Partial<T>;
+}
+
+/** Clamp a numeric field in place; a field the run does not carry stays absent. */
+function clampField(bag: Record<string, unknown>, key: string, min: number, max = Infinity): void {
+  const value = bag[key];
+  if (typeof value === 'number') bag[key] = Math.max(min, Math.min(max, value));
+}
+
 export interface SystemsPatch {
   metrics?: Partial<WorldMetrics>;
   politics?: Partial<WorldPolitics>;
@@ -105,9 +152,10 @@ export class SimulationKernel {
       : undefined;
     const agents = generateInitialPopulation(seed, startTime, keyPersonnel, init.initialPopulation ?? 100, rosterDepartments);
 
-    // Layer sources: Mars-heritage defaults → scenario declarations →
-    // caller overlays (last writer wins). Scenario declarations flow
-    // through `init.scenario?.world.*`; absent → bag is empty.
+    // Layer sources: Mars-heritage defaults (the ones the scenario
+    // declares) → scenario declarations → caller overlays (last writer
+    // wins). Scenario declarations flow through `init.scenario?.world.*`;
+    // absent → bag is empty.
     const scenarioWorld = (init.scenario?.world ?? {}) as {
       metrics?: Record<string, DeclaredMetric>;
       capacities?: Record<string, DeclaredMetric>;
@@ -122,6 +170,14 @@ export class SimulationKernel {
     const scenarioPolitics = seedAnyBag(scenarioWorld.politics);
     const scenarioStatuses = seedStringOrBooleanBag(scenarioWorld.statuses);
     const scenarioEnvironment = seedAnyBag(scenarioWorld.environment);
+    // What the scenario declares, for the heritage defaults. Mars declares
+    // `governanceStatus` among its statuses; it stays in politics there.
+    const declaredMetrics = init.scenario?.world
+      ? new Set(Object.keys(scenarioSystems))
+      : null;
+    const declaredPolitics = init.scenario?.world
+      ? new Set([...Object.keys(scenarioPolitics), ...Object.keys(scenarioStatuses)])
+      : null;
 
     this.state = {
       metadata: {
@@ -130,28 +186,21 @@ export class SimulationKernel {
         startTime, currentTime: startTime, currentTurn: 0,
       },
       metrics: {
-        // Mars-heritage numerics
+        // Every run has people and morale; the heritage resources only
+        // where the scenario declares them (or there is no scenario).
         population: agents.length,
-        powerKw: 400,
-        foodMonthsReserve: 18,
-        waterLitersPerDay: 800,
-        pressurizedVolumeM3: 3000,
-        lifeSupportCapacity: 120,
-        infrastructureModules: 3,
-        scienceOutput: 0,
+        ...withoutUndeclaredHeritage(HERITAGE_METRICS, HERITAGE_METRICS, declaredMetrics),
         morale: 0.85,
         // Scenario declarations (metrics + capacities flattened)
         ...scenarioSystems,
-        // Caller overlay wins
-        ...init.startingResources,
-      },
+        // Caller overlay wins, within what the scenario carries
+        ...withoutUndeclaredHeritage(init.startingResources, HERITAGE_METRICS, declaredMetrics),
+      } as WorldMetrics,
       agents,
       politics: {
-        earthDependencyPct: 95,
-        governanceStatus: 'earth-governed',
-        independencePressure: 0.05,
+        ...withoutUndeclaredHeritage(HERITAGE_POLITICS, HERITAGE_POLITICS, declaredPolitics),
         ...scenarioPolitics,
-        ...init.startingPolitics,
+        ...withoutUndeclaredHeritage(init.startingPolitics, HERITAGE_POLITICS, declaredPolitics),
       } as WorldPolitics,
       statuses: {
         ...scenarioStatuses,
@@ -268,10 +317,10 @@ export class SimulationKernel {
       for (const [k, v] of Object.entries(patches.metrics)) {
         if (v !== undefined && k in c) (c as any)[k] = v;
       }
-      c.population = Math.max(0, c.population);
-      c.morale = Math.max(0, Math.min(1, c.morale));
-      c.foodMonthsReserve = Math.max(0, c.foodMonthsReserve);
-      c.powerKw = Math.max(0, c.powerKw);
+      clampField(c, 'population', 0);
+      clampField(c, 'morale', 0, 1);
+      clampField(c, 'foodMonthsReserve', 0);
+      clampField(c, 'powerKw', 0);
     }
 
     if (patches.politics) {
@@ -279,8 +328,8 @@ export class SimulationKernel {
       for (const [k, v] of Object.entries(patches.politics)) {
         if (v !== undefined && k in p) (p as any)[k] = v;
       }
-      p.earthDependencyPct = Math.max(0, Math.min(100, p.earthDependencyPct));
-      p.independencePressure = Math.max(0, Math.min(1, p.independencePressure));
+      clampField(p, 'earthDependencyPct', 0, 100);
+      clampField(p, 'independencePressure', 0, 1);
     }
 
     if (patches.agentUpdates) {
@@ -398,33 +447,40 @@ export class SimulationKernel {
     return c.core.id;
   }
 
-  /** Apply additive deltas to world systems (not absolute values). */
-  applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): void {
+  /**
+   * Apply additive deltas to world systems (not absolute values). A delta
+   * for a metric the run does not carry is dropped. Returns the deltas
+   * applied, which is what the run reports.
+   */
+  applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): Record<string, number> {
     const c = this.state.metrics;
+    const applied: Record<string, number> = {};
     for (const [k, v] of Object.entries(deltas)) {
-      if (v !== undefined && typeof v === 'number' && k in c) {
+      if (v !== undefined && typeof v === 'number' && typeof (c as Record<string, unknown>)[k] === 'number') {
         (c as any)[k] = (c as any)[k] + v;
+        applied[k] = v;
       }
     }
-    c.morale = Math.max(0, Math.min(1, c.morale));
-    c.foodMonthsReserve = Math.max(0, c.foodMonthsReserve);
-    c.powerKw = Math.max(0, c.powerKw);
-    c.population = Math.max(0, c.population);
-    c.lifeSupportCapacity = Math.max(0, c.lifeSupportCapacity);
-    c.infrastructureModules = Math.max(0, c.infrastructureModules);
+    clampField(c, 'morale', 0, 1);
+    clampField(c, 'foodMonthsReserve', 0);
+    clampField(c, 'powerKw', 0);
+    clampField(c, 'population', 0);
+    clampField(c, 'lifeSupportCapacity', 0);
+    clampField(c, 'infrastructureModules', 0);
     this.state.eventLog.push(...events);
+    return applied;
   }
 
-  /** Apply additive deltas to world politics. */
+  /** Apply additive deltas to world politics; one for a field the run does not carry is dropped. */
   applyPoliticsDeltas(deltas: Partial<WorldPolitics>, events: TurnEvent[] = []): void {
     const p = this.state.politics;
     for (const [k, v] of Object.entries(deltas)) {
-      if (v !== undefined && typeof v === 'number' && k in p) {
+      if (v !== undefined && typeof v === 'number' && typeof p[k] === 'number') {
         (p as any)[k] = (p as any)[k] + v;
       }
     }
-    p.earthDependencyPct = Math.max(0, Math.min(100, p.earthDependencyPct));
-    p.independencePressure = Math.max(0, Math.min(1, p.independencePressure));
+    clampField(p, 'earthDependencyPct', 0, 100);
+    clampField(p, 'independencePressure', 0, 1);
     this.state.eventLog.push(...events);
   }
 

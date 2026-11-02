@@ -109,6 +109,9 @@ test('an Atlas Lab outcome reports and applies only metrics the run carries, for
       const reported = applyOutcomeEffects(kernel, registry, { category, outcome, modifiers: FORGING, turn: 1, time: 1 });
       const after = kernel.getState();
 
+      assert.deepEqual(undeclared(reported, declaredMetricKeys(atlasLab)), [], `${category} ${outcome} reported ${JSON.stringify(reported)}`);
+      // What the run reports is what it applied: a politics key in the
+      // category table (boardConfidence) does not move a metric.
       assert.deepEqual(Object.keys(reported).filter(k => !carried.includes(k)), [], `${category} ${outcome} reported ${JSON.stringify(reported)}`);
       assert.deepEqual(undeclared(after.metrics, declaredMetricKeys(atlasLab)), [], `${category} ${outcome} state`);
       assert.deepEqual(notFinite(after.metrics), [], `${category} ${outcome} finite`);
@@ -178,17 +181,18 @@ test('an Atlas Lab run saved with the Mars defaults still loads, forks and repla
   assert.equal(artifact.finalState?.metrics.powerKw, 392.8);
 
   const snaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn: KernelSnapshot[] }).kernelSnapshotsPerTurn;
-  assert.equal(snaps[0].state.metrics.powerKw, 400);
+  const savedPower = snaps[0].state.metrics.powerKw;
+  assert.equal(savedPower, 396.4, 'turn 1 charged the forge cost to power');
 
   const fork = SimulationKernel.fromSnapshot(snaps[0], atlasLab.id);
   const state = fork.advanceTurn(2, 2, atlasLab.hooks.progressionHook);
-  assert.equal(state.metrics.powerKw, 400, 'the saved run keeps the power it carried');
+  assert.equal(state.metrics.powerKw, savedPower, 'the saved run keeps the power it carried');
   assert.equal(typeof state.metrics.foodMonthsReserve, 'number');
   assert.deepEqual(notFinite(state.metrics), []);
 
   const replayed = await replaySimulation(atlasLab, artifact);
   const fresh = (replayed.scenarioExtensions as { kernelSnapshotsPerTurn: KernelSnapshot[] }).kernelSnapshotsPerTurn;
   assert.equal(fresh.length, 2);
-  assert.equal(fresh[1].state.metrics.powerKw, snaps[0].state.metrics.powerKw);
+  assert.equal(fresh[1].state.metrics.powerKw, savedPower);
   assert.deepEqual(notFinite(fresh[1].state.metrics), []);
 });

@@ -52,17 +52,18 @@ export function TimelineSparkline({
 
   // Normalize food + pop against their per-run maxima so all three
   // metrics share a 0..1 axis. Morale is already 0..1.
-  const maxFood = Math.max(
-    18,
-    ...snapsA.map(s => s.foodReserve),
-    ...snapsB.map(s => s.foodReserve),
-  );
+  // A run whose scenario carries no food store draws no food line.
+  const foodValues = [...snapsA, ...snapsB]
+    .map(s => s.foodReserve)
+    .filter((v): v is number => typeof v === 'number');
+  const hasFood = foodValues.length > 0;
+  const maxFood = Math.max(18, ...foodValues);
   const maxPop = Math.max(
     1,
     ...snapsA.map(s => s.population),
     ...snapsB.map(s => s.population),
   );
-  const normFood = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.foodReserve / maxFood));
+  const normFood = (s: TurnSnapshot) => Math.max(0, Math.min(1, (s.foodReserve ?? 0) / maxFood));
   const normPop = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.population / maxPop));
   const normMorale = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.morale));
 
@@ -95,20 +96,20 @@ export function TimelineSparkline({
   return (
     <div className={styles.wrap}>
       <div className={styles.legend}>
-        <span>MORALE · POP · FOOD · T1 → T{maxTurns}</span>
+        <span>MORALE · POP{hasFood ? ' · FOOD' : ''} · T1 → T{maxTurns}</span>
         <span className={styles.legendRight}>
           <span className={styles.legendA}>A</span>
           <span className={styles.legendB}>B</span>
           <span className={styles.legendKey}>— morale</span>
           <span className={styles.legendKey}>··· pop</span>
-          <span className={styles.legendKey}>- - food</span>
+          {hasFood && <span className={styles.legendKey}>- - food</span>}
         </span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="Timeline sparkline of morale, population, and food across both leaders"
+        aria-label={`Timeline sparkline of morale, population${hasFood ? ', and food' : ''} across both leaders`}
         onClick={handleClick}
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
@@ -126,8 +127,8 @@ export function TimelineSparkline({
           strokeDasharray="2 2"
         />
         {/* Food (dashed) + pop (dotted) trace beneath the morale line */}
-        <path d={buildPath(snapsA, normFood)} fill="none" stroke="var(--vis)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />
-        <path d={buildPath(snapsB, normFood)} fill="none" stroke="var(--eng)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />
+        {hasFood && <path d={buildPath(snapsA, normFood)} fill="none" stroke="var(--vis)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />}
+        {hasFood && <path d={buildPath(snapsB, normFood)} fill="none" stroke="var(--eng)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />}
         <path d={buildPath(snapsA, normPop)} fill="none" stroke="var(--vis)" strokeWidth={0.7} strokeDasharray="1 2" opacity={0.5} />
         <path d={buildPath(snapsB, normPop)} fill="none" stroke="var(--eng)" strokeWidth={0.7} strokeDasharray="1 2" opacity={0.5} />
         <path d={buildPath(snapsA, normMorale)} fill="none" stroke="var(--vis)" strokeWidth={1.3} />
@@ -157,7 +158,7 @@ export function TimelineSparkline({
                 <span className={styles.tooltipBold}>A</span>
                 <span>pop {a.population}</span>
                 <span>· {Math.round(a.morale * 100)}% mor</span>
-                <span>· {a.foodReserve.toFixed(1)}mo</span>
+                {typeof a.foodReserve === 'number' && <span>· {a.foodReserve.toFixed(1)}mo</span>}
                 {(a.births > 0 || a.deaths > 0) && <span>· +{a.births}/-{a.deaths}</span>}
               </div>
             )}
@@ -166,7 +167,7 @@ export function TimelineSparkline({
                 <span className={styles.tooltipBold}>B</span>
                 <span>pop {b.population}</span>
                 <span>· {Math.round(b.morale * 100)}% mor</span>
-                <span>· {b.foodReserve.toFixed(1)}mo</span>
+                {typeof b.foodReserve === 'number' && <span>· {b.foodReserve.toFixed(1)}mo</span>}
                 {(b.births > 0 || b.deaths > 0) && <span>· +{b.births}/-{b.deaths}</span>}
               </div>
             )}

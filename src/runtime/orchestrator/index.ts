@@ -1792,7 +1792,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
     if (opts.captureSnapshots) {
       kernelSnapshotsPerTurn.push(kernel.toSnapshot(sc.id));
     }
-    console.log(`  State: Pop ${after.metrics.population} | Morale ${Math.round(after.metrics.morale * 100)}% | Food ${after.metrics.foodMonthsReserve.toFixed(1)}mo`);
+    const foodLine = typeof after.metrics.foodMonthsReserve === 'number' ? ` | Food ${after.metrics.foodMonthsReserve.toFixed(1)}mo` : '';
+    console.log(`  State: Pop ${after.metrics.population} | Morale ${Math.round(after.metrics.morale * 100)}%${foodLine}`);
     // Death cause breakdown for this turn: maps attributed causes from
     // the kernel (natural causes, radiation cancer, starvation, despair,
     // fatal fracture, accident: X) to counts so the dashboard can
