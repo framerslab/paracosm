@@ -6,6 +6,9 @@ import * as React from 'react';
 import { ScenarioContext } from '../../App.js';
 import { EventCard } from './EventCard.js';
 
+// Badge is compiled with the classic JSX transform under the test runner.
+(globalThis as { React?: unknown }).React = React;
+
 test('EventCard: an outcome shows the politics it moved beside its metrics', () => {
   const html = renderToString(
     <ScenarioContext.Provider value={{} as never}>
@@ -28,5 +31,3 @@ test('EventCard: an outcome shows the politics it moved beside its metrics', () 
   assert.match(html, /boardConfidence/);
   assert.match(html, /investorPressure/);
 });
-
-void React;
