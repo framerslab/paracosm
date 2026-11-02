@@ -172,7 +172,9 @@ function tabHeadingFor(tab: DashboardTab): string {
 function AppContent() {
   const { scenario, ready: scenarioReady } = useScenario();
   const replaySessionId = useReplaySessionId();
-  const sse = useSSE({ replaySessionId });
+  // The live feed shows a run only in the page's scenario: the server holds
+  // one run for every visitor, whichever scenario each one picked.
+  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null });
   const [tourActive, setTourActive] = useState(false);
 
   // Global verdict banner. Closable by the user; dismissal is keyed

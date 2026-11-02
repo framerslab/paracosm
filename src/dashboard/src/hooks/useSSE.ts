@@ -157,11 +157,27 @@ interface SSEState {
 export interface UseSSEOptions {
   replaySessionId?: string | null;
   replaySpeed?: number;
+  /**
+   * The page's scenario id once GET /scenario has answered, null before.
+   * The live feed shows a run only when the run's scenario, named by the
+   * active_scenario event that opens its buffer, is this one: the server
+   * holds one run for every visitor, whichever scenario each one picked.
+   */
+  scenarioId?: string | null;
+}
+
+/** The run fields of SSEState, empty: a page that holds no run. */
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone'> {
+  return {
+    events: [], results: [], verdict: null, errors: [], isComplete: false,
+    isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
+  };
 }
 
 export function useSSE(options: UseSSEOptions = {}) {
   const replaySessionId = options.replaySessionId ?? null;
   const replaySpeed = options.replaySpeed;
+  const scenarioId = options.scenarioId ?? null;
   const [state, setState] = useState<SSEState>({
     status: 'connecting',
     events: [],
@@ -185,16 +201,36 @@ export function useSSE(options: UseSSEOptions = {}) {
   // set before their reload). The server's buffer still holds the run from
   // before the switch, any visitor's in any scenario, and replays it on
   // every connect, so the page skips that run: every event until a run
-  // starts after the page loaded (a live active_scenario event) or the
-  // page resets. A ref read when an event arrives, never React state: the
-  // listeners are created once per subscription and would keep the value
-  // they first saw. The live /events feed only; a saved-session replay is
-  // the run the page asked for, and ends without a replay_done.
+  // names its scenario (an active_scenario event, live or replayed, after
+  // which the scenario decides) or the page resets. A ref read when an
+  // event arrives, never React state: the listeners are created once per
+  // subscription and would keep the value they first saw. The live
+  // /events feed only; a saved-session replay is the run the page asked
+  // for.
   const skipBufferedRunRef = useRef<boolean | null>(null);
   if (skipBufferedRunRef.current === null) {
     const switched = typeof window !== 'undefined' && consumeScenarioSwitched();
     skipBufferedRunRef.current = replaySessionId ? false : switched;
   }
+  // The scenario of the run the live feed is delivering, from the
+  // active_scenario event that opens the run's buffer; null until one
+  // arrives on this connection (a buffer from before runs named their
+  // scenario, or an empty one). Read when an event arrives, as above.
+  const runScenarioIdRef = useRef<string | null>(null);
+  // The page's scenario id, null until GET /scenario answers.
+  const pageScenarioIdRef = useRef<string | null>(scenarioId);
+  pageScenarioIdRef.current = scenarioId;
+
+  // The run's events can arrive before GET /scenario answers. Once the page
+  // knows its scenario, a run it holds from another scenario is dropped;
+  // the listeners skip that run's later events.
+  useEffect(() => {
+    if (replaySessionId || scenarioId === null) return;
+    const runScenarioId = runScenarioIdRef.current;
+    if (runScenarioId === null || runScenarioId === scenarioId) return;
+    seenEventKeysRef.current.clear();
+    setState(prev => ({ ...prev, ...emptyRun() }));
+  }, [scenarioId, replaySessionId]);
 
   /**
    * Clear all client-side SSE state AND tell the server to drop its
@@ -205,6 +241,8 @@ export function useSSE(options: UseSSEOptions = {}) {
   const reset = useCallback(async () => {
     seenEventKeysRef.current.clear();
     skipBufferedRunRef.current = false;
+    // The buffer is cleared below; the next run names its scenario.
+    runScenarioIdRef.current = null;
     setState(prev => ({
       // Preserve current connection status so the UI doesn't flash
       // "Connecting..." just because the user pressed Clear.
@@ -311,12 +349,17 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
      * automatically. Backoff caps at 10s; reset on successful 'connected'.
      */
     let connectCount = 0;
-    // True from `connected` to `replay_done`: the events in between are the
-    // server's buffer replayed, not live ones.
-    let replaying = false;
-    // An event of the run this tab skips since its switch
-    // (skipBufferedRunRef). Never on a saved-session replay.
-    const skipped = () => !replaySessionId && skipBufferedRunRef.current === true;
+    // An event of a run this page does not show: the run this tab skips
+    // since its switch (skipBufferedRunRef), or a run in another scenario
+    // than the page's. Never on a saved-session replay, the run the page
+    // asked for.
+    const skipped = () => {
+      if (replaySessionId) return false;
+      if (skipBufferedRunRef.current === true) return true;
+      const runScenarioId = runScenarioIdRef.current;
+      const pageScenarioId = pageScenarioIdRef.current;
+      return runScenarioId !== null && pageScenarioId !== null && runScenarioId !== pageScenarioId;
+    };
     // The dedupe set is owned by seenEventKeysRef so reset() can clear it.
     // Tracks event identity so we can dedupe across reconnects without
     // wiping state.events (which would lose the user's view of completed
@@ -392,7 +435,9 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       es.addEventListener('connected', () => {
         attempt = 0;
         connectCount += 1;
-        replaying = true;
+        // The replay starts at the buffer's first event, which names the
+        // run when the run named its scenario.
+        runScenarioIdRef.current = null;
         // On the FIRST connect we want a clean slate (the server replays
         // its full buffer right after 'connected'). On reconnects we keep
         // existing events so a browser-managed reconnect after the sim
@@ -415,15 +460,23 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       });
 
       es.addEventListener('replay_done', () => {
-        replaying = false;
         setState(prev => ({ ...prev, replayDone: true }));
       });
 
-      // Every run opens with active_scenario. One that arrives live started
-      // after this page loaded, so a page that skipped the buffered run
-      // shows this one from its first event.
-      es.addEventListener('active_scenario', () => {
-        if (!replaying) skipBufferedRunRef.current = false;
+      // Every run opens with active_scenario, which names its scenario; the
+      // page shows the run from here when that is the page's scenario. It
+      // ends the switch's skip whether it arrives live or in a replay: the
+      // run from before the switch is judged by its scenario like any other,
+      // and a run that opened while this page was reconnecting arrives in
+      // the replay.
+      es.addEventListener('active_scenario', (e: MessageEvent) => {
+        let id: string | null = null;
+        try {
+          const data = JSON.parse(e.data) as { id?: unknown } | null;
+          id = typeof data?.id === 'string' ? data.id : null;
+        } catch { /* no id: the run is shown, as one from before runs named it */ }
+        runScenarioIdRef.current = id;
+        skipBufferedRunRef.current = false;
       });
 
       // Status events carry run-wide metadata: the effective maxTurns
