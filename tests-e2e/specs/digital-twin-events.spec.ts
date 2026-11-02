@@ -77,11 +77,11 @@ test.describe('Digital Twin events @twin', () => {
     release();
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
-    await page.getByRole('button', { name: 'Reset' }).click();
+    await page.getByRole('button', { name: 'Reset', exact: true }).click();
     await expect(playback(page, 0)).toBeVisible();
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     await expect(playback(page, 1)).toBeVisible();
-    await page.getByRole('button', { name: 'Pause' }).click();
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
 
     // The run is not this page's scenario's: it goes in no history of it.
     expect(await page.evaluate(() => sessionStorage.getItem('paracosm:lastCachedRunFingerprint'))).toBeNull();
