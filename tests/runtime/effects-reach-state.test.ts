@@ -565,3 +565,16 @@ test('a deep-ocean station\'s accidents read true at depth', () => {
   assert.ok(accidents.length > 0, 'someone had an accident');
   for (const e of accidents) assert.doesNotMatch(e.cause ?? '', /road/, e.description);
 });
+
+test('a key named in both of a selection\'s bags moves once, by their sum, and reports it', () => {
+  const kernel = kernelFor(atlasLab);
+  const moved = kernel.applyPolicy(policyFrom([{ id: 'a', systemDelta: { boardConfidence: 4 }, politicsDelta: { boardConfidence: 6 } }], ['a']));
+  assert.equal(moved.boardConfidence, 10);
+  assert.equal(kernel.getState().politics.boardConfidence, 85);
+
+  // Opposing changes near a ceiling cancel; neither is stopped by it first.
+  const high = kernelFor(atlasLab, 30, { startingPolitics: { boardConfidence: 98 } });
+  const cancelled = high.applyPolicy(policyFrom([{ id: 'a', systemDelta: { boardConfidence: 5 }, politicsDelta: { boardConfidence: -5 } }], ['a']));
+  assert.equal(high.getState().politics.boardConfidence, 98);
+  assert.equal(cancelled.boardConfidence, 0);
+});
