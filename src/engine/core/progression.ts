@@ -338,7 +338,7 @@ export function progressBetweenTurns(
     if (age >= 18 && turnRng.chance(accidentProb)) {
       const descriptors = typeof metrics.pressurizedVolumeM3 === 'number'
         ? ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover']
-        : ['equipment failure', 'road accident', 'fall', 'electrical fault', 'workplace accident'];
+        : ['equipment failure', 'vehicle accident', 'fall', 'electrical fault', 'workplace accident'];
       const descriptor = turnRng.pick(descriptors);
       const article = /^[aeiou]/i.test(descriptor) ? 'an' : 'a';
       killColonist(c, `accident: ${descriptor}`,

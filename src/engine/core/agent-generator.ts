@@ -127,7 +127,9 @@ function claimAgentId(name: string, usedIds: Set<string>): string {
  * New adults who join a run already under way, in the departments and
  * specializations of the people on the roster, so a fork that has no
  * scenario to hand places them the same way. Returns none when nobody on
- * the roster can show where they would work.
+ * the roster can show where they would work. Nobody new takes the id or
+ * the name of someone in `former`, the people who left: past snapshots
+ * still hold them, and a reader follows a person through those by id.
  */
 export function generateJoiners(
   rng: SeededRng,
@@ -135,11 +137,12 @@ export function generateJoiners(
   turn: number,
   count: number,
   roster: readonly Agent[],
+  former: ReadonlyArray<{ id: string; name: string }> = [],
 ): Agent[] {
   const peers = roster.filter(a => a.health.alive && a.core.role !== 'Child');
   if (peers.length === 0) return [];
-  const usedNames = new Set(roster.map(a => a.core.name));
-  const usedIds = new Set(roster.map(a => a.core.id));
+  const usedNames = new Set([...roster.map(a => a.core.name), ...former.map(p => p.name)]);
+  const usedIds = new Set([...roster.map(a => a.core.id), ...former.map(p => p.id)]);
   const joiners: Agent[] = [];
   for (let i = 0; i < count; i++) {
     let name = '';

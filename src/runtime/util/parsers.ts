@@ -41,11 +41,22 @@ export function emptyDecision(d: Department[]): CommanderDecision {
 }
 
 /**
+ * The effects a commander can select, each under a key of its own. Every
+ * department numbers its effects from `effect_1`, so an id alone names one
+ * in each report; the key names the department too.
+ */
+export function selectableEffects(reports: DepartmentReport[]) {
+  return reports.flatMap(r => (r.recommendedEffects || []).map(effect => ({ key: `${r.department}/${effect.id}`, effect })));
+}
+
+/**
  * Turn a commander's decision + the dept reports into a PolicyEffect
  * the kernel can apply. Legacy `proposedPatches` from reports (backward
  * compat) set values outright; the typed `recommendedEffects` the
- * commander selected by id are changes, added to the current values and
- * to each other.
+ * commander selected are changes, added to the current values and to each
+ * other. A selection is a key from {@link selectableEffects}, or a bare id,
+ * which reads the first report that holds it; an effect selected twice
+ * counts once.
  */
 export function decisionToPolicy(
   decision: CommanderDecision,
@@ -65,10 +76,13 @@ export function decisionToPolicy(
   // Add up the typed effects selected by the commander.
   const deltas: Required<NonNullable<PolicyEffect['deltas']>> = { metrics: {}, politics: {} };
   if (decision.selectedEffectIds?.length) {
-    const allEffects = reports.flatMap(r => r.recommendedEffects || []);
-    for (const effectId of decision.selectedEffectIds) {
-      const effect = allEffects.find(e => e.id === effectId);
-      if (!effect) continue;
+    const effects = selectableEffects(reports);
+    const picked = new Set(decision.selectedEffectIds.map(chosen => (
+      effects.find(e => e.key === chosen) ?? effects.find(e => e.effect.id === chosen)
+    )));
+    for (const entry of picked) {
+      if (!entry) continue;
+      const { effect } = entry;
       for (const [key, delta] of Object.entries(effect.systemDelta ?? {})) {
         deltas.metrics[key] = (deltas.metrics[key] ?? 0) + (delta as number);
       }

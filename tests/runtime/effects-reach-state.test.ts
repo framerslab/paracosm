@@ -20,7 +20,7 @@ import { StreamEventSchema } from '../../src/engine/schema/stream.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
 import { applyOutcomeEffects, systemsSnapshotTotals } from '../../src/runtime/orchestrator/outcome-effects.js';
-import { decisionToPolicy, emptyDecision, emptyReport } from '../../src/runtime/util/parsers.js';
+import { decisionToPolicy, emptyDecision, emptyReport, selectableEffects } from '../../src/runtime/util/parsers.js';
 import type { CommanderDecision, DepartmentReport } from '../../src/runtime/contracts.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -467,6 +467,9 @@ test('one delta brings in at most as many people as the roster holds', () => {
   assert.equal(kernel.getState().metrics.population, 60);
   assert.equal(aliveCount(kernel), 60);
   assert.equal(kernel.getState().eventLog.filter(e => e.type === 'arrival').length, 30);
+
+  // A number no roster could hold returns at once.
+  assert.equal(kernelFor(atlasLab, 30).applySystemDeltas({ population: 1e12 }).population, 30);
 });
 
 test('hires stop at 2000 people', () => {
@@ -541,6 +544,8 @@ test('a selected effect can name the department it comes from', () => {
   near(both?.morale ?? NaN, 0.03, 'both departments');
   // The id a department wrote still reads the first report that holds it.
   assert.deepEqual(selected(['effect_1']), { morale: -0.02 });
+  // The commander's list shows these keys.
+  assert.deepEqual(selectableEffects(twoDepartmentsReports()).map(e => e.key), ['engineering/effect_1', 'medical/effect_1']);
 });
 
 test('an effect selected twice counts once', () => {

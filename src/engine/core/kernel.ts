@@ -15,6 +15,13 @@ interface DeclaredMetric {
   max?: number;
 }
 
+/**
+ * The most people hires can bring a roster to. A delta is a number a model
+ * or a compiled scenario wrote, and each person it brings in costs memory
+ * and a place in every turn's snapshot.
+ */
+const MAX_ROSTER = 2000;
+
 /** The floor and ceiling a scenario declares for each value that has one. */
 type DeclaredRanges = Record<string, { min?: number; max?: number }>;
 
@@ -586,10 +593,13 @@ export class SimulationKernel {
   /**
    * Move `delta` people, rounded to whole people, on or off the roster and
    * return how many moved. Joiners are new adults in the departments the
-   * roster already has. Leavers come off the roster with an event of their
-   * own: a departure is not a death, so it counts in no mortality figure.
-   * Department heads and children stay, and people the run has featured go
-   * last, so fewer can leave than were asked for.
+   * roster already has; one delta brings in at most as many as the roster
+   * holds, up to {@link MAX_ROSTER} or the scenario's declared `max`.
+   * Leavers come off the roster with an event of their own: a departure is
+   * not a death, so it counts in no mortality figure. Department heads and
+   * children stay, people the run has featured go last, and the roster
+   * keeps the scenario's declared `min`, so fewer can leave than were asked
+   * for.
    */
   private movePeople(delta: number): number {
     const count = Math.abs(Math.round(delta));
@@ -598,13 +608,21 @@ export class SimulationKernel {
     // A sub-stream of its own: the turn rolls derive from the same state and
     // must come out the same whether or not anyone moved.
     const rng = this.rng.turnSeed(turn * 1000 + this.state.eventLog.length + 500);
-    const moved = delta > 0 ? this.addPeople(count, rng, turn, time) : -this.removePeople(count, rng, turn, time);
+    const alive = this.getAliveCount();
+    const { min = 0, max = MAX_ROSTER } = this.ranges.metrics.population ?? {};
+    const moved = delta > 0
+      ? this.addPeople(Math.min(count, alive, Math.max(0, Math.min(max, MAX_ROSTER) - alive)), rng, turn, time)
+      : -this.removePeople(Math.min(count, Math.max(0, alive - min)), rng, turn, time);
     this.state.metrics.population = this.getAliveCount();
-    return moved;
+    return moved || 0;
   }
 
   private addPeople(count: number, rng: SeededRng, turn: number, time: number): number {
-    const joiners = generateJoiners(rng, time, turn, count, this.state.agents);
+    // The log holds who left, so a snapshot of the run carries them too.
+    const former = this.state.eventLog.flatMap(e => (
+      e.type === 'departure' && e.agentId ? [{ id: e.agentId, name: String(e.data?.name) }] : []
+    ));
+    const joiners = generateJoiners(rng, time, turn, count, this.state.agents, former);
     this.state.agents.push(...joiners);
     for (const a of joiners) {
       this.state.eventLog.push({
@@ -638,7 +656,7 @@ export class SimulationKernel {
     for (const a of leaving) {
       this.state.eventLog.push({
         turn, time, type: 'departure', description: `${a.core.name} left`, agentId: a.core.id,
-        data: { department: a.core.department, role: a.core.role },
+        data: { name: a.core.name, department: a.core.department, role: a.core.role },
       });
     }
     return leaving.length;
