@@ -10,6 +10,8 @@ import { runFingerprint } from '../../src/runtime/util/generic-fingerprint.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const atlasLab = loadDiskCustomScenarios(resolve(here, '../../scenarios')).get('atlas-lab')?.scenario as ScenarioPackage;
+// The artifact's public final state drops the event log and the roster; the
+// fingerprint reads both from the run's own state, so the tests hand it empty ones.
 const livePair = JSON.parse(
   readFileSync(resolve(here, '../fixtures/verdict/atlas-lab-pair-2026-11-02.json'), 'utf-8'),
 ) as { runs: Array<{ leaderName: string; artifact: any }> };
@@ -26,7 +28,7 @@ test('a run\'s fingerprint counts each forged tool once, however often it was us
     const leader = (atlasLab.presets[0] as any).leaders.find((l: any) => l.name === leaderName);
     const fingerprint = runFingerprint(
       atlasLab.hooks.fingerprintHook,
-      { ...artifact.finalState, agents: [] },
+      { ...artifact.finalState, agents: [], eventLog: [] },
       artifact.scenarioExtensions.paracosmInternal.outcomeClassifications,
       leader,
       artifact.forgedTools,
@@ -60,7 +62,7 @@ test('a forge attempt the reviewers rejected does not count toward a run\'s fing
 
   const fingerprint = runFingerprint(
     atlasLab.hooks.fingerprintHook,
-    { ...artifact.finalState, agents: [] },
+    { ...artifact.finalState, agents: [], eventLog: [] },
     artifact.scenarioExtensions.paracosmInternal.outcomeClassifications,
     leader,
     toolbox,
