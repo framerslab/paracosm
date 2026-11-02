@@ -231,6 +231,8 @@ export interface CreateMarsServerOptions {
       leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
   ) => Promise<void>;
+  /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
+  runForkSimulation?: typeof runForkSimulation;
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   scenarioDir?: string;
@@ -1351,6 +1353,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
+  const startFork = options.runForkSimulation ?? runForkSimulation;
 
   // --- Cancel-on-disconnect watchdog ---------------------------------
   //
@@ -3634,7 +3637,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // runForkSimulation instead of the pair runner when the
         // config carries a forkFrom reference.
         if (config.forkFrom) {
-          await runForkSimulation(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await startFork(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else if (config.actors.length >= 3) {
           // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
           // runner (same SSE contract per leader, no verdict).
