@@ -23,6 +23,7 @@ import {
 } from '../../src/runtime/orchestrator/commander-setup.js';
 import { buildDepartmentContext } from '../../src/runtime/orchestrator/departments.js';
 import { buildBatchSituationContext, buildBatchSystemPrompt } from '../../src/runtime/agents/agent-reactions.js';
+import { createWebSearchTool } from '../../src/runtime/orchestrator/emergent-setup.js';
 
 const readScenario = (file: string) => JSON.parse(
   readFileSync(new URL(`../../scenarios/${file}`, import.meta.url), 'utf-8'),
@@ -131,4 +132,57 @@ test('a Mars Genesis run keeps its colonists, its colony and its years', () => {
   assert.match(prompts.department, /TURN \d+, YEAR 2035: Canary fails/);
   assert.match(prompts.reactions, /colonists|colony/);
   assert.match(prompts.reactions, /Year 2035/);
+});
+
+test('a leader is named once, in the scenario\'s own word', () => {
+  const opening = (sc: ScenarioPackage) => buildCommanderBootstrap('', sc.labels);
+  // The council's leader is a "council lead", not a "council council lead".
+  assert.match(opening(readScenario('dual-superintelligence-council.json')), /You are the council lead\./);
+  // These read "the company commander", "the clinic commander".
+  assert.match(opening(readScenario('corporate-quarterly.json')), /You are the company CEO\./);
+  assert.match(opening(readScenario('t2d-glp1-protocol.json')), /You are the clinic lead clinician\./);
+  assert.match(opening(readScenario('submarine.json')), /You are the station captain\./);
+  assert.match(opening(readScenario('lunar.json')), /You are the outpost commander\./);
+  assert.match(opening(mars), /You are the colony commander\./);
+  // A compiled scenario's labels carry "actor" unless its draft names one.
+  assert.match(buildCommanderBootstrap('', { settlementNoun: 'guild', actorNoun: 'actor' }), /You are the guild leader\./);
+  assert.match(buildCommanderBootstrap('', { settlementNoun: 'guild' }), /You are the guild leader\./);
+});
+
+test('a department head\'s cues name the scenario\'s leader', () => {
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', [], { startTime: 1, initialPopulation: 24, scenario: atlasLab });
+  const dept = atlasLab.departments[0].id;
+  kernel.promoteAgent(kernel.getCandidates(dept, 1)[0].core.id, dept, 'Director of Alignment', 'Marcus Reinhardt');
+  const state = kernel.getState();
+  const head = state.agents.find(a => a.promotion)!;
+  head.hexaco = { ...head.hexaco, extraversion: 0.1, honestyHumility: 0.9 };
+  const text = buildDepartmentContext(
+    dept,
+    state,
+    { turn: 1, time: 1, title: 'Canary fails', crisis: 'A canary deployment regressed.', researchKeywords: [], snapshotHints: {}, riskyOption: '', riskSuccessProbability: 0.5 },
+    { canonicalFacts: [], counterpoints: [], departmentNotes: {} },
+    undefined,
+    undefined,
+    atlasLab.labels,
+  );
+  assert.match(text, /space for the release director to disagree/);
+  assert.match(text, /for the release director's benefit/);
+  assert.doesNotMatch(text, /commander/i);
+});
+
+test('the director is told the departments the run keeps, by id', () => {
+  const kept = atlasLab.departments.slice(0, 3);
+  const prompt = buildDirectorPrompt({ ...directorContext(atlasLab, 1), departments: kept });
+  for (const d of kept) {
+    assert.ok(prompt.includes(`${d.id} (${d.label})`), `prompt lacks ${d.id}`);
+  }
+  assert.match(prompt, /relevantDepartments/);
+  assert.ok(!prompt.includes('deployment_engineering') && !prompt.includes('communications'), 'names a department the run does not keep');
+  // Nobody has been born in a lab yet; the count says nothing.
+  assert.doesNotMatch(prompt, /native-born/);
+  assert.match(buildDirectorPrompt({ ...directorContext(mars, 2035), nativeBornCount: 3 }), /3 native-born/);
+});
+
+test('the web search tool is not described as a Mars tool', () => {
+  assert.doesNotMatch(createWebSearchTool().description, /Mars|NASA/);
 });

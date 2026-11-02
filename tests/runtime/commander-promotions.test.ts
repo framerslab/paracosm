@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import type { KeyPersonnel } from '../../src/engine/core/agent-generator.js';
 import { resolveActiveDepartments, runDepartmentPromotions } from '../../src/runtime/orchestrator/commander-setup.js';
+import type { KernelSnapshot } from '../../src/engine/core/snapshot.js';
 import type { ActorConfig, ScenarioPackage } from '../../src/engine/types.js';
 
 const atlasLab = JSON.parse(
@@ -158,6 +159,7 @@ async function promoteWithPrompt(
 ) {
   const prompts: string[] = [];
   const logs: string[] = [];
+  const emitted: Array<Record<string, unknown>> = [];
   const realLog = console.log;
   console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
   try {
@@ -172,12 +174,12 @@ async function promoteWithPrompt(
         return { text: JSON.stringify({ promotions: promotions.map(p => ({ ...p, reason: 'test pick' })) }) };
       },
       trackUsage: () => {},
-      emit: () => {},
+      emit: (_type: string, data?: Record<string, unknown>) => { emitted.push(data ?? {}); },
     } as Parameters<typeof runDepartmentPromotions>[0]);
   } finally {
     console.log = realLog;
   }
-  return { prompts, logs };
+  return { prompts, logs, emitted };
 }
 
 test('departments named by label or short form reach the scenario department; unknown ones are refused; each department ends with one head', async () => {
@@ -268,4 +270,65 @@ test('an active list that names none of the scenario\'s departments keeps them a
   await promoteWithPrompt(kernel, [], ['medical']);
   const heads = kernel.getState().agents.filter(a => a.promotion).map(a => a.promotion!.department);
   assert.deepEqual(heads.sort(), [...all].sort());
+});
+
+/** A kernel restored as a fork restores it: a snapshot through JSON. */
+function forkOf(parent: SimulationKernel, change?: (snap: KernelSnapshot) => void): SimulationKernel {
+  const snap = JSON.parse(JSON.stringify(parent.toSnapshot(atlasLab.id))) as KernelSnapshot;
+  change?.(snap);
+  return SimulationKernel.fromSnapshot(snap, atlasLab.id);
+}
+
+test('a fork whose departments all have a living head asks the commander nothing', async () => {
+  // runSimulation runs the promotions on a fork too. Every pick would be
+  // refused, so the call only spent money.
+  const parent = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24, scenario: atlasLab });
+  await promoteWithPrompt(parent, []);
+  const heads = parent.getState().agents.filter(a => a.promotion).map(a => a.core.id).sort();
+  assert.equal(heads.length, atlasLab.departments.length);
+
+  const forked = forkOf(parent);
+  const { prompts } = await promoteWithPrompt(forked, []);
+  assert.equal(prompts.length, 0, 'a commander call with nothing to decide');
+  assert.deepEqual(forked.getState().agents.filter(a => a.promotion).map(a => a.core.id).sort(), heads);
+});
+
+test('a fork replaces a head who died, and only that head; a dead person is not promoted', async () => {
+  const parent = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24, scenario: atlasLab });
+  await promoteWithPrompt(parent, []);
+  const dead = parent.getState().agents.find(a => a.promotion?.department === 'governance')!;
+  const forked = forkOf(parent, snap => {
+    snap.state.agents.find(a => a.core.id === dead.core.id)!.health.alive = false;
+  });
+  const pick = forked.getCandidates('governance', 1)[0];
+
+  const { prompts, logs } = await promoteWithPrompt(forked, [
+    { agentId: dead.core.id, department: 'governance', role: 'Ghost' },
+    { agentId: pick.core.id, department: 'Governance', role: 'Chief Policy Officer' },
+  ]);
+
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /promote one of your researchers/);
+  assert.ok(prompts[0].includes('"governance"'));
+  assert.ok(!prompts[0].includes('alignment_research'), 'asks about a department that has a head');
+  const living = forked.getState().agents.filter(a => a.health.alive && a.promotion?.department === 'governance');
+  assert.deepEqual(living.map(a => a.core.id), [pick.core.id]);
+  assert.notEqual(forked.findAgent(dead.core.id)!.promotion?.role, 'Ghost');
+  assert.ok(logs.some(l => l.includes(dead.core.id) && l.includes('refused')), `logs: ${logs.join(' | ')}`);
+});
+
+test('every head is announced to the viewer, the fallback\'s too', async () => {
+  // The dashboard's feed lists a head from its promotion event. A pick the
+  // commander got wrong, now refused, left its department's head unseen.
+  const kernel = new SimulationKernel(11, 'marcus-reinhardt', keyPersonnel, { startTime: 1, initialPopulation: 24, scenario: atlasLab });
+  const priya = kernel.getState().agents.find(a => a.core.name === 'Dr. Priya Singh')!;
+  const { emitted } = await promoteWithPrompt(kernel, [
+    { agentId: priya.core.id, department: 'alignment_research', role: 'Director of Alignment' },
+    { agentId: 'col-s-erna-??', department: 'communications', role: 'Head of Comms' },
+  ]);
+  assert.deepEqual(emitted.map(e => e.department).sort(), atlasLab.departments.map(d => d.id).sort());
+  for (const e of emitted) {
+    assert.equal(kernel.findAgent(String(e.agentId))?.promotion?.department, e.department);
+    assert.ok(e.role, `no role in ${JSON.stringify(e)}`);
+  }
 });
