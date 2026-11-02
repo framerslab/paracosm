@@ -68,7 +68,7 @@ export async function createResearchMemory(knowledge?: KnowledgeBundle): Promise
   } catch (err) {
     console.log(`  [research-memory] Init failed (will read the scenario's bundle): ${err}`);
     if (store) {
-      try { await store.close(); } catch { /* a failed store has nothing left to keep */ }
+      try { await store.shutdown(); } catch { /* a failed store has nothing left to keep */ }
     }
     store = null;
   }
@@ -117,7 +117,7 @@ export async function createResearchMemory(knowledge?: KnowledgeBundle): Promise
       store = null;
       recallCache.clear();
       if (closing) {
-        try { await closing.close(); } catch { /* the run is over either way */ }
+        try { await closing.shutdown(); } catch { /* the run is over either way */ }
       }
     },
   };
