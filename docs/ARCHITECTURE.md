@@ -393,7 +393,9 @@ ATLAS LAB SCORES (each run's final value, A | B)
 }
 ```
 
-The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard as a comparison card with score bars. Its `finalStats` carries the colony fields (`a`, `b`) and `metrics`, the scenario's header scores (every score when the scenario names no header) with both leaders' values, percent scores as fractions; the card and the report scoreboard list `metrics` when it is present, under the scenario's settlement word (`settlementNoun`). A value a run does not hold reads n/a and names no leader. A failed verdict call broadcasts `verdict_skipped` and the run still reaches `complete`.
+Below the scores, each run gets a summary read from its RunArtifact: the mortality line counts the `death` events in `scenarioExtensions.paracosmInternal.finalState.eventLog`; the innovation line gives the length of `forgedTools` and `citations` (an empty list is dropped from the artifact, so a run that forged nothing answers from `paracosmInternal.totalToolsForged` and `totalCitations`); the top tools are the five most reused, with `firstForgedDepartment` and `reuseCount`; the cost line reads `cost.totalUSD` and `cost.llmCalls`. A line the artifact cannot fill reads `not recorded in this run`, never a zero. The fingerprint a run carries counts each forged tool once, however often it was used, so its `totalTools` equals the length of `forgedTools`.
+
+The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard as a comparison card with score bars. Its `finalStats` carries the colony fields and the run's forged-tool count (`a`, `b`) and `metrics`, the scenario's header scores (every score when the scenario names no header) with both leaders' values, percent scores as fractions; the card and the report scoreboard list `metrics` when it is present, under the scenario's settlement word (`settlementNoun`). A value a run does not hold reads n/a and names no leader. A failed verdict call broadcasts `verdict_skipped` and the run still reaches `complete`.
 
 ### Character Chat
 

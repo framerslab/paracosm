@@ -1936,17 +1936,13 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   // for free. Scenario hooks layer their own domain-specific fields on
   // top (e.g., Mars: autonomy, marsbornFraction). Hook output keys win
   // on conflict so authors can override generic values intentionally.
-  const { genericFingerprint } = await import('../util/generic-fingerprint.js');
-  const generic = genericFingerprint(final, outcomeLog, leader, toolRegs, maxTurns);
-  const scenarioOverlay = sc.hooks.fingerprintHook
-    ? sc.hooks.fingerprintHook(final, outcomeLog, leader, toolRegs, maxTurns)
-    : {};
-  const fingerprint = { ...generic, ...scenarioOverlay };
+  const { runFingerprint } = await import('../util/generic-fingerprint.js');
 
   // Canonical Forged Toolbox: deduplicated by tool name with first-forge
   // metadata, full invocation history, and reuse/rejection rollups.
   // Matches the data the dashboard's ToolboxSection renders.
   const forgedToolbox = buildForgedToolbox(forgedLedger, allForges);
+  const fingerprint = runFingerprint(sc.hooks.fingerprintHook, final, outcomeLog, leader, forgedToolbox, maxTurns);
 
   // Flat unique citation list across all department reports. URL is the
   // dedup key; each entry carries the departments + turns that cited it.

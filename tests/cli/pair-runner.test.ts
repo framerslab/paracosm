@@ -450,7 +450,7 @@ test('a run that forged and cited nothing says zero, though its artifact drops t
 });
 
 test('a summary line the artifact cannot fill says so instead of printing zero', async () => {
-  // A run as an import or a save holds it: no catalogs, cost or internal state.
+  // A saved Atlas Lab artifact with no catalogs, cost or internal state.
   const artifact = JSON.parse(readFileSync(resolve(here, '../fixtures/atlas-lab-run-2026-11-02.json'), 'utf-8'));
   assert.equal(artifact.scenarioExtensions.paracosmInternal, undefined);
 

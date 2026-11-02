@@ -28,11 +28,44 @@ import type { ResolvedEconomicsProfile } from '../runtime/economics/economics-pr
  */
 const MAX_COHORT_VERDICT_N = 50;
 
+/** What a summary line says when the artifact holds nothing to fill it. */
+const NOT_RECORDED = 'not recorded in this run';
+
+/**
+ * How many tools a finished run forged, or undefined when its artifact
+ * does not record them. `buildRunArtifact` drops an empty `forgedTools`
+ * list, so a turn-loop run that forged nothing answers from the count
+ * the orchestrator keeps under `paracosmInternal`.
+ */
+function runToolCount(result: any): number | undefined {
+  return result.forgedTools?.length ?? result.scenarioExtensions?.paracosmInternal?.totalToolsForged;
+}
+
+/**
+ * One toolbox entry for the prompt. A live run's entries carry
+ * `firstForgedDepartment` and `reuseCount`; an artifact written to the
+ * public `ForgedToolSummarySchema` carries `department` alone.
+ */
+function formatTool(tool: any): string {
+  const department = tool.firstForgedDepartment ?? tool.department;
+  const details = [
+    ...(department ? [department] : []),
+    ...(tool.reuseCount === undefined ? [] : [`reused ${tool.reuseCount}x`]),
+  ];
+  return details.length > 0 ? `${tool.name}(${details.join(', ')})` : tool.name;
+}
+
 /**
  * Per-actor summary used by both the pair verdict and the cohort
  * verdict prompt builders. Pulled out of the original inline
  * `formatLeader` closure so the cohort runner can reuse it without
  * duplicating the cause-of-death rollup + tool-ledger math.
+ *
+ * Reads the RunArtifact as `buildRunArtifact` writes it: `forgedTools`,
+ * `citations`, `cost.totalUSD`, and the kernel's event log, which only
+ * `scenarioExtensions.paracosmInternal.finalState` holds. A line the
+ * artifact cannot fill says so, so the judge never reads an absent
+ * field as a zero.
  *
  * @param label leading label for this actor in the prompt ("LEADER A",
  *              "#3 Captain Reyes", etc.)
@@ -49,19 +82,45 @@ function formatActorSummary(
   result: any,
   words: VerdictWords,
 ): string {
-  const fp = result.fingerprint || {};
-  const toolbox = result.forgedToolbox || [];
-  const topTools = toolbox.slice(0, 5).map((t: any) => `${t.name}(${t.firstForgedDepartment}, reused ${t.reuseCount}x)`).join('; ');
-  const deathEvents = (result.finalState?.eventLog ?? []).filter((e: any) => e.type === 'death');
-  const causeCounts: Record<string, number> = {};
-  for (const d of deathEvents) {
-    const raw = (d.cause as string | undefined) ?? 'unknown';
-    const key = raw.startsWith('accident:') ? 'accident' : raw;
-    causeCounts[key] = (causeCounts[key] ?? 0) + 1;
+  const fp = result.fingerprint ?? {};
+  const internal = result.scenarioExtensions?.paracosmInternal;
+
+  const eventLog = internal?.finalState?.eventLog;
+  let mortality = NOT_RECORDED;
+  if (eventLog) {
+    const deathEvents = eventLog.filter((e: any) => e.type === 'death');
+    const causeCounts: Record<string, number> = {};
+    for (const d of deathEvents) {
+      const raw = (d.cause as string | undefined) ?? 'unknown';
+      const key = raw.startsWith('accident:') ? 'accident' : raw;
+      causeCounts[key] = (causeCounts[key] ?? 0) + 1;
+    }
+    const causeSummary = Object.keys(causeCounts).length > 0
+      ? Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(', ')
+      : 'no deaths';
+    mortality = `${deathEvents.length} ${words.population} died (${causeSummary})`;
   }
-  const causeSummary = Object.keys(causeCounts).length > 0
-    ? Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${n} ${k}`).join(', ')
-    : 'no deaths';
+
+  const toolCount = runToolCount(result);
+  const tools = toolCount === undefined
+    ? `tools forged ${NOT_RECORDED}`
+    : `${toolCount} unique tools forged${fp.innovation ? ` (${fp.innovation})` : ''}`;
+  const citationCount = result.citations?.length ?? internal?.totalCitations;
+  const citations = `citations ${citationCount ?? NOT_RECORDED}`;
+  const mostUsed = [...(result.forgedTools ?? [])]
+    .sort((a: any, b: any) => (b.reuseCount ?? 0) - (a.reuseCount ?? 0))
+    .slice(0, 5)
+    .map(formatTool)
+    .join('; ');
+  const toolLine = mostUsed
+    ? `  Top tools: ${mostUsed}`
+    : toolCount === 0 ? '  No tools forged' : `  Top tools: ${NOT_RECORDED}`;
+
+  const cost = result.cost;
+  const costLine = cost?.totalUSD === undefined
+    ? NOT_RECORDED
+    : `$${cost.totalUSD.toFixed(4)}${cost.llmCalls === undefined ? '' : ` over ${cost.llmCalls} LLM calls`}`;
+
   return [
     `${label}: ${leader.name} "${leader.archetype}"${leader.unit ? ` (${leader.unit})` : ''}`,
     // Optional-chain every HEXACO axis so actors using the ai-agent
@@ -71,11 +130,11 @@ function formatActorSummary(
     // to 0.50 (the schema default) so the prompt still carries a
     // structurally complete HEXACO line for the LLM to reason from.
     `  HEXACO: O${(leader.hexaco?.openness ?? 0.5).toFixed(2)} C${(leader.hexaco?.conscientiousness ?? 0.5).toFixed(2)} E${(leader.hexaco?.extraversion ?? 0.5).toFixed(2)} A${(leader.hexaco?.agreeableness ?? 0.5).toFixed(2)} Em${(leader.hexaco?.emotionality ?? 0.5).toFixed(2)} HH${(leader.hexaco?.honestyHumility ?? 0.5).toFixed(2)}`,
-    `  Mortality: ${deathEvents.length} ${words.population} died (${causeSummary})`,
-    `  Innovation: ${toolbox.length} unique tools forged (${fp.innovation || 'n/a'}), citations ${result.totalCitations ?? 0}`,
-    topTools ? `  Top tools: ${topTools}` : '  No tools forged',
-    `  Fingerprint: ${fp.summary || 'n/a'}`,
-    `  Cost: $${result.cost?.totalCostUSD?.toFixed(4) ?? '?'} over ${result.cost?.llmCalls ?? '?'} LLM calls`,
+    `  Mortality: ${mortality}`,
+    `  Innovation: ${tools}, ${citations}`,
+    toolLine,
+    `  Fingerprint: ${fp.summary || NOT_RECORDED}`,
+    `  Cost: ${costLine}`,
   ].join('\n');
 }
 
@@ -727,8 +786,8 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
         leaderB: { name: b.leader.name, archetype: b.leader.archetype, unit: b.leader.unit },
         settlementNoun: words.settlement,
         finalStats: {
-          a: { population: colA?.population, morale: colA?.morale, food: colA?.foodMonthsReserve, power: colA?.powerKw, modules: colA?.infrastructureModules, science: colA?.scienceOutput, tools: a.result.totalToolsForged },
-          b: { population: colB?.population, morale: colB?.morale, food: colB?.foodMonthsReserve, power: colB?.powerKw, modules: colB?.infrastructureModules, science: colB?.scienceOutput, tools: b.result.totalToolsForged },
+          a: { population: colA?.population, morale: colA?.morale, food: colA?.foodMonthsReserve, power: colA?.powerKw, modules: colA?.infrastructureModules, science: colA?.scienceOutput, tools: runToolCount(a.result) },
+          b: { population: colB?.population, morale: colB?.morale, food: colB?.foodMonthsReserve, power: colB?.powerKw, modules: colB?.infrastructureModules, science: colB?.scienceOutput, tools: runToolCount(b.result) },
           // The scenario's header scores, in header order, for the
           // verdict card and the report scoreboard.
           metrics: cardRows(rows).map(r => ({
@@ -851,7 +910,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
           power: result.finalState?.metrics?.powerKw,
           modules: result.finalState?.metrics?.infrastructureModules,
           science: result.finalState?.metrics?.scienceOutput,
-          tools: result.totalToolsForged,
+          tools: runToolCount(result),
           metrics: cardRows(rows).map(r => ({
             ...scoreRowDisplay(r, words),
             value: r.values[i],
