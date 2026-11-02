@@ -72,6 +72,13 @@ test('estimateForkCost: 3 turns remaining on OpenAI economy', () => {
   assert.match(cost, /^~\$0\.\d{2}$/, `expected "~$0.xx", got ${cost}`);
 });
 
+test('estimateForkCost: a whole economy run lies within what measured runs cost', () => {
+  // One leader's 6 turns on the hosted demo cost 0.2898, 0.4499, 0.5609
+  // and 1.0529 USD in the pairs of 30 October and 1 November 2026.
+  const cost = Number(estimateForkCost(0, 6, 'economy', 'openai').replace('~$', ''));
+  assert.ok(cost >= 0.2898 && cost <= 1.0529, `six turns priced at ${cost}`);
+});
+
 test('estimateForkCost: 6 turns remaining on Anthropic quality rounds up cleanly', () => {
   const cost = estimateForkCost(0, 6, 'quality', 'anthropic');
   assert.match(cost, /^~\$4\.\d{2}$/, `expected ~$4.xx, got ${cost}`);

@@ -12,6 +12,7 @@ import { ViewAsCodePanel } from './ViewAsCodePanel';
 import { LoadedScenarioCTA } from './LoadedScenarioCTA';
 import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
+import { estimateQuickstartCostUSD } from './SeedInput.helpers';
 import styles from './SeedInput.module.scss';
 
 export interface SeedInputProps {
@@ -367,7 +368,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
           aria-label="Number of parallel actors to run"
         />
         <span className={styles.actorCountPreview} aria-live="polite">
-          ~${(0.10 + 0.30 * actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
+          ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
         </span>
       </div>
 
@@ -385,7 +386,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
         onClick={submit}
         disabled={disabled || seedText.trim().length < 200}
       >
-        Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${(0.10 + 0.30 * actorCount).toFixed(2)})
+        Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${estimateQuickstartCostUSD(actorCount).toFixed(2)})
       </button>
     </div>
   );
