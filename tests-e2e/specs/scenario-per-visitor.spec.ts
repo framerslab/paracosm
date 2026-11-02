@@ -136,6 +136,56 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toHaveCount(0);
   });
 
+  test('a page comes up without the run the server holds for another scenario', async ({ page }) => {
+    // Another visitor's finished Atlas Lab run is in the server's buffer,
+    // opened by its active_scenario event. This page holds no pick, so it is
+    // on Mars Genesis, and that run would draw under Mars Genesis's header
+    // metrics and nouns.
+    let runScenario = 'atlas-lab';
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: `event: connected\ndata: {}\n\nevent: active_scenario\ndata: ${JSON.stringify({ id: runScenario })}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n`,
+      });
+    });
+    await openSettings(page);
+    await expect(firstName(page)).toHaveValue('Aria Chen');
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    const opened = served;
+    await expect.poll(() => served).toBeGreaterThan(opened + 1);
+    await expect(finishedRun(page)).toHaveCount(0);
+
+    // A run in the page's own scenario shows.
+    runScenario = 'mars-genesis';
+    await expect(finishedRun(page)).toBeVisible();
+  });
+
+  test('the page that switched shows a run that opened while it was reconnecting', async ({ page }) => {
+    // The run from before the switch names no scenario, so the switch's
+    // mark is what skips it. A run that opens while the page is between two
+    // connections reaches it in the next replay, not live, and must show.
+    let body = 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n';
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
+    });
+    await openSettings(page);
+    await page.locator('#scenario-select').selectOption('atlas-lab');
+    await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
+    await expect(firstName(page)).toHaveValue('Marcus Reinhardt');
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    const reloaded = served;
+    await expect.poll(() => served).toBeGreaterThan(reloaded + 1);
+    await expect(finishedRun(page)).toHaveCount(0);
+
+    body = 'event: connected\ndata: {}\n\nevent: active_scenario\ndata: {"id":"atlas-lab"}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n';
+    await expect(finishedRun(page)).toBeVisible();
+  });
+
   test('the privacy section names the cookie that holds the pick', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#privacy')).toContainText('paracosm_scenario');
