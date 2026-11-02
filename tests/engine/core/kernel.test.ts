@@ -4,6 +4,7 @@ import { SimulationKernel } from '../../../src/engine/core/kernel.js';
 import type { KeyPersonnel } from '../../../src/engine/core/agent-generator.js';
 import { readFileSync } from 'node:fs';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
+import { decisionToPolicy, emptyDecision, emptyReport } from '../../../src/runtime/util/parsers.js';
 import type { ScenarioPackage } from '../../../src/engine/types.js';
 
 const keyPersonnel: KeyPersonnel[] = [
@@ -276,4 +277,34 @@ test('SimulationKernel: a child is no candidate for a department head', () => {
   const candidates = forked.getCandidates('medical', 12).map(a => a.core.id);
   assert.equal(candidates.length, 12 - childIds.length);
   assert.deepEqual(candidates.filter(id => childIds.includes(id)), []);
+});
+
+test('a department\'s patch cannot mark an agent dead: deaths come from progression, with their event', () => {
+  const kernel = new SimulationKernel(950, 'Commander', keyPersonnel, { startTime: 2042, initialPopulation: 20 });
+  const target = kernel.getState().agents[0];
+  assert.equal(target.health.alive, true);
+
+  const policy = decisionToPolicy(
+    emptyDecision(['medical']),
+    [{
+      ...emptyReport('medical'),
+      proposedPatches: {
+        agentUpdates: [{
+          agentId: target.core.id,
+          health: { alive: false, deathTime: 2042, deathCause: 'patched', psychScore: 0.31 },
+        }],
+      },
+    }],
+    1,
+    2042,
+  );
+  kernel.applyPolicy(policy);
+
+  const state = kernel.getState();
+  const after = state.agents.find(a => a.core.id === target.core.id)!;
+  assert.equal(after.health.alive, true, 'the verdict counts death events, and this one would have none');
+  assert.equal(after.health.deathTime, undefined);
+  assert.equal(after.health.deathCause, undefined);
+  assert.equal(after.health.psychScore, 0.31, 'the patch\'s other fields still apply');
+  assert.equal(state.eventLog.filter(e => e.type === 'death').length, 0);
 });
