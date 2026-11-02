@@ -16,7 +16,7 @@ import { once } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMarsServer } from '../../src/server/server-app.js';
+import { createMarsServer, type CreateMarsServerOptions } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
 
@@ -40,13 +40,17 @@ interface OnEvent { onEvent?: (event: unknown) => void }
 type Intervene = (options: OnEvent) => Promise<unknown>;
 type Frame = { event: string; data: Record<string, unknown> };
 
-async function withServer(intervene: Intervene, run: (base: string) => Promise<void>): Promise<void> {
+async function withServer(
+  intervene: Intervene,
+  run: (base: string) => Promise<void>,
+  runPairSimulations: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async () => {},
+): Promise<void> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-digital-twin-events-'));
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '' },
     maxSimsPerDay: 0,
     runHistoryStore: createNoopRunHistoryStore(),
-    runPairSimulations: async () => {},
+    runPairSimulations,
     getDigitalTwinWorld: async () => ({ scenario, intervene }) as unknown as WorldModel,
   });
   server.listen(0);
@@ -218,5 +222,93 @@ test('a run the provider stopped ends as aborted, as a pair run does', async () 
     const end = (await readReplay(base)).filter(f => f.event === 'complete');
     assert.equal(end.length, 1);
     assert.equal(end[0].data.aborted, true);
+  });
+});
+
+test('a /clear during a Digital Twin run leaves the buffer naming the run, so a page goes on judging it by its scenario', async () => {
+  let finish = () => {};
+  const held = new Promise<void>(resolve => { finish = resolve; });
+  await withServer(async ({ onEvent }) => {
+    onEvent?.(turnStart);
+    await held;
+    onEvent?.(turnDone);
+    return { metadata: { runId: 'twin-1' } };
+  }, async base => {
+    const answer = post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }));
+    await waitFor(async () => (await readReplay(base)).some(f => f.event === 'sim'), "the twin's first event");
+
+    // Any page's Clear, or the /clear a page posts with its own run when that
+    // /clear lands second.
+    assert.equal((await post(base, '/clear', {})).status, 200);
+    const cleared = await readReplay(base);
+    assert.deepEqual(cleared.map(f => f.event), ['active_scenario']);
+    assert.equal(cleared[0].data.id, scenario.id);
+    assert.equal(cleared[0].data.runKey, 'page-run-key-1');
+
+    finish();
+    assert.equal((await answer).status, 200);
+    const frames = await readReplay(base);
+    assert.deepEqual(frames.map(f => f.event).filter(e => e !== 'sim_saved'), ['active_scenario', 'sim', 'complete']);
+
+    // The run is over: a /clear now leaves the buffer empty.
+    assert.equal((await post(base, '/clear', {})).status, 200);
+    assert.deepEqual(await readReplay(base), []);
+  });
+});
+
+test('a run key the server has opened a run with is refused, so no request takes over another run', async () => {
+  await withServer(async () => ({ metadata: { runId: 'twin-1' } }), async base => {
+    assert.equal((await post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }))).status, 200);
+    const repeated = await post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }));
+    assert.equal(repeated.status, 409);
+
+    // The key of a /setup run, which every page reads off the stream.
+    assert.equal((await post(base, '/setup', { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id })).status, 200);
+    await waitFor(async () => (await readReplay(base))[0]?.data.id === mars.id, 'the /setup run to open');
+    const [opening] = await readReplay(base);
+    const stolen = await post(base, '/api/quickstart/simulate-intervention', body({ runKey: opening.data.runKey }));
+    assert.equal(stolen.status, 409);
+    const [still] = await readReplay(base);
+    assert.deepEqual(still, opening, 'the run in flight keeps the buffer');
+  });
+});
+
+test('a Digital Twin run stops the /setup run in flight, and that run writes nothing more to the buffer', async () => {
+  let finish = () => {};
+  const held = new Promise<void>(resolve => { finish = resolve; });
+  let finishSetup = () => {};
+  const setupHeld = new Promise<void>(resolve => { finishSetup = resolve; });
+  let setupBroadcast: ((event: string, data: unknown, actorId?: string) => void) | null = null;
+  let setupAborted = false;
+
+  await withServer(async ({ onEvent }) => {
+    onEvent?.(turnStart);
+    await held;
+    onEvent?.(turnDone);
+    return { metadata: { runId: 'twin-1' } };
+  }, async base => {
+    assert.equal((await post(base, '/setup', { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id })).status, 200);
+    await waitFor(async () => setupBroadcast !== null, 'the /setup run to start');
+
+    const answer = post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }));
+    await waitFor(async () => (await readReplay(base)).some(f => f.event === 'sim'), "the twin's first event");
+    assert.equal(setupAborted, true, 'the /setup run was told to stop, as a second /setup tells it');
+
+    // The last events of the stopped run arrive after the twin took the buffer.
+    setupBroadcast!('sim', { type: 'sim_aborted', leader: 'Marcus', data: { reason: 'external' } }, 'Marcus');
+    setupBroadcast!('complete', { timestamp: new Date().toISOString(), aborted: true });
+    finishSetup();
+
+    finish();
+    assert.equal((await answer).status, 200);
+    const frames = await readReplay(base);
+    assert.deepEqual(frames.filter(f => f.event === 'sim').map(f => f.data.leader), [LEADER, LEADER]);
+    const end = frames.filter(f => f.event === 'complete');
+    assert.equal(end.length, 1, "the stopped run's end does not end the twin");
+    assert.notEqual(end[0].data.aborted, true);
+  }, async (_config, broadcast, signal) => {
+    setupBroadcast = broadcast;
+    signal?.addEventListener('abort', () => { setupAborted = true; });
+    await setupHeld;
   });
 });
