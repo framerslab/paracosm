@@ -22,6 +22,7 @@ import {
   SETTINGS_SECTION_HEADER_STYLE,
 } from './shared/settingsStyles';
 import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -116,6 +117,61 @@ function defaultLeader(idx: number, scenario: ScenarioLabelsInput): ActorFormDat
   };
 }
 
+/** A leader as /setup stored it after the last launch (readActiveRunActors). */
+type StoredLeader = { name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> };
+
+/**
+ * The default preset's leaders. Server's projectScenarioForClient ships
+ * ScenarioPreset.leaders (engine-side field name); the legacy `actors`
+ * alias is read for older fixtures.
+ */
+function presetLeadersOf(scenario: ScenarioClientPayload) {
+  const preset = scenario.presets.find(p => p.id === 'default');
+  return preset?.leaders ?? preset?.actors;
+}
+
+/**
+ * Put `scenario`'s preset leaders into the form, `previous` being the
+ * scenario the form showed before. `edits` holds what the person has
+ * changed in each slot since the page opened, which stays. A slot the
+ * preset does not fill keeps its person. Its unit takes the new scenario's
+ * word when it is the previous scenario's default, or when this scenario
+ * has leaders of its own and the stored roster that slot came from was
+ * launched on another scenario (or does not say which). A slot the preset
+ * fills takes the preset's leader; its unit stays when the stored roster
+ * was launched on this scenario and the unit is not the previous
+ * scenario's default. The hexaco is spread so per-trait edits never
+ * mutate the preset shared through the scenario context.
+ */
+function withPresetLeaders(
+  prev: ActorFormData[],
+  previous: ScenarioLabelsInput,
+  scenario: ScenarioClientPayload,
+  rosterScenarioId: string | null,
+  edits: ReadonlyArray<Partial<ActorFormData> | undefined>,
+): ActorFormData[] {
+  const leaders = presetLeadersOf(scenario);
+  return prev.map((existing, idx) => {
+    const edited = edits[idx];
+    const preset = leaders?.[idx];
+    const unitIsPreviousDefault = existing.unit === leaderUnit(previous, idx);
+    if (!preset) {
+      const rosterIsOtherScenario = leaders !== undefined && rosterScenarioId !== scenario.id;
+      const unitIsStale = rosterIsOtherScenario || unitIsPreviousDefault;
+      return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
+    }
+    const keepUnit = rosterScenarioId === scenario.id && !!existing.unit && !unitIsPreviousDefault;
+    return {
+      name: preset.name,
+      archetype: preset.archetype,
+      unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
+      instructions: preset.instructions,
+      hexaco: { ...preset.hexaco },
+      ...edited,
+    };
+  });
+}
+
 /** Lower bound — Sim API rejects under 2 actors (non-fork paths). */
 const MIN_ACTORS = 2;
 /** Upper bound for the Settings panel UI. The server accepts up to
@@ -151,91 +207,47 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const labels = useScenarioLabels();
   const navigateTab = useDashboardNavigation();
 
-  const defaultPreset = scenario.presets.find(p => p.id === 'default');
-  // Server's projectScenarioForClient now ships ScenarioPreset.leaders
-  // (engine-side field name); the legacy `actors` alias is preserved on
-  // the type but only older fixtures populate it. Read leaders first so
-  // hosted prod's Mars Genesis preset surfaces "Aria Chen / Dietrich
-  // Voss" instead of the defaultLeader(0/1) placeholder.
-  //
-  // For compiled scenarios (which ship no presets) the form falls back
-  // to actors persisted by the most recent /setup launch. Without that
-  // fallback the form rendered "Actor A" / "Actor B" placeholders even
-  // though the user had just launched a clinical or bookstore run with
-  // real generated actors a moment ago.
-  const presetLeaders = defaultPreset?.leaders ?? defaultPreset?.actors;
+  // The form starts from the leaders of the most recent /setup launch (or
+  // slot defaults), so a run with 3+ actors resumes here with its full
+  // roster, and a compiled scenario (which ships no presets) shows the
+  // actors its last run was launched with. The scenario's preset leaders
+  // then go in by one rule (withPresetLeaders), at once when the scenario
+  // is already loaded (Settings opened from another tab) and when GET
+  // /scenario answers after a fresh load, so both show the same form.
   const persistedActors =
     typeof window !== 'undefined' ? readActiveRunActors(window.localStorage) : null;
-  // Cohort-aware initial state: merge presets, persisted launch config,
-  // and per-slot defaults. The Settings panel renders up to MAX_ACTORS
-  // actor forms; runs that previously launched with 3+ actors via
-  // Quickstart resume here with their full roster intact instead of
-  // collapsing back to the legacy pair view. Pair-only sources (a
-  // 2-actor preset on a scenario built before cohorts) still hydrate
-  // the first two slots and leave the rest at their slot defaults.
-  const presetActorCount = Math.max(
-    MIN_ACTORS,
-    Math.min(MAX_ACTORS, presetLeaders?.length ?? persistedActors?.length ?? MIN_ACTORS),
-  );
-  const initActors: ActorFormData[] = Array.from({ length: presetActorCount }, (_, idx) => {
-    const fallback =
-      presetLeaders?.[idx] ??
-      (persistedActors?.[idx] as { name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> } | undefined);
-    if (!fallback?.name) return defaultLeader(idx, scenario);
-    return {
-      name: fallback.name,
-      archetype: fallback.archetype ?? '',
-      unit: fallback.unit ?? leaderUnit(scenario, idx),
-      instructions: fallback.instructions ?? '',
-      // Spread so the form's per-trait edits don't mutate the preset
-      // shared via the scenario context.
-      hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
-    };
-  });
-
-  const [actors, setActors] = useState<ActorFormData[]>(initActors);
-
-  // Re-populate from presets when scenario data loads (async fetch).
-  // Depend on presets length because the fallback has presets:[] but
-  // the same id. Preserves the user's actor count when the preset has
-  // fewer entries than the current form (no shrink on scenario load).
-  // What the person has changed in each slot since the page opened stays. A
-  // slot the preset does not fill keeps its person. Its unit takes the new
-  // scenario's word when it is the last scenario's default, or when this
-  // scenario has leaders of its own and the stored roster that slot came
-  // from was launched on another scenario (or does not say which). A slot
-  // the preset fills takes the preset's leader; its unit stays when the
-  // stored roster was launched on this scenario and the unit is not the
-  // last scenario's default.
-  const edits = useRef<Array<Partial<ActorFormData>>>([]);
-  const lastScenario = useRef<ScenarioLabelsInput>(scenario);
   const [rosterScenarioId] = useState(() =>
     typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
   );
+  const [actors, setActors] = useState<ActorFormData[]>(() => {
+    const count = Math.max(
+      MIN_ACTORS,
+      Math.min(MAX_ACTORS, Math.max(presetLeadersOf(scenario)?.length ?? 0, persistedActors?.length ?? 0)),
+    );
+    const stored = Array.from({ length: count }, (_, idx): ActorFormData => {
+      const fallback = persistedActors?.[idx] as StoredLeader | undefined;
+      if (!fallback?.name) return defaultLeader(idx, scenario);
+      return {
+        name: fallback.name,
+        archetype: fallback.archetype ?? '',
+        unit: fallback.unit ?? leaderUnit(scenario, idx),
+        instructions: fallback.instructions ?? '',
+        hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
+      };
+    });
+    return withPresetLeaders(stored, scenario, scenario, rosterScenarioId, []);
+  });
+
+  // Re-populate from presets when scenario data loads (async fetch).
+  // Depend on presets length because the fallback has presets:[] but
+  // the same id. What the person has changed in each slot since the page
+  // opened stays.
+  const edits = useRef<Array<Partial<ActorFormData>>>([]);
+  const lastScenario = useRef<ScenarioLabelsInput>(scenario);
   useEffect(() => {
     const previous = lastScenario.current;
     lastScenario.current = scenario;
-    const p = scenario.presets.find(p => p.id === 'default');
-    const leaders = p?.leaders ?? p?.actors;
-    setActors(prev => prev.map((existing, idx) => {
-      const edited = edits.current[idx];
-      const preset = leaders?.[idx];
-      const unitIsPreviousDefault = existing.unit === leaderUnit(previous, idx);
-      if (!preset) {
-        const rosterIsOtherScenario = leaders !== undefined && rosterScenarioId !== scenario.id;
-        const unitIsStale = rosterIsOtherScenario || unitIsPreviousDefault;
-        return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
-      }
-      const keepUnit = rosterScenarioId === scenario.id && !!existing.unit && !unitIsPreviousDefault;
-      return {
-        name: preset.name,
-        archetype: preset.archetype,
-        unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
-        instructions: preset.instructions,
-        hexaco: { ...preset.hexaco },
-        ...edited,
-      };
-    }));
+    setActors(prev => withPresetLeaders(prev, previous, scenario, rosterScenarioId, edits.current));
   }, [scenario.id, scenario.presets.length]);
 
   const updateActor = useCallback((idx: number, next: ActorFormData) => {
