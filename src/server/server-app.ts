@@ -136,10 +136,11 @@ export function readVisitorScenarioId(req: IncomingMessage): string | null {
  * percent-encoded, since a cookie value may not hold whitespace, quotes,
  * commas, semicolons or backslashes and a stored scenario's id can be any
  * string. Null when the encoded id is over 1024 bytes or does not encode.
- * No `Secure`: `SameSite=Lax` does not need it, and the server answers
- * plain HTTP behind its proxy and on a developer's machine.
+ * `secure` adds `Secure`, for the hosted demo, which browsers reach over
+ * HTTPS. A local server answers plain HTTP, where a browser would refuse a
+ * `Secure` cookie.
  */
-export function pickCookie(id: string): string | null {
+export function pickCookie(id: string, secure = false): string | null {
   let value: string;
   try {
     value = encodeURIComponent(id);
@@ -147,7 +148,7 @@ export function pickCookie(id: string): string | null {
     return null;
   }
   if (Buffer.byteLength(value) > SCENARIO_PICK_MAX_BYTES) return null;
-  return `${SCENARIO_PICK_COOKIE}=${value}; Path=/; Max-Age=${SCENARIO_PICK_MAX_AGE_SECONDS}; SameSite=Lax; HttpOnly`;
+  return `${SCENARIO_PICK_COOKIE}=${value}; Path=/; Max-Age=${SCENARIO_PICK_MAX_AGE_SECONDS}; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`;
 }
 
 /**
@@ -417,6 +418,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
   // copy run from the package or a clone sends its pages without them.
   const siteAnalytics = serverMode === 'hosted_demo';
+  const pickCookieSecure = serverMode === 'hosted_demo';
   // Rate limit default: 1 simulation per IP per day for the public-demo
   // path. Even on DEMO_MODELS + DEMO_EXECUTION a run costs ~$0.40 against
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
@@ -1928,7 +1930,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeScenarioRefusal(res, resolved);
           return;
         }
-        const cookie = pickCookie(named);
+        const cookie = pickCookie(named, pickCookieSecure);
         if (!cookie) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: `Scenario id is too long to hold as a pick: it must percent-encode to at most ${SCENARIO_PICK_MAX_BYTES} bytes.` }));
@@ -1985,7 +1987,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           getScenarioById: (id) => customScenarioCatalog.get(id)?.scenario,
           pickHeaders: (id): Record<string, string> => {
-            const cookie = pickCookie(id);
+            const cookie = pickCookie(id, pickCookieSecure);
             return cookie ? { 'Set-Cookie': cookie } : {};
           },
           fetchSeedFromUrl,
@@ -3075,7 +3077,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const currentPick = resolveRequestScenario(req);
         const runPickCookie = 'scenario' in currentPick && currentPick.scenario.id === runScenario.id
           ? null
-          : pickCookie(runScenario.id);
+          : pickCookie(runScenario.id, pickCookieSecure);
         res.writeHead(200, { 'Content-Type': 'application/json', ...(runPickCookie ? { 'Set-Cookie': runPickCookie } : {}) });
         res.end(JSON.stringify({
           redirect: '/sim',
