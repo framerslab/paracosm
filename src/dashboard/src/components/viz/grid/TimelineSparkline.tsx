@@ -1,6 +1,10 @@
+import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { TurnSnapshot } from '../viz-types.js';
 import styles from './TimelineSparkline.module.scss';
+
+// The server-side render in the tests compiles JSX to React.createElement.
+void React;
 
 interface TimelineSparklineProps {
   snapsA: TurnSnapshot[];
