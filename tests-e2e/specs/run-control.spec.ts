@@ -63,6 +63,8 @@ test.describe('Run controls @run', () => {
     await page.goto('/sim?tab=sim');
     await runMenuButton(page).click();
     await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
+    // The pointer has not left the RUN button: its tooltip must not sit
+    // over the menu it just opened.
     await runNewItem(page).click();
 
     await expect.poll(() => bodies.length).toBe(1);
@@ -74,8 +76,8 @@ test.describe('Run controls @run', () => {
   test("Settings launches Atlas Lab's leaders, in units named for a lab", async ({ page }) => {
     const bodies = await captureSetup(page);
     await page.goto('/sim?tab=settings');
-    await expect(page.getByLabel('Name', { exact: true }).first()).toHaveValue('Marcus Reinhardt');
-    await expect(page.getByLabel('Unit', { exact: true }).first()).toHaveValue('Lab Alpha');
+    await expect(page.getByRole('textbox', { name: 'Name', exact: true }).first()).toHaveValue('Marcus Reinhardt');
+    await expect(page.getByRole('textbox', { name: 'Unit', exact: true }).first()).toHaveValue('Lab Alpha');
     await settingsLaunch(page).click();
 
     await expect.poll(() => bodies.length).toBe(1);
