@@ -213,6 +213,56 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: another run started on the server/ }).first()).toBeVisible();
   });
 
+  test("a loaded run offers a fork only in the page's own scenario", async ({ page, baseURL }) => {
+    // A fork runs in its parent's scenario and a page shows a run only in
+    // its own, so a Mars Genesis page that forked a loaded Atlas Lab run
+    // would never see the fork: its branch would read running for good.
+    const savedRun = (scenarioId: string, name: string, leader: string) => ({
+      schemaVersion: 3,
+      startedAt: '2026-11-02T00:00:00.000Z',
+      completedAt: '2026-11-02T00:10:00.000Z',
+      events: [1, 2].flatMap(turn => ['turn_start', 'turn_done'].map(type => ({
+        type, leader, data: { turn, time: turn, title: `${name} turn ${turn}` },
+      }))),
+      results: [{
+        leader,
+        summary: {},
+        fingerprint: null,
+        artifact: {
+          metadata: { runId: `parent-${scenarioId}`, scenario: { id: scenarioId, name }, mode: 'turn-loop', startedAt: '2026-11-02T00:00:00.000Z', seed: 11 },
+          scenarioExtensions: {
+            kernelSnapshotsPerTurn: [1, 2].map(turn => ({
+              snapshotVersion: 1, scenarioId, turn, time: turn, state: {}, rngState: 0, startTime: 1, seed: 11,
+            })),
+          },
+        },
+      }],
+      verdict: null,
+    });
+    const runs: Record<string, ReturnType<typeof savedRun>> = {
+      'mars-genesis': savedRun('mars-genesis', 'Mars Genesis', 'Aria Chen'),
+      'atlas-lab': savedRun('atlas-lab', 'Atlas Lab', 'Marcus Reinhardt'),
+    };
+    await page.route('**/saved-runs/*.json', route => {
+      const id = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.json$/, '');
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs[id]) });
+    });
+    const forkButton = () => page.getByRole('button', { name: /^Fork at .* 1$/ });
+    const openSaved = (id: string) => page.goto(`/sim?load=${encodeURIComponent(`${baseURL}/saved-runs/${id}.json`)}&autoload=1&tab=reports`);
+
+    // This page holds no pick, so it is on Mars Genesis.
+    await openSaved('mars-genesis');
+    await expect(page.locator('#turn-1')).toBeVisible();
+    await expect(forkButton()).toHaveCount(1);
+
+    await expect(page.getByRole('note')).toHaveCount(0);
+
+    await openSaved('atlas-lab');
+    await expect(page.locator('#turn-1')).toBeVisible();
+    await expect(page.getByRole('note')).toContainText('This run is in Atlas Lab');
+    await expect(forkButton()).toHaveCount(0);
+  });
+
   test('the privacy section names the cookie that holds the pick', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#privacy')).toContainText('paracosm_scenario');
