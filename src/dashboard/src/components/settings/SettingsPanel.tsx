@@ -203,7 +203,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // slot the preset does not fill keeps its person. Its unit takes the new
   // scenario's word when it is the last scenario's default, or when this
   // scenario has leaders of its own and the stored roster that slot came
-  // from was launched on another scenario (or does not say which).
+  // from was launched on another scenario (or does not say which). A slot
+  // the preset fills takes the preset's leader; its unit stays when the
+  // stored roster was launched on this scenario and the unit is not the
+  // last scenario's default.
   const edits = useRef<Array<Partial<ActorFormData>>>([]);
   const lastScenario = useRef<ScenarioLabelsInput>(scenario);
   const [rosterScenarioId] = useState(() =>
@@ -217,15 +220,17 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     setActors(prev => prev.map((existing, idx) => {
       const edited = edits.current[idx];
       const preset = leaders?.[idx];
+      const unitIsPreviousDefault = existing.unit === leaderUnit(previous, idx);
       if (!preset) {
         const rosterIsOtherScenario = leaders !== undefined && rosterScenarioId !== scenario.id;
-        const unitIsStale = rosterIsOtherScenario || existing.unit === leaderUnit(previous, idx);
+        const unitIsStale = rosterIsOtherScenario || unitIsPreviousDefault;
         return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
       }
+      const keepUnit = rosterScenarioId === scenario.id && !!existing.unit && !unitIsPreviousDefault;
       return {
         name: preset.name,
         archetype: preset.archetype,
-        unit: preset.unit ?? leaderUnit(scenario, idx),
+        unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
         instructions: preset.instructions,
         hexaco: { ...preset.hexaco },
         ...edited,
