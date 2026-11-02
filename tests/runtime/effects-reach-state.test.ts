@@ -457,3 +457,106 @@ test('a station short of food loses people to hunger in its own words; Mars keep
     assert.doesNotMatch(e.description, / a [aeiouAEIOU]/, e.description);
   }
 });
+
+// ------------------------------------------------- limits on who can move
+
+test('one delta brings in at most as many people as the roster holds', () => {
+  const kernel = kernelFor(atlasLab, 30);
+  const moved = kernel.applyPolicy(policyFrom([{ id: 'a', type: 'population_intake', systemDelta: { population: 500 } }], ['a']));
+  assert.equal(moved.population, 30);
+  assert.equal(kernel.getState().metrics.population, 60);
+  assert.equal(aliveCount(kernel), 60);
+  assert.equal(kernel.getState().eventLog.filter(e => e.type === 'arrival').length, 30);
+});
+
+test('hires stop at 2000 people', () => {
+  const kernel = kernelFor(atlasLab, 1990);
+  const moved = kernel.applySystemDeltas({ population: 500 });
+  assert.equal(moved.population, 10);
+  assert.equal(aliveCount(kernel), 2000);
+  assert.equal(kernel.applySystemDeltas({ population: 500 }).population, 0);
+  assert.equal(aliveCount(kernel), 2000);
+});
+
+test('a head count move stays in the range the scenario declares for it', () => {
+  const population = { ...corporate.world.metrics.population, min: 8, max: 15 };
+  const sc = {
+    ...corporate,
+    world: { ...corporate.world, metrics: { ...corporate.world.metrics, population } },
+  } as ScenarioPackage;
+  const kernel = kernelFor(sc, 12);
+  assert.equal(kernel.applySystemDeltas({ population: 9 }).population, 3);
+  assert.equal(aliveCount(kernel), 15);
+  assert.equal(kernel.applySystemDeltas({ population: -20 }).population, -7);
+  assert.equal(aliveCount(kernel), 8);
+  assert.equal(kernel.getState().metrics.population, 8);
+});
+
+test('a hire never takes the id or the name of someone who left, through a saved snapshot too', () => {
+  const kernel = kernelFor(atlasLab, 400);
+  const before = new Map(kernel.getState().agents.map(a => [a.core.id, a.core.name]));
+  kernel.applySystemDeltas({ population: -300 });
+  const left = kernel.getState().eventLog.filter(e => e.type === 'departure').map(e => e.agentId as string);
+  assert.equal(left.length, 300);
+  const goneIds = new Set(left);
+  const goneNames = new Set(left.map(id => before.get(id)));
+
+  const saved = JSON.parse(JSON.stringify(kernel.toSnapshot(atlasLab.id)));
+  const restored = SimulationKernel.fromSnapshot(saved, atlasLab.id, atlasLab);
+  for (const k of [kernel, restored]) {
+    assert.equal(k.applySystemDeltas({ population: 100 }).population, 100);
+    const hires = k.getState().agents.filter(a => !before.has(a.core.id) || goneIds.has(a.core.id));
+    assert.equal(hires.length, 100, 'every hire is a person the run has not held before');
+    for (const hire of hires) {
+      assert.ok(!goneIds.has(hire.core.id), `${hire.core.id} left and came back as someone new`);
+      assert.ok(!goneNames.has(hire.core.name), `${hire.core.name} left and came back as someone new`);
+    }
+  }
+});
+
+// ------------------------------------------------------- selecting by id
+
+/** Every department writes effect_1, effect_2 and so on, as they did in the live pair. */
+function twoDepartmentsReports(): DepartmentReport[] {
+  const report = (department: string, morale: number) => ({
+    ...emptyReport(department),
+    recommendedEffects: [{ id: 'effect_1', type: 'risk_mitigation', description: department, systemDelta: { morale } }],
+  }) as DepartmentReport;
+  return [report('engineering', -0.02), report('medical', 0.05)];
+}
+
+function selected(selectedEffectIds: string[]) {
+  const decision: CommanderDecision = {
+    ...emptyDecision(['engineering', 'medical']),
+    decision: 'Hold the release',
+    selectedEffectIds,
+  } as CommanderDecision;
+  return decisionToPolicy(decision, twoDepartmentsReports(), 1, 2035).deltas?.metrics;
+}
+
+test('a selected effect can name the department it comes from', () => {
+  assert.deepEqual(selected(['medical/effect_1']), { morale: 0.05 });
+  assert.deepEqual(selected(['engineering/effect_1']), { morale: -0.02 });
+  const both = selected(['engineering/effect_1', 'medical/effect_1']);
+  near(both?.morale ?? NaN, 0.03, 'both departments');
+  // The id a department wrote still reads the first report that holds it.
+  assert.deepEqual(selected(['effect_1']), { morale: -0.02 });
+});
+
+test('an effect selected twice counts once', () => {
+  assert.deepEqual(selected(['medical/effect_1', 'medical/effect_1']), { morale: 0.05 });
+  assert.deepEqual(selected(['effect_1', 'effect_1']), { morale: -0.02 });
+  assert.deepEqual(selected(['effect_1', 'engineering/effect_1']), { morale: -0.02 });
+});
+
+// ------------------------------------------------------- words at depth
+
+test('a deep-ocean station\'s accidents read true at depth', () => {
+  const station = kernelFor(submarine, 480);
+  let time = station.getState().metadata.currentTime;
+  let state = station.getState();
+  for (let turn = 2; turn <= 30; turn++) state = station.advanceTurn(turn, ++time, submarine.hooks.progressionHook);
+  const accidents = state.eventLog.filter(e => e.cause?.startsWith('accident:'));
+  assert.ok(accidents.length > 0, 'someone had an accident');
+  for (const e of accidents) assert.doesNotMatch(e.cause ?? '', /road/, e.description);
+});
