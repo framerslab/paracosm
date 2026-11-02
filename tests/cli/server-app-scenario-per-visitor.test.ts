@@ -220,15 +220,26 @@ test('a caller that names no scenario and holds no pick gets the server default'
   });
 });
 
-test('a scenario the body names wins over the pick, and the run leaves the pick alone', async () => {
+test('a scenario the body names wins over the pick, and the run makes it the pick', async () => {
+  // Two tabs of one browser share the cookie. Tab A loaded Mars Genesis,
+  // tab B then picked Atlas Lab, and tab A presses Run. The run is Mars
+  // Genesis, as tab A's body names it. The dashboard then opens /sim, and
+  // a page shows a run only in its own scenario, so that page must load on
+  // Mars Genesis, or tab A comes up without the run it started.
   await withVisitors(async ({ visitor, launches }) => {
-    const b = visitor();
-    assert.equal((await b.post('/scenario/switch', { id: atlasLab.id })).status, 200);
-    const setup = await b.post('/setup', settingsBody(mars));
+    const browser = visitor();
+    assert.equal((await browser.post('/scenario/switch', { id: atlasLab.id })).status, 200);
+    const setup = await browser.post('/setup', settingsBody(mars));
     assert.equal(setup.status, 200);
-    assert.deepEqual(setup.headers.getSetCookie(), []);
     assert.equal((await waitFor(() => launches[0], 'the run')).scenario?.id, 'mars-genesis');
-    assert.equal((await b.json<{ id: string }>('/scenario')).id, 'atlas-lab');
+    const [pair] = (setup.headers.getSetCookie()[0] ?? '').split(';');
+    assert.equal(pair, 'paracosm_scenario=mars-genesis');
+    assert.equal((await browser.json<{ id: string }>('/scenario')).id, 'mars-genesis');
+
+    // A run in the scenario the visitor already holds sets nothing new.
+    const again = await browser.post('/setup', settingsBody(mars));
+    assert.equal(again.status, 200);
+    assert.deepEqual(again.headers.getSetCookie(), []);
   });
 });
 
