@@ -1311,6 +1311,31 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     } catch { /* nothing to clean up */ }
   };
 
+  /**
+   * Starts a run's buffer: clears the last run's events, records the run's
+   * scenario for /chat, and broadcasts the run's first event, which names
+   * its scenario, so the dashboard can render 'Running: Mars Genesis' and
+   * the saved session records which scenario and brief the run came from.
+   * The event goes out after the clear, so it stays in the buffer for every
+   * page that connects later, and the trim keeps it first. A page that
+   * skips a buffered run since its switch shows the run from this event.
+   */
+  const openRunBuffer = (scenario: ScenarioPackage, seedText: string | null): void => {
+    clearEventBuffer();
+    currentRunScenario = scenario;
+    broadcast('active_scenario', {
+      id: scenario.id,
+      name: scenario.labels?.name ?? scenario.id,
+      settlementNoun: scenario.labels?.settlementNoun,
+      populationNoun: scenario.labels?.populationNoun,
+      departments: scenario.departments?.length ?? 0,
+      // The original seed prompt when the run came out of
+      // compile-from-seed; null for built-in scenarios.
+      seedText,
+    });
+    currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+  };
+
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
 
   // --- Cancel-on-disconnect watchdog ---------------------------------
@@ -1968,7 +1993,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // digital-twin runs without any client reset on the SSE
           // connection itself.
           broadcast,
-          resetEventBuffer: clearEventBuffer,
+          // A digital-twin run opens the buffer as a /setup run does.
+          resetEventBuffer: (scenario) => {
+            if (scenario) openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null);
+            else clearEventBuffer();
+          },
         };
         // compile-from-seed is the first call in a new Quickstart
         // launch flow. Clearing the event buffer here means that any
@@ -3555,25 +3584,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const marsServer = Object.assign(server, {
     async startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks) {
       // Clear previous run data
-      clearEventBuffer();
       const runScenario = hooks?.scenario ?? marsScenario;
-      currentRunScenario = runScenario;
-      // The run's first event names its scenario, so the dashboard can
-      // render 'Running: Mars Genesis' and the saved session records which
-      // scenario and brief the run came from. It goes out after the clear,
-      // so it stays in the buffer for every page that connects later, and
-      // the trim keeps it first.
-      broadcast('active_scenario', {
-        id: runScenario.id,
-        name: runScenario.labels?.name ?? runScenario.id,
-        settlementNoun: runScenario.labels?.settlementNoun,
-        populationNoun: runScenario.labels?.populationNoun,
-        departments: runScenario.departments?.length ?? 0,
-        // The original seed prompt when the run came out of
-        // compile-from-seed; null for built-in scenarios.
-        seedText: hooks?.seedText ?? null,
-      });
-      currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+      openRunBuffer(runScenario, hooks?.seedText ?? null);
       simConfig = config;
       simRunning = true;
       // Per-run AbortController. Held in a local so the finally block

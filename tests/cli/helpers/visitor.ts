@@ -15,6 +15,14 @@ export interface Visitor {
   readonly cookies: Map<string, string>;
 }
 
+/**
+ * A visitor of the server at `base` (`http://127.0.0.1:<port>`). It keeps
+ * the name and value of every Set-Cookie its answers carry and sends them
+ * back as one Cookie header on its next requests, as a browser does on the
+ * same origin; attributes such as Max-Age are not enforced.
+ * `initialCookies` starts the jar, for a visitor who arrives holding a
+ * cookie (a stale pick, a pick from before a restart).
+ */
 export function visitor(base: string, initialCookies: Record<string, string> = {}): Visitor {
   const cookies = new Map(Object.entries(initialCookies));
   const send = async (path: string, init: RequestInit = {}): Promise<Response> => {

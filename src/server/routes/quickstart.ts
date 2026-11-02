@@ -184,8 +184,11 @@ export interface QuickstartDeps {
    * digital-twin run starts. Mirrors what /setup does on a fresh sim:
    * without it, prior events from another run bleed into the
    * dashboard's gameState while the new intervention is streaming.
+   * Given the run's scenario, the server also opens the buffer with the
+   * run's active_scenario event and takes the run's nouns for /chat
+   * from it.
    */
-  resetEventBuffer?: () => void;
+  resetEventBuffer?: (scenario?: ScenarioPackage) => void;
   /**
    * Test seam: substitute the actual compile pipeline. Production
    * uses the real `compileFromSeed`; tests can inject a deterministic
@@ -614,8 +617,9 @@ export async function handleSimulateIntervention(
 
   // Reset the SSE event buffer before broadcasting this run's events so
   // the dashboard's gameState does not interleave them with whatever
-  // run came before. /setup does the same thing at its top.
-  deps.resetEventBuffer?.();
+  // run came before, and name the run's scenario. /setup does the same
+  // thing at its top.
+  deps.resetEventBuffer?.(world.scenario);
 
   // Build an onEvent shim that forwards each typed SimEvent emitted by
   // runSimulation to the SSE broadcast bus. Without it, the dashboard
