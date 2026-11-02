@@ -15,7 +15,7 @@ import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
 import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
@@ -122,6 +122,7 @@ function mapLaunchErrorToMessage(raw: string): string {
 
 export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart }: QuickstartViewProps) {
   const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: 'input' });
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -372,8 +373,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   // path stashes { actorCount } in sessionStorage; on mount we read it
   // back and trigger handleLoadedScenarioRun once. The flag is
   // consumed (removed) on read so a manual reload after an unrelated
-  // click never re-triggers a stale auto-run.
+  // click never re-triggers a stale auto-run. It waits for GET /scenario:
+  // on mount the context still holds the Mars fallback, whose id the server
+  // would refuse.
   useEffect(() => {
+    if (!scenarioReady) return;
     let pending: { actorCount?: unknown } | null = null;
     try {
       const raw = sessionStorage.getItem(CATALOG_PENDING_KEY);
@@ -389,11 +393,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     if (count !== null) {
       void handleLoadedScenarioRun(count);
     }
-    // Run exactly once per mount. handleLoadedScenarioRun is stable
-    // enough that the missing dep here doesn't double-fire — we never
-    // want this effect to re-run anyway.
+    // The flag is consumed above, so scenarioReady turning true again after
+    // a scenario update finds nothing to run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scenarioReady]);
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);

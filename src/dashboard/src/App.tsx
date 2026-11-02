@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
+import { defaultRunSetup } from './run-payload';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -70,6 +71,18 @@ export function useScenarioContext() {
   const ctx = useContext(ScenarioContext);
   if (!ctx) throw new Error('useScenarioContext must be used within App');
   return ctx;
+}
+
+const ScenarioReadyContext = createContext(true);
+
+/**
+ * True once GET /scenario has answered and ScenarioContext holds the server's
+ * active scenario, not the Mars fallback the page starts on. A control that
+ * starts a run waits for it. A render given a scenario directly, outside App,
+ * has it ready.
+ */
+export function useScenarioReady() {
+  return useContext(ScenarioReadyContext);
 }
 
 const DashboardNavigationContext = createContext<((tab: Exclude<DashboardTab, 'about'>) => void) | null>(null);
@@ -157,7 +170,7 @@ function tabHeadingFor(tab: DashboardTab): string {
 }
 
 function AppContent() {
-  const { scenario } = useScenario();
+  const { scenario, ready: scenarioReady } = useScenario();
   const replaySessionId = useReplaySessionId();
   const sse = useSSE({ replaySessionId });
   const [tourActive, setTourActive] = useState(false);
@@ -794,18 +807,14 @@ function AppContent() {
     // check the flags) but a fast-click on the empty-state button
     // between render ticks, or a kbd shortcut, could still slip
     // through. An early return here is the authoritative gate.
+    if (!scenarioReady) {
+      toast('info', 'Loading scenario', 'The scenario is still loading. Run again in a moment.');
+      return;
+    }
     if (launching || gameState.isRunning) {
       toast('info', 'Already running', 'A simulation is in progress — wait for it to finish or hit Clear to reset.');
       return;
     }
-    const defaultPreset = scenario.presets.find(p => p.id === 'default');
-    const actors = defaultPreset?.actors?.slice(0, 2).map((a, i) => ({
-      ...a,
-      unit: i === 0 ? 'Colony Alpha' : 'Colony Beta',
-    })) || [
-      { name: 'Actor A', archetype: 'The Visionary', unit: 'Colony Alpha', hexaco: { openness: 0.95, conscientiousness: 0.35, extraversion: 0.85, agreeableness: 0.55, emotionality: 0.3, honestyHumility: 0.65 }, instructions: '' },
-      { name: 'Actor B', archetype: 'The Engineer', unit: 'Colony Beta', hexaco: { openness: 0.25, conscientiousness: 0.97, extraversion: 0.3, agreeableness: 0.6, emotionality: 0.7, honestyHumility: 0.9 }, instructions: '' },
-    ];
     try {
       setLaunching(true);
       // Mark the run as user-triggered so the run-finish + cache-saved
@@ -827,21 +836,7 @@ function AppContent() {
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          actors,
-          provider: 'openai',
-          turns: scenario.setup.defaultTurns,
-          timePerTurn: scenario.setup.defaultTimePerTurn,
-          seed: scenario.setup.defaultSeed,
-          startTime: scenario.setup.defaultStartTime,
-          population: scenario.setup.defaultPopulation,
-          activeDepartments: scenario.departments.map(d => d.id),
-          scenarioId: scenario.id,
-          // Tier 2 Spec 2B: always capture kernel snapshots on
-          // UI-initiated runs so the Reports tab's "Fork at turn N"
-          // button is enabled by default.
-          captureSnapshots: true,
-        }),
+        body: JSON.stringify(defaultRunSetup(scenario)),
       });
       const data = await res.json();
       if (res.status === 429) {
@@ -857,12 +852,13 @@ function AppContent() {
       setLaunching(false);
       toast('error', 'Launch Failed', String(err));
     }
-  }, [scenario, toast, setActiveTab, launching, gameState.isRunning, sse]);
+  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse]);
 
   return (
     <BranchesProvider>
     <DashboardNavigationContext.Provider value={setActiveTab}>
       <ScenarioContext.Provider value={scenario}>
+      <ScenarioReadyContext.Provider value={scenarioReady}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
         <BranchesSyncer sse={sse} />
@@ -1176,6 +1172,7 @@ function AppContent() {
         </div>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
+      </ScenarioReadyContext.Provider>
       </ScenarioContext.Provider>
     </DashboardNavigationContext.Provider>
     </BranchesProvider>

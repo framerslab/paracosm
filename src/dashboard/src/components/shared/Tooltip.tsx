@@ -11,6 +11,9 @@ interface TooltipProps {
    *  full-width row triggers like CrisisHeader where the inline-flex
    *  default would otherwise shrink-to-content). */
   block?: boolean;
+  /** Keeps the tooltip closed, as when its trigger has opened a menu that
+   *  the tooltip would otherwise cover. */
+  disabled?: boolean;
 }
 
 /**
@@ -24,7 +27,7 @@ interface TooltipProps {
 const TOOLTIP_WIDTH = 420;
 const TOOLTIP_MAX_HEIGHT_ESTIMATE = 260;
 
-export function Tooltip({ content, children, dot, block }: TooltipProps) {
+export function Tooltip({ content, children, dot, block, disabled = false }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const ref = useRef<HTMLSpanElement>(null);
@@ -81,7 +84,7 @@ export function Tooltip({ content, children, dot, block }: TooltipProps) {
   // Portaling into document.body removes the tooltip from the trigger's
   // ancestor chain entirely, so position:fixed resolves against the
   // viewport as intended.
-  const floatingTooltip = visible ? (
+  const floatingTooltip = visible && !disabled ? (
     <div
       id="paracosm-tooltip"
       role="tooltip"

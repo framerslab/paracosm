@@ -5,7 +5,8 @@
  * horizontal space.
  *
  * Menu items, in order:
- *   1. ▶ Run New Simulation — fires onRun (spends credits).
+ *   1. ▶ Run New Simulation — fires onRun (spends credits). Disabled
+ *      until GET /scenario has answered.
  *   2. ↻ Run Saved Simulation — expands into a scrollable grid of
  *      server-cached runs (same card layout the old LoadMenu used).
  *      Disabled when the /sessions catalog is empty.
@@ -15,6 +16,7 @@
  * @module paracosm/cli/dashboard/components/layout/RunMenu
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useScenarioReady } from '../../App';
 import { useSessions, type StoredSessionMeta } from '../../hooks/useSessions';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { buildReplayHref, cacheExpandedBody } from './LoadMenu.helpers';
@@ -105,6 +107,7 @@ export function RunMenu({
   const rootRef = useRef<HTMLDivElement>(null);
   const { sessions, status, refresh } = useSessions();
   const cacheAvailable = sessions.length > 0;
+  const scenarioReady = useScenarioReady();
 
   // Refresh the catalog each time the dropdown opens so a run that
   // finished since last open shows up without a full reload.
@@ -134,6 +137,7 @@ export function RunMenu({
   }, [open, close]);
 
   const handleRunNew = () => {
+    if (!scenarioReady) return;
     close();
     onRun?.();
   };
@@ -153,6 +157,7 @@ export function RunMenu({
   return (
     <div ref={rootRef} className={styles.root}>
       <Tooltip
+        disabled={open}
         content={
           <div>
             <div className={styles.tooltipHeading}>Run</div>
@@ -185,11 +190,12 @@ export function RunMenu({
             type="button"
             role="menuitem"
             onClick={handleRunNew}
+            disabled={!scenarioReady}
             className={styles.runNewButton}
           >
             <span className={styles.menuButtonInnerLeft}>
               <span aria-hidden="true" className={styles.menuButtonIcon}>▶</span>
-              <span>Run New Simulation</span>
+              <span>{scenarioReady ? 'Run New Simulation' : 'Loading scenario…'}</span>
             </span>
             <span className={styles.runNewBadge}>spends credits</span>
           </button>

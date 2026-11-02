@@ -2,10 +2,10 @@ name: CI
 
 # Builds and tests every pull request. The deploy workflow's build job runs
 # the same steps on a push to master before it deploys, so a change to the
-# steps here belongs in deploy.yml too. The exception is the PDF upload
-# end-to-end test: Playwright's web server rebuilds src/dashboard/dist without
-# the analytics settings deploy.yml builds with, and deploy.yml uploads that
-# directory, so the test runs here only. The packed-package check runs here
+# steps here belongs in deploy.yml too. The exception is the two end-to-end
+# tests: Playwright's web server rebuilds src/dashboard/dist without the
+# analytics settings deploy.yml builds with, and deploy.yml uploads that
+# directory, so they run here only. The packed-package check runs here
 # and in deploy.yml's package-check job, which packs the tarball the publish
 # job ships and checks those bytes, also reinstalled from their lockfile on
 # Node 22 with no toolchain.
@@ -94,6 +94,9 @@ jobs:
 
       - name: PDF upload end-to-end test
         run: npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop
+
+      - name: Run control end-to-end test
+        run: npx playwright test tests-e2e/specs/run-control.spec.ts --project=chromium-desktop --workers=1
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
