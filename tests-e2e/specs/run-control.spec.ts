@@ -129,6 +129,21 @@ test.describe('Run controls @run', () => {
     expect(bodies[0].startTime).toBe(1);
   });
 
+  test('a unit typed while GET /scenario loads is kept when the leaders arrive', async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    await page.getByRole('textbox', { name: 'Unit', exact: true }).first().fill('Alpha Wing');
+
+    release();
+    await expect(page.getByRole('textbox', { name: 'Name', exact: true }).first()).toHaveValue('Marcus Reinhardt');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['Alpha Wing', 'Lab Beta']);
+  });
+
   test('a failed GET /scenario keeps Run waiting, and the page tries again', async ({ page }) => {
     let answered = 0;
     let release = () => {};
