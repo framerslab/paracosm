@@ -173,6 +173,7 @@ test.describe('Run controls @run', () => {
         { name: 'Commander Takeshi Morimoto', archetype: 'The Commander', unit: 'Station Beta' },
         { name: 'Dr. Amara Osei', archetype: 'The Scientist', unit: 'Station Gamma' },
       ]));
+      localStorage.setItem('paracosm:activeRunScenarioId', 'deep-ocean-station');
     });
     const release = await holdScenario(page);
     await page.goto('/sim?tab=settings');
@@ -186,6 +187,30 @@ test.describe('Run controls @run', () => {
     await expect.poll(() => bodies.length).toBe(1);
     expect(bodies[0].actors.slice(0, 2).map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
     expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'Lab Gamma']);
+  });
+
+  test("a unit from this scenario's last run stays on a leader the preset does not cover", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const units = page.getByRole('textbox', { name: 'Unit', exact: true });
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await page.getByRole('button', { name: 'Add another actor to the cohort' }).click();
+    await units.nth(2).fill('East Wing');
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'East Wing']);
+
+    // Back to Settings on a fresh load: the form starts from that run's
+    // leaders while GET /scenario loads, and Atlas Lab's preset has two.
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    await expect(units.nth(2)).toHaveValue('East Wing');
+    release();
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(2);
+    expect(bodies[1].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'East Wing']);
   });
 
   test("a finished run's Run again waits for GET /scenario", async ({ page }) => {
@@ -253,12 +278,47 @@ test.describe('Run controls @run', () => {
     await page.addInitScript(() => {
       if (sessionStorage.getItem('e2e:seeded')) return;
       sessionStorage.setItem('e2e:seeded', '1');
-      sessionStorage.setItem('paracosm:catalogPendingRun', JSON.stringify({ actorCount: 2, ts: Date.now() }));
+      sessionStorage.setItem('paracosm:catalogPendingRun', JSON.stringify({ scenarioId: 'atlas-lab', actorCount: 2, ts: Date.now() }));
     });
     await page.goto('/sim?tab=quickstart');
 
     await expect.poll(() => bodies.length).toBe(1);
     expect(bodies[0].quickstart?.scenarioId).toBe('atlas-lab');
     expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
+  });
+
+  test('a run the catalog handed across its reload for another scenario does not start', async ({ page }) => {
+    const bodies = await captureSetup(page);
+    // This tab asked for Deep Ocean Station; another switch made Atlas Lab
+    // active before the reload's GET /scenario.
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('e2e:seeded')) return;
+      sessionStorage.setItem('e2e:seeded', '1');
+      sessionStorage.setItem('paracosm:catalogPendingRun', JSON.stringify({ scenarioId: 'deep-ocean-station', actorCount: 2, ts: Date.now() }));
+    });
+    await page.goto('/sim?tab=quickstart');
+
+    await expect(page.getByText('Scenario changed', { exact: true })).toBeVisible();
+    expect(bodies).toHaveLength(0);
+    expect(await page.evaluate(() => sessionStorage.getItem('paracosm:catalogPendingRun'))).toBeNull();
+  });
+
+  test('a catalog switch whose answer is lost leaves no run for the next load', async ({ page }) => {
+    const bodies = await captureSetup(page);
+    // The server takes the switch, and its answer never reaches the page.
+    await page.route('**/scenario/switch', async route => {
+      await route.fetch();
+      await route.abort();
+    });
+    await page.goto('/sim?tab=quickstart');
+    await page.getByRole('button', { name: /against Deep Ocean Station$/ }).click();
+    await expect(page.getByText('Scenario switch failed', { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem('paracosm:catalogPendingRun'))).toBeNull();
+
+    // The server is on Deep Ocean Station now; a reload must not run it.
+    await page.reload();
+    await expect(page.getByRole('button', { name: /against Atlas Lab$/ })).toBeEnabled();
+    await page.waitForTimeout(1_000);
+    expect(bodies).toHaveLength(0);
   });
 });
