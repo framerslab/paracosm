@@ -106,12 +106,12 @@ test('an Atlas Lab outcome reports and applies only metrics the run carries, for
     for (const outcome of OUTCOMES) {
       const kernel = kernelFor(atlasLab);
       const carried = Object.keys(kernel.getState().metrics);
-      const reported = applyOutcomeEffects(kernel, registry, { category, outcome, modifiers: FORGING, turn: 1, time: 1 });
+      const { systemDeltas: reported } = applyOutcomeEffects(kernel, registry, { category, outcome, modifiers: FORGING, turn: 1, time: 1 });
       const after = kernel.getState();
 
       assert.deepEqual(undeclared(reported, declaredMetricKeys(atlasLab)), [], `${category} ${outcome} reported ${JSON.stringify(reported)}`);
       // What the run reports is what it applied: a politics key in the
-      // category table (boardConfidence) does not move a metric.
+      // category table (boardConfidence) is not a metric.
       assert.deepEqual(Object.keys(reported).filter(k => !carried.includes(k)), [], `${category} ${outcome} reported ${JSON.stringify(reported)}`);
       assert.deepEqual(undeclared(after.metrics, declaredMetricKeys(atlasLab)), [], `${category} ${outcome} state`);
       assert.deepEqual(notFinite(after.metrics), [], `${category} ${outcome} finite`);
@@ -146,7 +146,7 @@ test('Mars, the Moon and the deep-ocean station keep every metric they declare, 
     assert.ok(typeof start.metrics.powerKw === 'number' && typeof start.metrics.foodMonthsReserve === 'number', sc.id);
 
     const before = start.metrics.powerKw;
-    const reported = applyOutcomeEffects(kernel, registryFor(sc), {
+    const { systemDeltas: reported } = applyOutcomeEffects(kernel, registryFor(sc), {
       category: 'psychological', outcome: 'conservative_success', modifiers: FORGING, turn: 1, time: start.metadata.currentTime,
     });
     // Two new tools and three failures: 5 forges at 1.2 kW each.
@@ -203,7 +203,7 @@ test('an outcome reports the change the floor and the ceiling let through', () =
   const lab = new SimulationKernel(11, 'Marcus Reinhardt', [], {
     startTime: 1, initialPopulation: 30, scenario: atlasLab, startingResources: { morale: 0.95 },
   });
-  const lift = applyOutcomeEffects(lab, new EffectRegistry({ lift: { morale: 0.1 } }), {
+  const { systemDeltas: lift } = applyOutcomeEffects(lab, new EffectRegistry({ lift: { morale: 0.1 } }), {
     category: 'lift', outcome: 'risky_success', modifiers: { personalityBonus: 0, noise: 0 }, turn: 1, time: 1,
   });
   assert.equal(lab.getState().metrics.morale, 1);
@@ -214,7 +214,7 @@ test('an outcome reports the change the floor and the ceiling let through', () =
   const mars = new SimulationKernel(950, 'x', [], {
     startTime: 2035, initialPopulation: 50, scenario: marsScenario, startingResources: { powerKw: 3 },
   });
-  const forged = applyOutcomeEffects(mars, registryFor(marsScenario), {
+  const { systemDeltas: forged } = applyOutcomeEffects(mars, registryFor(marsScenario), {
     category: 'psychological', outcome: 'conservative_success', modifiers: FORGING, turn: 1, time: 2035,
   });
   assert.equal(mars.getState().metrics.powerKw, 0);

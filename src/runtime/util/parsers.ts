@@ -42,9 +42,10 @@ export function emptyDecision(d: Department[]): CommanderDecision {
 
 /**
  * Turn a commander's decision + the dept reports into a PolicyEffect
- * the kernel can apply. Combines legacy `proposedPatches` from reports
- * (backward compat) with typed `recommendedEffects` the commander
- * selected by id.
+ * the kernel can apply. Legacy `proposedPatches` from reports (backward
+ * compat) set values outright; the typed `recommendedEffects` the
+ * commander selected by id are changes, added to the current values and
+ * to each other.
  */
 export function decisionToPolicy(
   decision: CommanderDecision,
@@ -61,25 +62,18 @@ export function decisionToPolicy(
     if (r.proposedPatches.agentUpdates) patches.agentUpdates = [...(patches.agentUpdates || []), ...r.proposedPatches.agentUpdates];
   }
 
-  // Apply typed effects selected by commander.
+  // Add up the typed effects selected by the commander.
+  const deltas: Required<NonNullable<PolicyEffect['deltas']>> = { metrics: {}, politics: {} };
   if (decision.selectedEffectIds?.length) {
     const allEffects = reports.flatMap(r => r.recommendedEffects || []);
     for (const effectId of decision.selectedEffectIds) {
       const effect = allEffects.find(e => e.id === effectId);
       if (!effect) continue;
-      if (effect.systemDelta) {
-        patches.metrics = patches.metrics || {};
-        for (const [key, delta] of Object.entries(effect.systemDelta)) {
-          const current = (patches.metrics as any)[key] ?? 0;
-          (patches.metrics as any)[key] = current + (delta as number);
-        }
+      for (const [key, delta] of Object.entries(effect.systemDelta ?? {})) {
+        deltas.metrics[key] = (deltas.metrics[key] ?? 0) + (delta as number);
       }
-      if (effect.politicsDelta) {
-        patches.politics = patches.politics || {};
-        for (const [key, delta] of Object.entries(effect.politicsDelta)) {
-          const current = (patches.politics as any)[key] ?? 0;
-          (patches.politics as any)[key] = current + (delta as number);
-        }
+      for (const [key, delta] of Object.entries(effect.politicsDelta ?? {})) {
+        deltas.politics[key] = (deltas.politics[key] ?? 0) + (delta as number);
       }
     }
   }
@@ -87,6 +81,7 @@ export function decisionToPolicy(
   return {
     description: decision.decision,
     patches,
+    deltas,
     events: [{ turn, time, type: 'decision', description: decision.decision.slice(0, 200), data: { policies: decision.selectedPolicies } }],
   };
 }

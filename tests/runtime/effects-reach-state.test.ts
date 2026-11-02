@@ -235,7 +235,12 @@ test('a departure stops at the people who can leave and reports how many did', (
 
 test('a talent success hires real people into the scenario\'s own departments', () => {
   const kernel = kernelFor(atlasLab, 30);
-  const before = new Set(kernel.getState().agents.map(a => a.core.id));
+  kernel.advanceTurn(3, 3, atlasLab.hooks.progressionHook);
+  const start = kernel.getState();
+  const alive = aliveCount(kernel);
+  const before = new Set(start.agents.map(a => a.core.id));
+  const births = start.eventLog.filter(e => e.type === 'birth').length;
+
   const { systemDeltas } = applyOutcomeEffects(kernel, registryFor(atlasLab), {
     category: 'talent', outcome: 'conservative_success', modifiers: PLAIN, turn: 3, time: 3,
   });
@@ -246,12 +251,12 @@ test('a talent success hires real people into the scenario\'s own departments', 
 
   const state = kernel.getState();
   const added = 8 + 23; // 8 * (2.5 + 0.37) = 22.96 people, 23 of them whole.
-  assert.equal(state.metrics.population, 30 + added);
-  assert.equal(aliveCount(kernel), 30 + added);
+  assert.equal(state.metrics.population, alive + added);
+  assert.equal(aliveCount(kernel), alive + added);
   assert.equal(new Set(state.agents.map(a => a.core.id)).size, state.agents.length, 'every id is its own');
   assert.equal(new Set(state.agents.map(a => a.core.name)).size, state.agents.length, 'every name is its own');
   assert.equal(state.eventLog.filter(e => e.type === 'arrival').length, added);
-  assert.equal(state.eventLog.filter(e => e.type === 'birth').length, 0, 'a hire is not a birth');
+  assert.equal(state.eventLog.filter(e => e.type === 'birth').length, births, 'a hire is not a birth');
 
   const departments = new Set(atlasLab.departments.map(d => d.id));
   const hires = state.agents.filter(a => !before.has(a.core.id));

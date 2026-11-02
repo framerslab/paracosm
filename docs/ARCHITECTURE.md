@@ -118,7 +118,7 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 | `progressionHook` | Between-turn state updates (radiation, bone density, etc.) | Between every turn |
 | `departmentPromptHook` | Department-specific analysis context | Before each department analyzes |
 | `fingerprintHook` | Timeline classification from final state | After simulation completes |
-| `politicsHook` | Political/social effects for relevant events | After political/social crises |
+| `politicsHook` | Political/social effects for each category and outcome | After each event's outcome |
 | `getMilestoneEvent` | Fixed narrative events (Turn 1 founding, final assessment) | Turn 1 and final turn |
 | `reactionsHook` | Colonist personality-aware reactions | After each commander decision |
 
@@ -132,6 +132,14 @@ The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
 - **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data. Generated people work in the scenario's own departments, under their labels; Mars Genesis keeps its own trades
 - **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift)
+
+Three things move the numbers during a turn, and each adds to the value it names, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`):
+
+- **A selected policy effect.** The effects a commander selects by id are added to the current values, and two on one key add up. A department's legacy `proposedPatches` still set a value outright, and never the head count.
+- **An outcome's category table.** The scenario's `effects` table scales by outcome. A key moves the metric or the politics value the run holds under it; a key the run holds in neither is dropped.
+- **The politics hook.** `politicsHook` names a change for each category and outcome. Where it names a key, its change replaces the category table's, so a key moves once. The `outcome` stream event reports what moved in `systemDeltas` and `politicsDeltas`.
+
+`metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death and counts in no mortality figure. Department heads and children do not leave, so a departure can move fewer people than its delta asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.
 
 The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality probability, birth events, personality drift magnitudes. Two simulations with the same seed produce the same colonist names, the same birth/death events, and the same base progression.
 

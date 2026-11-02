@@ -216,7 +216,8 @@ export interface SimulationMetadata {
 export interface TurnEvent {
   turn: number;
   time: number;
-  type: 'crisis' | 'decision' | 'birth' | 'death' | 'promotion' | 'relationship' | 'tool_forge' | 'system';
+  /** `arrival` and `departure` are people joining or leaving the roster, never a birth or a death. */
+  type: 'crisis' | 'decision' | 'birth' | 'death' | 'arrival' | 'departure' | 'promotion' | 'relationship' | 'tool_forge' | 'system';
   description: string;
   agentId?: string;
   /** For death events: the specific cause (natural causes, radiation

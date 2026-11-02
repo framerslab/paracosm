@@ -186,6 +186,8 @@ export interface SimEventPayloadMap {
     category: string;
     emergent: boolean;
     systemDeltas: Record<string, number>;
+    /** Changes to the politics bag, when the outcome made any. */
+    politicsDeltas?: Record<string, number>;
     eventIndex: number;
   };
   /** Per-turn HEXACO drift for promoted agents + the commander. */
@@ -641,7 +643,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   // scenarioVersion + scenarioId; the restored kernel is
   // byte-equivalent to the one that produced the snapshot.
   const kernel = opts._resumeFrom
-    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id)
+    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id, sc)
     : new SimulationKernel(seed, leader.name, keyPersonnel, {
         startTime,
         initialPopulation: opts.initialPopulation,
@@ -1558,7 +1560,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         eventIndex: ei,
       });
 
-      kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      const policyDeltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      if (Object.keys(policyDeltas).length > 0) console.log(`  [policy] effects: ${JSON.stringify(policyDeltas)}`);
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1622,7 +1625,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         };
       })();
 
-      const systemDeltas = applyOutcomeEffects(kernel, effectRegistry, {
+      const { systemDeltas, politicsDeltas } = applyOutcomeEffects(kernel, effectRegistry, {
         category: event.category,
         outcome,
         modifiers: {
@@ -1632,10 +1635,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         },
         turn,
         time,
+        politicsHook: sc.hooks.politicsHook,
       });
-
-      const polDelta = sc.hooks.politicsHook?.(event.category, outcome);
-      if (polDelta) kernel.applyPoliticsDeltas(polDelta);
 
       outcomeLog.push({ turn, time, outcome });
       eventHistory.push({ turn, title: event.title, category: event.category, selectedOptionId: resolvedOptionId, decision: decision.decision.slice(0, 200), outcome });
@@ -1650,8 +1651,9 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       lastOutcome = outcome;
       lastEventCategory = event.category;
 
-      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}`);
-      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, eventIndex: ei });
+      const movedPolitics = Object.keys(politicsDeltas).length > 0;
+      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}${movedPolitics ? ` politics: ${JSON.stringify(politicsDeltas)}` : ''}`);
+      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, ...(movedPolitics ? { politicsDeltas } : {}), eventIndex: ei });
       } catch (err) {
         // Classify event-loop errors. Provider-side failures (auth,
         // quota, rate_limit, network) route through reportProviderError
@@ -2151,7 +2153,7 @@ export async function replaySimulation(
   for (let i = 0; i < inputSnaps.length - 1; i++) {
     const here = inputSnaps[i];
     const next = inputSnaps[i + 1];
-    const kernel = SimulationKernel.fromSnapshot(here, scenario.id);
+    const kernel = SimulationKernel.fromSnapshot(here, scenario.id, scenario);
     kernel.advanceTurn(next.turn, next.time, scenario.hooks?.progressionHook);
     freshSnapshots.push(kernel.toSnapshot(scenario.id));
   }
