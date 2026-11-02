@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import type { GameState, LeaderInfo } from '../../hooks/useGameState.js';
 import styles from './SwarmViz.module.scss';
 import { useScenarioContext, useDashboardNavigation } from '../../App';
+import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
 import { useToast } from '../shared/Toast';
 import { useVizSnapshots } from './useVizSnapshots.js';
 import { CohortSwarmGrid } from './CohortSwarmGrid.js';
@@ -524,10 +525,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // the launch window before SSE status fires.
   const presetLeaders = defaultPreset?.leaders ?? defaultPreset?.actors;
   const presetA: LeaderInfo | null = presetLeaders?.[0]
-    ? { name: presetLeaders[0].name, archetype: presetLeaders[0].archetype, unit: 'Colony Alpha', hexaco: presetLeaders[0].hexaco, instructions: presetLeaders[0].instructions, quote: '' }
+    ? { name: presetLeaders[0].name, archetype: presetLeaders[0].archetype, unit: leaderUnit(scenario, 0), hexaco: presetLeaders[0].hexaco, instructions: presetLeaders[0].instructions, quote: '' }
     : null;
   const presetB: LeaderInfo | null = presetLeaders?.[1]
-    ? { name: presetLeaders[1].name, archetype: presetLeaders[1].archetype, unit: 'Colony Beta', hexaco: presetLeaders[1].hexaco, instructions: presetLeaders[1].instructions, quote: '' }
+    ? { name: presetLeaders[1].name, archetype: presetLeaders[1].archetype, unit: leaderUnit(scenario, 1), hexaco: presetLeaders[1].hexaco, instructions: presetLeaders[1].instructions, quote: '' }
     : null;
   const leaderA = sideStateA?.leader ?? presetA;
   const leaderB = sideStateB?.leader ?? presetB;

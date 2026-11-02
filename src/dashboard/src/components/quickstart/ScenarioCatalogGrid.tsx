@@ -18,7 +18,7 @@
  */
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
 import { ScenarioDetailDrawer } from './ScenarioDetailDrawer';
 import styles from './ScenarioCatalogGrid.module.scss';
 
@@ -108,8 +108,10 @@ type SourceFilter = 'all' | 'builtin' | 'disk' | 'compiled';
 type SortMode = 'curated' | 'most-runs' | 'newest' | 'alphabetical';
 
 export function ScenarioCatalogGrid(props: ScenarioCatalogGridProps): JSX.Element | null {
-  const { disabled = false, onRunScenario } = props;
+  const { disabled: disabledProp = false, onRunScenario } = props;
   const scenario = useScenarioContext();
+  // A run waits for the server's scenario, not the fallback the page starts on.
+  const disabled = !useScenarioReady() || disabledProp;
   const activeId = scenario.id;
   const [scenarios, setScenarios] = useState<CatalogScenario[]>([]);
   const [actorCount, setActorCount] = useState<number>(2);

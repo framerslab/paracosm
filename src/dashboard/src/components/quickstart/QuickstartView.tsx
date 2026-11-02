@@ -15,7 +15,7 @@ import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
 import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
@@ -122,6 +122,7 @@ function mapLaunchErrorToMessage(raw: string): string {
 
 export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart }: QuickstartViewProps) {
   const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: 'input' });
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -214,7 +215,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       // event with `phase: 'parallel'` lands and useGameState pairs the
       // names against state.actorIds.
       if (typeof window !== 'undefined') {
-        writeActiveRunActors(window.localStorage, actors);
+        writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
       try {
         const setupRes = await fetch('/setup', {
@@ -289,7 +290,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
 
       sse.reset();
       if (typeof window !== 'undefined') {
-        writeActiveRunActors(window.localStorage, actors);
+        writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
       const setupRes = await fetch('/setup', {
         method: 'POST',
@@ -344,7 +345,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     onRunStarted?.();
     try {
       try {
-        sessionStorage.setItem(CATALOG_PENDING_KEY, JSON.stringify({ actorCount, ts: Date.now() }));
+        sessionStorage.setItem(CATALOG_PENDING_KEY, JSON.stringify({ scenarioId: id, actorCount, ts: Date.now() }));
       } catch {
         // Private mode / quota: continue with the switch but the
         // post-reload auto-run won't fire. User clicks Run again on
@@ -362,6 +363,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       window.location.reload();
     } catch (err) {
+      // The server may have taken the switch even though its answer was
+      // lost, so a later reload must not find a run to start.
+      try { sessionStorage.removeItem(CATALOG_PENDING_KEY); } catch { /* silent */ }
       const friendly = mapLaunchErrorToMessage((err as Error)?.message ?? String(err));
       setErrorBanner(friendly);
       toast('error', 'Scenario switch failed', friendly, 8000);
@@ -369,18 +373,27 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   }, [scenario.id, handleLoadedScenarioRun, onRunStarted, toast]);
 
   // Auto-resume after a /scenario/switch reload. The catalog-grid Run
-  // path stashes { actorCount } in sessionStorage; on mount we read it
-  // back and trigger handleLoadedScenarioRun once. The flag is
+  // path stashes { scenarioId, actorCount } in sessionStorage; on mount we
+  // read it back and trigger handleLoadedScenarioRun once, and only when
+  // the scenario that loaded is the one the person picked (another switch
+  // can land between theirs and the reload). The flag is
   // consumed (removed) on read so a manual reload after an unrelated
-  // click never re-triggers a stale auto-run.
+  // click never re-triggers a stale auto-run. It waits for GET /scenario:
+  // on mount the context still holds the Mars fallback, whose id the server
+  // would refuse.
   useEffect(() => {
-    let pending: { actorCount?: unknown } | null = null;
+    if (!scenarioReady) return;
+    let pending: { scenarioId?: unknown; actorCount?: unknown } | null = null;
     try {
       const raw = sessionStorage.getItem(CATALOG_PENDING_KEY);
       if (!raw) return;
       sessionStorage.removeItem(CATALOG_PENDING_KEY);
-      pending = JSON.parse(raw) as { actorCount?: unknown };
+      pending = JSON.parse(raw) as { scenarioId?: unknown; actorCount?: unknown };
     } catch {
+      return;
+    }
+    if (pending?.scenarioId !== scenario.id) {
+      toast('error', 'Scenario changed', "The server's scenario changed before the run you picked could start, so nothing ran. Pick it in the catalog again.", 8000);
       return;
     }
     const count = typeof pending?.actorCount === 'number' && pending.actorCount > 0
@@ -389,11 +402,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     if (count !== null) {
       void handleLoadedScenarioRun(count);
     }
-    // Run exactly once per mount. handleLoadedScenarioRun is stable
-    // enough that the missing dep here doesn't double-fire — we never
-    // want this effect to re-run anyway.
+    // The flag is consumed above, so scenarioReady turning true again after
+    // a scenario update finds nothing to run.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [scenarioReady]);
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
@@ -465,7 +477,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
 
       sse.reset();
       if (typeof window !== 'undefined') {
-        writeActiveRunActors(window.localStorage, actors);
+        writeActiveRunActors(window.localStorage, actors, scenarioId);
       }
       const setupRes = await fetch('/setup', {
         method: 'POST',

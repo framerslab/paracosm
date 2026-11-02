@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useDashboardNavigation, useScenarioContext } from '../../App';
+import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
+import { leaderUnit, type ScenarioLabelsInput } from '../../hooks/useScenarioLabels.helpers';
 import { getActorColorVar } from '../../hooks/useGameState';
 import { ActorConfig, type ActorFormData } from './ActorConfig';
 import { ScenarioEditor } from './ScenarioEditor';
@@ -20,7 +21,7 @@ import {
   SETTINGS_LABEL_STYLE,
   SETTINGS_SECTION_HEADER_STYLE,
 } from './shared/settingsStyles';
-import { readActiveRunActors, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -88,11 +89,11 @@ const TIER_LABELS: Record<ModelTier, { label: string; help: string }> = {
 /**
  * Generic per-slot defaults so the Settings panel can render N actor
  * forms instead of just the original two. Indexes 0/1 keep their
- * legacy names (Actor A / Actor B + Visionary / Engineer archetypes
- * + Colony Alpha / Beta units) so pair-mode runs feel identical to
- * the pre-cohort UX; cohort slots fall through to numbered defaults.
+ * legacy names (Actor A / Actor B + Visionary / Engineer archetypes)
+ * so pair-mode runs feel identical to the pre-cohort UX; cohort slots
+ * fall through to numbered defaults. Units are named for the scenario's
+ * settlement.
  */
-const PHONETIC_UNITS = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta'];
 const COHORT_ARCHETYPES = [
   'The Visionary',
   'The Engineer',
@@ -104,13 +105,12 @@ const COHORT_ARCHETYPES = [
   'The Innovator',
 ];
 
-function defaultLeader(idx: number): ActorFormData {
+function defaultLeader(idx: number, scenario: ScenarioLabelsInput): ActorFormData {
   const slotLetter = String.fromCharCode(65 + (idx % 26));
-  const phonetic = PHONETIC_UNITS[idx] ?? `Group ${idx + 1}`;
   return {
     name: `Actor ${slotLetter}`,
     archetype: COHORT_ARCHETYPES[idx] ?? 'The Strategist',
-    unit: `Colony ${phonetic}`,
+    unit: leaderUnit(scenario, idx),
     instructions: '',
     hexaco: { ...DEFAULT_HEXACO },
   };
@@ -147,6 +147,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     setSubTabUrlParam(next === 'config' ? null : next);
   }, []);
   const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
   const labels = useScenarioLabels();
   const navigateTab = useDashboardNavigation();
 
@@ -180,11 +181,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     const fallback =
       presetLeaders?.[idx] ??
       (persistedActors?.[idx] as { name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> } | undefined);
-    if (!fallback?.name) return defaultLeader(idx);
+    if (!fallback?.name) return defaultLeader(idx, scenario);
     return {
       name: fallback.name,
       archetype: fallback.archetype ?? '',
-      unit: fallback.unit ?? `Colony ${PHONETIC_UNITS[idx] ?? `${idx + 1}`}`,
+      unit: fallback.unit ?? leaderUnit(scenario, idx),
       instructions: fallback.instructions ?? '',
       // Spread so the form's per-trait edits don't mutate the preset
       // shared via the scenario context.
@@ -198,32 +199,55 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // Depend on presets length because the fallback has presets:[] but
   // the same id. Preserves the user's actor count when the preset has
   // fewer entries than the current form (no shrink on scenario load).
+  // What the person has changed in each slot since the page opened stays. A
+  // slot the preset does not fill keeps its person. Its unit takes the new
+  // scenario's word when it is the last scenario's default, or when this
+  // scenario has leaders of its own and the stored roster that slot came
+  // from was launched on another scenario (or does not say which).
+  const edits = useRef<Array<Partial<ActorFormData>>>([]);
+  const lastScenario = useRef<ScenarioLabelsInput>(scenario);
+  const [rosterScenarioId] = useState(() =>
+    typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
+  );
   useEffect(() => {
+    const previous = lastScenario.current;
+    lastScenario.current = scenario;
     const p = scenario.presets.find(p => p.id === 'default');
     const leaders = p?.leaders ?? p?.actors;
-    if (!leaders || leaders.length === 0) return;
     setActors(prev => prev.map((existing, idx) => {
-      const preset = leaders[idx];
-      if (!preset) return existing;
+      const edited = edits.current[idx];
+      const preset = leaders?.[idx];
+      if (!preset) {
+        const rosterIsOtherScenario = leaders !== undefined && rosterScenarioId !== scenario.id;
+        const unitIsStale = rosterIsOtherScenario || existing.unit === leaderUnit(previous, idx);
+        return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
+      }
       return {
         name: preset.name,
         archetype: preset.archetype,
-        unit: existing.unit || `Colony ${PHONETIC_UNITS[idx] ?? `${idx + 1}`}`,
+        unit: preset.unit ?? leaderUnit(scenario, idx),
         instructions: preset.instructions,
         hexaco: { ...preset.hexaco },
+        ...edited,
       };
     }));
   }, [scenario.id, scenario.presets.length]);
 
   const updateActor = useCallback((idx: number, next: ActorFormData) => {
-    setActors(prev => prev.map((a, i) => (i === idx ? next : a)));
+    setActors(prev => prev.map((a, i) => {
+      if (i !== idx) return a;
+      const changed = (Object.keys(next) as Array<keyof ActorFormData>).filter(key => next[key] !== a[key]);
+      edits.current[idx] = { ...edits.current[idx], ...Object.fromEntries(changed.map(key => [key, next[key]])) };
+      return next;
+    }));
   }, []);
 
   const addActor = useCallback(() => {
-    setActors(prev => (prev.length < MAX_ACTORS ? [...prev, defaultLeader(prev.length)] : prev));
-  }, []);
+    setActors(prev => (prev.length < MAX_ACTORS ? [...prev, defaultLeader(prev.length, scenario)] : prev));
+  }, [scenario]);
 
   const removeActor = useCallback((idx: number) => {
+    edits.current.splice(idx, 1);
     setActors(prev => (prev.length > MIN_ACTORS ? prev.filter((_, i) => i !== idx) : prev));
   }, []);
   const [turns, setTurns] = useState(scenario.setup.defaultTurns);
@@ -374,6 +398,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   };
 
   const launch = useCallback(async () => {
+    if (!scenarioReady) return;
     setLaunching(true);
     setStatus('Starting...');
     try {
@@ -398,7 +423,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, actors);
+      writeActiveRunActors(window.localStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
       if (keyOverrides.openai) config.apiKey = keyOverrides.openai;
       if (keyOverrides.anthropic) config.anthropicKey = keyOverrides.anthropic;
@@ -438,7 +463,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, scenario, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');
@@ -794,11 +819,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       <div className={`responsive-stack ${styles.launchRow}`}>
         <button
           onClick={launch}
-          disabled={launching}
-          aria-label={launching ? 'Simulation running' : 'Launch simulation'}
+          disabled={launching || !scenarioReady}
+          aria-label={launching ? 'Simulation running' : scenarioReady ? 'Launch simulation' : 'Loading scenario'}
           className={styles.launchBtn}
         >
-          {launching ? 'Running...' : 'Launch Simulation'}
+          {launching ? 'Running...' : scenarioReady ? 'Launch Simulation' : 'Loading scenario…'}
         </button>
         {status && <span role="status" className={styles.launchStatus}>{status}</span>}
       </div>

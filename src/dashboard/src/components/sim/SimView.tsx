@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
+import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
 import { readActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { DigitalTwinPanel } from '../digital-twin/DigitalTwinPanel';
 import { DigitalTwinProgress } from '../digital-twin/DigitalTwinProgress';
@@ -114,6 +115,7 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
 
 export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: launchingProp, interventionArtifact, interventionRunning, onInterventionDismiss, forceLayout }: SimViewProps) {
   const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
   // we replace the entire SIM body with DigitalTwinPanel. Single-actor
@@ -212,7 +214,7 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
   // Coerce both shapes (preset entry, persisted-actor entry) into a
   // single loose record so the `unit` / `instructions` field reads
   // don't TS-error on the structural union. Preset entries don't carry
-  // `unit`; the column-default provides "Colony Alpha" / "Colony Beta".
+  // `unit`; the default is named for the scenario's settlement.
   const fallbackA = (presetLeaders?.[0] ?? persistedActors?.[0]) as
     | { name?: string; archetype?: string; unit?: string; hexaco?: unknown; instructions?: string }
     | undefined;
@@ -220,10 +222,10 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
     | { name?: string; archetype?: string; unit?: string; hexaco?: unknown; instructions?: string }
     | undefined;
   const presetLeaderA: LeaderInfo | null = fallbackA?.name
-    ? { name: fallbackA.name, archetype: fallbackA.archetype ?? '', unit: fallbackA.unit ?? 'Colony Alpha', hexaco: (fallbackA.hexaco ?? {}) as LeaderInfo['hexaco'], instructions: fallbackA.instructions ?? '', quote: '' }
+    ? { name: fallbackA.name, archetype: fallbackA.archetype ?? '', unit: fallbackA.unit ?? leaderUnit(scenario, 0), hexaco: (fallbackA.hexaco ?? {}) as LeaderInfo['hexaco'], instructions: fallbackA.instructions ?? '', quote: '' }
     : null;
   const presetLeaderB: LeaderInfo | null = fallbackB?.name
-    ? { name: fallbackB.name, archetype: fallbackB.archetype ?? '', unit: fallbackB.unit ?? 'Colony Beta', hexaco: (fallbackB.hexaco ?? {}) as LeaderInfo['hexaco'], instructions: fallbackB.instructions ?? '', quote: '' }
+    ? { name: fallbackB.name, archetype: fallbackB.archetype ?? '', unit: fallbackB.unit ?? leaderUnit(scenario, 1), hexaco: (fallbackB.hexaco ?? {}) as LeaderInfo['hexaco'], instructions: fallbackB.instructions ?? '', quote: '' }
     : null;
 
   const [showIntro, setShowIntro] = useState(() => {
@@ -472,10 +474,10 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
             {onRun && (
               <button
                 onClick={handleRun}
-                disabled={launching}
+                disabled={launching || !scenarioReady}
                 className={styles.buttonRun}
               >
-                {launching ? 'Launching…' : 'Run Simulation'}
+                {launching ? 'Launching…' : scenarioReady ? 'Run Simulation' : 'Loading scenario…'}
               </button>
             )}
             <button onClick={handleScrollToReplayCta} className={styles.buttonLoad}>
