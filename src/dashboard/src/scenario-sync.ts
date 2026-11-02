@@ -32,14 +32,25 @@ export function markScenarioSwitched(storage: () => FlagStorage = tabStorage): v
   }
 }
 
-/** True once after markScenarioSwitched, which it clears. */
+// The answer for this page load, so every reader in it agrees: React's
+// development StrictMode renders a component twice and keeps the second.
+let switchedBeforeThisLoad: boolean | null = null;
+
+/**
+ * Whether this page load follows a switch in this tab. The first call
+ * reads and clears the mark that markScenarioSwitched left, so the next
+ * load does not inherit it; later calls in the same load answer the same.
+ */
 export function consumeScenarioSwitched(storage: () => FlagStorage = tabStorage): boolean {
+  if (switchedBeforeThisLoad !== null) return switchedBeforeThisLoad;
+  let switched = false;
   try {
     const flags = storage();
-    if (flags.getItem(SCENARIO_SWITCHED_KEY) !== '1') return false;
-    flags.removeItem(SCENARIO_SWITCHED_KEY);
-    return true;
+    switched = flags.getItem(SCENARIO_SWITCHED_KEY) === '1';
+    if (switched) flags.removeItem(SCENARIO_SWITCHED_KEY);
   } catch {
-    return false;
+    switched = false;
   }
+  switchedBeforeThisLoad = switched;
+  return switched;
 }

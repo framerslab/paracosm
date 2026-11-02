@@ -32,7 +32,6 @@ async function captureSetup(page: Page): Promise<SetupBody[]> {
 
 const firstName = (page: Page) => page.getByRole('textbox', { name: 'Name', exact: true }).first();
 const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
-const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
 
 /** Opens Settings and waits for GET /scenario, so the form holds the scenario's leaders. */
@@ -78,21 +77,26 @@ test.describe('Scenario per visitor @scenario', () => {
 
   test('the page that switched comes up without the run the server still holds', async ({ page }) => {
     // The server's buffer holds a finished run. The switch no longer clears
-    // it for everyone, so the page that switched drops that replay itself.
-    await page.route('**/events', route => route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-      body: 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n',
-    }));
+    // it for everyone, so the page that switched skips that replay itself.
+    // This stream ends after its replay, so the page reconnects about every
+    // half second and is handed the same run each time.
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n',
+      });
+    });
     await openSettings(page);
     await page.locator('#scenario-select').selectOption('atlas-lab');
     await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
     await expect(firstName(page)).toHaveValue('Marcus Reinhardt');
 
     await page.getByRole('tab', { name: 'SIM', exact: true }).click();
-    await expect(emptyStateRun(page)).toBeVisible();
-    // The stream ends and reconnects; each reconnect replays the same run.
-    await page.waitForTimeout(2_000);
+    const reloaded = served;
+    await expect.poll(() => served).toBeGreaterThan(reloaded + 1);
     await expect(finishedRun(page)).toHaveCount(0);
     expect(await page.evaluate(() => sessionStorage.getItem('paracosm:scenarioSwitched'))).toBeNull();
 
