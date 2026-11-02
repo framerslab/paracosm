@@ -909,7 +909,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           role="img"
           aria-label={
             snapshot
-              ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%, food reserve ${snapshot.foodReserve.toFixed(1)} months. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
+              ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%${typeof snapshot.foodReserve === 'number' ? `, food reserve ${snapshot.foodReserve.toFixed(1)} months` : ''}. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
               : `${actorName} ${scenarioLabels.place} — waiting for first turn.`
           }
           onMouseMove={onMouseMove}

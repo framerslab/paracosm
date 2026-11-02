@@ -51,7 +51,8 @@ export interface TurnSnapshot {
   cells: CellSnapshot[];
   population: number;
   morale: number;
-  foodReserve: number;
+  /** Months of food, in a run whose scenario carries a food store. */
+  foodReserve?: number;
   deaths: number;
   births: number;
   /** Categories of events that occurred this turn (for event flash overlay). */

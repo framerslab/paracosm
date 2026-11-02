@@ -2,13 +2,14 @@
  * What a run's prompts say about the world's state, limited to what the
  * scenario declares.
  *
- * The kernel holds Mars-heritage values in every run: its progression
- * reads food, life support and the rest, so they stay in the state and
- * in saved runs. A scenario that does not declare them has no such things
- * ("Food 18.0mo" in an AI lab), and the Atlas Lab commanders wrote of
- * "Earth-governed amplification" once the director read
- * `governanceStatus: earth-governed`. So the prompts read them through
- * here, and a scenario sees them only by declaring them in `world`.
+ * The kernel seeds its Mars-heritage values (food, power, life support,
+ * Earth dependency and the rest) only in a run whose scenario declares
+ * them, or a run with no scenario. A run saved before that, or forked from
+ * such a run, still carries them all, and a scenario that does not declare
+ * them has no such things ("Food 18.0mo" in an AI lab); the Atlas Lab
+ * commanders wrote of "Earth-governed amplification" once the director
+ * read `governanceStatus: earth-governed`. So the prompts read them
+ * through here, and a scenario sees them only by declaring them in `world`.
  *
  * @module paracosm/runtime/util/scenario-state
  */

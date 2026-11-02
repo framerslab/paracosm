@@ -68,7 +68,7 @@ export function useVizSnapshots(state: GameState): Record<string, TurnSnapshot[]
           cells,
           population: (dd.population as number) || cells.filter(c => c.alive).length,
           morale: (dd.morale as number) || 0,
-          foodReserve: (dd.foodReserve as number) || 0,
+          foodReserve: typeof dd.foodReserve === 'number' ? dd.foodReserve : undefined,
           deaths: (dd.deaths as number) || 0,
           births: (dd.births as number) || 0,
           eventCategories: categoriesByTurn.get(turnNum) ?? [],

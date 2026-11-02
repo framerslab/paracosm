@@ -25,8 +25,9 @@ interface SideStats {
   finalPop: number;
   avgMorale: number;
   minMorale: number;
-  avgFood: number;
-  minFood: number;
+  /** Undefined when no snapshot carries a food reserve. */
+  avgFood?: number;
+  minFood?: number;
 }
 
 function computeSide(snaps: TurnSnapshot[]): SideStats | null {
@@ -36,6 +37,7 @@ function computeSide(snaps: TurnSnapshot[]): SideStats | null {
   let peakPop = 0;
   let moraleSum = 0;
   let foodSum = 0;
+  let foodTurns = 0;
   let minMorale = Infinity;
   let minFood = Infinity;
   for (const s of snaps) {
@@ -43,9 +45,12 @@ function computeSide(snaps: TurnSnapshot[]): SideStats | null {
     totalDeaths += s.deaths;
     if (s.population > peakPop) peakPop = s.population;
     moraleSum += s.morale;
-    foodSum += s.foodReserve;
+    if (typeof s.foodReserve === 'number') {
+      foodSum += s.foodReserve;
+      foodTurns++;
+      if (s.foodReserve < minFood) minFood = s.foodReserve;
+    }
     if (s.morale < minMorale) minMorale = s.morale;
-    if (s.foodReserve < minFood) minFood = s.foodReserve;
   }
   return {
     turns: snaps.length,
@@ -55,8 +60,8 @@ function computeSide(snaps: TurnSnapshot[]): SideStats | null {
     finalPop: snaps[snaps.length - 1].population,
     avgMorale: moraleSum / snaps.length,
     minMorale: minMorale === Infinity ? 0 : minMorale,
-    avgFood: foodSum / snaps.length,
-    minFood: minFood === Infinity ? 0 : minFood,
+    avgFood: foodTurns > 0 ? foodSum / foodTurns : undefined,
+    minFood: foodTurns > 0 ? minFood : undefined,
   };
 }
 
@@ -117,7 +122,7 @@ export function RunSummaryDrawer(props: RunSummaryDrawerProps) {
           {cell('Total deaths', `${s.totalDeaths}`, 'rgba(200, 95, 80, 0.95)')}
           {cell('Avg morale', `${Math.round(s.avgMorale * 100)}%`)}
           {cell('Min morale', `${Math.round(s.minMorale * 100)}%`, s.minMorale < 0.3 ? 'var(--rust)' : 'var(--text-1)')}
-          {cell('Min food', `${s.minFood.toFixed(1)}mo`, s.minFood < 3 ? 'var(--rust)' : 'var(--text-1)')}
+          {s.minFood !== undefined && cell('Min food', `${s.minFood.toFixed(1)}mo`, s.minFood < 3 ? 'var(--rust)' : 'var(--text-1)')}
           {cell('Tools forged', `${forgeCount}`, 'var(--amber)')}
           {cell('Tool reuses', `${reuseCount}`, 'var(--amber)')}
         </div>

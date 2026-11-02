@@ -160,7 +160,8 @@ export function classifyOutcome(
 
   let prob = riskSuccessProbability;
   if (metrics.morale > 0.7) prob += 0.1;
-  if (metrics.foodMonthsReserve > 12) prob += 0.05;
+  // A food store adds to the odds only in a run that carries one.
+  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
   if (metrics.population > 150) prob -= 0.05;
   prob = Math.max(0.1, Math.min(0.9, prob));
 
@@ -188,7 +189,8 @@ export function classifyOutcomeById(
 
   let prob = riskSuccessProbability;
   if (metrics.morale > 0.7) prob += 0.1;
-  if (metrics.foodMonthsReserve > 12) prob += 0.05;
+  // A food store adds to the odds only in a run that carries one.
+  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
   if (metrics.population > 150) prob -= 0.05;
   prob = Math.max(0.1, Math.min(0.9, prob));
 
@@ -284,7 +286,7 @@ export function progressBetweenTurns(
     // 2c. Starvation — settlement-wide food reserve below a month triggers
     // per-colonist starvation risk. Every colonist is equally at risk;
     // it is settlement-scale, not individual.
-    if (metrics.foodMonthsReserve < 1.0) {
+    if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 1.0) {
       const starveProb = (1.0 - metrics.foodMonthsReserve) * 0.15 * timeDelta;
       if (turnRng.chance(Math.min(starveProb, 0.3))) {
         killColonist(c, 'starvation',
@@ -411,7 +413,10 @@ export function progressBetweenTurns(
     seenPairs.add(b.core.id);
     partneredCouples.push([a, b]);
   }
-  const baseBirthProb = metrics.morale > 0.4 && metrics.foodMonthsReserve > 6 ? 0.08 * timeDelta : 0.02 * timeDelta;
+  // A run that carries no food store (its scenario declares none) is not
+  // short of food.
+  const fedEnough = typeof metrics.foodMonthsReserve !== 'number' || metrics.foodMonthsReserve > 6;
+  const baseBirthProb = metrics.morale > 0.4 && fedEnough ? 0.08 * timeDelta : 0.02 * timeDelta;
   // Partnered couples: 3x the base rate (stable relationships, higher
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
   const partneredBirthProb = Math.min(0.6, baseBirthProb * 3);
@@ -557,17 +562,23 @@ export function progressBetweenTurns(
   const aliveColonists = colonists.filter(c => c.health.alive);
   const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
   const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
-  const foodPressure = metrics.foodMonthsReserve < 6 ? -0.05 : 0;
-  const popPressure = aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
+  // Food and life support weigh on morale only in a run that carries them.
+  const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
+  const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
   const deathShock = deadThisTurn.size > 2 ? -0.04 * deadThisTurn.size : 0;
   metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
 
   // 7. Update population count
   metrics.population = aliveColonists.length;
 
-  // 8. Resource production
-  metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (timeDelta * 0.5) + (metrics.infrastructureModules * 0.3 * timeDelta));
-  metrics.scienceOutput += timeDelta;
+  // 8. Resource production, for the resources the run carries. Food
+  // grows with the modules a scenario declares; without them it only
+  // runs down.
+  if (typeof metrics.foodMonthsReserve === 'number') {
+    const modules = typeof metrics.infrastructureModules === 'number' ? metrics.infrastructureModules : 0;
+    metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (timeDelta * 0.5) + (modules * 0.3 * timeDelta));
+  }
+  if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += timeDelta;
 
   return {
     state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },

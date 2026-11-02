@@ -1,6 +1,10 @@
+import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { TurnSnapshot } from '../viz-types.js';
 import styles from './TimelineSparkline.module.scss';
+
+// The server-side render in the tests compiles JSX to React.createElement.
+void React;
 
 interface TimelineSparklineProps {
   snapsA: TurnSnapshot[];
@@ -35,34 +39,46 @@ export function TimelineSparkline({
   const plotW = W - padX * 2;
   const plotH = H - padY * 2;
 
+  // A value of null is no measurement: the line breaks there.
   const buildPath = (
     snaps: TurnSnapshot[],
-    valueOf: (s: TurnSnapshot) => number,
+    valueOf: (s: TurnSnapshot) => number | null,
   ): string => {
     if (snaps.length === 0) return '';
     const stepX = plotW / Math.max(1, maxTurns - 1);
-    return snaps
-      .map((s, i) => {
-        const x = padX + i * stepX;
-        const y = padY + (1 - valueOf(s)) * plotH;
-        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(' ');
+    const parts: string[] = [];
+    let drawing = false;
+    snaps.forEach((s, i) => {
+      const value = valueOf(s);
+      if (value === null) {
+        drawing = false;
+        return;
+      }
+      const x = padX + i * stepX;
+      const y = padY + (1 - value) * plotH;
+      parts.push(`${drawing ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`);
+      drawing = true;
+    });
+    return parts.join(' ');
   };
 
   // Normalize food + pop against their per-run maxima so all three
   // metrics share a 0..1 axis. Morale is already 0..1.
-  const maxFood = Math.max(
-    18,
-    ...snapsA.map(s => s.foodReserve),
-    ...snapsB.map(s => s.foodReserve),
-  );
+  // A side whose snapshots carry no food reserve draws no food line.
+  const hasFoodA = snapsA.some(s => typeof s.foodReserve === 'number');
+  const hasFoodB = snapsB.some(s => typeof s.foodReserve === 'number');
+  const hasFood = hasFoodA || hasFoodB;
+  const foodValues = [...snapsA, ...snapsB]
+    .map(s => s.foodReserve)
+    .filter((v): v is number => typeof v === 'number');
+  const maxFood = Math.max(18, ...foodValues);
   const maxPop = Math.max(
     1,
     ...snapsA.map(s => s.population),
     ...snapsB.map(s => s.population),
   );
-  const normFood = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.foodReserve / maxFood));
+  const normFood = (s: TurnSnapshot) =>
+    typeof s.foodReserve === 'number' ? Math.max(0, Math.min(1, s.foodReserve / maxFood)) : null;
   const normPop = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.population / maxPop));
   const normMorale = (s: TurnSnapshot) => Math.max(0, Math.min(1, s.morale));
 
@@ -95,20 +111,20 @@ export function TimelineSparkline({
   return (
     <div className={styles.wrap}>
       <div className={styles.legend}>
-        <span>MORALE · POP · FOOD · T1 → T{maxTurns}</span>
+        <span>MORALE · POP{hasFood ? ' · FOOD' : ''} · T1 → T{maxTurns}</span>
         <span className={styles.legendRight}>
           <span className={styles.legendA}>A</span>
           <span className={styles.legendB}>B</span>
           <span className={styles.legendKey}>— morale</span>
           <span className={styles.legendKey}>··· pop</span>
-          <span className={styles.legendKey}>- - food</span>
+          {hasFood && <span className={styles.legendKey}>- - food</span>}
         </span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="Timeline sparkline of morale, population, and food across both leaders"
+        aria-label={`Timeline sparkline of morale, population${hasFood ? ', and food' : ''} across both leaders`}
         onClick={handleClick}
         onMouseMove={handleMove}
         onMouseLeave={handleLeave}
@@ -126,8 +142,8 @@ export function TimelineSparkline({
           strokeDasharray="2 2"
         />
         {/* Food (dashed) + pop (dotted) trace beneath the morale line */}
-        <path d={buildPath(snapsA, normFood)} fill="none" stroke="var(--vis)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />
-        <path d={buildPath(snapsB, normFood)} fill="none" stroke="var(--eng)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />
+        {hasFoodA && <path d={buildPath(snapsA, normFood)} fill="none" stroke="var(--vis)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />}
+        {hasFoodB && <path d={buildPath(snapsB, normFood)} fill="none" stroke="var(--eng)" strokeWidth={0.8} strokeDasharray="3 2" opacity={0.45} />}
         <path d={buildPath(snapsA, normPop)} fill="none" stroke="var(--vis)" strokeWidth={0.7} strokeDasharray="1 2" opacity={0.5} />
         <path d={buildPath(snapsB, normPop)} fill="none" stroke="var(--eng)" strokeWidth={0.7} strokeDasharray="1 2" opacity={0.5} />
         <path d={buildPath(snapsA, normMorale)} fill="none" stroke="var(--vis)" strokeWidth={1.3} />
@@ -157,7 +173,7 @@ export function TimelineSparkline({
                 <span className={styles.tooltipBold}>A</span>
                 <span>pop {a.population}</span>
                 <span>· {Math.round(a.morale * 100)}% mor</span>
-                <span>· {a.foodReserve.toFixed(1)}mo</span>
+                {typeof a.foodReserve === 'number' && <span>· {a.foodReserve.toFixed(1)}mo</span>}
                 {(a.births > 0 || a.deaths > 0) && <span>· +{a.births}/-{a.deaths}</span>}
               </div>
             )}
@@ -166,7 +182,7 @@ export function TimelineSparkline({
                 <span className={styles.tooltipBold}>B</span>
                 <span>pop {b.population}</span>
                 <span>· {Math.round(b.morale * 100)}% mor</span>
-                <span>· {b.foodReserve.toFixed(1)}mo</span>
+                {typeof b.foodReserve === 'number' && <span>· {b.foodReserve.toFixed(1)}mo</span>}
                 {(b.births > 0 || b.deaths > 0) && <span>· +{b.births}/-{b.deaths}</span>}
               </div>
             )}
