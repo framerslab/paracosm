@@ -73,10 +73,12 @@ export function GridMetricsStrip({
             } as CSSProperties}
           />
         </div>
-        <div className={styles.row}>
-          <span>FOOD</span>
-          <span className={styles.value2}>{snapshot.foodReserve.toFixed(1)}mo</span>
-        </div>
+        {typeof snapshot.foodReserve === 'number' && (
+          <div className={styles.row}>
+            <span>FOOD</span>
+            <span className={styles.value2}>{snapshot.foodReserve.toFixed(1)}mo</span>
+          </div>
+        )}
         <div className={styles.row}>
           <span>DEATHS</span>
           <span className={styles.valueRust}>{snapshot.deaths}</span>

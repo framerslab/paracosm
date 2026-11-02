@@ -166,7 +166,8 @@ const SystemsSnapshotDataSchema = z.object({
   agents: z.array(z.unknown()),
   population: z.number(),
   morale: z.number(),
-  foodReserve: z.number(),
+  /** Months of food, in a run whose scenario carries `foodMonthsReserve`. */
+  foodReserve: z.number().optional(),
   births: z.number(),
   deaths: z.number(),
 });

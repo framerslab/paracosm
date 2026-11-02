@@ -872,7 +872,6 @@
             "agents",
             "population",
             "morale",
-            "foodReserve",
             "births",
             "deaths"
           ],

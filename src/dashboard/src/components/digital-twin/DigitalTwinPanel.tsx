@@ -91,11 +91,11 @@ const CHART_COLORS: Record<string, string> = {
   marketShare: '#7cb6ff',
 };
 
-// closed_turn_based_settlement engine archetype injects colony defaults
-// (powerKw, foodMonthsReserve, waterLitersPerDay, pressurizedVolumeM3,
-// lifeSupportCapacity, infrastructureModules, scienceOutput, morale)
-// on top of every scenario's world.metrics. For a patient digital-twin
-// run those defaults are noise — the panel would render HbA1c next to
+// A run saved before the kernel seeded only declared metrics carries the
+// colony defaults (powerKw, foodMonthsReserve, waterLitersPerDay,
+// pressurizedVolumeM3, lifeSupportCapacity, infrastructureModules,
+// scienceOutput) beside its scenario's world.metrics, and every run
+// carries morale. For a patient digital-twin run those values are noise — the panel would render HbA1c next to
 // lifeSupportCapacity. We allow-list the medical metrics the
 // t2d-glp1-protocol scenario declares so the grid only shows
 // subject-relevant numbers. Falls back to "show every metric" when the

@@ -74,7 +74,7 @@ A scenario JSON file is the runtime contract that describes the simulation domai
 
 **Any domain works.** Mars colonies, submarine habitats, space stations, medieval kingdoms. The engine is domain-agnostic. The compiled scenario contract defines what gets simulated.
 
-**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook. The run's prompts read the same labels through [`scenario-words.ts`](../src/runtime/util/scenario-words.ts), `labels.actorNoun` naming the leader, and read the world through [`scenario-state.ts`](../src/runtime/util/scenario-state.ts): the kernel keeps its Mars-heritage metrics and politics in every run because its progression reads them, and a prompt names them only when the scenario declares them in `world`.
+**Terminology.** The `labels.populationNoun` (plural, e.g. `colonists` → `crew` → `subjects`) and `labels.settlementNoun` (singular, e.g. `colony` → `habitat` → `kingdom`) fields flavour every user-facing string in the dashboard: help legends, roster headers, empty states, ARIA labels, report copy. The engine defaults to `colonists` / `colony` when omitted (Mars heritage), but non-Mars scenarios should override both. Singular/capitalized variants are derived automatically by the dashboard's `useScenarioLabels()` hook. The run's prompts read the same labels through [`scenario-words.ts`](../src/runtime/util/scenario-words.ts), `labels.actorNoun` naming the leader, and read the world through [`scenario-state.ts`](../src/runtime/util/scenario-state.ts): the kernel seeds its Mars-heritage metrics and politics (power, food, water, pressurized volume, life support, modules, science, Earth dependency, governance, independence pressure) only in a run whose scenario declares them in `world`, or a run with no scenario, so a run's state, turn events, outcome effects and saved run carry only what its scenario declares, plus the population and morale every run has. Progression reads food and life support only where a run carries them. A saved run that carries the Mars defaults loads, forks and replays with them, and a prompt names them only when the scenario declares them.
 
 ### Seed Enrichment & Citation Flow
 
@@ -339,7 +339,7 @@ The swarm is first-class on every consumer surface:
 | **`paracosm/swarm`** | Pure projections: `getSwarm`, `swarmByDepartment`, `swarmFamilyTree`, `aliveCount`, `deathCount`, `moodHistogram`, `departmentHeadcount`. |
 | **`paracosm`** | `WorldModel.swarm(artifact)` and the same helpers as static methods. |
 | **HTTP** | `GET /api/v1/runs/:runId/swarm` returns just the swarm snapshot — lighter than the full artifact. |
-| **SSE stream** | `systems_snapshot` event fires every turn with the full agent roster + per-turn births/deaths/morale. |
+| **SSE stream** | `systems_snapshot` event fires every turn with the full agent roster + per-turn births/deaths/morale, and the food reserve in a run that carries `foodMonthsReserve`. |
 
 ```ts
 import { getSwarm, swarmByDepartment, moodHistogram } from 'paracosm/swarm';
