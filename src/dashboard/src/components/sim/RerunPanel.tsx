@@ -78,7 +78,11 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         // path on the same contract.
         const actors = Array.isArray(next.actors) ? (next.actors as PersistedActor[]) : null;
         if (actors && actors.length > 0) {
-          writeActiveRunActors(window.localStorage, actors);
+          writeActiveRunActors(
+            window.localStorage,
+            actors,
+            typeof next.scenarioId === 'string' ? next.scenarioId : undefined,
+          );
         }
         // Same bug Quickstart had: a bare /sim from /setup falls
         // through to the URL parser's default ('quickstart'), so the

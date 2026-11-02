@@ -21,7 +21,7 @@ import {
   SETTINGS_LABEL_STYLE,
   SETTINGS_SECTION_HEADER_STYLE,
 } from './shared/settingsStyles';
-import { readActiveRunActors, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -202,10 +202,13 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // What the person has changed in each slot since the page opened stays. A
   // slot the preset does not fill keeps its person. Its unit takes the new
   // scenario's word when it is the last scenario's default, or when this
-  // scenario has leaders of its own, since that slot then came from a stored
-  // roster that may be another scenario's.
+  // scenario has leaders of its own and the stored roster that slot came
+  // from was launched on another scenario (or does not say which).
   const edits = useRef<Array<Partial<ActorFormData>>>([]);
   const lastScenario = useRef<ScenarioLabelsInput>(scenario);
+  const [rosterScenarioId] = useState(() =>
+    typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
+  );
   useEffect(() => {
     const previous = lastScenario.current;
     lastScenario.current = scenario;
@@ -215,7 +218,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       const edited = edits.current[idx];
       const preset = leaders?.[idx];
       if (!preset) {
-        const unitIsStale = leaders !== undefined || existing.unit === leaderUnit(previous, idx);
+        const rosterIsOtherScenario = leaders !== undefined && rosterScenarioId !== scenario.id;
+        const unitIsStale = rosterIsOtherScenario || existing.unit === leaderUnit(previous, idx);
         return unitIsStale && edited?.unit === undefined ? { ...existing, unit: leaderUnit(scenario, idx) } : existing;
       }
       return {
@@ -419,7 +423,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, actors);
+      writeActiveRunActors(window.localStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
       if (keyOverrides.openai) config.apiKey = keyOverrides.openai;
       if (keyOverrides.anthropic) config.anthropicKey = keyOverrides.anthropic;

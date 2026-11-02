@@ -26,10 +26,16 @@ export const KEY_OVERRIDES_KEY = 'paracosm:keyOverrides';
  *  full actor metadata). Written by every /setup caller. */
 export const ACTIVE_RUN_ACTORS_KEY = 'paracosm:activeRunActors';
 
+/** localStorage key holding the id of the scenario those actors were
+ *  launched on, so a form that starts from them can tell its own
+ *  scenario's run from another one's. */
+export const ACTIVE_RUN_SCENARIO_KEY = 'paracosm:activeRunScenarioId';
+
 /** Minimal storage interface for tests. */
 interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
 }
 
 /**
@@ -130,11 +136,26 @@ export interface PersistedActor {
 export function writeActiveRunActors(
   storage: StorageLike,
   actors: ReadonlyArray<unknown>,
+  scenarioId?: string,
 ): void {
   try {
     storage.setItem(ACTIVE_RUN_ACTORS_KEY, JSON.stringify(actors));
+    // The id is written or cleared with every roster, so it never names
+    // the scenario of an earlier one.
+    if (scenarioId) storage.setItem(ACTIVE_RUN_SCENARIO_KEY, scenarioId);
+    else storage.removeItem?.(ACTIVE_RUN_SCENARIO_KEY);
   } catch {
     // Best-effort.
+  }
+}
+
+/** The scenario the stored actors were launched on, or `null` when it
+ *  was not recorded. */
+export function readActiveRunScenarioId(storage: StorageLike): string | null {
+  try {
+    return storage.getItem(ACTIVE_RUN_SCENARIO_KEY) || null;
+  } catch {
+    return null;
   }
 }
 
