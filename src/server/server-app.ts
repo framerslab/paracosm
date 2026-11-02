@@ -546,6 +546,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // broadcast() keeps it, so a late replay and a saved session still say
   // which scenario the run is. Null once the buffer is cleared.
   let currentRunMetaFrame: string | null = null;
+  // The key of the last run opened, kept through a /clear: a page's Run posts
+  // /clear and the run together, and the /clear can land second. A digital-
+  // twin run stops writing to the buffer once another run's key is here.
+  let currentRunKey: string | null = null;
+  // The key of the last digital-twin run. Its artifact comes back in its
+  // answer, and a saved session replays in the two-column layout, which has
+  // no place for it, so it is not auto-saved.
+  let digitalTwinRunKey: string | null = null;
   // Raw custom scenario JSON payloads authored during this session.
   const memoryScenarios = new Map<string, unknown>();
   // Runnable scenarios that can appear in the catalog and be switched to.
@@ -1089,6 +1097,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // sees whether the prior run saved.
       try { broadcast('sim_saved', { status, ...detail }); } catch { /* never fail the server on telemetry */ }
     };
+    if (currentRunKey !== null && currentRunKey === digitalTwinRunKey) {
+      console.log('[sessions] auto-save skipped: digital-twin run');
+      emitSaveStatus('skipped', { reason: 'digital_twin' });
+      return;
+    }
     if (!sessionStore) {
       console.log('[sessions] auto-save skipped: session store not initialized');
       emitSaveStatus('skipped', { reason: 'store_not_initialized' });
@@ -1333,15 +1346,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    * skips a buffered run since its switch shows the run from this event,
    * and its `runKey` tells a page a new run from a replay of the one it
    * holds. A fork names its parent (`forkedFrom`): the page that forked
-   * keeps the run it holds and shows the fork as a branch of it.
+   * keeps the run it holds and shows the fork as a branch of it. A digital-
+   * twin run takes its key from the page that started it, which shows that
+   * run whichever scenario the page is on.
    */
   const openRunBuffer = (
     scenario: ScenarioPackage,
     seedText: string | null,
     forkedFrom: { parentRunId: string; atTurn: number } | null = null,
+    runKey: string = randomUUID(),
   ): void => {
     clearEventBuffer();
     currentRunScenario = scenario;
+    currentRunKey = runKey;
     broadcast('active_scenario', {
       id: scenario.id,
       name: scenario.labels?.name ?? scenario.id,
@@ -1354,7 +1371,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // This run's own key. A page that reconnects is replayed the same
       // key, so it keeps what it holds; a different key is a new run,
       // which the page shows on its own unless the run is a fork.
-      runKey: randomUUID(),
+      runKey,
       // A fork's parent run and turn, null for every other run.
       forkedFrom,
     });
@@ -2014,16 +2031,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           getDigitalTwinWorld,
           // Pipe simulate-intervention's per-event stream into the same
-          // SSE bus /setup uses. The dashboard's useSSE is already
-          // listening; flipping this on lights up live SIM progress for
-          // digital-twin runs without any client reset on the SSE
-          // connection itself.
+          // SSE bus /setup uses, with the frames /setup's runners write.
           broadcast,
           // A digital-twin run opens the buffer as a /setup run does.
-          resetEventBuffer: (scenario) => {
-            if (scenario) openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null);
-            else clearEventBuffer();
+          resetEventBuffer: (scenario, runKey) => {
+            if (!scenario) {
+              clearEventBuffer();
+              return;
+            }
+            openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null, null, runKey);
+            digitalTwinRunKey = currentRunKey;
           },
+          isCurrentRun: (runKey) => currentRunKey === runKey,
         };
         // compile-from-seed is the first call in a new Quickstart
         // launch flow. Clearing the event buffer here means that any

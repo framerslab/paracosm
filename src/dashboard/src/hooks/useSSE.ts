@@ -141,6 +141,23 @@ interface SSEState {
    * also treated as historical.
    */
   replayDone: boolean;
+  /**
+   * The scenario of the run this page started itself (followRun), from the
+   * active_scenario event that opens it; null while the page holds no such
+   * run. When it is not the page's scenario, the run is the page's Digital
+   * Twin views' alone: useSSE hands it out as `ownRun`, and to everything
+   * else the page holds no run.
+   */
+  ownRunScenarioId: string | null;
+}
+
+/**
+ * The run this page started itself in another scenario than the page's: the
+ * events the Digital Twin views read, and whether the run has ended.
+ */
+export interface OwnRun {
+  events: SimEvent[];
+  isComplete: boolean;
 }
 
 /**
@@ -167,12 +184,15 @@ export interface UseSSEOptions {
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
   };
 }
+
+/** What every view but the Digital Twin's reads while the page's own run is in another scenario. */
+const NO_RUN = emptyRun();
 
 export function useSSE(options: UseSSEOptions = {}) {
   const replaySessionId = options.replaySessionId ?? null;
@@ -190,6 +210,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     providerError: null,
     validationFallbacks: [],
     replayDone: false,
+    ownRunScenarioId: null,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -223,6 +244,12 @@ export function useSSE(options: UseSSEOptions = {}) {
   // run, which the page starts clean on unless it is a fork, the branch
   // of the run the page holds. Read when an event arrives, as above.
   const runKeyRef = useRef<string | null>(null);
+  // The key of the run this page started itself (followRun), a Digital Twin
+  // run, null otherwise. The page minted the key and named it in its request,
+  // so it knows its own run from any other on the stream. That run is shown
+  // whichever scenario it is in, and every other page goes on judging it by
+  // its scenario. Read when an event arrives, as above.
+  const ownRunKeyRef = useRef<string | null>(null);
   // True while the page shows a run loaded from a file (loadEvents), the
   // visitor's own pick, rather than the run the live feed delivered.
   const shownFromFileRef = useRef(false);
@@ -236,6 +263,7 @@ export function useSSE(options: UseSSEOptions = {}) {
   // in the meantime is not the feed's, and stays.
   useEffect(() => {
     if (replaySessionId || scenarioId === null || shownFromFileRef.current) return;
+    if (ownRunKeyRef.current !== null && runKeyRef.current === ownRunKeyRef.current) return;
     const runScenarioId = runScenarioIdRef.current;
     if (runScenarioId === null || runScenarioId === scenarioId) return;
     seenEventKeysRef.current.clear();
@@ -254,6 +282,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     // The buffer is cleared below; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
+    ownRunKeyRef.current = null;
     shownFromFileRef.current = false;
     setState(prev => ({
       // Preserve current connection status so the UI doesn't flash
@@ -271,6 +300,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       // After a manual clear the buffer is empty, so the next events we
       // receive are live by definition.
       replayDone: true,
+      ownRunScenarioId: null,
     }));
     try {
       await fetch('/clear', { method: 'POST' });
@@ -278,6 +308,31 @@ export function useSSE(options: UseSSEOptions = {}) {
       // Server unreachable — local state is still cleared so the user
       // sees the empty state regardless.
     }
+  }, []);
+
+  /**
+   * Show the run that opens with this key as this page's own, whichever
+   * scenario it is in. Called right after reset(), before the request that
+   * starts the run.
+   */
+  const followRun = useCallback((runKey: string) => {
+    ownRunKeyRef.current = runKey;
+  }, []);
+
+  /**
+   * Stop showing the page's own run as its own. A run in the page's scenario
+   * stays, as any run the feed delivered; a run in another scenario goes, and
+   * the feed's scenario check keeps it out from here on.
+   */
+  const leaveOwnRun = useCallback(() => {
+    if (ownRunKeyRef.current === null) return;
+    ownRunKeyRef.current = null;
+    const runScenarioId = runScenarioIdRef.current;
+    const elsewhere = runScenarioId !== null && runScenarioId !== pageScenarioIdRef.current;
+    if (elsewhere) seenEventKeysRef.current.clear();
+    setState(prev => (elsewhere
+      ? { ...prev, ...emptyRun(), ownRunScenarioId: null }
+      : { ...prev, ownRunScenarioId: null }));
   }, []);
 
   const loadEvents = useCallback((events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null) => {
@@ -310,6 +365,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     // after a run with fallbacks preserves the topbar indicator.
     const restoredFallbacks = rollupValidationFallbacks(events);
     shownFromFileRef.current = true;
+    ownRunKeyRef.current = null;
     setState({
       status: 'connected',
       events,
@@ -324,6 +380,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       // Loading events from a saved file is historical by definition, so
       // downstream toast gating should treat the replay as finished.
       replayDone: true,
+      ownRunScenarioId: null,
     });
   }, []);
 
@@ -365,9 +422,10 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
     // An event of a run this page does not show: the run this tab skips
     // since its switch (skipBufferedRunRef), or a run in another scenario
     // than the page's. Never on a saved-session replay, the run the page
-    // asked for.
+    // asked for, and never on the run the page started itself.
     const skipped = () => {
       if (replaySessionId) return false;
+      if (ownRunKeyRef.current !== null && runKeyRef.current === ownRunKeyRef.current) return false;
       if (skipBufferedRunRef.current === true) return true;
       const runScenarioId = runScenarioIdRef.current;
       const pageScenarioId = pageScenarioIdRef.current;
@@ -497,6 +555,9 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         runKeyRef.current = runKey;
         runScenarioIdRef.current = id;
         skipBufferedRunRef.current = false;
+        if (runKey !== null && runKey === ownRunKeyRef.current) {
+          setState(prev => ({ ...prev, ownRunScenarioId: id }));
+        }
         // A new run took the server's place: the server aborts the run in
         // flight to start another. When the new one is in another scenario
         // than the page's, the page skips it, and with it the last events of
@@ -518,7 +579,11 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // run the page holds, which shows the fork as a branch of it.
           seenEventKeys.clear();
           shownFromFileRef.current = false;
-          setState(prev => ({ ...prev, ...emptyRun() }));
+          setState(prev => ({
+            ...prev,
+            ...emptyRun(),
+            ownRunScenarioId: runKey === ownRunKeyRef.current ? id : null,
+          }));
         }
       });
 
@@ -757,5 +822,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
     // when the caller passed a replay id.
   }, [replaySessionId, replaySpeed]);
 
-  return { ...state, reset, loadEvents };
+  // The page's own run in another scenario than the page's stays out of the
+  // views that read the page's run (their nouns and metrics are the page's
+  // scenario's) and out of its history. The Digital Twin views read `ownRun`.
+  // A provider error stays: it is about the account, not the scenario.
+  const ownRunElsewhere = state.ownRunScenarioId !== null && state.ownRunScenarioId !== scenarioId;
+  const ownRun: OwnRun | null = ownRunElsewhere ? { events: state.events, isComplete: state.isComplete } : null;
+  const shown = ownRunElsewhere ? { ...state, ...NO_RUN, providerError: state.providerError } : state;
+  return { ...shown, ownRun, reset, loadEvents, followRun, leaveOwnRun };
 }

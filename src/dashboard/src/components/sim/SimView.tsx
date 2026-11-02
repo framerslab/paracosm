@@ -52,6 +52,9 @@ interface SimViewProps {
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
   } | null;
+  /** The state the Digital Twin views read: the run this page started,
+   *  whichever scenario it is in. Falls back to `state`. */
+  interventionState?: GameState;
   /** Clears the intervention artifact so SimView returns to the standard
    *  parallel-actor layout. */
   onInterventionDismiss?: () => void;
@@ -113,7 +116,7 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: launchingProp, interventionArtifact, interventionRunning, onInterventionDismiss, forceLayout }: SimViewProps) {
+export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: launchingProp, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   // Digital-twin short-circuit: when the dashboard receives an artifact
@@ -125,7 +128,7 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
     return (
       <div className={styles.root}>
         <div className={styles.scrollableBody}>
-          <DigitalTwinPanel artifact={interventionArtifact} state={state} onDismiss={onInterventionDismiss} />
+          <DigitalTwinPanel artifact={interventionArtifact} state={interventionState} onDismiss={onInterventionDismiss} />
         </div>
       </div>
     );
@@ -138,7 +141,7 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
     return (
       <div className={styles.root}>
         <div className={styles.scrollableBody}>
-          <DigitalTwinProgress state={state} subject={interventionRunning.subject} intervention={interventionRunning.intervention} />
+          <DigitalTwinProgress state={interventionState} subject={interventionRunning.subject} intervention={interventionRunning.intervention} />
         </div>
       </div>
     );

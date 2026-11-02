@@ -115,7 +115,7 @@ export function DigitalTwinProgress({ state, subject, intervention }: DigitalTwi
           Digital Twin · Running
         </h2>
         <span className={styles.timer}>
-          {elapsedSec}s elapsed · streaming live · 1 turn × LLM decisions
+          {elapsedSec}s elapsed · streaming live · {maxTurns} {maxTurns === 1 ? 'turn' : 'turns'} × LLM decisions
         </span>
       </div>
 

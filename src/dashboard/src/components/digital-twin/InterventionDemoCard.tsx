@@ -8,9 +8,11 @@
  * point.
  *
  * Click hits POST /api/quickstart/simulate-intervention with the
- * dynamically-built SubjectConfig + InterventionConfig. On 200 the
- * artifact is forwarded to the parent (App.tsx) which parks it and
- * switches to the SIM tab so DigitalTwinPanel renders the result.
+ * dynamically-built SubjectConfig + InterventionConfig and a run key the
+ * card mints, which the parent (App.tsx) follows on the event stream, so
+ * the page tells its own run from any other. On 200 the artifact is
+ * forwarded to the parent, which parks it and switches to the SIM tab so
+ * DigitalTwinPanel renders the result.
  *
  * @module paracosm/dashboard/digital-twin/InterventionDemoCard
  */
@@ -22,6 +24,8 @@ export interface InterventionDemoCardProps {
   onResult: (artifact: RunArtifact) => void;
   onError?: (message: string) => void;
   onRunStart?: (payload: {
+    /** The key the run opens with on the event stream. */
+    runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
   }) => void;
@@ -176,6 +180,11 @@ function safeParseJson(value: string, fallback: unknown): unknown {
   }
 }
 
+/** A run key. crypto.randomUUID exists only in a secure context, and a server on a LAN address is not one. */
+function newRunKey(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function InterventionDemoCard({ onResult, onError, onRunStart }: InterventionDemoCardProps) {
   const [subject, setSubject] = useState<SubjectForm>(EMPTY_SUBJECT);
   const [intervention, setIntervention] = useState<InterventionForm>(EMPTY_INTERVENTION);
@@ -240,7 +249,9 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
       setElapsedSec(Math.round((Date.now() - startedAt) / 1000));
     }, 500);
 
+    const runKey = newRunKey();
     onRunStart?.({
+      runKey,
       subject: { id: subjectPayload.id, name: subjectPayload.name, profile: subjectPayload.profile },
       intervention: {
         id: interventionPayload.id,
@@ -257,6 +268,7 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
         body: JSON.stringify({
           subject: subjectPayload,
           intervention: interventionPayload,
+          runKey,
           options: { maxTurns: 2, seed: 11, costPreset: 'economy' },
         }),
       });
