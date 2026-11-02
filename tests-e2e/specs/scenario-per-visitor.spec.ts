@@ -106,6 +106,36 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toBeVisible();
   });
 
+  test('the page that compiled a scenario comes up on it without the run the server still holds', async ({ page }) => {
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+        body: 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\nevent: replay_done\ndata: {}\n\n',
+      });
+    });
+    // The compile is answered here, so no model is called. The id it
+    // reports is one the server holds, so the editor's switch to it is real.
+    await page.route('**/compile', route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: 'event: status\ndata: {"status":"compiling"}\n\nevent: complete\ndata: {"id":"atlas-lab","version":"1.0.0","departments":5,"hooks":7}\n\n',
+    }));
+    await openSettings(page);
+    const compile = page.getByRole('button', { name: 'Compile scenario' });
+    await expect(compile).toBeEnabled();
+    await compile.click();
+
+    await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/Compiled: atlas-lab/)).toBeVisible();
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    const compiled = served;
+    await expect.poll(() => served).toBeGreaterThan(compiled + 1);
+    await expect(finishedRun(page)).toHaveCount(0);
+  });
+
   test('the privacy section names the cookie that holds the pick', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#privacy')).toContainText('paracosm_scenario');

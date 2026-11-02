@@ -4,10 +4,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
-  handleGenerateActors,
+  handleGenerateActors, handleSimulateIntervention,
   _resetCompileJobsForTest,
   type QuickstartDeps,
 } from '../../src/server/routes/quickstart.js';
+import type { WorldModel } from '../../src/runtime/world-model/index.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
@@ -325,4 +326,26 @@ test('compile-from-seed: the done answers carry the visitor\'s pick, a pending o
   await handleCompileFromSeed({} as IncomingMessage, hit.res, { seedText: VALID_SEED }, deps);
   assert.equal(hit.get().status, 200);
   assert.equal(hit.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
+});
+
+test('simulate-intervention hands the server the scenario its run is in when it opens the run', async () => {
+  // The intervention replaces the shared event buffer as a /setup run does.
+  // The server opens that buffer with the run's active_scenario event and
+  // reads the run's nouns for /chat from the scenario handed over here; with
+  // nothing handed over, /chat kept the previous run's nouns.
+  const opened: Array<ScenarioPackage | undefined> = [];
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async () => ({ metadata: { runId: 'twin-1' } }),
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, {
+    subject: { id: 'subject-1', name: 'Maria Chen' },
+    intervention: { id: 'glp1', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
+  }, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    resetEventBuffer: (scenario?: ScenarioPackage) => { opened.push(scenario); },
+  }));
+  assert.equal(get().status, 200);
+  assert.deepEqual(opened.map(scenario => scenario?.id), [ASYNC_TEST_SCENARIO.id]);
 });
