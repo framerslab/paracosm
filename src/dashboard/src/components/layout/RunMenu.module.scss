@@ -96,6 +96,12 @@
   &:hover {
     filter: brightness(1.08);
   }
+
+  &:disabled {
+    filter: saturate(0.4);
+    opacity: 0.75;
+    cursor: wait;
+  }
 }
 
 .runNewBadge {

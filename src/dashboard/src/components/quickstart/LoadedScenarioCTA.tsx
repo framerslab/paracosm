@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useState, useEffect, useRef } from 'react';
-import { useScenarioContext } from '../../App';
+import { useScenarioContext, useScenarioReady } from '../../App';
 import styles from './LoadedScenarioCTA.module.scss';
 
 void React;
@@ -70,10 +70,12 @@ interface LoadedScenarioCTAProps {
  */
 export function LoadedScenarioCTA({
   onRunStart,
-  disabled = false,
+  disabled: disabledProp = false,
   initialActorCount = 2,
 }: LoadedScenarioCTAProps) {
   const scenario = useScenarioContext();
+  // A run waits for the server's scenario, not the fallback the page starts on.
+  const disabled = !useScenarioReady() || disabledProp;
   const [actorCount, setActorCount] = useState<number>(initialActorCount);
   const [launching, setLaunching] = useState<boolean>(false);
   // Catalog of scenarios available on the server — Mars Genesis +

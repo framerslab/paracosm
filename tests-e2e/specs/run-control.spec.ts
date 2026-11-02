@@ -131,18 +131,27 @@ test.describe('Run controls @run', () => {
 
   test('a failed GET /scenario keeps Run waiting, and the page tries again', async ({ page }) => {
     let answered = 0;
+    let release = () => {};
+    const released = new Promise<void>(resolve => { release = resolve; });
     await page.route('**/scenario', async route => {
       answered += 1;
-      if (answered === 1) await route.fulfill({ status: 500, body: 'unavailable' });
-      else await route.continue();
+      if (answered === 1) {
+        await route.fulfill({ status: 500, body: 'unavailable' });
+        return;
+      }
+      await released;
+      await route.continue();
     });
     const failed = page.waitForResponse(r => r.url().endsWith('/scenario') && r.status() === 500);
     await page.goto('/sim?tab=sim');
     await failed;
 
     await expect(emptyStateRun(page)).toBeDisabled();
-    await expect(emptyStateRun(page)).toBeEnabled({ timeout: 15_000 });
-    expect(answered).toBeGreaterThan(1);
+    await expect.poll(() => answered, { timeout: 15_000 }).toBeGreaterThan(1);
+    await expect(emptyStateRun(page)).toBeDisabled();
+
+    release();
+    await expect(emptyStateRun(page)).toBeEnabled();
   });
 
   test('the run the catalog hands across its reload waits for GET /scenario', async ({ page }) => {

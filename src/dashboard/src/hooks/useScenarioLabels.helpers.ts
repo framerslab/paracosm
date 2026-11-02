@@ -71,6 +71,16 @@ export function singularize(noun: string): string {
   return n;
 }
 
+const UNIT_SUFFIXES = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta'];
+
+/**
+ * The default unit name of the leader in slot `idx`, in the scenario's own
+ * word for a settlement: "Colony Alpha" on Mars, "Lab Alpha" at Atlas Lab.
+ */
+export function leaderUnit(scenario: ScenarioLabelsInput | null | undefined, idx: number): string {
+  return `${deriveLabels(scenario).Place} ${UNIT_SUFFIXES[idx] ?? idx + 1}`;
+}
+
 /**
  * Pure derivation of the noun-variant bundle from a scenario-like
  * object. The hook is a `useMemo` wrapper that calls this.

@@ -4,7 +4,7 @@ import type { ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
 import { useScenarioContext } from '../../App';
-import { formatBagTooltip, formatHeaderMetric } from './StatsBar.helpers';
+import { formatBagTooltip, formatHeaderMetric, headerMetricValue } from './StatsBar.helpers';
 import styles from './StatsBar.module.scss';
 
 export interface StatsBarLeader {
@@ -183,8 +183,10 @@ export function StatsBar({ actors, crisisText, toolRegistry }: StatsBarProps) {
       {metrics.map(metric => {
         const valA = metricsA?.[metric.id] ?? 0;
         const valB = metricsB?.[metric.id] ?? 0;
-        const dA = delta(valA, prevMetricsA?.[metric.id]);
-        const dB = delta(valB, prevMetricsB?.[metric.id]);
+        // A change reads in the same points as the value beside it.
+        const shownPrev = (v: number | undefined) => (v == null ? undefined : headerMetricValue(v, metric));
+        const dA = delta(headerMetricValue(valA, metric), shownPrev(prevMetricsA?.[metric.id]));
+        const dB = delta(headerMetricValue(valB, metric), shownPrev(prevMetricsB?.[metric.id]));
         const fA = formatHeaderMetric(valA, metric);
         const fB = formatHeaderMetric(valB, metric);
         const suffix = fmtSuffix(metric.id);

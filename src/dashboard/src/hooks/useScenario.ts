@@ -56,7 +56,9 @@ export interface ScenarioClientPayload {
     personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   }>;
   ui: {
-    headerMetrics: Array<{ id: string; format: string }>;
+    /** `max` is the world field's declared ceiling: a percent metric held
+     *  on 0 to 1 declares 1, one held on 0 to 100 declares 100. */
+    headerMetrics: Array<{ id: string; format: string; max?: number }>;
     tooltipFields: string[];
     reportSections: Array<'crisis' | 'departments' | 'decision' | 'outcome' | 'quotes' | 'causality'>;
     departmentIcons: Record<string, string>;
@@ -97,26 +99,57 @@ const MARS_FALLBACK: ScenarioClientPayload = {
   policies: { toolForging: true, bulletin: true, characterChat: true },
 };
 
+const FIRST_RETRY_MS = 2_000;
+const LONGEST_RETRY_MS = 15_000;
+
+/**
+ * The active scenario. `scenario` is the Mars Genesis fallback until GET
+ * /scenario answers, so the page has something to draw; `ready` is true
+ * only while `scenario` is the server's answer. A run must wait for it:
+ * the fallback's leaders and setup values belong to another world. A failed
+ * fetch tries again, with `ready` false, until the server answers.
+ */
 export function useScenario() {
   const [scenario, setScenario] = useState<ScenarioClientPayload>(MARS_FALLBACK);
-  const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let latestRequest = 0;
+    let failures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
     const loadScenario = () => {
+      const request = ++latestRequest;
+      clearTimeout(retryTimer);
+      setReady(false);
+      const tryAgain = () => {
+        if (request !== latestRequest) return;
+        retryTimer = setTimeout(loadScenario, Math.min(FIRST_RETRY_MS * 2 ** failures, LONGEST_RETRY_MS));
+        failures += 1;
+      };
       fetch('/scenario')
         .then(r => r.ok ? r.json() : null)
         .then(data => {
+          if (request !== latestRequest) return;
           if (data?.id) {
+            failures = 0;
             setScenario(data);
+            setReady(true);
+          } else {
+            tryAgain();
           }
         })
-        .catch(() => {})
-        .finally(() => setLoading(false));
+        .catch(tryAgain);
     };
 
     loadScenario();
-    return subscribeScenarioUpdates(window, loadScenario);
+    const unsubscribe = subscribeScenarioUpdates(window, loadScenario);
+    return () => {
+      latestRequest += 1;
+      clearTimeout(retryTimer);
+      unsubscribe();
+    };
   }, []);
 
-  return { scenario, loading };
+  return { scenario, ready };
 }

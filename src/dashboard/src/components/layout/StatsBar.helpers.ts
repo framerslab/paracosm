@@ -21,9 +21,28 @@ export function formatBagTooltip(bag: Record<string, string | number | boolean> 
   }).join('\n');
 }
 
+/** What the stats bar needs to know of a header metric to show its value. */
+export interface HeaderMetricDisplay {
+  format: string;
+  /** The world field's declared ceiling, from GET /scenario. */
+  max?: number;
+}
+
+/**
+ * The number a header metric shows. A percent metric is held either as a
+ * fraction (Release Readiness, 0.65 of max 1) or in percent already (Hull
+ * Integrity, 100 of max 100); only a fraction is scaled. A metric with no
+ * declared ceiling is read by its value.
+ */
+export function headerMetricValue(value: number, metric: HeaderMetricDisplay): number {
+  if (metric.format !== 'percent') return value;
+  const isFraction = metric.max !== undefined ? metric.max <= 1 : Math.abs(value) <= 1;
+  return isFraction ? value * 100 : value;
+}
+
 /** A header metric's value as the stats bar shows it. */
-export function formatHeaderMetric(value: number, metric: { format: string }): string {
-  if (metric.format === 'percent') return `${Math.round(value * 100)}%`;
+export function formatHeaderMetric(value: number, metric: HeaderMetricDisplay): string {
+  if (metric.format === 'percent') return `${Math.round(headerMetricValue(value, metric))}%`;
   if (metric.format === 'number') {
     const r = Math.round(value * 10) / 10;
     return Number.isInteger(r) ? String(r) : r.toFixed(1);

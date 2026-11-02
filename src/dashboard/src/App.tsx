@@ -73,6 +73,15 @@ export function useScenarioContext() {
   return ctx;
 }
 
+// True once GET /scenario has answered and ScenarioContext holds the server's
+// active scenario, not the Mars fallback the page starts on. A control that
+// starts a run waits for it. A render given a scenario directly, outside
+// App, has it ready.
+const ScenarioReadyContext = createContext(true);
+export function useScenarioReady() {
+  return useContext(ScenarioReadyContext);
+}
+
 const DashboardNavigationContext = createContext<((tab: Exclude<DashboardTab, 'about'>) => void) | null>(null);
 export function useDashboardNavigation() {
   const ctx = useContext(DashboardNavigationContext);
@@ -158,7 +167,7 @@ function tabHeadingFor(tab: DashboardTab): string {
 }
 
 function AppContent() {
-  const { scenario } = useScenario();
+  const { scenario, ready: scenarioReady } = useScenario();
   const replaySessionId = useReplaySessionId();
   const sse = useSSE({ replaySessionId });
   const [tourActive, setTourActive] = useState(false);
@@ -795,6 +804,10 @@ function AppContent() {
     // check the flags) but a fast-click on the empty-state button
     // between render ticks, or a kbd shortcut, could still slip
     // through. An early return here is the authoritative gate.
+    if (!scenarioReady) {
+      toast('info', 'Loading scenario', 'The scenario is still loading. Run again in a moment.');
+      return;
+    }
     if (launching || gameState.isRunning) {
       toast('info', 'Already running', 'A simulation is in progress — wait for it to finish or hit Clear to reset.');
       return;
@@ -836,12 +849,13 @@ function AppContent() {
       setLaunching(false);
       toast('error', 'Launch Failed', String(err));
     }
-  }, [scenario, toast, setActiveTab, launching, gameState.isRunning, sse]);
+  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse]);
 
   return (
     <BranchesProvider>
     <DashboardNavigationContext.Provider value={setActiveTab}>
       <ScenarioContext.Provider value={scenario}>
+      <ScenarioReadyContext.Provider value={scenarioReady}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
         <BranchesSyncer sse={sse} />
@@ -1155,6 +1169,7 @@ function AppContent() {
         </div>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
+      </ScenarioReadyContext.Provider>
       </ScenarioContext.Provider>
     </DashboardNavigationContext.Provider>
     </BranchesProvider>
