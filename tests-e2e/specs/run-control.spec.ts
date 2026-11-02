@@ -319,7 +319,8 @@ test.describe('Run controls @run', () => {
     // The reload finds the page's own pick, Atlas Lab, and runs nothing.
     await page.reload();
     await expect(page.getByRole('heading', { name: /loaded scenario: Atlas Lab$/ })).toBeVisible();
-    await expect(page.getByRole('button', { name: /against Atlas Lab$/ })).toBeEnabled();
+    // The loaded scenario's card and its catalog card both offer the run.
+    await expect(page.getByRole('button', { name: /against Atlas Lab$/ }).first()).toBeEnabled();
     await page.waitForTimeout(1_000);
     expect(bodies).toHaveLength(0);
   });
