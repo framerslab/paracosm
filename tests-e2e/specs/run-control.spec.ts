@@ -213,6 +213,33 @@ test.describe('Run controls @run', () => {
     expect(bodies[1].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta', 'East Wing']);
   });
 
+  test("a unit from this scenario's last run stays on a preset leader", async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const units = page.getByRole('textbox', { name: 'Unit', exact: true });
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await units.first().fill('East Wing');
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta']);
+
+    // A fresh load starts from that run's leaders on the Mars fallback. When
+    // GET /scenario answers, Atlas Lab's start time (1, not Mars's 2035) lands
+    // in the same render as its preset leaders, so the unit is read after the
+    // preset has been applied.
+    const release = await holdScenario(page);
+    await page.goto('/sim?tab=settings');
+    await expect(units.first()).toHaveValue('East Wing');
+    release();
+    await expect(page.locator('#time-input')).toHaveValue('1');
+    await expect(units.first()).toHaveValue('East Wing');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await settingsLaunch(page).click();
+
+    await expect.poll(() => bodies.length).toBe(2);
+    expect(bodies[1].actors.map(a => a.unit)).toEqual(['East Wing', 'Lab Beta']);
+  });
+
   test("a finished run's Run again waits for GET /scenario", async ({ page }) => {
     const bodies = await captureSetup(page);
     // The server's event stream replays a finished run, and the last launch on
