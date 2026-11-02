@@ -309,6 +309,27 @@ test('a client that connects after /setup replays which scenario the run is', as
   });
 });
 
+test("each run's opening event carries a key of its own, so a page can tell a new run from a reconnect to the same one", async () => {
+  await withVisitors(async ({ visitor, launches, base }) => {
+    const v = visitor();
+    assert.equal((await v.post('/setup', settingsBody(mars))).status, 200);
+    await waitFor(() => launches[0], 'the first run');
+    const first = (await readReplay(base))[0];
+    const again = (await readReplay(base))[0];
+    assert.equal(first?.event, 'active_scenario');
+    assert.equal(typeof first.data.runKey, 'string');
+    assert.ok((first.data.runKey as string).length > 0);
+    assert.equal(again.data.runKey, first.data.runKey, 'a reconnect replays the same run');
+
+    assert.equal((await v.post('/setup', settingsBody(mars))).status, 200);
+    await waitFor(() => launches[1], 'the second run');
+    const second = (await readReplay(base))[0];
+    assert.equal(second?.event, 'active_scenario');
+    assert.equal(second.data.id, 'mars-genesis');
+    assert.notEqual(second.data.runKey, first.data.runKey);
+  });
+});
+
 test('GET /scenario and GET /scenarios answer per visitor, so no cache in front of the server keeps them', async () => {
   await withVisitors(async ({ visitor }) => {
     for (const path of ['/scenario', '/scenarios']) {

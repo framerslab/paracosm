@@ -213,6 +213,37 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: another run started on the server/ }).first()).toBeVisible();
   });
 
+  test("a new run in the page's scenario starts clean after the run it replaced", async ({ page }) => {
+    // A Mars Genesis run, then another visitor's Atlas Lab run, which ends
+    // the Mars Genesis run on this page as interrupted, then a new Mars
+    // Genesis run. The new run is shown on its own: it inherits neither
+    // the interrupted state nor the events of the run before it.
+    const runBody = (scenarioId: string, runKey: string, leader: string) => [
+      'event: connected\ndata: {}',
+      `event: active_scenario\ndata: ${JSON.stringify({ id: scenarioId, runKey })}`,
+      `event: status\ndata: ${JSON.stringify({ phase: 'parallel', maxTurns: 6, actors: [{ name: leader, archetype: 'The Visionary' }] })}`,
+      `event: sim\ndata: ${JSON.stringify({ type: 'turn_start', leader, data: { turn: 1, time: 2035, title: 'Dust storm' } })}`,
+      'event: replay_done\ndata: {}',
+    ].join('\n\n') + '\n\n';
+    let body = runBody('mars-genesis', 'run-1', 'Aria Chen');
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
+    });
+    await openSettings(page);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    const opened = served;
+    await expect.poll(() => served).toBeGreaterThan(opened + 1);
+
+    body = runBody('atlas-lab', 'run-2', 'Marcus Reinhardt');
+    await expect(page.getByRole('status', { name: /^Interrupted\./ }).first()).toBeVisible();
+
+    body = runBody('mars-genesis', 'run-3', 'Aria Chen');
+    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Interrupted\./ })).toHaveCount(0);
+  });
+
   test("a loaded run offers a fork only in the page's own scenario", async ({ page, baseURL }) => {
     // A fork runs in its parent's scenario and a page shows a run only in
     // its own, so a Mars Genesis page that forked a loaded Atlas Lab run
@@ -243,9 +274,12 @@ test.describe('Scenario per visitor @scenario', () => {
       'mars-genesis': savedRun('mars-genesis', 'Mars Genesis', 'Aria Chen'),
       'atlas-lab': savedRun('atlas-lab', 'Atlas Lab', 'Marcus Reinhardt'),
     };
-    await page.route('**/saved-runs/*.json', route => {
+    await page.route('**/saved-runs/*.json', async route => {
+      // The live feed's first connect clears the page's events, so the
+      // saved run is answered once the feed is up, or it can be cleared.
+      await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
       const id = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.json$/, '');
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs[id]) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs[id]) });
     });
     const forkButton = () => page.getByRole('button', { name: /^Fork at .* 1$/ });
     const openSaved = (id: string) => page.goto(`/sim?load=${encodeURIComponent(`${baseURL}/saved-runs/${id}.json`)}&autoload=1&tab=reports`);
