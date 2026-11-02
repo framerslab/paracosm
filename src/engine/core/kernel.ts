@@ -427,10 +427,11 @@ export class SimulationKernel {
       this.state.metrics.population = this.getAliveCount();
     }
 
-    const applied = {
-      ...this.applyDeltas(deltas?.metrics ?? {}),
-      ...this.applyDeltas(deltas?.politics ?? {}),
-    };
+    // One sum per key: a key both bags name moves once, within its range,
+    // and reports the change it made.
+    const asked: Record<string, number> = { ...deltas?.metrics };
+    for (const [k, v] of Object.entries(deltas?.politics ?? {})) asked[k] = (asked[k] ?? 0) + v;
+    const applied = this.applyDeltas(asked);
     this.state.eventLog.push(...events);
     const changes = Object.entries(applied);
     if (changes.length > 0) {
