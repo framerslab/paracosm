@@ -1942,7 +1942,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             compiledScenarioMeta.set(sc.id, persistResult?.meta ?? { compiledAt: new Date().toISOString(), seedText: seed });
           },
           getScenarioById: (id) => customScenarioCatalog.get(id)?.scenario,
-          pickHeaders: (id) => {
+          pickHeaders: (id): Record<string, string> => {
             const cookie = pickCookie(id);
             return cookie ? { 'Set-Cookie': cookie } : {};
           },
