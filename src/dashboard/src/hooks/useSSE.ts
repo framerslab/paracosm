@@ -223,15 +223,19 @@ export function useSSE(options: UseSSEOptions = {}) {
   // run, which the page starts clean on unless it is a fork, the branch
   // of the run the page holds. Read when an event arrives, as above.
   const runKeyRef = useRef<string | null>(null);
+  // True while the page shows a run loaded from a file (loadEvents), the
+  // visitor's own pick, rather than the run the live feed delivered.
+  const shownFromFileRef = useRef(false);
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
 
   // The run's events can arrive before GET /scenario answers. Once the page
   // knows its scenario, a run it holds from another scenario is dropped;
-  // the listeners skip that run's later events.
+  // the listeners skip that run's later events. A run loaded from a file
+  // in the meantime is not the feed's, and stays.
   useEffect(() => {
-    if (replaySessionId || scenarioId === null) return;
+    if (replaySessionId || scenarioId === null || shownFromFileRef.current) return;
     const runScenarioId = runScenarioIdRef.current;
     if (runScenarioId === null || runScenarioId === scenarioId) return;
     seenEventKeysRef.current.clear();
@@ -250,6 +254,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     // The buffer is cleared below; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
+    shownFromFileRef.current = false;
     setState(prev => ({
       // Preserve current connection status so the UI doesn't flash
       // "Connecting..." just because the user pressed Clear.
@@ -304,6 +309,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     // Rebuild validation_fallback rollup from loaded events so a reload
     // after a run with fallbacks preserves the topbar indicator.
     const restoredFallbacks = rollupValidationFallbacks(events);
+    shownFromFileRef.current = true;
     setState({
       status: 'connected',
       events,
@@ -511,6 +517,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // or dedupe keys, as reset() leaves them. A fork continues the
           // run the page holds, which shows the fork as a branch of it.
           seenEventKeys.clear();
+          shownFromFileRef.current = false;
           setState(prev => ({ ...prev, ...emptyRun() }));
         }
       });
