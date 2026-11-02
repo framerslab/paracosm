@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { TurnSnapshot } from '../viz-types.js';
+import { rosterChanges } from './roster-changes.js';
 
 type ForgeAttemptLike = { turn: number; eventIndex: number; department: string; name: string; approved: boolean };
 
@@ -107,27 +108,21 @@ export function useSoundCues(inputs: UseSoundCuesInputs): void {
       lastTurnRef.current = snap.turn;
       const ctx = ensureCtx();
       if (!ctx) return;
-      const prevIds = new Set(prev.cells.map(c => c.agentId));
-      const currIds = new Set(snap.cells.map(c => c.agentId));
+      const changes = rosterChanges(prev.cells, snap.cells);
       let births = 0;
       let deaths = 0;
-      for (const c of snap.cells) {
-        if (!prevIds.has(c.agentId) && c.alive) {
-          const key = `${side}|t${snap.turn}|birth|${c.agentId}`;
-          if (!seenRef.current.has(key)) {
-            seenRef.current.add(key);
-            births += 1;
-          }
+      for (const c of changes.born) {
+        const key = `${side}|t${snap.turn}|birth|${c.agentId}`;
+        if (!seenRef.current.has(key)) {
+          seenRef.current.add(key);
+          births += 1;
         }
       }
-      for (const prevCell of prev.cells) {
-        const curr = snap.cells.find(c => c.agentId === prevCell.agentId);
-        if ((curr && prevCell.alive && !curr.alive) || (prevCell.alive && !currIds.has(prevCell.agentId))) {
-          const key = `${side}|t${snap.turn}|death|${prevCell.agentId}`;
-          if (!seenRef.current.has(key)) {
-            seenRef.current.add(key);
-            deaths += 1;
-          }
+      for (const c of changes.died) {
+        const key = `${side}|t${snap.turn}|death|${c.agentId}`;
+        if (!seenRef.current.has(key)) {
+          seenRef.current.add(key);
+          deaths += 1;
         }
       }
       if (births > 0) playCue(ctx, 'birth');
