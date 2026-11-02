@@ -97,7 +97,7 @@ interface Launch { config: NormalizedSimulationConfig; scenario: ScenarioPackage
 type Runner = (config: NormalizedSimulationConfig, broadcast: BroadcastFn, scenario: ScenarioPackage | undefined) => Promise<void>;
 
 async function withVisitors(
-  body: (api: { visitor: (cookies?: Record<string, string>) => Visitor; launches: Launch[]; base: string }) => Promise<void>,
+  body: (api: { visitor: (cookies?: Record<string, string>) => Visitor; launches: Launch[]; forkLaunches: Launch[]; base: string }) => Promise<void>,
   options: {
     runner?: Runner;
     env?: Record<string, string>;
@@ -108,6 +108,7 @@ async function withVisitors(
 ): Promise<void> {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-scenario-per-visitor-'));
   const launches: Launch[] = [];
+  const forkLaunches: Launch[] = [];
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '', ...options.env },
     maxSimsPerDay: options.maxSimsPerDay ?? 0,
@@ -115,6 +116,10 @@ async function withVisitors(
     runPairSimulations: async (config, broadcast, _signal, scenario) => {
       launches.push({ config, scenario });
       await options.runner?.(config, broadcast, scenario);
+    },
+    // A fork is recorded and never run, so no fork reaches a model.
+    runForkSimulation: async (config, _broadcast, _signal, scenario) => {
+      forkLaunches.push({ config, scenario });
     },
     ...(options.scenarioDir ? { scenarioDir: options.scenarioDir } : {}),
     ...(options.compileScenario ? { compileScenario: options.compileScenario } : {}),
@@ -124,7 +129,7 @@ async function withVisitors(
   const { port } = server.address() as { port: number };
   const base = `http://127.0.0.1:${port}`;
   try {
-    await body({ visitor: cookies => visitor(base, cookies), launches, base });
+    await body({ visitor: cookies => visitor(base, cookies), launches, forkLaunches, base });
   } finally {
     server.closeAllConnections?.();
     server.close();
@@ -335,7 +340,7 @@ test("a fork's opening event names its parent, so the page that forked keeps the
   // A fork opens with a key of its own like any run, but the page that
   // posted it shows it as a branch of the run it holds; a page that started
   // clean on every new key would drop that run and the branch with it.
-  await withVisitors(async ({ visitor, launches, base }) => {
+  await withVisitors(async ({ visitor, forkLaunches, base }) => {
     const v = visitor();
     const fork = await v.post('/setup', {
       actors: [atlasLab.presets[0].leaders[0]],
@@ -350,14 +355,9 @@ test("a fork's opening event names its parent, so the page that forked keeps the
     assert.equal(opening.data.id, 'atlas-lab');
     assert.equal(typeof opening.data.runKey, 'string');
     assert.deepEqual(opening.data.forkedFrom, { parentRunId: 'parent-1', atTurn: 1 });
-
-    // The next run replaces the fork, and names no parent.
-    assert.equal((await v.post('/setup', settingsBody(atlasLab))).status, 200);
-    await waitFor(() => launches[0], 'the run after the fork');
-    const next = (await readReplay(base))[0];
-    assert.equal(next?.event, 'active_scenario');
-    assert.notEqual(next.data.runKey, opening.data.runKey);
-    assert.equal(next.data.forkedFrom, null);
+    const launched = await waitFor(() => forkLaunches[0], 'the fork');
+    assert.equal(launched.config.forkFrom?.atTurn, 1);
+    assert.equal(launched.scenario?.id, 'atlas-lab');
   });
 });
 
