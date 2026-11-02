@@ -3049,7 +3049,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           console.warn('[setup] simulation failed:', error);
         });
 
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        // A run in a scenario that is not the visitor's pick makes it their
+        // pick. The dashboard opens /sim after a run, and a page shows a run
+        // only in its own scenario; two tabs of one browser share the
+        // cookie, so a tab that loaded Mars Genesis before another tab
+        // picked Atlas Lab would otherwise come up without the Mars Genesis
+        // run it started.
+        const currentPick = resolveRequestScenario(req);
+        const runPickCookie = 'scenario' in currentPick && currentPick.scenario.id === runScenario.id
+          ? null
+          : pickCookie(runScenario.id);
+        res.writeHead(200, { 'Content-Type': 'application/json', ...(runPickCookie ? { 'Set-Cookie': runPickCookie } : {}) });
         res.end(JSON.stringify({
           redirect: '/sim',
           scenarioId: runScenario.id,

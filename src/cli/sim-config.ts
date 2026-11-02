@@ -108,7 +108,8 @@ export interface SimulationSetupPayload {
   /**
    * The scenario the run goes to (`quickstart.scenarioId` names it as
    * well). Absent: a fork's parent's scenario, else the visitor's pick
-   * (the `paracosm_scenario` cookie), else the server's default.
+   * (the `paracosm_scenario` cookie), else the server's default. A run in
+   * a scenario other than the pick makes it the pick.
    */
   scenarioId?: string;
   /**
