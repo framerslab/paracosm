@@ -127,6 +127,59 @@ test.describe('Digital Twin events @twin', () => {
     await expect(emptyStateRun(page)).toBeVisible();
   });
 
+  test('a run in the page\'s scenario that takes the feed leaves the twin\'s progress and playback as they were', async ({ page }) => {
+    // The answer and the stream come from here, as in the reconnect tests
+    // below, so another visitor's run can arrive during this page's twin.
+    const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    let body = sse('connected', {}) + sse('replay_done', {});
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
+    });
+    let release = () => {};
+    const released = new Promise<void>(resolve => { release = resolve; });
+    await page.route(TWIN_ROUTE, async route => {
+      const request = route.request().postDataJSON() as { subject: unknown; intervention: unknown; runKey?: string };
+      body = [
+        sse('connected', {}),
+        sse('active_scenario', { id: 't2d-glp1-protocol', name: 't2d-glp1-protocol', runKey: request.runKey, forkedFrom: null }),
+        sse('status', { phase: 'parallel', maxTurns: 2, actors: [{ name: LEADER, archetype: 'The Methodical Evaluator' }] }),
+        ...twinEvents(LEADER).map(event => sse('sim', event)),
+        sse('replay_done', {}),
+      ].join('');
+      await released;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ artifact: twinArtifact(request.subject, request.intervention), durationMs: 1 }) });
+    });
+
+    await startRun(page);
+    await expectProgressOfWholeRun(page);
+
+    // Another visitor's run in this page's scenario takes the server's buffer.
+    const otherLeader = 'Another Visitor';
+    body = [
+      sse('connected', {}),
+      sse('active_scenario', { id: 'mars-genesis', name: 'mars-genesis', runKey: 'another-visitors-run', forkedFrom: null }),
+      sse('status', { phase: 'parallel', maxTurns: 1, actors: [{ name: otherLeader, archetype: 'The Visitor' }] }),
+      ...twinEvents(otherLeader, 1).map(event => sse('sim', event)),
+      sse('complete', {}),
+      sse('replay_done', {}),
+    ].join('');
+    const seen = served;
+    await expect.poll(() => served).toBeGreaterThan(seen + 2);
+    await expectProgressOfWholeRun(page);
+
+    release();
+    await expect(result(page)).toBeVisible();
+    await expect(playback(page, ROWS)).toBeVisible();
+
+    // Clearing the result hands the page to the run its feed holds.
+    await dismiss(page).click();
+    await expect(result(page)).toHaveCount(0);
+    await expect(finishedRun(page)).toBeVisible();
+    await expect(page.getByText('Week 8 labs')).toHaveCount(0);
+  });
+
   for (const scenarioId of ['t2d-glp1-protocol', 'mars-genesis']) {
     test(`a page that reconnects during its run in ${scenarioId} counts each event once`, async ({ page }) => {
       // The stream ends after its replay, so the page reconnects about every
