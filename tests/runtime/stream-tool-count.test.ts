@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { forgedToolNames, type ForgedLedger, type ForgeCaptureForToolbox, type ToolUseRecord } from '../../src/runtime/orchestrator/tool-ledger.js';
+import { buildAvailableToolsBlock, buildForgedToolbox, forgedToolNames, type ForgedLedger, type ForgeCaptureForToolbox, type ToolUseRecord } from '../../src/runtime/orchestrator/tool-ledger.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -105,4 +105,48 @@ test('a forge attempt the reviewers rejected is no tool of the run', () => {
   const names = forgedToolNames(ledger, forges);
   assert.equal(names.length, 7);
   assert.ok(!names.includes('rejected_release_gate'));
+});
+
+test('a department that cites a rejected tool without forging it does not make it a tool of the run', () => {
+  // Turn 5: governance forges release_gate_check and the reviewers reject it.
+  // Turn 6: alignment_research lists it in forgedToolsUsed without calling
+  // forge_tool. The orchestrator records that citation as it records any
+  // citation: not a forge, and not rejected.
+  const run = livePair.runs[0];
+  const { ledger, forges } = throughTurn(run, 6);
+  ledger.set('release_gate_check', {
+    firstForgedTurn: 5,
+    firstForgedDepartment: 'governance',
+    firstForgedEventIndex: 0,
+    firstForgedEventTitle: 'Refusal regression',
+    history: [
+      { turn: 5, time: 5, eventIndex: 0, eventTitle: 'Refusal regression', department: 'governance', output: null, isReforge: true, rejected: true, confidence: 0.31 },
+      { turn: 6, time: 6, eventIndex: 0, eventTitle: 'Release review', department: 'alignment_research', output: '{"gate":"pass"}', isReforge: false, rejected: false, confidence: 0.85 },
+    ],
+  });
+  forges.push({ name: 'release_gate_check', description: 'Checks a release gate', mode: 'sandbox', approved: false, confidence: 0.31 });
+
+  const names = forgedToolNames(ledger, forges);
+  assert.equal(names.length, 7);
+  assert.ok(!names.includes('release_gate_check'));
+  const entry = buildForgedToolbox(ledger, forges).find(tool => tool.name === 'release_gate_check');
+  assert.equal(entry?.approved, false);
+  assert.equal(entry?.confidence, 0.31, 'the judge\'s confidence, not the citing department\'s');
+  // Nor is it offered to the departments as a tool to reuse.
+  assert.ok(!buildAvailableToolsBlock(ledger).includes('release_gate_check'));
+});
+
+test('a tool whose forge the run did not capture still counts once a department uses it', () => {
+  // A department's report that names a tool the run holds no forge for is
+  // the orchestrator's fallback for a forge it missed: the use stands.
+  const run = livePair.runs[0];
+  const { ledger, forges } = throughTurn(run, 6);
+  ledger.set('uncaptured_dose_model', {
+    firstForgedTurn: 6,
+    firstForgedDepartment: 'governance',
+    firstForgedEventIndex: 0,
+    firstForgedEventTitle: 'Release review',
+    history: [{ turn: 6, time: 6, eventIndex: 0, eventTitle: 'Release review', department: 'governance', output: null, isReforge: false, rejected: false, confidence: 0.85 }],
+  });
+  assert.ok(forgedToolNames(ledger, forges).includes('uncaptured_dose_model'));
 });
