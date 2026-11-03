@@ -506,11 +506,13 @@ export async function runBatchSimulations(
   scenario: ScenarioPackage = marsScenario,
   /** Optional callback fired after each leader's artifact completes. */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  /** Test seam: runs one actor in place of the orchestrator's runSimulation, so a test calls no model. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents, batch: true, actorCount: actors.length });
 
-  const { runSimulation } = await import('../runtime/orchestrator/index.js');
+  const runSimulation = runSimulationImpl ?? (await import('../runtime/orchestrator/index.js')).runSimulation;
   // Per-actor SSE filter: same pattern as runPairSimulations / fork.
   const onEvent = (event: unknown) => {
     const lname = (event as { leader?: string } | null)?.leader;
@@ -600,15 +602,17 @@ export async function runBatchSimulations(
     });
 
   // Simple worker-pool implementation: keep `maxConcurrency` runs
-  // in flight at once. Avoids pulling in `p-limit` for one usage and
-  // keeps abort behaviour identical (each runSimulation already
-  // observes simConfig.signal). Errors are captured per-actor in the
-  // settled-style result array so a single 429 doesn't poison the
-  // whole batch.
+  // in flight at once. Avoids pulling in `p-limit` for one usage.
+  // Each runSimulation observes the signal, and the pool takes no
+  // further actor once it has fired: a cleared 300-actor batch ends
+  // with the actors already running instead of starting the rest.
+  // Errors are captured per-actor in the settled-style result array
+  // so a single 429 doesn't poison the whole batch.
   const settled: PromiseSettledResult<unknown>[] = new Array(actorsWithTags.length);
   let nextIndex = 0;
   async function worker(): Promise<void> {
     while (true) {
+      if (signal?.aborted) return;
       const slot = nextIndex++;
       if (slot >= actorsWithTags.length) return;
       try {

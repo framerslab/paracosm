@@ -30,8 +30,10 @@ SESSION-HANDOFF.md
 # SQLite session-store data — server-local, copied to Linode separately.
 /data/
 
-# Runtime SSE event buffer. The server writes this per-run so it can
-# rehydrate the dashboard after a restart. Never intended to be committed.
+# Runtime SSE event buffers. The server writes each visitor's run under
+# .live-runs/ so it can read it back after a restart; .event-buffer.json is
+# the single buffer of older servers. Never intended to be committed.
+.live-runs/
 .event-buffer.json
 
 # Firecrawl scraped research cache — populated by deep-research runs,
