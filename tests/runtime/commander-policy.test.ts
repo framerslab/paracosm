@@ -170,8 +170,8 @@ test('a selection that names no effect moves nothing and is reported in the log'
 
 test('selectedEffectIds still reads, and an effect named in both fields counts once', () => {
   const ids = marsKernel();
-  step(ids, reply({ selectedEffectIds: ['effect_2'] }), ariaTurn1());
-  near(ids.getState().metrics.morale, 0.87, 'a bare id reads the first report that holds it');
+  step(ids, reply({ selectedEffectIds: ['effect_3'] }), ariaTurn1());
+  near(ids.getState().metrics.morale, 0.84, 'a bare id one report holds reads that report');
 
   const both = marsKernel();
   const { unmatched } = step(both, reply({
