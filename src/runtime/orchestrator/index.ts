@@ -38,7 +38,7 @@ import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from 
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
-import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../../engine/core/progression.js';
+import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco, resolveChosenOption } from '../../engine/core/progression.js';
 import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
 import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from '../agents/cues/trait/trajectory.js';
 import { normalizeActorConfig, traitsToHexaco } from '../../engine/traits/normalize-leader.js';
@@ -1559,8 +1559,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
       // Outcome
       const outcomeRng = new SeededRng(seed).turnSeed(turn * 100 + ei);
-      let resolvedOptionId = decision.selectedOptionId;
-      if (!resolvedOptionId && event.options.length) { const decLower = (decision.decision || '').toLowerCase(); for (const opt of event.options) { if (decLower.includes(opt.id) || decLower.includes(opt.label.toLowerCase())) { resolvedOptionId = opt.id; break; } } }
+      // The option the decision chose: an id the event offers, else the one
+      // its text names; an id the event does not offer is not a choice.
+      const resolvedOptionId = resolveChosenOption(decision.selectedOptionId, decision.decision, event.options);
       const outcome = resolvedOptionId
         ? classifyOutcomeById(resolvedOptionId, event.options, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng)
         : classifyOutcome(decision.decision, scenario.riskyOption, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng);
