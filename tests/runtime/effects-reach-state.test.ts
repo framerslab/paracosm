@@ -153,14 +153,15 @@ test('no patch writes a head count over the roster', () => {
   kernel.applyPolicy(policyFrom([], [], { metrics: { population: 999 } }));
   assert.equal(kernel.getState().metrics.population, 50);
 
+  // A patch decides no death either, so the head count stays the roster's.
   const roster = kernel.getState().agents;
   kernel.applyPolicy({
     description: 'x',
     patches: { agentUpdates: [{ agentId: roster[0].core.id, health: { alive: false } }] },
     events: [],
   });
-  assert.equal(kernel.getState().metrics.population, 49);
-  assert.equal(aliveCount(kernel), 49);
+  assert.equal(kernel.getState().metrics.population, 50);
+  assert.equal(aliveCount(kernel), 50);
 });
 
 // ------------------------------------------------------------ population
@@ -581,9 +582,11 @@ test('a key named in both of a selection\'s bags moves once, by their sum, and r
 });
 
 test('a departure moves no survival figure: someone who left did not die', () => {
-  const kernel = kernelFor(atlasLab, 40);
-  const dead = kernel.getState().agents.slice(0, 5).map(a => ({ agentId: a.core.id, health: { alive: false } }));
-  kernel.applyPolicy({ description: 'x', patches: { agentUpdates: dead }, events: [] });
+  // A patch cannot kill, so the five deaths come from a saved run the
+  // kernel resumes, as a fork does.
+  const snap = kernelFor(atlasLab, 40).toSnapshot(atlasLab.id);
+  for (const a of snap.state.agents.slice(0, 5)) a.health.alive = false;
+  const kernel = SimulationKernel.fromSnapshot(snap, atlasLab.id, atlasLab);
   const fingerprint = () => genericFingerprint(kernel.getState(), [], { name: 'Priya Kapoor' } as ActorConfig, {}, 6);
 
   assert.equal(fingerprint().survivalRate, '0.88');

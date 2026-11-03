@@ -421,7 +421,13 @@ export class SimulationKernel {
       for (const u of patches.agentUpdates) {
         const col = this.findAgent(u.agentId);
         if (!col) continue;
-        if (u.health) Object.assign(col.health, u.health);
+        if (u.health) {
+          // A patch never decides who lives. A death comes from progression,
+          // with the `death` event the roster and the verdict's mortality
+          // line are read from.
+          const { alive: _alive, deathTime: _deathTime, deathCause: _deathCause, ...health } = u.health;
+          Object.assign(col.health, health);
+        }
         if (u.career) Object.assign(col.career, u.career);
       }
       this.state.metrics.population = this.getAliveCount();
