@@ -87,6 +87,28 @@ function savedRun(): { name: string; mimeType: string; buffer: Buffer } {
   return { name: 'mars-saved-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(save)) };
 }
 
+/**
+ * Answers every /setup as the server answers a visitor who has used the
+ * day's run (the /setup rate limit in src/server/server-app.ts): no run
+ * starts.
+ */
+async function refuseRuns(page: Page): Promise<void> {
+  await page.route('**/setup', route => route.fulfill({
+    status: 429,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0 }),
+  }));
+}
+
+/**
+ * Waits until the Digital Twin card has handled its answer: it hands the
+ * result or the failure to the page, then shows its Run button again. The
+ * card sits on the Quickstart tab, hidden while the SIM tab is open.
+ */
+async function twinAnswerHandled(page: Page): Promise<void> {
+  await expect(page.getByRole('button', { name: 'Run digital twin', includeHidden: true })).toHaveCount(1);
+}
+
 /** Starts a run from the RUN menu, as a visitor who wants another run does. */
 async function runNew(page: Page): Promise<void> {
   await runMenuButton(page).click();
@@ -181,31 +203,37 @@ test.describe('Digital Twin events @twin', () => {
 
     release();
     await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
+    await twinAnswerHandled(page);
     await expect(result(page)).toHaveCount(0);
     await expect(running(page)).toHaveCount(0);
     await expect(pairRunning(page)).toBeVisible();
     await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
   });
 
-  test('a run the server refuses leaves the twin\'s views, and the twin\'s answer still lands', async ({ page }) => {
-    // The answer the server gives a visitor who has used the day's run
-    // (the /setup rate limit in src/server/server-app.ts). No run starts, so
-    // nothing replaces the twin.
-    await page.route('**/setup', route => route.fulfill({
-      status: 429,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0 }),
-    }));
+  test('a run the server refuses leaves the twin\'s progress as it was, and the twin\'s answer still lands', async ({ page }) => {
+    await refuseRuns(page);
     const release = await holdAnswer(page);
     await startRun(page);
     await expectProgressOfWholeRun(page);
 
     await runNew(page);
     await expect(page.getByText('Rate Limited').first()).toBeVisible();
-    await expect(running(page)).toBeVisible();
+    await expectProgressOfWholeRun(page);
 
     release();
     await expect(result(page)).toBeVisible();
+    await expect(playback(page, ROWS)).toBeVisible();
+  });
+
+  test('a run the server refuses leaves a finished twin\'s result and its playback', async ({ page }) => {
+    await refuseRuns(page);
+    await startRun(page);
+    await expect(playback(page, ROWS)).toBeVisible();
+
+    await runNew(page);
+    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    await expect(result(page)).toBeVisible();
+    await expect(playback(page, ROWS)).toBeVisible();
   });
 
   test('a twin\'s failure that comes back after the page left it says nothing on the Quickstart tab', async ({ page }) => {
@@ -218,6 +246,7 @@ test.describe('Digital Twin events @twin', () => {
 
     release();
     await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
+    await twinAnswerHandled(page);
     await page.getByRole('tab', { name: 'QUICKSTART', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Patient · treatment' })).toBeVisible();
     await expect(page.getByText(TWIN_ENGINE_ERROR)).toHaveCount(0);
