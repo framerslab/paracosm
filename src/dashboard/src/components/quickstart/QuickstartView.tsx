@@ -55,7 +55,8 @@ export interface QuickstartViewProps {
     isComplete: boolean;
     isAborted: boolean;
     errors: string[];
-    reset: () => void;
+    /** Clears the page's run and posts /clear; each launch awaits it, so the /clear lands before the run opens. */
+    reset: () => void | Promise<void>;
   };
   sessionId?: string;
   /** Fires the moment the user clicks Generate so App.tsx can flip the
@@ -78,7 +79,7 @@ export interface QuickstartViewProps {
     runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  }) => void;
+  }) => void | Promise<void>;
   /** Fired when the digital-twin run fails. App.tsx ends the progress view
    *  the page is on by then, in the SIM tab, and says why there. */
   onInterventionError?: (message: string) => void;
@@ -167,8 +168,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // shows leftover events from a prior run while this one ramps up.
     // The later sse.reset() right before the /setup fetch is kept as
     // belt-and-suspenders for the brief window when actor-generation
-    // is still in flight.
-    sse.reset();
+    // is still in flight. Each reset is awaited: an unawaited /clear can
+    // land after the /setup that follows and stop the new run.
+    await sse.reset();
 
     // Inherit the user's Settings-tab choices (API keys, provider,
     // model picks, economics profile) so the CTA respects what the
@@ -212,7 +214,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
         instructions: p.instructions,
       } as ActorConfig));
-      sse.reset();
+      await sse.reset();
       // Persist the actors we're about to launch so the SIM header
       // carries names through the SSE connect-and-replay window. Compiled
       // scenarios ship no preset leaders, so without this fallback the
@@ -293,7 +295,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       setPhase({ kind: 'progress', stage: 'running' });
 
-      sse.reset();
+      await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
@@ -425,8 +427,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // QuickstartProgress panel's "Run N simulations" stage card renders
     // any events still resident from a prior run while the new compile
     // is in flight — the user reported seeing 192 stale events labeled
-    // with the prior run's actors before this fix.
-    sse.reset();
+    // with the prior run's actors before this fix. Awaited, as every reset
+    // before a launch is.
+    await sse.reset();
     setPhase({ kind: 'progress', stage: 'compile' });
     try {
       // compileScenarioWithPolling encapsulates the async-job dance:
@@ -482,7 +485,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       setPhase({ kind: 'progress', stage: 'running', scenario, actors });
 
-      sse.reset();
+      await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenarioId);
       }

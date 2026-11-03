@@ -22,6 +22,7 @@ import {
   type PersistedActor,
 } from '../../hooks/useLastLaunchConfig';
 import { resolveSetupRedirectHref } from '../../tab-routing';
+import { emitLaunched } from '../../scenario-sync';
 import styles from './RerunPanel.module.scss';
 
 interface RerunPanelProps {
@@ -56,6 +57,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
       const data = (await res.json().catch(() => ({}))) as {
         redirect?: string;
         error?: string;
+        visitorId?: string;
       };
       if (res.status === 429) {
         alert(data.error || 'Rate limit hit. Add an API key in Settings to bypass.');
@@ -68,6 +70,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         return;
       }
       if (data.redirect) {
+        emitLaunched(window, data.visitorId);
         // Persist the new seed so a subsequent Re-run bumps from THIS
         // run's seed, not the original.
         writeLastLaunchConfig(window.localStorage, next);

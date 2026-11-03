@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, createContext, useContext, Co
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
+import { emitLaunched } from './scenario-sync';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -736,7 +737,9 @@ function AppContent() {
   // We reset prior SSE state, follow the run's key so its events show
   // whichever scenario the run is in, switch to SIM immediately (so
   // streaming events from the server show up live), and park the prefilled
-  // subject + intervention so DigitalTwinProgress can echo them.
+  // subject + intervention so DigitalTwinProgress can echo them. It returns
+  // the reset's /clear, which the card awaits before it starts the run: a
+  // /clear that landed after the run opened would stop it.
   //
   // Result: artifact landed, swap progress -> panel (single render
   // pass; the artifact carries subject + intervention so the panel
@@ -745,13 +748,14 @@ function AppContent() {
     runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  }) => {
-    sse.reset();
+  }): Promise<void> => {
+    const cleared = sse.reset();
     sse.followRun(payload.runKey);
     setInterventionArtifact(null);
     setInterventionRunning(payload);
     setUserTriggeredRun(true);
     setActiveTab('sim');
+    return cleared;
   }, [sse, setActiveTab]);
   const handleInterventionResult = useCallback((artifact: RunArtifact) => {
     setInterventionRunning(null);
@@ -842,10 +846,10 @@ function AppContent() {
       // handleClear does this via sse.reset() but Run previously did not,
       // so a user who loaded a completed run from cache and then hit Run
       // saw the new sim's events append to the stale history. reset()
-      // also posts /clear to the server; the server's /setup handler
-      // would clear its buffer again anyway, but a redundant clear is
-      // cheap and unambiguous.
-      sse.reset();
+      // also posts /clear to the server, naming the run the page held; it
+      // is awaited, so the /clear lands before the new run opens and never
+      // stops it. The server's /setup replaces the visitor's run anyway.
+      await sse.reset();
       // Switch to the sim tab immediately so the user sees the launching
       // spinner there (the Run button on the empty state still works
       // from any tab via the topbar).
@@ -863,6 +867,8 @@ function AppContent() {
       } else if (!data.redirect) {
         setLaunching(false);
         toast('error', 'Launch Failed', data.error || 'Unknown error');
+      } else {
+        emitLaunched(window, data.visitorId);
       }
       // Success path: leave launching=true; the effect above clears it
       // when the first SSE event arrives.

@@ -10,6 +10,31 @@ export function subscribeScenarioUpdates(target: EventTarget, callback: () => vo
   return () => target.removeEventListener(SCENARIO_UPDATED_EVENT, handler);
 }
 
+const LAUNCHED_EVENT = 'paracosm:launched';
+
+/**
+ * Tells the page's event stream that a run started for `visitorId`, the
+ * visitor the server answered the launch with (`/setup` and
+ * simulate-intervention answer it). Two tabs opened at once are each given a
+ * visitor id by their own load of the dashboard and the browser keeps the
+ * second, so the first tab's stream can belong to an id its launches no
+ * longer carry; the stream reopens when the ids differ. Anything but a
+ * non-empty string is ignored.
+ */
+export function emitLaunched(target: EventTarget, visitorId: unknown): void {
+  if (typeof visitorId !== 'string' || visitorId.length === 0) return;
+  target.dispatchEvent(new CustomEvent(LAUNCHED_EVENT, { detail: { visitorId } }));
+}
+
+export function subscribeLaunched(target: EventTarget, callback: (visitorId: string) => void): () => void {
+  const handler = (event: Event) => {
+    const visitorId = (event as CustomEvent<{ visitorId?: unknown }>).detail?.visitorId;
+    if (typeof visitorId === 'string') callback(visitorId);
+  };
+  target.addEventListener(LAUNCHED_EVENT, handler);
+  return () => target.removeEventListener(LAUNCHED_EVENT, handler);
+}
+
 const SCENARIO_SWITCHED_KEY = 'paracosm:scenarioSwitched';
 
 type FlagStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -19,10 +44,10 @@ const tabStorage = (): FlagStorage => window.sessionStorage;
 
 /**
  * Marks this tab as having just switched its scenario, right before the
- * reload that brings the new one up. The server's event buffer still holds
- * the last run, any visitor's and in any scenario, since a switch is one
- * visitor's pick and clears nothing shared; the page that loads next skips
- * that run instead of drawing it under the new scenario's nouns.
+ * reload that brings the new one up. The server still holds the visitor's
+ * last run, in the scenario it ran in, since a switch is a pick and clears
+ * no run; the page that loads next skips that run instead of drawing it
+ * under the new scenario's nouns.
  */
 export function markScenarioSwitched(storage: () => FlagStorage = tabStorage): void {
   try {
