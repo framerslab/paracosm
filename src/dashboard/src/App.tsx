@@ -344,12 +344,15 @@ function AppContent() {
   // Leaves the Digital Twin views on the SIM tab for what replaces them: a
   // run the server took from one of the page's Run controls, a Quickstart
   // launch, a run loaded from a file or from history, or a clear of the
-  // page's local data. A run the server refuses replaces nothing.
+  // page's local data. A run the server refuses replaces nothing. The feed
+  // stops showing the twin's run as the page's own, as a dismiss does.
+  const { leaveOwnRun } = sse;
   const leaveDigitalTwin = useCallback(() => {
     twinRunKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
-  }, []);
+    leaveOwnRun();
+  }, [leaveOwnRun]);
 
   const loadPreview = useLoadPreview({
     pickFile: persistence.pickFile,
@@ -883,8 +886,12 @@ function AppContent() {
       // saw the new sim's events append to the stale history. reset()
       // also posts /clear to the server; the server's /setup handler
       // would clear its buffer again anyway, but a redundant clear is
-      // cheap and unambiguous.
-      sse.reset();
+      // cheap and unambiguous. A page that shows a Digital Twin keeps its
+      // events until the server takes the run, so a run the server refuses
+      // leaves the twin's progress and playback as they were: the new run
+      // opens with a key of its own, and the feed starts it clean then.
+      const showsTwin = twinRunKeyRef.current !== null || interventionArtifact !== null;
+      if (!showsTwin) sse.reset();
       // Switch to the sim tab immediately so the user sees the launching
       // spinner there (the Run button on the empty state still works
       // from any tab via the topbar).
@@ -912,7 +919,7 @@ function AppContent() {
       setLaunching(false);
       toast('error', 'Launch Failed', String(err));
     }
-  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, leaveDigitalTwin]);
+  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, leaveDigitalTwin, interventionArtifact]);
 
   return (
     <BranchesProvider>
