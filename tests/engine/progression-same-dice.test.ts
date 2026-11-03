@@ -107,9 +107,10 @@ test('the dose a colonist takes reads the habitat', () => {
 });
 
 test('the colony\'s morale reaches its people', () => {
-  // Morale pulls each person's psych by (morale - 0.5) * 0.1 a year, so a
-  // colony held at 0.2 for forty years wears its people down to where the
-  // despair roll reads them, and one held at 0.8 never does.
+  // Morale pulls each person's psych a little every year. A colony held at
+  // 0.2 for forty years wears its people down until despair takes some of
+  // them, partners and outside contacts notwithstanding; one held at 0.8,
+  // on the same seed, loses nobody to despair.
   const run = (morale: number) => {
     const k = mars();
     for (const [turn, time] of TURNS) {
@@ -127,7 +128,7 @@ test('the colony\'s morale reaches its people', () => {
   const low = run(0.2);
   const high = run(0.8);
   const seen = `at 0.2 ${JSON.stringify(low)}, at 0.8 ${JSON.stringify(high)}`;
-  assert.ok(low.low + low.despair > 0, `morale held at 0.2 brings someone under 0.2 psych: ${seen}`);
+  assert.ok(low.despair > 0, `morale held at 0.2 brings a despair death: ${seen}`);
   assert.ok(low.mean < high.mean, seen);
   assert.equal(high.low + high.despair, 0, `morale held at 0.8: ${seen}`);
 });
