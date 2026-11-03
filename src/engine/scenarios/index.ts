@@ -85,7 +85,8 @@ function liftBuiltinScenario(
 }
 
 /**
- * Mars Genesis: 100-colonist Mars colony over 48 simulated years.
+ * Mars Genesis: 100-colonist Mars colony over 40 simulated years (six
+ * turns eight years apart; the first turn is the landing, with no step).
  * Per-agent radiation accumulation + bone density decay run via the
  * `mars-radiation-bone` physics module.
  */

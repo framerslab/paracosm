@@ -283,6 +283,7 @@ test('a department\'s patch cannot mark an agent dead: deaths come from progress
   const kernel = new SimulationKernel(950, 'Commander', keyPersonnel, { startTime: 2042, initialPopulation: 20 });
   const target = kernel.getState().agents[0];
   assert.equal(target.health.alive, true);
+  const psychBefore = target.health.psychScore;
 
   const policy = decisionToPolicy(
     emptyDecision(['medical']),
@@ -305,6 +306,8 @@ test('a department\'s patch cannot mark an agent dead: deaths come from progress
   assert.equal(after.health.alive, true, 'the verdict counts death events, and this one would have none');
   assert.equal(after.health.deathTime, undefined);
   assert.equal(after.health.deathCause, undefined);
-  assert.equal(after.health.psychScore, 0.31, 'the patch\'s other fields still apply');
+  // The patch's psych still applies, moved at most 0.15 toward its value.
+  const expected = psychBefore + Math.max(-0.15, Math.min(0.15, 0.31 - psychBefore));
+  assert.ok(Math.abs(after.health.psychScore - expected) < 1e-9, `psych ${psychBefore} moved to ${after.health.psychScore}`);
   assert.equal(state.eventLog.filter(e => e.type === 'death').length, 0);
 });

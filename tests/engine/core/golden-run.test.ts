@@ -52,9 +52,12 @@ test('golden-run: 3-turn kernel produces deterministic population and state', ()
   assert.ok(alive.length >= 90, `Expected >= 90 alive, got ${alive.length}`);
   assert.ok(t3.agents.length >= 100, `Expected >= 100 total colonists (births), got ${t3.agents.length}`);
 
-  // Radiation should accumulate over 8 years (2035 -> 2043)
+  // Radiation should accumulate over 8 years (2035 -> 2043): the surface
+  // dose through three habitat modules, which keep out 60 percent of it,
+  // is 783 mSv for a colonist there the whole time; children born on the
+  // way hold less.
   const avgRad = alive.reduce((s, c) => s + (c.health.cumulativeRadiationMsv ?? 0), 0) / alive.length;
-  assert.ok(avgRad > 1500, `Expected avg radiation > 1500 mSv after 8 years, got ${avgRad.toFixed(0)}`);
+  assert.ok(avgRad > 600 && avgRad <= 0.67 * 365 * 8 * 0.4 + 1e-6, `Expected avg radiation between 600 and 783 mSv after 8 years, got ${avgRad.toFixed(0)}`);
 
   // Bone density should degrade
   const avgBone = alive.filter(c => !c.core.marsborn).reduce((s, c) => s + (c.health.boneDensityPct ?? 0), 0) / alive.filter(c => !c.core.marsborn).length;

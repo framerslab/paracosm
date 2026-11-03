@@ -26,8 +26,11 @@ import type { ScenarioPackage, ActorConfig, ScenarioLabels } from '../../engine/
 import type { CallUsage } from '../economics/cost-tracker.js';
 import { buildPromotionPrompt } from '../util/runtime-helpers.js';
 import { scenarioWords } from '../util/scenario-words.js';
+import { ageInYears } from '../../engine/core/time-unit.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { PromotionsSchema } from '../validators/commander.js';
+import type { DepartmentReport } from '../contracts.js';
+import { selectableEffects } from '../util/parsers.js';
 
 /**
  * Build a "Your decision style" block from the leader's HEXACO profile.
@@ -97,6 +100,20 @@ export function buildCommanderBootstrap(personalityCue: string, labels?: Partial
     `Return JSON with selectedOptionId, decision, rationale, selectedPolicies, rejectedPolicies, ` +
     `expectedTradeoffs, watchMetricsNextTurn. Acknowledge.`
   );
+}
+
+/**
+ * The policy effects the department reports recommend, one line each
+ * under the key a commander selects it by, and the instruction to put
+ * the adopted keys in `selectedPolicies`; or "" when no report
+ * recommends one.
+ */
+export function buildEffectsBlock(reports: DepartmentReport[]): string {
+  const lines = selectableEffects(reports).map(({ key, effect: e }) => `  - ${key} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`);
+  if (!lines.length) return '';
+  return '\n\nAVAILABLE POLICY EFFECTS:\n' + lines.join('\n') +
+    '\n\nPut the key of each effect you adopt in "selectedPolicies", exactly as listed above (for example "' +
+    selectableEffects(reports)[0].key + '"). Each adopted effect changes the state by its delta; an effect you leave out changes nothing.';
 }
 
 /** What one turn's commander decision prompt is built from. */
@@ -267,10 +284,12 @@ export async function runDepartmentPromotions(args: RunPromotionArgs): Promise<v
     console.log('  [Turn 0] Every department has a living head; no promotions to make');
     return;
   }
+  // Ages in years; the run counts time in its own unit.
+  const yearsPerUnit = kernel.getState().metadata.yearsPerUnit ?? 1;
   const candidateSummaries = open.map(d => {
     const candidates = kernel.getCandidates(d.id as Department, 5);
     return `## ${d.label || d.id} (department id "${d.id}"): Top 5 Candidates:\n${candidates.map(c => {
-      const age = startTime - c.core.birthTime;
+      const age = Math.floor(ageInYears(c, startTime, yearsPerUnit));
       const h = c.hexaco;
       return `- ${c.core.name} (${c.core.id}), age ${age}, spec: ${c.career.specialization}, O:${h.openness.toFixed(2)} C:${h.conscientiousness.toFixed(2)} E:${h.extraversion.toFixed(2)} A:${h.agreeableness.toFixed(2)} Em:${h.emotionality.toFixed(2)} HH:${h.honestyHumility.toFixed(2)}`;
     }).join('\n')}`;

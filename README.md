@@ -98,7 +98,7 @@ The kernel's between-turn progression hook reruns deterministically from each re
 >
 > Stanislaw Lem, *Solaris*, 1961
 
-Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly.
+Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, morale that holds, a department that keeps them off the airlock.
 
 Actors do not need to be people. The same authoring contract handles colony commanders, ship captains, AI release directors, governing councils, faction leaders, autonomous coordinators, or any entity whose decisions shape the world after a chain of inputs. Paracosm does not care what an actor represents. It cares how the actor decides.
 
@@ -230,6 +230,8 @@ The authoring contract is JSON because JSON validates, diffs, caches, and snapsh
 Every scenario declares its own vocabulary via `labels.populationNoun` (plural), `labels.settlementNoun` (singular), and `labels.timeUnitNoun`. The dashboard, kernel, and progression hooks pick those up everywhere user-facing copy renders. Without overrides, paracosm falls back to `colonists` / `colony` / `tick`. `labels.actorNoun` names the leader (`release director`, `CEO`); the run's prompts say `leader` without it. A run carries only the metrics and politics its scenario declares in `world`, plus population and morale, so the kernel's Mars-heritage values (power, food, water, `earthDependencyPct`) stay out of the state, stream, outcome effects, prompts and saved runs of a scenario that does not declare them.
 
 Time is unit-agnostic. `setup.defaultTimePerTurn` and `setup.defaultStartTime` are plain numbers; whether they represent years, quarters, hours, or ticks is decided by `timeUnitNoun`. The dashboard turn header reads `Quarter 5`, `Day 22`, or `Year 2043` straight from the label.
+
+Ages, experience and the kernel's yearly rates (births, deaths, partnerships, recovery, promotions) are in years. Between turns the kernel converts the elapsed units to years with `setup.yearsPerTimeUnit`, or, when the scenario declares none, with the length of the unit `timeUnitNoun` names: year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, and 1 for any other word (`tick`, `turn`). A month of Atlas Lab ages its people a twelfth of a year and rolls a twelfth of a year's births and deaths; an eight-year Mars turn ages its colonists eight years. Progression hooks get the step as `timeDelta` (the scenario's unit) and as `yearsDelta`, with `yearsSinceStart` and `yearsPerUnit` beside them.
 
 ---
 
@@ -433,7 +435,7 @@ Running a simulation calls real LLM APIs against the user's key. Paracosm assign
 
 Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forge approval rate drops 10 to 20 points on `economy` because the mid-tier department model occasionally violates structured-output schemas the judge rejects. Use `economy` for iteration and CI; use `quality` for publishable runs. Explicit `models` entries always win over the preset, so per-role overrides combine cleanly with global defaults.
 
-`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Every stable system prefix routes through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward; OpenAI auto-caches any prompt over 1024 tokens. The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
+`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
 
 ---
 
@@ -447,7 +449,7 @@ Every structured LLM call (director, departments, commander, reactions, verdict)
 
 ## Seed enrichment
 
-`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5`, ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
+`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5` when `COHERE_API_KEY` is set (Cohere picks the best three of every result the providers return for a query), ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
 
 ---
 

@@ -78,6 +78,12 @@ export interface ScenarioSetupSchema {
   defaultSeed: number;
   defaultStartTime: number;
   defaultTimePerTurn?: number;
+  /**
+   * Years in one unit of the scenario's time. Absent, the kernel reads it
+   * from `labels.timeUnitNoun`: year 1, quarter 1/4, month 1/12, week 1/52,
+   * day 1/365, hour 1/8760, any other word 1.
+   */
+  yearsPerTimeUnit?: number;
   defaultPopulation: number;
   /** Maximum events the Event Director can generate per turn. Default: 3 */
   maxEventsPerTurn?: number;
@@ -177,9 +183,10 @@ export interface MetricDefinition {
   format: 'number' | 'percent' | 'currency' | 'duration';
   /**
    * Which way is better for this score. The verdict judge is told so
-   * when it compares runs. Omit it when the score's name and the
-   * scenario make it plain (most scores are better higher); set
-   * `'lower'` for scores such as an error or failure rate.
+   * when it compares runs, and the outcome step reads it to tell a
+   * category table's costs from its gains (see `EffectRegistry`). Omit
+   * it when the score is better higher; set `'lower'` for scores such as
+   * an error or failure rate.
    */
   better?: 'higher' | 'lower';
 }
@@ -275,10 +282,21 @@ export interface ScenarioPreset {
 export interface ProgressionHookContext {
   /** All agents (mutable: the hook modifies health fields in place) */
   agents: Agent[];
+  /** Time since the last turn, in the scenario's unit. */
   timeDelta: number;
   time: number;
   turn: number;
   startTime: number;
+  /** `timeDelta` in years; a hook's yearly rates scale by this. */
+  yearsDelta?: number;
+  /** Years from `startTime` to `time`. */
+  yearsSinceStart?: number;
+  /** Years in one unit of the scenario's time. */
+  yearsPerUnit?: number;
+  /** The run's metrics as the turn ends, read only (habitat modules shield a dose). */
+  metrics?: Readonly<Record<string, unknown>>;
+  /** The run's environment (`world.environment`), read only. */
+  environment?: Readonly<Record<string, unknown>>;
   /** Seeded RNG for deterministic random operations */
   rng: { chance(probability: number): boolean; next(): number; pick<T>(arr: readonly T[]): T; int(min: number, max: number): number };
 }
