@@ -2998,8 +2998,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         };
 
         // A refused request leaves the visitor's run alone: over their day,
-        // or the server at its run cap (the visitor's own run in flight does
-        // not count against them, since this run replaces it).
+        // or the server at its run cap. The visitor's run in flight, which
+        // this run replaces and stops, does not count against them, nor does
+        // a run their Clear stopped right before; every other run still
+        // settling does, and so does a Digital Twin run of theirs, which
+        // nothing stops (LiveRunRegistry.checkCapacity).
         if (overTheDay()) return;
         try {
           liveRuns.checkCapacity(visitorId);

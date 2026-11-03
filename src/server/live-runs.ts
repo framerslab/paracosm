@@ -120,6 +120,12 @@ export interface LiveRun {
   capWarned: boolean;
   /** True until the run's runner settles; the run holds a capacity slot until then. */
   inFlight: boolean;
+  /**
+   * Set when its visitor stopped it in flight (replaced or cleared it) and
+   * its runner takes the signal: the visitor's next run is admitted as if it
+   * had settled, once. From then it holds its slot until its runner settles.
+   */
+  stoppedByVisitor: boolean;
   /** Non-null while the run is in flight. */
   controller: AbortController | null;
   readonly startedAt: number;
@@ -266,13 +272,22 @@ export class LiveRunRegistry {
 
   /**
    * Throws {@link RunCapacityError} when a run for this visitor would take
-   * the server over its cap. The visitor's own runs do not count: their next
-   * run replaces their current one, and a run they replaced or cleared is
-   * already stopping.
+   * the server over its cap. Every run whose runner has not settled counts,
+   * a run its visitor stopped included, except two of the visitor's own:
+   * their current run, which their next run replaces and stops, and a run
+   * they stopped whose runner is still settling, which their next run alone
+   * counts as settled (the run a /setup replaced and waited on, or the run a
+   * Clear stopped right before the Run). A Digital Twin run counts until its
+   * engine returns: the engine takes no signal, so replacing it stops nothing.
    */
   checkCapacity(visitorId: string): void {
+    const current = this.current(visitorId);
     let count = 0;
-    for (const run of this.unsettled) if (run.visitorId !== visitorId) count++;
+    for (const run of this.unsettled) {
+      const stops = run.visitorId === visitorId && run.kind !== 'intervention';
+      if (stops && (run === current || run.stoppedByVisitor)) continue;
+      count++;
+    }
     if (count >= this.options.maxRuns) throw new RunCapacityError(count, this.options.maxRuns);
   }
 
@@ -286,8 +301,15 @@ export class LiveRunRegistry {
     this.checkCapacity(input.visitorId);
     const key = input.runKey ?? randomUUID();
     const watchedBefore = this.watched(input.visitorId);
+    // This admission counted the runs the visitor stopped as settled; from
+    // here they hold their slots until their runners settle.
+    for (const run of this.unsettled) if (run.visitorId === input.visitorId) run.stoppedByVisitor = false;
     const previous = this.current(input.visitorId);
-    if (previous) this.replace(previous);
+    if (previous) {
+      const wasInFlight = previous.inFlight;
+      this.drop(previous, 'another_run_started');
+      if (wasInFlight) this.abort(previous, 'another_run_started');
+    }
 
     const now = Date.now();
     const run: LiveRun = {
@@ -310,6 +332,7 @@ export class LiveRunRegistry {
       insertedRunIds: [],
       capWarned: false,
       inFlight: true,
+      stoppedByVisitor: false,
       controller: new AbortController(),
       startedAt: now,
       lastActivity: now,
@@ -347,11 +370,15 @@ export class LiveRunRegistry {
     return run;
   }
 
-  /** Replaces a visitor's run with their next one: dropped, then stopped. */
+  /**
+   * Replaces a visitor's run with their next one, which opens next: dropped,
+   * then stopped. The next run's admission counts it as settled.
+   */
   replace(run: LiveRun): void {
     const wasInFlight = run.inFlight;
     this.drop(run, 'another_run_started');
-    if (wasInFlight) this.abort(run, 'another_run_started');
+    if (wasInFlight) this.stopForVisitor(run, 'another_run_started');
+    this.refollow(run.visitorId);
   }
 
   /** The broadcast a run's runner writes through. A dropped run's events go nowhere. */
@@ -455,7 +482,10 @@ export class LiveRunRegistry {
    * its view, then the run is dropped and, in flight, stopped.
    */
   clear(run: LiveRun, reason = 'cleared'): void {
-    this.evict(run, reason, 'user_aborted');
+    if (run.dropped) return;
+    const wasInFlight = run.inFlight;
+    this.evict(run, reason, null);
+    if (wasInFlight) this.stopForVisitor(run, 'user_aborted');
   }
 
   /** Drops every finished run, files included; returns how many runs in flight were kept. */
@@ -555,13 +585,47 @@ export class LiveRunRegistry {
     }
   }
 
-  /** Tells a run's viewers it is gone, drops it, and stops it when in flight. */
-  private evict(run: LiveRun, reason: string, abortReason: AbortReason): void {
+  /**
+   * Tells a run's viewers it is gone, drops it, and stops it when in flight
+   * with `abortReason` (null: the caller stops it). Its visitor's streams
+   * then follow the anonymous run, if there is one.
+   */
+  private evict(run: LiveRun, reason: string, abortReason: AbortReason | null): void {
     if (run.dropped) return;
     this.writeToViewers(run, sseFrame('run_cleared', { runKey: run.key }));
     const wasInFlight = run.inFlight;
     this.drop(run, reason);
-    if (wasInFlight) this.abort(run, abortReason);
+    if (wasInFlight && abortReason !== null) this.abort(run, abortReason);
+    this.refollow(run.visitorId);
+  }
+
+  /** Stops a run its visitor let go of; their next run counts it as settled, once. */
+  private stopForVisitor(run: LiveRun, reason: AbortReason): void {
+    if (run.inFlight && run.kind !== 'intervention') run.stoppedByVisitor = true;
+    this.abort(run, reason);
+  }
+
+  /**
+   * A visitor left with no run of their own watches the anonymous run, if
+   * there is one. Their streams that follow them are sent it as a reconnect
+   * sends it, `connected`, its frames from the start, then `replay_done`, so
+   * a page judges it by its own opening instead of taking its next frames
+   * for a run of its own.
+   */
+  private refollow(visitorId: string): void {
+    if (visitorId === ANONYMOUS_VISITOR || this.closed || this.currentByVisitor.has(visitorId)) return;
+    const anonymous = this.current(ANONYMOUS_VISITOR);
+    if (!anonymous) return;
+    for (const [res, info] of this.streams) {
+      if (info.visitorId !== visitorId || info.runKey !== null) continue;
+      try {
+        res.write(sseFrame('connected', { actorFilter: info.actorFilter, runKey: anonymous.key, visitorId }));
+        this.replay(res, anonymous, info.actorFilter);
+        res.write(sseFrame('replay_done', {}));
+      } catch {
+        this.streams.delete(res);
+      }
+    }
   }
 
   /** The held caps: runs with no viewer go before runs with one, the oldest first. */
@@ -814,6 +878,7 @@ export class LiveRunRegistry {
       insertedRunIds: [],
       capWarned: false,
       inFlight: false,
+      stoppedByVisitor: false,
       controller: null,
       startedAt: timestamps.find(t => t > 0) ?? mtimeMs,
       lastActivity: mtimeMs,
