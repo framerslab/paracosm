@@ -248,13 +248,15 @@ test('a Digital Twin run holds its slot until its engine returns, even once its 
   });
 });
 
-test("a stream left with no run of its visitor's is sent the anonymous run from its start, as a reconnect is", async () => {
-  // A visitor with no run of their own watches the anonymous run. Once their
-  // run goes, their open streams follow the anonymous run; sent only its next
-  // frames, a page shows them under its own scenario, with no opening to
-  // judge them by and none of the run before them.
+test("a stream that followed its visitor's own run is sent nothing of the anonymous run once that run goes", async () => {
+  // A visitor with no run of their own watches the anonymous run (the CLI's,
+  // from the browser that opened its dashboard). A stream that has followed
+  // a run of its visitor's own is that visitor's alone: sent the anonymous
+  // run's next frames after a Clear, a page showed them under its own
+  // scenario, with no opening, or over a run it had loaded from a file. A
+  // new stream, a reload, watches the anonymous run from its start.
   const held = heldRun();
-  await withVisitors(async ({ visitor, cookied }) => {
+  await withVisitors(async ({ visitor, cookied, base }) => {
     const anon = await setup(visitor(), quickstartBody(atlasLab));
     assert.equal(anon.status, 200);
     await waitFor(() => held.runs[0], 'the anonymous run');
@@ -264,19 +266,44 @@ test("a stream left with no run of its visitor's is sent the anonymous run from 
     const stream = await openStream(a);
     try {
       assert.equal((await clearEmpty(a)).cleared, true);
+      await stream.next(f => f.event === 'run_cleared', 'run_cleared');
       held.runs[0].release();
-      await stream.next(f => f.event === 'complete', "the anonymous run's end");
+      await waitFor(async () => (await (await fetch(`${base}/results`)).json() as Results).isComplete, 'the anonymous run to finish');
+      await sleep(100);
       const live = stream.live();
       const after = live.slice(live.findIndex(f => f.event === 'run_cleared') + 1);
-      const opening = after.findIndex(f => f.event === 'active_scenario');
-      assert.ok(opening >= 0, `the anonymous run's opening: ${after.map(f => f.event).join(', ')}`);
-      assert.equal(after[opening].data.runKey, anon.answer.runKey);
-      assert.ok(after.findIndex(f => f.event === 'sim') > opening, 'its opening comes before its events');
-      assert.ok(after.slice(opening).some(f => f.event === 'sim' && f.data.type === 'turn_start'), 'with its events so far');
+      assert.deepEqual(after.map(f => f.event), [], "nothing of the anonymous run reaches the visitor's stream");
     } finally {
       stream.close();
     }
+    const reload = await readReplay(a);
+    assert.deepEqual(openings(reload).map(f => f.data.runKey), [anon.answer.runKey], 'a reload watches the anonymous run from its start');
   }, { runner: held.runner, maxRuns: 2 });
+});
+
+test('on the hosted demo a visitor sees no run of a caller that sent no cookie', async () => {
+  // The anonymous run is shared so the browser that opens the CLI's own
+  // dashboard sees the CLI's run. The hosted demo has no such run: a run
+  // there from a caller with no cookie (curl, a script, a browser that
+  // blocks cookies) showed on every page of a visitor with no run yet, and
+  // their chats with its people shared one session.
+  const held = heldRun();
+  await withVisitors(async ({ visitor, cookied, base }) => {
+    const anon = await setup(visitor(), settingsBody(mars));
+    assert.equal(anon.status, 200, `the cookieless run: ${JSON.stringify(anon.answer)}`);
+    await waitFor(() => held.runs[0], 'the anonymous run');
+    assert.deepEqual(openings(await readReplay(base)).map(f => f.data.runKey), [anon.answer.runKey], 'cookieless callers still share it');
+
+    const c = cookied();
+    const replay = await readReplay(c);
+    assert.equal(replay.connected.runKey, null);
+    assert.deepEqual(openings(replay), [], "the cookieless caller's run is not on a visitor's stream");
+    assert.equal((await c.json<Results>('/results')).runKey, null);
+    const chat = await c.post('/chat', { agentId: 'col-1', message: 'hello' });
+    assert.equal(chat.status, 400);
+    assert.match((await chat.json() as { error: string }).error, /no simulation in memory/);
+    held.runs[0].release();
+  }, { runner: held.runner, env: { PARACOSM_HOSTED_DEMO: 'true' } });
 });
 
 test("Clear drops the visitor's own run and leaves every other visitor's", async () => {

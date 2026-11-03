@@ -168,6 +168,19 @@ test.describe('Run per visitor @runs', () => {
     }
   });
 
+  test("a person's chat opens with their greeting, as the leader they lived under", async ({ browser }) => {
+    const a = await visit(browser);
+    try {
+      await pressRun(a.page);
+      await expectComplete(a.page);
+      await a.page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+      await a.page.getByRole('button', { name: /Lena Ortiz/ }).first().click();
+      await expect(shown(a.page, 'I lived through this simulation').first()).toBeVisible();
+    } finally {
+      await a.context.close();
+    }
+  });
+
   test('above the run cap a visitor is told to wait, and the runs in flight go on', async ({ browser }) => {
     const a = await visit(browser);
     const b = await visit(browser, 'atlas-lab');

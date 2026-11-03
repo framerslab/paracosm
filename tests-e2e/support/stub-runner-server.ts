@@ -4,8 +4,8 @@
  *
  * The server code is the real one, over HTTP and SSE, with the scenario JSON
  * read from scenarios/. Only the runner, which would call a model on every
- * turn, is scripted: two turns per leader, a few seconds apart, then a result
- * per leader and the run's end. It stops as the orchestrator does when its
+ * turn, is scripted: two turns per leader, a few seconds apart, one person's
+ * reaction under each leader, then a result per leader and the run's end. It stops as the orchestrator does when its
  * run's signal fires. PARACOSM_MAX_RUNS sets the server's run cap.
  */
 import { mkdtempSync } from 'node:fs';
@@ -47,6 +47,14 @@ async function scriptedRun(config: NormalizedSimulationConfig, broadcast: Broadc
     }
     for (const l of leaders) {
       broadcast('sim', { type: 'turn_done', leader: l.name, data: { turn, time: turn, metrics: { population: 100, morale: 0.7 } } }, l.name);
+      // One person who lives under each leader, for the Chat tab.
+      if (turn === 1) {
+        broadcast('sim', {
+          type: 'agent_reactions',
+          leader: l.name,
+          data: { turn, time: turn, reactions: [{ agentId: 'col-lena-ortiz', name: 'Lena Ortiz', role: 'Botanist', department: 'agriculture', age: 34, mood: 'hopeful', quote: 'We kept the greenhouse running.' }] },
+        }, l.name);
+      }
     }
   }
   for (const l of leaders) {
