@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { SeededRng } from '../../src/engine/core/rng.js';
 import { classifyOutcome, classifyOutcomeById } from '../../src/engine/core/progression.js';
+import * as progression from '../../src/engine/core/progression.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { WorldMetrics } from '../../src/engine/core/state.js';
 
@@ -138,4 +139,24 @@ test('a decision on an event with no risky option reads as safe', () => {
   const outcome = classifyOutcome(`Settle at ${safe.label}.`, '', founding.riskSuccessProbability, metrics, outcomeDraw(seed));
   assert.equal(outcome, 'conservative_success');
   assert.equal(classifyOutcome('Hold position.', '   ', founding.riskSuccessProbability, metrics, outcomeDraw(seed)), 'conservative_success', 'a blank label names no option either');
+});
+
+test('a choice the event does not offer reads from the decision text', () => {
+  // The decision schema takes any string as selectedOptionId, and the
+  // orchestrator passed one the event does not offer straight to
+  // classifyOutcomeById, which found no option and read the safe one,
+  // whatever the decision said. The orchestrator now resolves the choice
+  // with resolveChosenOption before it classifies.
+  const resolve = (progression as Record<string, unknown>).resolveChosenOption as
+    ((id: string | undefined, text: string, options: typeof founding.options) => string | undefined) | undefined;
+  assert.equal(typeof resolve, 'function', 'progression exports resolveChosenOption');
+  assert.equal(resolve!('option_c', `Settle at ${risky.label}.`, founding.options), risky.id, 'an id the event does not offer');
+  assert.equal(resolve!(risky.label, 'We go.', founding.options), risky.id, 'the label written where the id goes');
+  assert.equal(resolve!(safe.id.toUpperCase(), 'We go.', founding.options), safe.id, 'an offered id in another case');
+  assert.equal(resolve!(safe.id, `Settle at ${risky.label}.`, founding.options), safe.id, 'an offered id wins over the text');
+  assert.equal(resolve!(undefined, 'Defer to department consensus.', founding.options), undefined, 'a decision that names no option');
+
+  const seed = seedWithDraw(riskyChance(metrics), safeChance(metrics));
+  const chosen = resolve!('option_c', `Settle at ${risky.label}.`, founding.options)!;
+  assert.equal(classifyOutcomeById(chosen, founding.options, founding.riskSuccessProbability, metrics, outcomeDraw(seed)), 'risky_failure');
 });
