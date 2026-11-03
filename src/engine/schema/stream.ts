@@ -107,6 +107,7 @@ const OutcomeDataSchema = z.object({
   category: z.string(),
   emergent: z.boolean(),
   systemDeltas: z.record(z.string(), z.number()),
+  politicsDeltas: z.record(z.string(), z.number()).optional(),
   eventIndex: z.number().int().min(0),
 });
 

@@ -2,7 +2,7 @@ import type { SimulationState, Agent, TurnEvent, HexacoProfile, TurnOutcome, Dep
 import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
-import { agentIdKeys, generateInitialPopulation, type KeyPersonnel } from './agent-generator.js';
+import { agentIdKeys, generateInitialPopulation, generateJoiners, type KeyPersonnel } from './agent-generator.js';
 import { progressBetweenTurns, applyPersonalityDrift, ROLE_ACTIVATIONS } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
@@ -11,6 +11,35 @@ interface DeclaredMetric {
   id?: string;
   type?: 'number' | 'string' | 'boolean';
   initial?: number | string | boolean;
+  min?: number;
+  max?: number;
+}
+
+/**
+ * The most people hires can bring a roster to. A delta is a number a model
+ * or a compiled scenario wrote, and each person it brings in costs memory
+ * and a place in every turn's snapshot.
+ */
+const MAX_ROSTER = 2000;
+
+/** The floor and ceiling a scenario declares for each value that has one. */
+type DeclaredRanges = Record<string, { min?: number; max?: number }>;
+
+function declaredRanges(...bags: Array<Record<string, DeclaredMetric> | undefined>): DeclaredRanges {
+  const ranges: DeclaredRanges = {};
+  for (const bag of bags) {
+    for (const [key, def] of Object.entries(bag ?? {})) {
+      if (typeof def.min === 'number' || typeof def.max === 'number') ranges[key] = { min: def.min, max: def.max };
+    }
+  }
+  return ranges;
+}
+
+/** The bags of a scenario's `world` that hold floors and ceilings. */
+interface WorldRangeBags {
+  metrics?: Record<string, DeclaredMetric>;
+  capacities?: Record<string, DeclaredMetric>;
+  politics?: Record<string, DeclaredMetric>;
 }
 
 /** Pick the declared initial value; fall back to a type-appropriate zero. */
@@ -105,6 +134,24 @@ function clampField(bag: Record<string, unknown>, key: string, min: number, max 
   if (typeof value === 'number') bag[key] = Math.max(min, Math.min(max, value));
 }
 
+/** Hold the fields a change touched to the range their scenario declares. */
+function clampDeclared(bag: Record<string, unknown>, keys: Iterable<string>, ranges: DeclaredRanges): void {
+  for (const key of keys) {
+    const range = ranges[key];
+    if (range) clampField(bag, key, range.min ?? -Infinity, range.max ?? Infinity);
+  }
+}
+
+/**
+ * The change a delta made: the delta itself, or less where a floor or
+ * ceiling stopped it (morale at 1, power at 0).
+ */
+function changeMade(asked: number, before: number, after: number): number {
+  const moved = after - before;
+  // An unclamped change is the delta; the subtraction would add float noise.
+  return Math.abs(moved - asked) < 1e-9 ? asked : Math.round(moved * 1e6) / 1e6;
+}
+
 export interface SystemsPatch {
   metrics?: Partial<WorldMetrics>;
   politics?: Partial<WorldPolitics>;
@@ -117,7 +164,13 @@ export interface SystemsPatch {
 
 export interface PolicyEffect {
   description: string;
+  /** Values set outright. A head count here is ignored: the roster holds it. */
   patches: SystemsPatch;
+  /** Changes added to the current values, after `patches`; see {@link SimulationKernel.applyDeltas}. */
+  deltas?: {
+    metrics?: Record<string, number>;
+    politics?: Record<string, number>;
+  };
   events: TurnEvent[];
 }
 
@@ -140,6 +193,8 @@ export interface SimulationInitOverrides {
 export class SimulationKernel {
   private state: SimulationState;
   private rng: SeededRng;
+  /** The floors and ceilings the scenario declares; empty for a run with no scenario. */
+  private ranges: { metrics: DeclaredRanges; politics: DeclaredRanges } = { metrics: {}, politics: {} };
 
   constructor(seed: number, leaderId: string, keyPersonnel: KeyPersonnel[], init: SimulationInitOverrides = {}) {
     this.rng = new SeededRng(seed);
@@ -212,6 +267,19 @@ export class SimulationKernel {
       },
       eventLog: [],
     };
+    // The roster is the head count, whatever a scenario declares for a
+    // full-size run: a demo run of Atlas Lab has 30 people, not 480.
+    this.state.metrics.population = agents.length;
+    this.setRanges(init.scenario);
+  }
+
+  /** Read the floors and ceilings out of a scenario's `world`. */
+  private setRanges(scenario: ScenarioPackage | undefined): void {
+    const world = (scenario?.world ?? {}) as WorldRangeBags;
+    this.ranges = {
+      metrics: declaredRanges(world.metrics, world.capacities),
+      politics: declaredRanges(world.politics),
+    };
   }
 
   getState(): SimulationState { return structuredClone(this.state); }
@@ -251,10 +319,13 @@ export class SimulationKernel {
    * @param expectedScenarioId - Scenario id the caller expects the
    *   snapshot to match. Throws when they differ; this is the gate
    *   against accidental cross-scenario forks.
+   * @param scenario - The scenario the kernel goes on running, for its
+   *   declared floors and ceilings, which a snapshot does not hold.
+   *   Without it the restored kernel keeps only its built-in ones.
    * @throws Error when `snap.snapshotVersion !== 1` or when
    *   `snap.scenarioId !== expectedScenarioId`.
    */
-  static fromSnapshot(snap: KernelSnapshot, expectedScenarioId: string): SimulationKernel {
+  static fromSnapshot(snap: KernelSnapshot, expectedScenarioId: string, scenario?: ScenarioPackage): SimulationKernel {
     if (snap.snapshotVersion !== 1) {
       throw new Error(
         `KernelSnapshot.snapshotVersion=${snap.snapshotVersion} is not supported; ` +
@@ -280,6 +351,7 @@ export class SimulationKernel {
     });
     kernel.state = structuredClone(snap.state);
     kernel.rng = SeededRng.fromState(snap.rngState);
+    kernel.setRanges(scenario);
     return kernel;
   }
 
@@ -308,40 +380,85 @@ export class SimulationKernel {
     };
   }
 
-  /** Apply a policy effect from the commander's decision. */
-  applyPolicy(effect: PolicyEffect): void {
-    const { patches, events } = effect;
+  /**
+   * Apply a policy effect from the commander's decision: its patches set
+   * values outright, then its deltas add to them. Returns the change each
+   * delta made, and logs it.
+   */
+  applyPolicy(effect: PolicyEffect): Record<string, number> {
+    const { patches, deltas, events } = effect;
 
     if (patches.metrics) {
       const c = this.state.metrics;
+      const written: string[] = [];
       for (const [k, v] of Object.entries(patches.metrics)) {
-        if (v !== undefined && k in c) (c as any)[k] = v;
+        // The head count follows the roster; a model's number cannot replace it.
+        if (k === 'population' || typeof v !== 'number' || !Number.isFinite(v) || !(k in c)) continue;
+        (c as any)[k] = v;
+        written.push(k);
       }
-      clampField(c, 'population', 0);
       clampField(c, 'morale', 0, 1);
       clampField(c, 'foodMonthsReserve', 0);
       clampField(c, 'powerKw', 0);
+      clampDeclared(c, written, this.ranges.metrics);
     }
 
     if (patches.politics) {
       const p = this.state.politics;
+      const written: string[] = [];
       for (const [k, v] of Object.entries(patches.politics)) {
-        if (v !== undefined && k in p) (p as any)[k] = v;
+        if (v !== undefined && k in p && typeof v === typeof p[k]) {
+          (p as any)[k] = v;
+          written.push(k);
+        }
       }
       clampField(p, 'earthDependencyPct', 0, 100);
       clampField(p, 'independencePressure', 0, 1);
+      clampDeclared(p, written, this.ranges.politics);
     }
 
     if (patches.agentUpdates) {
       for (const u of patches.agentUpdates) {
         const col = this.findAgent(u.agentId);
         if (!col) continue;
-        if (u.health) Object.assign(col.health, u.health);
+        if (u.health) {
+          // A patch never decides who lives. A death comes from progression,
+          // with the `death` event the roster and the verdict's mortality
+          // line are read from.
+          const { alive: _alive, deathTime: _deathTime, deathCause: _deathCause, ...health } = u.health;
+          Object.assign(col.health, health);
+        }
         if (u.career) Object.assign(col.career, u.career);
       }
+      this.state.metrics.population = this.getAliveCount();
     }
 
+    // One sum per key: a key both bags name moves once, within its range,
+    // and reports the change it made.
+    const asked: Record<string, number> = { ...deltas?.metrics };
+    for (const [k, v] of Object.entries(deltas?.politics ?? {})) asked[k] = (asked[k] ?? 0) + v;
+    const applied = this.applyDeltas(asked);
     this.state.eventLog.push(...events);
+    const changes = Object.entries(applied);
+    if (changes.length > 0) {
+      const { currentTurn: turn, currentTime: time } = this.state.metadata;
+      this.state.eventLog.push({
+        turn, time, type: 'system',
+        description: `Policy effect: ${changes.map(([k, v]) => `${k} ${v >= 0 ? '+' : ''}${v}`).join(', ')}`,
+      });
+    }
+    return applied;
+  }
+
+  /**
+   * Add each delta to wherever the run holds its key, metrics first, then
+   * politics; a key the run holds in neither is dropped. Returns the change
+   * each key made.
+   */
+  applyDeltas(deltas: Record<string, number>): Record<string, number> {
+    const metrics = this.applySystemDeltas(deltas as Partial<WorldMetrics>);
+    const rest = Object.fromEntries(Object.entries(deltas).filter(([k]) => !(k in metrics)));
+    return { ...metrics, ...this.applyPoliticsDeltas(rest as Partial<WorldPolitics>) };
   }
 
   /** Advance to the next turn. Runs between-turn progression. */
@@ -449,46 +566,131 @@ export class SimulationKernel {
 
   /**
    * Apply additive deltas to world systems (not absolute values). A delta
-   * for a metric the run does not carry is dropped. Returns the change
-   * each metric made, which is what the run reports: the delta itself, or
-   * less where a floor or ceiling stopped it (morale at 1, power at 0).
+   * for a metric the run does not carry is dropped. A population delta
+   * moves whole people on and off the roster; see {@link movePeople}.
+   * Returns the change each metric made, which is what the run reports:
+   * the delta itself, or less where a floor or ceiling stopped it (morale
+   * at 1, power at 0, a hull a scenario keeps at or under 100).
    */
   applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): Record<string, number> {
     const c = this.state.metrics;
     const requested: Array<[string, number, number]> = [];
     for (const [k, v] of Object.entries(deltas)) {
-      if (v !== undefined && typeof v === 'number' && typeof (c as Record<string, unknown>)[k] === 'number') {
-        requested.push([k, v, c[k]]);
-        (c as any)[k] = (c as any)[k] + v;
+      if (typeof v !== 'number' || !Number.isFinite(v) || typeof (c as Record<string, unknown>)[k] !== 'number') continue;
+      if (k === 'population') {
+        const before = this.getAliveCount();
+        requested.push([k, this.movePeople(v), before]);
+        continue;
       }
+      requested.push([k, v, c[k]]);
+      (c as any)[k] = (c as any)[k] + v;
     }
     clampField(c, 'morale', 0, 1);
     clampField(c, 'foodMonthsReserve', 0);
     clampField(c, 'powerKw', 0);
-    clampField(c, 'population', 0);
     clampField(c, 'lifeSupportCapacity', 0);
     clampField(c, 'infrastructureModules', 0);
+    clampDeclared(c, requested.map(([k]) => k).filter(k => k !== 'population'), this.ranges.metrics);
     const applied: Record<string, number> = {};
-    for (const [k, v, before] of requested) {
-      const moved = c[k] - before;
-      // An unclamped change is the delta; the subtraction would add float noise.
-      applied[k] = Math.abs(moved - v) < 1e-9 ? v : Math.round(moved * 1e6) / 1e6;
-    }
+    for (const [k, v, before] of requested) applied[k] = changeMade(v, before, c[k]);
     this.state.eventLog.push(...events);
     return applied;
   }
 
-  /** Apply additive deltas to world politics; one for a field the run does not carry is dropped. */
-  applyPoliticsDeltas(deltas: Partial<WorldPolitics>, events: TurnEvent[] = []): void {
+  /**
+   * Move `delta` people, rounded to whole people, on or off the roster and
+   * return how many moved. Joiners are new adults in the departments the
+   * roster already has; one delta brings in at most as many as the roster
+   * holds, up to {@link MAX_ROSTER} or the scenario's declared `max`.
+   * Leavers come off the roster with an event of their own: a departure is
+   * not a death, so it counts in no mortality figure. Department heads and
+   * children stay, people the run has featured go last, and the roster
+   * keeps the scenario's declared `min`, so fewer can leave than were asked
+   * for.
+   */
+  private movePeople(delta: number): number {
+    const count = Math.abs(Math.round(delta));
+    if (count === 0) return 0;
+    const { currentTurn: turn, currentTime: time } = this.state.metadata;
+    // A sub-stream of its own: the turn rolls derive from the same state and
+    // must come out the same whether or not anyone moved.
+    const rng = this.rng.turnSeed(turn * 1000 + this.state.eventLog.length + 500);
+    const alive = this.getAliveCount();
+    const { min = 0, max = MAX_ROSTER } = this.ranges.metrics.population ?? {};
+    const moved = delta > 0
+      ? this.addPeople(Math.min(count, alive, Math.max(0, Math.min(max, MAX_ROSTER) - alive)), rng, turn, time)
+      : -this.removePeople(Math.min(count, Math.max(0, alive - min)), rng, turn, time);
+    this.state.metrics.population = this.getAliveCount();
+    return moved || 0;
+  }
+
+  private addPeople(count: number, rng: SeededRng, turn: number, time: number): number {
+    // The log holds who left, so a snapshot of the run carries them too.
+    const former = this.state.eventLog.flatMap(e => (
+      e.type === 'departure' && e.agentId ? [{ id: e.agentId, name: String(e.data?.name) }] : []
+    ));
+    const joiners = generateJoiners(rng, time, turn, count, this.state.agents, former);
+    this.state.agents.push(...joiners);
+    for (const a of joiners) {
+      this.state.eventLog.push({
+        turn, time, type: 'arrival', description: `${a.core.name} joined as ${a.core.role}`, agentId: a.core.id,
+        data: { department: a.core.department },
+      });
+    }
+    return joiners.length;
+  }
+
+  private removePeople(count: number, rng: SeededRng, turn: number, time: number): number {
+    const eligible = this.state.agents.filter(a => a.health.alive && !a.promotion && time - a.core.birthTime >= 18);
+    for (let i = eligible.length - 1; i > 0; i--) {
+      const j = rng.int(0, i);
+      [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
+    }
+    // Array.prototype.sort is stable: the shuffle holds within each group.
+    eligible.sort((a, b) => Number(a.narrative.featured) - Number(b.narrative.featured));
+    const leaving = eligible.slice(0, count);
+    const gone = new Map(leaving.map(a => [a.core.id, a]));
+    this.state.agents = this.state.agents.filter(a => !gone.has(a.core.id));
+    for (const a of this.state.agents) {
+      const partner = a.social.partnerId ? gone.get(a.social.partnerId) : undefined;
+      if (partner) {
+        a.social.partnerId = undefined;
+        a.narrative.lifeEvents.push({ time, event: `Partner ${partner.core.name} left`, source: 'kernel' });
+      }
+      a.social.friendIds = (a.social.friendIds ?? []).filter(id => !gone.has(id));
+      a.social.childrenIds = a.social.childrenIds.filter(id => !gone.has(id));
+    }
+    for (const a of leaving) {
+      this.state.eventLog.push({
+        turn, time, type: 'departure', description: `${a.core.name} left`, agentId: a.core.id,
+        data: { name: a.core.name, department: a.core.department, role: a.core.role },
+      });
+    }
+    return leaving.length;
+  }
+
+  /**
+   * Apply additive deltas to world politics; one for a field the run does
+   * not carry is dropped. Returns the change each field made, within the
+   * range its scenario declares.
+   */
+  applyPoliticsDeltas(deltas: Partial<WorldPolitics>, events: TurnEvent[] = []): Record<string, number> {
     const p = this.state.politics;
+    const requested: Array<[string, number, number]> = [];
     for (const [k, v] of Object.entries(deltas)) {
-      if (v !== undefined && typeof v === 'number' && typeof p[k] === 'number') {
-        (p as any)[k] = (p as any)[k] + v;
+      const held = p[k];
+      if (typeof v === 'number' && Number.isFinite(v) && typeof held === 'number') {
+        requested.push([k, v, held]);
+        (p as any)[k] = held + v;
       }
     }
     clampField(p, 'earthDependencyPct', 0, 100);
     clampField(p, 'independencePressure', 0, 1);
+    clampDeclared(p, requested.map(([k]) => k), this.ranges.politics);
+    const applied: Record<string, number> = {};
+    for (const [k, v, before] of requested) applied[k] = changeMade(v, before, p[k] as number);
     this.state.eventLog.push(...events);
+    return applied;
   }
 
   /** Apply personality drift to all promoted colonists. */

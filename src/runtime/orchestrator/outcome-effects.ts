@@ -15,28 +15,46 @@ export interface OutcomeEffectInput {
   modifiers: OutcomeModifiers;
   turn: number;
   time: number;
+  /** The scenario's per-outcome politics table; see {@link applyOutcomeEffects}. */
+  politicsHook?: (category: string, outcome: string) => Record<string, number> | null;
+}
+
+/** What an outcome moved, as the `outcome` stream event reports it. */
+export interface OutcomeEffectsApplied {
+  systemDeltas: Record<string, number>;
+  politicsDeltas: Record<string, number>;
 }
 
 /**
- * Apply an event's outcome effects to the kernel and return the deltas
- * the run reports for it (the `outcome` stream event's `systemDeltas`).
+ * Apply an event's outcome effects to the kernel and return the changes
+ * the run reports for it (the `outcome` stream event's `systemDeltas` and
+ * `politicsDeltas`).
  *
- * The registry's table can name a key the run does not carry: the forge
- * cost charges `powerKw` in every run, and a scenario's category table
- * can name a politics key. The kernel drops those, so the run reports and
- * logs only the deltas it applied.
+ * A key of the registry's category table moves the metric or the politics
+ * value the run holds under it. The table can also name a key the run does
+ * not carry (the forge cost charges `powerKw` in every run); the kernel
+ * drops those, so the run reports and logs only what it applied.
+ *
+ * The scenario's politics hook names a change for each outcome, so where it
+ * names a key, its change replaces the category table's and the key moves
+ * once. The hook is the better reading: the table scales by a multiplier
+ * that turns negative on a failure, so a table entry of -8 for a safety
+ * breach would raise the board's confidence when the response fails.
  */
 export function applyOutcomeEffects(
   kernel: SimulationKernel,
   registry: EffectRegistry,
   input: OutcomeEffectInput,
-): Record<string, number> {
-  const { category, outcome, modifiers, turn, time } = input;
+): OutcomeEffectsApplied {
+  const { category, outcome, modifiers, turn, time, politicsHook } = input;
   const deltas = registry.applyOutcome(category, outcome, modifiers);
   const event: TurnEvent = { turn, time, type: 'system', description: '' };
-  const applied = kernel.applySystemDeltas(deltas as Partial<WorldMetrics>, [event]);
-  event.description = `Outcome effect (${outcome}): ${Object.entries(applied).map(([k, v]) => `${k} ${v >= 0 ? '+' : ''}${v}`).join(', ')}`;
-  return applied;
+  const systemDeltas = kernel.applySystemDeltas(deltas as Partial<WorldMetrics>, [event]);
+  const tablePolitics = Object.fromEntries(Object.entries(deltas).filter(([k]) => !(k in systemDeltas)));
+  const politicsDeltas = kernel.applyPoliticsDeltas({ ...tablePolitics, ...(politicsHook?.(category, outcome) ?? {}) });
+  const changes = Object.entries({ ...systemDeltas, ...politicsDeltas });
+  event.description = `Outcome effect (${outcome}): ${changes.map(([k, v]) => `${k} ${v >= 0 ? '+' : ''}${v}`).join(', ')}`;
+  return { systemDeltas, politicsDeltas };
 }
 
 /** The world totals a `systems_snapshot` stream event carries beside the roster. */

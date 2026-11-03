@@ -87,15 +87,15 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.15.58",
-    "@framers/sql-storage-adapter": "^0.8.3",
+    "@framers/agentos": "^0.15.81",
+    "@framers/sql-storage-adapter": "^0.9.2",
     "better-sqlite3": "^12.11.1",
-    "resend": "^6.35.0",
+    "resend": "^6.36.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "pdf-lib": "^1.17.1",

@@ -19,6 +19,7 @@ import {
   emptyReport,
   emptyDecision,
   decisionToPolicy,
+  selectableEffects,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
@@ -46,9 +47,8 @@ import { driftLeaderProfile } from '../../engine/traits/drift.js';
 import type { DepartmentReport, CommanderDecision, TurnArtifact } from '../contracts.js';
 import { SimulationKernel } from '../../engine/core/kernel.js';
 import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
-import { getResearchPacket } from '../research/research.js';
 import { getResearchFromBundle } from '../research/scenario-research.js';
-import { initResearchMemory, recallResearch, closeResearchMemory } from '../research/research-memory.js';
+import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext } from './departments.js';
 import { artifactTimeUnit, scenarioWords } from '../util/scenario-words.js';
 import { declaredMetrics, declaredPolitics, formatStateLine } from '../util/scenario-state.js';
@@ -186,6 +186,8 @@ export interface SimEventPayloadMap {
     category: string;
     emergent: boolean;
     systemDeltas: Record<string, number>;
+    /** Changes to the politics bag, when the outcome made any. */
+    politicsDeltas?: Record<string, number>;
     eventIndex: number;
   };
   /** Per-turn HEXACO drift for promoted agents + the commander. */
@@ -451,6 +453,16 @@ export interface RunOptions extends RuntimeCredentialOptions {
 }
 
 export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
+  // Each run owns its research memory and closes it however the run ends.
+  const research = await createResearchMemory((opts.scenario ?? marsScenario).knowledge);
+  try {
+    return await runWithResearch(research, leader, keyPersonnel, opts);
+  } finally {
+    await research.close();
+  }
+}
+
+async function runWithResearch(research: ResearchMemory, leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions): Promise<RunArtifact> {
   const startedAtIso = new Date().toISOString();
   const { agent } = await import('@framers/agentos');
   const sc = opts.scenario ?? marsScenario;
@@ -632,16 +644,13 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   console.log(`  Turns: ${maxTurns} | Live search: ${opts.liveSearch ? 'yes' : 'no'}`);
   console.log(`${'═'.repeat(60)}\n`);
 
-  // Initialize research memory from scenario knowledge bundle
-  await initResearchMemory(sc.knowledge);
-
   const seed = opts.seed ?? 950;
   // WorldModel.fork() path: resume from a prior KernelSnapshot instead
   // of constructing a fresh kernel. fromSnapshot validates
   // scenarioVersion + scenarioId; the restored kernel is
   // byte-equivalent to the one that produced the snapshot.
   const kernel = opts._resumeFrom
-    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id)
+    ? SimulationKernel.fromSnapshot(opts._resumeFrom, sc.id, sc)
     : new SimulationKernel(seed, leader.name, keyPersonnel, {
         startTime,
         initialPopulation: opts.initialPopulation,
@@ -1038,7 +1047,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         recentToolOutputs: lastTurnToolOutputs,
         agentMoodSummary: lastTurnMoodSummary,
         // Ground director's researchKeywords / category in real bundle entries so
-        // recallResearch/getResearchFromBundle can surface citations downstream.
+        // the research recall and getResearchFromBundle can surface citations downstream.
         knowledgeTopics: Object.keys(sc.knowledge?.topics ?? {}),
         knowledgeCategories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
         labels: sc.labels,
@@ -1119,33 +1128,19 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       let packet: import('../contracts.js').CrisisResearchPacket;
       if (milestone) {
         packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-        if (packet.canonicalFacts.length === 0) packet = getResearchPacket(turn);
       } else {
-        const memPacket = await recallResearch(event.title + ' ' + event.description.slice(0, 100), event.researchKeywords, event.category);
-        if (memPacket.canonicalFacts.length >= 2) {
-          packet = memPacket;
-          console.log(`  [research] Memory recall: ${packet.canonicalFacts.length} citations`);
-        } else {
-          const searchMode = opts.economics?.search.mode ?? 'adaptive';
-          const allowsSearch =
-            opts.liveSearch &&
-            event.researchKeywords.length > 0 &&
-            (searchMode === 'aggressive' || (searchMode === 'adaptive' && memPacket.canonicalFacts.length < 2) || (searchMode === 'gated' && memPacket.canonicalFacts.length === 0));
-          if (allowsSearch) {
-          try {
-            const keywordBudget = Math.max(1, Math.min(3, opts.economics?.search.maxSearches ?? 3));
-            const query = event.researchKeywords.slice(0, keywordBudget).join(' ') + ' ' + sc.labels.settlementNoun + ' science';
+        packet = await researchEmergentEvent({
+          research,
+          knowledge: sc.knowledge,
+          event,
+          liveSearch: opts.liveSearch,
+          search: opts.economics?.search,
+          settlementNoun: sc.labels.settlementNoun,
+          webSearch: async query => {
             const searchResult = await webSearchTool.execute({ query }, { gmiId: sid, personaId: sid, userContext: {} } as any);
-            const results = (searchResult as any)?.output?.results || [];
-            packet = { canonicalFacts: results.slice(0, 5).map((r: any) => ({ claim: r.snippet || r.title || '', source: r.title || 'web search', url: r.url || '' })), counterpoints: [], departmentNotes: {} };
-          } catch (err) {
-            console.log(`  [research] Live search failed: ${err}`);
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-          } else {
-            packet = getResearchFromBundle(sc.knowledge, event.category, event.researchKeywords);
-          }
-        }
+            return (searchResult as any)?.output?.results || [];
+          },
+        });
       }
 
       // Departments
@@ -1476,7 +1471,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         return `## ${r.department.toUpperCase()} (conf: ${r.confidence})\n${r.summary}\nRisks: ${risksLine}\nRecs: ${recsLine}`;
       }).join('\n\n');
       const optionText = event.options.length ? '\n\nOPTIONS:\n' + event.options.map(o => `- ${o.id}: ${o.label} — ${o.description}${o.isRisky ? ' [RISKY]' : ''}`).join('\n') + '\n\nYou MUST include "selectedOptionId" in your JSON response.' : '';
-      const effectsList = reports.flatMap(r => (r.recommendedEffects || []).map(e => `  - ${e.id} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`));
+      const effectsList = selectableEffects(reports).map(({ key, effect: e }) => `  - ${key} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`);
       const effectsText = effectsList.length ? '\n\nAVAILABLE POLICY EFFECTS:\n' + effectsList.join('\n') : '';
       // Expose the current forged toolbox to the commander so their
       // rationale can cite specific tool outputs (e.g. "per Medical's
@@ -1558,7 +1553,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         eventIndex: ei,
       });
 
-      kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      const policyDeltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
+      if (Object.keys(policyDeltas).length > 0) console.log(`  [policy] effects: ${JSON.stringify(policyDeltas)}`);
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1622,7 +1618,7 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         };
       })();
 
-      const systemDeltas = applyOutcomeEffects(kernel, effectRegistry, {
+      const { systemDeltas, politicsDeltas } = applyOutcomeEffects(kernel, effectRegistry, {
         category: event.category,
         outcome,
         modifiers: {
@@ -1632,10 +1628,8 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
         },
         turn,
         time,
+        politicsHook: sc.hooks.politicsHook,
       });
-
-      const polDelta = sc.hooks.politicsHook?.(event.category, outcome);
-      if (polDelta) kernel.applyPoliticsDeltas(polDelta);
 
       outcomeLog.push({ turn, time, outcome });
       eventHistory.push({ turn, title: event.title, category: event.category, selectedOptionId: resolvedOptionId, decision: decision.decision.slice(0, 200), outcome });
@@ -1650,8 +1644,9 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
       lastOutcome = outcome;
       lastEventCategory = event.category;
 
-      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}`);
-      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, eventIndex: ei });
+      const movedPolitics = Object.keys(politicsDeltas).length > 0;
+      console.log(`  [outcome] ${outcome} (${event.category}) effects: ${JSON.stringify(systemDeltas)}${movedPolitics ? ` politics: ${JSON.stringify(politicsDeltas)}` : ''}`);
+      emit('outcome', { turn, time, outcome, category: event.category, emergent: !milestone, systemDeltas, ...(movedPolitics ? { politicsDeltas } : {}), eventIndex: ei });
       } catch (err) {
         // Classify event-loop errors. Provider-side failures (auth,
         // quota, rate_limit, network) route through reportProviderError
@@ -1936,17 +1931,13 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   // for free. Scenario hooks layer their own domain-specific fields on
   // top (e.g., Mars: autonomy, marsbornFraction). Hook output keys win
   // on conflict so authors can override generic values intentionally.
-  const { genericFingerprint } = await import('../util/generic-fingerprint.js');
-  const generic = genericFingerprint(final, outcomeLog, leader, toolRegs, maxTurns);
-  const scenarioOverlay = sc.hooks.fingerprintHook
-    ? sc.hooks.fingerprintHook(final, outcomeLog, leader, toolRegs, maxTurns)
-    : {};
-  const fingerprint = { ...generic, ...scenarioOverlay };
+  const { runFingerprint } = await import('../util/generic-fingerprint.js');
 
   // Canonical Forged Toolbox: deduplicated by tool name with first-forge
   // metadata, full invocation history, and reuse/rejection rollups.
   // Matches the data the dashboard's ToolboxSection renders.
   const forgedToolbox = buildForgedToolbox(forgedLedger, allForges);
+  const fingerprint = runFingerprint(sc.hooks.fingerprintHook, final, outcomeLog, leader, forgedToolbox, maxTurns);
 
   // Flat unique citation list across all department reports. URL is the
   // dedup key; each entry carries the departments + turns that cited it.
@@ -2065,7 +2056,6 @@ export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPerson
   output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
 
   engine.cleanupSession(sid);
-  await closeResearchMemory();
   await commander.close();
   for (const a of deptAgents.values()) await a.close();
   return output;
@@ -2151,7 +2141,7 @@ export async function replaySimulation(
   for (let i = 0; i < inputSnaps.length - 1; i++) {
     const here = inputSnaps[i];
     const next = inputSnaps[i + 1];
-    const kernel = SimulationKernel.fromSnapshot(here, scenario.id);
+    const kernel = SimulationKernel.fromSnapshot(here, scenario.id, scenario);
     kernel.advanceTurn(next.turn, next.time, scenario.hooks?.progressionHook);
     freshSnapshots.push(kernel.toSnapshot(scenario.id));
   }

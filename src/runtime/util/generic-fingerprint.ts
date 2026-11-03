@@ -12,7 +12,7 @@
  * discipline, etc.).
  */
 import type { SimulationState, TurnOutcome } from '../../engine/core/state.js';
-import type { ActorConfig } from '../../engine/types.js';
+import type { ActorConfig, ScenarioHooks } from '../../engine/types.js';
 
 export function genericFingerprint(
   finalState: SimulationState,
@@ -31,8 +31,10 @@ export function genericFingerprint(
   const successRate = successCount / totalDecisions;
   const riskRate = riskyCount / totalDecisions;
 
-  const alive = finalState.agents.filter(a => a.health.alive).length;
-  const totalAgents = finalState.agents.length || 1;
+  // Someone who left the roster did not die: they count among the survivors.
+  const left = finalState.eventLog.filter(e => e.type === 'departure').length;
+  const alive = finalState.agents.filter(a => a.health.alive).length + left;
+  const totalAgents = finalState.agents.length + left || 1;
   const survivalRate = alive / totalAgents;
 
   // Innovation index from the toolbox: total unique tools forged across
@@ -76,5 +78,33 @@ export function genericFingerprint(
     successRate: successRate.toFixed(2),
     survivalRate: survivalRate.toFixed(2),
     riskRate: riskRate.toFixed(2),
+  };
+}
+
+/**
+ * The fingerprint a finished run carries: the generic classifications
+ * with the scenario hook's fields laid over them, hook output winning on
+ * a conflict. Every fingerprint is handed the toolbox as a registry, each
+ * forged tool once under the department that first forged it. The
+ * orchestrator's own registry repeats a name on every use, which would read
+ * as that many tools, and the toolbox also holds forge attempts the reviewers
+ * rejected, which are no tools of the run's.
+ */
+export function runFingerprint(
+  hook: ScenarioHooks['fingerprintHook'],
+  finalState: SimulationState,
+  outcomeLog: Array<{ turn: number; time: number; outcome: TurnOutcome }>,
+  leader: ActorConfig,
+  toolbox: ReadonlyArray<{ name: string; firstForgedDepartment: string; approved?: boolean }>,
+  maxTurns: number,
+): Record<string, string> {
+  const toolRegs: Record<string, string[]> = {};
+  for (const tool of toolbox) {
+    if (tool.approved === false) continue;
+    (toolRegs[tool.firstForgedDepartment] ??= []).push(tool.name);
+  }
+  return {
+    ...genericFingerprint(finalState, outcomeLog, leader, toolRegs, maxTurns),
+    ...(hook ? hook(finalState, outcomeLog, leader, toolRegs, maxTurns) : {}),
   };
 }
