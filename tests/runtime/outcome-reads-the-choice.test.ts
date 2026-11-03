@@ -128,3 +128,14 @@ test('on a draw above both chances both leaders fail', () => {
   assert.equal(aText, 'conservative_failure');
   assert.equal(bText, 'risky_failure');
 });
+
+test('a decision on an event with no risky option reads as safe', () => {
+  // The orchestrator passes the label of the event's risky option, or ''
+  // when no option is risky (a compiled milestone can carry only safe
+  // options). Every text contains '', so every such decision read as the
+  // risky one and took the risky option's chance.
+  const seed = seedWithDraw(riskyChance(metrics), safeChance(metrics));
+  const outcome = classifyOutcome(`Settle at ${safe.label}.`, '', founding.riskSuccessProbability, metrics, outcomeDraw(seed));
+  assert.equal(outcome, 'conservative_success');
+  assert.equal(classifyOutcome('Hold position.', '   ', founding.riskSuccessProbability, metrics, outcomeDraw(seed)), 'conservative_success', 'a blank label names no option either');
+});
