@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync, existsSync } from 'node:fs';
@@ -9,6 +9,15 @@ import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { RunRecord } from '../../src/server/services/run-record.js';
 import type { RunHistoryStore } from '../../src/server/stores/run-history.js';
 import { visitor } from './helpers/visitor.js';
+
+// A server that names no APP_DIR keeps its state under it: the runs it holds
+// (.live-runs/), its rate-limit file, its stores. The tests below that name
+// none share this folder, never the checkout, where the end-to-end server
+// started after this suite would read their last run back as an interrupted
+// run.
+const SUITE_APP_DIR = mkdtempSync(join(tmpdir(), 'paracosm-server-app-suite-'));
+process.env.APP_DIR = SUITE_APP_DIR;
+after(() => rmSync(SUITE_APP_DIR, { recursive: true, force: true }));
 
 const leaderA = {
   name: 'Aria Chen',
