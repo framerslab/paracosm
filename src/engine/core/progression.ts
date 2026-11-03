@@ -182,6 +182,28 @@ function outcomeClass(isRisky: boolean, riskSuccessProbability: number, metrics:
 }
 
 /**
+ * The option a decision chose: its `selectedOptionId` when that names one of
+ * the event's options (by id, or by label written where the id goes, in any
+ * case), else the first option whose id or label the decision's text names;
+ * undefined when it names none. An id the event does not offer never stands
+ * for the safe option.
+ */
+export function resolveChosenOption(
+  selectedOptionId: string | undefined,
+  decisionText: string,
+  options: ReadonlyArray<{ id: string; label: string }>,
+): string | undefined {
+  const field = (selectedOptionId ?? '').trim().toLowerCase();
+  if (field) {
+    const named = options.find(o => o.id.toLowerCase() === field || o.label.trim().toLowerCase() === field);
+    if (named) return named.id;
+  }
+  const text = (decisionText || '').toLowerCase();
+  return options.find(o => (o.id.length > 0 && text.includes(o.id.toLowerCase()))
+    || (o.label.trim().length > 0 && text.includes(o.label.trim().toLowerCase())))?.id;
+}
+
+/**
  * Classify turn outcome as risky/conservative success/failure from the
  * decision text: the decision is risky when it names the risky option.
  * An event with no risky option passes '' (or a blank label), which names
