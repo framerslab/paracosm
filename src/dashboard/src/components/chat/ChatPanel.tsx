@@ -336,9 +336,11 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     setSelectedId(name);
     // Initialize a thread the first time we open this agent. Re-selects keep
     // the existing thread intact so the user can switch agents and back
-    // without losing the conversation.
+    // without losing the conversation. The thread is the one the panel shows
+    // and sends to: the person as they lived under their leader.
+    const thread = threadKey(name);
     setThreads(prev => {
-      if (prev.has(name)) return prev;
+      if (prev.has(thread)) return prev;
       const c = agents.find(a => a.name === name);
       const greeting: ChatMessage = c ? {
         role: 'agent', name: c.name,
@@ -353,7 +355,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           `"who do you trust on the team?", or "what was the worst moment for you?"`,
       } : { role: 'agent', text: 'Connected.' };
       const next = new Map(prev);
-      next.set(name, [greeting]);
+      next.set(thread, [greeting]);
       return next;
     });
   };
