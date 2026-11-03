@@ -177,9 +177,10 @@ export interface MetricDefinition {
   format: 'number' | 'percent' | 'currency' | 'duration';
   /**
    * Which way is better for this score. The verdict judge is told so
-   * when it compares runs. Omit it when the score's name and the
-   * scenario make it plain (most scores are better higher); set
-   * `'lower'` for scores such as an error or failure rate.
+   * when it compares runs, and the outcome step reads it to tell a
+   * category table's costs from its gains (see `EffectRegistry`). Omit
+   * it when the score is better higher; set `'lower'` for scores such as
+   * an error or failure rate.
    */
   better?: 'higher' | 'lower';
 }

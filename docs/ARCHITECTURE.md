@@ -141,7 +141,16 @@ The kernel tracks:
 Three things move the numbers during a turn, and each adds to the value it names, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`):
 
 - **A selected policy effect.** The effects a commander selects are added to the current values, and two on one key add up. Every department numbers its effects from `effect_1`, so the commander's list names each as `<department>/<id>`; a bare id reads the first report that holds it, and an effect selected twice counts once. A department's legacy `proposedPatches` still set a value outright, and never the head count.
-- **An outcome's category table.** The scenario's `effects` table scales by outcome. A key moves the metric or the politics value the run holds under it; a key the run holds in neither is dropped.
+- **An outcome's category table.** The scenario's `effects` table lists what an event brings at an ordinary response, and scales by outcome. A key moves the metric or the politics value the run holds under it; a key the run holds in neither is dropped. An entry is helpful or harmful by its sign and its key's direction: a fall is harmful on a key that is better higher, a rise on one the scenario's `metrics` declare `better: "lower"`. With `e` the outcome's multiplier plus the personality, noise and tool modifiers:
+
+  | Outcome | Multiplier | A helpful entry `v` (`v × e`) | A harmful entry `v` (`v × max(0, 2 − e)`) |
+  | --- | --- | --- | --- |
+  | `risky_success` | 2.5 | 2.5v | 0 |
+  | `conservative_success` | 1 | v | v |
+  | `conservative_failure` | -1 | -v | 3v |
+  | `risky_failure` | -2 | -2v | 4v |
+
+  A failed response loses the gains a good one would bring, and a harmful entry stays a cost: Atlas Lab's `safety_breach` lowers `alignmentBench` by 0.04 at a conservative success and by 0.12 at a conservative failure. A harmful entry in a table that adds people (Atlas Lab's `talent` raises the burn rate with the head count) is their cost and moves by `v × e` with them.
 - **The politics hook.** `politicsHook` names a change for each category and outcome. Where it names a key, its change replaces the category table's, so a key moves once. The `outcome` stream event reports what moved in `systemDeltas` and `politicsDeltas`.
 
 `metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death: it counts in no mortality figure, the fingerprint's survival rate counts the person as having survived, and nobody new takes the id or the name of someone who left. One delta brings in at most as many people as the roster holds, and hires stop at 2,000 people or the `max` the scenario declares for `population`. Department heads and children do not leave, and a departure stops at the `min` the scenario declares. So a delta can move fewer people than it asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.

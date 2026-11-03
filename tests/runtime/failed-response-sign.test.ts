@@ -37,8 +37,17 @@ const atlasLab = scenario('atlas-lab');
 const council = scenario('dual-superintelligence-council');
 const corporate = scenario('corporate-quarterly');
 const submarine = scenario('deep-ocean-station');
-/** The care scenario ships in the runnable shape; its tables and metrics are read from the file. */
-const glp1 = JSON.parse(readFileSync(resolve(scenarioDir, 't2d-glp1-protocol.json'), 'utf8')) as ScenarioPackage;
+/**
+ * The care scenario ships in the draft shape, its `effects` the category
+ * table itself; the server compiles it, and the compiler wraps that table as
+ * the first effect's `categoryDefaults` (src/engine/compiler/index.ts). The
+ * same wrap here, with its metrics as the file declares them.
+ */
+const glp1Draft = JSON.parse(readFileSync(resolve(scenarioDir, 't2d-glp1-protocol.json'), 'utf8')) as Record<string, unknown>;
+const glp1 = {
+  ...glp1Draft,
+  effects: [{ id: 'category_effects', type: 'category_outcome', label: 'Category Outcome Effects', categoryDefaults: glp1Draft.effects }],
+} as unknown as ScenarioPackage;
 
 const PLAIN: OutcomeModifiers = { personalityBonus: 0, noise: 0 };
 /** The modifiers that gave the live failure its +0.03 on alignmentBench (-0.04 times -0.75). */

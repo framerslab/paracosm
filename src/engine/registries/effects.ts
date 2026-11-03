@@ -32,24 +32,66 @@ export interface OutcomeModifiers {
   };
 }
 
+/** How a registry reads its tables. */
+export interface EffectRegistryOptions {
+  /**
+   * The keys that are better lower (a scenario metric declared
+   * `better: 'lower'`, such as a spec-gaming rate or a burn rate). A
+   * positive entry on one of these is harmful; on any other key a
+   * negative entry is.
+   */
+  lowerIsBetter?: Iterable<string>;
+}
+
+/**
+ * The outcome step's effect tables.
+ *
+ * A category table lists what an event brings at an ordinary response
+ * (a conservative success). Each entry is helpful or harmful by its sign
+ * and its key's direction. Where `e` is the outcome's multiplier (2.5 for
+ * a risky success, 1 for a conservative success, -1 for a conservative
+ * failure, -2 for a risky failure) plus the personality, noise and tool
+ * modifiers:
+ *
+ * - a helpful entry `v` moves by `v * e`: 2.5v, v, -v and -2v at no
+ *   modifier. A failed response loses what a good one would have gained.
+ * - a harmful entry `v` moves by `v * max(0, 2 - e)`: 0, v, 3v and 4v. It
+ *   is what the event costs, so it stays a cost: a better response makes it
+ *   smaller, down to nothing, and a failed one makes it larger, by as much as
+ *   a helpful entry falls.
+ * - a harmful entry in a table that adds people (a positive `population`)
+ *   is the cost of those people, a payroll, and moves by `v * e` with them.
+ */
 export class EffectRegistry {
   private effects: Record<string, Record<string, number>>;
   private fallback: Record<string, number>;
+  private lowerIsBetter: Set<string>;
 
   constructor(
     categoryEffects: Record<string, Record<string, number>>,
     fallback: Record<string, number> = { morale: 0.08 },
+    options: EffectRegistryOptions = {},
   ) {
     this.effects = categoryEffects;
     this.fallback = fallback;
+    this.lowerIsBetter = new Set(options.lowerIsBetter ?? []);
   }
 
   /**
    * The registry a scenario's run applies: its category table, read
-   * with the directions its metrics declare.
+   * with the directions its metrics declare (`better: 'lower'`, keyed by
+   * the last part of the metric's `source`, or its id).
    */
   static forScenario(scenario: { effects?: EffectDefinition[]; metrics?: MetricDefinition[] }): EffectRegistry {
-    return new EffectRegistry(scenario.effects?.[0]?.categoryDefaults ?? {});
+    const lowerIsBetter = (Array.isArray(scenario.metrics) ? scenario.metrics : [])
+      .filter(m => m && m.better === 'lower')
+      .map(m => (typeof m.source === 'string' && m.source ? m.source : m.id).split('.').pop() as string);
+    return new EffectRegistry(scenario.effects?.[0]?.categoryDefaults ?? {}, undefined, { lowerIsBetter });
+  }
+
+  /** Whether an entry of a table is harmful: a fall on a key better higher, a rise on one better lower. */
+  isHarmful(key: string, value: number): boolean {
+    return this.lowerIsBetter.has(key) ? value > 0 : value < 0;
   }
 
   getBaseEffect(category: string): Record<string, number> {
@@ -84,8 +126,13 @@ export class EffectRegistry {
         ))
       : 0;
 
+    // How well the response went; see the class comment for what it does
+    // to a helpful and to a harmful entry.
+    const effective = multiplier + modifiers.personalityBonus + modifiers.noise + toolBonus;
+    const addsPeople = (base.population ?? 0) > 0;
     for (const [key, value] of Object.entries(base)) {
-      const raw = value * (multiplier + modifiers.personalityBonus + modifiers.noise + toolBonus);
+      const cost = !addsPeople && this.isHarmful(key, value);
+      const raw = value * (cost ? Math.max(0, 2 - effective) : effective);
       deltas[key] = Math.round(raw * 100) / 100;
     }
 
@@ -115,7 +162,8 @@ export class EffectRegistry {
 
     // Round all deltas to 2 dp after potential cost adjustments
     for (const k of Object.keys(deltas)) {
-      deltas[k] = Math.round(deltas[k] * 100) / 100;
+      // `|| 0`: a cost a response contained is 0, never -0.
+      deltas[k] = Math.round(deltas[k] * 100) / 100 || 0;
     }
 
     return deltas;
