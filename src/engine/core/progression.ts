@@ -226,14 +226,15 @@ export function progressBetweenTurns(
   const turn = state.metadata.currentTurn;
   let colonists = state.agents.map(c => structuredClone(c));
   let metrics = structuredClone(state.metrics);
-  /** The step in years: what every yearly rate below scales by. */
-  const yearsDelta = unitsToYears(timeDelta, yearsPerUnit);
+  /** The step in years: what every yearly rate below scales by. Not
+   *  rounded, so experience added a month at a time stays exact. */
+  const yearsDelta = timeDelta * yearsPerUnit;
   const ageOf = (c: Agent) => ageInYears(c, time, yearsPerUnit);
 
   // 1. Age all colonists (generic: experience, earth contacts)
   for (const c of colonists) {
     if (!c.health.alive) continue;
-    c.career.yearsExperience = unitsToYears(c.career.yearsExperience + yearsDelta, 1);
+    c.career.yearsExperience += yearsDelta;
 
     // Earth contacts decay
     if (c.social.earthContacts > 0 && turnRng.chance(0.15 * yearsDelta)) {
