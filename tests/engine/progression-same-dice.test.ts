@@ -187,7 +187,9 @@ test('children born in one turn never share an id, so never share dice', async (
   }
   const next = { ...state, metadata: { ...state.metadata, currentTime: 2043, currentTurn: 2 } };
   const { state: after } = progressBetweenTurns(next, 8, constant as never);
-  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime === 2043);
+  // The turn runs as eight one-year steps, so its children are born in
+  // 2036 to 2043.
+  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime > 2035);
   assert.ok(born.length >= 2, `children born: ${born.length}`);
   const ids = after.agents.map(a => a.core.id);
   assert.equal(new Set(ids).size, ids.length, `ids: ${born.map(a => a.core.id).join(', ')}`);

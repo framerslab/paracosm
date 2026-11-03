@@ -120,7 +120,7 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 
 | Hook | What it generates | Called when |
 |------|-------------------|------------|
-| `progressionHook` | Between-turn state updates (radiation, bone density, etc.); it gets the step as `timeDelta` in the scenario's unit and as `yearsDelta` in years, with `yearsSinceStart` and `yearsPerUnit` | Between every turn |
+| `progressionHook` | Between-turn state updates (radiation, bone density, etc.); it gets the step as `timeDelta` in the scenario's unit and as `yearsDelta` in years, with `yearsSinceStart` and `yearsPerUnit` | Between turns, once for each year a turn spans and once for a part of a year left over (see Mortality) |
 | `departmentPromptHook` | Department-specific analysis context | Before each department analyzes |
 | `fingerprintHook` | Timeline classification from final state | After simulation completes |
 | `politicsHook` | Political/social effects for each category and outcome | After each event's outcome |
@@ -158,24 +158,24 @@ Four things move the numbers during a turn. The first three add to the value the
 
 `metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death: it counts in no mortality figure, the fingerprint's survival rate counts the person as having survived, and nobody new takes the id or the name of someone who left. One delta brings in at most as many people as the roster holds, and hires stop at 2,000 people or the `max` the scenario declares for `population`. Department heads and children do not leave, and a departure stops at the `min` the scenario declares. So a delta can move fewer people than it asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.
 
-The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality, birth events, personality drift magnitudes. Two simulations with the same seed start with the same people. Every death roll draws from a stream of its own, keyed by the seed, the turn, the person and the cause (`SeededRng.forDraw`), so both roll the same dice for the same person and one person's death never moves another person's dice. A person dies in one run and not the other only where that run's world gave them a higher hazard (see Mortality below). Births, partnerships, promotions and friendships draw from one stream per turn.
+The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality, birth events, personality drift magnitudes. Two simulations with the same seed start with the same people. Every roll that decides something about one person (a death, a birth, a partnership, a friendship, a recovery, a promotion, a lost outside contact) draws from a stream of its own, keyed by the seed, the turn, the year of the turn, the person and what is rolled for (`SeededRng.forDraw`), so both roll the same dice for the same person and one person's fate never moves another person's dice. A person dies in one run and not the other only where that run's world gave them a higher hazard (see Mortality below). A child's name, id and traits come from the turn's own stream.
 
 What differs is each commander's decisions. The crisis is the same, the department analysis is the same, but commanders with different HEXACO profiles choose differently. The kernel applies different numerical effects based on the choice, and divergence compounds across the cohort.
 
 ### Mortality
 
-Each cause has a yearly rate. A turn of `y` years rolls `1 - (1 - rate)^y`, with no cap per turn, so an eight-year Mars turn and twelve monthly Atlas Lab turns mean the rate the table gives. The rates are the simulation's choices for legible stakes, not a claim about medicine.
+Each cause has a yearly rate. A turn runs as a step for each whole year it spans, then one step for a part of a year left over; a turn shorter than a year is one step of its own length. Each step ages people, adds the physics hook's dose, moves psych and rolls every yearly chance (the deaths below, births, partnerships, friendships, recoveries, promotions) once, on dice of its own, reading the age and the dose at the step's end. A step of `f` years under one rolls `1 - (1 - rate)^f`. So one eight-year Mars turn gives the chances eight one-year turns give: a person aged 56 who reaches 64 in the turn has the 0.049 chance of a natural death the yearly table gives over those years, not the 0.077 of eight years at 64, and a couple can have more than one child in the turn. Twelve monthly Atlas Lab turns give the year's rate too. Morale drift and the head count run once a turn, after the steps: a turn is where a leader decides. The rates are the simulation's choices for legible stakes, not a claim about medicine.
 
 | Cause | Yearly rate | Reads | What a leader's choices move |
 |-------|-------------|-------|------------------------------|
 | Natural | 1, 3, 8 and 20 percent from ages 60, 70, 80 and 90 | age | nothing |
 | Radiation cancer | 0.004 for each sievert of cumulative dose above 0.5, from age 30 | the dose the physics hook adds: `world.environment.surfaceRadiationMsvDay` (0.67 mSv a day when absent) times the share the habitat lets through, `1 - min(0.9, 0.2 * infrastructureModules)` | habitat modules, which effects and outcomes build or lose |
 | Starvation | `(1 - foodMonthsReserve) * 0.15` under a month of food | `foodMonthsReserve` (each module adds 0.3 of a month a year against 0.5 eaten) | food and module effects |
-| Despair | `(0.2 - psychScore) * 0.25 * (0.5 + emotionality)` under 0.2 psych, from age 18 | psych, which morale pulls by `(morale - 0.5) * 0.1` a year, beside partners, outside contacts, isolation and grief | morale effects; a department's update, within its bound |
+| Despair | `(0.2 - psychScore) * 0.25 * (0.5 + emotionality)` under 0.2 psych, from age 18 | psych, which morale pulls by `(morale - 0.5) * 0.2` a year (`MORALE_PULL_PER_YEAR`), beside partners (0.02 a year), outside contacts (0.01 a year), isolation (-0.04 a year) and grief; at morale 0.2 the pull outweighs a partner and contacts together, so a colony held there loses people to despair over a long run, and one held at 0.8 does not | morale effects; a department's update, within its bound |
 | Fatal fracture | `(60 - boneDensityPct) * 0.003` under 60 percent bone density, from age 40 | bone density from the physics hook | nothing |
 | Accident | 0.003 times the department's weight (engineering 1.5, medical 1.2, agriculture 1.0, science 0.9, psychology 0.6, governance 0.5), from age 18 | department | a promotion into another department |
 
-`causeHazards(agent, metrics, ageYears, years)` and `turnHazard(rate, years)` in `src/engine/core/progression.ts` give these chances for one person and one turn.
+`causeHazards(agent, metrics, ageYears, years)` and `turnHazard(rate, years)` in `src/engine/core/progression.ts` give these chances for one person and one step, and `yearSteps(years)` gives the steps a turn runs as.
 
 ### Health Fields
 
