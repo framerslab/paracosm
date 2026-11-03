@@ -138,9 +138,9 @@ export interface LiveRun {
   /** True until the run's runner settles; the run holds a capacity slot until then. */
   inFlight: boolean;
   /**
-   * Set when its visitor stopped it in flight (replaced or cleared it) and
-   * its runner takes the signal: the visitor's next run is admitted as if it
-   * had settled, once. From then it holds its slot until its runner settles.
+   * Set when its visitor's Clear stopped it in flight and its runner takes
+   * the signal: the visitor's next run is admitted as if it had settled,
+   * once. From then it holds its slot until its runner settles.
    */
   stoppedByVisitor: boolean;
   /** Non-null while the run is in flight. */
@@ -322,11 +322,11 @@ export class LiveRunRegistry {
    * Throws {@link RunCapacityError} when a run for this visitor would take
    * the server over its cap. Every run whose runner has not settled counts,
    * a run its visitor stopped included, except two of the visitor's own:
-   * their current run, which their next run replaces and stops, and a run
-   * they stopped whose runner is still settling, which their next run alone
-   * counts as settled (the run a /setup replaced and waited on, or the run a
-   * Clear stopped right before the Run). A Digital Twin run counts until its
-   * engine returns: the engine takes no signal, so replacing it stops nothing.
+   * their current run, which their next run replaces and stops as it opens,
+   * and a run their Clear stopped whose runner is still settling, which their
+   * next run alone counts as settled (the dashboard's Run while a run is in
+   * flight clears it first). A Digital Twin run counts until its engine
+   * returns: the engine takes no signal, so replacing it stops nothing.
    */
   checkCapacity(visitorId: string): void {
     const current = this.current(visitorId);
@@ -421,16 +421,6 @@ export class LiveRunRegistry {
     // so the anonymous run may have lost its last viewer.
     if (watchedBefore && watchedBefore !== previous) this.armIfUnwatched(watchedBefore);
     return run;
-  }
-
-  /**
-   * Replaces a visitor's run with their next one, which opens next: dropped,
-   * then stopped. The next run's admission counts it as settled.
-   */
-  replace(run: LiveRun): void {
-    const wasInFlight = run.inFlight;
-    this.drop(run, 'another_run_started');
-    if (wasInFlight) this.stopForVisitor(run, 'another_run_started');
   }
 
   /** The broadcast a run's runner writes through. A dropped run's events go nowhere. */
@@ -645,7 +635,7 @@ export class LiveRunRegistry {
     if (wasInFlight && abortReason !== null) this.abort(run, abortReason);
   }
 
-  /** Stops a run its visitor let go of; their next run counts it as settled, once. */
+  /** Stops a run its visitor cleared; their next run counts it as settled, once. */
   private stopForVisitor(run: LiveRun, reason: AbortReason): void {
     if (run.inFlight && run.kind !== 'intervention') run.stoppedByVisitor = true;
     this.abort(run, reason);

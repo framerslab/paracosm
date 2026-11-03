@@ -1592,9 +1592,9 @@ test('concurrent /setup requests do not race on the simConfig closure', async ()
     models: { commander: 'gpt-5.4', departments: 'gpt-5.4-mini', judge: 'gpt-5.4' },
   });
   try {
-    // 8 concurrent setups from one visitor. Each waits for the run it
-    // replaces to settle (up to 5 s), the window where the race used to
-    // fire; every setup completes with a 200 + redirect.
+    // 8 concurrent setups from one visitor. Each replaces the run before
+    // it, whose runner gets up to 5 s to settle before the new one starts;
+    // every setup completes with a 200 + redirect.
     const responses = await Promise.all(
       Array.from({ length: 8 }, () =>
         fetch(`http://127.0.0.1:${port}/setup`, {

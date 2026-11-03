@@ -3002,47 +3002,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
         };
 
-        // A refused request leaves the visitor's run alone: over their day,
-        // or the server at its run cap. The visitor's run in flight, which
-        // this run replaces and stops, does not count against them, nor does
-        // a run their Clear stopped right before; every other run still
-        // settling does, and so does a Digital Twin run of theirs, which
-        // nothing stops (LiveRunRegistry.checkCapacity).
-        if (overTheDay()) return;
-        try {
-          liveRuns.checkCapacity(visitorId);
-        } catch (err) {
-          if (err instanceof RunCapacityError) {
-            console.log(`  [runs] Refused a run for ${visitorId.slice(0, 8)}: ${err.runsInFlight} in flight, the most is ${err.maxRuns}`);
-            writeRunCapacityRefusal(res, err);
-            return;
-          }
-          throw err;
-        }
-
-        // The visitor's own run in flight is replaced: Run pressed while
-        // running means start over. It is dropped at once (its later events
-        // go nowhere) and stopped, and this request waits up to 5 s for its
-        // runner to settle, so the old run's last model calls are not
-        // running beside the new run's first. A Digital Twin run takes no
-        // signal, so there is nothing to wait for.
-        const ownRun = liveRuns.current(visitorId);
-        if (ownRun?.inFlight) {
-          console.log(`  [setup] Stopping run ${ownRun.key} before starting another for the same visitor`);
-          liveRuns.replace(ownRun);
-          const waitStart = Date.now();
-          while (ownRun.kind !== 'intervention' && ownRun.inFlight && Date.now() - waitStart < 5000) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-          }
-        }
-
         // From here to the charge there is no await: of two requests of one
-        // IP at its last run of the day, one gets the run.
+        // IP at its last run of the day, one gets the run, and a refused
+        // request stops nothing. A refused request leaves the visitor's run
+        // alone: over their day, or the server at its run cap. The visitor's
+        // run in flight, which this run replaces and stops as it opens, does
+        // not count against them, nor does a run their Clear stopped right
+        // before; every other run still settling does, and so does a Digital
+        // Twin run of theirs, which nothing stops
+        // (LiveRunRegistry.checkCapacity). The new run's runner waits for the
+        // run it replaced to settle (startWithConfig).
         if (overTheDay()) return;
 
         // startWithConfig opens the run with its active_scenario event, so a
         // page that connects later replays it too.
-        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
         const launched = (() => {
           try {
             return marsServer.startWithConfig(launchConfig, {
@@ -3058,9 +3031,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
         })();
         if (launched instanceof RunCapacityError) {
+          console.log(`  [runs] Refused a run for ${visitorId.slice(0, 8)}: ${launched.runsInFlight} in flight, the most is ${launched.maxRuns}`);
           writeRunCapacityRefusal(res, launched);
           return;
         }
+        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
         launched.catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
@@ -3638,8 +3613,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // and the run's active_scenario event, so /setup can answer 503 before
       // any run exists.
       const runScenario = hooks?.scenario ?? marsScenario;
+      const visitorId = hooks?.visitorId ?? ANONYMOUS_VISITOR;
+      // Run pressed while running means start over: the visitor's run in
+      // flight is replaced as this one opens, dropped (its later events go
+      // nowhere) and stopped.
+      const replacing = liveRuns.current(visitorId);
       const run = liveRuns.open({
-        visitorId: hooks?.visitorId ?? ANONYMOUS_VISITOR,
+        visitorId,
         runKey: hooks?.runKey,
         kind: config.forkFrom ? 'fork' : config.actors.length >= 3 ? 'batch' : 'pair',
         scenario: runScenario,
@@ -3655,6 +3635,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const signal = run.controller!.signal;
       return (async () => {
         try {
+          // The run this one replaced gets up to 5 s to settle first, so its
+          // last model calls do not run beside this run's first. A Digital
+          // Twin run takes no signal, so there is nothing to wait for.
+          if (replacing?.inFlight && replacing.kind !== 'intervention') {
+            console.log(`  [setup] Run ${run.key} waits for run ${replacing.key}, which it replaced, to stop`);
+            const waitStart = Date.now();
+            while (replacing.inFlight && Date.now() - waitStart < 5000) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+          }
           // Thread the run's scenario through to the pair
           // runner. Without this the runner defaults to Mars regardless
           // of which scenario the user compiled, so the page title would
