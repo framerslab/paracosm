@@ -23,6 +23,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
+import { progressBetweenTurns, yearSteps } from '../../src/engine/core/progression.js';
+import { SeededRng } from '../../src/engine/core/rng.js';
 import type { TurnEvent } from '../../src/engine/core/state.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 
@@ -92,4 +94,58 @@ test('one eight-year turn gives the deaths, promotions and births eight one-year
   }
   t.diagnostic(rows.join('\n'));
   assert.deepEqual(off, [], `\n${rows.join('\n')}`);
+});
+
+test('nobody takes two promotions in one step', () => {
+  // A junior with twenty years' experience meets both checks. Over one
+  // eight-year turn on forty seeds, nobody rises two ranks in one year.
+  const doubled: string[] = [];
+  for (const seed of SEEDS) {
+    const state = new SimulationKernel(seed, 'Aria Chen', [], { startTime: START, initialPopulation: 100, scenario: marsScenario }).getState();
+    for (const a of state.agents) {
+      a.career.rank = 'junior';
+      a.career.yearsExperience = 20;
+    }
+    const next = { ...state, metadata: { ...state.metadata, currentTime: START + LONG, currentTurn: 2 } };
+    const { events } = progressBetweenTurns(next, LONG, new SeededRng(seed), hook);
+    const seen = new Set<string>();
+    for (const e of events.filter(ev => ev.type === 'promotion')) {
+      const key = `${e.agentId} in ${e.time}`;
+      if (seen.has(key)) doubled.push(`seed ${seed}: ${key}`);
+      seen.add(key);
+    }
+  }
+  assert.deepEqual(doubled, []);
+});
+
+test('a hook in a long turn reads the head count as its step begins', () => {
+  const kernel = new SimulationKernel(101, 'Aria Chen', [], { startTime: START, initialPopulation: 100, scenario: marsScenario });
+  const read: Array<{ time: number; population: unknown; alive: number }> = [];
+  kernel.advanceTurn(1, START, hook);
+  kernel.advanceTurn(2, START + LONG, ctx => {
+    read.push({ time: ctx.time, population: ctx.metrics?.population, alive: ctx.agents.filter(a => a.health.alive).length });
+  });
+  assert.equal(read.length, LONG, 'one call a year');
+  assert.ok(read.at(-1)!.alive !== read[0].alive, `the head count moves in the turn: ${JSON.stringify(read)}`);
+  for (const r of read) assert.equal(r.population, r.alive, `in ${r.time}`);
+});
+
+test('a turn of billions of years ends, in at most a hundred steps', () => {
+  // A /setup request can ask for any time per turn. Past the hundredth
+  // step the years fold into the last one, which compounds its rates.
+  const years = 2 ** 33;
+  const steps = yearSteps(years);
+  assert.ok(steps.length <= 100, `${steps.length} steps`);
+  assert.equal(steps.reduce((sum, y) => sum + y, 0), years);
+  assert.equal(yearSteps(100).length, 100);
+  assert.deepEqual(yearSteps(100).filter(y => y !== 1), []);
+  const justOver = yearSteps(100.5);
+  assert.equal(justOver.length, 100);
+  assert.equal(justOver.reduce((sum, y) => sum + y, 0), 100.5);
+
+  const kernel = new SimulationKernel(101, 'Aria Chen', [], { startTime: START, initialPopulation: 30, scenario: marsScenario });
+  kernel.advanceTurn(1, START, hook);
+  const state = kernel.advanceTurn(2, START + years, hook);
+  assert.equal(state.metadata.currentTime, START + years);
+  assert.equal(state.agents.filter(a => a.health.alive).length, 0, 'nobody outlives it');
 });
