@@ -206,6 +206,30 @@ test('a run its visitor stopped holds its slot until its runner settles; their n
   }, { runner: held.runner, maxRuns: 1 });
 });
 
+test("a refused Run stops nothing: a visitor's run is replaced only by a run that was admitted", async () => {
+  // /setup stopped the visitor's run, then waited for it to settle before it
+  // checked the day and the cap again. A Run from another browser on the
+  // same address that took the address's last run of the day inside that
+  // wait left the visitor refused, with their run already stopped.
+  const held = heldRun({ untilReleased: true });
+  await withVisitors(async ({ cookied }) => {
+    const v = cookied({ 'x-forwarded-for': '203.0.113.7' });
+    const w = cookied({ 'x-forwarded-for': '203.0.113.7' });
+    assert.equal((await setup(v, settingsBody(mars))).status, 200);
+    await waitFor(() => held.runs[0], "V's first run");
+
+    const vSecond = setup(v, settingsBody(mars));
+    await waitFor(() => held.runs[0].signal?.aborted, "V's first run to be stopped");
+    const wRun = await setup(w, quickstartBody(atlasLab));
+    held.runs[0].release();
+    const vAnswer = await vSecond;
+    assert.equal(vAnswer.status, 200, `V's Run, which stopped V's first run: ${JSON.stringify(vAnswer.answer)}`);
+    assert.equal(wRun.status, 429, "the address had one run of the day left, and V's Run took it");
+    await waitFor(() => held.runs[1], "V's second run");
+    held.runs[1].release();
+  }, { runner: held.runner, maxSimsPerDay: 2 });
+});
+
 test('a Digital Twin run holds its slot until its engine returns, even once its visitor has replaced it', async () => {
   // The twin's engine takes no signal, so a run that replaces a twin stops
   // nothing: the twin goes on spending until it returns.
