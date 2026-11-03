@@ -78,5 +78,11 @@ test.describe('Run status events @status', () => {
     await expect(running(page)).toBeVisible();
     await expect(progress(page, 4)).toBeVisible();
     await expect(runMenuButton(page)).toHaveCount(0);
+
+    // However often the page was handed the run, it holds each frame once:
+    // the two status frames and each leader's turn_start.
+    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await page.getByRole('tab', { name: 'Event Log', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Event Log (4 events)' })).toBeVisible();
   });
 });
