@@ -433,7 +433,7 @@ Running a simulation calls real LLM APIs against the user's key. Paracosm assign
 
 Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forge approval rate drops 10 to 20 points on `economy` because the mid-tier department model occasionally violates structured-output schemas the judge rejects. Use `economy` for iteration and CI; use `quality` for publishable runs. Explicit `models` entries always win over the preset, so per-role overrides combine cleanly with global defaults.
 
-`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Every stable system prefix routes through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward; OpenAI auto-caches any prompt over 1024 tokens. The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
+`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
 
 ---
 
@@ -447,7 +447,7 @@ Every structured LLM call (director, departments, commander, reactions, verdict)
 
 ## Seed enrichment
 
-`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5`, ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
+`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5` when `COHERE_API_KEY` is set (Cohere picks the best three of every result the providers return for a query), ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
 
 ---
 
