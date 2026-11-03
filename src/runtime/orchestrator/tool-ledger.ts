@@ -174,3 +174,18 @@ export function buildForgedToolbox(
   }
   return out.sort((a, b) => a.firstForgedTurn - b.firstForgedTurn);
 }
+
+/**
+ * The tools a run has forged so far, one name each: the approved entries of
+ * the toolbox `buildForgedToolbox` builds from the same ledger, which is what
+ * the run's artifact ships as `forgedTools` and what the verdict counts. A
+ * tool used by three departments is one tool, and a forge attempt the
+ * reviewers rejected is none. The stream's `toolsForged` and the director's
+ * "Tools forged so far" read this.
+ */
+export function forgedToolNames(
+  ledger: ForgedLedger,
+  allForges: readonly ForgeCaptureForToolbox[],
+): string[] {
+  return buildForgedToolbox(ledger, allForges).filter(tool => tool.approved).map(tool => tool.name);
+}

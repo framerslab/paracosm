@@ -34,7 +34,7 @@ import {
   runDepartmentPromotions,
 } from './commander-setup.js';
 import { buildForgeGuidance } from './forge-guidance.js';
-import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
+import { buildAvailableToolsBlock, buildForgedToolbox, forgedToolNames, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
@@ -961,7 +961,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         reason: 'client_disconnected',
         completedTurns: turn - 1,
         metrics: kernel.getState().metrics,
-        toolsForged: Object.values(toolRegs).flat().length,
+        toolsForged: forgedToolNames(forgedLedger, allForges).length,
       });
       break;
     }
@@ -986,7 +986,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           metrics: st.metrics,
           statuses: Object.keys(st.statuses).length > 0 ? { ...st.statuses } : undefined,
           environment: Object.keys(st.environment).length > 0 ? { ...st.environment } : undefined,
-          toolsForged: Object.values(toolRegs).flat().length,
+          toolsForged: forgedToolNames(forgedLedger, allForges).length,
           aborted: true,
           providerError: pe
             ? { kind: pe.kind, provider: pe.provider, message: pe.message }
@@ -1041,7 +1041,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         recentBirths: preState.eventLog.filter(e => e.turn === turn - 1 && e.type === 'birth').length,
         previousEvents: eventHistory,
         previousCrises: eventHistory,
-        toolsForged: Object.values(toolRegs).flat(),
+        toolsForged: forgedToolNames(forgedLedger, allForges),
         driftSummary: preState.agents.filter(c => c.promotion && c.health.alive).slice(0, 4)
           .map(c => ({ name: c.core.name, role: c.core.role, openness: c.hexaco.openness, conscientiousness: c.hexaco.conscientiousness })),
         recentToolOutputs: lastTurnToolOutputs,
@@ -1808,7 +1808,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       metrics: after.metrics,
       statuses: Object.keys(after.statuses).length > 0 ? { ...after.statuses } : undefined,
       environment: Object.keys(after.environment).length > 0 ? { ...after.environment } : undefined,
-      toolsForged: Object.values(toolRegs).flat().length,
+      toolsForged: forgedToolNames(forgedLedger, allForges).length,
       totalEvents: turnEvents.length,
       deathCauses: Object.keys(deathCauses).length > 0 ? deathCauses : undefined,
     });
@@ -1903,7 +1903,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           metrics: st.metrics,
           statuses: Object.keys(st.statuses).length > 0 ? { ...st.statuses } : undefined,
           environment: Object.keys(st.environment).length > 0 ? { ...st.environment } : undefined,
-          toolsForged: Object.values(toolRegs).flat().length,
+          toolsForged: forgedToolNames(forgedLedger, allForges).length,
           error: String(err),
         });
       }
