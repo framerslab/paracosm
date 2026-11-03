@@ -930,7 +930,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
   const director = new EventDirector();
-  const effectRegistry = new EffectRegistry(sc.effects[0]?.categoryDefaults ?? {});
+  const effectRegistry = EffectRegistry.forScenario(sc);
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
