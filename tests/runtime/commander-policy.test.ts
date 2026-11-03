@@ -224,3 +224,25 @@ test('a key that names two effects, by case or twice, applies neither and is rep
   assert.deepEqual(ambiguous, ['MEDICAL/EFFECT_1', 'medical/effect_2']);
   assert.ok(lines.some(l => l.includes('[policy]') && l.includes('MEDICAL/EFFECT_1') && l.includes('medical/effect_2')), lines.join('\n'));
 });
+
+test('a bare id that two departments hold names neither, and an id one department holds still reads', () => {
+  // Every department numbers its effects from effect_1, so in Aria Chen's
+  // turn 1 a bare effect_1 or effect_2 is a medical effect and an
+  // engineering one at once. The decision schema carries selectedEffectIds,
+  // where a model writes bare ids; reading the first report that holds one
+  // applied medical's effect whichever department was meant.
+  const shared = marsKernel();
+  const { ambiguous, unmatched, lines } = step(shared, reply({
+    selectedEffectIds: ['effect_1'],
+    selectedPolicies: ['effect_2 (capacity_expansion)'],
+  }), ariaTurn1());
+  assert.equal(shared.getState().metrics.morale, 0.85, 'neither department\'s effect_1 or effect_2 moved morale');
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(ambiguous, ['effect_1', 'effect_2 (capacity_expansion)']);
+  assert.ok(lines.some(l => l.includes('more than one effect named by') && l.includes('"effect_1"')), lines.join('\n'));
+
+  // effect_3 is medical's alone.
+  const only = marsKernel();
+  step(only, reply({ selectedEffectIds: ['effect_3'] }), ariaTurn1());
+  near(only.getState().metrics.morale, 0.84, 'effect_3');
+});
