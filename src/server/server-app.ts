@@ -1342,8 +1342,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     try {
       if (existsSync(eventBufferPath)) unlinkSync(eventBufferPath);
     } catch { /* nothing to clean up */ }
-    // A digital-twin run goes on writing after a clear (a page's Run posts
-    // /clear and the run together, and the /clear can land second), so the
+    // A digital-twin run goes on writing after a clear (a new compile clears
+    // the buffer; /clear itself leaves a writing run's buffer alone), so the
     // buffer opens with the run's event again. Without it, a page that cleared
     // or connects from here on has no scenario to judge the run's later events
     // by, and shows them as a run of its own.
@@ -2319,7 +2319,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     if (req.url === '/clear' && req.method === 'POST') {
-      clearEventBuffer();
+      if (digitalTwinOpening) {
+        // A Digital Twin run is writing, and the buffer is its run's: a page
+        // posts /clear and the run together, and the /clear can land after
+        // the run's status and first events. The buffer keeps them, so a page
+        // that reconnects keeps the turn count; the connected pages are told
+        // which run is writing, so one that cleared judges the run's later
+        // events by its scenario.
+        const msg = `event: active_scenario\ndata: ${JSON.stringify(digitalTwinOpening)}\n\n`;
+        for (const [client] of clients) {
+          try {
+            client.write(msg);
+          } catch {
+            clients.delete(client);
+          }
+        }
+      } else {
+        clearEventBuffer();
+      }
       simConfig = null;
       // Clear chat agent pool when simulation is cleared
       import('../runtime/agents/chat-agents.js').then(m => m.clearPool()).catch(() => {});
