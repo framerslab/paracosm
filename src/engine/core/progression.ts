@@ -146,7 +146,44 @@ export function driftCommanderHexaco(
 }
 
 /**
- * Classify turn outcome as risky/conservative success/failure.
+ * The chance that the chosen option succeeds.
+ *
+ * Options declare only whether they are risky; the event declares
+ * `riskSuccessProbability`, the risky option's chance. The run's state
+ * moves that chance (morale above 0.7 adds 0.1, a food store above 12
+ * months adds 0.05 in a run that carries one, a population above 150
+ * takes 0.05), within 0.1 and 0.9. A safe option halves the risky
+ * option's chance of failure, so it always has the better chance and can
+ * still fail: `(1 + risky) / 2`, between 0.55 and 0.95.
+ */
+export function outcomeSuccessChance(
+  isRisky: boolean,
+  riskSuccessProbability: number,
+  metrics: WorldMetrics,
+): number {
+  let prob = riskSuccessProbability;
+  if (metrics.morale > 0.7) prob += 0.1;
+  // A food store adds to the odds only in a run that carries one.
+  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
+  if (metrics.population > 150) prob -= 0.05;
+  prob = Math.max(0.1, Math.min(0.9, prob));
+  return isRisky ? prob : (1 + prob) / 2;
+}
+
+function outcomeClass(isRisky: boolean, riskSuccessProbability: number, metrics: WorldMetrics, rng: SeededRng): TurnOutcome {
+  // One draw per event, the same for both leaders of a pair run; it meets
+  // the chosen option's own chance, so on one draw a risky option can fail
+  // where a safe one succeeds.
+  const success = rng.chance(outcomeSuccessChance(isRisky, riskSuccessProbability, metrics));
+  if (isRisky && success) return 'risky_success';
+  if (isRisky && !success) return 'risky_failure';
+  if (!isRisky && success) return 'conservative_success';
+  return 'conservative_failure';
+}
+
+/**
+ * Classify turn outcome as risky/conservative success/failure from the
+ * decision text: the decision is risky when it names the risky option.
  * Deterministic from seed + decision text.
  */
 export function classifyOutcome(
@@ -157,20 +194,7 @@ export function classifyOutcome(
   rng: SeededRng,
 ): TurnOutcome {
   const isRisky = decisionText.toLowerCase().includes(riskyOption.toLowerCase());
-
-  let prob = riskSuccessProbability;
-  if (metrics.morale > 0.7) prob += 0.1;
-  // A food store adds to the odds only in a run that carries one.
-  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
-  if (metrics.population > 150) prob -= 0.05;
-  prob = Math.max(0.1, Math.min(0.9, prob));
-
-  const success = rng.chance(prob);
-
-  if (isRisky && success) return 'risky_success';
-  if (isRisky && !success) return 'risky_failure';
-  if (!isRisky && success) return 'conservative_success';
-  return 'conservative_failure';
+  return outcomeClass(isRisky, riskSuccessProbability, metrics, rng);
 }
 
 /**
@@ -186,20 +210,7 @@ export function classifyOutcomeById(
 ): TurnOutcome {
   const selected = options.find(o => o.id === selectedOptionId);
   const isRisky = selected?.isRisky ?? false;
-
-  let prob = riskSuccessProbability;
-  if (metrics.morale > 0.7) prob += 0.1;
-  // A food store adds to the odds only in a run that carries one.
-  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
-  if (metrics.population > 150) prob -= 0.05;
-  prob = Math.max(0.1, Math.min(0.9, prob));
-
-  const success = rng.chance(prob);
-
-  if (isRisky && success) return 'risky_success';
-  if (isRisky && !success) return 'risky_failure';
-  if (!isRisky && success) return 'conservative_success';
-  return 'conservative_failure';
+  return outcomeClass(isRisky, riskSuccessProbability, metrics, rng);
 }
 
 /**
