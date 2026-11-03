@@ -117,6 +117,8 @@ test.describe('Run per visitor @runs', () => {
       a.page.once('dialog', dialog => dialog.accept());
       await a.page.getByRole('button', { name: 'Open run actions menu' }).click();
       await a.page.getByRole('menuitem', { name: 'Clear local data' }).click();
+      // Clearing opens Settings when no admin token is stored; the Sim tab is empty.
+      await a.page.getByRole('tab', { name: 'SIM', exact: true }).click();
       await expect(emptyStateRun(a.page)).toBeVisible();
       await expect.poll(async () => (await results(a.page)).runKey).toBeNull();
 
