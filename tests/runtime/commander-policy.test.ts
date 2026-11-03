@@ -112,7 +112,7 @@ test('the commander is asked for the keys it is shown, in selectedPolicies', () 
     summaries: '', toolboxBlock: '', stateLine: 'morale 85%', optionText: '', effectsText: block,
   });
   assert.match(prompt, /AVAILABLE POLICY EFFECTS/);
-  assert.match(prompt, /"selectedPolicies"[^\n]*key/i, 'the prompt says what goes in selectedPolicies');
+  assert.match(prompt, /key[^\n]*"selectedPolicies"[^\n]*medical\/effect_1/i, 'the prompt says the keys go in selectedPolicies');
   assert.equal(buildEffectsBlock([report('medical', [])]), '', 'no effects, no block');
 });
 

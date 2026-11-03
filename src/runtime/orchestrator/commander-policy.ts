@@ -7,7 +7,7 @@
  */
 import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { CommanderDecision, DepartmentReport } from '../contracts.js';
-import { decisionToPolicy } from '../util/parsers.js';
+import { decisionToPolicy, resolveSelectedEffects } from '../util/parsers.js';
 
 /** What one decision's policy step changed. */
 export interface CommanderPolicyApplied {
@@ -18,8 +18,10 @@ export interface CommanderPolicyApplied {
 }
 
 /**
- * Apply a commander's decision to the kernel and log what it moved as a
- * `[policy] effects` line.
+ * Apply a commander's decision to the kernel. What it moved is logged as a
+ * `[policy] effects` line, and the selections that name no effect of the
+ * reports (a free policy name, a key the reports do not hold) as a
+ * `[policy] no effect named by` line, so none is dropped without a trace.
  */
 export function applyCommanderPolicy(
   kernel: SimulationKernel,
@@ -31,5 +33,7 @@ export function applyCommanderPolicy(
 ): CommanderPolicyApplied {
   const deltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
   if (Object.keys(deltas).length > 0) log(`  [policy] effects: ${JSON.stringify(deltas)}`);
-  return { deltas, unmatched: [] };
+  const { unmatched } = resolveSelectedEffects(decision, reports);
+  if (unmatched.length > 0) log(`  [policy] no effect named by: ${unmatched.map(u => JSON.stringify(u)).join(', ')}`);
+  return { deltas, unmatched };
 }
