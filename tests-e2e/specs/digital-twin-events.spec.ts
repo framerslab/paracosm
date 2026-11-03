@@ -13,6 +13,10 @@
  * open until the test answers it: the server has finished by then, so what the
  * progress view shows came over /events and nowhere else. That server holds
  * one run at a time, so the tests run in order.
+ *
+ * A run started from the page's Run controls replaces the Digital Twin views:
+ * the result panel and the progress view stayed on the SIM tab over it, and a
+ * twin's answer that came back after it brought the panel back.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
@@ -31,6 +35,9 @@ const playback = (page: Page, position: number) => page.getByRole('heading', { n
 const dismiss = (page: Page) => page.getByRole('button', { name: 'Clear · run another' });
 const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
+const pairRunning = (page: Page) => page.getByRole('status', { name: /^Simulation status: Running\./ });
+const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
+const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
 const stat = (page: Page, label: string) => page.locator('[class*="statsBar"]').getByText(label, { exact: true }).locator('xpath=..');
 
 /** Opens the Digital Twin card and presses Run on its first preset. */
@@ -50,6 +57,13 @@ async function holdAnswer(page: Page): Promise<() => void> {
     await route.fulfill({ response: answer });
   });
   return release;
+}
+
+/** Starts a run from the RUN menu, as a visitor who wants another run does. */
+async function runNew(page: Page): Promise<void> {
+  await runMenuButton(page).click();
+  await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
+  await runNewItem(page).click();
 }
 
 async function expectProgressOfWholeRun(page: Page): Promise<void> {
@@ -114,6 +128,35 @@ test.describe('Digital Twin events @twin', () => {
     } finally {
       await other.close();
     }
+  });
+
+  test('a run started from the RUN menu replaces the result', async ({ page }) => {
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+    await expect(playback(page, ROWS)).toBeVisible();
+
+    await runNew(page);
+    await expect(pairRunning(page)).toBeVisible();
+    await expect(result(page)).toHaveCount(0);
+    await expect(running(page)).toHaveCount(0);
+    await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
+  });
+
+  test('a run started during the twin\'s run replaces its progress, and the twin\'s late answer stays away', async ({ page }) => {
+    const release = await holdAnswer(page);
+    await startRun(page);
+    await expectProgressOfWholeRun(page);
+
+    await runNew(page);
+    await expect(pairRunning(page)).toBeVisible();
+    await expect(running(page)).toHaveCount(0);
+
+    release();
+    await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
+    await expect(result(page)).toHaveCount(0);
+    await expect(running(page)).toHaveCount(0);
+    await expect(pairRunning(page)).toBeVisible();
+    await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
   });
 
   test('a run that fails ends the progress view and says why', async ({ page }) => {
