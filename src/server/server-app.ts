@@ -265,6 +265,12 @@ export interface CreateMarsServerOptions {
   runHistoryStore?: RunHistoryStore;
   /** Maximum accepted HTTP request body size. Defaults to 5 MiB. */
   maxRequestBodyBytes?: number;
+  /**
+   * Supplies the digital-twin world in place of compiling
+   * scenarios/t2d-glp1-protocol.json, so a test can run the route with a stub
+   * engine. Absent: the compile, which calls a model on its first use.
+   */
+  getDigitalTwinWorld?: () => Promise<WorldModel | null>;
 }
 
 /**
@@ -540,6 +546,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // broadcast() keeps it, so a late replay and a saved session still say
   // which scenario the run is. Null once the buffer is cleared.
   let currentRunMetaFrame: string | null = null;
+  // The key of the last run opened, kept through a /clear: a page's Run posts
+  // /clear and the run together, and the /clear can land second. A digital-
+  // twin run stops writing to the buffer once another run's key is here.
+  let currentRunKey: string | null = null;
+  // The key of the last digital-twin run. Its artifact comes back in its
+  // answer, and a saved session replays in the two-column layout, which has
+  // no place for it, so it is not auto-saved.
+  let digitalTwinRunKey: string | null = null;
+  // The event that opened a digital-twin run still writing to the buffer,
+  // null otherwise. A clear puts it back at the head of the buffer.
+  let digitalTwinOpening: Record<string, unknown> | null = null;
+  // The keys runs have opened with, oldest first. A request that names a key
+  // may not name one of these: pages tell runs apart by key.
+  const openedRunKeys = new Set<string>();
+  const OPENED_RUN_KEYS_MAX = 1024;
   // Raw custom scenario JSON payloads authored during this session.
   const memoryScenarios = new Map<string, unknown>();
   // Runnable scenarios that can appear in the catalog and be switched to.
@@ -726,6 +747,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   let digitalTwinWorld: WorldModel | null = null;
   let digitalTwinCompilePromise: Promise<WorldModel | null> | null = null;
   const getDigitalTwinWorld = (): Promise<WorldModel | null> => {
+    if (options.getDigitalTwinWorld) return options.getDigitalTwinWorld();
     if (digitalTwinWorld) return Promise.resolve(digitalTwinWorld);
     if (digitalTwinCompilePromise) return digitalTwinCompilePromise;
     digitalTwinCompilePromise = (async () => {
@@ -1082,6 +1104,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // sees whether the prior run saved.
       try { broadcast('sim_saved', { status, ...detail }); } catch { /* never fail the server on telemetry */ }
     };
+    if (currentRunKey !== null && currentRunKey === digitalTwinRunKey) {
+      console.log('[sessions] auto-save skipped: digital-twin run');
+      emitSaveStatus('skipped', { reason: 'digital_twin' });
+      return;
+    }
     if (!sessionStore) {
       console.log('[sessions] auto-save skipped: session store not initialized');
       emitSaveStatus('skipped', { reason: 'store_not_initialized' });
@@ -1280,6 +1307,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // emits it on every SSE event, so the last event has the complete
     // picture.
     if (event === 'complete') {
+      digitalTwinOpening = null;
       captureRetrySnapshot();
       autoSaveOnComplete().catch((err) => {
         console.error('[sessions] auto-save failed:', err);
@@ -1314,6 +1342,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     try {
       if (existsSync(eventBufferPath)) unlinkSync(eventBufferPath);
     } catch { /* nothing to clean up */ }
+    // A digital-twin run goes on writing after a clear (a new compile clears
+    // the buffer; /clear itself leaves a writing run's buffer alone), so the
+    // buffer opens with the run's event again. Without it, a page that cleared
+    // or connects from here on has no scenario to judge the run's later events
+    // by, and shows them as a run of its own.
+    if (digitalTwinOpening) {
+      broadcast('active_scenario', digitalTwinOpening);
+      currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+    }
   };
 
   /**
@@ -1326,16 +1363,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    * skips a buffered run since its switch shows the run from this event,
    * and its `runKey` tells a page a new run from a replay of the one it
    * holds. A fork names its parent (`forkedFrom`): the page that forked
-   * keeps the run it holds and shows the fork as a branch of it.
+   * keeps the run it holds and shows the fork as a branch of it. A digital-
+   * twin run takes its key from the page that started it, which shows that
+   * run whichever scenario the page is on.
    */
   const openRunBuffer = (
     scenario: ScenarioPackage,
     seedText: string | null,
     forkedFrom: { parentRunId: string; atTurn: number } | null = null,
-  ): void => {
+    runKey: string = randomUUID(),
+  ): Record<string, unknown> => {
+    digitalTwinOpening = null;
     clearEventBuffer();
     currentRunScenario = scenario;
-    broadcast('active_scenario', {
+    currentRunKey = runKey;
+    openedRunKeys.add(runKey);
+    if (openedRunKeys.size > OPENED_RUN_KEYS_MAX) {
+      openedRunKeys.delete(openedRunKeys.values().next().value as string);
+    }
+    const opening: Record<string, unknown> = {
       id: scenario.id,
       name: scenario.labels?.name ?? scenario.id,
       settlementNoun: scenario.labels?.settlementNoun,
@@ -1347,11 +1393,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // This run's own key. A page that reconnects is replayed the same
       // key, so it keeps what it holds; a different key is a new run,
       // which the page shows on its own unless the run is a fork.
-      runKey: randomUUID(),
+      runKey,
       // A fork's parent run and turn, null for every other run.
       forkedFrom,
-    });
+    };
+    broadcast('active_scenario', opening);
     currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
+    return opening;
   };
 
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
@@ -2007,16 +2055,23 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           getDigitalTwinWorld,
           // Pipe simulate-intervention's per-event stream into the same
-          // SSE bus /setup uses. The dashboard's useSSE is already
-          // listening; flipping this on lights up live SIM progress for
-          // digital-twin runs without any client reset on the SSE
-          // connection itself.
+          // SSE bus /setup uses, with the frames /setup's runners write.
           broadcast,
           // A digital-twin run opens the buffer as a /setup run does.
-          resetEventBuffer: (scenario) => {
-            if (scenario) openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null);
-            else clearEventBuffer();
+          resetEventBuffer: (scenario, runKey) => {
+            if (!scenario) {
+              clearEventBuffer();
+              return;
+            }
+            // A /setup run in flight stops, as a second /setup stops it: the
+            // buffer is no longer its own, and it would go on spending for
+            // nobody to see.
+            activeSimAbortController?.abort();
+            digitalTwinOpening = openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null, null, runKey);
+            digitalTwinRunKey = currentRunKey;
           },
+          isCurrentRun: (runKey) => currentRunKey === runKey,
+          isRunKeyUsed: (runKey) => openedRunKeys.has(runKey),
         };
         // compile-from-seed is the first call in a new Quickstart
         // launch flow. Clearing the event buffer here means that any
@@ -2264,7 +2319,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     if (req.url === '/clear' && req.method === 'POST') {
-      clearEventBuffer();
+      if (digitalTwinOpening) {
+        // A Digital Twin run is writing, and the buffer is its run's: a page
+        // posts /clear and the run together, and the /clear can land after
+        // the run's status and first events. The buffer keeps them, so a page
+        // that reconnects keeps the turn count; the connected pages are told
+        // which run is writing, so one that cleared judges the run's later
+        // events by its scenario.
+        const msg = `event: active_scenario\ndata: ${JSON.stringify(digitalTwinOpening)}\n\n`;
+        for (const [client] of clients) {
+          try {
+            client.write(msg);
+          } catch {
+            clients.delete(client);
+          }
+        }
+      } else {
+        clearEventBuffer();
+      }
       simConfig = null;
       // Clear chat agent pool when simulation is cleared
       import('../runtime/agents/chat-agents.js').then(m => m.clearPool()).catch(() => {});
@@ -3621,6 +3693,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,
       );
+      // The run writes to the buffer only while it holds it. Once another run
+      // has opened, its last events and its end would land in that run.
+      const runKey = currentRunKey;
+      const runBroadcast: BroadcastFn = (event, data, actorId) => {
+        if (currentRunKey === runKey) broadcast(event, data, actorId);
+      };
       simConfig = config;
       simRunning = true;
       // Per-run AbortController. Held in a local so the finally block
@@ -3639,13 +3717,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // runForkSimulation instead of the pair runner when the
         // config carries a forkFrom reference.
         if (config.forkFrom) {
-          await startFork(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await startFork(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else if (config.actors.length >= 3) {
           // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
           // runner (same SSE contract per leader, no verdict).
-          await runBatchSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await runBatchSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         } else {
-          await startSimulations(config, broadcast, controller.signal, runScenario, hooks?.onArtifact);
+          await startSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
         }
       } finally {
         disarmDisconnectWatchdog();

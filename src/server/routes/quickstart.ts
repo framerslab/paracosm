@@ -110,6 +110,12 @@ const SimulateInterventionSchema = z.object({
   intervention: InterventionSchema,
   leader: LeaderSchema.optional(),
   scenarioId: z.string().min(3).max(80).optional(),
+  /**
+   * The key the run opens with. The page that starts the run names it, so
+   * it can tell its own run on the shared stream; the answer only comes
+   * when the run is over. Absent: the server makes one.
+   */
+  runKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
   options: z.object({
     maxTurns: z.number().int().min(1).max(6).optional(),
     seed: z.number().int().optional(),
@@ -172,10 +178,11 @@ export interface QuickstartDeps {
   getDigitalTwinWorld?: () => Promise<WorldModel | null>;
   /**
    * SSE broadcast function (same one /setup uses). When wired, the
-   * simulate-intervention handler streams every per-turn event the
-   * underlying runSimulation emits to the dashboard's /events channel
-   * so the SIM tab renders live progress while the synchronous fetch
-   * is still in flight. Without it, the run still works but the user
+   * simulate-intervention handler opens the run with its roster and turn
+   * count, streams every event runSimulation emits as a `sim` event tagged
+   * with its leader, as the pair runner does, and ends the run with
+   * `complete`, so the SIM tab renders live progress while the synchronous
+   * fetch is still in flight. Without it, the run still works but the user
    * sees nothing until the artifact returns.
    */
   broadcast?: BroadcastFn;
@@ -185,10 +192,22 @@ export interface QuickstartDeps {
    * without it, prior events from another run bleed into the
    * dashboard's gameState while the new intervention is streaming.
    * Given the run's scenario, the server also opens the buffer with the
-   * run's active_scenario event and takes the run's nouns for /chat
-   * from it.
+   * run's active_scenario event, which carries `runKey`, and takes the
+   * run's nouns for /chat from it.
    */
-  resetEventBuffer?: (scenario?: ScenarioPackage) => void;
+  resetEventBuffer?: (scenario?: ScenarioPackage, runKey?: string) => void;
+  /**
+   * True while the run with this key is the last one opened. A run started
+   * after it takes the shared buffer: this run then writes nothing more to
+   * it, or its events and its end would land in the new run.
+   */
+  isCurrentRun?: (runKey: string) => boolean;
+  /**
+   * True when a run has already opened with this key. Pages tell runs apart
+   * by key and read each key off the stream, so a request naming a used key
+   * would have its run taken for that one.
+   */
+  isRunKeyUsed?: (runKey: string) => boolean;
   /**
    * Test seam: substitute the actual compile pipeline. Production
    * uses the real `compileFromSeed`; tests can inject a deterministic
@@ -549,13 +568,13 @@ export async function handleGroundScenario(
  * POST /api/quickstart/simulate-intervention
  *
  * Synchronous digital-twin run: applies a SubjectConfig + InterventionConfig
- * to a leader against the corporate-quarterly scenario and returns the
- * full RunArtifact JSON. Drives the dashboard's Digital Twin tab.
+ * to a leader against the t2d-glp1-protocol scenario and returns the
+ * full RunArtifact JSON. Drives the dashboard's Digital Twin card.
  *
  * Behaviour:
  * - If `scenarioId` is provided, resolves it via deps.getScenarioById.
  * - Otherwise calls deps.getDigitalTwinWorld() which lazily compiles
- *   corporate-quarterly.json and caches the WorldModel.
+ *   t2d-glp1-protocol.json and caches the WorldModel.
  * - Leader defaults to a Cautious Methodical Evaluator HEXACO profile
  *   if the body does not supply one.
  * - Options default to maxTurns=2, seed=11, costPreset='economy' so a
@@ -579,7 +598,7 @@ export async function handleSimulateIntervention(
     return;
   }
 
-  const { subject, intervention, leader, scenarioId, options = {} } = parsed.data;
+  const { subject, intervention, leader, scenarioId, runKey: requestedRunKey, options = {} } = parsed.data;
 
   let world: WorldModel | null = null;
   if (scenarioId) {
@@ -619,22 +638,43 @@ export async function handleSimulateIntervention(
   // the dashboard's gameState does not interleave them with whatever
   // run came before, and name the run's scenario. /setup does the same
   // thing at its top.
-  deps.resetEventBuffer?.(world.scenario);
+  if (requestedRunKey && deps.isRunKeyUsed?.(requestedRunKey)) {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'That run key has already opened a run.' }));
+    return;
+  }
+  const runKey = requestedRunKey ?? randomUUID();
+  deps.resetEventBuffer?.(world.scenario, runKey);
 
-  // Build an onEvent shim that forwards each typed SimEvent emitted by
-  // runSimulation to the SSE broadcast bus. Without it, the dashboard
-  // sees nothing until the artifact returns at the bottom of this
-  // handler. With it, the SIM tab renders specialist_done /
-  // turn_done / decision events as they arrive — the same live feel
-  // /setup-driven runs already have. The handler still returns the full
-  // artifact synchronously at the end so existing clients
-  // (InterventionDemoCard) keep working unchanged.
+  // Writes to the SSE broadcast bus while this run holds the buffer. One
+  // bad event must not fail the run.
   const broadcast = deps.broadcast;
-  const onEvent = broadcast
-    ? (event: { type: string }) => {
-        try { broadcast(event.type, event); } catch { /* one bad event must not fail the run */ }
-      }
-    : undefined;
+  const send: BroadcastFn = (event, data, actorId) => {
+    if (!broadcast || deps.isCurrentRun?.(runKey) === false) return;
+    try { broadcast(event, data, actorId); } catch { /* the run goes on */ }
+  };
+
+  // The same frames a /setup run writes: the roster and the turn count, each
+  // engine event as a `sim` event tagged with its leader, and an end. Without
+  // them, the dashboard sees nothing until the artifact returns at the bottom
+  // of this handler. The roster and the turn count share one frame because
+  // the dashboard keeps the first `status` frame of a run. The handler still
+  // returns the full artifact synchronously at the end, which the Digital
+  // Twin card renders.
+  const maxTurns = options.maxTurns ?? 2;
+  send('status', {
+    phase: 'parallel',
+    maxTurns,
+    actors: [{
+      name: effectiveLeader.name,
+      archetype: effectiveLeader.archetype,
+      unit: effectiveLeader.unit,
+      hexaco: effectiveLeader.hexaco,
+    }],
+  });
+  const onEvent = (event: { type: string; leader?: string }) => {
+    send('sim', event, event.leader);
+  };
 
   const startedAt = Date.now();
   let artifact: RunArtifact;
@@ -643,7 +683,7 @@ export async function handleSimulateIntervention(
       subject: subject as SubjectConfig,
       intervention: intervention as InterventionConfig,
       actor: effectiveLeader,
-      maxTurns: options.maxTurns ?? 2,
+      maxTurns,
       seed: options.seed ?? 11,
       costPreset: options.costPreset ?? 'economy',
       captureSnapshots: false,
@@ -651,11 +691,22 @@ export async function handleSimulateIntervention(
     });
   } catch (err) {
     console.error('[simulate-intervention] intervene failed:', err);
+    const message = err instanceof Error ? err.message : String(err);
+    send('sim_error', { leader: effectiveLeader.name, error: message }, effectiveLeader.name);
+    send('complete', { timestamp: new Date().toISOString(), aborted: true });
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `Intervention run failed: ${err instanceof Error ? err.message : String(err)}` }));
+    res.end(JSON.stringify({ error: `Intervention run failed: ${message}` }));
     return;
   }
   const durationMs = Date.now() - startedAt;
+
+  // A run the provider stopped or a signal cancelled returns partial results
+  // and ends as aborted, as the pair runner ends one.
+  const stopped = artifact as RunArtifact & { aborted?: unknown; providerError?: unknown };
+  send('complete', {
+    timestamp: new Date().toISOString(),
+    ...(stopped.aborted === true || stopped.providerError ? { aborted: true } : {}),
+  });
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ artifact, durationMs }));

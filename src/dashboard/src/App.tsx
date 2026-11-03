@@ -3,7 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
-import { useSSE } from './hooks/useSSE';
+import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
 import { useGamePersistence } from './hooks/useGamePersistence';
 import { useLocalHistory } from './hooks/useLocalHistory';
@@ -169,6 +169,9 @@ function tabHeadingFor(tab: DashboardTab): string {
   }
 }
 
+/** The events of a page that holds no run of its own in another scenario. */
+const NO_EVENTS: SimEvent[] = [];
+
 function AppContent() {
   const { scenario, ready: scenarioReady } = useScenario();
   const replaySessionId = useReplaySessionId();
@@ -221,6 +224,10 @@ function AppContent() {
   const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
   const effectiveComplete = useDemoData ? true : sse.isComplete;
   const gameState = useGameState(effectiveEvents, effectiveComplete);
+  // What the Digital Twin views read: the run this page started when the
+  // page's own state is not it, and the page's state otherwise.
+  const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
+  const interventionState = sse.ownRun ? ownRunState : gameState;
 
   // Forge-attempt toast pipeline (sessionStorage + watermark + toasted-key
   // set). Three-layer gating extracted to hooks/useForgeToasts.ts; see
@@ -726,18 +733,21 @@ function AppContent() {
   // setUserTriggeredRun is in scope.
   //
   // Start: fires the moment the user clicks "Run intervention demo".
-  // We reset prior SSE state, switch to SIM immediately (so streaming
-  // events from the server show up live), and park the prefilled
+  // We reset prior SSE state, follow the run's key so its events show
+  // whichever scenario the run is in, switch to SIM immediately (so
+  // streaming events from the server show up live), and park the prefilled
   // subject + intervention so DigitalTwinProgress can echo them.
   //
   // Result: artifact landed, swap progress -> panel (single render
   // pass; the artifact carries subject + intervention so the panel
   // does not need the running payload).
   const handleInterventionStart = useCallback((payload: {
+    runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
   }) => {
     sse.reset();
+    sse.followRun(payload.runKey);
     setInterventionArtifact(null);
     setInterventionRunning(payload);
     setUserTriggeredRun(true);
@@ -752,7 +762,13 @@ function AppContent() {
   const handleInterventionDismiss = useCallback(() => {
     setInterventionRunning(null);
     setInterventionArtifact(null);
-  }, []);
+    sse.leaveOwnRun();
+  }, [sse]);
+  const handleInterventionError = useCallback((message: string) => {
+    setInterventionRunning(null);
+    sse.leaveOwnRun();
+    toast('error', 'Digital twin failed', message);
+  }, [sse, toast]);
   useTerminalToast({
     isComplete: sse.isComplete,
     isAborted: sse.isAborted,
@@ -977,6 +993,7 @@ function AppContent() {
                 onRunStarted={() => setUserTriggeredRun(true)}
                 onInterventionStart={handleInterventionStart}
                 onInterventionResult={handleInterventionResult}
+                onInterventionError={handleInterventionError}
               />
             </section>
 
@@ -1002,6 +1019,7 @@ function AppContent() {
                   launching={launching}
                   interventionArtifact={interventionArtifact}
                   interventionRunning={interventionRunning}
+                  interventionState={interventionState}
                   onInterventionDismiss={handleInterventionDismiss}
                   forceLayout={tourActive ? 'side-by-side' : undefined}
                 />

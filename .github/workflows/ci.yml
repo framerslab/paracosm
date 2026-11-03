@@ -101,6 +101,9 @@ jobs:
       - name: Scenario per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/scenario-per-visitor.spec.ts --project=chromium-desktop
 
+      - name: Digital Twin events end-to-end test
+        run: npx playwright test tests-e2e/specs/digital-twin-events.spec.ts --project=chromium-desktop
+
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
 

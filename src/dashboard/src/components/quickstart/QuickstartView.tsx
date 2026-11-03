@@ -75,9 +75,13 @@ export interface QuickstartViewProps {
    *  DigitalTwinProgress while the synchronous fetch is still in
    *  flight. Carries the prefilled subject + intervention. */
   onInterventionStart?: (payload: {
+    runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
   }) => void;
+  /** Fired when the digital-twin run fails. App.tsx ends the progress view
+   *  the page is on by then, in the SIM tab, and says why there. */
+  onInterventionError?: (message: string) => void;
 }
 
 type Phase =
@@ -121,7 +125,7 @@ function mapLaunchErrorToMessage(raw: string): string {
   return raw;
 }
 
-export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart }: QuickstartViewProps) {
+export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const { toast } = useToast();
@@ -636,7 +640,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
             <InterventionDemoCard
               onResult={onInterventionResult}
               onRunStart={onInterventionStart}
-              onError={(msg) => setErrorBanner(msg)}
+              onError={(msg) => {
+                setErrorBanner(msg);
+                onInterventionError?.(msg);
+              }}
             />
           )}
         </>
