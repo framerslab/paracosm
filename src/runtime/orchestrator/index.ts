@@ -18,8 +18,6 @@ import {
   humanizeToolName,
   emptyReport,
   emptyDecision,
-  decisionToPolicy,
-  selectableEffects,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
@@ -29,10 +27,12 @@ import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
+  buildEffectsBlock,
   resolveActiveDepartments,
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
+import { applyCommanderPolicy } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
@@ -1471,8 +1471,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         return `## ${r.department.toUpperCase()} (conf: ${r.confidence})\n${r.summary}\nRisks: ${risksLine}\nRecs: ${recsLine}`;
       }).join('\n\n');
       const optionText = event.options.length ? '\n\nOPTIONS:\n' + event.options.map(o => `- ${o.id}: ${o.label} — ${o.description}${o.isRisky ? ' [RISKY]' : ''}`).join('\n') + '\n\nYou MUST include "selectedOptionId" in your JSON response.' : '';
-      const effectsList = selectableEffects(reports).map(({ key, effect: e }) => `  - ${key} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`);
-      const effectsText = effectsList.length ? '\n\nAVAILABLE POLICY EFFECTS:\n' + effectsList.join('\n') : '';
+      const effectsText = buildEffectsBlock(reports);
       // Expose the current forged toolbox to the commander so their
       // rationale can cite specific tool outputs (e.g. "per Medical's
       // radiation_dose_calculator returning 3.4 mSv"). Without this,
@@ -1553,8 +1552,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      const policyDeltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
-      if (Object.keys(policyDeltas).length > 0) console.log(`  [policy] effects: ${JSON.stringify(policyDeltas)}`);
+      applyCommanderPolicy(kernel, decision, reports, turn, time);
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
