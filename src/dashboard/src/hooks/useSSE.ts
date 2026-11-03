@@ -572,7 +572,8 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       // The visitor cleared the run in another tab, or the server let it go
       // (idle, or over its held-run caps). The page that holds that run
       // empties its view, as reset() does, without posting /clear; a page
-      // that holds another run, or none, ignores it.
+      // that holds another run, or none, or shows a run loaded from a file,
+      // ignores it.
       es.addEventListener('run_cleared', (e: MessageEvent) => {
         let runKey: string | null = null;
         try {
@@ -580,6 +581,8 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           runKey = typeof data?.runKey === 'string' ? data.runKey : null;
         } catch { /* no key: not this page's run */ }
         if (runKey === null || runKey !== runKeyRef.current) return;
+        // A run loaded from a file is not the feed's: it stays.
+        if (shownFromFileRef.current) return;
         clearLocalRun();
       });
 
