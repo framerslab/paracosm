@@ -131,6 +131,43 @@ test.describe('Run per visitor @runs', () => {
     }
   });
 
+  test("a run loaded from a file stays when the visitor's live run is cleared", async ({ browser }) => {
+    const a = await visit(browser);
+    try {
+      await pressRun(a.page);
+      await expectComplete(a.page);
+
+      // The page saves its run to a file and loads the file back: the run it
+      // shows is the file's now, not the feed's.
+      const download = a.page.waitForEvent('download');
+      await a.page.getByRole('button', { name: 'Open run actions menu' }).click();
+      await a.page.getByRole('menuitem', { name: 'Save', exact: true }).click();
+      const file = await (await download).path();
+      await runMenuButton(a.page).click();
+      const chooser = a.page.waitForEvent('filechooser');
+      await a.page.getByRole('menuitem', { name: /Load from file/ }).click();
+      await (await chooser).setFiles(file);
+      await a.page.getByRole('dialog', { name: 'Load simulation' })
+        .getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+      await expect(a.page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
+      await expect(finishedRun(a.page)).toBeVisible();
+
+      // The visitor's live run goes (another tab's Clear, or the server
+      // letting it go): the server tells the page's stream.
+      expect((await a.page.request.post('/clear')).ok()).toBe(true);
+      await expect.poll(async () => (await results(a.page)).runKey).toBeNull();
+      // The run_cleared frame reaches the page within milliseconds; give it
+      // time to act before reading what the page still shows.
+      await a.page.waitForTimeout(1500);
+
+      await expect(finishedRun(a.page)).toBeVisible();
+      await expect(shown(a.page, 'Aria Chen').first()).toBeVisible();
+      await expect(emptyStateRun(a.page)).toHaveCount(0);
+    } finally {
+      await a.context.close();
+    }
+  });
+
   test('above the run cap a visitor is told to wait, and the runs in flight go on', async ({ browser }) => {
     const a = await visit(browser);
     const b = await visit(browser, 'atlas-lab');
