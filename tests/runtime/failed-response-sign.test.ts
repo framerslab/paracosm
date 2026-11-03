@@ -133,3 +133,13 @@ test('the corporate, council and care scenarios\' costs stay costs', () => {
   // Mars lists only gains, so a Mars run moves as it did.
   assert.deepEqual(failed(marsScenario, 'resource'), { foodMonthsReserve: -4, waterLitersPerDay: -100, morale: -0.05 });
 });
+
+test('a lower-is-better metric with no id or source is skipped, not a crash before the first turn', () => {
+  // Custom scenarios load with any metrics array; one entry with neither field threw a TypeError here.
+  const malformed = { ...atlasLab, metrics: [...(atlasLab.metrics ?? []), { label: 'Unnamed burn', better: 'lower' } as any, { better: 'lower', id: 42 } as any] };
+  const registry = EffectRegistry.forScenario(malformed);
+  assert.deepEqual(
+    registry.applyOutcome('safety_breach', 'conservative_failure', PLAIN),
+    EffectRegistry.forScenario(atlasLab).applyOutcome('safety_breach', 'conservative_failure', PLAIN),
+  );
+});
