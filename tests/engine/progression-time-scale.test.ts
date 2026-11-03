@@ -22,6 +22,8 @@ import type { Agent, TurnEvent } from '../../src/engine/core/state.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
+import { DraftScenarioSchema } from '../../src/engine/compiler/compile-from-seed.js';
+import { compileScenario } from '../../src/engine/compiler/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const catalog = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
@@ -167,4 +169,27 @@ test('the length of a unit in years comes from the scenario', async () => {
   near(yearsPerTimeUnit(undefined), 1, 'no word');
   near(yearsPerTimeUnit({ timeUnitNoun: 'week' }, { yearsPerTimeUnit: 0.5 }), 0.5, 'the declared length wins');
   near(yearsPerTimeUnit({ timeUnitNoun: 'week' }, { yearsPerTimeUnit: 0 }), 1 / 52, 'a length of 0 is ignored');
+});
+
+test('a seed draft that names its unit\'s length keeps it through the compiler', async () => {
+  // A seed-built scenario whose unit is no word the kernel knows (a
+  // season) declares its length; validation and compilation keep it.
+  const draft = DraftScenarioSchema.parse({
+    id: 'orchard-seasons',
+    labels: { name: 'Orchard', populationNoun: 'growers', settlementNoun: 'orchard', timeUnitNoun: 'season' },
+    setup: { defaultTurns: 4, defaultPopulation: 20, defaultStartTime: 1, yearsPerTimeUnit: 0.25 },
+    departments: [
+      { id: 'growing', label: 'Growing', role: 'Head Grower', instructions: 'Weigh the harvest against the soil.' },
+      { id: 'market', label: 'Market', role: 'Market Lead', instructions: 'Weigh prices against the stock.' },
+    ],
+    metrics: [
+      { id: 'harvest', format: 'number' },
+      { id: 'soil-health', format: 'percent' },
+    ],
+  });
+  const compiled = await compileScenario(draft as unknown as Record<string, unknown>, {
+    cache: false,
+    generateText: async () => 'not a hook',
+  });
+  near(kernelFor(compiled, 5).getState().metadata.yearsPerUnit ?? NaN, 0.25, 'a season');
 });
