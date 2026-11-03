@@ -539,3 +539,48 @@ test('tools with no reuse counts are listed, not ranked', async () => {
     /Tools \(reuse not recorded in this run\): first\(governance\); second\(governance\); third\(governance\); fourth\(governance\); fifth\(governance\)\n/,
   );
 });
+
+test('a batch takes no further actor once its run is aborted', async () => {
+  // A cleared 300-actor Quickstart batch kept scheduling actors through its
+  // worker pool after the abort, each starting a run of its own. With the
+  // gate, the pool ends with the actors already running.
+  const { runBatchSimulations } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const base = marsScenario.presets[0].leaders[0];
+  const leaders = Array.from({ length: 6 }, (_, i) => ({ ...base, name: `Leader ${i + 1}`, archetype: `Archetype ${i + 1}` }));
+  const config = normalizeSimulationConfig({ actors: leaders, turns: 1, economics: { batchConcurrency: 2 } } as any, marsScenario);
+  assert.equal(config.economics.batch.maxConcurrency, 2);
+
+  // No provider key, so a run the seam does not catch stops before any model call.
+  const saved = { openai: process.env.OPENAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY };
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const controller = new AbortController();
+    const calls: string[] = [];
+    const runSimulationImpl = async (leader: { name: string }, _keyPersonnel: unknown, opts: { signal?: AbortSignal }) => {
+      calls.push(leader.name);
+      if (calls.length === 2) controller.abort('user_aborted');
+      await new Promise<void>(resolve => {
+        if (opts.signal?.aborted) resolve();
+        else opts.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return { aborted: true, finalState: { metrics: {} }, citations: [], fingerprint: null } as any;
+    };
+    const frames: Array<{ event: string; data: any }> = [];
+    await (runBatchSimulations as (...args: unknown[]) => Promise<void>)(
+      config,
+      (event: string, data: unknown) => { frames.push({ event, data }); },
+      controller.signal,
+      marsScenario,
+      undefined,
+      runSimulationImpl,
+    );
+    assert.deepEqual(calls, ['Leader 1', 'Leader 2']);
+    const complete = frames.find(f => f.event === 'complete');
+    assert.equal(complete?.data.aborted, true);
+  } finally {
+    if (saved.openai !== undefined) process.env.OPENAI_API_KEY = saved.openai;
+    if (saved.anthropic !== undefined) process.env.ANTHROPIC_API_KEY = saved.anthropic;
+  }
+});

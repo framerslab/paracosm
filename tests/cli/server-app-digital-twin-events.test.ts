@@ -4,7 +4,9 @@
  * The route forwarded each engine event under its own type name, which no
  * dashboard listener takes, and ended the run with no event at all. A page
  * that names the run's key in its request shows that run whichever scenario
- * the page is on, and a run started after it takes the buffer from it.
+ * the page is on. A twin is its caller's run: the caller's next run replaces
+ * it, and it never stops another visitor's run. The tests that send no cookie
+ * are the anonymous caller, one visitor throughout.
  *
  * Every test goes through createMarsServer over HTTP with the scenario JSON
  * under scenarios/. Only the engine is stubbed: `intervene` would call a
@@ -13,6 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -203,7 +206,7 @@ test('a Digital Twin run is not saved as a session: its artifact comes back in i
   });
 });
 
-test('a run started during a Digital Twin run takes the buffer: the twin writes nothing more to it', async () => {
+test("a caller's run started during their Digital Twin run replaces it: the twin writes nothing more to it", async () => {
   let finish = () => {};
   const held = new Promise<void>(resolve => { finish = resolve; });
   await withServer(async ({ onEvent }) => {
@@ -261,7 +264,9 @@ test('a run the provider stopped ends as aborted, as a pair run does', async () 
   });
 });
 
-test("a /clear during a Digital Twin run leaves the run's frames in the buffer, so a page that reconnects keeps its turn count", async () => {
+test("a /clear that names the run a page held before leaves a Digital Twin run's frames; one that names the twin drops it", async () => {
+  // A page posts /clear with the key of the run it held before it starts a
+  // twin, so a /clear that lands after the twin opened names the old run.
   let finish = () => {};
   const held = new Promise<void>(resolve => { finish = resolve; });
   await withServer(async ({ onEvent }) => {
@@ -273,32 +278,59 @@ test("a /clear during a Digital Twin run leaves the run's frames in the buffer, 
     const answer = post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }));
     await waitFor(async () => (await readReplay(base)).some(f => f.event === 'sim'), "the twin's first event");
 
-    // A page connected through the /clear: it is told which run is writing,
-    // so it judges the run's later events by its scenario.
-    const live = await openLive(base);
-    try {
-      // Any page's Clear, or the /clear a page posts with its own run when
-      // that /clear lands after the run's first frames.
-      assert.equal((await post(base, '/clear', {})).status, 200);
-      const told = await live.next('active_scenario');
-      assert.equal(told.data.id, scenario.id);
-      assert.equal(told.data.runKey, 'page-run-key-1');
-    } finally {
-      live.close();
-    }
+    const late = await post(base, '/clear', { runKey: 'page-run-key-0' });
+    assert.deepEqual(await late.json(), { cleared: false, reason: 'not_current' });
     const kept = await readReplay(base);
     assert.deepEqual(kept.map(f => f.event), ['active_scenario', 'status', 'sim']);
     assert.equal(kept[0].data.runKey, 'page-run-key-1');
     assert.equal(kept[1].data.maxTurns, 2);
 
-    finish();
-    assert.equal((await answer).status, 200);
-    const frames = await readReplay(base);
-    assert.deepEqual(frames.map(f => f.event).filter(e => e !== 'sim_saved'), ['active_scenario', 'status', 'sim', 'sim', 'complete']);
-
-    // The run is over: a /clear now leaves the buffer empty.
-    assert.equal((await post(base, '/clear', {})).status, 200);
+    const own = await post(base, '/clear', { runKey: 'page-run-key-1' });
+    assert.deepEqual(await own.json(), { cleared: true, runKey: 'page-run-key-1' });
     assert.deepEqual(await readReplay(base), []);
+
+    finish();
+    assert.equal((await answer).status, 200, 'the page that ran the twin still gets its artifact');
+    assert.deepEqual(await readReplay(base), [], "the cleared run's later events go nowhere");
+  });
+});
+
+test("a visitor's Digital Twin run leaves another visitor's run alone", async () => {
+  let finishSetup = () => {};
+  const setupHeld = new Promise<void>(resolve => { finishSetup = resolve; });
+  let setupStarted = false;
+  let setupAborted = false;
+  const a = { Cookie: `paracosm_visitor=${randomUUID()}` };
+  const b = { Cookie: `paracosm_visitor=${randomUUID()}` };
+  const as = (headers: Record<string, string>, path: string, payload: unknown) => fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(payload),
+  });
+  await withServer(async ({ onEvent }) => {
+    onEvent?.(turnStart);
+    onEvent?.(turnDone);
+    return { metadata: { runId: 'twin-1' } };
+  }, async base => {
+    assert.equal((await as(a, `${base}/setup`, { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id })).status, 200);
+    await waitFor(async () => setupStarted, "A's run to start");
+
+    const twin = await as(b, `${base}/api/quickstart/simulate-intervention`, body({ runKey: 'page-run-key-1' }));
+    assert.equal(twin.status, 200);
+    assert.equal(setupAborted, false, "B's twin does not stop A's run");
+
+    const results = async (headers: Record<string, string>) => (await (await fetch(`${base}/results`, { headers })).json()) as { runKey?: string; scenarioId?: string; inFlight?: boolean };
+    const aResults = await results(a);
+    assert.equal(aResults.scenarioId, mars.id);
+    assert.equal(aResults.inFlight, true);
+    const bResults = await results(b);
+    assert.equal(bResults.runKey, 'page-run-key-1');
+    assert.equal(bResults.scenarioId, scenario.id);
+    finishSetup();
+  }, async (_config, _broadcast, signal) => {
+    setupStarted = true;
+    signal?.addEventListener('abort', () => { setupAborted = true; });
+    await setupHeld;
   });
 });
 
@@ -319,7 +351,7 @@ test('a run key the server has opened a run with is refused, so no request takes
   });
 });
 
-test('a Digital Twin run stops the /setup run in flight, and that run writes nothing more to the buffer', async () => {
+test("a caller's Digital Twin run stops their own /setup run in flight, and that run writes nothing more to it", async () => {
   let finish = () => {};
   const held = new Promise<void>(resolve => { finish = resolve; });
   let finishSetup = () => {};
