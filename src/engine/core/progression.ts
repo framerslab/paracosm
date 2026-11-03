@@ -327,11 +327,20 @@ export function causeHazards(
 }
 
 /**
+ * The most steps one turn runs: a run's time per turn can be any number,
+ * and each step walks the whole roster, so the work of a turn stays
+ * bounded. A century outlasts everyone the turn began with.
+ */
+export const MAX_YEAR_STEPS = 100;
+
+/**
  * The steps a turn of `years` years runs as: a year each for the whole
  * years it spans, then one step for the part of a year left over. A turn
  * shorter than a year is one step of its own length, and a turn with no
  * time in it is one step of none. An eight-year Mars turn is eight steps
- * of a year; a month of Atlas Lab is one step of a twelfth.
+ * of a year; a month of Atlas Lab is one step of a twelfth. A turn that
+ * would take more than {@link MAX_YEAR_STEPS} folds the years past them
+ * into its last step, whose rates compound over them.
  */
 export function yearSteps(years: number): number[] {
   if (!Number.isFinite(years)) return [0];
@@ -340,8 +349,13 @@ export function yearSteps(years: number): number[] {
   // months summed in floating point are one step, not one and a sliver.
   const whole = Math.floor(years + 1e-9);
   const rest = years - whole;
+  const hasRest = rest > 1e-9;
+  if (whole + (hasRest ? 1 : 0) > MAX_YEAR_STEPS) {
+    const ones: number[] = new Array(MAX_YEAR_STEPS - 1).fill(1);
+    return [...ones, years - (MAX_YEAR_STEPS - 1)];
+  }
   const steps: number[] = new Array(whole).fill(1);
-  if (rest > 1e-9) steps.push(rest);
+  if (hasRest) steps.push(rest);
   return steps.length ? steps : [years];
 }
 
@@ -371,8 +385,7 @@ export const MORALE_PULL_PER_YEAR = 0.2;
  * dose, moves psych a year's worth and rolls every yearly chance once on
  * dice of its own, so one eight-year turn gives the chances eight
  * one-year turns give. A step shorter than a year rolls
- * `1 - (1 - rate)^years`. Morale drift and the head count run once a
- * turn, after the steps.
+ * `1 - (1 - rate)^years`. Morale drift runs once a turn, after the steps.
  */
 export function progressBetweenTurns(
   state: SimulationState,
@@ -417,9 +430,6 @@ export function progressBetweenTurns(
   const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
   const deathShock = deadThisTurn.size > 2 ? -0.04 * deadThisTurn.size : 0;
   metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
-
-  // 7. Update population count
-  metrics.population = aliveColonists.length;
 
   return {
     state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },
@@ -724,7 +734,8 @@ function progressStep(input: StepInput): void {
       c.narrative.lifeEvents.push({ time, event: `Promoted to Senior ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to senior`, agentId: c.core.id });
     }
-    if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && roll(c.core.id, 'promotion-lead').chance(per(0.08))) {
+    // One promotion a step: a new senior waits for the next one.
+    else if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && roll(c.core.id, 'promotion-lead').chance(per(0.08))) {
       c.career.rank = 'lead';
       c.narrative.lifeEvents.push({ time, event: `Promoted to Lead ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to lead`, agentId: c.core.id });
@@ -812,4 +823,7 @@ function progressStep(input: StepInput): void {
     metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (years * 0.5) + (modules * 0.3 * years));
   }
   if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += years;
+
+  // 7. Update population count, which the next step's hook reads.
+  metrics.population = colonists.filter(c => c.health.alive).length;
 }
