@@ -26,6 +26,12 @@ export function emitLaunched(target: EventTarget, visitorId: unknown): void {
   target.dispatchEvent(new CustomEvent(LAUNCHED_EVENT, { detail: { visitorId } }));
 }
 
+/**
+ * Calls `callback` with the visitor id of each launch {@link emitLaunched}
+ * reports on `target` (the page's `window`); a launch event that names no
+ * string id is skipped. Returns the function that removes the listener,
+ * which the page's event stream calls when it closes.
+ */
 export function subscribeLaunched(target: EventTarget, callback: (visitorId: string) => void): () => void {
   const handler = (event: Event) => {
     const visitorId = (event as CustomEvent<{ visitorId?: unknown }>).detail?.visitorId;

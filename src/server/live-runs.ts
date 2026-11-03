@@ -5,7 +5,10 @@
  * browser (see {@link readVisitorId}). A caller that sends none is
  * {@link ANONYMOUS_VISITOR}: one visitor for every such caller (the CLI's own
  * run, curl, scripts), which behaves as the whole server did when it held
- * one run for everyone.
+ * one run for everyone. Off the hosted demo, a visitor with no run of their
+ * own watches the anonymous run, so the browser that opens the CLI's
+ * dashboard sees the CLI's run; a stream that has followed a run of its
+ * visitor's own keeps to that visitor's runs from then on.
  *
  * Each run has its own event buffer, viewers, disconnect watchdog, flags and
  * abort controller, and a broadcast of its own that the runners write
@@ -80,6 +83,12 @@ export class RunCapacityError extends Error {
   }
 }
 
+/**
+ * What started a run: a pair of leaders from /setup, a batch of three or more
+ * (Quickstart), a fork of a finished run, or a Digital Twin intervention
+ * (`POST /api/quickstart/simulate-intervention`), whose engine takes no
+ * abort signal. The run's `active_scenario` event carries it.
+ */
 export type RunKind = 'pair' | 'batch' | 'fork' | 'intervention';
 const RUN_KINDS: readonly RunKind[] = ['pair', 'batch', 'fork', 'intervention'];
 
@@ -91,6 +100,14 @@ const RUN_KINDS: readonly RunKind[] = ['pair', 'batch', 'fork', 'intervention'];
  */
 export type AbortReason = 'another_run_started' | 'user_aborted' | 'client_disconnected';
 
+/**
+ * One run the server holds: its event buffer and flags, owned by one visitor.
+ * In flight from {@link LiveRunRegistry.open} until {@link LiveRunRegistry.finish}
+ * (its runner settled), then held for its visitor until it is dropped. A
+ * dropped run is gone from the registry, but a runner still in flight keeps
+ * writing through its broadcast, which discards every event, and holds its
+ * capacity slot until it settles.
+ */
 export interface LiveRun {
   /** The run's key: the `runKey` of its `active_scenario` event. */
   readonly key: string;
@@ -141,6 +158,7 @@ export interface LiveRun {
   touchTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** How a {@link LiveRunRegistry} bounds, keeps and shares its runs. */
 export interface LiveRunRegistryOptions {
   /** The folder held runs are written to: `${APP_DIR}/.live-runs`. */
   dir: string;
@@ -159,8 +177,16 @@ export interface LiveRunRegistryOptions {
   onComplete?: (run: LiveRun) => void;
   /** Called once a run is dropped. */
   onDrop?: (run: LiveRun) => void;
+  /**
+   * Whether a visitor with no run of their own watches the anonymous run.
+   * True (the default) for a server run from the CLI or a clone, whose own
+   * run is the anonymous one; false on the hosted demo, where an anonymous
+   * run belongs to whichever caller sent no cookie.
+   */
+  shareAnonymousRun?: boolean;
 }
 
+/** A run to open with {@link LiveRunRegistry.open}. */
 export interface OpenRunInput {
   visitorId: string;
   kind: RunKind;
@@ -178,6 +204,12 @@ interface StreamInfo {
   /** The run the stream named with `?run=`, else null: it follows its visitor. */
   runKey: string | null;
   actorFilter: string | null;
+  /**
+   * Set once the stream has followed a run of its visitor's own: from then it
+   * watches only their runs, never the anonymous run, whose frames would
+   * reach a page with no opening and over what it shows.
+   */
+  ownOnly?: boolean;
 }
 
 /** How many run keys are remembered, so no request opens a run under a key another run has had. */
@@ -203,6 +235,13 @@ interface PersistedRun {
 
 const sseFrame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
+/**
+ * Every run the server holds, by key and by visitor, with the event streams
+ * that watch them. It admits runs under the server's cap, gives each run the
+ * broadcast its runner writes through, arms each run's disconnect watchdog,
+ * lets go of finished runs by the idle time and the held caps, and writes
+ * each run to `<dir>/<key>.json` so a restart reads it back.
+ */
 export class LiveRunRegistry {
   private readonly options: LiveRunRegistryOptions;
   private readonly runs = new Map<string, LiveRun>();
@@ -217,6 +256,11 @@ export class LiveRunRegistry {
   private persistFailureLogged = false;
   private closed = false;
 
+  /**
+   * Reads back the runs written under `options.dir` within the idle time,
+   * removes the older ones and the legacy single buffer, and starts the
+   * sweep timer (unref'd, so it never keeps the process alive).
+   */
   constructor(options: LiveRunRegistryOptions) {
     this.options = options;
     this.loadPersisted();
@@ -224,6 +268,7 @@ export class LiveRunRegistry {
     this.sweepTimer.unref?.();
   }
 
+  /** The most runs the server has in flight at once. */
   get maxRuns(): number {
     return this.options.maxRuns;
   }
@@ -255,10 +300,13 @@ export class LiveRunRegistry {
   /**
    * The run a visitor's page shows: their own current run, else, while they
    * have none, the anonymous visitor's (the CLI's own run, watched from the
-   * browser that opened its dashboard).
+   * browser that opened its dashboard), unless the server shares no
+   * anonymous run (the hosted demo).
    */
   watched(visitorId: string): LiveRun | undefined {
-    return this.current(visitorId) ?? (visitorId === ANONYMOUS_VISITOR ? undefined : this.current(ANONYMOUS_VISITOR));
+    const own = this.current(visitorId);
+    if (own || visitorId === ANONYMOUS_VISITOR || this.options.shareAnonymousRun === false) return own;
+    return this.current(ANONYMOUS_VISITOR);
   }
 
   get(key: string): LiveRun | undefined {
@@ -346,6 +394,10 @@ export class LiveRunRegistry {
     this.runs.set(key, run);
     this.currentByVisitor.set(run.visitorId, key);
     this.unsettled.add(run);
+    // The visitor's streams keep to their own runs from here.
+    for (const info of this.streams.values()) {
+      if (info.runKey === null && info.visitorId === run.visitorId) info.ownOnly = true;
+    }
     this.rememberKey(key);
     console.log(`  [runs] ${key} opened for ${run.visitorId.slice(0, 8)} (${this.unsettled.size} in flight)`);
 
@@ -365,7 +417,8 @@ export class LiveRunRegistry {
     });
     run.metaFrame = run.buffer[0] ?? null;
     if (this.viewerCount(run) > 0) run.hadViewer = true;
-    // A visitor's pages that watched the anonymous run watch their own now.
+    // A visitor's pages that watched the anonymous run watch their own now,
+    // so the anonymous run may have lost its last viewer.
     if (watchedBefore && watchedBefore !== previous) this.armIfUnwatched(watchedBefore);
     return run;
   }
@@ -378,7 +431,6 @@ export class LiveRunRegistry {
     const wasInFlight = run.inFlight;
     this.drop(run, 'another_run_started');
     if (wasInFlight) this.stopForVisitor(run, 'another_run_started');
-    this.refollow(run.visitorId);
   }
 
   /** The broadcast a run's runner writes through. A dropped run's events go nowhere. */
@@ -431,8 +483,11 @@ export class LiveRunRegistry {
 
   /** Adds a stream; returns the run it watches, whose watchdog it disarms. */
   attach(res: ServerResponse, info: StreamInfo): LiveRun | undefined {
-    this.streams.set(res, info);
-    const run = this.watchedBy(info);
+    this.streams.set(res, {
+      ...info,
+      ownOnly: info.runKey === null && this.current(info.visitorId) !== undefined,
+    });
+    const run = this.watchedBy(this.streams.get(res)!);
     if (run) {
       run.hadViewer = true;
       this.disarm(run);
@@ -516,14 +571,6 @@ export class LiveRunRegistry {
     } catch { /* never written, or already gone */ }
     console.log(`  [runs] ${run.key} dropped (${reason})`);
     this.options.onDrop?.(run);
-    // The visitor's pages now watch the anonymous run, if there is one.
-    if (run.visitorId !== ANONYMOUS_VISITOR) {
-      const anonymous = this.current(ANONYMOUS_VISITOR);
-      if (anonymous && this.viewerCount(anonymous) > 0) {
-        anonymous.hadViewer = true;
-        this.disarm(anonymous);
-      }
-    }
   }
 
   /**
@@ -565,7 +612,8 @@ export class LiveRunRegistry {
   }
 
   private watchedBy(info: StreamInfo): LiveRun | undefined {
-    return info.runKey !== null ? this.runs.get(info.runKey) : this.watched(info.visitorId);
+    if (info.runKey !== null) return this.runs.get(info.runKey);
+    return info.ownOnly ? this.current(info.visitorId) : this.watched(info.visitorId);
   }
 
   private viewerCount(run: LiveRun): number {
@@ -587,8 +635,7 @@ export class LiveRunRegistry {
 
   /**
    * Tells a run's viewers it is gone, drops it, and stops it when in flight
-   * with `abortReason` (null: the caller stops it). Its visitor's streams
-   * then follow the anonymous run, if there is one.
+   * with `abortReason` (null: the caller stops it).
    */
   private evict(run: LiveRun, reason: string, abortReason: AbortReason | null): void {
     if (run.dropped) return;
@@ -596,36 +643,12 @@ export class LiveRunRegistry {
     const wasInFlight = run.inFlight;
     this.drop(run, reason);
     if (wasInFlight && abortReason !== null) this.abort(run, abortReason);
-    this.refollow(run.visitorId);
   }
 
   /** Stops a run its visitor let go of; their next run counts it as settled, once. */
   private stopForVisitor(run: LiveRun, reason: AbortReason): void {
     if (run.inFlight && run.kind !== 'intervention') run.stoppedByVisitor = true;
     this.abort(run, reason);
-  }
-
-  /**
-   * A visitor left with no run of their own watches the anonymous run, if
-   * there is one. Their streams that follow them are sent it as a reconnect
-   * sends it, `connected`, its frames from the start, then `replay_done`, so
-   * a page judges it by its own opening instead of taking its next frames
-   * for a run of its own.
-   */
-  private refollow(visitorId: string): void {
-    if (visitorId === ANONYMOUS_VISITOR || this.closed || this.currentByVisitor.has(visitorId)) return;
-    const anonymous = this.current(ANONYMOUS_VISITOR);
-    if (!anonymous) return;
-    for (const [res, info] of this.streams) {
-      if (info.visitorId !== visitorId || info.runKey !== null) continue;
-      try {
-        res.write(sseFrame('connected', { actorFilter: info.actorFilter, runKey: anonymous.key, visitorId }));
-        this.replay(res, anonymous, info.actorFilter);
-        res.write(sseFrame('replay_done', {}));
-      } catch {
-        this.streams.delete(res);
-      }
-    }
   }
 
   /** The held caps: runs with no viewer go before runs with one, the oldest first. */

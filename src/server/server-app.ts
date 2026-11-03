@@ -667,6 +667,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     staleMs: STALE_BUFFER_MS,
     disconnectGraceMs,
     bufferMaxEntries: EVENT_BUFFER_MAX_ENTRIES,
+    // A visitor with no run of their own watches the anonymous run so the
+    // browser that opens the CLI's dashboard sees the CLI's run. The hosted
+    // demo has no such run: an anonymous run there is a cookieless caller's,
+    // and no visitor's page shows it.
+    shareAnonymousRun: serverMode !== 'hosted_demo',
     // On simulation completion, snapshot the run's schema-retry payload to
     // the cross-run ring so /retry-stats can aggregate across production
     // runs, and save a clean run to the session ring.
