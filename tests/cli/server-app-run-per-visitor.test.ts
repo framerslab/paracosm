@@ -23,7 +23,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  VISITOR_COOKIE, atlasLab, heldRun, mars, openStream, quickstartBody, readReplay, settingsBody, startServer, waitFor, withVisitors,
+  VISITOR_COOKIE, atlasLab, heldRun, mars, openStream, quickstartBody, readReplay, readScenario, settingsBody, startServer, waitFor, withVisitors,
   type Frame,
 } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
@@ -170,6 +170,113 @@ test("a visitor's own Run replaces their run, and the run it replaced is told wh
     assert.equal(health.runsInFlight, 1);
     held.runs[1].release();
   }, { runner: held.runner });
+});
+
+test('a run its visitor stopped holds its slot until its runner settles; their next run is let in beside it once', async () => {
+  // An aborted run settles once the model call it made before the abort
+  // returns. Each run a visitor stopped holds its slot until then: a visitor
+  // pressing Clear and Run in turn could otherwise keep any number of runs
+  // spending at once, whatever the cap.
+  const held = heldRun({ untilReleased: true });
+  await withVisitors(async ({ cookied, base }) => {
+    const a = cookied();
+    const inFlight = async () => ((await (await fetch(`${base}/health`)).json()) as { runsInFlight: number }).runsInFlight;
+    assert.equal((await setup(a, settingsBody(mars))).status, 200);
+    await waitFor(() => held.runs[0], 'the first run');
+    assert.equal((await clearEmpty(a)).cleared, true);
+    assert.equal(held.runs[0].signal?.aborted, true);
+
+    // Run pressed while a run is in flight: the dashboard clears it, then starts the next.
+    const second = await setup(a, settingsBody(mars));
+    assert.equal(second.status, 200, `the Run after the Clear: ${JSON.stringify(second.answer)}`);
+    await waitFor(() => held.runs[1], 'the second run');
+    assert.equal((await clearEmpty(a)).cleared, true);
+
+    const third = await setup(a, settingsBody(mars));
+    assert.equal(third.status, 503, `a third run beside two still settling: ${JSON.stringify(third.answer)}`);
+    assert.equal(held.runs.length, 2);
+    assert.equal(await inFlight(), 2);
+
+    held.runs[0].release();
+    held.runs[1].release();
+    await waitFor(() => held.runs[0].settled && held.runs[1].settled, 'the stopped runs to settle');
+    assert.equal((await setup(a, settingsBody(mars))).status, 200, 'the slot frees once their runners settle');
+    await waitFor(() => held.runs[2], 'the next run');
+    held.runs[2].release();
+  }, { runner: held.runner, maxRuns: 1 });
+});
+
+test('a Digital Twin run holds its slot until its engine returns, even once its visitor has replaced it', async () => {
+  // The twin's engine takes no signal, so a run that replaces a twin stops
+  // nothing: the twin goes on spending until it returns.
+  const twinScenario = readScenario('t2d-glp1-protocol.json');
+  const twinBody = {
+    subject: { id: 'patient-maria-2026', name: 'Maria Chen' },
+    intervention: { id: 'glp1-12wk-protocol', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
+    options: { maxTurns: 2, seed: 11, costPreset: 'economy' },
+  };
+  const engines: Array<() => void> = [];
+  const intervene = () => new Promise<unknown>(resolve => { engines.push(() => resolve({})); });
+  const held = heldRun();
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const answers: Array<Promise<unknown>> = [];
+    const twin = () => {
+      const res = a.post('/api/quickstart/simulate-intervention', twinBody);
+      answers.push(res.catch(() => null));
+      return res;
+    };
+    try {
+      void twin();
+      await waitFor(() => engines.length === 1, 'the first twin');
+      const outcome = await Promise.race([
+        twin().then(res => res.status),
+        waitFor(() => engines.length > 1 && 'a second engine started', 'the second twin'),
+      ]);
+      assert.equal(outcome, 503, 'a second twin waits while the first one runs');
+      const run = await setup(a, settingsBody(mars));
+      assert.equal(run.status, 503, `a Run waits too, since the twin it would replace goes on: ${JSON.stringify(run.answer)}`);
+      assert.equal(held.runs.length, 0);
+    } finally {
+      for (const done of engines) done();
+      await Promise.all(answers);
+    }
+  }, {
+    runner: held.runner,
+    maxRuns: 1,
+    extra: { getDigitalTwinWorld: async () => ({ scenario: twinScenario, intervene }) },
+  });
+});
+
+test("a stream left with no run of its visitor's is sent the anonymous run from its start, as a reconnect is", async () => {
+  // A visitor with no run of their own watches the anonymous run. Once their
+  // run goes, their open streams follow the anonymous run; sent only its next
+  // frames, a page shows them under its own scenario, with no opening to
+  // judge them by and none of the run before them.
+  const held = heldRun();
+  await withVisitors(async ({ visitor, cookied }) => {
+    const anon = await setup(visitor(), quickstartBody(atlasLab));
+    assert.equal(anon.status, 200);
+    await waitFor(() => held.runs[0], 'the anonymous run');
+    const a = cookied();
+    assert.equal((await setup(a, settingsBody(mars))).status, 200);
+    await waitFor(() => held.runs[1], "A's run");
+    const stream = await openStream(a);
+    try {
+      assert.equal((await clearEmpty(a)).cleared, true);
+      held.runs[0].release();
+      await stream.next(f => f.event === 'complete', "the anonymous run's end");
+      const live = stream.live();
+      const after = live.slice(live.findIndex(f => f.event === 'run_cleared') + 1);
+      const opening = after.findIndex(f => f.event === 'active_scenario');
+      assert.ok(opening >= 0, `the anonymous run's opening: ${after.map(f => f.event).join(', ')}`);
+      assert.equal(after[opening].data.runKey, anon.answer.runKey);
+      assert.ok(after.findIndex(f => f.event === 'sim') > opening, 'its opening comes before its events');
+      assert.ok(after.slice(opening).some(f => f.event === 'sim' && f.data.type === 'turn_start'), 'with its events so far');
+    } finally {
+      stream.close();
+    }
+  }, { runner: held.runner, maxRuns: 2 });
 });
 
 test("Clear drops the visitor's own run and leaves every other visitor's", async () => {

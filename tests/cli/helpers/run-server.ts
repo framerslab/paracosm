@@ -271,9 +271,11 @@ export interface HeldLaunch {
  * `turn_start` per actor, then waits for `release()` or for its signal. An
  * aborted run writes `sim_aborted` with the signal's reason and an aborted
  * `complete`; a released one writes a `turn_done` and a `result` per actor
- * and `complete`.
+ * and `complete`. With `untilReleased`, an aborted run still waits for
+ * `release()` before it settles, as the orchestrator does while a model call
+ * it made before the abort is still out.
  */
-export function heldRun(): { runner: Runner; runs: HeldLaunch[] } {
+export function heldRun(options: { untilReleased?: boolean } = {}): { runner: Runner; runs: HeldLaunch[] } {
   const runs: HeldLaunch[] = [];
   const runner: Runner = async (config, broadcast, _scenario, signal) => {
     let release = () => {};
@@ -288,7 +290,7 @@ export function heldRun(): { runner: Runner; runs: HeldLaunch[] } {
       if (signal?.aborted) resolve();
       else signal?.addEventListener('abort', () => resolve(), { once: true });
     });
-    await Promise.race([released, aborted]);
+    await (options.untilReleased ? released : Promise.race([released, aborted]));
     if (signal?.aborted) {
       broadcast('sim', { type: 'sim_aborted', leader: '', data: { reason: signal.reason } });
       broadcast('complete', { aborted: true });
