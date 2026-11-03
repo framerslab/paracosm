@@ -23,7 +23,9 @@ const RUN_MS = 30_000;
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
 const pill = (page: Page, text: string) => page.getByRole('status', { name: new RegExp(`^${text}\\.`) }).first();
-const finishedRun = (page: Page) => page.getByText('Spin up a new run');
+/** Text the page shows: its hidden panels (another tab's header, the Settings form) hold the names too. */
+const shown = (page: Page, text: string) => page.getByText(text).filter({ visible: true });
+const finishedRun = (page: Page) => shown(page, 'Spin up a new run').first();
 const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 
 interface Visit { context: BrowserContext; page: Page }
@@ -62,16 +64,16 @@ test.describe('Run per visitor @runs', () => {
     const b = await visit(browser, 'atlas-lab');
     try {
       await pressRun(a.page);
-      await expect(a.page.getByText('Aria Chen').first()).toBeVisible();
+      await expect(shown(a.page, 'Aria Chen').first()).toBeVisible();
       await pressRun(b.page);
-      await expect(b.page.getByText('Marcus Reinhardt').first()).toBeVisible();
+      await expect(shown(b.page, 'Marcus Reinhardt').first()).toBeVisible();
 
       await expectComplete(a.page);
-      await expect(a.page.getByText('Dietrich Voss').first()).toBeVisible();
-      await expect(a.page.getByText('Marcus Reinhardt')).toHaveCount(0);
+      await expect(shown(a.page, 'Dietrich Voss').first()).toBeVisible();
+      await expect(shown(a.page, 'Marcus Reinhardt')).toHaveCount(0);
       await expectComplete(b.page);
-      await expect(b.page.getByText('Priya Kapoor').first()).toBeVisible();
-      await expect(b.page.getByText('Aria Chen')).toHaveCount(0);
+      await expect(shown(b.page, 'Priya Kapoor').first()).toBeVisible();
+      await expect(shown(b.page, 'Aria Chen')).toHaveCount(0);
 
       const aResults = await results(a.page);
       expect(aResults.isComplete).toBe(true);
@@ -92,12 +94,12 @@ test.describe('Run per visitor @runs', () => {
       await expectComplete(a.page);
       await a.page.reload();
       await expectComplete(a.page);
-      await expect(a.page.getByText('Aria Chen').first()).toBeVisible();
+      await expect(shown(a.page, 'Aria Chen').first()).toBeVisible();
 
       const second = await a.context.newPage();
       await second.goto('/sim?tab=sim');
       await expectComplete(second);
-      await expect(second.getByText('Dietrich Voss').first()).toBeVisible();
+      await expect(shown(second, 'Dietrich Voss').first()).toBeVisible();
     } finally {
       await a.context.close();
     }
@@ -134,9 +136,9 @@ test.describe('Run per visitor @runs', () => {
     try {
       await pressRun(a.page);
       await pressRun(b.page);
-      await expect(b.page.getByText('Marcus Reinhardt').first()).toBeVisible();
+      await expect(shown(b.page, 'Marcus Reinhardt').first()).toBeVisible();
       await pressRun(c.page);
-      await expect(c.page.getByText('running 2 simulations right now, the most it runs at once')).toBeVisible();
+      await expect(shown(c.page, 'running 2 simulations right now, the most it runs at once').first()).toBeVisible();
       await expectComplete(a.page);
       await expectComplete(b.page);
     } finally {
