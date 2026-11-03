@@ -16,7 +16,9 @@
  *
  * A run started from the page's Run controls replaces the Digital Twin views:
  * the result panel and the progress view stayed on the SIM tab over it, and a
- * twin's answer that came back after it brought the panel back.
+ * twin's answer that came back after it brought the panel back. A run the
+ * server refuses replaces nothing, and a run loaded from a file or a clear of
+ * the page's local data replaces the views as a new run does.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
@@ -47,16 +49,42 @@ async function startRun(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Run digital twin' }).click();
 }
 
-/** Lets the request through to the server and holds its answer from the page until the returned function is called. */
-async function holdAnswer(page: Page): Promise<() => void> {
+/**
+ * Lets the request through to the server and holds its answer from the page
+ * until the returned function is called. With `subjectId`, the request runs
+ * that subject instead of the preset's.
+ */
+async function holdAnswer(page: Page, subjectId?: string): Promise<() => void> {
   let release = () => {};
   const released = new Promise<void>(resolve => { release = resolve; });
   await page.route(TWIN_ROUTE, async route => {
-    const answer = await route.fetch();
+    const body = route.request().postDataJSON() as { subject: Record<string, unknown> };
+    const answer = await route.fetch(subjectId
+      ? { postData: JSON.stringify({ ...body, subject: { ...body.subject, id: subjectId } }) }
+      : undefined);
     await released;
     await route.fulfill({ response: answer });
   });
   return release;
+}
+
+/** A run saved from the page, in the shape the Save action writes: one leader's finished turn. */
+function savedRun(): { name: string; mimeType: string; buffer: Buffer } {
+  const leader = 'Saved Leader';
+  const events = [
+    { type: 'status', leader: '', data: { phase: 'parallel', maxTurns: 1, actors: [{ name: leader, archetype: 'The Saver' }] } },
+    ...twinEvents(leader, 1),
+  ];
+  const save = {
+    config: null,
+    events,
+    results: [],
+    verdict: null,
+    startedAt: '2026-11-03T00:00:00.000Z',
+    completedAt: '2026-11-03T00:01:00.000Z',
+    schemaVersion: 3,
+  };
+  return { name: 'mars-saved-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(save)) };
 }
 
 /** Starts a run from the RUN menu, as a visitor who wants another run does. */
@@ -157,6 +185,70 @@ test.describe('Digital Twin events @twin', () => {
     await expect(running(page)).toHaveCount(0);
     await expect(pairRunning(page)).toBeVisible();
     await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
+  });
+
+  test('a run the server refuses leaves the twin\'s views, and the twin\'s answer still lands', async ({ page }) => {
+    // The answer the server gives a visitor who has used the day's run
+    // (the /setup rate limit in src/server/server-app.ts). No run starts, so
+    // nothing replaces the twin.
+    await page.route('**/setup', route => route.fulfill({
+      status: 429,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0 }),
+    }));
+    const release = await holdAnswer(page);
+    await startRun(page);
+    await expectProgressOfWholeRun(page);
+
+    await runNew(page);
+    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    await expect(running(page)).toBeVisible();
+
+    release();
+    await expect(result(page)).toBeVisible();
+  });
+
+  test('a twin\'s failure that comes back after the page left it says nothing on the Quickstart tab', async ({ page }) => {
+    const release = await holdAnswer(page, TWIN_ENGINE_FAILS);
+    await startRun(page);
+    await expect(running(page)).toBeVisible();
+
+    await runNew(page);
+    await expect(pairRunning(page)).toBeVisible();
+
+    release();
+    await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
+    await page.getByRole('tab', { name: 'QUICKSTART', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Patient · treatment' })).toBeVisible();
+    await expect(page.getByText(TWIN_ENGINE_ERROR)).toHaveCount(0);
+    await expect(page.getByText('Digital twin failed')).toHaveCount(0);
+  });
+
+  test('a run loaded from a file replaces the result', async ({ page }) => {
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+
+    await runMenuButton(page).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: /Load from file/ }).click();
+    await (await chooser).setFiles(savedRun());
+    await page.getByRole('button', { name: /^(Load|Replace current simulation)$/ }).click();
+
+    await expect(result(page)).toHaveCount(0);
+    await expect(finishedRun(page)).toBeVisible();
+  });
+
+  test('clearing local data clears the result', async ({ page }) => {
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+
+    page.once('dialog', dialog => void dialog.accept());
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: /Clear local data/ }).click();
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+
+    await expect(result(page)).toHaveCount(0);
+    await expect(emptyStateRun(page)).toBeVisible();
   });
 
   test('a run that fails ends the progress view and says why', async ({ page }) => {
