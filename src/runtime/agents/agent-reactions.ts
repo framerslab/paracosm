@@ -68,28 +68,19 @@ export interface ReactionContext {
 }
 
 /**
- * Build the shared system prompt + crisis context for a BATCHED reaction
- * call. Everything in this string is identical for every agent in the
- * batch, so the provider can cache it across parallel batches in the
- * same turn and sequential batches across turns. Goes in the `system`
- * field of the LLM request, not the user prompt, so it is eligible for
- * Anthropic prefix caching.
+ * Static system prompt for batched reactions, one string per scenario.
+ * The turn's situation (event, decision, outcome, morale, population)
+ * goes in the user prompt via `buildBatchSituationContext`, and each
+ * agent's block via `buildBatchAgentBlock`.
  *
- * The per-agent identity/memory/history block goes in the user prompt
- * via `buildBatchAgentBlock` so it does NOT invalidate the cache.
- */
-/**
- * Static system prompt for batched reactions. Independent of any
- * per-turn / per-actor context so it serves cleanly out of the
- * provider prompt cache. The dynamic crisis context (turn, event,
- * decision, outcome, morale, population) moves to the user prompt via
- * `buildBatchSituationContext` — keeping it out of the system block
- * was the fix that turned the reaction cache from "writes only" into
- * "reads on every cohort actor's reaction call after the first."
+ * Not marked for the prompt cache: what every batch shares (this prompt,
+ * the schema block generateObject appends, the situation) is about 2,500
+ * characters, far below the 4,096 tokens Anthropic caches for Claude
+ * Haiku 4.5, and a turn's batches go out together, before any response
+ * could write an entry. The 40 reaction calls of the live runs of
+ * 3 November 2026 on gpt-5.4-nano read 0 cached tokens.
  */
 export function buildBatchSystemPrompt(labels?: Partial<ScenarioLabels>): string {
-  // The words are the scenario's, so the prompt stays one string per
-  // scenario and keeps serving from the provider's prompt cache.
   const w = scenarioWords(labels);
   return `You are each of several ${w.population} reacting to what just happened at your ${w.settlement}. Based on each person's personality, health, relationships, and memories, give a short reaction in their voice.
 
@@ -107,10 +98,8 @@ One entry per agent, in the same order, matching each agentId EXACTLY as given. 
 }
 
 /**
- * Per-call dynamic situation context. Lives in the user prompt rather
- * than the cached system block so cache lookups don't miss on every
- * turn/event/actor change. The model still sees identical structural
- * content; only the position relative to the cache boundary differs.
+ * Per-call dynamic situation context, at the head of the user prompt so
+ * the system prompt stays one string per scenario.
  */
 export function buildBatchSituationContext(ctx: ReactionContext): string {
   const w = scenarioWords({ ...ctx.labels, timeUnitNoun: ctx.timeUnitNoun ?? ctx.labels?.timeUnitNoun });
@@ -291,11 +280,10 @@ export async function generateAgentReactions(
   const startTime = Date.now();
 
   // Groups of `batchSize` agents share a single LLM call. The system
-  // prompt carries the shared crisis context (cached with cacheBreakpoint
-  // so providers that support prefix caching serve turns 2-N at 0.1×
-  // cost). The user prompt lists the agents' identity/history blocks.
-  // Outer `maxConcurrent` still throttles API concurrency to avoid
-  // hitting provider rate limits on a large colony.
+  // prompt carries the instructions; the user prompt the turn's situation
+  // and the agents' identity/history blocks. Outer `maxConcurrent` still
+  // throttles API concurrency to avoid hitting provider rate limits on a
+  // large colony.
   const chunks: Agent[][] = [];
   for (let i = 0; i < alive.length; i += batchSize) {
     chunks.push(alive.slice(i, i + batchSize));
@@ -327,7 +315,7 @@ export async function generateAgentReactions(
           model,
           schema: ReactionBatchSchema,
           schemaName: 'ReactionBatch',
-          systemCacheable: systemPrompt,
+          systemTail: systemPrompt,
           prompt: userPrompt,
           // Batch of `batchSize` reactions (~200 tokens each incl.
           // intensity + reasoning). Cap at 4500 to cover 10-agent batches

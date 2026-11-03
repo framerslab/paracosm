@@ -38,6 +38,7 @@ import {
   searchCredential,
   type SearchCredentialOptions,
 } from '../../engine/provider/credentials.js';
+import { createResearchSearch } from '../../engine/provider/web-search.js';
 import type { LlmProvider } from '../../engine/types.js';
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,7 @@ import type { LlmProvider } from '../../engine/types.js';
  * Multi-provider web search tool exposed to every department agent.
  *
  * Tries AgentOS WebSearchService first (Serper, Tavily, Firecrawl, Brave
- * with RRF fusion and optional Cohere rerank). Falls back to a direct
+ * with RRF fusion, and Cohere rerank when COHERE_API_KEY is set). Falls back to a direct
  * Serper call when the fusion service is unavailable. Missing keys
  * return a clean error payload instead of throwing.
  */
@@ -69,16 +70,11 @@ export function createWebSearchTool(
       const braveKey = searchCredential(credentials.braveKey, 'BRAVE_API_KEY', env);
       const cohereKey = searchCredential(credentials.cohereKey, 'COHERE_API_KEY', env);
       try {
-        const { WebSearchService, FirecrawlProvider, TavilyProvider, SerperProvider, BraveProvider } = await import('@framers/agentos/cognition/web-search');
-        const service = new WebSearchService();
-        if (firecrawlKey) service.registerProvider(new FirecrawlProvider(firecrawlKey));
-        if (tavilyKey) service.registerProvider(new TavilyProvider(tavilyKey));
-        if (serperKey) service.registerProvider(new SerperProvider(serperKey));
-        if (braveKey) service.registerProvider(new BraveProvider(braveKey));
+        const service = await createResearchSearch({ firecrawlKey, tavilyKey, serperKey, braveKey, cohereKey });
         if (!service.hasProviders()) {
           return { success: false, error: 'No search API keys configured. Set SERPER_API_KEY, TAVILY_API_KEY, FIRECRAWL_API_KEY, or BRAVE_API_KEY.' };
         }
-        const results = await service.search(query, { maxResults: 5, rerank: !!cohereKey });
+        const { results, reranked } = await service.search(query, 5);
         return {
           success: true,
           output: {
@@ -88,7 +84,7 @@ export function createWebSearchTool(
               relevance: (r as any).rerankScore || (r as any).rrfScore || r.relevanceScore,
             })),
             query,
-            reranked: !!cohereKey,
+            reranked,
           },
         };
       } catch {
