@@ -158,3 +158,60 @@ test('a report moves a person\'s psych at most 0.15 a turn, and a patch never wr
   assert.match(note?.description ?? '', /cumulativeRadiationMsv/);
   assert.match(note?.description ?? '', /boneDensityPct/);
 });
+
+test('a negative declared surface dose adds nothing and takes no dose away', () => {
+  const k = new SimulationKernel(950, 'Aria Chen', [], {
+    startTime: 2035, initialPopulation: 10, scenario: marsScenario,
+    startingEnvironment: { surfaceRadiationMsvDay: -1 },
+  });
+  k.advanceTurn(1, 2035, hook);
+  k.advanceTurn(2, 2043, hook);
+  for (const p of k.getState().agents.filter(a => a.health.alive)) {
+    assert.equal(p.health.cumulativeRadiationMsv, 0, `${p.core.name}'s dose`);
+  }
+});
+
+test('children born in one turn never share an id, so never share dice', async () => {
+  // Every draw the same: every couple has a child and every child draws
+  // the same id suffix.
+  const { progressBetweenTurns } = await import('../../src/engine/core/progression.js');
+  const k = mars();
+  const state = k.getState();
+  const constant = { next: () => 0.5, chance: (p: number) => 0.5 < p, int: (min: number, max: number) => min + Math.floor(0.5 * (max - min + 1)), pick: <T>(arr: readonly T[]) => arr[Math.floor(0.5 * arr.length)] };
+  // Partner the adults pairwise so the births path has couples to try.
+  const grown = state.agents.filter(a => state.metadata.currentTime - a.core.birthTime >= 22 && state.metadata.currentTime - a.core.birthTime <= 40);
+  for (let i = 0; i + 1 < grown.length; i += 2) {
+    grown[i].social.partnerId = grown[i + 1].core.id;
+    grown[i + 1].social.partnerId = grown[i].core.id;
+  }
+  const next = { ...state, metadata: { ...state.metadata, currentTime: 2043, currentTurn: 2 } };
+  const { state: after } = progressBetweenTurns(next, 8, constant as never);
+  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime === 2043);
+  assert.ok(born.length >= 2, `children born: ${born.length}`);
+  const ids = after.agents.map(a => a.core.id);
+  assert.equal(new Set(ids).size, ids.length, `ids: ${born.map(a => a.core.id).join(', ')}`);
+});
+
+test('a person\'s psych moves at most 0.15 a turn however many reports and patches name them', () => {
+  const k = mars();
+  const [person] = adults(k);
+  const start = person.health.psychScore;
+  const psych = () => k.getState().agents.find(p => p.core.id === person.core.id)!.health.psychScore;
+  k.applyAgentUpdates([
+    { agentId: person.core.id, health: { psychScore: 0.05 } },
+    { agentId: person.core.id, health: { psychScore: 0.05 } },
+  ]);
+  k.applyPolicy({
+    description: 'a department patch',
+    patches: { agentUpdates: [{ agentId: person.core.id, health: { psychScore: 0.05 } }] },
+    events: [],
+  });
+  k.applyAgentUpdates([{ agentId: person.core.id, health: { psychScore: 0.05 } }]);
+  assert.ok(Math.abs(psych() - Math.max(0.05, start - 0.15)) < 1e-9, `psych ${start} moved to ${psych()} in one turn`);
+
+  // The next turn has a budget of its own.
+  k.advanceTurn(1, 2035, hook);
+  const next = psych();
+  k.applyAgentUpdates([{ agentId: person.core.id, health: { psychScore: 0.05 } }, { agentId: person.core.id, health: { psychScore: 0.05 } }]);
+  assert.ok(Math.abs(psych() - Math.max(0.05, next - 0.15)) < 1e-9, `psych ${next} moved to ${psych()} on the next turn`);
+});
