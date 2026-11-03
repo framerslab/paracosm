@@ -15,6 +15,8 @@ export interface CommanderPolicyApplied {
   deltas: Record<string, number>;
   /** The selections that name no effect of the reports. */
   unmatched: string[];
+  /** The selections whose key names more than one effect; none of them applied. */
+  ambiguous: string[];
 }
 
 /**
@@ -33,7 +35,8 @@ export function applyCommanderPolicy(
 ): CommanderPolicyApplied {
   const deltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
   if (Object.keys(deltas).length > 0) log(`  [policy] effects: ${JSON.stringify(deltas)}`);
-  const { unmatched } = resolveSelectedEffects(decision, reports);
+  const { unmatched, ambiguous } = resolveSelectedEffects(decision, reports);
   if (unmatched.length > 0) log(`  [policy] no effect named by: ${unmatched.map(u => JSON.stringify(u)).join(', ')}`);
-  return { deltas, unmatched };
+  if (ambiguous.length > 0) log(`  [policy] more than one effect named by, none applied: ${ambiguous.map(u => JSON.stringify(u)).join(', ')}`);
+  return { deltas, unmatched, ambiguous };
 }

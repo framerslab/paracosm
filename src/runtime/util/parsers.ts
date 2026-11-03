@@ -53,10 +53,12 @@ export function selectableEffects(reports: DepartmentReport[]) {
 /** One effect a commander can select, under its key. */
 export type SelectableEffect = ReturnType<typeof selectableEffects>[number];
 
-/** The effects a decision selects, and the selections that name none. */
+/** The effects a decision selects, and the selections that name none or more than one. */
 export interface EffectSelection {
   picked: SelectableEffect[];
   unmatched: string[];
+  /** Selections whose key names more than one effect (two effects under one key, or keys that differ only by case); none of them applies. */
+  ambiguous: string[];
 }
 
 /** Where a selection's key ends: the end, or the type or description written after it. */
@@ -65,33 +67,71 @@ const KEY_END = /^(?:$|[\s(:,;])/;
 /**
  * The effects a commander's decision selects. The commander is asked for
  * `selectedPolicies` and writes the keys it is shown there, bare or with
- * the type or the description after them ("medical/effect_1 (risk_mitigation)");
+ * the type or the description after them ("medical/effect_1 (risk_mitigation)"),
+ * one or several to a string ("medical/effect_1, engineering/effect_1");
  * `selectedEffectIds` is read too. A selection names an effect by its key,
- * or by its bare id, which reads the first report that holds it; case does
- * not count, and an effect named twice counts once. A selection that names
- * no effect is returned in `unmatched`, once.
+ * or by its bare id, which reads the first report that holds it. A key
+ * matches as written first; in another case it matches only when one
+ * effect has it. An effect named twice counts once. A selection that names
+ * no effect is returned in `unmatched`, and one whose key names two
+ * effects in `ambiguous`, once each.
  */
 export function resolveSelectedEffects(decision: CommanderDecision, reports: DepartmentReport[]): EffectSelection {
   const effects = selectableEffects(reports);
-  const byKey = effects.map(e => ({ entry: e, key: e.key.toLowerCase(), id: String(e.effect.id ?? '').toLowerCase() }));
+  type Candidate = { entry: SelectableEffect; key: string; id: string };
+  const all: Candidate[] = effects.map(e => ({ entry: e, key: e.key, id: String(e.effect.id ?? '') }));
   // Longest first, so a key that starts another ("effect_1" and "effect_10") never takes its place.
-  const longest = (field: 'key' | 'id') => [...byKey].sort((a, b) => b[field].length - a[field].length);
+  const longest = (field: 'key' | 'id') => [...all].sort((a, b) => b[field].length - a[field].length);
   const keys = longest('key');
   const ids = longest('id');
-  const names = (field: 'key' | 'id', text: string) => (c: (typeof byKey)[number]) =>
-    c[field].length > 0 && text.startsWith(c[field]) && KEY_END.test(text.slice(c[field].length));
+  const fold = (v: string) => v.toLowerCase();
+  const starts = (value: string, text: string) => value.length > 0 && text.startsWith(value) && KEY_END.test(text.slice(value.length));
+
+  /** The effect a key at the head of `text` names: one, none, or more than one. */
+  const byKey = (text: string): SelectableEffect | 'ambiguous' | undefined => {
+    for (const cased of [true, false]) {
+      const value = (c: Candidate) => (cased ? c.key : fold(c.key));
+      const head = cased ? text : fold(text);
+      const hit = keys.find(c => starts(value(c), head));
+      if (!hit) continue;
+      const same = keys.filter(c => value(c) === value(hit));
+      return same.length > 1 ? 'ambiguous' : hit.entry;
+    }
+    return undefined;
+  };
+  /** A bare id reads the first report that holds it, as written first. */
+  const byId = (text: string, prefix: boolean): SelectableEffect | undefined => {
+    for (const cased of [true, false]) {
+      const value = (c: Candidate) => (cased ? c.id : fold(c.id));
+      const head = cased ? text : fold(text);
+      const hit = ids.find(c => c.id.length > 0 && value(c) === head) ?? (prefix ? ids.find(c => starts(value(c), head)) : undefined);
+      if (hit) return hit.entry;
+    }
+    return undefined;
+  };
 
   const picked = new Set<SelectableEffect>();
   const unmatched: string[] = [];
+  const ambiguous: string[] = [];
+  const note = (list: string[], text: string) => { if (!list.includes(text)) list.push(text); };
   const choices = [...(decision.selectedEffectIds ?? []), ...(decision.selectedPolicies ?? [])];
   for (const chosen of choices) {
     if (typeof chosen !== 'string' || !chosen.trim()) continue;
-    const text = chosen.trim().toLowerCase();
-    const hit = keys.find(names('key', text)) ?? ids.find(c => c.id === text) ?? ids.find(names('id', text));
-    if (hit) picked.add(hit.entry);
-    else if (!unmatched.includes(chosen.trim())) unmatched.push(chosen.trim());
+    // A selection may list several keys, split by commas or semicolons; a
+    // later part that starts with no key is the description going on.
+    const parts = chosen.trim().split(/\s*[,;]\s*/);
+    parts.forEach((part, i) => {
+      if (!part) return;
+      const first = i === 0;
+      const key = byKey(part);
+      const hit = key ?? byId(part, first);
+      const label = first ? chosen.trim() : part;
+      if (hit === 'ambiguous') note(ambiguous, label);
+      else if (hit) picked.add(hit);
+      else if (first) note(unmatched, label);
+    });
   }
-  return { picked: effects.filter(e => picked.has(e)), unmatched };
+  return { picked: effects.filter(e => picked.has(e)), unmatched, ambiguous };
 }
 
 /**
