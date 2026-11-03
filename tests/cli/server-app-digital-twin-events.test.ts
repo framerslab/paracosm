@@ -96,6 +96,42 @@ async function readReplay(base: string, query = ''): Promise<Frame[]> {
   return frames.slice(1, frames.findIndex(f => f.event === 'replay_done'));
 }
 
+/**
+ * Connects to /events, reads past its replay, and returns the next live frame
+ * of a given type on request.
+ */
+async function openLive(base: string): Promise<{ next: (event: string) => Promise<Frame>; close: () => void }> {
+  const ac = new AbortController();
+  const res = await fetch(`${base}/events`, { signal: ac.signal });
+  assert.equal(res.status, 200);
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  while (!text.includes('event: replay_done')) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  text = text.slice(text.indexOf('event: replay_done'));
+  text = text.slice(text.indexOf('\n\n') + 2);
+  const next = async (event: string): Promise<Frame> => {
+    for (;;) {
+      const end = text.indexOf('\n\n');
+      if (end >= 0) {
+        const frame = text.slice(0, end);
+        text = text.slice(end + 2);
+        if (!frame.startsWith(`event: ${event}\n`)) continue;
+        const dataLine = frame.split('\n')[1] ?? 'data: {}';
+        return { event, data: JSON.parse(dataLine.slice('data: '.length)) as Record<string, unknown> };
+      }
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the stream ended before a ${event} event`);
+      text += decoder.decode(value, { stream: true });
+    }
+  };
+  return { next, close: () => ac.abort() };
+}
+
 async function waitFor(check: () => Promise<boolean>, what: string): Promise<void> {
   const deadline = Date.now() + 2000;
   while (!(await check())) {
@@ -225,7 +261,7 @@ test('a run the provider stopped ends as aborted, as a pair run does', async () 
   });
 });
 
-test('a /clear during a Digital Twin run leaves the buffer naming the run, so a page goes on judging it by its scenario', async () => {
+test("a /clear during a Digital Twin run leaves the run's frames in the buffer, so a page that reconnects keeps its turn count", async () => {
   let finish = () => {};
   const held = new Promise<void>(resolve => { finish = resolve; });
   await withServer(async ({ onEvent }) => {
@@ -237,18 +273,28 @@ test('a /clear during a Digital Twin run leaves the buffer naming the run, so a 
     const answer = post(base, '/api/quickstart/simulate-intervention', body({ runKey: 'page-run-key-1' }));
     await waitFor(async () => (await readReplay(base)).some(f => f.event === 'sim'), "the twin's first event");
 
-    // Any page's Clear, or the /clear a page posts with its own run when that
-    // /clear lands second.
-    assert.equal((await post(base, '/clear', {})).status, 200);
-    const cleared = await readReplay(base);
-    assert.deepEqual(cleared.map(f => f.event), ['active_scenario']);
-    assert.equal(cleared[0].data.id, scenario.id);
-    assert.equal(cleared[0].data.runKey, 'page-run-key-1');
+    // A page connected through the /clear: it is told which run is writing,
+    // so it judges the run's later events by its scenario.
+    const live = await openLive(base);
+    try {
+      // Any page's Clear, or the /clear a page posts with its own run when
+      // that /clear lands after the run's first frames.
+      assert.equal((await post(base, '/clear', {})).status, 200);
+      const told = await live.next('active_scenario');
+      assert.equal(told.data.id, scenario.id);
+      assert.equal(told.data.runKey, 'page-run-key-1');
+    } finally {
+      live.close();
+    }
+    const kept = await readReplay(base);
+    assert.deepEqual(kept.map(f => f.event), ['active_scenario', 'status', 'sim']);
+    assert.equal(kept[0].data.runKey, 'page-run-key-1');
+    assert.equal(kept[1].data.maxTurns, 2);
 
     finish();
     assert.equal((await answer).status, 200);
     const frames = await readReplay(base);
-    assert.deepEqual(frames.map(f => f.event).filter(e => e !== 'sim_saved'), ['active_scenario', 'sim', 'complete']);
+    assert.deepEqual(frames.map(f => f.event).filter(e => e !== 'sim_saved'), ['active_scenario', 'status', 'sim', 'sim', 'complete']);
 
     // The run is over: a /clear now leaves the buffer empty.
     assert.equal((await post(base, '/clear', {})).status, 200);
