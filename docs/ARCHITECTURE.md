@@ -671,7 +671,7 @@ Paracosm uses AgentOS for all agent orchestration, LLM calls, tool forging, and 
 | `session.send()` + Zod validation | Session-aware Zod-validated calls (commander, departments, promotions) via `sendAndValidate` |
 | `ObjectGenerationError` | Typed error surfaced on exhausted retries; wrappers fall back to empty skeleton + emit `validation_fallback` SSE |
 | `extractJson` | Multi-strategy JSON extraction (code fence, thinking-tag strip, greedy brace match) used by `sendAndValidate` |
-| `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt, reaction batch system) |
+| `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt). The reaction batch prompt is not marked: what its batches share is far below the provider's cache minimum (4,096 tokens on Claude Haiku 4.5) |
 | `EmergentCapabilityEngine` | Runtime tool forging in an in-process node:vm context |
 | `EmergentJudge` | LLM-as-judge safety review of forged tools |
 | `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG; each run's research memory |
