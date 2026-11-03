@@ -124,3 +124,52 @@ test('a query with a line break writes one log line when the rerank does not run
   assert.ok(line, `the missed rerank is logged:\n${logged.join('\n')}`);
   assert.doesNotMatch(line, /\n/, 'the query cannot start a log line of its own');
 });
+
+test('seed ingestion keeps Cohere\'s best three of every result the search found, not a reorder of the first three', async () => {
+  // Seed ingestion files three citations a query, and Serper returns five.
+  // WebSearchService slices its fused list to the requested count before it
+  // reranks, so asking it for three handed Cohere only the fused first three
+  // and the result Cohere would rank first never reached the bundle.
+  const organic = [
+    ...ORGANIC,
+    { link: 'https://example.org/d-dust', title: 'D: Dust storms', snippet: 'Seasonal dust opacity and its effect on solar arrays.' },
+    { link: 'https://example.org/e-bacteria', title: 'E: Perchlorate-reducing bacteria', snippet: 'Microbes that strip perchlorate from regolith ahead of planting.' },
+  ];
+  const score: Record<string, number> = { A: 0.42, B: 0.07, C: 0.91, D: 0.2, E: 0.95 };
+  const cohere: Array<{ documents: number; topN: number }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('https://google.serper.dev/search')) {
+      return new Response(JSON.stringify({ organic }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.endsWith('/v1/rerank')) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { documents: Array<string | { text: string }>; top_n?: number };
+      const docs = body.documents.map(d => (typeof d === 'string' ? d : d.text));
+      cohere.push({ documents: docs.length, topN: body.top_n ?? docs.length });
+      const results = docs
+        .map((text, index) => ({ index, relevance_score: score[organic.find(o => text.includes(o.snippet))!.title[0]] }))
+        .sort((x, y) => y.relevance_score - x.relevance_score)
+        .slice(0, body.top_n ?? docs.length);
+      return new Response(JSON.stringify({ id: 'r2', results, meta: {} }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`unexpected fetch in test: ${url}`);
+  }) as typeof fetch;
+
+  const extraction = JSON.stringify({
+    topics: ['perchlorate soil'],
+    facts: [{ topic: 'perchlorate soil', claim: 'Martian regolith holds perchlorate salts.' }],
+    searchQueries: [QUERY],
+    crisisCategories: ['agriculture'],
+  });
+  const bundle = await ingestSeed('A brief about growing food in martian soil.', {
+    generateText: async () => extraction,
+    webSearch: true,
+    maxSearches: 1,
+    serperKey: 'test-serper',
+    cohereKey: 'test-cohere',
+  });
+  assert.equal(cohere.length, 1, 'one Cohere call for the search, as before');
+  assert.equal(cohere[0].documents, 5, 'Cohere reads every result the search found');
+  const urls = bundle.topics['perchlorate soil'].canonicalFacts.map(f => f.url).filter(Boolean);
+  assert.deepEqual(urls, [organic[4].link, organic[2].link, organic[0].link]);
+});
