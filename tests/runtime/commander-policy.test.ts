@@ -189,3 +189,38 @@ test('a decision with no selection moves nothing and logs nothing', () => {
   assert.deepEqual(deltas, {});
   assert.deepEqual(lines, []);
 });
+
+test('two keys written in one selection both apply, and a comma inside a description adds nothing', () => {
+  const kernel = marsKernel();
+  const { unmatched } = step(kernel, reply({ selectedPolicies: ['medical/effect_1, engineering/effect_1'] }), ariaTurn1());
+  // 0.85 + 0.03 + 0.03: the second key was dropped before.
+  near(kernel.getState().metrics.morale, 0.91, 'both keys');
+  assert.deepEqual(unmatched, []);
+
+  const described = marsKernel();
+  step(described, reply({
+    selectedPolicies: ['medical/effect_2 (capacity_expansion): front-load shielded water extraction, bermed habitat construction'],
+  }), ariaTurn1());
+  near(described.getState().metrics.morale, 0.87, 'medical/effect_2 alone');
+});
+
+test('a key that names two effects, by case or twice, applies neither and is reported', () => {
+  const reports = [report('medical', [
+    { id: 'effect_1', type: 'risk_mitigation', description: 'Shielded berms.', systemDelta: { morale: 0.03 } },
+    { id: 'Effect_1', type: 'research_bet', description: 'Deep drilling.', systemDelta: { morale: -0.05 } },
+    { id: 'effect_2', type: 'risk_mitigation', description: 'Storm refuge.', systemDelta: { morale: 0.02 } },
+    { id: 'effect_2', type: 'resource_shift', description: 'Water import cut.', systemDelta: { morale: -0.04 } },
+  ])];
+  // The key as shown, case and all, names one effect.
+  const exact = marsKernel();
+  step(exact, reply({ selectedPolicies: ['medical/Effect_1'] }), reports);
+  near(exact.getState().metrics.morale, 0.80, 'medical/Effect_1 is the drilling effect');
+
+  // A key in another case that two effects share, or a key two effects carry, names neither.
+  const kernel = marsKernel();
+  const { unmatched, ambiguous, lines } = step(kernel, reply({ selectedPolicies: ['MEDICAL/EFFECT_1', 'medical/effect_2'] }), reports);
+  assert.equal(kernel.getState().metrics.morale, 0.85);
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(ambiguous, ['MEDICAL/EFFECT_1', 'medical/effect_2']);
+  assert.ok(lines.some(l => l.includes('[policy]') && l.includes('MEDICAL/EFFECT_1') && l.includes('medical/effect_2')), lines.join('\n'));
+});
