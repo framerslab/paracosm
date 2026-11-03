@@ -502,11 +502,20 @@ export function progressBetweenTurns(
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
   const partneredBirthProb = Math.min(0.6, baseBirthProb * 3);
   const solitaryBirthProb = baseBirthProb * 0.3;
+  // Every id on the roster, so a child's id is never another person's
+  // (each person's dice are keyed by their id).
+  const takenIds = new Set(colonists.map(c => c.core.id));
   const tryBirth = (p1: Agent, p2: Agent) => {
     // deterministic shared block below; inlined so both paths reuse the
     // same child-creation logic without duplicating the heavy literal.
     const childName = `${turnRng.pick(['Nova', 'Kai', 'Sol', 'Tera', 'Eos', 'Zan', 'Lyra', 'Orion', 'Vega', 'Juno', 'Atlas', 'Iris', 'Clio', 'Pax', 'Io', 'Thea'])} ${p1.core.name.split(' ').pop()}`;
-    const childId = `col-born-${time}-${turnRng.int(1000, 9999)}`;
+    let childId = `col-born-${time}-${turnRng.int(1000, 9999)}`;
+    if (takenIds.has(childId)) {
+      let n = 2;
+      while (takenIds.has(`${childId}-${n}`)) n++;
+      childId = `${childId}-${n}`;
+    }
+    takenIds.add(childId);
     const childHexaco: any = {};
     for (const trait of ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'emotionality', 'honestyHumility'] as const) {
       childHexaco[trait] = Math.max(0.05, Math.min(0.95,

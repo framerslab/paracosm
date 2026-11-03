@@ -46,7 +46,7 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
   // A declared surface dose (mSv a day) replaces the default index; the
   // habitat's modules shield either.
   const declared = ctx.environment?.surfaceRadiationMsvDay;
-  const perYear = typeof declared === 'number' && Number.isFinite(declared) ? declared * 365 : LUNAR_REGOLITH_EXPOSURE_PER_YEAR;
+  const perYear = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) * 365 : LUNAR_REGOLITH_EXPOSURE_PER_YEAR;
   const exposurePerYear = perYear * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {

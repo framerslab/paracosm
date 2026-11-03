@@ -163,13 +163,6 @@ export const PSYCH_STEP = 0.15;
 /** The health keys a department's patch may write. */
 const PATCHABLE_HEALTH = new Set(['psychScore', 'conditions']);
 
-/** Move a person's psych toward `target` (clamped 0 to 1) by at most {@link PSYCH_STEP}. */
-function movePsych(agent: Agent, target: number): void {
-  if (!Number.isFinite(target)) return;
-  const goal = Math.max(0, Math.min(1, target));
-  const current = agent.health.psychScore;
-  agent.health.psychScore = current + Math.max(-PSYCH_STEP, Math.min(PSYCH_STEP, goal - current));
-}
 
 export interface SystemsPatch {
   metrics?: Partial<WorldMetrics>;
@@ -311,6 +304,29 @@ export class SimulationKernel {
   }
 
   getState(): SimulationState { return structuredClone(this.state); }
+
+  /** The turn {@link psychAtFirstWrite} holds, and each person's psych at the turn's first department write. */
+  private psychTurn = -1;
+  private psychAtFirstWrite = new Map<string, number>();
+
+  /**
+   * Move a person's psych toward `target` (clamped 0 to 1), never more
+   * than {@link PSYCH_STEP} from where it stood at the turn's first
+   * department write, however many reports and patches name them.
+   */
+  private movePsych(agent: Agent, target: number): void {
+    if (!Number.isFinite(target)) return;
+    const turn = this.state.metadata.currentTurn;
+    if (turn !== this.psychTurn) {
+      this.psychTurn = turn;
+      this.psychAtFirstWrite.clear();
+    }
+    const id = agent.core.id;
+    if (!this.psychAtFirstWrite.has(id)) this.psychAtFirstWrite.set(id, agent.health.psychScore);
+    const start = this.psychAtFirstWrite.get(id)!;
+    const goal = Math.max(0, Math.min(1, target));
+    agent.health.psychScore = start + Math.max(-PSYCH_STEP, Math.min(PSYCH_STEP, goal - start));
+  }
 
   /**
    * Years in one unit of the run's time. A state saved before units had
@@ -473,7 +489,7 @@ export class SimulationKernel {
           for (const key of Object.keys(u.health)) {
             if (!PATCHABLE_HEALTH.has(key)) dropped.add(key);
           }
-          if (typeof u.health.psychScore === 'number') movePsych(col, u.health.psychScore);
+          if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
           if (Array.isArray(u.health.conditions)) col.health.conditions = [...u.health.conditions];
         }
         if (u.career) Object.assign(col.career, u.career);
@@ -766,7 +782,7 @@ export class SimulationKernel {
       if (!col || !col.health.alive) continue;
 
       if (u.health) {
-        if (typeof u.health.psychScore === 'number') movePsych(col, u.health.psychScore);
+        if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
         if (u.health.conditions) {
           col.health.conditions = u.health.conditions;
         }

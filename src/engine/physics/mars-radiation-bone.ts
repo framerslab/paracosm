@@ -57,7 +57,8 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
   const yearsPerUnit = ctx.yearsPerUnit ?? 1;
   const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
   const declared = ctx.environment?.surfaceRadiationMsvDay;
-  const surfacePerDay = typeof declared === 'number' && Number.isFinite(declared) ? declared : MARS_SURFACE_MSV_PER_DAY;
+  // A dose is never negative: a declared rate under zero counts as none.
+  const surfacePerDay = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) : MARS_SURFACE_MSV_PER_DAY;
   const dosePerYear = surfacePerDay * 365 * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {
