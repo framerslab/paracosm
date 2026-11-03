@@ -47,6 +47,20 @@ export interface ForgedToolLedgerEntry {
 export type ForgedLedger = Map<string, ForgedToolLedgerEntry>;
 
 /**
+ * Whether the reviewers approved a tool, from its ledger entry: one of its
+ * forges passed. A department that cites a tool without calling forge_tool
+ * writes a use that is not rejected, and that use approves nothing: a tool
+ * whose every forge was rejected stays rejected however often it is cited.
+ * A tool that first appears as such a use is a forge the run did not
+ * capture, which a department's report names, and that first use counts.
+ */
+function ledgerApproved(entry: ForgedToolLedgerEntry): boolean {
+  const first = entry.history[0];
+  if (first && !first.isReforge && !first.rejected) return true;
+  return entry.history.some(h => h.isReforge && !h.rejected);
+}
+
+/**
  * Build the ALREADY-FORGED TOOLS block appended to every department's
  * per-turn context. Tells the LLM which tools are available to reuse,
  * shows each tool's last approved output so the LLM can cite a number
@@ -64,6 +78,7 @@ export function buildAvailableToolsBlock(ledger: ForgedLedger): string {
   type Entry = { name: string; dept: string; title: string; output: string | null };
   const approved: Entry[] = [];
   for (const [name, entry] of ledger.entries()) {
+    if (!ledgerApproved(entry)) continue;
     const lastApproved = [...entry.history].reverse().find(h => !h.rejected);
     if (!lastApproved) continue;
     approved.push({
@@ -133,21 +148,22 @@ export function buildForgedToolbox(
   for (const [name, entry] of ledger) {
     const firstForge = allForges.find(f => f.name === name);
     const departments = new Set<string>();
-    let approved = false;
     let maxConfidence = 0;
+    let maxForgeConfidence = 0;
     let sampleOutput: string | null = null;
     let reforgeCount = 0;
     let rejectedReforges = 0;
     for (const h of entry.history) {
       departments.add(h.department);
-      if (!h.rejected) approved = true;
       if (typeof h.confidence === 'number' && h.confidence > maxConfidence) maxConfidence = h.confidence;
       if (h.output) sampleOutput = h.output;
       if (h.isReforge) {
         reforgeCount++;
         if (h.rejected) rejectedReforges++;
+        if (typeof h.confidence === 'number' && h.confidence > maxForgeConfidence) maxForgeConfidence = h.confidence;
       }
     }
+    const approved = ledgerApproved(entry) || (firstForge?.approved ?? false);
     const totalUses = entry.history.length;
     out.push({
       name,
@@ -161,11 +177,15 @@ export function buildForgedToolbox(
       totalUses,
       reforgeCount,
       rejectedReforges,
-      approved: approved || (firstForge?.approved ?? false),
+      approved,
       // Highest judge confidence across this tool's invocations. When
       // no approval ever landed, confidence is 0 — never fabricate a
-      // default that misrepresents rejected tools as borderline.
-      confidence: maxConfidence || (firstForge?.approved ? firstForge.confidence : 0),
+      // default that misrepresents rejected tools as borderline. A
+      // rejected tool keeps its forges' confidence: the confidence a
+      // department wrote when it cited the tool is not the judge's.
+      confidence: approved
+        ? maxConfidence || (firstForge?.approved ? firstForge.confidence : 0)
+        : maxForgeConfidence,
       inputSchema: entry.inputSchema,
       outputSchema: entry.outputSchema,
       sampleOutput,
@@ -180,8 +200,8 @@ export function buildForgedToolbox(
  * the toolbox `buildForgedToolbox` builds from the same ledger, which is what
  * the run's artifact ships as `forgedTools` and what the verdict counts. A
  * tool used by three departments is one tool, and a forge attempt the
- * reviewers rejected is none. The stream's `toolsForged` and the director's
- * "Tools forged so far" read this.
+ * reviewers rejected is none, also when a department cites it later. The
+ * stream's `toolsForged` and the director's "Tools forged so far" read this.
  */
 export function forgedToolNames(
   ledger: ForgedLedger,
