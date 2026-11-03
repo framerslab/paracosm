@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
+import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { leaderUnit, type ScenarioLabelsInput } from '../../hooks/useScenarioLabels.helpers';
 import { getActorColorVar } from '../../hooks/useGameState';
@@ -206,6 +206,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const scenarioReady = useScenarioReady();
   const labels = useScenarioLabels();
   const navigateTab = useDashboardNavigation();
+  const runStart = useRunStart();
 
   // The form starts from the leaders of the most recent /setup launch (or
   // slot defaults), so a run with 3+ actors resumes here with its full
@@ -457,6 +458,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       if (hasUserLlmKey) {
         config.models = { ...tierModels };
       }
+      runStart();
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -483,7 +485,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');

@@ -67,8 +67,9 @@ export interface QuickstartViewProps {
   /** Forwarded to the InterventionDemoCard. When the digital-twin run
    *  completes, App.tsx receives the artifact, parks it in
    *  interventionArtifact state, and switches to the SIM tab so
-   *  DigitalTwinPanel renders. */
-  onInterventionResult?: (artifact: RunArtifact) => void;
+   *  DigitalTwinPanel renders. The run's key comes with it, so App.tsx
+   *  drops the answer of a run the page has left since. */
+  onInterventionResult?: (artifact: RunArtifact, runKey: string) => void;
   /** Fired the instant the user clicks Run inside InterventionDemoCard,
    *  before the fetch lands. App.tsx uses it to switch to SIM
    *  immediately so live SSE events from the run render in
@@ -81,7 +82,7 @@ export interface QuickstartViewProps {
   }) => void;
   /** Fired when the digital-twin run fails. App.tsx ends the progress view
    *  the page is on by then, in the SIM tab, and says why there. */
-  onInterventionError?: (message: string) => void;
+  onInterventionError?: (message: string, runKey: string) => void;
 }
 
 type Phase =
@@ -640,9 +641,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
             <InterventionDemoCard
               onResult={onInterventionResult}
               onRunStart={onInterventionStart}
-              onError={(msg) => {
+              onError={(msg, runKey) => {
                 setErrorBanner(msg);
-                onInterventionError?.(msg);
+                onInterventionError?.(msg, runKey);
               }}
             />
           )}

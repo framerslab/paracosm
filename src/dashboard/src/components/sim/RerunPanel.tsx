@@ -11,7 +11,7 @@
  * @module paracosm/cli/dashboard/components/sim/RerunPanel
  */
 import { useCallback, useState } from 'react';
-import { useScenarioContext, useScenarioReady } from '../../App';
+import { useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import {
   buildNextRunConfig,
   isLastLaunchFor,
@@ -34,6 +34,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
+  const runStart = useRunStart();
 
   const handleClick = useCallback(async () => {
     if (launching || !scenarioReady) return;
@@ -46,6 +47,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
       }
       const overrides = readKeyOverrides(window.localStorage);
       const next = buildNextRunConfig(prev, overrides);
+      runStart();
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,7 +99,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
     } finally {
       setLaunching(false);
     }
-  }, [launching, scenarioReady, scenario.id, scenario.labels.name]);
+  }, [launching, scenarioReady, scenario.id, scenario.labels.name, runStart]);
 
   if (!enabled) return null;
 

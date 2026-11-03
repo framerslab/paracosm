@@ -3,7 +3,7 @@ import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import { useBranchesContext } from '../branches/BranchesContext';
-import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
+import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
 import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
@@ -204,6 +204,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   // visible once the parent run is terminal and snapshots exist.
   const { state: branchesState, dispatch: branchesDispatch } = useBranchesContext();
   const navigate = useDashboardNavigation();
+  const runStart = useRunStart();
   const labels = useScenarioLabels();
   const [forkModalAtTurn, setForkModalAtTurn] = useState<number | null>(null);
   const parentArtifact = branchesState.parent;
@@ -238,6 +239,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
       const parentTurns = forkFinalTurn(payload.parentArtifact);
       const seed = payload.seedOverride ?? payload.parentArtifact.metadata.seed ?? 42;
       try {
+        runStart();
         const res = await fetch('/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -272,7 +274,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         });
       }
     },
-    [branchesDispatch, navigate],
+    [branchesDispatch, navigate, runStart],
   );
   // Actor pair selection. For 2-actor runs the picker is hidden and the
   // canonical actorIds[0]/[1] pair is used. For 3+ actor runs the user
