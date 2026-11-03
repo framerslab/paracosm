@@ -38,12 +38,17 @@ const MARS_RADIATION_MSV_PER_YEAR = 0.67 * 365;
  */
 export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void {
   const { agents, timeDelta, time, startTime } = ctx;
+  // The step and the time since landing in years (a hook called without
+  // them counts in years, as Mars does).
+  const yearsDelta = ctx.yearsDelta ?? timeDelta;
+  const yearsPerUnit = ctx.yearsPerUnit ?? 1;
+  const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + MARS_RADIATION_MSV_PER_YEAR * timeDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + MARS_RADIATION_MSV_PER_YEAR * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather
@@ -58,7 +63,7 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
     // briefly produce time < startTime during snapshot rehydration,
     // which would otherwise yield a targetRatio > 1 and push bone
     // density above the immutable baseline.
-    const yearsOnMars = Math.max(0, time - (c.core.marsborn ? c.core.birthTime : startTime));
+    const yearsOnMars = Math.max(0, c.core.marsborn ? (time - c.core.birthTime) * yearsPerUnit : yearsSinceStart);
     const targetRatio = Math.max(0.5, 1 - lossRate * Math.min(yearsOnMars, 20));
     // Floor at 50% but never above the immutable baseline — guards
     // the theoretical case where an agent starts with bone density

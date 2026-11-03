@@ -78,6 +78,7 @@ import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
 import type { ResolvedEconomicsProfile } from '../economics/economics-profile.js';
 import { projectSystemBags } from '../io/world-snapshot.js';
+import { ageInYears } from '../../engine/core/time-unit.js';
 export type { ActorConfig };
 
 
@@ -1849,7 +1850,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       alive: a.health.alive,
       marsborn: a.core.marsborn,
       psychScore: a.health.psychScore,
-      age: Math.max(0, time - a.core.birthTime),
+      age: Math.max(0, Math.floor(ageInYears(a, time, kernel.yearsPerUnit))),
       generation: computeGeneration(a.core.id),
       partnerId: a.social.partnerId,
       childrenIds: a.social.childrenIds,
@@ -1883,7 +1884,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         agentId: a.core.id, name: a.core.name, department: a.core.department, role: a.core.role,
         rank: a.career.rank, alive: a.health.alive, marsborn: a.core.marsborn,
         psychScore: a.health.psychScore,
-        age: Math.max(0, time - a.core.birthTime),
+        age: Math.max(0, Math.floor(ageInYears(a, time, kernel.yearsPerUnit))),
         generation: a.core.marsborn ? 1 : 0,
         partnerId: a.social.partnerId,
         childrenIds: a.social.childrenIds, featured: a.narrative.featured,

@@ -231,6 +231,8 @@ Every scenario declares its own vocabulary via `labels.populationNoun` (plural),
 
 Time is unit-agnostic. `setup.defaultTimePerTurn` and `setup.defaultStartTime` are plain numbers; whether they represent years, quarters, hours, or ticks is decided by `timeUnitNoun`. The dashboard turn header reads `Quarter 5`, `Day 22`, or `Year 2043` straight from the label.
 
+Ages, experience and the kernel's yearly rates (births, deaths, partnerships, recovery, promotions) are in years. Between turns the kernel converts the elapsed units to years with `setup.yearsPerTimeUnit`, or, when the scenario declares none, with the length of the unit `timeUnitNoun` names: year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, and 1 for any other word (`tick`, `turn`). A month of Atlas Lab ages its people a twelfth of a year and rolls a twelfth of a year's births and deaths; an eight-year Mars turn ages its colonists eight years. Progression hooks get the step as `timeDelta` (the scenario's unit) and as `yearsDelta`, with `yearsSinceStart` and `yearsPerUnit` beside them.
+
 ---
 
 ## Compile and run

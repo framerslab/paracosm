@@ -23,6 +23,7 @@ import { ReactionBatchSchema } from '../validators/reactions.js';
 import { buildReactionCues } from './cues/hexaco/translation.js';
 import type { ScenarioLabels } from '../../engine/types.js';
 import { scenarioWords } from '../util/scenario-words.js';
+import { ageInYears } from '../../engine/core/time-unit.js';
 
 export interface AgentReaction {
   agentId: string;
@@ -62,6 +63,8 @@ export interface ReactionContext {
   timeUnitNoun?: string;
   /** The scenario's labels: the people, the place and the leader. */
   labels?: Partial<ScenarioLabels>;
+  /** Years in one unit of the run's time, for ages (1 when absent). */
+  yearsPerUnit?: number;
 }
 
 /**
@@ -112,7 +115,7 @@ Outcome: ${ctx.outcome}. Current morale: ${Math.round(ctx.colonyMorale * 100)}%.
  * user prompt; even small per-agent inflation compounds fast.
  */
 export function buildBatchAgentBlock(c: Agent, ctx: ReactionContext, reactionContextHook?: (agent: any, ctx: any) => string): string {
-  const age = ctx.time - c.core.birthTime;
+  const age = Math.floor(ageInYears(c, ctx.time, ctx.yearsPerUnit ?? 1));
   const h = c.hexaco;
   const bornLine = reactionContextHook ? reactionContextHook(c, ctx) : (c.core.marsborn ? 'Native-born.' : 'Arrived from outside.');
 
@@ -175,6 +178,7 @@ function hydrateBatchReactions(
   entries: ReactionEntryPayload[],
   agents: Agent[],
   time: number,
+  yearsPerUnit = 1,
 ): AgentReaction[] {
   const agentById = new Map(agents.map(a => [a.core.id, a]));
   const reactions: AgentReaction[] = [];
@@ -184,7 +188,7 @@ function hydrateBatchReactions(
     reactions.push({
       agentId: agent.core.id,
       name: agent.core.name,
-      age: time - agent.core.birthTime,
+      age: Math.floor(ageInYears(agent, time, yearsPerUnit)),
       department: agent.core.department,
       role: agent.core.role,
       specialization: agent.career.specialization,
@@ -329,7 +333,7 @@ export async function generateAgentReactions(
           if (firstBatchError == null) firstBatchError = new Error('reactions schema fallback');
           return [] as AgentReaction[];
         }
-        return hydrateBatchReactions(object.reactions as ReactionEntryPayload[], chunk, ctx.time);
+        return hydrateBatchReactions(object.reactions as ReactionEntryPayload[], chunk, ctx.time, ctx.yearsPerUnit ?? 1);
       } catch (err) {
         if (firstBatchError == null) firstBatchError = err;
         return [] as AgentReaction[];

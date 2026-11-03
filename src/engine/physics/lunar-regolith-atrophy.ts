@@ -38,12 +38,16 @@ const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
  */
 export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): void {
   const { agents, timeDelta, time, startTime } = ctx;
+  // The step and the time since landing in years (a hook called without
+  // them counts in years, as the Moon does).
+  const yearsDelta = ctx.yearsDelta ?? timeDelta;
+  const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + LUNAR_REGOLITH_EXPOSURE_PER_YEAR * timeDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + LUNAR_REGOLITH_EXPOSURE_PER_YEAR * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather
@@ -66,7 +70,7 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
     // above baseline. The min(yearsOnMoon, 15) handles the upper end
     // (saturation); Math.max(0, ...) handles the lower end (no-op
     // before crew lands).
-    const yearsOnMoon = Math.max(0, time - startTime);
+    const yearsOnMoon = Math.max(0, yearsSinceStart);
     const targetRatio = Math.max(0.4, 1 - lossRate * Math.min(yearsOnMoon, 15));
     // Floor at 40% but never above the immutable baseline — guards
     // the theoretical case where an agent starts with bone density
