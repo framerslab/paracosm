@@ -16,8 +16,21 @@
  */
 import type { ProgressionHookContext } from '../types.js';
 
-/** Mars surface radiation: 0.67 mSv/day per Curiosity RAD measurements. */
-const MARS_RADIATION_MSV_PER_YEAR = 0.67 * 365;
+/** Mars surface radiation, mSv a day, when the scenario declares none
+ *  (`world.environment.surfaceRadiationMsvDay`). */
+const MARS_SURFACE_MSV_PER_DAY = 0.67;
+
+/**
+ * The share of a surface dose that reaches a colonist: each habitat
+ * module keeps out a fifth, at most nine tenths in all. A run that
+ * carries no module count is unshielded.
+ */
+export function habitatDoseShare(metrics?: Readonly<Record<string, unknown>>): number {
+  const modules = metrics?.infrastructureModules;
+  return typeof modules === 'number' && Number.isFinite(modules)
+    ? 1 - Math.min(0.9, 0.2 * Math.max(0, modules))
+    : 1;
+}
 
 /**
  * Walk the agent roster, accumulate radiation dose, and apply bone-
@@ -43,12 +56,15 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
   const yearsDelta = ctx.yearsDelta ?? timeDelta;
   const yearsPerUnit = ctx.yearsPerUnit ?? 1;
   const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
+  const declared = ctx.environment?.surfaceRadiationMsvDay;
+  const surfacePerDay = typeof declared === 'number' && Number.isFinite(declared) ? declared : MARS_SURFACE_MSV_PER_DAY;
+  const dosePerYear = surfacePerDay * 365 * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + MARS_RADIATION_MSV_PER_YEAR * yearsDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + dosePerYear * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather

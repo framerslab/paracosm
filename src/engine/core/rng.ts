@@ -48,6 +48,23 @@ export class SeededRng {
     return arr[this.int(0, arr.length - 1)];
   }
 
+  /**
+   * A stream of its own for one draw: one person, one cause, one turn.
+   * The state is the FNV-1a 32-bit hash of `turn:agentId:cause` XOR the
+   * run's seed, so two runs with the same seed roll the same dice for the
+   * same person whatever else happened in them, and no other person's
+   * draw moves it.
+   */
+  static forDraw(seed: number, turn: number, agentId: string, cause: string): SeededRng {
+    const key = `${turn}:${agentId}:${cause}`;
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < key.length; i++) {
+      hash ^= key.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return new SeededRng((hash ^ seed) | 0);
+  }
+
   /** Derives a child RNG for a specific turn (deterministic sub-stream). */
   turnSeed(turn: number): SeededRng {
     return new SeededRng(this._state ^ (turn * 2654435761));

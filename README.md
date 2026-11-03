@@ -98,7 +98,7 @@ The kernel's between-turn progression hook reruns deterministically from each re
 >
 > Stanislaw Lem, *Solaris*, 1961
 
-Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly.
+Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, morale that holds, a department that keeps them off the airlock.
 
 Actors do not need to be people. The same authoring contract handles colony commanders, ship captains, AI release directors, governing councils, faction leaders, autonomous coordinators, or any entity whose decisions shape the world after a chain of inputs. Paracosm does not care what an actor represents. It cares how the actor decides.
 

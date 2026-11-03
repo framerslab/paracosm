@@ -292,6 +292,10 @@ export interface ProgressionHookContext {
   yearsSinceStart?: number;
   /** Years in one unit of the scenario's time. */
   yearsPerUnit?: number;
+  /** The run's metrics as the turn ends, read only (habitat modules shield a dose). */
+  metrics?: Readonly<Record<string, unknown>>;
+  /** The run's environment (`world.environment`), read only. */
+  environment?: Readonly<Record<string, unknown>>;
   /** Seeded RNG for deterministic random operations */
   rng: { chance(probability: number): boolean; next(): number; pick<T>(arr: readonly T[]): T; int(min: number, max: number): number };
 }
