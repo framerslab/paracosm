@@ -239,7 +239,6 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
       const parentTurns = forkFinalTurn(payload.parentArtifact);
       const seed = payload.seedOverride ?? payload.parentArtifact.metadata.seed ?? 42;
       try {
-        runStart();
         const res = await fetch('/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -264,6 +263,8 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           });
           return;
         }
+        // The server took the fork: it replaces the Digital Twin views.
+        runStart();
         // Branches is a sub-tab of Studio after the merge.
         navigate('studio');
       } catch (err) {

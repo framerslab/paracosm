@@ -458,7 +458,6 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       if (hasUserLlmKey) {
         config.models = { ...tierModels };
       }
-      runStart();
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -473,6 +472,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         return;
       }
       if (data.redirect) {
+        // The server took the run: it replaces the Digital Twin views.
+        runStart();
         setStatus('Running...');
         const targetHref = resolveSetupRedirectHref(window.location.href, data.redirect);
         const resolvedTab = getDashboardTabFromHref(targetHref);

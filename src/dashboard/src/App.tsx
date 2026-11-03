@@ -94,9 +94,11 @@ export function useDashboardNavigation() {
 
 const RunStartContext = createContext<() => void>(() => {});
 /**
- * What a control calls right before it posts /setup to start a run: App
- * leaves the Digital Twin views, which the new run replaces on the SIM tab.
- * Outside App it does nothing.
+ * What a Run control calls once the server has taken its run (the /setup
+ * answer carries a redirect, or its status is ok): App leaves the Digital
+ * Twin views, which the new run replaces on the SIM tab. A run the server
+ * refuses replaces nothing, so the control does not call it then. Outside
+ * App it does nothing.
  */
 export function useRunStart() {
   return useContext(RunStartContext);
@@ -315,11 +317,46 @@ function AppContent() {
     };
   });
 
+  // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
+  // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
+  // layout. Single-actor intervention runs are structurally different from
+  // multi-actor side-by-side runs, so the SIM UI swaps wholesale rather
+  // than trying to merge both shapes into one view. Cleared by the panel's
+  // dismiss button, and by leaveDigitalTwin.
+  const [interventionArtifact, setInterventionArtifact] = useState<RunArtifact | null>(null);
+  // While set, SIM renders DigitalTwinProgress (live-streaming events
+  // from the in-flight simulate-intervention run) instead of the
+  // parallel-actor layout or the static panel. Carries the prefilled
+  // subject + intervention so the progress view can echo them on
+  // screen before any artifact comes back. Cleared when the artifact
+  // arrives (panel takes over), when the user dismisses, and by
+  // leaveDigitalTwin.
+  const [interventionRunning, setInterventionRunning] = useState<{
+    subject: { id: string; name: string; profile?: Record<string, unknown> };
+    intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
+  } | null>(null);
+  // The key of the Digital Twin run whose answer the page waits for, null
+  // when it waits for none. The answer of a run the page has left (the
+  // server took another run from the page, or the views were dismissed) is
+  // dropped: the server goes on with the twin and still answers, and that
+  // late answer would put the panel back over what the page shows since.
+  const twinRunKeyRef = useRef<string | null>(null);
+  // Leaves the Digital Twin views on the SIM tab for what replaces them: a
+  // run the server took from one of the page's Run controls, a Quickstart
+  // launch, a run loaded from a file or from history, or a clear of the
+  // page's local data. A run the server refuses replaces nothing.
+  const leaveDigitalTwin = useCallback(() => {
+    twinRunKeyRef.current = null;
+    setInterventionRunning(null);
+    setInterventionArtifact(null);
+  }, []);
+
   const loadPreview = useLoadPreview({
     pickFile: persistence.pickFile,
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
     onConfirm: ({ events, results, verdict }) => {
+      leaveDigitalTwin();
       sse.loadEvents(events, results, verdict);
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
@@ -390,6 +427,7 @@ function AppContent() {
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
+    leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
 
@@ -442,7 +480,7 @@ function AppContent() {
       toast('info', 'Local data cleared', `Server-side wipe failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     setActiveTab('settings');
-  }, [persistence, sse, toast]);
+  }, [persistence, sse, toast, leaveDigitalTwin]);
 
   // Local dismiss flag for the provider-error banner. Lives outside useSSE
   // so dismissing hides the current banner without clearing the underlying
@@ -672,39 +710,6 @@ function AppContent() {
     catch { return false; }
   });
 
-  // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
-  // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
-  // layout. Single-actor intervention runs are structurally different from
-  // multi-actor side-by-side runs, so the SIM UI swaps wholesale rather
-  // than trying to merge both shapes into one view. Cleared by the panel's
-  // dismiss button or by any run the page starts from its Run controls
-  // (leaveDigitalTwin).
-  const [interventionArtifact, setInterventionArtifact] = useState<RunArtifact | null>(null);
-  // While set, SIM renders DigitalTwinProgress (live-streaming events
-  // from the in-flight simulate-intervention run) instead of the
-  // parallel-actor layout or the static panel. Carries the prefilled
-  // subject + intervention so the progress view can echo them on
-  // screen before any artifact comes back. Cleared when the artifact
-  // arrives (panel takes over), when the user dismisses, or when the page
-  // starts another run.
-  const [interventionRunning, setInterventionRunning] = useState<{
-    subject: { id: string; name: string; profile?: Record<string, unknown> };
-    intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  } | null>(null);
-  // The key of the Digital Twin run whose answer the page waits for, null
-  // when it waits for none. The answer of a run the page has left (it
-  // started another run, or dismissed the views) is dropped: the server
-  // aborts that run for the new one, and its late answer would put the
-  // panel back over the new run.
-  const twinRunKeyRef = useRef<string | null>(null);
-  // Every run the page starts from its Run controls calls this first: the
-  // new run replaces the Digital Twin views on the SIM tab.
-  const leaveDigitalTwin = useCallback(() => {
-    twinRunKeyRef.current = null;
-    setInterventionRunning(null);
-    setInterventionArtifact(null);
-  }, []);
-
   // Accumulator for /chat turn cost + tokens. Folded into the Footer's
   // `cost` prop so users see the real run-plus-chat total spend. Prior
   // behaviour: footer only counted simulation cost, chat turns billed
@@ -793,12 +798,15 @@ function AppContent() {
     setInterventionArtifact(null);
     sse.leaveOwnRun();
   }, [sse]);
-  const handleInterventionError = useCallback((message: string, runKey: string) => {
-    if (runKey !== twinRunKeyRef.current) return;
+  // Answers whether the page took the failure: the failure of a run it has
+  // left says nothing, here or on the Quickstart tab.
+  const handleInterventionError = useCallback((message: string, runKey: string): boolean => {
+    if (runKey !== twinRunKeyRef.current) return false;
     twinRunKeyRef.current = null;
     setInterventionRunning(null);
     sse.leaveOwnRun();
     toast('error', 'Digital twin failed', message);
+    return true;
   }, [sse, toast]);
   useTerminalToast({
     isComplete: sse.isComplete,
@@ -866,8 +874,6 @@ function AppContent() {
     }
     try {
       setLaunching(true);
-      // The new run replaces the Digital Twin views on the SIM tab.
-      leaveDigitalTwin();
       // Mark the run as user-triggered so the run-finish + cache-saved
       // toasts unlock for this session. Cleared by handleClear / Wipe.
       setUserTriggeredRun(true);
@@ -896,6 +902,9 @@ function AppContent() {
       } else if (!data.redirect) {
         setLaunching(false);
         toast('error', 'Launch Failed', data.error || 'Unknown error');
+      } else {
+        // The server took the run: it replaces the Digital Twin views.
+        leaveDigitalTwin();
       }
       // Success path: leave launching=true; the effect above clears it
       // when the first SSE event arrives.
@@ -945,7 +954,7 @@ function AppContent() {
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
             history={history.entries}
-            onRestoreHistory={(entry) => history.restore(entry, sse.loadEvents)}
+            onRestoreHistory={(entry) => { leaveDigitalTwin(); history.restore(entry, sse.loadEvents); }}
             onClearHistory={() => {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
@@ -954,6 +963,7 @@ function AppContent() {
               // data; that's what Wipe All is for.
               history.clear();
               persistence.clearCache();
+              leaveDigitalTwin();
               sse.reset();
               setUserTriggeredRun(false);
             }}

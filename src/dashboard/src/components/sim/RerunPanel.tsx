@@ -47,7 +47,6 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
       }
       const overrides = readKeyOverrides(window.localStorage);
       const next = buildNextRunConfig(prev, overrides);
-      runStart();
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,6 +69,8 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         return;
       }
       if (data.redirect) {
+        // The server took the run: it replaces the Digital Twin views.
+        runStart();
         // Persist the new seed so a subsequent Re-run bumps from THIS
         // run's seed, not the original.
         writeLastLaunchConfig(window.localStorage, next);

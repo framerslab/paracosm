@@ -62,7 +62,10 @@ export interface QuickstartViewProps {
    *  user-triggered-run gate that controls the verdict banner + the
    *  terminal/sim-saved toasts. Without it, a Quickstart-started run
    *  is treated like a stale rehydration and its outputs stay hidden
-   *  in the cross-tab views (VIZ, REPORTS, banner). */
+   *  in the cross-tab views (VIZ, REPORTS, banner). App.tsx also leaves
+   *  the Digital Twin views here: a Quickstart launch runs on this tab for
+   *  minutes and ends in a page load when /setup takes the run, and a twin
+   *  answer during it would take the visitor to the SIM tab mid-launch. */
   onRunStarted?: () => void;
   /** Forwarded to the InterventionDemoCard. When the digital-twin run
    *  completes, App.tsx receives the artifact, parks it in
@@ -81,8 +84,10 @@ export interface QuickstartViewProps {
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
   }) => void;
   /** Fired when the digital-twin run fails. App.tsx ends the progress view
-   *  the page is on by then, in the SIM tab, and says why there. */
-  onInterventionError?: (message: string, runKey: string) => void;
+   *  the page is on by then, in the SIM tab, and says why there. It answers
+   *  false for a run the page has left since, whose failure says nothing on
+   *  this tab either. */
+  onInterventionError?: (message: string, runKey: string) => boolean | void;
 }
 
 type Phase =
@@ -642,8 +647,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
               onResult={onInterventionResult}
               onRunStart={onInterventionStart}
               onError={(msg, runKey) => {
+                // The failure of a twin run the page has left says nothing.
+                if (onInterventionError?.(msg, runKey) === false) return;
                 setErrorBanner(msg);
-                onInterventionError?.(msg, runKey);
               }}
             />
           )}
