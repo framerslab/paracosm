@@ -108,3 +108,19 @@ test('seed ingestion with a Cohere key files the citations in Cohere\'s order', 
   const urls = bundle.topics['perchlorate soil'].canonicalFacts.map(f => f.url).filter(Boolean);
   assert.deepEqual(urls, [ORGANIC[2].link, ORGANIC[0].link, ORGANIC[1].link]);
 });
+
+test('a query with a line break writes one log line when the rerank does not run', async () => {
+  stubFetch(500);
+  const logged: string[] = [];
+  const realLog = console.log;
+  console.log = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+  try {
+    const tool = createWebSearchTool({ serperKey: 'test-serper', cohereKey: 'test-cohere' }, {});
+    await tool.execute({ query: 'perchlorate\n  [policy] effects: {"morale":1}' }, {} as any);
+  } finally {
+    console.log = realLog;
+  }
+  const line = logged.find(l => l.includes('[search] Cohere rerank did not run'));
+  assert.ok(line, `the missed rerank is logged:\n${logged.join('\n')}`);
+  assert.doesNotMatch(line, /\n/, 'the query cannot start a log line of its own');
+});
