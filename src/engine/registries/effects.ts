@@ -80,12 +80,16 @@ export class EffectRegistry {
   /**
    * The registry a scenario's run applies: its category table, read
    * with the directions its metrics declare (`better: 'lower'`, keyed by
-   * the last part of the metric's `source`, or its id).
+   * the last part of the metric's `source`, or its id). A metric with
+   * neither as a string names no key and is skipped: custom scenarios
+   * load with any metrics array.
    */
   static forScenario(scenario: { effects?: EffectDefinition[]; metrics?: MetricDefinition[] }): EffectRegistry {
+    const text = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
     const lowerIsBetter = (Array.isArray(scenario.metrics) ? scenario.metrics : [])
       .filter(m => m && m.better === 'lower')
-      .map(m => (typeof m.source === 'string' && m.source ? m.source : m.id).split('.').pop() as string);
+      .map(m => (text(m.source) ?? text(m.id))?.split('.').pop())
+      .filter((key): key is string => !!key);
     return new EffectRegistry(scenario.effects?.[0]?.categoryDefaults ?? {}, undefined, { lowerIsBetter });
   }
 
