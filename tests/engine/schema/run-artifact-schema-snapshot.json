@@ -1,6 +1,6 @@
 {
   "comment": "Schema snapshot for the breaking-change gate test. Regenerate via `npm run snapshot:schema`.",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "shape": {
     "aborted": "optional(boolean)",
     "assumptions": "optional(array(string))",

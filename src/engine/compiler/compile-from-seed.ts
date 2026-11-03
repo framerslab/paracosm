@@ -41,6 +41,9 @@ export const DraftScenarioSchema = z.object({
     defaultPopulation: z.number().int().min(10).max(1000),
     defaultStartTime: z.number().int(),
     defaultSeed: z.number().int().optional(),
+    // Years in one time unit, for a unit the kernel does not know by its
+    // word (it knows year, quarter, month, week, day and hour).
+    yearsPerTimeUnit: z.number().positive().max(1000).optional(),
   }),
   departments: z.array(z.object({
     id: z.string().min(2).max(48).regex(/^[a-z0-9-]+$/),
@@ -89,6 +92,7 @@ SETUP
 - defaultTurns: integer between 2 and 12. Pick 4-8 for most scenarios.
 - defaultPopulation: integer between 10 and 1000. This is a REPRESENTATIVE SAMPLE the simulation will agentize, NOT real-world headcount. A 380,000-MAU MMO becomes defaultPopulation: 200. A nation of millions becomes defaultPopulation: 500. Never paste real counts here.
 - defaultStartTime: integer appropriate for the domain (year for space, quarter index for corporate, day index for daily-cadence sims, etc.).
+- yearsPerTimeUnit (optional): years in one timeUnitNoun, only when that unit is not a year, quarter, month, week, day or hour (a season is 0.25). Omit it for those.
 
 DEPARTMENTS (2-8 entries)
 - label: 2-48 chars human-readable.
