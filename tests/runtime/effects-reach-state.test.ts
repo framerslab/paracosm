@@ -544,15 +544,15 @@ test('a selected effect can name the department it comes from', () => {
   assert.deepEqual(selected(['engineering/effect_1']), { morale: -0.02 });
   const both = selected(['engineering/effect_1', 'medical/effect_1']);
   near(both?.morale ?? NaN, 0.03, 'both departments');
-  // The id a department wrote still reads the first report that holds it.
-  assert.deepEqual(selected(['effect_1']), { morale: -0.02 });
+  // Both departments wrote effect_1, so the bare id names neither.
+  assert.deepEqual(selected(['effect_1']), {});
   // The commander's list shows these keys.
   assert.deepEqual(selectableEffects(twoDepartmentsReports()).map(e => e.key), ['engineering/effect_1', 'medical/effect_1']);
 });
 
 test('an effect selected twice counts once', () => {
   assert.deepEqual(selected(['medical/effect_1', 'medical/effect_1']), { morale: 0.05 });
-  assert.deepEqual(selected(['effect_1', 'effect_1']), { morale: -0.02 });
+  // The bare id both departments hold names neither; the key beside it still applies.
   assert.deepEqual(selected(['effect_1', 'engineering/effect_1']), { morale: -0.02 });
 });
 
