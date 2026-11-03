@@ -447,7 +447,7 @@ Every structured LLM call (director, departments, commander, reactions, verdict)
 
 ## Seed enrichment
 
-`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5` when `COHERE_API_KEY` is set, ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
+`paracosm compile <scenario.json> --seed-text "..."` or `--seed-url <url>` extracts topics, searches across Firecrawl + Tavily + Serper + Brave in parallel, reranks with Cohere `rerank-v3.5` when `COHERE_API_KEY` is set (Cohere picks the best three of every result the providers return for a query), ingests the result into an AgentOS `AgentMemory.sqlite()` store, and threads citations into department prompts. Bundle cached per-seed. Surface citations land in the dashboard's Reports tab.
 
 ---
 

@@ -8,10 +8,22 @@
  * can turn a configured reranker off but never turns one on. So the Cohere
  * reranker is built here whenever a Cohere key is present.
  *
+ * The service cuts its fused list to `maxResults` before it reranks, so a
+ * search with Cohere asks it for the whole fused list (each provider returns
+ * its own five whatever is asked) and Cohere keeps the best `maxResults` of
+ * them: one Cohere call a search, as before.
+ *
  * @module paracosm/engine/provider/web-search
  */
 import type { EnrichedSearchResult, WebSearchConfig } from '@framers/agentos/cognition/web-search';
 import type { RerankerService as RerankerServiceType } from '@framers/agentos/cognition/rag/reranking';
+
+/**
+ * At least the whole fused list: WebSearchService asks each of its four
+ * providers for five results (their default limit), so twenty covers every
+ * result a search can find.
+ */
+const FUSED_POOL = 20;
 
 /** The resolved keys, after the caller has read its explicit values and env. */
 export interface ResolvedSearchKeys {
@@ -48,16 +60,18 @@ export async function createResearchSearch(keys: ResolvedSearchKeys): Promise<Re
   // RerankerService writes. WebSearchService drops that metadata from its
   // results, and a failed stage hands the fused order back unchanged.
   let lastStages: string[] = [];
+  // How many results the running search keeps; the Cohere stage keeps that many.
+  let wanted = 0;
   let reranker: WebSearchConfig | undefined;
   if (keys.cohereKey) {
     try {
       const { RerankerService, CohereReranker } = await import('@framers/agentos/cognition/rag/reranking');
       class ReportingReranker extends RerankerService {
         override async rerankChain(...[query, chunks, stages]: Parameters<RerankerServiceType['rerankChain']>) {
-          // WebSearchService reranks after slicing to maxResults; each
-          // stage keeps every result it is handed, so Cohere reorders and
-          // drops nothing (and is never asked for more than it was sent).
-          const out = await super.rerankChain(query, chunks, stages.map(stage => ({ ...stage, topK: chunks.length })));
+          // The search hands over the whole fused list; Cohere keeps the
+          // best `wanted` of it (never more than it was sent).
+          const topK = Math.max(1, Math.min(wanted || chunks.length, chunks.length));
+          const out = await super.rerankChain(query, chunks, stages.map(stage => ({ ...stage, topK })));
           const ran = out[0]?.metadata?._rerankerChainStages;
           lastStages = typeof ran === 'string' && ran ? ran.split(',') : [];
           return out;
@@ -82,7 +96,11 @@ export async function createResearchSearch(keys: ResolvedSearchKeys): Promise<Re
     hasProviders: () => service.hasProviders(),
     async search(query, maxResults) {
       lastStages = [];
-      const results = await service.search(query, { maxResults, rerank: !!reranker });
+      wanted = maxResults;
+      // With Cohere, the whole fused list goes to it; a failed rerank hands
+      // that list back in the fused order, cut here to `maxResults`.
+      const fused = await service.search(query, { maxResults: reranker ? FUSED_POOL : maxResults, rerank: !!reranker });
+      const results = fused.slice(0, maxResults);
       const reranked = lastStages.includes('cohere');
       if (reranker && !reranked && results.length > 0) {
         // JSON quoting keeps a line break in the query from starting a log line of its own.
