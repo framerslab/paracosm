@@ -7,7 +7,9 @@
  * before its first model call (`status` with `phase: 'starting'`, then `status`
  * with `phase: 'parallel'` and the leaders, then each leader's first
  * `turn_start`) and holds the run open until the server aborts it, as a new
- * run does. A run here replaces this server's event buffer and nobody else's.
+ * run does. The Digital Twin world, which the server compiles with a model on
+ * boot, is none here: no test of this server runs a twin. A run here replaces
+ * this server's event buffer and nobody else's.
  */
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +21,7 @@ const server = createMarsServer({
   env: { ...process.env, APP_DIR: mkdtempSync(join(tmpdir(), 'paracosm-e2e-pair-run-')), PARACOSM_HOSTED_DEMO: '' },
   maxSimsPerDay: 0,
   runHistoryStore: createNoopRunHistoryStore(),
+  getDigitalTwinWorld: async () => null,
   runPairSimulations: async (config, broadcast, signal) => {
     const { actors, turns, startTime, customEvents } = config;
     broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
