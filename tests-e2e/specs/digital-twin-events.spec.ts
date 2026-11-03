@@ -21,7 +21,7 @@
  * the page's local data replaces the views as a new run does.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
+import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stub engine runs on a local server of its own.');
 test.use({ baseURL: 'http://127.0.0.1:3457' });
@@ -278,6 +278,35 @@ test.describe('Digital Twin events @twin', () => {
 
     await expect(result(page)).toHaveCount(0);
     await expect(emptyStateRun(page)).toBeVisible();
+  });
+
+  test('clearing local data while a twin still runs keeps the twin\'s later events out of the page\'s views', async ({ page }) => {
+    // The twin writes an event every 150 ms, and the page's /clear takes a
+    // second to reach the server: the twin's events in that second arrive
+    // after the page dropped its run and before the server says which run
+    // is writing.
+    await page.route('**/clear', async route => {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await route.continue();
+    });
+    await page.route(TWIN_ROUTE, route => {
+      const body = route.request().postDataJSON() as { subject: Record<string, unknown> };
+      return route.continue({ postData: JSON.stringify({ ...body, subject: { ...body.subject, id: TWIN_ENGINE_SLOW } }) });
+    });
+    await startRun(page);
+    await expect(running(page)).toBeVisible();
+    await expect(stat(page, 'Turn')).toContainText('1 / 2');
+
+    page.once('dialog', dialog => void dialog.accept());
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: /Clear local data/ }).click();
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+
+    await twinAnswerHandled(page);
+    await expect(running(page)).toHaveCount(0);
+    await expect(result(page)).toHaveCount(0);
+    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(page.getByText('Week 8 labs')).toHaveCount(0);
   });
 
   test('a run that fails ends the progress view and says why', async ({ page }) => {

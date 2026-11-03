@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
-import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, twinArtifact, twinEvents, type TwinEvent } from './digital-twin-run.js';
+import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, type TwinEvent } from './digital-twin-run.js';
 
 const scenario = JSON.parse(readFileSync(new URL('../../scenarios/t2d-glp1-protocol.json', import.meta.url), 'utf-8')) as unknown;
 
@@ -36,9 +36,10 @@ const world = {
       onEvent?.(events[0]);
       throw new Error(TWIN_ENGINE_ERROR);
     }
+    const gapMs = subject.id === TWIN_ENGINE_SLOW ? 150 : 5;
     for (const event of events) {
       onEvent?.(event);
-      await new Promise(resolve => setTimeout(resolve, 5));
+      await new Promise(resolve => setTimeout(resolve, gapMs));
     }
     return twinArtifact(subject, intervention);
   },
