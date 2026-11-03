@@ -421,7 +421,9 @@ test('a run with no such key keeps its metrics and its politics as they were', (
 test('nothing on a lab\'s roster or in its log speaks of a settlement on Mars', () => {
   const kernel = kernelFor(atlasLab, 480);
   let state = kernel.getState();
-  for (let turn = 2; turn <= 30; turn++) state = kernel.advanceTurn(turn, turn, atlasLab.hooks.progressionHook);
+  // Ten years of months, long enough for a lab's yearly birth and
+  // accident rates to have someone born and someone hurt.
+  for (let turn = 2; turn <= 120; turn++) state = kernel.advanceTurn(turn, turn, atlasLab.hooks.progressionHook);
 
   assert.ok(state.eventLog.some(e => e.type === 'birth'), 'someone was born');
   assert.ok(state.eventLog.some(e => e.type === 'death' && e.cause?.startsWith('accident:')), 'someone had an accident');

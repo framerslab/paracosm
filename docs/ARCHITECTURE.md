@@ -120,7 +120,7 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 
 | Hook | What it generates | Called when |
 |------|-------------------|------------|
-| `progressionHook` | Between-turn state updates (radiation, bone density, etc.) | Between every turn |
+| `progressionHook` | Between-turn state updates (radiation, bone density, etc.); it gets the step as `timeDelta` in the scenario's unit and as `yearsDelta` in years, with `yearsSinceStart` and `yearsPerUnit` | Between every turn |
 | `departmentPromptHook` | Department-specific analysis context | Before each department analyzes |
 | `fingerprintHook` | Timeline classification from final state | After simulation completes |
 | `politicsHook` | Political/social effects for each category and outcome | After each event's outcome |
@@ -136,7 +136,7 @@ The `SimulationKernel` manages all numerical state. It is deterministic: given t
 The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
 - **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data. Generated people work in the scenario's own departments, under their labels; Mars Genesis keeps its own trades
-- **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift)
+- **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift). Ages, experience and the yearly rates are in years: the kernel converts a turn's elapsed units with `setup.yearsPerTimeUnit`, else the length of the unit `labels.timeUnitNoun` names (year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, any other word 1), and keeps the factor in `metadata.yearsPerUnit`, which snapshots carry. A state saved without it reads 1.
 
 Three things move the numbers during a turn, and each adds to the value it names, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`):
 
