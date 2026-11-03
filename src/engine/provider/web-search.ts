@@ -85,7 +85,8 @@ export async function createResearchSearch(keys: ResolvedSearchKeys): Promise<Re
       const results = await service.search(query, { maxResults, rerank: !!reranker });
       const reranked = lastStages.includes('cohere');
       if (reranker && !reranked && results.length > 0) {
-        console.log(`  [search] Cohere rerank did not run for "${query.slice(0, 80)}"; results keep the fused order`);
+        // JSON quoting keeps a line break in the query from starting a log line of its own.
+        console.log(`  [search] Cohere rerank did not run for ${JSON.stringify(query.slice(0, 80))}; results keep the fused order`);
       }
       return { results, reranked };
     },
