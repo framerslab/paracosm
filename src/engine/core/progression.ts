@@ -184,7 +184,8 @@ function outcomeClass(isRisky: boolean, riskSuccessProbability: number, metrics:
 /**
  * Classify turn outcome as risky/conservative success/failure from the
  * decision text: the decision is risky when it names the risky option.
- * Deterministic from seed + decision text.
+ * An event with no risky option passes '' (or a blank label), which names
+ * nothing, so the decision is safe. Deterministic from seed + decision text.
  */
 export function classifyOutcome(
   decisionText: string,
@@ -193,7 +194,8 @@ export function classifyOutcome(
   metrics: WorldMetrics,
   rng: SeededRng,
 ): TurnOutcome {
-  const isRisky = decisionText.toLowerCase().includes(riskyOption.toLowerCase());
+  const marker = riskyOption.trim().toLowerCase();
+  const isRisky = marker.length > 0 && decisionText.toLowerCase().includes(marker);
   return outcomeClass(isRisky, riskSuccessProbability, metrics, rng);
 }
 
