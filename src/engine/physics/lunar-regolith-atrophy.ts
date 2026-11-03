@@ -15,6 +15,7 @@
  * @module paracosm/engine/physics/lunar-regolith-atrophy
  */
 import type { ProgressionHookContext } from '../types.js';
+import { habitatDoseShare } from './mars-radiation-bone.js';
 
 /** Lunar regolith dust toxicity index — arbitrary annualized units. */
 const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
@@ -42,12 +43,17 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
   // them counts in years, as the Moon does).
   const yearsDelta = ctx.yearsDelta ?? timeDelta;
   const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
+  // A declared surface dose (mSv a day) replaces the default index; the
+  // habitat's modules shield either.
+  const declared = ctx.environment?.surfaceRadiationMsvDay;
+  const perYear = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) * 365 : LUNAR_REGOLITH_EXPOSURE_PER_YEAR;
+  const exposurePerYear = perYear * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + LUNAR_REGOLITH_EXPOSURE_PER_YEAR * yearsDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + exposurePerYear * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather

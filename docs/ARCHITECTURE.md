@@ -131,14 +131,14 @@ Compilation costs ~$0.10 and is cached to disk. The compiler accepts `--seed-tex
 
 ### Deterministic Kernel
 
-The `SimulationKernel` manages all numerical state. It is deterministic: given the same seed and the same commander decisions, it produces identical outcomes.
+The `SimulationKernel` manages all numerical state. It is deterministic: given the same seed, the same commander decisions and the same department reports, it produces identical outcomes.
 
 The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
 - **Agent population**: each colonist has health (alive, psychScore, conditions), career (role, rank, specialization), social (partner, children, friends), and narrative (featured, quotes) data. Generated people work in the scenario's own departments, under their labels; Mars Genesis keeps its own trades
 - **Progression**: between-turn updates (aging, mortality, births, career advancement, personality drift). Ages, experience and the yearly rates are in years: the kernel converts a turn's elapsed units with `setup.yearsPerTimeUnit`, else the length of the unit `labels.timeUnitNoun` names (year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, any other word 1), and keeps the factor in `metadata.yearsPerUnit`, which snapshots carry. A state saved without it reads 1.
 
-Three things move the numbers during a turn, and each adds to the value it names, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`):
+Four things move the numbers during a turn. The first three add to the value they name, within the range the scenario declares (`min` and `max` in `world.metrics`, `world.capacities` and `world.politics`); the fourth moves people:
 
 - **A selected policy effect.** The effects a commander selects are added to the current values, and two on one key add up. Every department numbers its effects from `effect_1`, so the commander's list names each as `<department>/<id>`, and the commander puts the keys it adopts in `selectedPolicies` (`selectedEffectIds` is read too). A selection reads with the type or the description written after the key (`medical/effect_1 (risk_mitigation)`), and several keys in one string, split by commas or semicolons (`medical/effect_1, engineering/effect_1`), all apply. A key matches as written first, and in another case only when one effect has it; a key that names two effects (two effects under one key, or keys that differ only by case) applies neither. A bare id names an effect only when one report holds it; held by two reports, as `effect_1` usually is, it names neither and is logged with the keys that name two. An effect selected twice counts once. The run logs what moved as `[policy] effects`, each selection that names no effect as `[policy] no effect named by`, and each that names more than one as `[policy] more than one effect named by, none applied`. A department's legacy `proposedPatches` still set a value outright, and never the head count.
 - **An outcome's category table.** The scenario's `effects` table lists what an event brings at an ordinary response, and scales by outcome. A key moves the metric or the politics value the run holds under it; a key the run holds in neither is dropped. An entry is helpful or harmful by its sign and its key's direction: a fall is harmful on a key that is better higher, a rise on one the scenario's `metrics` declare `better: "lower"` (keyed by the last part of the metric's `source`, or its `id`; a metric with neither names no key and is skipped). With `e` the outcome's multiplier plus the personality, noise and tool modifiers:
@@ -152,12 +152,28 @@ Three things move the numbers during a turn, and each adds to the value it names
 
   A failed response loses the gains a good one would bring, and a harmful entry stays a cost: Atlas Lab's `safety_breach` lowers `alignmentBench` by 0.04 at a conservative success and by 0.12 at a conservative failure. A harmful entry in a table that adds people (Atlas Lab's `talent` raises the burn rate with the head count) is their cost and moves by `v × e` with them.
 - **The politics hook.** `politicsHook` names a change for each category and outcome. Where it names a key, its change replaces the category table's, so a key moves once. The `outcome` stream event reports what moved in `systemDeltas` and `politicsDeltas`.
+- **A department's update on a person.** A report's `featuredAgentUpdates`, and a legacy patch's `agentUpdates`, move a person's psych score toward the value they write, at most 0.15 a turn however many reports and patches name the person, and set the person's conditions as written. A patch may also write a person's career. Neither writes what a physics hook owns or who lives: `cumulativeRadiationMsv`, `boneDensityPct`, `boneDensityBase`, `alive`, `deathTime` and `deathCause` stay as they were, and the keys a patch could not write are named in one `system` event on the log.
 
 `metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death: it counts in no mortality figure, the fingerprint's survival rate counts the person as having survived, and nobody new takes the id or the name of someone who left. One delta brings in at most as many people as the roster holds, and hires stop at 2,000 people or the `max` the scenario declares for `population`. Department heads and children do not leave, and a departure stops at the `min` the scenario declares. So a delta can move fewer people than it asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.
 
-The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality probability, birth events, personality drift magnitudes. Two simulations with the same seed produce the same colonist names, the same birth/death events, and the same base progression.
+The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality, birth events, personality drift magnitudes. Two simulations with the same seed start with the same people. Every death roll draws from a stream of its own, keyed by the seed, the turn, the person and the cause (`SeededRng.forDraw`), so both roll the same dice for the same person and one person's death never moves another person's dice. A person dies in one run and not the other only where that run's world gave them a higher hazard (see Mortality below). Births, partnerships, promotions and friendships draw from one stream per turn.
 
 What differs is each commander's decisions. The crisis is the same, the department analysis is the same, but commanders with different HEXACO profiles choose differently. The kernel applies different numerical effects based on the choice, and divergence compounds across the cohort.
+
+### Mortality
+
+Each cause has a yearly rate. A turn of `y` years rolls `1 - (1 - rate)^y`, with no cap per turn, so an eight-year Mars turn and twelve monthly Atlas Lab turns mean the rate the table gives. The rates are the simulation's choices for legible stakes, not a claim about medicine.
+
+| Cause | Yearly rate | Reads | What a leader's choices move |
+|-------|-------------|-------|------------------------------|
+| Natural | 1, 3, 8 and 20 percent from ages 60, 70, 80 and 90 | age | nothing |
+| Radiation cancer | 0.004 for each sievert of cumulative dose above 0.5, from age 30 | the dose the physics hook adds: `world.environment.surfaceRadiationMsvDay` (0.67 mSv a day when absent) times the share the habitat lets through, `1 - min(0.9, 0.2 * infrastructureModules)` | habitat modules, which effects and outcomes build or lose |
+| Starvation | `(1 - foodMonthsReserve) * 0.15` under a month of food | `foodMonthsReserve` (each module adds 0.3 of a month a year against 0.5 eaten) | food and module effects |
+| Despair | `(0.2 - psychScore) * 0.25 * (0.5 + emotionality)` under 0.2 psych, from age 18 | psych, which morale pulls by `(morale - 0.5) * 0.1` a year, beside partners, outside contacts, isolation and grief | morale effects; a department's update, within its bound |
+| Fatal fracture | `(60 - boneDensityPct) * 0.003` under 60 percent bone density, from age 40 | bone density from the physics hook | nothing |
+| Accident | 0.003 times the department's weight (engineering 1.5, medical 1.2, agriculture 1.0, science 0.9, psychology 0.6, governance 0.5), from age 18 | department | a promotion into another department |
+
+`causeHazards(agent, metrics, ageYears, years)` and `turnHazard(rate, years)` in `src/engine/core/progression.ts` give these chances for one person and one turn.
 
 ### Health Fields
 
@@ -181,7 +197,7 @@ Each turn follows a fixed pipeline:
 
 2. Kernel applies between-turn progression
    └── Aging, mortality, births, career advancement
-   └── Scenario-specific hooks (radiation, bone density for Mars)
+   └── Scenario-specific hooks (radiation, bone density for Mars); they read the run's metrics and environment, read only
 
 3. Department agents analyze the crisis IN PARALLEL
    └── Each department gets: crisis context, colony snapshot, research citations, memory
