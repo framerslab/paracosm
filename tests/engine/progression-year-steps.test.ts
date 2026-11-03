@@ -75,7 +75,7 @@ function summed(turnYears: number): Map<number, Tally> {
   return total;
 }
 
-test('one eight-year turn gives the deaths, promotions and births eight one-year turns give', () => {
+test('one eight-year turn gives the deaths, promotions and births eight one-year turns give', (t) => {
   const long = summed(LONG);
   const yearly = summed(1);
   const rows: string[] = [];
@@ -90,5 +90,6 @@ test('one eight-year turn gives the deaths, promotions and births eight one-year
       if (Math.abs(a - b) > bound) off.push(row);
     }
   }
+  t.diagnostic(rows.join('\n'));
   assert.deepEqual(off, [], `\n${rows.join('\n')}`);
 });
