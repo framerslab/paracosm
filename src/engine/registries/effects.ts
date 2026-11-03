@@ -1,3 +1,5 @@
+import type { EffectDefinition, MetricDefinition } from '../types.js';
+
 /** Possible outcome classifications for a simulation turn. */
 export type TurnOutcome = 'risky_success' | 'risky_failure' | 'conservative_success' | 'conservative_failure';
 
@@ -40,6 +42,14 @@ export class EffectRegistry {
   ) {
     this.effects = categoryEffects;
     this.fallback = fallback;
+  }
+
+  /**
+   * The registry a scenario's run applies: its category table, read
+   * with the directions its metrics declare.
+   */
+  static forScenario(scenario: { effects?: EffectDefinition[]; metrics?: MetricDefinition[] }): EffectRegistry {
+    return new EffectRegistry(scenario.effects?.[0]?.categoryDefaults ?? {});
   }
 
   getBaseEffect(category: string): Record<string, number> {
