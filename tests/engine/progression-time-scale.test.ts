@@ -14,6 +14,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
@@ -30,7 +31,12 @@ const scenario = (id: string) => {
   return sc;
 };
 const atlasLab = scenario('atlas-lab');
-const twin = scenario('t2d-glp1-protocol');
+// The Digital Twin preset compiles its hooks with a model before the server
+// runs it, so the catalog skips it; the kernel reads only its labels, setup,
+// departments and world, which the file holds as it ships.
+const twin = JSON.parse(
+  readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8'),
+) as ScenarioPackage;
 const corporate = scenario('corporate-quarterly');
 const council = scenario('dual-superintelligence-council');
 const submarine = scenario('deep-ocean-station');
@@ -53,8 +59,10 @@ function shape(e: TurnEvent): string {
   return e.type === 'birth' ? 'birth' : `${e.type}:${e.agentId ?? ''}:${e.cause ?? ''}`;
 }
 
+/** Age in years now: elapsed units times the run's years per unit (1 when it names none). */
 function ageYears(kernel: SimulationKernel, agent: Agent): number {
-  return (kernel as unknown as { ageYears(a: Agent): number }).ageYears(agent);
+  const { currentTime, yearsPerUnit } = kernel.getState().metadata as { currentTime: number; yearsPerUnit?: number };
+  return (currentTime - agent.core.birthTime) * (yearsPerUnit ?? 1);
 }
 
 test('twelve months of Atlas Lab are the same year as one year of it', () => {
@@ -121,6 +129,25 @@ test('two two-week turns of the Digital Twin age a patient four weeks, with no b
   const happened = (type: string) => state.eventLog.filter(e => e.type === type).length;
   assert.equal(happened('birth'), 0, 'births in four weeks among 100 patients');
   assert.equal(happened('death'), 0, 'deaths in four weeks among 100 patients');
+});
+
+test('an eight-year Mars step still ages and doses its people eight years', () => {
+  const kernel = new SimulationKernel(950, 'Aria Chen', [], {
+    startTime: 2035, initialPopulation: 30, scenario: marsScenario,
+  });
+  const hook = marsScenario.hooks.progressionHook;
+  kernel.advanceTurn(1, 2035, hook);
+  const before = kernel.getState().agents.filter(a => a.health.alive);
+  const age = new Map(before.map(a => [a.core.id, ageYears(kernel, a)]));
+  const experience = new Map(before.map(a => [a.core.id, a.career.yearsExperience]));
+  const dose = new Map(before.map(a => [a.core.id, a.health.cumulativeRadiationMsv ?? 0]));
+  const state = kernel.advanceTurn(2, 2043, hook);
+  for (const a of state.agents) {
+    if (!age.has(a.core.id) || !a.health.alive) continue;
+    near(ageYears(kernel, a), age.get(a.core.id)! + 8, `${a.core.name}'s age after eight years`);
+    near(a.career.yearsExperience, experience.get(a.core.id)! + 8, `${a.core.name}'s experience after eight years`);
+    near(a.health.cumulativeRadiationMsv ?? 0, dose.get(a.core.id)! + 0.67 * 365 * 8, `${a.core.name}'s dose after eight years`);
+  }
 });
 
 test('the length of a unit in years comes from the scenario', async () => {
