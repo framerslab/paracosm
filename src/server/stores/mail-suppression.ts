@@ -17,6 +17,12 @@
  * and the dashboard server are separate processes, and a store opened per
  * use always reads what the other one wrote.
  *
+ * The store runs on better-sqlite3 alone. sql.js, the library's fallback,
+ * keeps a private copy of the file per connection and rewrites the whole
+ * file on each write, so with two processes at once an unsubscribe could
+ * be lost. Where better-sqlite3 cannot load, the store refuses to open:
+ * the unsubscribe page answers 503 and the broadcast stops before sending.
+ *
  * @module paracosm/cli/server/mail-suppression-store
  */
 import { createDatabase, type StorageAdapter, type DatabaseOptions } from '@framers/sql-storage-adapter';
@@ -92,7 +98,9 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
   function getAdapter(): Promise<StorageAdapter> {
     if (!adapterPromise) {
       adapterPromise = (async () => {
-        const adapter = await createDatabase(databaseOptions ?? { file: dbPath ?? ':memory:' });
+        const adapter = await createDatabase(
+          databaseOptions ?? { file: dbPath ?? ':memory:', priority: ['better-sqlite3'] },
+        );
         try {
           await bootstrap(adapter);
         } catch (err) {
