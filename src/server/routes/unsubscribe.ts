@@ -29,6 +29,7 @@ const SUPPORT_EMAIL = 'team@frame.dev';
 
 type PageState = 'ask' | 'already' | 'done' | 'unknown';
 
+/** The whole HTML page for one state. `token` goes into the form only for a token that passed the pattern. */
 function page(state: PageState, token: string): string {
   const action = `/unsubscribe?t=${token}`;
   const nothingElse =
@@ -93,6 +94,7 @@ ${html}
 </html>`;
 }
 
+/** Answers with a page: never cached, never indexed, and no Referer carrying the token. */
 function send(res: ServerResponse, status: number, state: PageState, token: string): void {
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',

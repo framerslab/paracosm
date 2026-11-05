@@ -17,6 +17,7 @@ export interface LoadedDotEnv {
   loaded: number;
 }
 
+/** Loads `./.env` into process.env as the module header describes, and says what it set. */
 export function loadDotEnvFromCwd(): LoadedDotEnv {
   const path = resolve(process.cwd(), '.env');
   if (!existsSync(path)) return { path, loaded: 0 };

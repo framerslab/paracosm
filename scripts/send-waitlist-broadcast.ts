@@ -155,6 +155,7 @@ async function main(): Promise<void> {
   if (failed > 0) process.exit(1);
 }
 
+/** The dry run's lookup: reads the list if a store exists, and writes nothing. */
 async function isSuppressedReadOnly(mailDb: string, address: string): Promise<boolean> {
   if (!existsSync(mailDb)) return false;
   const store = openMailStore({ dbPath: mailDb, readOnly: true });

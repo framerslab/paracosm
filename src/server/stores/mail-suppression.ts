@@ -141,6 +141,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     return row !== null && row !== undefined;
   }
 
+  /** Records a suppression. `manual` overwrites `unsubscribed`; `unsubscribed` never overwrites anything. */
   async function suppressHash(hash: string, reason: SuppressionReason): Promise<void> {
     refuseWriteWhenReadOnly();
     const adapter = await getAdapter();
@@ -160,6 +161,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     }
   }
 
+  /** The address hash a token was mailed to, or null for a malformed or unknown token. */
   async function addressOfToken(token: string): Promise<string | null> {
     if (!UNSUBSCRIBE_TOKEN_PATTERN.test(token)) return null;
     if (!(await hasTable('mail_unsubscribe_tokens'))) return null;
@@ -171,6 +173,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     return row?.address_hash ?? null;
   }
 
+  /** Whether an address hash is on the list, under either reason. */
   async function isHashSuppressed(hash: string): Promise<boolean> {
     if (!(await hasTable('mail_suppressions'))) return false;
     const adapter = await getAdapter();

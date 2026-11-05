@@ -18,6 +18,7 @@
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
 import { loadDotEnvFromCwd } from '../src/cli/dotenv.js';
 
+/** All of standard input as text. */
 async function readStdin(): Promise<string> {
   let raw = '';
   process.stdin.setEncoding('utf8');
@@ -25,6 +26,7 @@ async function readStdin(): Promise<string> {
   return raw;
 }
 
+/** Suppresses every address on standard input and prints the counts. */
 async function main(): Promise<void> {
   loadDotEnvFromCwd();
   const lines = (await readStdin()).split('\n').map((line) => line.trim()).filter(Boolean);
