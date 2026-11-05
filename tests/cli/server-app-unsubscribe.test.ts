@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -274,6 +274,28 @@ test('an address the operator suppressed gets no mail and no link, and a send wi
     await assert.rejects(sendNews(appDir, 'reader@example.com', '  '), /postal address/);
     assert.equal(sent.length, 0, 'commercial mail without the postal address must not go out');
   } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a mail store that cannot be opened answers 503, leaves no unhandled rejection, and the server keeps answering', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-unsub-broken-'));
+  const rejections: unknown[] = [];
+  const onRejection = (reason: unknown) => rejections.push(reason);
+  process.on('unhandledRejection', onRejection);
+  try {
+    mkdirSync(join(appDir, 'data'), { recursive: true });
+    writeFileSync(m.mailDbPath(appDir), 'This file is plain text, not a SQLite database. '.repeat(40));
+    await withServer(appDir, async (origin) => {
+      const link = `${origin}/unsubscribe?t=${'C'.repeat(43)}`;
+      assert.equal((await fetch(link)).status, 503);
+      assert.equal((await oneClick(link)).status, 503);
+      await new Promise((settle) => setTimeout(settle, 100));
+      assert.deepEqual(rejections, [], 'a mail store that fails to open must not leave an unhandled rejection');
+      assert.equal((await fetch(`${origin}/unsubscribe`)).status, 404, 'the server must keep answering');
+    });
+  } finally {
+    process.off('unhandledRejection', onRejection);
     rmSync(appDir, { recursive: true, force: true });
   }
 });
