@@ -17,7 +17,9 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 interface SentMail {
   to: string;
@@ -296,6 +298,49 @@ test('a mail store that cannot be opened answers 503, leaves no unhandled reject
     });
   } finally {
     process.off('unhandledRejection', onRejection);
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('the mail store refuses to open without better-sqlite3 instead of falling back to sql.js, which other processes cannot see', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-unsub-engine-'));
+  const storeUrl = pathToFileURL(resolve(import.meta.dirname, '..', '..', 'src/server/stores/mail-suppression.ts')).href;
+  // A child process in which better-sqlite3 cannot load, as on a host without its native build.
+  const program = `
+    import { registerHooks } from 'node:module';
+    registerHooks({
+      resolve(specifier, context, next) {
+        if (specifier === 'better-sqlite3' || specifier.startsWith('better-sqlite3/')) {
+          throw Object.assign(new Error('better-sqlite3 is not available here'), { code: 'MODULE_NOT_FOUND' });
+        }
+        return next(specifier, context);
+      },
+    });
+    const { openMailStore, mailDbPath } = await import(${JSON.stringify(storeUrl)});
+    const store = openMailStore({ dbPath: mailDbPath(process.env.APP_DIR) });
+    try {
+      await store.suppress('person@example.com', 'manual');
+      console.log('OPENED');
+      process.exitCode = 0;
+    } catch {
+      console.log('REFUSED');
+      process.exitCode = 3;
+    } finally {
+      await store.close().catch(() => {});
+    }
+  `;
+  try {
+    const env: NodeJS.ProcessEnv = { ...process.env, APP_DIR: appDir };
+    delete env.STORAGE_ADAPTER;
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', program], { env });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+    const [status] = (await once(child, 'close')) as [number | null];
+    assert.match(stdout, /REFUSED/, `the store must refuse to open; stdout: ${stdout} stderr: ${stderr.slice(-2000)}`);
+    assert.equal(status, 3);
+  } finally {
     rmSync(appDir, { recursive: true, force: true });
   }
 });
