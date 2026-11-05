@@ -217,7 +217,14 @@ test('quoted values in .env reach the email without their quotes', async () => {
         '',
       ].join('\n'),
     );
-    const env: NodeJS.ProcessEnv = { RESEND_API_KEY: 're_broadcast_test', RESEND_BASE_URL: stub.url };
+    // Empty values, so whatever this process has set leaves the child to read them from .env.
+    const env: NodeJS.ProcessEnv = {
+      APP_DIR: '',
+      MAIL_POSTAL_ADDRESS: '',
+      MAIL_LINK_BASE: '',
+      RESEND_API_KEY: 're_broadcast_test',
+      RESEND_BASE_URL: stub.url,
+    };
     const result = await runNodeAsync([resolve(root, 'scripts/send-waitlist-broadcast.ts')], env, '', workDir);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(stub.sent.length, 1);

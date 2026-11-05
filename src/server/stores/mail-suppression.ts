@@ -25,7 +25,12 @@
  *
  * @module paracosm/cli/server/mail-suppression-store
  */
-import { createDatabase, type StorageAdapter, type DatabaseOptions } from '@framers/sql-storage-adapter';
+import {
+  createDatabase,
+  resolveStorageAdapter,
+  type StorageAdapter,
+  type DatabaseOptions,
+} from '@framers/sql-storage-adapter';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -72,9 +77,9 @@ export interface OpenMailStoreOptions {
   /** Direct override for `createDatabase`. Tests pass `{ file: ':memory:' }`. */
   databaseOptions?: DatabaseOptions;
   /**
-   * Reads only: creates no folder and no table, and every write throws. A
-   * store without the tables reads as an empty list. The broadcast's dry
-   * run opens the store this way.
+   * Reads only: SQLite opens the file read-only, no folder or table is
+   * created, and every write throws. A store without the tables reads as an
+   * empty list. The broadcast's dry run opens the store this way.
    */
   readOnly?: boolean;
 }
@@ -111,9 +116,14 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
   function getAdapter(): Promise<StorageAdapter> {
     if (!adapterPromise) {
       adapterPromise = (async () => {
-        const adapter = await createDatabase(
-          databaseOptions ?? { file: dbPath ?? ':memory:', priority: ['better-sqlite3'] },
-        );
+        // A read-only store opens SQLite itself read-only, so no statement can write.
+        const adapter = readOnly
+          ? await resolveStorageAdapter({
+              filePath: databaseOptions?.file ?? dbPath ?? ':memory:',
+              priority: ['better-sqlite3'],
+              openOptions: { readOnly: true },
+            })
+          : await createDatabase(databaseOptions ?? { file: dbPath ?? ':memory:', priority: ['better-sqlite3'] });
         try {
           if (!readOnly) await bootstrap(adapter);
         } catch (err) {
