@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -23,10 +23,12 @@ function runNodeAsync(
   args: string[],
   env: NodeJS.ProcessEnv,
   stdin = '',
+  cwd = root,
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
   const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env };
   delete childEnv.STORAGE_ADAPTER;
-  const child = spawn(process.execPath, ['--import', 'tsx', ...args], { cwd: root, env: childEnv });
+  // An absolute loader URL, so the child can run from a folder with no node_modules.
+  const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx'), ...args], { cwd, env: childEnv });
   let stdout = '';
   let stderr = '';
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => (stdout += chunk));
@@ -146,6 +148,78 @@ test('the broadcast skips a suppressed address and every email it sends carries 
     assert.ok(mail.text.includes('Example Sender LLC, 100 Test Street, Testville, NV 89000'));
   } finally {
     await stub.close();
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a dry run leaves an existing mail store untouched', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-dry-store-'));
+  try {
+    seedSignups(appDir, ['reader@example.com']);
+    // An empty file is a valid, empty SQLite database with no tables.
+    mkdirSync(join(appDir, 'data'), { recursive: true });
+    const mailDb = join(appDir, 'data', 'mail.db');
+    writeFileSync(mailDb, '');
+
+    const result = await runNodeAsync(['scripts/send-waitlist-broadcast.ts', '--dry-run'], { APP_DIR: appDir, RESEND_API_KEY: '' });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\[dry-run\] would send to reader@example\.com/);
+    assert.equal(statSync(mailDb).size, 0, 'a dry run must write nothing to the mail store');
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a real broadcast refuses a MAIL_LINK_BASE that is not an https origin and sends nothing', async () => {
+  for (const linkBase of ['https://paracosm.agentos.sh/mail', 'http://paracosm.agentos.sh', 'paracosm.agentos.sh']) {
+    const appDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-base-'));
+    const stub = await resendStub();
+    try {
+      seedSignups(appDir, ['reader@example.com']);
+      const result = await runNodeAsync(['scripts/send-waitlist-broadcast.ts'], {
+        APP_DIR: appDir,
+        RESEND_API_KEY: 're_broadcast_test',
+        RESEND_BASE_URL: stub.url,
+        MAIL_POSTAL_ADDRESS: 'Example Sender LLC, 100 Test Street, Testville, NV 89000',
+        MAIL_LINK_BASE: linkBase,
+      });
+      assert.equal(result.status, 1, `${linkBase}: ${result.stdout}`);
+      assert.match(result.stderr, /MAIL_LINK_BASE/);
+      assert.equal(stub.sent.length, 0, `${linkBase} must not send`);
+    } finally {
+      await stub.close();
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('quoted values in .env reach the email without their quotes', async () => {
+  const workDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-env-'));
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-env-app-'));
+  const stub = await resendStub();
+  try {
+    seedSignups(appDir, ['reader@example.com']);
+    writeFileSync(
+      join(workDir, '.env'),
+      [
+        `APP_DIR=${appDir}`,
+        'MAIL_POSTAL_ADDRESS="Example Sender LLC, 100 Test Street, Testville, NV 89000"',
+        "MAIL_LINK_BASE='https://paracosm.agentos.sh'",
+        '',
+      ].join('\n'),
+    );
+    const env: NodeJS.ProcessEnv = { RESEND_API_KEY: 're_broadcast_test', RESEND_BASE_URL: stub.url };
+    const result = await runNodeAsync([resolve(root, 'scripts/send-waitlist-broadcast.ts')], env, '', workDir);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(stub.sent.length, 1);
+    const [mail] = stub.sent;
+    assert.ok(mail.text.includes('\nExample Sender LLC, 100 Test Street, Testville, NV 89000\n'), mail.text);
+    assert.equal(mail.text.includes('"Example'), false, 'the quotes must not reach the email');
+    assert.match(mail.headers?.['List-Unsubscribe'] ?? '', /^<https:\/\/paracosm\.agentos\.sh\/unsubscribe\?t=[A-Za-z0-9_-]{43}>$/);
+  } finally {
+    await stub.close();
+    rmSync(workDir, { recursive: true, force: true });
     rmSync(appDir, { recursive: true, force: true });
   }
 });

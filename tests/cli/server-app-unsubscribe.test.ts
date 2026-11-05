@@ -275,6 +275,23 @@ test('an address the operator suppressed gets no mail and no link, and a send wi
 
     await assert.rejects(sendNews(appDir, 'reader@example.com', '  '), /postal address/);
     assert.equal(sent.length, 0, 'commercial mail without the postal address must not go out');
+
+    // A link base that is not an https origin would mail links the server does not answer.
+    for (const linkBase of ['https://paracosm.agentos.sh/mail', 'http://paracosm.agentos.sh', '"https://paracosm.agentos.sh"']) {
+      await assert.rejects(
+        m.sendOptionalEmail({
+          mailDbPath: m.mailDbPath(appDir),
+          from: 'Paracosm <team@frame.dev>',
+          to: 'reader@example.com',
+          postalAddress: POSTAL,
+          linkBase,
+          render: (footer) => m.renderYoureIn({ email: 'reader@example.com', name: null, ...footer }),
+        }),
+        /https origin/,
+        linkBase,
+      );
+    }
+    assert.equal(sent.length, 0, 'an email with a broken unsubscribe link must not go out');
   } finally {
     rmSync(appDir, { recursive: true, force: true });
   }
