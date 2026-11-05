@@ -16,7 +16,7 @@
  * address, and sends no email.
  */
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
-import { loadDotEnv } from './load-dotenv.js';
+import { loadDotEnvFromCwd } from '../src/cli/dotenv.js';
 
 async function readStdin(): Promise<string> {
   let raw = '';
@@ -26,7 +26,7 @@ async function readStdin(): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  loadDotEnv();
+  loadDotEnvFromCwd();
   const lines = (await readStdin()).split('\n').map((line) => line.trim()).filter(Boolean);
   const addresses = lines.filter((line) => /^[^\s@]+@[^\s@]+$/.test(line));
   const skipped = lines.length - addresses.length;

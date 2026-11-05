@@ -37,7 +37,7 @@ import { createWaitlistStore } from '../src/server/stores/waitlist.js';
 import { renderYoureIn } from '../src/server/services/email-templates.js';
 import { sendOptionalEmail, DEFAULT_MAIL_LINK_BASE, mailLinkOrigin } from '../src/server/services/optional-mail.js';
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
-import { loadDotEnv } from './load-dotenv.js';
+import { loadDotEnvFromCwd } from '../src/cli/dotenv.js';
 
 function parseArgs(): { dryRun: boolean; only: string[] | null } {
   const argv = process.argv.slice(2);
@@ -64,7 +64,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  loadDotEnv();
+  loadDotEnvFromCwd();
   const { dryRun, only } = parseArgs();
 
   const appDir = process.env.APP_DIR || '.';
