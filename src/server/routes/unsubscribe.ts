@@ -154,6 +154,8 @@ export async function handleUnsubscribeRoute(
     res.end(`Unsubscribe is not available right now. Try the link again in a minute, or write to ${SUPPORT_EMAIL}.`);
     return true;
   } finally {
-    await store.close();
+    await store.close().catch((err: unknown) => {
+      console.warn('[unsubscribe] mail store did not close:', err instanceof Error ? err.message : String(err));
+    });
   }
 }

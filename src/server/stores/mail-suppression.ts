@@ -93,7 +93,12 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     if (!adapterPromise) {
       adapterPromise = (async () => {
         const adapter = await createDatabase(databaseOptions ?? { file: dbPath ?? ':memory:' });
-        await bootstrap(adapter);
+        try {
+          await bootstrap(adapter);
+        } catch (err) {
+          await adapter.close().catch(() => {});
+          throw err;
+        }
         return adapter;
       })();
     }
@@ -171,8 +176,16 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
 
     async close() {
       if (!adapterPromise) return;
-      const adapter = await adapterPromise;
+      const pending = adapterPromise;
       adapterPromise = null;
+      let adapter: StorageAdapter;
+      try {
+        adapter = await pending;
+      } catch {
+        // The store never opened, and the call that used it already got the
+        // error; there is nothing to close.
+        return;
+      }
       await adapter.close();
     },
   };

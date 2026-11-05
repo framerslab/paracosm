@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Adds addresses to the mail suppression list, so Paracosm sends them
  * nothing: a person who asked by email to stop, or any address that must
@@ -10,11 +10,13 @@
  *
  * Standard input holds one address a line; a line without an @ is skipped.
  * Each address is kept as a hash (src/server/stores/mail-suppression.ts) in
- * data/mail.db under APP_DIR, the store the broadcast script reads before
- * every send. The script prints counts only, never an address, and sends
- * no email.
+ * data/mail.db under APP_DIR (from the environment, else from .env in the
+ * working directory, else the working directory), the store the broadcast
+ * script reads before every send. The script prints counts only, never an
+ * address, and sends no email.
  */
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
+import { loadDotEnv } from './load-dotenv.js';
 
 async function readStdin(): Promise<string> {
   let raw = '';
@@ -24,6 +26,7 @@ async function readStdin(): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  loadDotEnv();
   const lines = (await readStdin()).split('\n').map((line) => line.trim()).filter(Boolean);
   const addresses = lines.filter((line) => /^[^\s@]+@[^\s@]+$/.test(line));
   const skipped = lines.length - addresses.length;

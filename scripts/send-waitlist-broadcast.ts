@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Broadcast a "you're in" email to every row in the waitlist DB.
  *
@@ -30,21 +30,13 @@
  * it once per cohort. There's a 200ms sleep between sends to stay polite to
  * Resend's rate limit.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createWaitlistStore } from '../src/server/stores/waitlist.js';
 import { renderYoureIn } from '../src/server/services/email-templates.js';
 import { sendOptionalEmail, DEFAULT_MAIL_LINK_BASE } from '../src/server/services/optional-mail.js';
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
-
-function loadEnv(): void {
-  const envPath = resolve(process.cwd(), '.env');
-  if (!existsSync(envPath)) return;
-  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
-    const m = line.match(/^\s*([^#=\s]+)\s*=\s*(.+?)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-  }
-}
+import { loadDotEnv } from './load-dotenv.js';
 
 function parseArgs(): { dryRun: boolean; only: string[] | null } {
   const argv = process.argv.slice(2);
@@ -71,7 +63,7 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  loadEnv();
+  loadDotEnv();
   const { dryRun, only } = parseArgs();
 
   const appDir = process.env.APP_DIR || '.';
