@@ -96,16 +96,23 @@ test('the waitlist broadcast script lists its recipients in a dry run', () => {
 
 test('a real broadcast refuses to start without the postal address and sends nothing', async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-postal-'));
+  // Run from an empty folder, so no .env can supply the address.
+  const workDir = mkdtempSync(join(tmpdir(), 'paracosm-broadcast-postal-cwd-'));
   const stub = await resendStub();
   try {
     seedSignups(appDir, ['reader@example.com']);
 
-    const result = await runNodeAsync(['scripts/send-waitlist-broadcast.ts'], {
-      APP_DIR: appDir,
-      RESEND_API_KEY: 're_broadcast_test',
-      RESEND_BASE_URL: stub.url,
-      MAIL_POSTAL_ADDRESS: '',
-    });
+    const result = await runNodeAsync(
+      [resolve(root, 'scripts/send-waitlist-broadcast.ts')],
+      {
+        APP_DIR: appDir,
+        RESEND_API_KEY: 're_broadcast_test',
+        RESEND_BASE_URL: stub.url,
+        MAIL_POSTAL_ADDRESS: '',
+      },
+      '',
+      workDir,
+    );
 
     assert.equal(result.status, 1, result.stdout);
     assert.match(result.stderr, /MAIL_POSTAL_ADDRESS/);
@@ -113,6 +120,7 @@ test('a real broadcast refuses to start without the postal address and sends not
   } finally {
     await stub.close();
     rmSync(appDir, { recursive: true, force: true });
+    rmSync(workDir, { recursive: true, force: true });
   }
 });
 

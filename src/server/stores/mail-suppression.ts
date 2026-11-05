@@ -50,6 +50,7 @@ function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** The suppression list and the unsubscribe tokens, as one open store. Close it after use. */
 export interface MailStore {
   /** True when the address gets no more mail. */
   isSuppressed(address: string): Promise<boolean>;
@@ -64,6 +65,7 @@ export interface MailStore {
   close(): Promise<void>;
 }
 
+/** Where {@link openMailStore} opens the store, and whether it may write. */
 export interface OpenMailStoreOptions {
   /** SQLite file path, opened unless `databaseOptions` is given. Created with its folder when missing. */
   dbPath?: string;
@@ -94,6 +96,11 @@ async function bootstrap(adapter: StorageAdapter): Promise<void> {
   `);
 }
 
+/**
+ * Opens the mail store at `dbPath` on better-sqlite3, creating its folder
+ * and tables unless `readOnly`. The database opens on first use; call
+ * `close()` when done, so the next opener reads every write.
+ */
 export function openMailStore(options: OpenMailStoreOptions): MailStore {
   const { dbPath, databaseOptions, readOnly = false } = options;
   if (!readOnly && dbPath && dbPath !== ':memory:' && !databaseOptions?.type) {

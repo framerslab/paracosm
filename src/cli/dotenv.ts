@@ -1,7 +1,8 @@
 /**
  * Reads `.env` from the working directory into process.env. A variable
- * that is already set wins, and a value in matching single or double
- * quotes is taken without them. `paracosm dashboard`, `paracosm run` and
+ * that already has a value wins; one that is unset or empty takes the
+ * file's value, as the dashboard has always read it. A value in matching
+ * single or double quotes is taken without them. `paracosm dashboard`, `paracosm run` and
  * the mail scripts all read `.env` through this one function, so they
  * agree on APP_DIR, and with it on the data/ folder the stores live in.
  *

@@ -64,6 +64,7 @@ export function listUnsubscribeHeaders(url: string): Record<string, string> {
   };
 }
 
+/** One email for {@link sendOptionalEmail}: who it goes to, from whom, and how to render it. */
 export interface SendOptionalEmailInput {
   /** The mail store (`mailDbPath(APP_DIR)`), shared with the dashboard server. */
   mailDbPath: string;
@@ -81,6 +82,15 @@ export interface SendOptionalEmailInput {
 /** `sent`, `suppressed` (nothing sent), or `failed` (Resend refused or was unreachable). */
 export type SendOptionalEmailResult = 'sent' | 'suppressed' | 'failed';
 
+/**
+ * Sends one optional email, the only kind Paracosm sends. Opens the mail
+ * store, returns `suppressed` without sending when the address is on the
+ * list, otherwise draws a token and closes the store, then sends the
+ * rendered email with its unsubscribe link and headers.
+ *
+ * @throws When the postal address is empty or the link base is not an
+ *   https origin; nothing is drawn or sent then.
+ */
 export async function sendOptionalEmail(input: SendOptionalEmailInput): Promise<SendOptionalEmailResult> {
   const postalAddress = input.postalAddress.trim();
   if (!postalAddress) {

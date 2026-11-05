@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import * as nodeModule from 'node:module';
 
 interface SentMail {
   to: string;
@@ -319,7 +320,10 @@ test('a mail store that cannot be opened answers 503, leaves no unhandled reject
   }
 });
 
-test('the mail store refuses to open without better-sqlite3 instead of falling back to sql.js, which other processes cannot see', async () => {
+// module.registerHooks, which hides better-sqlite3 from the child, arrived in Node 22.15.
+const canHideModules = typeof (nodeModule as { registerHooks?: unknown }).registerHooks === 'function';
+
+test('the mail store refuses to open without better-sqlite3 instead of falling back to sql.js, which other processes cannot see', { skip: canHideModules ? false : 'needs module.registerHooks (Node 22.15 or newer)' }, async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-unsub-engine-'));
   const storeUrl = pathToFileURL(resolve(import.meta.dirname, '..', '..', 'src/server/stores/mail-suppression.ts')).href;
   // A child process in which better-sqlite3 cannot load, as on a host without its native build.
