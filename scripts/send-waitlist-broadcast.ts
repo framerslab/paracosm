@@ -15,7 +15,8 @@
  *     carry it (15 U.S.C. 7704(a)(5)). Without it the script sends nothing.
  *   - WAITLIST_FROM (optional, defaults to "Paracosm <team@frame.dev>")
  *   - MAIL_LINK_BASE (optional, defaults to https://paracosm.agentos.sh): the
- *     site whose /unsubscribe page the links open
+ *     site whose /unsubscribe page the links open; an https origin with no
+ *     path, or the script sends nothing
  *   - APP_DIR (optional, defaults to cwd; controls where data/waitlist.db and
  *     data/mail.db live)
  *
@@ -34,7 +35,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createWaitlistStore } from '../src/server/stores/waitlist.js';
 import { renderYoureIn } from '../src/server/services/email-templates.js';
-import { sendOptionalEmail, DEFAULT_MAIL_LINK_BASE } from '../src/server/services/optional-mail.js';
+import { sendOptionalEmail, DEFAULT_MAIL_LINK_BASE, mailLinkOrigin } from '../src/server/services/optional-mail.js';
 import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
 import { loadDotEnv } from './load-dotenv.js';
 
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
   const mailDb = mailDbPath(appDir);
   const from = process.env.WAITLIST_FROM || 'Paracosm <team@frame.dev>';
   const postalAddress = (process.env.MAIL_POSTAL_ADDRESS ?? '').trim();
-  const linkBase = process.env.MAIL_LINK_BASE || DEFAULT_MAIL_LINK_BASE;
+  const linkBaseSetting = process.env.MAIL_LINK_BASE || DEFAULT_MAIL_LINK_BASE;
 
   if (!dryRun && !process.env.RESEND_API_KEY) {
     process.stderr.write('RESEND_API_KEY missing — refusing to send. Use --dry-run to preview.\n');
@@ -86,6 +87,17 @@ async function main(): Promise<void> {
       'MAIL_POSTAL_ADDRESS missing: every email must carry the sender\'s postal address. Refusing to send. Use --dry-run to preview.\n',
     );
     process.exit(1);
+  }
+  let linkBase = DEFAULT_MAIL_LINK_BASE;
+  try {
+    linkBase = mailLinkOrigin(linkBaseSetting);
+  } catch {
+    if (!dryRun) {
+      process.stderr.write(
+        `MAIL_LINK_BASE must be an https origin such as ${DEFAULT_MAIL_LINK_BASE} (no path, query or quotes): every unsubscribe link would be broken. Refusing to send.\n`,
+      );
+      process.exit(1);
+    }
   }
 
   const store = createWaitlistStore({ dbPath });
@@ -145,7 +157,7 @@ async function main(): Promise<void> {
 
 async function isSuppressedReadOnly(mailDb: string, address: string): Promise<boolean> {
   if (!existsSync(mailDb)) return false;
-  const store = openMailStore({ dbPath: mailDb });
+  const store = openMailStore({ dbPath: mailDb, readOnly: true });
   try {
     return await store.isSuppressed(address);
   } finally {

@@ -69,6 +69,12 @@ export interface OpenMailStoreOptions {
   dbPath?: string;
   /** Direct override for `createDatabase`. Tests pass `{ file: ':memory:' }`. */
   databaseOptions?: DatabaseOptions;
+  /**
+   * Reads only: creates no folder and no table, and every write throws. A
+   * store without the tables reads as an empty list. The broadcast's dry
+   * run opens the store this way.
+   */
+  readOnly?: boolean;
 }
 
 async function bootstrap(adapter: StorageAdapter): Promise<void> {
@@ -89,8 +95,8 @@ async function bootstrap(adapter: StorageAdapter): Promise<void> {
 }
 
 export function openMailStore(options: OpenMailStoreOptions): MailStore {
-  const { dbPath, databaseOptions } = options;
-  if (dbPath && dbPath !== ':memory:' && !databaseOptions?.type) {
+  const { dbPath, databaseOptions, readOnly = false } = options;
+  if (!readOnly && dbPath && dbPath !== ':memory:' && !databaseOptions?.type) {
     mkdirSync(dirname(dbPath), { recursive: true });
   }
 
@@ -102,7 +108,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
           databaseOptions ?? { file: dbPath ?? ':memory:', priority: ['better-sqlite3'] },
         );
         try {
-          await bootstrap(adapter);
+          if (!readOnly) await bootstrap(adapter);
         } catch (err) {
           await adapter.close().catch(() => {});
           throw err;
@@ -113,7 +119,23 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     return adapterPromise;
   }
 
+  function refuseWriteWhenReadOnly(): void {
+    if (readOnly) throw new Error('This mail store was opened read-only.');
+  }
+
+  /** In a read-only store, whether a table exists; a writable store has created both. */
+  async function hasTable(name: string): Promise<boolean> {
+    if (!readOnly) return true;
+    const adapter = await getAdapter();
+    const row = await adapter.get<{ name: string }>(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
+      [name],
+    );
+    return row !== null && row !== undefined;
+  }
+
   async function suppressHash(hash: string, reason: SuppressionReason): Promise<void> {
+    refuseWriteWhenReadOnly();
     const adapter = await getAdapter();
     const now = new Date().toISOString();
     if (reason === 'manual') {
@@ -133,6 +155,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
 
   async function addressOfToken(token: string): Promise<string | null> {
     if (!UNSUBSCRIBE_TOKEN_PATTERN.test(token)) return null;
+    if (!(await hasTable('mail_unsubscribe_tokens'))) return null;
     const adapter = await getAdapter();
     const row = await adapter.get<{ address_hash: string }>(
       `SELECT address_hash FROM mail_unsubscribe_tokens WHERE token_hash = ? LIMIT 1`,
@@ -142,6 +165,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
   }
 
   async function isHashSuppressed(hash: string): Promise<boolean> {
+    if (!(await hasTable('mail_suppressions'))) return false;
     const adapter = await getAdapter();
     const row = await adapter.get<{ reason: string }>(
       `SELECT reason FROM mail_suppressions WHERE address_hash = ? LIMIT 1`,
@@ -160,6 +184,7 @@ export function openMailStore(options: OpenMailStoreOptions): MailStore {
     },
 
     async mintUnsubscribeToken(address) {
+      refuseWriteWhenReadOnly();
       const adapter = await getAdapter();
       const token = randomBytes(32).toString('base64url');
       await adapter.run(

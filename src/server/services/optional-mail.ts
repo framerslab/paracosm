@@ -25,9 +25,35 @@ import { openMailStore } from '../stores/mail-suppression.js';
 /** The public site the links in an email point to. */
 export const DEFAULT_MAIL_LINK_BASE = 'https://paracosm.agentos.sh';
 
-/** The unsubscribe page for one token, on the given site. */
+/**
+ * The origin of a link base, such as `https://paracosm.agentos.sh`. Throws
+ * unless the base is an https origin with no path, query, fragment or
+ * credentials: List-Unsubscribe takes an https link, and the server
+ * answers `/unsubscribe` at its root only.
+ */
+export function mailLinkOrigin(linkBase: string): string {
+  let url: URL;
+  try {
+    url = new URL(linkBase);
+  } catch {
+    throw new Error(`The mail link base must be an https origin; got ${JSON.stringify(linkBase)}.`);
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.pathname !== '/' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    url.username !== '' ||
+    url.password !== ''
+  ) {
+    throw new Error(`The mail link base must be an https origin; got ${JSON.stringify(linkBase)}.`);
+  }
+  return url.origin;
+}
+
+/** The unsubscribe page for one token, on the given site (an https origin). */
 export function unsubscribeUrl(linkBase: string, token: string): string {
-  return `${linkBase.replace(/\/+$/, '')}/unsubscribe?t=${token}`;
+  return `${mailLinkOrigin(linkBase)}/unsubscribe?t=${token}`;
 }
 
 /** The RFC 8058 one-click headers for an unsubscribe link: https only, no mailto. */
@@ -46,7 +72,7 @@ export interface SendOptionalEmailInput {
   replyTo?: string;
   /** The sender's postal address. Required: an empty one throws before anything is sent. */
   postalAddress: string;
-  /** The site the unsubscribe link points to. Defaults to {@link DEFAULT_MAIL_LINK_BASE}. */
+  /** The site the unsubscribe link points to, an https origin. Defaults to {@link DEFAULT_MAIL_LINK_BASE}. */
   linkBase?: string;
   /** Renders the email with the footer it is given. */
   render: (footer: MailFooter) => RenderedEmail;
@@ -60,6 +86,8 @@ export async function sendOptionalEmail(input: SendOptionalEmailInput): Promise<
   if (!postalAddress) {
     throw new Error('A Paracosm email must carry the sender\'s postal address; none was given, so nothing was sent.');
   }
+  // Checked before a token is drawn: a broken link base sends nothing.
+  const linkOrigin = mailLinkOrigin(input.linkBase ?? DEFAULT_MAIL_LINK_BASE);
 
   // A suppressed address gets no email and no new link.
   const store = openMailStore({ dbPath: input.mailDbPath });
@@ -71,7 +99,7 @@ export async function sendOptionalEmail(input: SendOptionalEmailInput): Promise<
   }
   if (token === null) return 'suppressed';
 
-  const url = unsubscribeUrl(input.linkBase ?? DEFAULT_MAIL_LINK_BASE, token);
+  const url = unsubscribeUrl(linkOrigin, token);
   const rendered = input.render({ unsubscribeUrl: url, postalAddress });
   const ok = await sendEmail({
     from: input.from,
