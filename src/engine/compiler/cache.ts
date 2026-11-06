@@ -58,8 +58,13 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  *   prompt applied a year's effects each unit of a month or week
  *   scenario, so every cached hook regenerates (one-time ~$0.10 per
  *   previously-compiled scenario).
+ * - v8 (2026-11-03): a turn runs the progression hook once for each year
+ *   it spans, with `timeDelta` and `yearsDelta` that step's length. A hook
+ *   generated under the earlier prompt and leaving an effect unscaled
+ *   would apply it once a year of a long turn, so every cached hook
+ *   regenerates (one-time ~$0.10 per previously-compiled scenario).
  */
-export const COMPILE_SCHEMA_VERSION = 7;
+export const COMPILE_SCHEMA_VERSION = 8;
 
 /** SHA-256 hash of the scenario JSON, used for cache invalidation. */
 export function hashScenario(scenarioJson: Record<string, unknown>): string {

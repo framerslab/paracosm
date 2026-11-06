@@ -106,10 +106,11 @@ test('the dose a colonist takes reads the habitat', () => {
   assert.ok(Math.abs(doseOver8Years(5) - surface * 0.1) < 0.01, `five modules: ${doseOver8Years(5)}`);
 });
 
-test('the colony\'s morale reaches its people', () => {
-  // Morale pulls each person's psych by (morale - 0.5) * 0.1 a year, so a
-  // colony held at 0.2 for forty years wears its people down to where the
-  // despair roll reads them, and one held at 0.8 never does.
+test('the colony\'s morale reaches its people', (t) => {
+  // Morale pulls each person's psych a little every year. A colony held at
+  // 0.2 for forty years wears its people down until despair takes some of
+  // them, partners and outside contacts notwithstanding; one held at 0.8,
+  // on the same seed, loses nobody to despair.
   const run = (morale: number) => {
     const k = mars();
     for (const [turn, time] of TURNS) {
@@ -127,7 +128,8 @@ test('the colony\'s morale reaches its people', () => {
   const low = run(0.2);
   const high = run(0.8);
   const seen = `at 0.2 ${JSON.stringify(low)}, at 0.8 ${JSON.stringify(high)}`;
-  assert.ok(low.low + low.despair > 0, `morale held at 0.2 brings someone under 0.2 psych: ${seen}`);
+  t.diagnostic(seen);
+  assert.ok(low.despair > 0, `morale held at 0.2 brings a despair death: ${seen}`);
   assert.ok(low.mean < high.mean, seen);
   assert.equal(high.low + high.despair, 0, `morale held at 0.8: ${seen}`);
 });
@@ -186,7 +188,9 @@ test('children born in one turn never share an id, so never share dice', async (
   }
   const next = { ...state, metadata: { ...state.metadata, currentTime: 2043, currentTurn: 2 } };
   const { state: after } = progressBetweenTurns(next, 8, constant as never);
-  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime === 2043);
+  // The turn runs as eight one-year steps, so its children are born in
+  // 2036 to 2043.
+  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime > 2035);
   assert.ok(born.length >= 2, `children born: ${born.length}`);
   const ids = after.agents.map(a => a.core.id);
   assert.equal(new Set(ids).size, ids.length, `ids: ${born.map(a => a.core.id).join(', ')}`);
