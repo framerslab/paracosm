@@ -14,7 +14,7 @@ function keyLine(k: EffectKey): string {
   const range = k.min !== undefined && k.max !== undefined
     ? `from ${k.min} to ${k.max}`
     : k.min !== undefined ? `at least ${k.min}` : k.max !== undefined ? `at most ${k.max}` : '';
-  return `- "${k.id}" (${k.bag}): ${[k.label, unit, range].filter(Boolean).join(', ')}`;
+  return `- ${JSON.stringify(k.id)} (${k.bag}): ${[k.label, unit, range].filter(Boolean).join(', ')}`;
 }
 
 /** An example change in the key's own unit: a small step for a fraction, one unit otherwise. */
@@ -35,8 +35,10 @@ function effectFormat(keys: EffectKey[]): { example: string; list: string } {
   const shown = [...systems.filter(k => !universal.has(k.id)), ...systems.filter(k => universal.has(k.id) && k.id !== 'population')].slice(0, 2);
   const politics = keys.find(k => k.bag === 'politicsDelta');
   const example = [
-    `"systemDelta": {${shown.map(k => `"${k.id}": ${exampleDelta(k, 1)}`).join(', ')}}`,
-    ...(politics ? [`"politicsDelta": {"${politics.id}": ${exampleDelta(politics, -1)}}`] : []),
+    // Keys written as JSON, so a custom scenario's key with a quote or a
+    // backslash still gives an example that parses.
+    `"systemDelta": {${shown.map(k => `${JSON.stringify(k.id)}: ${exampleDelta(k, 1)}`).join(', ')}}`,
+    ...(politics ? [`"politicsDelta": {${JSON.stringify(politics.id)}: ${exampleDelta(politics, -1)}}`] : []),
   ].join(', ');
   const list = `
 
