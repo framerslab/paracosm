@@ -4,10 +4,13 @@
  * nothing at all, answers 404; a real file is served whole, or by the range
  * asked for. A directory once reached the file stream, which failed with
  * EISDIR and no listener, and that stopped the process for every visitor.
+ * A request path reaches the server as the visitor sent it, so a path with
+ * `..` in it must never reach a file outside the folder its route serves.
  */
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { request } from 'node:http';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -19,7 +22,11 @@ const demoFile = 'branches-poster.jpg';
 const demoSubdir = `test-directory-${process.pid}`;
 const unreadableFile = `test-unreadable-${process.pid}.mp4`;
 
+const docsRoot = resolve(root, 'docs', 'api');
+const docsFile = `test-docs-${process.pid}.css`;
+
 let site = '';
+let port = 0;
 let closeServer: () => Promise<void> = async () => {};
 
 before(async () => {
@@ -28,12 +35,18 @@ before(async () => {
   // fails when the read stream opens it.
   writeFileSync(resolve(demoRoot, unreadableFile), Buffer.alloc(64));
   chmodSync(resolve(demoRoot, unreadableFile), 0o000);
+  // The server serves /docs/ from docs/api, which TypeDoc writes; CI runs the
+  // tests before it builds the docs. The folder is left in place afterwards,
+  // as tests/cli/server-app-landing.test.ts leaves it, because that file may
+  // be using it at the same time.
+  mkdirSync(docsRoot, { recursive: true });
+  writeFileSync(resolve(docsRoot, docsFile), 'body { color: black; }');
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-static-'));
   const env = { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: undefined };
   const server = createMarsServer({ env, runPairSimulations: async () => {} });
   server.listen(0);
   await once(server, 'listening');
-  const { port } = server.address() as { port: number };
+  ({ port } = server.address() as { port: number });
   site = `http://127.0.0.1:${port}`;
   closeServer = async () => {
     server.close();
@@ -42,6 +55,7 @@ before(async () => {
     rmSync(appDir, { recursive: true, force: true });
     rmSync(resolve(demoRoot, demoSubdir), { recursive: true, force: true });
     rmSync(resolve(demoRoot, unreadableFile), { force: true });
+    rmSync(resolve(docsRoot, docsFile), { force: true });
   };
 });
 
@@ -108,4 +122,52 @@ test('a demo file that cannot be opened answers 500, whole and by range, and the
     assert.equal(await res.text(), 'Read failed');
     await assertStillAnswers();
   }
+});
+
+/**
+ * Sends one GET with the path exactly as given. fetch() would resolve the
+ * `..` segments first, as a browser does; a scanner sends them raw.
+ */
+function getRawPath(path: string): Promise<{ status: number; body: string }> {
+  return new Promise((done, fail) => {
+    const req = request({ host: '127.0.0.1', port, path, signal: answerWithin() }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => { body += chunk; });
+      res.on('end', () => done({ status: res.statusCode ?? 0, body }));
+      res.on('error', fail);
+    });
+    req.on('error', fail);
+    req.end();
+  });
+}
+
+// Each path resolves to the repository's package.json, outside the folder
+// its route serves. A proxy in front resolves `/docs/../..` itself, but
+// `docs..` is an ordinary segment, so `/docs../../package.json` reaches the
+// server as sent.
+const pathsOutsideTheirRoute = [
+  '/docs../../package.json',
+  '/docs/../../package.json',
+  '/docs/media/../../../package.json',
+  '/demo/../../package.json',
+  '/brand/../package.json',
+  '/diagrams/../../package.json',
+  '/assets/../../../../package.json',
+];
+
+for (const path of pathsOutsideTheirRoute) {
+  test(`GET ${path}, sent as is, answers 404 and serves no file outside its route`, async () => {
+    const { status, body } = await getRawPath(path);
+    assert.equal(status, 404);
+    assert.ok(!body.includes('"name": "paracosm"'), 'the body must not be package.json');
+    await assertStillAnswers();
+  });
+}
+
+test('a file inside docs/api is still served', async () => {
+  const res = await fetch(`${site}/docs/${docsFile}`, { signal: answerWithin() });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'text/css');
+  assert.equal(await res.text(), 'body { color: black; }');
 });

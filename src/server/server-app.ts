@@ -3365,8 +3365,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
     }
 
-    // API docs (TypeDoc generated)
-    if (pathname.startsWith('/docs')) {
+    // API docs (TypeDoc generated). Only /docs and paths under /docs/ reach
+    // this route, and it serves only what resolves inside docs/api: the
+    // request path arrives as the visitor sent it, `..` segments included.
+    if (pathname === '/docs' || pathname.startsWith('/docs/')) {
       const docsDir = resolve(__dirname, '..', '..', 'docs', 'api');
       // The npm package does not ship docs/api, so an install sends the landing
       // page's and the dashboard's docs links to the hosted paracosm reference
@@ -3386,6 +3388,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       let docPath = pathname.replace('/docs', '');
       if (!docPath || docPath === '/') docPath = '/modules.html';
       const filePath = resolve(docsDir, docPath.startsWith('/') ? docPath.slice(1) : docPath);
+      if (filePath !== docsDir && !filePath.startsWith(docsDir + sep)) {
+        res.writeHead(404);
+        res.end('Not found');
+        return;
+      }
       try {
         const { statSync } = await import('node:fs');
         const stat = statSync(filePath);
