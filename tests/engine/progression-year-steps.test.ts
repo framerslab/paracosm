@@ -25,7 +25,7 @@ import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { progressBetweenTurns, yearSteps } from '../../src/engine/core/progression.js';
 import { SeededRng } from '../../src/engine/core/rng.js';
-import type { TurnEvent } from '../../src/engine/core/state.js';
+import type { SimulationState, TurnEvent } from '../../src/engine/core/state.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 
 const hook = marsScenario.hooks.progressionHook;
@@ -116,6 +116,44 @@ test('nobody takes two promotions in one step', () => {
     }
   }
   assert.deepEqual(doubled, []);
+});
+
+test('a long turn takes the death shock for a year of deaths, not for the whole turn', () => {
+  // Morale takes a shock when more than two people die together. A turn's
+  // deaths carry the year they happened in, so three deaths in three years
+  // of one eight-year turn shock the colony as they would over eight
+  // one-year turns: not at all. A year that loses three or more still does.
+  const settled = (morale: number, state: SimulationState) => {
+    const alive = state.agents.filter(a => a.health.alive);
+    const psych = alive.reduce((sum, a) => sum + a.health.psychScore, 0) / alive.length;
+    const food = state.metrics.foodMonthsReserve as number;
+    return morale + (0.6 - morale) * 0.1 + (food < 6 ? -0.05 : 0) + (psych < 0.4 ? -0.06 : psych > 0.7 ? 0.03 : 0);
+  };
+  let spread = 0;
+  let shaken = 0;
+  for (const seed of SEEDS) {
+    const kernel = new SimulationKernel(seed, 'Aria Chen', [], { startTime: START, initialPopulation: 100, scenario: marsScenario });
+    kernel.advanceTurn(1, START, hook);
+    for (let turn = 2; turn <= 3; turn++) {
+      // Room for everyone, so the head count puts no pressure on morale.
+      kernel.applySystemDeltas({ morale: MORALE - kernel.getState().metrics.morale, lifeSupportCapacity: 1000 });
+      const before = kernel.getState().metrics.morale;
+      const state = kernel.advanceTurn(turn, START + (turn - 1) * LONG, hook);
+      const perYear = new Map<number, number>();
+      for (const e of state.eventLog) {
+        if (e.turn === turn && e.type === 'death') perYear.set(e.time, (perYear.get(e.time) ?? 0) + 1);
+      }
+      const deaths = [...perYear.values()].reduce((sum, n) => sum + n, 0);
+      const shock = [...perYear.values()].reduce((sum, n) => sum + (n > 2 ? -0.04 * n : 0), 0);
+      if (deaths > 2 && shock === 0) spread++;
+      if (shock < 0) shaken++;
+      const expected = Math.max(0, Math.min(1, settled(before, state) + shock));
+      assert.ok(Math.abs(state.metrics.morale - expected) < 1e-9,
+        `seed ${seed} turn ${turn}: ${deaths} deaths, ${JSON.stringify([...perYear])}: morale ${state.metrics.morale}, expected ${expected}`);
+    }
+  }
+  assert.ok(spread > 0, 'some turn spreads three or more deaths over its years');
+  assert.ok(shaken > 0, 'some year loses three or more');
 });
 
 test('a hook in a long turn reads the head count as its step begins', () => {
