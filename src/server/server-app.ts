@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, type Stats } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
@@ -159,6 +160,35 @@ export function pickCookie(id: string, secure = false): string | null {
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** The path's stats when it names a regular file; undefined for a folder, nothing, or an unreadable path. */
+function regularFileStat(path: string): Stats | undefined {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() ? stat : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stream one file into a response. A read error (the file went away, or
+ * cannot be read) ends this response: 500 when nothing was sent yet, a
+ * closed connection otherwise. Without a listener the stream's error event
+ * is thrown and stops the whole process.
+ */
+function streamFile(res: ServerResponse, path: string, range?: { start: number; end: number }): void {
+  pipeline(createReadStream(path, range), res, (err) => {
+    if (!err || (err as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+    console.warn(`[static] failed to stream ${path}: ${err.message}`);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('Read failed');
+    } else {
+      res.destroy();
+    }
+  });
+}
 
 /** Resolved paracosm version from package.json (for docs header and API responses). */
 const PARACOSM_VERSION: string = (() => {
@@ -3242,11 +3272,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // Path-traversal guard: same vulnerability as the /brand/ route.
       // Reject anything that resolves outside the demo asset root.
       const insideDemo = demoPath === demoRoot || demoPath.startsWith(demoRoot + sep);
-      if (insideDemo && existsSync(demoPath)) {
+      // Only a regular file is served. `/demo/` itself, or any folder under
+      // it, answers 404: a folder handed to the read stream fails with EISDIR.
+      const stat = insideDemo ? regularFileStat(demoPath) : undefined;
+      if (stat) {
         const ext = demoPath.split('.').pop() || '';
         const types: Record<string, string> = { mp4: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg' };
         const contentType = types[ext] || 'application/octet-stream';
-        const stat = statSync(demoPath);
         const fileSize = stat.size;
         const rangeHeader = req.headers.range;
 
@@ -3294,7 +3326,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           });
           // Stream the requested chunk so we don't buffer the whole
           // file into memory per request.
-          createReadStream(demoPath, { start, end }).pipe(res);
+          streamFile(res, demoPath, { start, end });
           return;
         }
 
@@ -3307,7 +3339,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'public, max-age=86400',
         });
-        createReadStream(demoPath).pipe(res);
+        streamFile(res, demoPath);
         return;
       }
     }
@@ -3634,7 +3666,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // Path-traversal guard: same vulnerability as the /brand/ and
       // /demo/ routes. Reject anything that resolves outside distDir.
       const insideDist = assetPath === distDir || assetPath.startsWith(distDir + sep);
-      if (insideDist && existsSync(assetPath)) {
+      // A folder (`/assets/` itself, or one inside it) answers 404; reading
+      // it as a file throws EISDIR.
+      if (insideDist && regularFileStat(assetPath)) {
         const ext = assetPath.split('.').pop();
         // `mjs` MUST resolve to a JS MIME type — pdfjs-dist ships its
         // worker as `pdf.worker.min.mjs`, and Vite emits other ESM
