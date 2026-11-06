@@ -286,7 +286,14 @@ export function useSSE(options: UseSSEOptions = {}) {
    */
   const reset = useCallback(async () => {
     seenEventKeysRef.current.clear();
-    skipBufferedRunRef.current = false;
+    // A run the feed holds in another scenario than the page's can still be
+    // writing, as a Digital Twin run does after the page leaves it. Its
+    // events that arrive before the next active_scenario are skipped, as the
+    // page skipped them before the reset: the server sends a writing twin's
+    // active_scenario again on /clear, and every run opens with one.
+    const runScenarioId = runScenarioIdRef.current;
+    const pageScenarioId = pageScenarioIdRef.current;
+    skipBufferedRunRef.current = runScenarioId !== null && pageScenarioId !== null && runScenarioId !== pageScenarioId;
     // The buffer is cleared below; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;

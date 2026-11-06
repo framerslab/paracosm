@@ -11,7 +11,7 @@
  * @module paracosm/cli/dashboard/components/sim/RerunPanel
  */
 import { useCallback, useState } from 'react';
-import { useScenarioContext, useScenarioReady } from '../../App';
+import { useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import {
   buildNextRunConfig,
   isLastLaunchFor,
@@ -34,6 +34,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
+  const runStart = useRunStart();
 
   const handleClick = useCallback(async () => {
     if (launching || !scenarioReady) return;
@@ -68,6 +69,8 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         return;
       }
       if (data.redirect) {
+        // The server took the run: it replaces the Digital Twin views.
+        runStart();
         // Persist the new seed so a subsequent Re-run bumps from THIS
         // run's seed, not the original.
         writeLastLaunchConfig(window.localStorage, next);
@@ -97,7 +100,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
     } finally {
       setLaunching(false);
     }
-  }, [launching, scenarioReady, scenario.id, scenario.labels.name]);
+  }, [launching, scenarioReady, scenario.id, scenario.labels.name, runStart]);
 
   if (!enabled) return null;
 
