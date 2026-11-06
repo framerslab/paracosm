@@ -4,9 +4,10 @@
  * nothing: a person who asked by email to stop, or any address that must
  * never be mailed.
  *
- * Usage (run from the paracosm working directory or with APP_DIR set):
+ * Usage (run from the paracosm working directory or with APP_DIR set; a
+ * deploy leaves no script executable, so name tsx):
  *
- *   ./scripts/mail-suppress.ts < addresses.txt
+ *   npx tsx scripts/mail-suppress.ts < addresses.txt
  *
  * Standard input holds one address a line; a line without an @ is skipped.
  * Each address is kept as a hash (src/server/stores/mail-suppression.ts) in

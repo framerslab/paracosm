@@ -2,11 +2,12 @@
 /**
  * Broadcast a "you're in" email to every row in the waitlist DB.
  *
- * Usage (run from the paracosm working directory or with APP_DIR set):
+ * Usage (run from the paracosm working directory or with APP_DIR set; a
+ * deploy leaves no script executable, so name tsx):
  *
- *   ./scripts/send-waitlist-broadcast.ts                 # send to everyone
- *   ./scripts/send-waitlist-broadcast.ts --dry-run       # list recipients, send nothing
- *   ./scripts/send-waitlist-broadcast.ts --only=a@x.co   # restrict to one or more emails (comma-separated)
+ *   npx tsx scripts/send-waitlist-broadcast.ts                 # send to everyone
+ *   npx tsx scripts/send-waitlist-broadcast.ts --dry-run       # list recipients, send nothing
+ *   npx tsx scripts/send-waitlist-broadcast.ts --only=a@x.co   # restrict to one or more emails (comma-separated)
  *
  * Env requirements:
  *   - RESEND_API_KEY (required for actual sends; dry-run skips this)
