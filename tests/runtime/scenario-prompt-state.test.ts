@@ -197,6 +197,38 @@ test('the forge guidance every department reads names no Mars', () => {
   assert.match(guidance, /GOOD FORGE EXAMPLE/);
 });
 
+test('a department\'s report format lists the keys its run holds, with their units, and the example uses them', () => {
+  // The format showed only {"morale": 0.05}, so the Mars departments of
+  // 6 November 2026 wrote "power", "water" and "science", which the run
+  // does not hold (#209).
+  const marsGuidance = buildForgeGuidance('engineering', mars.world, kernelFor(mars, 2035).getState());
+  const format = marsGuidance.slice(marsGuidance.indexOf('REPORT FORMAT'));
+  for (const key of ['infrastructureModules', 'foodMonthsReserve', 'powerKw', 'lifeSupportCapacity', 'earthDependencyPct']) {
+    assert.match(format, new RegExp(`"${key}"`), `the Mars report format names ${key}`);
+  }
+  assert.match(format, /"powerKw"[^\n]*kW/, 'with its unit');
+  assert.match(format, /"foodMonthsReserve"[^\n]*months/);
+  assert.doesNotMatch(format, /"(power|water|science|health)"/, 'no bare key the run does not hold');
+  assert.match(format, /not listed[^\n]*refused/i, 'a key not listed is refused');
+  assert.match(format, /"systemDelta": \{"[A-Za-z]+": -?[0-9.]+/, 'the example delta names a key the run holds');
+  const example = format.match(/"systemDelta": (\{[^}]*\})/)![1];
+  for (const key of Object.keys(JSON.parse(example))) {
+    assert.match(format, new RegExp(`^- "${key}"`, 'm'), `the example's ${key} is a listed key`);
+  }
+  assert.match(format, /"politicsDelta": \{"earthDependencyPct": -?[0-9.]+\}/);
+
+  // Atlas Lab's departments are shown Atlas Lab's keys, and none of Mars.
+  const atlasGuidance = buildForgeGuidance('governance', atlasLab.world, kernelFor(atlasLab, 1).getState());
+  const atlasFormat = atlasGuidance.slice(atlasGuidance.indexOf('REPORT FORMAT'));
+  for (const key of ['alignmentBench', 'releaseReadiness', 'runwayMonths', 'trainingRunsPerMonth', 'boardConfidence']) {
+    assert.match(atlasFormat, new RegExp(`"${key}"`), `the Atlas Lab report format names ${key}`);
+  }
+  assert.doesNotMatch(atlasFormat, /infrastructureModules|foodMonthsReserve|earthDependencyPct|rspTier/);
+
+  // One system block per department per run: the same inputs give the same text.
+  assert.equal(buildForgeGuidance('engineering', mars.world, kernelFor(mars, 2035).getState()), marsGuidance);
+});
+
 test('the event summaries a viewer reads name the scenario\'s leader', () => {
   assert.equal(buildEventSummary('decision_pending', {}, atlasLab.labels), 'release director deciding');
   assert.match(buildEventSummary('decision_made', { decision: 'Hold the release' }, atlasLab.labels), /^release director decided: Hold the release/);
