@@ -132,9 +132,11 @@ export interface ForgeEvent {
  * and then forged it again, rejected, has a rejected record for it. So an
  * approved forge whose department has no approved ledger record for this
  * event is recorded here: as the tool's first forge when the ledger has no
- * entry for it, else as a further forge in its history. A forge the report
- * recorded as approved is not recorded again, and a rejected forge is no
- * tool of the run either way.
+ * entry for it, else as a further forge in its history. Like a report, it
+ * records a tool once for its department and the event, from the
+ * department's last approved capture of it (its output, confidence and, for
+ * a first forge, schemas). A forge the report recorded as approved is not
+ * recorded again, and a rejected forge is no tool of the run either way.
  */
 export function recordEventForges<F extends CapturedForgeForLedger>(
   eventForges: readonly F[],
@@ -142,9 +144,14 @@ export function recordEventForges<F extends CapturedForgeForLedger>(
   ledger: ForgedLedger,
   allForges: Array<F & { turn: number; time: number; eventIndex: number }>,
 ): void {
+  // Each department's last approved capture of each tool, in the order of
+  // its first approved capture.
+  const lastApproved = new Map<string, F>();
   for (const forge of eventForges) {
     allForges.push({ ...forge, turn: event.turn, time: event.time, eventIndex: event.eventIndex });
-    if (!forge.approved) continue;
+    if (forge.approved) lastApproved.set(JSON.stringify([forge.department, forge.name]), forge);
+  }
+  for (const forge of lastApproved.values()) {
     const known = ledger.get(forge.name);
     const recorded = known?.history.some(h =>
       h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department && !h.rejected,
