@@ -220,7 +220,10 @@ export type EventToolModifiers = NonNullable<OutcomeModifiers['toolModifiers']>;
  * the event's departments made during the event, in the order captured: an
  * approved one is a new tool when the ledger first saw its name this turn
  * (once per name), else a reuse; a rejected one is a failed forge.
- * `totalToolsForRun` is the run-wide count the innovation bonus reads.
+ * `totalToolsForRun` is the run-wide count the innovation bonus reads: the
+ * run's approved tools, each once, as {@link forgedToolNames} counts them for
+ * the stream, the director and the verdict. A tool whose every forge the
+ * reviewers rejected is none, so it raises no outcome.
  */
 export function eventToolModifiers(
   eventForges: readonly Pick<ForgeCaptureForToolbox, 'name' | 'approved'>[],
@@ -247,6 +250,6 @@ export function eventToolModifiers(
     newToolsThisEvent: newCount,
     reuseCountThisEvent: reuseCount,
     forgeFailures: failCount,
-    totalToolsForRun: ledger.size,
+    totalToolsForRun: forgedToolNames(ledger, allForges).length,
   };
 }

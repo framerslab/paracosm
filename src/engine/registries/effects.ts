@@ -21,7 +21,8 @@ export interface OutcomeModifiers {
    *                          (cheap, pure upside — institutional knowledge)
    *   forgeFailures          failed forge attempts this event (judge
    *                          rejected — wasted department effort)
-   *   totalToolsForRun       cumulative unique tools over the run
+   *   totalToolsForRun       the run's approved tools so far, each once;
+   *                          a forge rejected on every try is none
    *                          (innovation index — diminishing returns)
    */
   toolModifiers?: {
