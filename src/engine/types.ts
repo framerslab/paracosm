@@ -282,7 +282,9 @@ export interface ScenarioPreset {
 export interface ProgressionHookContext {
   /** All agents (mutable: the hook modifies health fields in place) */
   agents: Agent[];
-  /** Time since the last turn, in the scenario's unit. */
+  /** The step's length, in the scenario's unit. A turn calls the hook once
+   *  for each whole year it spans and once for a part of a year left over
+   *  (one call for a turn under a year), with `time` at that step's end. */
   timeDelta: number;
   time: number;
   turn: number;
@@ -293,7 +295,7 @@ export interface ProgressionHookContext {
   yearsSinceStart?: number;
   /** Years in one unit of the scenario's time. */
   yearsPerUnit?: number;
-  /** The run's metrics as the turn ends, read only (habitat modules shield a dose). */
+  /** The run's metrics at the step, read only (habitat modules shield a dose). */
   metrics?: Readonly<Record<string, unknown>>;
   /** The run's environment (`world.environment`), read only. */
   environment?: Readonly<Record<string, unknown>>;

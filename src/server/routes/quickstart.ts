@@ -6,8 +6,10 @@
  * - `POST /api/quickstart/generate-actors`: scenarioId -> ActorConfig[].
  *
  * Each is stateless except for the compiled-scenario install: a
- * successful `compile-from-seed` installs the result as the active
- * scenario so the subsequent `/setup` POST runs it. Routes are
+ * successful `compile-from-seed` adds the result to the catalog and makes it
+ * the requesting visitor's pick, so their `/setup` POST runs it, and
+ * `simulate-intervention`, whose run is its caller's own (it replaces their
+ * current run and leaves every other visitor's alone). Routes are
  * extracted from `server-app.ts` for unit-test isolation.
  *
  * @module paracosm/cli/quickstart-routes
@@ -22,6 +24,19 @@ import type { ScenarioPackage, ActorConfig } from '../../engine/types.js';
 import type { SubjectConfig, InterventionConfig, RunArtifact } from '../../engine/schema/index.js';
 import { groundScenario, type GroundingResult } from '../services/deep-research.js';
 import type { BroadcastFn } from '../../cli/pair-runner.js';
+import { RunCapacityError, RUN_CAPACITY_RETRY_AFTER_SECONDS } from '../live-runs.js';
+
+/** A run the server opened for a digital-twin request. */
+export interface OpenedRun {
+  /** The run's key, which its active_scenario event carries. */
+  runKey: string;
+  /** The visitor the run belongs to. */
+  visitorId: string;
+  /** Writes one of the run's events; once the run is replaced or cleared, its events go nowhere. */
+  broadcast: BroadcastFn;
+  /** Releases the run's capacity slot; called once the engine has returned or thrown. */
+  finish: () => void;
+}
 
 const FetchSeedSchema = z.object({
   url: z.string().url().max(2048),
@@ -177,31 +192,18 @@ export interface QuickstartDeps {
    */
   getDigitalTwinWorld?: () => Promise<WorldModel | null>;
   /**
-   * SSE broadcast function (same one /setup uses). When wired, the
-   * simulate-intervention handler opens the run with its roster and turn
-   * count, streams every event runSimulation emits as a `sim` event tagged
-   * with its leader, as the pair runner does, and ends the run with
-   * `complete`, so the SIM tab renders live progress while the synchronous
-   * fetch is still in flight. Without it, the run still works but the user
-   * sees nothing until the artifact returns.
+   * Opens the caller's run for a digital-twin request: it replaces their
+   * current run, is admitted under the server's run cap (throws
+   * RunCapacityError above it), and opens with the run's active_scenario
+   * event, which carries `runKey` (the page's key when given). The handler
+   * writes the roster and turn count, every event runSimulation emits as a
+   * `sim` event tagged with its leader, as the pair runner does, and the run's
+   * `complete` through the returned broadcast, so the SIM tab renders live
+   * progress while the synchronous fetch is still in flight, and calls
+   * `finish` once the engine has returned or thrown. Without it the run still
+   * works, but the user sees nothing until the artifact returns.
    */
-  broadcast?: BroadcastFn;
-  /**
-   * Reset the in-memory event buffer + per-run state before a new
-   * digital-twin run starts. Mirrors what /setup does on a fresh sim:
-   * without it, prior events from another run bleed into the
-   * dashboard's gameState while the new intervention is streaming.
-   * Given the run's scenario, the server also opens the buffer with the
-   * run's active_scenario event, which carries `runKey`, and takes the
-   * run's nouns for /chat from it.
-   */
-  resetEventBuffer?: (scenario?: ScenarioPackage, runKey?: string) => void;
-  /**
-   * True while the run with this key is the last one opened. A run started
-   * after it takes the shared buffer: this run then writes nothing more to
-   * it, or its events and its end would land in the new run.
-   */
-  isCurrentRun?: (runKey: string) => boolean;
+  openRun?: (scenario: ScenarioPackage, runKey?: string) => OpenedRun | Promise<OpenedRun>;
   /**
    * True when a run has already opened with this key. Pages tell runs apart
    * by key and read each key off the stream, so a request naming a used key
@@ -634,31 +636,40 @@ export async function handleSimulateIntervention(
     ? { ...leader, unit: leader.unit ?? 'Lab leadership', instructions: leader.instructions ?? '' }
     : DEFAULT_DIGITAL_TWIN_LEADER;
 
-  // Reset the SSE event buffer before broadcasting this run's events so
-  // the dashboard's gameState does not interleave them with whatever
-  // run came before, and name the run's scenario. /setup does the same
-  // thing at its top.
+  // Pages tell runs apart by key and read each key off the stream, so a
+  // request naming a key a run has had would have that run taken for its own.
   if (requestedRunKey && deps.isRunKeyUsed?.(requestedRunKey)) {
     res.writeHead(409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'That run key has already opened a run.' }));
     return;
   }
-  const runKey = requestedRunKey ?? randomUUID();
-  deps.resetEventBuffer?.(world.scenario, runKey);
+  // The caller's run, with its own buffer and viewers, so the dashboard's
+  // gameState does not interleave it with whatever run came before.
+  let run: OpenedRun | null = null;
+  try {
+    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey) : null;
+  } catch (err) {
+    if (err instanceof RunCapacityError) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': String(RUN_CAPACITY_RETRY_AFTER_SECONDS) });
+      res.end(JSON.stringify(err.body()));
+      return;
+    }
+    throw err;
+  }
+  const opened = run;
+  const runKey = opened?.runKey ?? requestedRunKey ?? randomUUID();
 
-  // Writes to the SSE broadcast bus while this run holds the buffer. One
-  // bad event must not fail the run.
-  const broadcast = deps.broadcast;
+  // Writes to the run's stream. One bad event must not fail the run.
   const send: BroadcastFn = (event, data, actorId) => {
-    if (!broadcast || deps.isCurrentRun?.(runKey) === false) return;
-    try { broadcast(event, data, actorId); } catch { /* the run goes on */ }
+    if (!opened) return;
+    try { opened.broadcast(event, data, actorId); } catch { /* the run goes on */ }
   };
 
   // The same frames a /setup run writes: the roster and the turn count, each
   // engine event as a `sim` event tagged with its leader, and an end. Without
   // them, the dashboard sees nothing until the artifact returns at the bottom
-  // of this handler. The roster and the turn count share one frame because
-  // the dashboard keeps the first `status` frame of a run. The handler still
+  // of this handler. The roster and the turn count share one `parallel`
+  // frame, which is what marks the run running on the page. The handler still
   // returns the full artifact synchronously at the end, which the Digital
   // Twin card renders.
   const maxTurns = options.maxTurns ?? 2;
@@ -677,37 +688,47 @@ export async function handleSimulateIntervention(
   };
 
   const startedAt = Date.now();
-  let artifact: RunArtifact;
+  let artifact: RunArtifact | undefined;
   try {
-    artifact = await world.intervene({
-      subject: subject as SubjectConfig,
-      intervention: intervention as InterventionConfig,
-      actor: effectiveLeader,
-      maxTurns,
-      seed: options.seed ?? 11,
-      costPreset: options.costPreset ?? 'economy',
-      captureSnapshots: false,
-      onEvent,
+    try {
+      artifact = await world.intervene({
+        subject: subject as SubjectConfig,
+        intervention: intervention as InterventionConfig,
+        actor: effectiveLeader,
+        maxTurns,
+        seed: options.seed ?? 11,
+        costPreset: options.costPreset ?? 'economy',
+        captureSnapshots: false,
+        onEvent,
+      });
+    } catch (err) {
+      console.error('[simulate-intervention] intervene failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      send('sim_error', { leader: effectiveLeader.name, error: message }, effectiveLeader.name);
+      send('complete', { timestamp: new Date().toISOString(), aborted: true });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Intervention run failed: ${message}` }));
+      return;
+    }
+
+    // A run the provider stopped or a signal cancelled returns partial
+    // results and ends as aborted, as the pair runner ends one.
+    const stopped = artifact as RunArtifact & { aborted?: unknown; providerError?: unknown };
+    send('complete', {
+      timestamp: new Date().toISOString(),
+      ...(stopped.aborted === true || stopped.providerError ? { aborted: true } : {}),
     });
-  } catch (err) {
-    console.error('[simulate-intervention] intervene failed:', err);
-    const message = err instanceof Error ? err.message : String(err);
-    send('sim_error', { leader: effectiveLeader.name, error: message }, effectiveLeader.name);
-    send('complete', { timestamp: new Date().toISOString(), aborted: true });
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `Intervention run failed: ${message}` }));
-    return;
+  } finally {
+    // The engine has returned or thrown: the run's capacity slot is free.
+    opened?.finish();
   }
   const durationMs = Date.now() - startedAt;
 
-  // A run the provider stopped or a signal cancelled returns partial results
-  // and ends as aborted, as the pair runner ends one.
-  const stopped = artifact as RunArtifact & { aborted?: unknown; providerError?: unknown };
-  send('complete', {
-    timestamp: new Date().toISOString(),
-    ...(stopped.aborted === true || stopped.providerError ? { aborted: true } : {}),
-  });
-
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ artifact, durationMs }));
+  res.end(JSON.stringify({
+    artifact,
+    durationMs,
+    runKey,
+    ...(opened ? { visitorId: opened.visitorId } : {}),
+  }));
 }

@@ -163,8 +163,9 @@ test.describe('Scenario per visitor @scenario', () => {
   });
 
   test('a page comes up without the run the server holds for another scenario', async ({ page }) => {
-    // Another visitor's finished Atlas Lab run is in the server's buffer,
-    // opened by its active_scenario event. This page holds no pick, so it is
+    // The visitor's finished Atlas Lab run (from before a switch, or the
+    // anonymous run the page watches) is on the stream, opened by its
+    // active_scenario event. This page holds no pick, so it is
     // on Mars Genesis, and that run would draw under Mars Genesis's header
     // metrics and nouns.
     let runScenario = 'atlas-lab';
@@ -213,10 +214,11 @@ test.describe('Scenario per visitor @scenario', () => {
   });
 
   test('a page whose run another scenario\'s run replaced shows it interrupted, not running', async ({ page }) => {
-    // The page holds a Mars Genesis run in progress. Another visitor starts
-    // an Atlas Lab run, which aborts it on the server and opens the buffer
-    // with its own active_scenario event. The page skips the Atlas Lab
-    // run, and with it the end of its own, so it must end that run itself.
+    // The page holds a Mars Genesis run in progress. The same visitor starts
+    // an Atlas Lab run in another tab, which replaces it on the server and
+    // opens the stream with its own active_scenario event. The page skips
+    // the Atlas Lab run, and with it the end of its own, so it must end
+    // that run itself.
     const runBody = (scenarioId: string, leader: string) => [
       'event: connected\ndata: {}',
       `event: active_scenario\ndata: ${JSON.stringify({ id: scenarioId })}`,
@@ -236,12 +238,12 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toHaveCount(0);
 
     body = runBody('atlas-lab', 'Marcus Reinhardt');
-    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: another run started on the server/ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
   });
 
   test("a new run in the page's scenario starts clean after the run it replaced", async ({ page }) => {
-    // A Mars Genesis run, then another visitor's Atlas Lab run, which ends
-    // the Mars Genesis run on this page as interrupted, then a new Mars
+    // A Mars Genesis run, then the visitor's Atlas Lab run from another tab,
+    // which ends the Mars Genesis run on this page as interrupted, then a new Mars
     // Genesis run. The new run is shown on its own: it inherits neither
     // the interrupted state nor the events of the run before it.
     const runBody = (scenarioId: string, runKey: string, leader: string) => [
@@ -339,7 +341,8 @@ test.describe('Scenario per visitor @scenario', () => {
   });
 
   test('a run loaded from a file before the page knows its scenario stays once it does', async ({ page, baseURL }) => {
-    // The server's buffer holds another visitor's finished Atlas Lab run. A
+    // The stream carries a finished Atlas Lab run (the visitor's from before a
+    // switch, or the anonymous run the page watches). A
     // share link loads a saved Mars Genesis run before GET /scenario has
     // answered. When it answers, the page leaves out the Atlas Lab run from
     // the feed, and keeps the run the visitor loaded.

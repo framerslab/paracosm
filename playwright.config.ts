@@ -28,13 +28,15 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
-    // The Digital Twin spec holds one server with one event buffer, so one
-    // project runs it: two at once would replace each other's runs.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // The Digital Twin and run status specs each hold one server whose runs
+    // they read, so one project runs them: two at once would replace each
+    // other's runs. So does the run-per-visitor spec, whose server caps how
+    // many runs it holds.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -53,6 +55,26 @@ export default defineConfig({
         {
           command: 'PORT=3457 npx tsx tests-e2e/support/digital-twin-server.ts',
           url: 'http://127.0.0.1:3457',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with a stub pair runner, for the spec that starts a
+        // pair run from the page.
+        {
+          command: 'PORT=3458 npx tsx tests-e2e/support/pair-run-server.ts',
+          url: 'http://127.0.0.1:3458',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with a scripted runner, for the spec that starts
+        // real runs from several browsers at once through the real /setup.
+        {
+          command: 'PORT=3459 PARACOSM_MAX_RUNS=2 npx tsx tests-e2e/support/stub-runner-server.ts',
+          url: 'http://127.0.0.1:3459/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',

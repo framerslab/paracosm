@@ -19,16 +19,18 @@
 import { useState } from 'react';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import styles from './InterventionDemoCard.module.scss';
+import { emitLaunched } from '../../scenario-sync';
 
 export interface InterventionDemoCardProps {
-  onResult: (artifact: RunArtifact) => void;
-  onError?: (message: string) => void;
+  /** The run's artifact, with the key the run was started under. */
+  onResult: (artifact: RunArtifact, runKey: string) => void;
+  onError?: (message: string, runKey: string) => void;
   onRunStart?: (payload: {
     /** The key the run opens with on the event stream. */
     runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  }) => void;
+  }) => void | Promise<void>;
 }
 
 interface SubjectForm {
@@ -250,7 +252,9 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
     }, 500);
 
     const runKey = newRunKey();
-    onRunStart?.({
+    // Awaited: the page's reset posts /clear for the run it held, and a
+    // /clear that landed after this run opened would stop it.
+    await onRunStart?.({
       runKey,
       subject: { id: subjectPayload.id, name: subjectPayload.name, profile: subjectPayload.profile },
       intervention: {
@@ -276,10 +280,11 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
         const body = await res.json().catch(() => ({} as { error?: string }));
         throw new Error(body.error ?? `Digital twin run failed: HTTP ${res.status}`);
       }
-      const body = await res.json() as { artifact: RunArtifact; durationMs: number };
-      onResult(body.artifact);
+      const body = await res.json() as { artifact: RunArtifact; durationMs: number; visitorId?: string };
+      emitLaunched(window, body.visitorId);
+      onResult(body.artifact, runKey);
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : String(err));
+      onError?.(err instanceof Error ? err.message : String(err), runKey);
     } finally {
       window.clearInterval(tick);
       setRunning(false);

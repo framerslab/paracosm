@@ -55,20 +55,25 @@ export interface QuickstartViewProps {
     isComplete: boolean;
     isAborted: boolean;
     errors: string[];
-    reset: () => void;
+    /** Clears the page's run and posts /clear; each launch awaits it, so the /clear lands before the run opens. */
+    reset: () => void | Promise<void>;
   };
   sessionId?: string;
   /** Fires the moment the user clicks Generate so App.tsx can flip the
    *  user-triggered-run gate that controls the verdict banner + the
    *  terminal/sim-saved toasts. Without it, a Quickstart-started run
    *  is treated like a stale rehydration and its outputs stay hidden
-   *  in the cross-tab views (VIZ, REPORTS, banner). */
+   *  in the cross-tab views (VIZ, REPORTS, banner). App.tsx also leaves
+   *  the Digital Twin views here: a Quickstart launch runs on this tab for
+   *  minutes and ends in a page load when /setup takes the run, and a twin
+   *  answer during it would take the visitor to the SIM tab mid-launch. */
   onRunStarted?: () => void;
   /** Forwarded to the InterventionDemoCard. When the digital-twin run
    *  completes, App.tsx receives the artifact, parks it in
    *  interventionArtifact state, and switches to the SIM tab so
-   *  DigitalTwinPanel renders. */
-  onInterventionResult?: (artifact: RunArtifact) => void;
+   *  DigitalTwinPanel renders. The run's key comes with it, so App.tsx
+   *  drops the answer of a run the page has left since. */
+  onInterventionResult?: (artifact: RunArtifact, runKey: string) => void;
   /** Fired the instant the user clicks Run inside InterventionDemoCard,
    *  before the fetch lands. App.tsx uses it to switch to SIM
    *  immediately so live SSE events from the run render in
@@ -78,10 +83,12 @@ export interface QuickstartViewProps {
     runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  }) => void;
+  }) => void | Promise<void>;
   /** Fired when the digital-twin run fails. App.tsx ends the progress view
-   *  the page is on by then, in the SIM tab, and says why there. */
-  onInterventionError?: (message: string) => void;
+   *  the page is on by then, in the SIM tab, and says why there. It answers
+   *  false for a run the page has left since, whose failure says nothing on
+   *  this tab either. */
+  onInterventionError?: (message: string, runKey: string) => boolean | void;
 }
 
 type Phase =
@@ -167,8 +174,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // shows leftover events from a prior run while this one ramps up.
     // The later sse.reset() right before the /setup fetch is kept as
     // belt-and-suspenders for the brief window when actor-generation
-    // is still in flight.
-    sse.reset();
+    // is still in flight. Each reset is awaited: an unawaited /clear can
+    // land after the /setup that follows and stop the new run.
+    await sse.reset();
 
     // Inherit the user's Settings-tab choices (API keys, provider,
     // model picks, economics profile) so the CTA respects what the
@@ -212,7 +220,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
         instructions: p.instructions,
       } as ActorConfig));
-      sse.reset();
+      await sse.reset();
       // Persist the actors we're about to launch so the SIM header
       // carries names through the SSE connect-and-replay window. Compiled
       // scenarios ship no preset leaders, so without this fallback the
@@ -293,7 +301,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       setPhase({ kind: 'progress', stage: 'running' });
 
-      sse.reset();
+      await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
@@ -425,8 +433,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // QuickstartProgress panel's "Run N simulations" stage card renders
     // any events still resident from a prior run while the new compile
     // is in flight — the user reported seeing 192 stale events labeled
-    // with the prior run's actors before this fix.
-    sse.reset();
+    // with the prior run's actors before this fix. Awaited, as every reset
+    // before a launch is.
+    await sse.reset();
     setPhase({ kind: 'progress', stage: 'compile' });
     try {
       // compileScenarioWithPolling encapsulates the async-job dance:
@@ -482,7 +491,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       setPhase({ kind: 'progress', stage: 'running', scenario, actors });
 
-      sse.reset();
+      await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenarioId);
       }
@@ -640,9 +649,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
             <InterventionDemoCard
               onResult={onInterventionResult}
               onRunStart={onInterventionStart}
-              onError={(msg) => {
+              onError={(msg, runKey) => {
+                // The failure of a twin run the page has left says nothing.
+                if (onInterventionError?.(msg, runKey) === false) return;
                 setErrorBanner(msg);
-                onInterventionError?.(msg);
               }}
             />
           )}

@@ -3,7 +3,7 @@ import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import { useBranchesContext } from '../branches/BranchesContext';
-import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
+import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
 import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
@@ -29,6 +29,7 @@ import { ReportSideNav, type SideNavItem } from './ReportSideNav';
 import { collectMetricSeries, collectMetricSeriesCohort, collectRunStripData } from './reports-shared';
 import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './ReportView.module.scss';
+import { emitLaunched } from '../../scenario-sync';
 
 /**
  * Tiny hook for booleans persisted to localStorage. Used here to remember
@@ -204,6 +205,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   // visible once the parent run is terminal and snapshots exist.
   const { state: branchesState, dispatch: branchesDispatch } = useBranchesContext();
   const navigate = useDashboardNavigation();
+  const runStart = useRunStart();
   const labels = useScenarioLabels();
   const [forkModalAtTurn, setForkModalAtTurn] = useState<number | null>(null);
   const parentArtifact = branchesState.parent;
@@ -262,6 +264,10 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           });
           return;
         }
+        const launched = (await res.json().catch(() => ({}))) as { visitorId?: string };
+        emitLaunched(window, launched.visitorId);
+        // The server took the fork: it replaces the Digital Twin views.
+        runStart();
         // Branches is a sub-tab of Studio after the merge.
         navigate('studio');
       } catch (err) {
@@ -272,7 +278,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         });
       }
     },
-    [branchesDispatch, navigate],
+    [branchesDispatch, navigate, runStart],
   );
   // Actor pair selection. For 2-actor runs the picker is hidden and the
   // canonical actorIds[0]/[1] pair is used. For 3+ actor runs the user

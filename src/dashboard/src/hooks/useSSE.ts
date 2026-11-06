@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateLegacyEventShape } from './migrateLegacyEventShape';
-import { consumeScenarioSwitched } from '../scenario-sync';
+import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
 import type { RunArtifact } from '../../../engine/schema/index.js';
 
 /**
@@ -184,8 +184,10 @@ export interface UseSSEOptions {
   /**
    * The page's scenario id once GET /scenario has answered, null before.
    * The live feed shows a run only when the run's scenario, named by the
-   * active_scenario event that opens its buffer, is this one: the server
-   * holds one run for every visitor, whichever scenario each one picked.
+   * active_scenario event that opens its buffer, is this one: the feed is
+   * the visitor's own run, which is in the scenario it ran in, and that is
+   * not always the page's (a run started in another tab before a switch, a
+   * Digital Twin run).
    */
   scenarioId?: string | null;
 }
@@ -227,9 +229,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   // would still leave the set populated forever).
   const seenEventKeysRef = useRef<Set<string>>(new Set());
   // True after this tab switched its scenario (the mark the switch callers
-  // set before their reload). The server's buffer still holds the run from
-  // before the switch, any visitor's in any scenario, and replays it on
-  // every connect, so the page skips that run: every event until a run
+  // set before their reload). The server still holds the visitor's run from
+  // before the switch, in the scenario it ran in, and replays it on every
+  // connect, so the page skips that run: every event until a run
   // names its scenario (an active_scenario event, live or replayed, after
   // which the scenario decides) or the page resets. A ref read when an
   // event arrives, never React state: the listeners are created once per
@@ -264,6 +266,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
+  // The visitor the open stream belongs to (its `connected` frame), null
+  // before it connects. A launch answered for another visitor reopens it.
+  const streamVisitorIdRef = useRef<string | null>(null);
 
   // The run's events can arrive before GET /scenario answers. Once the page
   // knows its scenario, a run it holds from another scenario is dropped;
@@ -279,15 +284,19 @@ export function useSSE(options: UseSSEOptions = {}) {
   }, [scenarioId, replaySessionId]);
 
   /**
-   * Clear all client-side SSE state AND tell the server to drop its
-   * event buffer so the next reconnect doesn't replay the same events
-   * we just cleared. Status stays 'connected' because the EventSource
-   * itself is still open — we only nuke the data.
+   * Clear all client-side SSE state. Status stays 'connected' because the
+   * EventSource itself is still open — we only nuke the data.
    */
-  const reset = useCallback(async () => {
+  const clearLocalRun = useCallback(() => {
     seenEventKeysRef.current.clear();
-    skipBufferedRunRef.current = false;
-    // The buffer is cleared below; the next run names its scenario.
+    // A run the feed holds in another scenario than the page's can still be
+    // writing until the server drops it. Its events that arrive before the
+    // next active_scenario are skipped, as the page skipped them before the
+    // reset: every run opens with one.
+    const runScenarioId = runScenarioIdRef.current;
+    const pageScenarioId = pageScenarioIdRef.current;
+    skipBufferedRunRef.current = runScenarioId !== null && pageScenarioId !== null && runScenarioId !== pageScenarioId;
+    // The run is gone; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
     ownRunKeyRef.current = null;
@@ -305,19 +314,35 @@ export function useSSE(options: UseSSEOptions = {}) {
       // seconds, which is the right UX: let the user try.
       providerError: null,
       validationFallbacks: [],
-      // After a manual clear the buffer is empty, so the next events we
-      // receive are live by definition.
+      // After a clear the server holds no run of this visitor's, so the
+      // next events we receive are live by definition.
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
     }));
+  }, []);
+
+  /**
+   * Clear all client-side SSE state AND tell the server to drop the
+   * visitor's run, stopping it when in flight, so the next reconnect doesn't
+   * replay the same events we just cleared. The /clear names the run the
+   * page held: a launch awaits this and posts its run next, and a /clear
+   * that named no run and landed after the new run opened would stop it.
+   * A page that holds no run posts none, and the server clears the
+   * visitor's current run.
+   */
+  const reset = useCallback(async () => {
+    const heldRunKey = runKeyRef.current;
+    clearLocalRun();
     try {
-      await fetch('/clear', { method: 'POST' });
+      await fetch('/clear', heldRunKey
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runKey: heldRunKey }) }
+        : { method: 'POST' });
     } catch {
       // Server unreachable — local state is still cleared so the user
       // sees the empty state regardless.
     }
-  }, []);
+  }, [clearLocalRun]);
 
   /**
    * Show the run that opens with this key as this page's own, whichever
@@ -513,9 +538,15 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       const es = new EventSource(sourceUrl);
       esRef.current = es;
 
-      es.addEventListener('connected', () => {
+      es.addEventListener('connected', (e: MessageEvent) => {
         attempt = 0;
         connectCount += 1;
+        try {
+          const data = JSON.parse(e.data) as { visitorId?: unknown } | null;
+          streamVisitorIdRef.current = typeof data?.visitorId === 'string' ? data.visitorId : null;
+        } catch {
+          streamVisitorIdRef.current = null;
+        }
         // The replay starts at the buffer's first event, which names the
         // run when the run named its scenario.
         runScenarioIdRef.current = null;
@@ -544,6 +575,23 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         setState(prev => ({ ...prev, replayDone: true }));
       });
 
+      // The visitor cleared the run in another tab, or the server let it go
+      // (idle, or over its held-run caps). The page that holds that run
+      // empties its view, as reset() does, without posting /clear; a page
+      // that holds another run, or none, or shows a run loaded from a file,
+      // ignores it.
+      es.addEventListener('run_cleared', (e: MessageEvent) => {
+        let runKey: string | null = null;
+        try {
+          const data = JSON.parse(e.data) as { runKey?: unknown } | null;
+          runKey = typeof data?.runKey === 'string' ? data.runKey : null;
+        } catch { /* no key: not this page's run */ }
+        if (runKey === null || runKey !== runKeyRef.current) return;
+        // A run loaded from a file is not the feed's: it stays.
+        if (shownFromFileRef.current) return;
+        clearLocalRun();
+      });
+
       // Every run opens with active_scenario, which names its scenario; the
       // page shows the run from here when that is the page's scenario. It
       // ends the switch's skip whether it arrives live or in a replay: the
@@ -570,11 +618,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         if (isOwnRun) {
           setState(prev => ({ ...prev, ownRunScenarioId: id }));
         }
-        // A new run took the server's place: the server aborts the run in
-        // flight to start another. When the new one is in another scenario
-        // than the page's, the page skips it, and with it the last events of
-        // the run it shows, so it ends that run here instead of showing it
-        // running for good. A run the page already saw finish stays as it is.
+        // A new run took the stream's place: the visitor started another
+        // (in another tab, or this one), which replaced the run in flight.
+        // When the new one is in another scenario than the page's, the page
+        // skips it, and with it the last events of the run it shows, so it
+        // ends that run here instead of showing it running for good. A run
+        // the page already saw finish stays as it is.
         if (skipped()) {
           setState(prev => (prev.events.length > 0 && !prev.isComplete
             ? {
@@ -616,7 +665,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'status', leader: '', data };
-          const key = eventKey(evt);
+          // A status event carries no turn, leader or title, so eventKey
+          // gives every status event of a run one key. A pair run writes two
+          // (`starting`, then `parallel` with the leaders, which is what marks
+          // the run running), a fork `starting` and `fork-running`. The run's
+          // key and the frame itself tell them apart, and a replay after a
+          // reconnect sends the same frame under the same run, so it still
+          // counts once.
+          const key = `status|${runKeyRef.current ?? ''}|${e.data}`;
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));
@@ -826,8 +882,26 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
 
     void open();
 
+    // A launch answered for another visitor than the stream's (two first-time
+    // tabs, each given an id by its own load, the browser keeping the
+    // second): reopen the stream, which then carries the cookie the browser
+    // holds now. The page keeps its events, as on any reconnect.
+    const unsubscribeLaunched = replaySessionId ? () => {} : subscribeLaunched(window, visitorId => {
+      if (cancelled || streamVisitorIdRef.current === null || visitorId === streamVisitorIdRef.current) return;
+      streamVisitorIdRef.current = null;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      const es = esRef.current;
+      if (es) { try { es.close(); } catch {} }
+      esRef.current = null;
+      void open();
+    });
+
     return () => {
       cancelled = true;
+      unsubscribeLaunched();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       const es = esRef.current;
       if (es) { try { es.close(); } catch {} }

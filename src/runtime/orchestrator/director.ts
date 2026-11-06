@@ -75,6 +75,7 @@ export interface DirectorContext {
     decision?: string;
     outcome: TurnOutcome;
   }>;
+  /** The run's tools so far, one name each (`forgedToolNames`), not one per use. */
   toolsForged: string[];
   driftSummary: Array<{ name: string; role: string; openness: number; conscientiousness: number }>;
   /** Key outputs from forged tools last turn */
