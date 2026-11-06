@@ -110,12 +110,13 @@ test('the colony\'s morale reaches its people', (t) => {
   // Morale pulls each person's psych a little every year. A colony held at
   // 0.2 for forty years wears its people down until despair takes some of
   // them, partners and outside contacts notwithstanding; one held at 0.8,
-  // on the same seed, loses nobody to despair.
+  // on the same seed, loses nobody to despair. A long turn settles morale
+  // each year it spans, so the test holds it each year, on one-year turns.
   const run = (morale: number) => {
     const k = mars();
-    for (const [turn, time] of TURNS) {
+    for (let turn = 1; turn <= 41; turn++) {
       k.applySystemDeltas({ morale: morale - k.getState().metrics.morale });
-      k.advanceTurn(turn, time, hook);
+      k.advanceTurn(turn, 2035 + turn - 1, hook);
     }
     const living = adults(k);
     return {

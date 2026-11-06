@@ -18,13 +18,13 @@
  * Morale is left to move: no event touches it, so only the kernel moves it.
  * The two sides roll different dice (an eight-year turn's later years are
  * steps of one turn, the one-year side's are turns of their own), so they
- * agree in distribution, not draw for draw. The tolerances are four
- * standard deviations of the noise: two counts `a` and `b` agree when
- * `|a - b| <= 4 * sqrt(a + b)`; the living, which move with births and
- * deaths, when the gap is within four times the root of the births and
- * deaths on both sides; the mean morale over the seeds, when the gap is
- * within four standard errors of the difference of the two means (from the
- * spread across seeds), and never under 0.005.
+ * agree in distribution, not draw for draw. Each seed is one run, and the
+ * tolerance is four standard errors of the difference of the two sides'
+ * means over the seeds, from the spread of the runs on each side. Counts
+ * spread wider than counting noise: a colony whose average psych falls
+ * under 0.4 slides toward morale 0 and loses many people to despair, one
+ * that does not loses few, so the despair deaths of a run are many or
+ * none. Mean morale's tolerance is never under 0.005.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,11 +45,13 @@ const START = 2035;
 const END = 2075;
 const LONG = 8;
 const SEEDS = Array.from({ length: 40 }, (_, i) => 101 + i);
-const COUNTS = ['deaths', 'natural', 'radiation', 'despair', 'promotions', 'births'] as const;
-type Count = typeof COUNTS[number];
-type Tally = Record<Count | 'alive' | 'morale', number>;
-/** The tallies of every seed at one year, summed, with each seed's morale. */
-type Summed = Record<Count | 'alive', number> & { morale: number[] };
+/** More runs for the comparison of the two turn lengths, whose despair deaths spread wide. */
+const PARITY_SEEDS = Array.from({ length: 80 }, (_, i) => 101 + i);
+const QUANTITIES = ['deaths', 'natural', 'radiation', 'despair', 'promotions', 'births', 'alive', 'morale'] as const;
+type Quantity = typeof QUANTITIES[number];
+type Tally = Record<Quantity, number>;
+/** Each seed's tally at one year, one entry a seed. */
+type PerSeed = Record<Quantity, number[]>;
 
 function tally(state: SimulationState): Tally {
   const deaths = state.eventLog.filter(e => e.type === 'death');
@@ -83,48 +85,45 @@ function run(seed: number, turnYears: number, leader = 0): Map<number, Tally> {
   return out;
 }
 
-function summed(turnYears: number, leader = 0): Map<number, Summed> {
-  const total = new Map<number, Summed>();
-  for (const seed of SEEDS) {
+function perSeed(seeds: number[], turnYears: number, leader = 0): Map<number, PerSeed> {
+  const all = new Map<number, PerSeed>();
+  for (const seed of seeds) {
     for (const [time, t] of run(seed, turnYears, leader)) {
-      const sum = total.get(time) ?? { deaths: 0, natural: 0, radiation: 0, despair: 0, promotions: 0, births: 0, alive: 0, morale: [] };
-      for (const k of COUNTS) sum[k] += t[k];
-      sum.alive += t.alive;
-      sum.morale.push(t.morale);
-      total.set(time, sum);
+      const runs = all.get(time) ?? Object.fromEntries(QUANTITIES.map(k => [k, [] as number[]])) as PerSeed;
+      for (const k of QUANTITIES) runs[k].push(t[k]);
+      all.set(time, runs);
     }
   }
-  return total;
+  return all;
 }
 
-const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
+const mean = (xs: number[]) => sum(xs) / xs.length;
 const variance = (xs: number[]) => {
   const m = mean(xs);
   return xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1);
 };
+/** Four standard errors of the difference of the means of `a` and `b`. */
+const fourErrors = (a: number[], b: number[]) => 4 * Math.sqrt(variance(a) / a.length + variance(b) / b.length);
 
 test('with morale left to move, one eight-year turn gives the morale, the living, the deaths, promotions and births eight one-year turns give', (t) => {
-  const long = summed(LONG);
-  const yearly = summed(1);
+  const long = perSeed(PARITY_SEEDS, LONG);
+  const yearly = perSeed(PARITY_SEEDS, 1);
   const rows: string[] = [];
   const off: string[] = [];
-  const check = (row: string, gap: number, bound: number) => {
-    rows.push(`${row}, bound ${bound.toFixed(3)}`);
-    if (gap > bound) off.push(row);
-  };
   for (let time = START + LONG; time <= END; time += LONG) {
     const a = long.get(time)!;
     const b = yearly.get(time)!;
-    for (const k of COUNTS) {
-      check(`${time} ${k}: eight-year turns ${a[k]}, one-year turns ${b[k]}`, Math.abs(a[k] - b[k]), 4 * Math.sqrt(a[k] + b[k]));
+    for (const k of QUANTITIES) {
+      const gap = Math.abs(mean(a[k]) - mean(b[k]));
+      const bound = k === 'morale' ? Math.max(0.005, fourErrors(a[k], b[k])) : fourErrors(a[k], b[k]);
+      const row = `${time} ${k} a run: eight-year turns ${mean(a[k]).toFixed(3)}, one-year turns ${mean(b[k]).toFixed(3)}, gap ${gap.toFixed(3)}, bound ${bound.toFixed(3)}`;
+      rows.push(row);
+      if (gap > bound) off.push(row);
     }
-    check(`${time} alive: eight-year turns ${a.alive}, one-year turns ${b.alive}`, Math.abs(a.alive - b.alive),
-      4 * Math.sqrt(a.births + a.deaths + b.births + b.deaths));
-    const n = SEEDS.length;
-    check(`${time} mean morale: eight-year turns ${mean(a.morale).toFixed(3)}, one-year turns ${mean(b.morale).toFixed(3)}`,
-      Math.abs(mean(a.morale) - mean(b.morale)),
-      Math.max(0.005, 4 * Math.sqrt(variance(a.morale) / n + variance(b.morale) / n)));
   }
+  const last = (m: Map<number, PerSeed>) => m.get(END)!.despair.join(' ');
+  rows.push(`despair deaths of each run by ${END}, eight-year turns: ${last(long)}`, `one-year turns: ${last(yearly)}`);
   t.diagnostic(rows.join('\n'));
   assert.deepEqual(off, [], `\n${rows.join('\n')}`);
 });
@@ -133,13 +132,13 @@ test('a leader who lifts morale a turn keeps more people alive on eight-year tur
   // A decision lands once a turn, as it does in a run. On eight-year turns
   // the colony settles back toward 0.6 each year between decisions, and a
   // leader's morale still decides who lives.
-  const lifted = summed(LONG, 0.15).get(END)!;
-  const lowered = summed(LONG, -0.15).get(END)!;
-  const seen = `by ${END} over ${SEEDS.length} seeds: +0.15 a turn ${lifted.alive} alive, ${lifted.despair} despair deaths, mean morale ${mean(lifted.morale).toFixed(3)}; `
-    + `-0.15 a turn ${lowered.alive} alive, ${lowered.despair} despair deaths, mean morale ${mean(lowered.morale).toFixed(3)}`;
+  const lifted = perSeed(SEEDS, LONG, 0.15).get(END)!;
+  const lowered = perSeed(SEEDS, LONG, -0.15).get(END)!;
+  const seen = `by ${END} over ${SEEDS.length} seeds: +0.15 a turn ${sum(lifted.alive)} alive, ${sum(lifted.despair)} despair deaths, mean morale ${mean(lifted.morale).toFixed(3)}; `
+    + `-0.15 a turn ${sum(lowered.alive)} alive, ${sum(lowered.despair)} despair deaths, mean morale ${mean(lowered.morale).toFixed(3)}`;
   t.diagnostic(seen);
-  assert.ok(lifted.alive - lowered.alive > 4 * Math.sqrt(lifted.births + lifted.deaths + lowered.births + lowered.deaths), seen);
-  assert.ok(lowered.despair - lifted.despair > 4 * Math.sqrt(lowered.despair + lifted.despair), seen);
+  assert.ok(mean(lifted.alive) - mean(lowered.alive) > fourErrors(lifted.alive, lowered.alive), seen);
+  assert.ok(mean(lowered.despair) - mean(lifted.despair) > fourErrors(lowered.despair, lifted.despair), seen);
 });
 
 test('nobody takes two promotions in one step', () => {
