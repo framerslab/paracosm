@@ -1,6 +1,8 @@
 import type { Agent, WorldMetrics, TurnEvent, SimulationState, HexacoProfile, TurnOutcome } from './state.js';
 import { HEXACO_TRAITS } from './state.js';
 import { SeededRng } from './rng.js';
+import type { ProgressionHookContext } from '../types.js';
+import { ageInYears, unitsToYears } from './time-unit.js';
 
 // Trait activation profiles per department role (Tett & Burnett 2003)
 const ROLE_ACTIVATIONS: Record<string, Partial<HexacoProfile>> = {
@@ -146,8 +148,68 @@ export function driftCommanderHexaco(
 }
 
 /**
- * Classify turn outcome as risky/conservative success/failure.
- * Deterministic from seed + decision text.
+ * The chance that the chosen option succeeds.
+ *
+ * Options declare only whether they are risky; the event declares
+ * `riskSuccessProbability`, the risky option's chance. The run's state
+ * moves that chance (morale above 0.7 adds 0.1, a food store above 12
+ * months adds 0.05 in a run that carries one, a population above 150
+ * takes 0.05), within 0.1 and 0.9. A safe option halves the risky
+ * option's chance of failure, so it always has the better chance and can
+ * still fail: `(1 + risky) / 2`, between 0.55 and 0.95.
+ */
+export function outcomeSuccessChance(
+  isRisky: boolean,
+  riskSuccessProbability: number,
+  metrics: WorldMetrics,
+): number {
+  let prob = riskSuccessProbability;
+  if (metrics.morale > 0.7) prob += 0.1;
+  // A food store adds to the odds only in a run that carries one.
+  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
+  if (metrics.population > 150) prob -= 0.05;
+  prob = Math.max(0.1, Math.min(0.9, prob));
+  return isRisky ? prob : (1 + prob) / 2;
+}
+
+function outcomeClass(isRisky: boolean, riskSuccessProbability: number, metrics: WorldMetrics, rng: SeededRng): TurnOutcome {
+  // One draw per event, the same for both leaders of a pair run; it meets
+  // the chosen option's own chance, so on one draw a risky option can fail
+  // where a safe one succeeds.
+  const success = rng.chance(outcomeSuccessChance(isRisky, riskSuccessProbability, metrics));
+  if (isRisky && success) return 'risky_success';
+  if (isRisky && !success) return 'risky_failure';
+  if (!isRisky && success) return 'conservative_success';
+  return 'conservative_failure';
+}
+
+/**
+ * The option a decision chose: its `selectedOptionId` when that names one of
+ * the event's options (by id, or by label written where the id goes, in any
+ * case), else the first option whose id or label the decision's text names;
+ * undefined when it names none. An id the event does not offer never stands
+ * for the safe option.
+ */
+export function resolveChosenOption(
+  selectedOptionId: string | undefined,
+  decisionText: string,
+  options: ReadonlyArray<{ id: string; label: string }>,
+): string | undefined {
+  const field = (selectedOptionId ?? '').trim().toLowerCase();
+  if (field) {
+    const named = options.find(o => o.id.toLowerCase() === field || o.label.trim().toLowerCase() === field);
+    if (named) return named.id;
+  }
+  const text = (decisionText || '').toLowerCase();
+  return options.find(o => (o.id.length > 0 && text.includes(o.id.toLowerCase()))
+    || (o.label.trim().length > 0 && text.includes(o.label.trim().toLowerCase())))?.id;
+}
+
+/**
+ * Classify turn outcome as risky/conservative success/failure from the
+ * decision text: the decision is risky when it names the risky option.
+ * An event with no risky option passes '' (or a blank label), which names
+ * nothing, so the decision is safe. Deterministic from seed + decision text.
  */
 export function classifyOutcome(
   decisionText: string,
@@ -156,21 +218,9 @@ export function classifyOutcome(
   metrics: WorldMetrics,
   rng: SeededRng,
 ): TurnOutcome {
-  const isRisky = decisionText.toLowerCase().includes(riskyOption.toLowerCase());
-
-  let prob = riskSuccessProbability;
-  if (metrics.morale > 0.7) prob += 0.1;
-  // A food store adds to the odds only in a run that carries one.
-  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
-  if (metrics.population > 150) prob -= 0.05;
-  prob = Math.max(0.1, Math.min(0.9, prob));
-
-  const success = rng.chance(prob);
-
-  if (isRisky && success) return 'risky_success';
-  if (isRisky && !success) return 'risky_failure';
-  if (!isRisky && success) return 'conservative_success';
-  return 'conservative_failure';
+  const marker = riskyOption.trim().toLowerCase();
+  const isRisky = marker.length > 0 && decisionText.toLowerCase().includes(marker);
+  return outcomeClass(isRisky, riskSuccessProbability, metrics, rng);
 }
 
 /**
@@ -186,52 +236,144 @@ export function classifyOutcomeById(
 ): TurnOutcome {
   const selected = options.find(o => o.id === selectedOptionId);
   const isRisky = selected?.isRisky ?? false;
+  return outcomeClass(isRisky, riskSuccessProbability, metrics, rng);
+}
 
-  let prob = riskSuccessProbability;
-  if (metrics.morale > 0.7) prob += 0.1;
-  // A food store adds to the odds only in a run that carries one.
-  if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve > 12) prob += 0.05;
-  if (metrics.population > 150) prob -= 0.05;
-  prob = Math.max(0.1, Math.min(0.9, prob));
+/**
+ * A yearly probability held over `years` years: `1 - (1 - pYear)^years`.
+ * A turn of eight years at 1 percent a year is 7.7 percent; a month at 8
+ * percent a year is 0.69 percent. No cap: the rate means what it says
+ * however long the turn.
+ */
+export function turnHazard(pYear: number, years: number): number {
+  if (!(pYear > 0) || !(years > 0)) return 0;
+  if (pYear >= 1) return 1;
+  return 1 - Math.pow(1 - pYear, years);
+}
 
-  const success = rng.chance(prob);
+/** Accident weight by department: who is more often in harm's way. */
+const ROLE_ACCIDENT_WEIGHT: Record<string, number> = {
+  engineering: 1.5,
+  medical: 1.2,
+  agriculture: 1.0,
+  science: 0.9,
+  psychology: 0.6,
+  governance: 0.5,
+};
 
-  if (isRisky && success) return 'risky_success';
-  if (isRisky && !success) return 'risky_failure';
-  if (!isRisky && success) return 'conservative_success';
-  return 'conservative_failure';
+/** Each cause of death's chance for one person over one turn. */
+export interface CauseHazards {
+  natural: number;
+  radiation: number;
+  starvation: number;
+  despair: number;
+  fracture: number;
+  accident: number;
+}
+
+/**
+ * Each cause of death's chance for `agent` over a turn of `years` years,
+ * from its yearly rate and the state it reads:
+ *
+ * - natural: 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90;
+ * - radiation cancer: 0.004 a year for each sievert of cumulative dose
+ *   above 0.5, from age 30;
+ * - starvation: `(1 - foodMonthsReserve) * 0.15` a year while the colony
+ *   holds under a month of food;
+ * - despair: `(0.2 - psychScore) * 0.25 * (0.5 + emotionality)` a year
+ *   while psych is under 0.2, from age 18;
+ * - fracture: `(60 - boneDensityPct) * 0.003` a year under 60 percent
+ *   bone density, from age 40;
+ * - accident: 0.003 a year times the department's weight, from age 18.
+ */
+export function causeHazards(
+  agent: Agent,
+  metrics: Readonly<Record<string, unknown>>,
+  ageYears: number,
+  years: number,
+): CauseHazards {
+  const health = agent.health;
+  let natural = 0;
+  if (ageYears >= 90) natural = 0.20;
+  else if (ageYears >= 80) natural = 0.08;
+  else if (ageYears >= 70) natural = 0.03;
+  else if (ageYears >= 60) natural = 0.01;
+
+  const doseSv = (health.cumulativeRadiationMsv ?? 0) / 1000;
+  const radiation = ageYears >= 30 ? 0.004 * Math.max(0, doseSv - 0.5) : 0;
+
+  const food = metrics.foodMonthsReserve;
+  const starvation = typeof food === 'number' && food < 1 ? (1 - food) * 0.15 : 0;
+
+  const despair = ageYears >= 18 && health.psychScore < 0.2
+    ? (0.2 - health.psychScore) * 0.25 * (0.5 + agent.hexaco.emotionality)
+    : 0;
+
+  const bone = health.boneDensityPct;
+  const fracture = ageYears >= 40 && typeof bone === 'number' && bone < 60 ? (60 - bone) * 0.003 : 0;
+
+  const accident = ageYears >= 18
+    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0)
+    : 0;
+
+  return {
+    natural: turnHazard(natural, years),
+    radiation: turnHazard(radiation, years),
+    starvation: turnHazard(starvation, years),
+    despair: turnHazard(despair, years),
+    fracture: turnHazard(fracture, years),
+    accident: turnHazard(accident, years),
+  };
 }
 
 /**
  * Run all between-turn progression: aging, mortality, births, careers,
  * health degradation, resource production. All deterministic from seed.
+ *
+ * `timeDelta` is in the scenario's unit. Ages, experience and every
+ * yearly rate are in years: `yearsPerUnit` (default: the state's
+ * `metadata.yearsPerUnit`, else 1) converts the step, so a month of Atlas
+ * Lab ages its people a twelfth of a year and rolls a twelfth of a
+ * year's births and deaths.
  */
 export function progressBetweenTurns(
   state: SimulationState,
   timeDelta: number,
   turnRng: SeededRng,
-  progressionHook?: (ctx: { agents: any[]; timeDelta: number; time: number; turn: number; startTime: number; rng: any }) => void,
+  progressionHook?: (ctx: ProgressionHookContext) => void,
+  yearsPerUnit: number = state.metadata.yearsPerUnit ?? 1,
 ): { state: SimulationState; events: TurnEvent[] } {
   const events: TurnEvent[] = [];
   const time = state.metadata.currentTime;
   const turn = state.metadata.currentTurn;
   let colonists = state.agents.map(c => structuredClone(c));
   let metrics = structuredClone(state.metrics);
+  /** The step in years: what every yearly rate below scales by. Not
+   *  rounded, so experience added a month at a time stays exact. */
+  const yearsDelta = timeDelta * yearsPerUnit;
+  const ageOf = (c: Agent) => ageInYears(c, time, yearsPerUnit);
 
   // 1. Age all colonists (generic: experience, earth contacts)
   for (const c of colonists) {
     if (!c.health.alive) continue;
-    c.career.yearsExperience += timeDelta;
+    c.career.yearsExperience += yearsDelta;
 
     // Earth contacts decay
-    if (c.social.earthContacts > 0 && turnRng.chance(0.15 * timeDelta)) {
+    if (c.social.earthContacts > 0 && turnRng.chance(0.15 * yearsDelta)) {
       c.social.earthContacts = Math.max(0, c.social.earthContacts - 1);
     }
   }
 
   // 1b. Scenario-specific progression (radiation, bone density, etc.)
   if (progressionHook) {
-    progressionHook({ agents: colonists, timeDelta, time, turn, startTime: state.metadata.startTime, rng: turnRng });
+    const startTime = state.metadata.startTime;
+    progressionHook({
+      agents: colonists, timeDelta, time, turn, startTime, rng: turnRng,
+      yearsDelta, yearsSinceStart: unitsToYears(time - startTime, yearsPerUnit), yearsPerUnit,
+      // The world the hook reads, as copies it cannot write through.
+      metrics: Object.freeze(structuredClone(metrics)),
+      environment: Object.freeze(structuredClone(state.environment ?? {})),
+    });
   }
 
   // 2. Mortality — multi-cause. Each cause independently rolls and
@@ -240,7 +382,7 @@ export function progressBetweenTurns(
   // 1 suicide" instead of reporting a faceless total.
   const killColonist = (c: Agent, cause: string, description: string) => {
     if (!c.health.alive) return;
-    const age = time - c.core.birthTime;
+    const age = Math.floor(ageOf(c));
     c.health.alive = false;
     c.health.deathTime = time;
     c.health.deathCause = cause;
@@ -248,98 +390,68 @@ export function progressBetweenTurns(
     events.push({ turn, time, type: 'death', description: `${c.core.name}: ${description}`, agentId: c.core.id, cause });
   };
 
+  // Every roll here draws from a stream of its own, keyed by the person,
+  // the cause and the turn (SeededRng.forDraw), so two runs with the same
+  // seed roll the same dice for the same person and one person's death
+  // never moves another person's dice. A person dies in one run and not
+  // the other only where that run's world gave them a higher hazard.
+  const seed = state.metadata.seed;
+  const roll = (c: Agent, cause: string) => SeededRng.forDraw(seed, turn, c.core.id, cause);
   for (const c of colonists) {
     if (!c.health.alive) continue;
-    const age = time - c.core.birthTime;
+    const exactAge = ageOf(c);
+    // Whole years, for the descriptions.
+    const age = Math.floor(exactAge);
+    const h = causeHazards(c, metrics, exactAge, yearsDelta);
 
     // 2a. Natural mortality (age-dependent)
-    if (age >= 60) {
-      let mortalityProb = 0;
-      if (age >= 60) mortalityProb = 0.01 * timeDelta;
-      if (age >= 70) mortalityProb = 0.03 * timeDelta;
-      if (age >= 80) mortalityProb = 0.08 * timeDelta;
-      if (age >= 90) mortalityProb = 0.20 * timeDelta;
-      if (turnRng.chance(Math.min(mortalityProb, 0.5))) {
-        killColonist(c, age >= 80 ? 'natural causes' : 'age-related complications',
-          `died at age ${age} of ${age >= 80 ? 'natural causes' : 'age-related complications'}`);
-        continue;
-      }
+    if (roll(c, 'natural').chance(h.natural)) {
+      const cause = exactAge >= 80 ? 'natural causes' : 'age-related complications';
+      killColonist(c, cause, `died at age ${age} of ${cause}`);
+      continue;
     }
 
-    // 2b. Radiation cancer — separate cause attribution so the
-    // dashboard can show cumulative radiation as a distinct mortality
-    // story from natural aging. Gated at adult ages so kids do not die
-    // of radiation exposure the kernel is still accumulating.
-    if (age >= 30 && (c.health.cumulativeRadiationMsv ?? 0) > 1000) {
-      const rad = c.health.cumulativeRadiationMsv ?? 0;
-      let radProb = 0;
-      if (rad > 1000) radProb = 0.02 * timeDelta;
-      if (rad > 2000) radProb = 0.05 * timeDelta;
-      if (rad > 3500) radProb = 0.10 * timeDelta;
-      if (turnRng.chance(Math.min(radProb, 0.3))) {
-        killColonist(c, 'radiation cancer',
-          `died at age ${age} of radiation-induced cancer (cumulative ${Math.round(rad)} mSv)`);
-        continue;
-      }
+    // 2b. Radiation cancer: an excess hazard that grows with the dose,
+    // a distinct story from natural aging. Adults only.
+    if (roll(c, 'radiation').chance(h.radiation)) {
+      killColonist(c, 'radiation cancer',
+        `died at age ${age} of radiation-induced cancer (cumulative ${Math.round(c.health.cumulativeRadiationMsv ?? 0)} mSv)`);
+      continue;
     }
 
-    // 2c. Starvation — a food reserve below a month triggers per-person
-    // starvation risk. Everyone is equally at risk; the shortage is
-    // shared, not individual.
-    if (typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 1.0) {
-      const starveProb = (1.0 - metrics.foodMonthsReserve) * 0.15 * timeDelta;
-      if (turnRng.chance(Math.min(starveProb, 0.3))) {
-        killColonist(c, 'starvation',
-          `died at age ${age} of starvation (food reserve ${metrics.foodMonthsReserve.toFixed(1)} months)`);
-        continue;
-      }
+    // 2c. Starvation: a food reserve below a month puts everyone at risk;
+    // the shortage is shared, not individual.
+    if (roll(c, 'starvation').chance(h.starvation)) {
+      killColonist(c, 'starvation',
+        `died at age ${age} of starvation (food reserve ${(metrics.foodMonthsReserve as number).toFixed(1)} months)`);
+      continue;
     }
 
-    // 2d. Despair — low psych score + high emotionality → suicide /
-    // slow decline risk. Covered as a real phenomenon in long-duration
-    // isolation studies (Antarctic, submarine crews, ISS).
-    if (age >= 18 && c.health.psychScore < 0.2) {
-      const despairProb = (0.2 - c.health.psychScore) * 0.25 * timeDelta * (0.5 + c.hexaco.emotionality);
-      if (turnRng.chance(Math.min(despairProb, 0.2))) {
-        killColonist(c, 'despair',
-          `died at age ${age} of prolonged psychological decline (psych ${c.health.psychScore.toFixed(2)})`);
-        continue;
-      }
+    // 2d. Despair: a psych score under 0.2, weighted by emotionality.
+    // Covered as a real phenomenon in long-duration isolation studies
+    // (Antarctic, submarine crews, ISS).
+    if (roll(c, 'despair').chance(h.despair)) {
+      killColonist(c, 'despair',
+        `died at age ${age} of prolonged psychological decline (psych ${c.health.psychScore.toFixed(2)})`);
+      continue;
     }
 
-    // 2e. Bone-density fracture — Mars-specific. Below ~60% bone
-    // density fracture risk becomes meaningful; severe falls can
-    // cascade to fatal in a low-medical-capacity environment. Gated
-    // on age >= 40 since younger colonists have reserve to recover.
-    if (age >= 40 && typeof c.health.boneDensityPct === 'number' && c.health.boneDensityPct < 60) {
-      const fractureProb = (60 - c.health.boneDensityPct) * 0.003 * timeDelta;
-      if (turnRng.chance(Math.min(fractureProb, 0.15))) {
-        killColonist(c, 'fatal fracture',
-          `died at age ${age} of a fall-induced fracture (bone density ${c.health.boneDensityPct.toFixed(0)}%)`);
-        continue;
-      }
+    // 2e. Bone-density fracture: below 60 percent bone density a fall
+    // can be fatal where medical capacity is low. From age 40.
+    if (roll(c, 'fracture').chance(h.fracture)) {
+      killColonist(c, 'fatal fracture',
+        `died at age ${age} of a fall-induced fracture (bone density ${(c.health.boneDensityPct as number).toFixed(0)}%)`);
+      continue;
     }
 
-    // 2f. Baseline accident risk — small but non-zero. A run with a
-    // pressurized habitat (it carries that metric) has EVA / life-support
-    // hazards; any other run has everyday ones. Weighted by role:
-    // engineering + medical people are more often in hazardous positions
-    // than governance.
-    const roleAccidentWeight: Record<string, number> = {
-      engineering: 1.5,
-      medical: 1.2,
-      agriculture: 1.0,
-      science: 0.9,
-      psychology: 0.6,
-      governance: 0.5,
-    };
-    const accidentBase = 0.003 * timeDelta;
-    const accidentProb = accidentBase * (roleAccidentWeight[c.core.department ?? 'science'] ?? 1.0);
-    if (age >= 18 && turnRng.chance(accidentProb)) {
+    // 2f. Baseline accident risk, weighted by department. A run with a
+    // pressurized habitat (it carries that metric) has EVA and
+    // life-support hazards; any other run has everyday ones.
+    if (roll(c, 'accident').chance(h.accident)) {
       const descriptors = typeof metrics.pressurizedVolumeM3 === 'number'
         ? ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover']
         : ['equipment failure', 'vehicle accident', 'fall', 'electrical fault', 'workplace accident'];
-      const descriptor = turnRng.pick(descriptors);
+      const descriptor = roll(c, 'accident-kind').pick(descriptors);
       const article = /^[aeiou]/i.test(descriptor) ? 'an' : 'a';
       killColonist(c, `accident: ${descriptor}`,
         `died at age ${age} in ${article} ${descriptor}`);
@@ -356,10 +468,10 @@ export function progressBetweenTurns(
   // more readily) and morale floor (low-morale colonies form fewer
   // relationships). Deterministic from seed.
   const unpartneredAdults = colonists.filter(c => c.health.alive
-    && (time - c.core.birthTime) >= 20
-    && (time - c.core.birthTime) <= 60
+    && ageOf(c) >= 20
+    && ageOf(c) <= 60
     && !c.social.partnerId);
-  const partnerProb = metrics.morale > 0.35 ? 0.10 * timeDelta : 0.03 * timeDelta;
+  const partnerProb = metrics.morale > 0.35 ? 0.10 * yearsDelta : 0.03 * yearsDelta;
   for (let i = 0; i < unpartneredAdults.length; i++) {
     const a = unpartneredAdults[i];
     if (a.social.partnerId) continue;
@@ -368,7 +480,7 @@ export function progressBetweenTurns(
     const candidates = unpartneredAdults
       .filter(b => b.core.id !== a.core.id && !b.social.partnerId)
       .map(b => {
-        const ageDelta = Math.abs((time - a.core.birthTime) - (time - b.core.birthTime));
+        const ageDelta = Math.abs(ageOf(a) - ageOf(b));
         const hexDistance = (['openness','conscientiousness','extraversion','agreeableness','emotionality','honestyHumility'] as const)
           .reduce((sum, k) => sum + Math.abs(a.hexaco[k] - b.hexaco[k]), 0) / 6;
         return { cell: b, affinity: (1 - hexDistance) * (1 - Math.min(1, ageDelta / 15)) };
@@ -393,7 +505,7 @@ export function progressBetweenTurns(
     if (!Array.isArray(c.health.conditions) || c.health.conditions.length === 0) continue;
     c.health.conditions = c.health.conditions.filter(cond => {
       const severe = /severe|chronic|cancer|permanent/i.test(cond);
-      const recovered = turnRng.chance((severe ? 0.05 : 0.35) * timeDelta);
+      const recovered = turnRng.chance((severe ? 0.05 : 0.35) * yearsDelta);
       if (recovered) {
         c.narrative.lifeEvents.push({ time, event: `Recovered from ${cond}`, source: 'kernel' });
       }
@@ -404,7 +516,7 @@ export function progressBetweenTurns(
   // 3c. Births — partnered couples first, then fall back to pairing
   // unpartnered-but-eligible adults. Partnerships meaningfully raise
   // birth probability; random pairings are a sparse background rate.
-  const aliveAdults = colonists.filter(c => c.health.alive && (time - c.core.birthTime) >= 20 && (time - c.core.birthTime) <= 42);
+  const aliveAdults = colonists.filter(c => c.health.alive && ageOf(c) >= 20 && ageOf(c) <= 42);
   const partneredCouples: Array<[Agent, Agent]> = [];
   const seenPairs = new Set<string>();
   for (const a of aliveAdults) {
@@ -420,16 +532,25 @@ export function progressBetweenTurns(
   // A run that carries no food store (its scenario declares none) is not
   // short of food.
   const fedEnough = typeof metrics.foodMonthsReserve !== 'number' || metrics.foodMonthsReserve > 6;
-  const baseBirthProb = metrics.morale > 0.4 && fedEnough ? 0.08 * timeDelta : 0.02 * timeDelta;
+  const baseBirthProb = metrics.morale > 0.4 && fedEnough ? 0.08 * yearsDelta : 0.02 * yearsDelta;
   // Partnered couples: 3x the base rate (stable relationships, higher
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
   const partneredBirthProb = Math.min(0.6, baseBirthProb * 3);
   const solitaryBirthProb = baseBirthProb * 0.3;
+  // Every id on the roster, so a child's id is never another person's
+  // (each person's dice are keyed by their id).
+  const takenIds = new Set(colonists.map(c => c.core.id));
   const tryBirth = (p1: Agent, p2: Agent) => {
     // deterministic shared block below; inlined so both paths reuse the
     // same child-creation logic without duplicating the heavy literal.
     const childName = `${turnRng.pick(['Nova', 'Kai', 'Sol', 'Tera', 'Eos', 'Zan', 'Lyra', 'Orion', 'Vega', 'Juno', 'Atlas', 'Iris', 'Clio', 'Pax', 'Io', 'Thea'])} ${p1.core.name.split(' ').pop()}`;
-    const childId = `col-born-${time}-${turnRng.int(1000, 9999)}`;
+    let childId = `col-born-${time}-${turnRng.int(1000, 9999)}`;
+    if (takenIds.has(childId)) {
+      let n = 2;
+      while (takenIds.has(`${childId}-${n}`)) n++;
+      childId = `${childId}-${n}`;
+    }
+    takenIds.add(childId);
     const childHexaco: any = {};
     for (const trait of ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'emotionality', 'honestyHumility'] as const) {
       childHexaco[trait] = Math.max(0.05, Math.min(0.95,
@@ -469,7 +590,7 @@ export function progressBetweenTurns(
   // 4. Career progression
   for (const c of colonists) {
     if (!c.health.alive) continue;
-    const age = time - c.core.birthTime;
+    const age = ageOf(c);
 
     // Children born in the run enter the workforce at 18, in a trade the
     // roster has; otherwise they stay in the department they were counted in.
@@ -484,12 +605,12 @@ export function progressBetweenTurns(
 
     if (age < 18) continue;
 
-    if (c.career.rank === 'junior' && c.career.yearsExperience >= 5 && turnRng.chance(0.15 * timeDelta)) {
+    if (c.career.rank === 'junior' && c.career.yearsExperience >= 5 && turnRng.chance(0.15 * yearsDelta)) {
       c.career.rank = 'senior';
       c.narrative.lifeEvents.push({ time, event: `Promoted to Senior ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to senior`, agentId: c.core.id });
     }
-    if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && turnRng.chance(0.08 * timeDelta)) {
+    if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && turnRng.chance(0.08 * yearsDelta)) {
       c.career.rank = 'lead';
       c.narrative.lifeEvents.push({ time, event: `Promoted to Lead ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to lead`, agentId: c.core.id });
@@ -525,26 +646,30 @@ export function progressBetweenTurns(
       c.narrative.lifeEvents.push({ time, event: `Lost a child. Devastated.`, source: 'kernel' });
     }
 
+    // The colony's mood reaches each person: morale above one half lifts
+    // psych, below it wears psych down, 0.1 a year at the extremes.
+    c.health.psychScore = Math.max(0, Math.min(1, c.health.psychScore + (metrics.morale - 0.5) * 0.1 * yearsDelta));
+
     // Having a partner provides a psych buffer
     if (c.social.partnerId) {
-      c.health.psychScore = Math.min(1, c.health.psychScore + 0.02 * timeDelta);
+      c.health.psychScore = Math.min(1, c.health.psychScore + 0.02 * yearsDelta);
     }
 
     // Earth contacts provide comfort but decay over time
     if (c.social.earthContacts > 0) {
-      c.health.psychScore = Math.min(1, c.health.psychScore + 0.01 * timeDelta);
+      c.health.psychScore = Math.min(1, c.health.psychScore + 0.01 * yearsDelta);
     }
 
     // Isolation penalty: no partner, no friends, no earth contacts
     if (!c.social.partnerId && (c.social.friendIds || []).length === 0 && c.social.earthContacts === 0) {
-      c.health.psychScore = Math.max(0, c.health.psychScore - 0.04 * timeDelta);
+      c.health.psychScore = Math.max(0, c.health.psychScore - 0.04 * yearsDelta);
     }
   }
 
   // 5b. Form new relationships (partnerships and friendships)
-  const singles = colonists.filter(c => c.health.alive && !c.social.partnerId && (time - c.core.birthTime) >= 20);
+  const singles = colonists.filter(c => c.health.alive && !c.social.partnerId && ageOf(c) >= 20);
   for (let i = 0; i < singles.length - 1; i += 2) {
-    if (turnRng.chance(0.05 * timeDelta)) {
+    if (turnRng.chance(0.05 * yearsDelta)) {
       singles[i].social.partnerId = singles[i + 1].core.id;
       singles[i + 1].social.partnerId = singles[i].core.id;
       singles[i].narrative.lifeEvents.push({ time, event: `Partnered with ${singles[i + 1].core.name}`, source: 'kernel' });
@@ -559,7 +684,7 @@ export function progressBetweenTurns(
     const a = alive[i], b = alive[i + 1];
     if (!a.social.friendIds) a.social.friendIds = [];
     if (!b.social.friendIds) b.social.friendIds = [];
-    if (a.core.department === b.core.department && !a.social.friendIds.includes(b.core.id) && turnRng.chance(0.08 * timeDelta)) {
+    if (a.core.department === b.core.department && !a.social.friendIds.includes(b.core.id) && turnRng.chance(0.08 * yearsDelta)) {
       a.social.friendIds.push(b.core.id);
       b.social.friendIds.push(a.core.id);
     }
@@ -583,9 +708,9 @@ export function progressBetweenTurns(
   // runs down.
   if (typeof metrics.foodMonthsReserve === 'number') {
     const modules = typeof metrics.infrastructureModules === 'number' ? metrics.infrastructureModules : 0;
-    metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (timeDelta * 0.5) + (modules * 0.3 * timeDelta));
+    metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (yearsDelta * 0.5) + (modules * 0.3 * yearsDelta));
   }
-  if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += timeDelta;
+  if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += yearsDelta;
 
   return {
     state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },

@@ -52,8 +52,14 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  *   any artifact that includes finalSwarm because of strict-mode
  *   parsing. Bump forces clients to regenerate so artifact parsers
  *   pick up the optional-field tolerance.
+ * - v7 (2026-11-03): progression hook contexts gained `yearsDelta`,
+ *   `yearsSinceStart` and `yearsPerUnit`; `timeDelta` is in the
+ *   scenario's unit, not years. A hook generated under the earlier
+ *   prompt applied a year's effects each unit of a month or week
+ *   scenario, so every cached hook regenerates (one-time ~$0.10 per
+ *   previously-compiled scenario).
  */
-export const COMPILE_SCHEMA_VERSION = 6;
+export const COMPILE_SCHEMA_VERSION = 7;
 
 /** SHA-256 hash of the scenario JSON, used for cache invalidation. */
 export function hashScenario(scenarioJson: Record<string, unknown>): string {

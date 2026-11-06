@@ -18,8 +18,6 @@ import {
   humanizeToolName,
   emptyReport,
   emptyDecision,
-  decisionToPolicy,
-  selectableEffects,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { DepartmentReportSchema } from '../validators/department.js';
@@ -29,16 +27,18 @@ import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
+  buildEffectsBlock,
   resolveActiveDepartments,
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
+import { applyCommanderPolicy } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, forgedToolNames, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
-import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco } from '../../engine/core/progression.js';
+import { classifyOutcome, classifyOutcomeById, driftCommanderHexaco, resolveChosenOption } from '../../engine/core/progression.js';
 import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
 import { buildTrajectoryCue as buildTrajectoryCueGeneric, type TraitProfileSnapshot } from '../agents/cues/trait/trajectory.js';
 import { normalizeActorConfig, traitsToHexaco } from '../../engine/traits/normalize-leader.js';
@@ -78,6 +78,7 @@ import { marsScenario } from '../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../engine/types.js';
 import type { ResolvedEconomicsProfile } from '../economics/economics-profile.js';
 import { projectSystemBags } from '../io/world-snapshot.js';
+import { ageInYears } from '../../engine/core/time-unit.js';
 export type { ActorConfig };
 
 
@@ -930,7 +931,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
   const director = new EventDirector();
-  const effectRegistry = new EffectRegistry(sc.effects[0]?.categoryDefaults ?? {});
+  const effectRegistry = EffectRegistry.forScenario(sc);
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
@@ -1471,8 +1472,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         return `## ${r.department.toUpperCase()} (conf: ${r.confidence})\n${r.summary}\nRisks: ${risksLine}\nRecs: ${recsLine}`;
       }).join('\n\n');
       const optionText = event.options.length ? '\n\nOPTIONS:\n' + event.options.map(o => `- ${o.id}: ${o.label} — ${o.description}${o.isRisky ? ' [RISKY]' : ''}`).join('\n') + '\n\nYou MUST include "selectedOptionId" in your JSON response.' : '';
-      const effectsList = selectableEffects(reports).map(({ key, effect: e }) => `  - ${key} (${e.type}): ${e.description}${e.systemDelta ? ' | Delta: ' + JSON.stringify(e.systemDelta) : ''}`);
-      const effectsText = effectsList.length ? '\n\nAVAILABLE POLICY EFFECTS:\n' + effectsList.join('\n') : '';
+      const effectsText = buildEffectsBlock(reports);
       // Expose the current forged toolbox to the commander so their
       // rationale can cite specific tool outputs (e.g. "per Medical's
       // radiation_dose_calculator returning 3.4 mSv"). Without this,
@@ -1553,15 +1553,15 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      const policyDeltas = kernel.applyPolicy(decisionToPolicy(decision, reports, turn, time));
-      if (Object.keys(policyDeltas).length > 0) console.log(`  [policy] effects: ${JSON.stringify(policyDeltas)}`);
+      applyCommanderPolicy(kernel, decision, reports, turn, time);
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
       // Outcome
       const outcomeRng = new SeededRng(seed).turnSeed(turn * 100 + ei);
-      let resolvedOptionId = decision.selectedOptionId;
-      if (!resolvedOptionId && event.options.length) { const decLower = (decision.decision || '').toLowerCase(); for (const opt of event.options) { if (decLower.includes(opt.id) || decLower.includes(opt.label.toLowerCase())) { resolvedOptionId = opt.id; break; } } }
+      // The option the decision chose: an id the event offers, else the one
+      // its text names; an id the event does not offer is not a choice.
+      const resolvedOptionId = resolveChosenOption(decision.selectedOptionId, decision.decision, event.options);
       const outcome = resolvedOptionId
         ? classifyOutcomeById(resolvedOptionId, event.options, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng)
         : classifyOutcome(decision.decision, scenario.riskyOption, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng);
@@ -1851,7 +1851,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       alive: a.health.alive,
       marsborn: a.core.marsborn,
       psychScore: a.health.psychScore,
-      age: Math.max(0, time - a.core.birthTime),
+      age: Math.max(0, Math.floor(ageInYears(a, time, kernel.yearsPerUnit))),
       generation: computeGeneration(a.core.id),
       partnerId: a.social.partnerId,
       childrenIds: a.social.childrenIds,
@@ -1885,7 +1885,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         agentId: a.core.id, name: a.core.name, department: a.core.department, role: a.core.role,
         rank: a.career.rank, alive: a.health.alive, marsborn: a.core.marsborn,
         psychScore: a.health.psychScore,
-        age: Math.max(0, time - a.core.birthTime),
+        age: Math.max(0, Math.floor(ageInYears(a, time, kernel.yearsPerUnit))),
         generation: a.core.marsborn ? 1 : 0,
         partnerId: a.social.partnerId,
         childrenIds: a.social.childrenIds, featured: a.narrative.featured,

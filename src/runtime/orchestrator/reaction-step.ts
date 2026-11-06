@@ -59,6 +59,8 @@ export interface ReactionContext {
   timeUnitNoun?: string;
   /** The scenario's labels: the people, the place and the leader. */
   labels?: Partial<ScenarioLabels>;
+  /** Years in one unit of the run's time, for ages. */
+  yearsPerUnit?: number;
 }
 
 export interface RunReactionStepArgs {
@@ -118,6 +120,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
     colonyPopulation: kernel.getState().metrics.population,
     timeUnitNoun: scenario.labels?.timeUnitNoun,
     labels: scenario.labels,
+    yearsPerUnit: kernel.yearsPerUnit,
   };
 
   // Progressive reactions: turn 1 always runs the full colony so

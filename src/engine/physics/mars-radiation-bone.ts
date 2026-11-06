@@ -16,8 +16,21 @@
  */
 import type { ProgressionHookContext } from '../types.js';
 
-/** Mars surface radiation: 0.67 mSv/day per Curiosity RAD measurements. */
-const MARS_RADIATION_MSV_PER_YEAR = 0.67 * 365;
+/** Mars surface radiation, mSv a day, when the scenario declares none
+ *  (`world.environment.surfaceRadiationMsvDay`). */
+const MARS_SURFACE_MSV_PER_DAY = 0.67;
+
+/**
+ * The share of a surface dose that reaches a colonist: each habitat
+ * module keeps out a fifth, at most nine tenths in all. A run that
+ * carries no module count is unshielded.
+ */
+export function habitatDoseShare(metrics?: Readonly<Record<string, unknown>>): number {
+  const modules = metrics?.infrastructureModules;
+  return typeof modules === 'number' && Number.isFinite(modules)
+    ? 1 - Math.min(0.9, 0.2 * Math.max(0, modules))
+    : 1;
+}
 
 /**
  * Walk the agent roster, accumulate radiation dose, and apply bone-
@@ -38,12 +51,21 @@ const MARS_RADIATION_MSV_PER_YEAR = 0.67 * 365;
  */
 export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void {
   const { agents, timeDelta, time, startTime } = ctx;
+  // The step and the time since landing in years (a hook called without
+  // them counts in years, as Mars does).
+  const yearsDelta = ctx.yearsDelta ?? timeDelta;
+  const yearsPerUnit = ctx.yearsPerUnit ?? 1;
+  const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
+  const declared = ctx.environment?.surfaceRadiationMsvDay;
+  // A dose is never negative: a declared rate under zero counts as none.
+  const surfacePerDay = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) : MARS_SURFACE_MSV_PER_DAY;
+  const dosePerYear = surfacePerDay * 365 * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + MARS_RADIATION_MSV_PER_YEAR * timeDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + dosePerYear * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather
@@ -58,7 +80,7 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
     // briefly produce time < startTime during snapshot rehydration,
     // which would otherwise yield a targetRatio > 1 and push bone
     // density above the immutable baseline.
-    const yearsOnMars = Math.max(0, time - (c.core.marsborn ? c.core.birthTime : startTime));
+    const yearsOnMars = Math.max(0, c.core.marsborn ? (time - c.core.birthTime) * yearsPerUnit : yearsSinceStart);
     const targetRatio = Math.max(0.5, 1 - lossRate * Math.min(yearsOnMars, 20));
     // Floor at 50% but never above the immutable baseline — guards
     // the theoretical case where an agent starts with bone density
