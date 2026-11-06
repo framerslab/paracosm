@@ -21,8 +21,9 @@ import type { RunArtifact } from '../../../../engine/schema/index.js';
 import styles from './InterventionDemoCard.module.scss';
 
 export interface InterventionDemoCardProps {
-  onResult: (artifact: RunArtifact) => void;
-  onError?: (message: string) => void;
+  /** The run's artifact, with the key the run was started under. */
+  onResult: (artifact: RunArtifact, runKey: string) => void;
+  onError?: (message: string, runKey: string) => void;
   onRunStart?: (payload: {
     /** The key the run opens with on the event stream. */
     runKey: string;
@@ -277,9 +278,9 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
         throw new Error(body.error ?? `Digital twin run failed: HTTP ${res.status}`);
       }
       const body = await res.json() as { artifact: RunArtifact; durationMs: number };
-      onResult(body.artifact);
+      onResult(body.artifact, runKey);
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : String(err));
+      onError?.(err instanceof Error ? err.message : String(err), runKey);
     } finally {
       window.clearInterval(tick);
       setRunning(false);
