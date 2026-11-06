@@ -172,22 +172,36 @@ function regularFileStat(path: string): Stats | undefined {
 }
 
 /**
- * Stream one file into a response. A read error (the file went away, or
- * cannot be read) ends this response: 500 when nothing was sent yet, a
- * closed connection otherwise. Without a listener the stream's error event
- * is thrown and stops the whole process.
+ * Stream one file into a response. The status and headers are written only
+ * once the file has opened, so a file that cannot be opened (removed or made
+ * unreadable after the route checked it) answers 500. A read error after the
+ * headers went out closes the connection. Every error is handled here: a read
+ * stream's error with no listener is thrown and stops the whole process.
  */
-function streamFile(res: ServerResponse, path: string, range?: { start: number; end: number }): void {
-  pipeline(createReadStream(path, range), res, (err) => {
-    if (!err || (err as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE') return;
-    console.warn(`[static] failed to stream ${path}: ${err.message}`);
-    if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('Read failed');
-    } else {
-      res.destroy();
-    }
+function streamFile(
+  res: ServerResponse,
+  path: string,
+  status: number,
+  headers: Record<string, string>,
+  range?: { start: number; end: number },
+): void {
+  const file = createReadStream(path, range);
+  file.once('open', () => {
+    if (res.destroyed) { file.destroy(); return; }
+    res.writeHead(status, headers);
+    pipeline(file, res, (err) => {
+      if (!err || (err as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+      console.warn(`[static] stopped streaming ${path}: ${err.message}`);
+    });
   });
+  file.once('error', (err) => {
+    if (res.headersSent) return;
+    console.warn(`[static] could not open ${path}: ${err.message}`);
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Read failed');
+  });
+  // A visitor who leaves before the file opens: release the file handle.
+  res.once('close', () => { if (!res.writableFinished) file.destroy(); });
 }
 
 /** Resolved paracosm version from package.json (for docs header and API responses). */
@@ -3317,29 +3331,27 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
           end = Math.min(end, fileSize - 1);
           const chunkSize = end - start + 1;
-          res.writeHead(206, {
+          // Stream the requested chunk so we don't buffer the whole
+          // file into memory per request.
+          streamFile(res, demoPath, 206, {
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
             'Accept-Ranges': 'bytes',
             'Content-Length': String(chunkSize),
             'Content-Type': contentType,
             'Cache-Control': 'public, max-age=86400',
-          });
-          // Stream the requested chunk so we don't buffer the whole
-          // file into memory per request.
-          streamFile(res, demoPath, { start, end });
+          }, { start, end });
           return;
         }
 
         // No Range header: full-file response, but still advertise
         // Accept-Ranges so browsers know they can seek on subsequent
         // requests.
-        res.writeHead(200, {
+        streamFile(res, demoPath, 200, {
           'Content-Type': contentType,
           'Content-Length': String(fileSize),
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'public, max-age=86400',
         });
-        streamFile(res, demoPath);
         return;
       }
     }
