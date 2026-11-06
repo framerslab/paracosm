@@ -155,3 +155,28 @@ test('an approval stays when the report recorded a later rejected forge of the s
   assert.equal(tool.firstForgedDepartment, governance);
   assert.match(buildAvailableToolsBlock(ledger), /incident_risk/);
 });
+
+test('two approved forges of one tool by one department before its report failed leave the later one, as a report would', () => {
+  const ledger: ForgedLedger = new Map();
+  const allForges: RunForge[] = [];
+  // Governance forges incident_risk, approved, then forges it again with a
+  // further input, approved too, and its next model call fails. A report
+  // records a tool once per event, from its last capture, so the recorded
+  // forge is the later one: its output, confidence and schemas.
+  const first = capture('incident_risk', governance, true);
+  const later: Captured = {
+    ...capture('incident_risk', governance, true),
+    confidence: 0.93,
+    output: '{"risk":0.61}',
+    inputSchema: { type: 'object', properties: { incidents: { type: 'number' }, severity: { type: 'number' } } },
+  };
+  recordEventForges([first, later], turnOne, ledger, allForges);
+
+  const entry = ledger.get('incident_risk')!;
+  assert.equal(entry.history.length, 1, 'one record for the tool, its department and the event');
+  assert.equal(entry.history[0].output, '{"risk":0.61}');
+  assert.equal(entry.history[0].confidence, 0.93);
+  assert.deepEqual(entry.inputSchema, later.inputSchema);
+  assert.match(buildAvailableToolsBlock(ledger), /last output: \{"risk":0\.61\}/);
+  assert.equal(allForges.length, 2, 'the run keeps both attempts');
+});
