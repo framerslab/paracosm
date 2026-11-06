@@ -15,7 +15,7 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The scripted runner runs on a local server of its own.');
-const BASE = 'http://127.0.0.1:3458';
+const BASE = 'http://127.0.0.1:3459';
 test.use({ baseURL: BASE });
 test.describe.configure({ mode: 'serial' });
 

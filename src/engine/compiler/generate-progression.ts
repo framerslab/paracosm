@@ -29,14 +29,15 @@ DEPARTMENTS: ${depts}
 Function signature: (ctx: ProgressionHookContext) => void
 ctx shape:
 - ctx.agents: array of { core: { marsborn, birthTime, name }, health: { alive, boneDensityPct, cumulativeRadiationMsv, psychScore } }
-- ctx.timeDelta: number (simulated years since last turn)
-- ctx.time, ctx.turn, ctx.startTime: number
+- ctx.timeDelta: number (this step's length, in the scenario's time unit; a turn runs the hook once for each whole year it spans and once for a part of a year left over)
+- ctx.yearsDelta: number (the same step in years; may be absent, then use ctx.timeDelta)
+- ctx.time, ctx.turn, ctx.startTime: number (in the scenario's time unit)
 - ctx.rng: { chance(p): bool, next(): number, pick<T>(arr): T, int(min, max): number }
 
 Rules:
 1. Only modify health on ALIVE agents (check c.health.alive)
 2. Domain-appropriate degradation for this scenario
-3. Multiply time-scaled effects by ctx.timeDelta
+3. Multiply every yearly effect by (ctx.yearsDelta ?? ctx.timeDelta), and scale any probability by it too: an effect left unscaled applies once for each year a long turn spans
 4. Use Math.max/Math.min to keep: boneDensityPct in [0,100], psychScore in [0,1], cumulativeRadiationMsv >= 0
 5. NO external imports, NO require
 6. Use ctx.rng.chance(p) for probabilistic effects, not Math.random`;

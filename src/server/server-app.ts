@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, type Stats } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
@@ -168,6 +169,49 @@ export function pickCookie(id: string, secure = false): string | null {
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/** The path's stats when it names a regular file; undefined for a folder, nothing, or an unreadable path. */
+function regularFileStat(path: string): Stats | undefined {
+  try {
+    const stat = statSync(path);
+    return stat.isFile() ? stat : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stream one file into a response. The status and headers are written only
+ * once the file has opened, so a file that cannot be opened (removed or made
+ * unreadable after the route checked it) answers 500. A read error after the
+ * headers went out closes the connection. Every error is handled here: a read
+ * stream's error with no listener is thrown and stops the whole process.
+ */
+function streamFile(
+  res: ServerResponse,
+  path: string,
+  status: number,
+  headers: Record<string, string>,
+  range?: { start: number; end: number },
+): void {
+  const file = createReadStream(path, range);
+  file.once('open', () => {
+    if (res.destroyed) { file.destroy(); return; }
+    res.writeHead(status, headers);
+    pipeline(file, res, (err) => {
+      if (!err || (err as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE') return;
+      console.warn(`[static] stopped streaming ${path}: ${err.message}`);
+    });
+  });
+  file.once('error', (err) => {
+    if (res.headersSent) return;
+    console.warn(`[static] could not open ${path}: ${err.message}`);
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Read failed');
+  });
+  // A visitor who leaves before the file opens: release the file handle.
+  res.once('close', () => { if (!res.writableFinished) file.destroy(); });
+}
 
 /** Resolved paracosm version from package.json (for docs header and API responses). */
 const PARACOSM_VERSION: string = (() => {
@@ -3153,11 +3197,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // Path-traversal guard: same vulnerability as the /brand/ route.
       // Reject anything that resolves outside the demo asset root.
       const insideDemo = demoPath === demoRoot || demoPath.startsWith(demoRoot + sep);
-      if (insideDemo && existsSync(demoPath)) {
+      // Only a regular file is served. `/demo/` itself, or any folder under
+      // it, answers 404: a folder handed to the read stream fails with EISDIR.
+      const stat = insideDemo ? regularFileStat(demoPath) : undefined;
+      if (stat) {
         const ext = demoPath.split('.').pop() || '';
         const types: Record<string, string> = { mp4: 'video/mp4', webm: 'video/webm', png: 'image/png', jpg: 'image/jpeg' };
         const contentType = types[ext] || 'application/octet-stream';
-        const stat = statSync(demoPath);
         const fileSize = stat.size;
         const rangeHeader = req.headers.range;
 
@@ -3196,29 +3242,27 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           }
           end = Math.min(end, fileSize - 1);
           const chunkSize = end - start + 1;
-          res.writeHead(206, {
+          // Stream the requested chunk so we don't buffer the whole
+          // file into memory per request.
+          streamFile(res, demoPath, 206, {
             'Content-Range': `bytes ${start}-${end}/${fileSize}`,
             'Accept-Ranges': 'bytes',
             'Content-Length': String(chunkSize),
             'Content-Type': contentType,
             'Cache-Control': 'public, max-age=86400',
-          });
-          // Stream the requested chunk so we don't buffer the whole
-          // file into memory per request.
-          createReadStream(demoPath, { start, end }).pipe(res);
+          }, { start, end });
           return;
         }
 
         // No Range header: full-file response, but still advertise
         // Accept-Ranges so browsers know they can seek on subsequent
         // requests.
-        res.writeHead(200, {
+        streamFile(res, demoPath, 200, {
           'Content-Type': contentType,
           'Content-Length': String(fileSize),
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'public, max-age=86400',
         });
-        createReadStream(demoPath).pipe(res);
         return;
       }
     }
@@ -3545,7 +3589,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // Path-traversal guard: same vulnerability as the /brand/ and
       // /demo/ routes. Reject anything that resolves outside distDir.
       const insideDist = assetPath === distDir || assetPath.startsWith(distDir + sep);
-      if (insideDist && existsSync(assetPath)) {
+      // A folder (`/assets/` itself, or one inside it) answers 404; reading
+      // it as a file throws EISDIR.
+      if (insideDist && regularFileStat(assetPath)) {
         const ext = assetPath.split('.').pop();
         // `mjs` MUST resolve to a JS MIME type — pdfjs-dist ships its
         // worker as `pdf.worker.min.mjs`, and Vite emits other ESM

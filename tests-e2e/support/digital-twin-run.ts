@@ -8,6 +8,8 @@
 
 /** A subject id that makes the stub engine throw after its first event. */
 export const TWIN_ENGINE_FAILS = 'twin-engine-fails';
+/** A subject id that makes the stub engine take 150 ms between events, as a model-backed run takes seconds. */
+export const TWIN_ENGINE_SLOW = 'twin-engine-slow';
 export const TWIN_ENGINE_ERROR = 'stub engine failed';
 
 export interface TwinEvent {

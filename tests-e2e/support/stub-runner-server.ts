@@ -75,4 +75,4 @@ const server = createMarsServer({
   runPairSimulations: (config, broadcast, signal) => scriptedRun(config, broadcast, signal),
   runForkSimulation: async (config, broadcast, signal) => scriptedRun(config, broadcast, signal),
 });
-server.listen(Number(process.env.PORT ?? 3458));
+server.listen(Number(process.env.PORT ?? 3459));

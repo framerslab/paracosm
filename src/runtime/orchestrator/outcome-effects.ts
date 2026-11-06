@@ -37,9 +37,10 @@ export interface OutcomeEffectsApplied {
  *
  * The scenario's politics hook names a change for each outcome, so where it
  * names a key, its change replaces the category table's and the key moves
- * once. The hook is the better reading: the table scales by a multiplier
- * that turns negative on a failure, so a table entry of -8 for a safety
- * breach would raise the board's confidence when the response fails.
+ * once. The table scales each entry by the outcome, and a harmful entry
+ * stays a cost on a failure (see `EffectRegistry`): a safety breach's -8
+ * board confidence grows on a failed response; the hook can name a
+ * different change for each outcome.
  */
 export function applyOutcomeEffects(
   kernel: SimulationKernel,

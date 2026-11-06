@@ -289,7 +289,13 @@ export function useSSE(options: UseSSEOptions = {}) {
    */
   const clearLocalRun = useCallback(() => {
     seenEventKeysRef.current.clear();
-    skipBufferedRunRef.current = false;
+    // A run the feed holds in another scenario than the page's can still be
+    // writing until the server drops it. Its events that arrive before the
+    // next active_scenario are skipped, as the page skipped them before the
+    // reset: every run opens with one.
+    const runScenarioId = runScenarioIdRef.current;
+    const pageScenarioId = pageScenarioIdRef.current;
+    skipBufferedRunRef.current = runScenarioId !== null && pageScenarioId !== null && runScenarioId !== pageScenarioId;
     // The run is gone; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
@@ -659,7 +665,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'status', leader: '', data };
-          const key = eventKey(evt);
+          // A status event carries no turn, leader or title, so eventKey
+          // gives every status event of a run one key. A pair run writes two
+          // (`starting`, then `parallel` with the leaders, which is what marks
+          // the run running), a fork `starting` and `fork-running`. The run's
+          // key and the frame itself tell them apart, and a replay after a
+          // reconnect sends the same frame under the same run, so it still
+          // counts once.
+          const key = `status|${runKeyRef.current ?? ''}|${e.data}`;
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));

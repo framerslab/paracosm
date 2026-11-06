@@ -138,6 +138,7 @@ export function generateJoiners(
   count: number,
   roster: readonly Agent[],
   former: ReadonlyArray<{ id: string; name: string }> = [],
+  yearsPerUnit = 1,
 ): Agent[] {
   const peers = roster.filter(a => a.health.alive && a.core.role !== 'Child');
   if (peers.length === 0) return [];
@@ -159,7 +160,7 @@ export function generateJoiners(
     const rank = age > 40 ? (rng.chance(0.3) ? 'lead' : 'senior') : (rng.chance(0.2) ? 'senior' : 'junior');
     const hexaco = randomHexaco(rng);
     const joiner = createColonist(
-      claimAgentId(name, usedIds), name, time - age, peer.core.department,
+      claimAgentId(name, usedIds), name, time - age / yearsPerUnit, peer.core.department,
       `${rank.charAt(0).toUpperCase() + rank.slice(1)} ${spec} Specialist`,
       spec, false, false, hexaco, time,
     );
@@ -177,6 +178,8 @@ export function generateJoiners(
  * `totalPopulation`. With `departments`, the generated people work in
  * those departments under their labels. Without them they come from
  * Mars Genesis's own trades (DEPARTMENT_DISTRIBUTION, SPECIALIZATIONS).
+ * Ages are in years; `yearsPerUnit` (years in one unit of the scenario's
+ * time) places each birth time in the scenario's unit.
  */
 export function generateInitialPopulation(
   seed: number,
@@ -184,8 +187,11 @@ export function generateInitialPopulation(
   keyPersonnel: KeyPersonnel[],
   totalPopulation: number = 100,
   departments?: ReadonlyArray<{ id: Department; label: string }>,
+  yearsPerUnit = 1,
 ): Agent[] {
   const rng = new SeededRng(seed);
+  // Ages are in years; a birth time is in the scenario's unit.
+  const bornAt = (age: number) => startTime - age / yearsPerUnit;
   const colonists: Agent[] = [];
   const usedNames = new Set<string>();
   const usedIds = new Set<string>();
@@ -193,7 +199,7 @@ export function generateInitialPopulation(
 
   for (const kp of keyPersonnel) {
     usedNames.add(kp.name);
-    colonists.push(createColonist(claimId(kp.name), kp.name, startTime - kp.age, kp.department, kp.role, kp.specialization, false, kp.featured, randomHexaco(rng), startTime));
+    colonists.push(createColonist(claimId(kp.name), kp.name, bornAt(kp.age), kp.department, kp.role, kp.specialization, false, kp.featured, randomHexaco(rng), startTime));
   }
 
   const remaining = Math.max(0, totalPopulation - keyPersonnel.length);
@@ -211,7 +217,7 @@ export function generateInitialPopulation(
     const rank = age > 40 ? (rng.chance(0.3) ? 'lead' : 'senior') : (rng.chance(0.2) ? 'senior' : 'junior');
 
     const c = createColonist(
-      claimId(name), name, startTime - age, dept,
+      claimId(name), name, bornAt(age), dept,
       `${rank.charAt(0).toUpperCase() + rank.slice(1)} ${spec} Specialist`,
       spec, false, false, randomHexaco(rng), startTime,
     );
