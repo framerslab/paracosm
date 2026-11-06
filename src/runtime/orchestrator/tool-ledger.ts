@@ -99,6 +99,42 @@ export function buildAvailableToolsBlock(ledger: ForgedLedger): string {
   return `\n\nALREADY-FORGED TOOLS IN THIS SESSION:\n${lines}\n\nHARD RULE — how to reuse:\n- Preferred: call the tool for real with fresh inputs via call_forged_tool({"name":"<tool_name>","args":{...}}). This produces a new output using the approved, judge-reviewed code. Then cite the tool in "forgedToolsUsed" with the new output.\n- If the analysis is essentially unchanged from last invocation, cite the tool name in "forgedToolsUsed" and reference the last output from the list above in your summary — no tool call needed.\n- Do NOT call forge_tool with a name from this list. Re-forging costs −0.06 outcome bonus and −0.015 morale. Only forge a NEW tool when NO existing one applies. Each reuse (via call_forged_tool or citation) is +0.02 outcome bonus.\n`;
 }
 
+/** A forge as a department's forge_tool call captured it. */
+export interface CapturedForgeForLedger {
+  name: string;
+  description: string;
+  mode: string;
+  approved: boolean;
+  confidence: number;
+  department: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  output: unknown;
+}
+
+/** The event a run's forges were made in. */
+export interface ForgeEvent {
+  turn: number;
+  time: number;
+  eventIndex: number;
+  eventTitle: string;
+}
+
+/**
+ * Take one event's captured forges into the run, in the order captured:
+ * each joins `allForges` with the event's turn, time and index.
+ */
+export function recordEventForges<F extends CapturedForgeForLedger>(
+  eventForges: readonly F[],
+  event: ForgeEvent,
+  ledger: ForgedLedger,
+  allForges: Array<F & { turn: number; time: number; eventIndex: number }>,
+): void {
+  for (const forge of eventForges) {
+    allForges.push({ ...forge, turn: event.turn, time: event.time, eventIndex: event.eventIndex });
+  }
+}
+
 /** One entry in the canonical Forged Toolbox that ships in the run output. */
 export interface ForgedToolboxEntry {
   name: string;
