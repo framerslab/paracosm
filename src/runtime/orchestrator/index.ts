@@ -1440,6 +1440,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // Use the per-dept eventBucketStarts snapshot instead of scanning
       // the whole bucket and de-duping with .find() (was O(n²) and prone
       // to missed matches when timestamps tied at sub-ms resolution).
+      // An approved forge of a department whose report failed, which wrote
+      // no ledger entry, is recorded here, so the toolbox keeps it.
       recordEventForges(
         depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
         { turn, time, eventIndex: ei, eventTitle: event.title },

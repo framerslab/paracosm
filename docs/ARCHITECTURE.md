@@ -260,6 +260,8 @@ Department agents forge computational tools at runtime using AgentOS's `Emergent
 4. The `EmergentJudge` (LLM-as-judge) reviews the tool for safety, correctness, determinism, and schema compliance.
 5. If approved, the tool is registered at session scope and available for future turns via the `call_forged_tool` meta-tool (no re-forge required).
 
+The run's tool ledger records each forge with its turn, department and event. A department's report writes the ledger for the forges it made; when the department's session throws after a forge the reviewers approved (a transient provider error on its next model call), its report is the empty one, and the turn loop records the approved forge itself when it takes the event's forges into the run (`recordEventForges` in [`tool-ledger.ts`](../src/runtime/orchestrator/tool-ledger.ts)). The tool is then in the toolbox once, with that forge as its first when it had none, and counts in `forgedTools`, the verdict, `toolsForged` and the ALREADY-FORGED TOOLS block the next departments read.
+
 **Example:** The Medical department faces a radiation crisis. It forges a `radiation_dose_calculator` that computes cumulative dose from exposure rate and duration. The tool passes judge review and is registered. On the next turn, the same department uses the calculator to project 10-year exposure trends.
 
 Tools start at session scope and can be promoted:

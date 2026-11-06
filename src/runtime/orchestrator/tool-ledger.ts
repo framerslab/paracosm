@@ -123,6 +123,15 @@ export interface ForgeEvent {
 /**
  * Take one event's captured forges into the run, in the order captured:
  * each joins `allForges` with the event's turn, time and index.
+ *
+ * A department's report writes the ledger for the forges it made, and a
+ * department whose session threw after a forge (a transient provider error
+ * on its next model call) returns the empty report and writes nothing,
+ * though the engine holds the tool. So an approved forge whose department
+ * has no ledger record for this event is recorded here: as the tool's first
+ * forge when the ledger has no entry for it, else as a further forge in its
+ * history. A forge the report recorded is not recorded again, and a rejected
+ * forge is no tool of the run either way.
  */
 export function recordEventForges<F extends CapturedForgeForLedger>(
   eventForges: readonly F[],
@@ -132,6 +141,36 @@ export function recordEventForges<F extends CapturedForgeForLedger>(
 ): void {
   for (const forge of eventForges) {
     allForges.push({ ...forge, turn: event.turn, time: event.time, eventIndex: event.eventIndex });
+    if (!forge.approved) continue;
+    const known = ledger.get(forge.name);
+    const recorded = known?.history.some(h =>
+      h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department,
+    );
+    if (recorded) continue;
+    const entry: ForgedToolLedgerEntry = known ?? {
+      firstForgedTurn: event.turn,
+      firstForgedDepartment: forge.department,
+      firstForgedEventIndex: event.eventIndex,
+      firstForgedEventTitle: event.eventTitle,
+      inputSchema: forge.inputSchema,
+      outputSchema: forge.outputSchema,
+      history: [],
+    };
+    if (!known) ledger.set(forge.name, entry);
+    const output = forge.output != null
+      ? (typeof forge.output === 'string' ? forge.output : JSON.stringify(forge.output))
+      : null;
+    entry.history.push({
+      turn: event.turn,
+      time: event.time,
+      eventIndex: event.eventIndex,
+      eventTitle: event.eventTitle,
+      department: forge.department,
+      output: output?.slice(0, 400) || null,
+      isReforge: true,
+      rejected: false,
+      confidence: forge.confidence,
+    });
   }
 }
 
