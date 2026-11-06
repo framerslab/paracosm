@@ -657,8 +657,8 @@ export async function handleSimulateIntervention(
   // The same frames a /setup run writes: the roster and the turn count, each
   // engine event as a `sim` event tagged with its leader, and an end. Without
   // them, the dashboard sees nothing until the artifact returns at the bottom
-  // of this handler. The roster and the turn count share one frame because
-  // the dashboard keeps the first `status` frame of a run. The handler still
+  // of this handler. The roster and the turn count share one `parallel`
+  // frame, which is what marks the run running on the page. The handler still
   // returns the full artifact synchronously at the end, which the Digital
   // Twin card renders.
   const maxTurns = options.maxTurns ?? 2;
