@@ -127,11 +127,14 @@ export interface ForgeEvent {
  * A department's report writes the ledger for the forges it made, and a
  * department whose session threw after a forge (a transient provider error
  * on its next model call) returns the empty report and writes nothing,
- * though the engine holds the tool. So an approved forge whose department
- * has no ledger record for this event is recorded here: as the tool's first
- * forge when the ledger has no entry for it, else as a further forge in its
- * history. A forge the report recorded is not recorded again, and a rejected
- * forge is no tool of the run either way.
+ * though the engine holds the tool. A report also records a tool once per
+ * event, from its last capture, so a department that forged a tool, approved,
+ * and then forged it again, rejected, has a rejected record for it. So an
+ * approved forge whose department has no approved ledger record for this
+ * event is recorded here: as the tool's first forge when the ledger has no
+ * entry for it, else as a further forge in its history. A forge the report
+ * recorded as approved is not recorded again, and a rejected forge is no
+ * tool of the run either way.
  */
 export function recordEventForges<F extends CapturedForgeForLedger>(
   eventForges: readonly F[],
@@ -144,7 +147,7 @@ export function recordEventForges<F extends CapturedForgeForLedger>(
     if (!forge.approved) continue;
     const known = ledger.get(forge.name);
     const recorded = known?.history.some(h =>
-      h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department,
+      h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department && !h.rejected,
     );
     if (recorded) continue;
     const entry: ForgedToolLedgerEntry = known ?? {
