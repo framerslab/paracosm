@@ -628,12 +628,16 @@ export async function runBatchSimulations(
 
   // Mirror runPairSimulations: surface aborted/provider-error at the
   // terminal event so the dashboard can badge the session as
-  // interrupted. We consider the batch aborted when every leader
-  // failed or reported abortion; a single success still counts as
-  // a successful batch run.
+  // interrupted. We consider the batch aborted when its signal fired
+  // (the pool started no actor after that, so the batch is cut whatever
+  // the actors already running returned), or when every leader failed
+  // or reported abortion; a single success still counts as a successful
+  // batch run otherwise. An aborted batch gets no verdict.
   const fulfilled = settled.filter(s => s.status === 'fulfilled')
     .map(s => (s as PromiseFulfilledResult<unknown>).value as { aborted?: boolean; providerError?: unknown });
-  const allAborted = fulfilled.length === 0 || fulfilled.every(v => v?.aborted === true || !!v?.providerError);
+  const allAborted = signal?.aborted === true
+    || fulfilled.length === 0
+    || fulfilled.every(v => v?.aborted === true || !!v?.providerError);
 
   // Cohort verdict: rank every actor that finished cleanly. Previously
   // the dashboard saw no winner banner for N>=3 runs because verdicts

@@ -313,9 +313,12 @@ export class LiveRunRegistry {
     return this.runs.get(key);
   }
 
-  /** True when a run has opened under this key. */
+  /**
+   * True when a run has opened under this key: one of the last 1024 keys, or
+   * the key of a run the server still holds, however many runs opened since.
+   */
   isKeyUsed(key: string): boolean {
-    return this.usedKeys.has(key);
+    return this.usedKeys.has(key) || this.runs.has(key);
   }
 
   /**
