@@ -775,16 +775,24 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // is the FIRST LLM call in the run, so if the user's key is invalid
   // or credits are exhausted, the classifier fires here before we burn
   // compute on a run that has no hope of producing valid output.
-  try {
-    trackUsage(
-      await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco), sc.labels)),
-      'commander',
-    );
-  } catch (err) {
-    reportProviderError(err, 'commander-bootstrap');
-    // If this is a terminal provider error, isAborted() is now true; the
-    // turn loop skips LLM work but continues so the end-of-run cleanup
-    // path runs and the user gets a proper `complete` SSE event.
+  //
+  // Abort gate: a run whose signal is already aborted makes no call at
+  // all. The server holds a run's capacity slot until its runner settles,
+  // and a cleared batch can still start an actor after the abort; the
+  // promotions below are gated the same way, and the turn loop's first
+  // turn emits the run's one sim_aborted and ends it.
+  if (!opts.signal?.aborted) {
+    try {
+      trackUsage(
+        await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco), sc.labels)),
+        'commander',
+      );
+    } catch (err) {
+      reportProviderError(err, 'commander-bootstrap');
+      // If this is a terminal provider error, isAborted() is now true; the
+      // turn loop skips LLM work but continues so the end-of-run cleanup
+      // path runs and the user gets a proper `complete` SSE event.
+    }
   }
 
   // Turn 0: commander promotes department heads from the kernel's
@@ -949,17 +957,19 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     const time = timeSchedule[turn - 1] ?? (timeSchedule[timeSchedule.length - 1] + (turn - timeSchedule.length) * 5);
 
     // ── External-abort gate ─────────────────────────────────────────
-    // Fired when opts.signal flips (client disconnected and grace
-    // period expired). Emits a single sim_aborted event and bails out
-    // of the turn loop — we do NOT continue emitting degraded turn_done
-    // stubs, because an external cancel is a clean stop, not a
-    // provider-errored skip. Partial results already in the event
-    // buffer stay intact so the user sees what was reached.
+    // Fired when opts.signal flips: the server stopped the run (its
+    // visitor started another or cleared it, or its viewers left and the
+    // grace period expired). Emits a single sim_aborted event, with the
+    // reason the server aborted the signal with, and bails out of the
+    // turn loop — we do NOT continue emitting degraded turn_done stubs,
+    // because an external cancel is a clean stop, not a provider-errored
+    // skip. Partial results already in the event buffer stay intact so
+    // the user sees what was reached.
     if (opts.signal?.aborted && !externallyAborted) {
       externallyAborted = true;
       emit('sim_aborted', {
         turn, time,
-        reason: 'client_disconnected',
+        reason: typeof opts.signal.reason === 'string' ? opts.signal.reason : 'client_disconnected',
         completedTurns: turn - 1,
         metrics: kernel.getState().metrics,
         toolsForged: forgedToolNames(forgedLedger, allForges).length,

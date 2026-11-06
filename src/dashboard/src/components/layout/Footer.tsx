@@ -42,7 +42,8 @@ function abortReasonLabel(raw: string): string {
     case 'quota_exhausted': return 'provider credits exhausted';
     case 'user_aborted': return 'cancelled by the user';
     case 'provider_error': return 'provider returned an unrecoverable error';
-    case 'another_run_started': return 'another run started on the server';
+    case 'another_run_started': return 'you started another run';
+    case 'server_restarted': return 'the server restarted before the run finished';
     case 'unknown': return 'reason not recorded by the server';
     default: return raw;
   }

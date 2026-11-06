@@ -59,6 +59,15 @@ import { handlePublicDemoRoute } from './routes/public-demo.js';
 import { handlePlatformApiRoute } from './routes/platform-api.js';
 import { validateForkSetupPreconditions } from './fork-preconditions.js';
 import { fetchSeedFromUrl } from '../cli/fetch-seed-url.js';
+import {
+  ANONYMOUS_VISITOR,
+  LiveRunRegistry,
+  RUN_CAPACITY_RETRY_AFTER_SECONDS,
+  RunCapacityError,
+  readVisitorId,
+  visitorCookie,
+  type LiveRun,
+} from './live-runs.js';
 
 function projectScenarioForClient(sc: ScenarioPackage) {
   return {
@@ -284,8 +293,8 @@ export interface CreateMarsServerOptions {
   /** Max simulations per IP per day. 0 = unlimited. Overrides the RATE_LIMIT env var; with neither set the limit is 1. */
   maxSimsPerDay?: number;
   /**
-   * Grace period (ms) between the last SSE client disconnecting and the
-   * server cancelling the active simulation. Default 600_000ms (10
+   * Grace period (ms) between a run's last viewer (an /events stream)
+   * leaving and the server cancelling that run. Default 600_000ms (10
    * minutes): a hosted demo run takes about 4 to 5 minutes, and a phone
    * drops its stream as soon as the visitor switches apps, so a shorter
    * grace stops runs whose viewer is coming back. See the watchdog
@@ -293,13 +302,36 @@ export interface CreateMarsServerOptions {
    */
   disconnectGraceMs?: number;
   /**
-   * Override the stale-buffer threshold. The on-startup and runtime
-   * gates drop the eventBuffer when its last activity was more than
-   * this many milliseconds ago. Production default is 30 minutes;
+   * Override the idle time of a run. A run nobody has read or watched for
+   * longer is let go, its file included, and a run written to disk longer
+   * ago is not read back at boot. Production default is 30 minutes;
    * tests inject a small value (e.g. 100ms) to exercise the gate
    * without waiting half an hour.
    */
   staleBufferMs?: number;
+  /**
+   * The most runs the server has in flight at once, every visitor's
+   * together; a visitor above it is told to wait (503). Overrides the
+   * PARACOSM_MAX_RUNS env var; with neither set it is 3.
+   */
+  maxRuns?: number;
+  /**
+   * The most finished runs held for their visitors; the oldest goes first.
+   * Overrides PARACOSM_MAX_HELD_RUNS; default 10.
+   */
+  maxHeldRuns?: number;
+  /**
+   * The most the finished runs' event buffers may hold together, in UTF-16
+   * code units of SSE text; the oldest run goes first. Overrides
+   * PARACOSM_MAX_HELD_RUN_BYTES; default 67_108_864 (64 MiB).
+   */
+  maxHeldRunBytes?: number;
+  /**
+   * Builds or reuses a character's chat agent for /chat. Defaults to the
+   * agent pool in runtime/agents/chat-agents.ts; a test passes one that
+   * calls no model.
+   */
+  chatAgent?: typeof import('../runtime/agents/chat-agents.js').getOrCreateChatAgent;
   /**
    * Override the session store instance. Intended for tests; the
    * default production path opens a SQLite store at
@@ -338,6 +370,15 @@ export interface StartConfigHooks {
    */
   seedText?: string | null;
   /**
+   * The visitor whose run this is (the `paracosm_visitor` cookie of the
+   * request that started it); it replaces that visitor's current run.
+   * Absent: the anonymous visitor, whose run every caller without the
+   * cookie reads (the CLI's own run is one).
+   */
+  visitorId?: string;
+  /** The run's key, which its `active_scenario` event carries; minted when absent. */
+  runKey?: string;
+  /**
    * Fired once per completed leader artifact. Failures inside the hook
    * are caught and logged by the runner; they do not abort the run.
    */
@@ -348,6 +389,13 @@ export interface StartConfigHooks {
 }
 
 export interface MarsServer extends Server {
+  /**
+   * Opens a run for `hooks.visitorId` (the anonymous visitor when absent),
+   * replacing that visitor's current run, and resolves when the run ends.
+   * Throws {@link RunCapacityError} synchronously, before any run opens,
+   * when the server already has its most runs in flight; an `await` of the
+   * call sees it as a rejection.
+   */
   startWithConfig: (config: NormalizedSimulationConfig, hooks?: StartConfigHooks) => Promise<void>;
 }
 
@@ -575,36 +623,114 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       console.log(`  [retention] Sweep failed: ${err}`);
     }
   })();
-  let simConfig: NormalizedSimulationConfig | null = null;
-  let simRunning = false;
   // There is no server-wide scenario. Each request runs in or reads the
   // scenario it names, else the visitor's pick (the paracosm_scenario
-  // cookie), else Mars Genesis; see resolveRequestScenario.
+  // cookie), else Mars Genesis; see resolveRequestScenario. Nor is there a
+  // server-wide run: each visitor's run is their own (liveRuns).
   //
-  // The scenario of the run whose events the buffer holds, recorded by
-  // startWithConfig. /chat builds its agents from the buffer, so it reads
-  // its nouns from here. Mars Genesis until the first run, and after a
-  // restart that rehydrates a buffer until the next one.
-  let currentRunScenario: ScenarioPackage = marsScenario;
-  // That run's `active_scenario` frame, first in the buffer. The trim in
-  // broadcast() keeps it, so a late replay and a saved session still say
-  // which scenario the run is. Null once the buffer is cleared.
-  let currentRunMetaFrame: string | null = null;
-  // The key of the last run opened, kept through a /clear: a page's Run posts
-  // /clear and the run together, and the /clear can land second. A digital-
-  // twin run stops writing to the buffer once another run's key is here.
-  let currentRunKey: string | null = null;
-  // The key of the last digital-twin run. Its artifact comes back in its
-  // answer, and a saved session replays in the two-column layout, which has
-  // no place for it, so it is not auto-saved.
-  let digitalTwinRunKey: string | null = null;
-  // The event that opened a digital-twin run still writing to the buffer,
-  // null otherwise. A clear puts it back at the head of the buffer.
-  let digitalTwinOpening: Record<string, unknown> | null = null;
-  // The keys runs have opened with, oldest first. A request that names a key
-  // may not name one of these: pages tell runs apart by key.
-  const openedRunKeys = new Set<string>();
-  const OPENED_RUN_KEYS_MAX = 1024;
+  // The runs are read back from disk first, before the scenario catalog
+  // loads, so the idle time of a run read back counts from the boot itself.
+
+  // Runs nobody has read or watched for STALE_BUFFER_MS are let go, and a
+  // run written to disk longer ago than that is not read back at boot: a
+  // run that has not moved in 30 minutes is terminal in practice (complete
+  // and walked away, aborted and walked away, or crashed mid-run).
+  // Replaying one of those to its visitor surfaces an "Interrupted" badge,
+  // a stale turn counter and a leftover cost meter on the dashboard's first
+  // paint, which was an audit's P0 finding. Completed runs a visitor wants
+  // to revisit live in sessions.db through the auto-save path; that store
+  // is canonical for replay, the live runs are not.
+  const STALE_BUFFER_MS = options.staleBufferMs ?? 30 * 60 * 1000;
+
+  // Bound each run's event buffer. At 300 actors × 20 turns a buffer
+  // approaches 100k events at ~1-3KB per SSE message: 150MB+ resident in
+  // the Node process plus a same-size file on disk. Once growth crosses the
+  // trim threshold the oldest events go FIFO down to the cap, so live
+  // clients keep seeing the most recent N events while late reconnects miss
+  // the earliest. Configurable via env to let operators size against their
+  // box and typical cohort load.
+  const EVENT_BUFFER_MAX_ENTRIES = (() => {
+    const raw = env.PARACOSM_EVENT_BUFFER_MAX;
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    // Floor at 1 (cap=0 would mean "drop every event" which makes the
+    // SSE replay path useless). No upper floor — operators sizing
+    // against a small box are free to drop to 5_000 or so.
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 100_000;
+  })();
+
+  // --- Cancel-on-disconnect watchdog ---------------------------------
+  //
+  // While a run is in flight, watch for its viewers (the /events streams
+  // of its visitor, or the streams that named it) going to none. If they
+  // stay at none for `disconnectGraceMs`, the run is aborted so the server
+  // stops burning API credits on work nobody is watching. A run that never
+  // had a viewer (the CLI's own run, a /setup from curl) is never stopped
+  // this way.
+  //
+  // The run's buffer stays intact: a returning visitor reconnects, sees
+  // all events up to the cancellation point, and the dashboard labels the
+  // run "Unfinished" via the sim_aborted SSE event the orchestrator emits
+  // on cancel.
+  //
+  // The grace period covers a viewer who leaves and comes back: a
+  // refresh, an internal link, or a phone that drops its EventSource
+  // the moment the visitor switches apps. The default is 10 minutes.
+  // A hosted demo run takes about 4 to 5 minutes (30 October 2026:
+  // 20:24:31 to 20:29:11 UTC). With the earlier 30 s grace, on 31
+  // October 2026 a phone visitor's second /events stream ended 26 s
+  // after POST /setup, nothing reconnected, and the watchdog aborted
+  // the run about 30 s later after one turn, with nothing saved. Ten
+  // minutes outlasts a whole demo run, so a viewer who returns finds it
+  // finished, and a run nobody returns to still stops. The spend a
+  // longer grace allows is bounded: the hosted demo caps a run at 6
+  // turns on the economy profile, and the per-IP limit (50 runs a day on
+  // the hosted server) caps how many one visitor can start. At that cap
+  // a demo pair cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499
+  // for its two leaders) and 1.6138 USD on 30 October 2026 (1.0529 and
+  // 0.5609). The per-LLM-call abort gates in the orchestrator
+  // still let at most one in-flight call finish after the watchdog
+  // trips.
+  const disconnectGraceMs = options.disconnectGraceMs ?? 600_000;
+
+  // Each visitor's run, with its own buffer, viewers, watchdog and flags
+  // (live-runs.ts). The server runs at most PARACOSM_MAX_RUNS at once (3):
+  // a hosted demo pair cost 2.2498 USD over about six and a half minutes
+  // on 2 November 2026, so three in flight is at most three times the rate
+  // of the one run at a time the server held before; the per-IP day limit
+  // still bounds each visitor. Finished runs are held for their visitors,
+  // at most PARACOSM_MAX_HELD_RUNS (10) of them and PARACOSM_MAX_HELD_RUN_BYTES
+  // (64 MiB) of buffers, and written to ${APP_DIR}/.live-runs/ so a restart
+  // (a deploy, a pm2 reload, a crash) does not evaporate a finished run from
+  // its visitor's /chat and /results.
+  const liveRuns = new LiveRunRegistry({
+    dir: resolve(env.APP_DIR || '.', '.live-runs'),
+    legacyBufferPath: resolve(env.APP_DIR || '.', '.event-buffer.json'),
+    maxRuns: Math.max(1, options.maxRuns ?? readLimitFromEnv(env, 'PARACOSM_MAX_RUNS', 3)),
+    maxHeldRuns: options.maxHeldRuns ?? readLimitFromEnv(env, 'PARACOSM_MAX_HELD_RUNS', 10),
+    maxHeldRunBytes: options.maxHeldRunBytes ?? readLimitFromEnv(env, 'PARACOSM_MAX_HELD_RUN_BYTES', 67_108_864),
+    staleMs: STALE_BUFFER_MS,
+    disconnectGraceMs,
+    bufferMaxEntries: EVENT_BUFFER_MAX_ENTRIES,
+    // A visitor with no run of their own watches the anonymous run so the
+    // browser that opens the CLI's dashboard sees the CLI's run. The hosted
+    // demo has no such run: an anonymous run there is a cookieless caller's,
+    // and no visitor's page shows it.
+    shareAnonymousRun: serverMode !== 'hosted_demo',
+    // On simulation completion, snapshot the run's schema-retry payload to
+    // the cross-run ring so /retry-stats can aggregate across production
+    // runs, and save a clean run to the session ring.
+    onComplete: run => {
+      captureRetrySnapshot(run);
+      autoSaveOnComplete(run).catch((err) => {
+        console.error('[sessions] auto-save failed:', err);
+      });
+    },
+    // A dropped run's chat agents (their memories and histories) go with it.
+    onDrop: run => {
+      import('../runtime/agents/chat-agents.js').then(m => m.clearPool(run.key)).catch(() => {});
+    },
+  });
+
   // Raw custom scenario JSON payloads authored during this session.
   const memoryScenarios = new Map<string, unknown>();
   // Runnable scenarios that can appear in the catalog and be switched to.
@@ -829,115 +955,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // and the route handler still surfaces a 503 if the user beats the
   // pre-warm to the request.
   void getDigitalTwinWorld();
-  // SSE clients with optional per-actor filter. Map value is the
-  // actorId the client subscribed to via /events?actor=<id>, or null
-  // for the default "send me everything" subscription. broadcast()
-  // filters writes per-client based on this.
-  const clients: Map<ServerResponse, string | null> = new Map();
 
-  // Event buffer: stores all broadcast events so new clients can catch up.
-  // Persisted to disk so a server restart (CI/CD redeploy, pm2 reload,
-  // crash) does not evaporate a completed run from the /chat and /results
-  // endpoints, which otherwise would tell users "no simulation data" the
-  // moment they navigate away and come back after a deploy.
-  //
-  // Staleness gate: skip rehydration when the buffer file's mtime is older
-  // than STALE_BUFFER_MS. mtime tracks the last broadcast event (every
-  // event triggers persistBufferSoon → writeFileSync), so a buffer that
-  // hasn't moved in 30 minutes belongs to a run that's terminal in
-  // practice — either complete-and-walked-away, aborted-and-walked-away,
-  // or crashed-mid-run. Replaying any of those to a fresh visitor surfaces
-  // an "Interrupted" badge + stale turn counter + leftover cost meter on
-  // the dashboard's first paint, which was the audit's P0 finding.
-  // Completed runs the user wants to revisit live in sessions.db via the
-  // auto-save path; that store is canonical for replay, the live buffer
-  // is not.
-  const STALE_BUFFER_MS = options.staleBufferMs ?? 30 * 60 * 1000;
-  const eventBufferPath = resolve(env.APP_DIR || '.', '.event-buffer.json');
-  const eventBuffer: string[] = (() => {
-    try {
-      if (existsSync(eventBufferPath)) {
-        const ageMs = Date.now() - statSync(eventBufferPath).mtimeMs;
-        if (ageMs > STALE_BUFFER_MS) {
-          const ageMin = Math.round(ageMs / 60000);
-          console.log(`  [event-buffer] Skipping rehydration: buffer is ${ageMin}m old (> ${STALE_BUFFER_MS / 60000}m); fresh visitors get a clean slate`);
-          try { unlinkSync(eventBufferPath); } catch { /* best-effort */ }
-          return [];
-        }
-        const raw = readFileSync(eventBufferPath, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          console.log(`  [event-buffer] Rehydrated ${parsed.length} buffered events from ${eventBufferPath}`);
-          return parsed.filter((x: unknown): x is string => typeof x === 'string');
-        }
-      }
-    } catch (err) {
-      console.log(`  [event-buffer] Failed to rehydrate (${err}); starting empty`);
-    }
-    return [];
-  })();
-  // Parallel array of broadcast wall-clock timestamps. Index-aligned
-  // with eventBuffer so /admin/sessions/save can capture per-event
-  // pacing for replay. Rehydrated runs (post-deploy) start with no
-  // historical timestamps — replay of those would fall back to a
-  // fixed inter-event interval. Live runs after the deploy get
-  // accurate pacing.
-  const eventTimestamps: number[] = new Array(eventBuffer.length).fill(0);
-  // Parallel array tracking the actorId each buffered SSE message is
-  // attributed to, so /events?actor=<id> replay can filter at the
-  // buffer level instead of re-parsing JSON per message. null means
-  // "global event" (status, active_scenario, complete, sim_aborted,
-  // verdict — anything not scoped to a specific leader). Buffer
-  // entries that survive a server restart come back tagged null
-  // (rehydrated entries lose their original tag), which is the
-  // safest default — they replay to everyone.
-  const eventActorIds: Array<string | null> = new Array(eventBuffer.length).fill(null);
-
-  // Bound the live event buffer. At 300 actors × 20 turns the buffer
-  // approaches 100k events at ~1-3KB per SSE message — 150MB+ resident
-  // in the Node process plus a same-size .event-buffer.json snapshot.
-  // Once growth crosses the trim threshold we drop the oldest events
-  // FIFO down to the target cap, so live clients keep seeing the most
-  // recent N events while late reconnects miss the earliest. Hysteresis
-  // (trim 10% above target) amortizes the splice so it runs once per
-  // 10k events rather than per-event. Configurable via env to let
-  // operators size against their box and typical cohort load.
-  const EVENT_BUFFER_MAX_ENTRIES = (() => {
-    const raw = env.PARACOSM_EVENT_BUFFER_MAX;
-    const parsed = raw ? parseInt(raw, 10) : NaN;
-    // Floor at 1 (cap=0 would mean "drop every event" which makes the
-    // SSE replay path useless). No upper floor — operators sizing
-    // against a small box are free to drop to 5_000 or so.
-    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 100_000;
-  })();
-  const EVENT_BUFFER_TRIM_AT = Math.ceil(EVENT_BUFFER_MAX_ENTRIES * 1.1);
-  let bufferCapWarned = false;
-
-  // Run-state flags for auto-save on clean completion. Reset inside
-  // clearEventBuffer() so the next run starts fresh.
-  //
-  // AUTO_SAVE_MIN_TURNS floors the run length at one completed turn:
-  // accidental clicks never get saved (no turn_done → nothing to replay
-  // anyway), but a legitimate 1- or 2-turn run does. The earlier value
-  // of 3 silently excluded most hosted-demo runs from the cache ring,
-  // which kept the LoadMenu perpetually empty for visitors.
-  let currentRunAborted = false;
-  let currentRunSaved = false;
-  // Set when any actor in the current run emits a `sim_error` event.
-  // Auto-save then skips this run so the LoadMenu / Replay-Last-Run
-  // CTAs only ever surface clean runs. Without this, a run where one
-  // actor blew up mid-turn (LLM API hiccup, rate-limit, schema retry
-  // exhaustion) would still get into the ring once turn_done fired
-  // for the surviving actor — replay UX then advertised a half-broken
-  // session as cached state.
-  let currentRunErrored = false;
-  // RunRecord ids inserted by onArtifactPersist for the current
-  // broadcast. After autoSaveOnComplete resolves a fresh sessionId,
-  // these are backfilled with `runHistoryStore.linkSessionId` so the
-  // Library row's "Copy viz share link" button can build a deep link
-  // to the same session-store replay endpoint. Reset in
-  // clearEventBuffer alongside the other per-run flags.
-  const currentRunInsertedRunIds: string[] = [];
+  // Auto-save on clean completion. AUTO_SAVE_MIN_TURNS floors the run
+  // length at one completed turn: accidental clicks never get saved (no
+  // turn_done → nothing to replay anyway), but a legitimate 1- or 2-turn
+  // run does. The earlier value of 3 silently excluded most hosted-demo
+  // runs from the cache ring, which kept the LoadMenu perpetually empty
+  // for visitors.
   const AUTO_SAVE_MIN_TURNS = 1;
 
   // Persistent storage for completed sim runs. Lives at
@@ -984,23 +1008,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       console.log(`  [waitlist] No waitlist store at ${waitlistDbPath}; nothing to read`);
     }
   }
-
-  // Coalesce disk writes so a burst of broadcasts (e.g. 50 forge_attempt
-  // events during a turn) only triggers one persist call. 500ms debounce
-  // is short enough that a crash loses at most a half-second of events
-  // but long enough to avoid thrashing the disk during active runs.
-  let persistTimer: ReturnType<typeof setTimeout> | null = null;
-  const persistBufferSoon = () => {
-    if (persistTimer) return;
-    persistTimer = setTimeout(() => {
-      persistTimer = null;
-      try {
-        writeFileSync(eventBufferPath, JSON.stringify(eventBuffer));
-      } catch (err) {
-        console.log(`  [event-buffer] Persist failed: ${err}`);
-      }
-    }, 500);
-  };
 
   // ── Cross-run schema-retry ring buffer ─────────────────────────────
   //
@@ -1069,12 +1076,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     } catch (err) { console.log(`  [retry-stats] persist failed: ${err}`); }
   };
   /**
-   * Scan the current event buffer back-to-front for the first event
+   * Scan a run's event buffer back-to-front for the first event
    * whose `_cost` payload carries a `schemaRetries` field. That event
    * has the run's terminal per-schema rollup; earlier events have
    * partial counts. Push to the ring and persist.
    */
-  const captureRetrySnapshot = () => {
+  const captureRetrySnapshot = (run: LiveRun) => {
+    const eventBuffer = run.buffer;
     let capturedSchemas = false;
     let capturedForges = false;
     let capturedCaches = false;
@@ -1124,13 +1132,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   /**
-   * Persist the current run to the session ring when it completes
-   * cleanly. Called from inside broadcast() on an `event: complete`
-   * frame. Silent no-op when conditions aren't met. Errors are logged
-   * but never propagate: a cache write failure must not fail the
-   * client-facing broadcast.
+   * Persist a run to the session ring when it completes cleanly. Called
+   * from the run's broadcast on an `event: complete` frame. Silent no-op
+   * when conditions aren't met. Errors are logged but never propagate: a
+   * cache write failure must not fail the client-facing broadcast.
    */
-  const autoSaveOnComplete = async () => {
+  const autoSaveOnComplete = async (run: LiveRun) => {
+    const broadcast = liveRuns.broadcastFor(run);
+    const eventBuffer = run.buffer;
     // Every branch logs a single [sessions] line so production can see
     // in server stderr/stdout WHY a run did or did not make it into the
     // ring. Without these, a save silently failing on a writable-but-
@@ -1148,7 +1157,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // sees whether the prior run saved.
       try { broadcast('sim_saved', { status, ...detail }); } catch { /* never fail the server on telemetry */ }
     };
-    if (currentRunKey !== null && currentRunKey === digitalTwinRunKey) {
+    // A digital-twin run's artifact comes back in its answer, and a saved
+    // session replays in the two-column layout, which has no place for it.
+    if (run.kind === 'intervention') {
       console.log('[sessions] auto-save skipped: digital-twin run');
       emitSaveStatus('skipped', { reason: 'digital_twin' });
       return;
@@ -1158,17 +1169,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       emitSaveStatus('skipped', { reason: 'store_not_initialized' });
       return;
     }
-    if (currentRunAborted) {
+    if (run.aborted) {
       console.log('[sessions] auto-save skipped: run was aborted');
       emitSaveStatus('skipped', { reason: 'run_aborted' });
       return;
     }
-    if (currentRunErrored) {
+    if (run.errored) {
       console.log('[sessions] auto-save skipped: run had sim_error events');
       emitSaveStatus('skipped', { reason: 'run_errored' });
       return;
     }
-    if (currentRunSaved) {
+    if (run.saved) {
       console.log('[sessions] auto-save skipped: already saved for this run');
       return;
     }
@@ -1205,12 +1216,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // session would replay a half-finished trajectory. Skip those so
     // the LoadMenu / Replay-Last-Run only ever surfaces full plays.
     //
-    // simConfig is non-null here: autoSaveOnComplete is only invoked
-    // from inside the broadcast pipeline, which is only set up after
-    // /setup wired simConfig. Guard anyway to keep the type checker
-    // and the eventual deletion path (when simConfig gets reset to
-    // null on /clear) honest.
-    const cfg = simConfig;
+    // A run's config is null for a run read back after a restart, which
+    // never broadcasts again; guard anyway to keep the type checker honest.
+    const cfg = run.config;
     if (cfg) {
       const expectedTurnDone = cfg.actors.length * cfg.turns;
       if (expectedTurnDone > 0 && turnDoneCount < expectedTurnDone) {
@@ -1227,18 +1235,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Claim the save BEFORE the first await so a synchronous double
-    // `complete` broadcast doesn't race past the `currentRunSaved`
+    // `complete` broadcast doesn't race past the `run.saved`
     // guard above. The sync better-sqlite3 implementation got this for
     // free because saveSession returned before the next event landed;
     // the async sql-storage-adapter version has to flip the flag up
     // front so re-entrant calls early-return. Stays true on failure
     // (matches sync behavior — throws bubble out of saveSession either
     // way and a doubled `complete` shouldn't trigger a retry).
-    currentRunSaved = true;
+    run.saved = true;
     try {
       const now = Date.now();
       const events: TimestampedEvent[] = eventBuffer.map((sse, i) => ({
-        ts: eventTimestamps[i] || now,
+        ts: run.timestamps[i] || now,
         sse,
       }));
       const result = await sessionStore.saveSession(events);
@@ -1250,9 +1258,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // already in the session store and replayable by sessionId; the
       // missing column just hides the Library row's Share button until
       // the next time this same broadcast saves (idempotent UPDATE).
-      if (currentRunInsertedRunIds.length > 0 && runHistoryStore.linkSessionId) {
+      if (run.insertedRunIds.length > 0 && runHistoryStore.linkSessionId) {
         try {
-          await runHistoryStore.linkSessionId([...currentRunInsertedRunIds], result.id);
+          await runHistoryStore.linkSessionId([...run.insertedRunIds], result.id);
         } catch (error) {
           console.warn('[run-history] linkSessionId failed:', error);
         }
@@ -1270,7 +1278,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // unawaited. Emits a second `sim_saved` event when the title
       // lands so the dashboard can patch its in-memory session list
       // without a round-trip to /sessions.
-      const titleProvider = simConfig?.provider === 'anthropic' ? 'anthropic' : 'openai';
+      const titleProvider = run.config?.provider === 'anthropic' ? 'anthropic' : 'openai';
       const store = sessionStore; // non-null inside this closure
       void generateSessionTitle(events, titleProvider, runGenerateText).then(async (title) => {
         if (!title) return;
@@ -1295,217 +1303,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
   };
 
-  const broadcast: BroadcastFn = (event, data, actorId) => {
-    const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    const tag = actorId ?? null;
-    eventBuffer.push(msg);
-    eventTimestamps.push(Date.now());
-    eventActorIds.push(tag);
-    // Bounded-buffer guard. When growth crosses the trim threshold,
-    // drop the oldest events FIFO so the array reverts to the target
-    // cap. Live clients only see future events; reconnect-after-trim
-    // is the only client that loses anything (it misses the dropped
-    // prefix). Splice is O(n) so we hysteresis-trim by 10% to amortize.
-    // The run's active_scenario frame stays first: without it a late
-    // replay and the saved session lose which scenario the run is and the
-    // brief it came from.
-    if (eventBuffer.length > EVENT_BUFFER_TRIM_AT) {
-      const keep = currentRunMetaFrame !== null && eventBuffer[0] === currentRunMetaFrame ? 1 : 0;
-      const drop = eventBuffer.length - EVENT_BUFFER_MAX_ENTRIES - keep;
-      eventBuffer.splice(keep, drop);
-      eventTimestamps.splice(keep, drop);
-      eventActorIds.splice(keep, drop);
-      if (!bufferCapWarned) {
-        console.warn(
-          `[event-buffer] Capped at ${EVENT_BUFFER_MAX_ENTRIES} events; dropped oldest ${drop}. ` +
-          `Late reconnects on this run will miss the dropped prefix. ` +
-          `Bump PARACOSM_EVENT_BUFFER_MAX to widen.`,
-        );
-        bufferCapWarned = true;
-      }
-    }
-    persistBufferSoon();
-    for (const [res, filter] of clients) {
-      // Filter contract: client subscribed without ?actor= sees
-      // everything (filter null). Client subscribed to ?actor=X
-      // sees global events (tag null) AND events tagged with X.
-      // Events tagged with a different actor are dropped for that
-      // client.
-      if (filter !== null && tag !== null && tag !== filter) continue;
-      try {
-        res.write(msg);
-      } catch {
-        clients.delete(res);
-      }
-    }
-    if (event === 'sim_aborted') {
-      currentRunAborted = true;
-    }
-    if (event === 'sim_error') {
-      currentRunErrored = true;
-    }
-    // On simulation completion, snapshot the run's schema-retry payload
-    // to the cross-run ring buffer so /retry-stats can aggregate across
-    // production runs. We pull schemaRetries from the MOST RECENT cost
-    // payload observed in the current event buffer; the orchestrator
-    // emits it on every SSE event, so the last event has the complete
-    // picture.
-    if (event === 'complete') {
-      digitalTwinOpening = null;
-      captureRetrySnapshot();
-      autoSaveOnComplete().catch((err) => {
-        console.error('[sessions] auto-save failed:', err);
-      });
-    }
-  };
-
-  /**
-   * Clear the in-memory event buffer AND remove the persisted snapshot on
-   * disk. Without the disk drop, /clear (or a new /setup that resets the
-   * buffer) would leave the old run's events on disk; a subsequent server
-   * restart would rehydrate them and overwrite what the user expected to
-   * be a fresh state. Cancels any pending write so the empty state wins.
-   */
-  const clearEventBuffer = () => {
-    currentRunAborted = false;
-    currentRunSaved = false;
-    currentRunErrored = false;
-    currentRunInsertedRunIds.length = 0;
-    currentRunMetaFrame = null;
-    eventBuffer.length = 0;
-    eventTimestamps.length = 0;
-    eventActorIds.length = 0;
-    // Reset the once-per-run "buffer capped" warning so the next large
-    // cohort run logs its own first-trim notice instead of staying
-    // silent because a previous run already tripped the flag.
-    bufferCapWarned = false;
-    if (persistTimer) {
-      clearTimeout(persistTimer);
-      persistTimer = null;
-    }
-    try {
-      if (existsSync(eventBufferPath)) unlinkSync(eventBufferPath);
-    } catch { /* nothing to clean up */ }
-    // A digital-twin run goes on writing after a clear (a new compile clears
-    // the buffer; /clear itself leaves a writing run's buffer alone), so the
-    // buffer opens with the run's event again. Without it, a page that cleared
-    // or connects from here on has no scenario to judge the run's later events
-    // by, and shows them as a run of its own.
-    if (digitalTwinOpening) {
-      broadcast('active_scenario', digitalTwinOpening);
-      currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
-    }
-  };
-
-  /**
-   * Starts a run's buffer: clears the last run's events, records the run's
-   * scenario for /chat, and broadcasts the run's first event, which names
-   * its scenario, so the dashboard can render 'Running: Mars Genesis' and
-   * the saved session records which scenario and brief the run came from.
-   * The event goes out after the clear, so it stays in the buffer for every
-   * page that connects later, and the trim keeps it first. A page that
-   * skips a buffered run since its switch shows the run from this event,
-   * and its `runKey` tells a page a new run from a replay of the one it
-   * holds. A fork names its parent (`forkedFrom`): the page that forked
-   * keeps the run it holds and shows the fork as a branch of it. A digital-
-   * twin run takes its key from the page that started it, which shows that
-   * run whichever scenario the page is on.
-   */
-  const openRunBuffer = (
-    scenario: ScenarioPackage,
-    seedText: string | null,
-    forkedFrom: { parentRunId: string; atTurn: number } | null = null,
-    runKey: string = randomUUID(),
-  ): Record<string, unknown> => {
-    digitalTwinOpening = null;
-    clearEventBuffer();
-    currentRunScenario = scenario;
-    currentRunKey = runKey;
-    openedRunKeys.add(runKey);
-    if (openedRunKeys.size > OPENED_RUN_KEYS_MAX) {
-      openedRunKeys.delete(openedRunKeys.values().next().value as string);
-    }
-    const opening: Record<string, unknown> = {
-      id: scenario.id,
-      name: scenario.labels?.name ?? scenario.id,
-      settlementNoun: scenario.labels?.settlementNoun,
-      populationNoun: scenario.labels?.populationNoun,
-      departments: scenario.departments?.length ?? 0,
-      // The original seed prompt when the run came out of
-      // compile-from-seed; null for built-in scenarios.
-      seedText,
-      // This run's own key. A page that reconnects is replayed the same
-      // key, so it keeps what it holds; a different key is a new run,
-      // which the page shows on its own unless the run is a fork.
-      runKey,
-      // A fork's parent run and turn, null for every other run.
-      forkedFrom,
-    };
-    broadcast('active_scenario', opening);
-    currentRunMetaFrame = eventBuffer[eventBuffer.length - 1] ?? null;
-    return opening;
-  };
-
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
   const startFork = options.runForkSimulation ?? runForkSimulation;
 
-  // --- Cancel-on-disconnect watchdog ---------------------------------
-  //
-  // While a simulation is active, watch for the SSE client set going
-  // empty. If it stays empty for `disconnectGraceMs`, abort the run so
-  // the server stops burning API credits on work nobody is watching.
-  //
-  // The event buffer stays intact: a returning user reconnects, sees
-  // all events up to the cancellation point, and the dashboard labels
-  // the run "Unfinished" via the sim_aborted SSE event the orchestrator
-  // emits on cancel.
-  //
-  // The grace period covers a viewer who leaves and comes back: a
-  // refresh, an internal link, or a phone that drops its EventSource
-  // the moment the visitor switches apps. The default is 10 minutes.
-  // A hosted demo run takes about 4 to 5 minutes (30 October 2026:
-  // 20:24:31 to 20:29:11 UTC). With the earlier 30 s grace, on 31
-  // October 2026 a phone visitor's second /events stream ended 26 s
-  // after POST /setup, nothing reconnected, and the watchdog aborted
-  // the run about 30 s later after one turn, with nothing saved. Ten
-  // minutes outlasts a whole demo run, so a viewer who returns finds it
-  // finished, and a run nobody returns to still stops. The spend a
-  // longer grace allows is bounded: the hosted demo caps a run at 6
-  // turns on the economy profile, and the per-IP limit (50 runs a day on
-  // the hosted server) caps how many one visitor can start. At that cap
-  // a demo pair cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499
-  // for its two leaders) and 1.6138 USD on 30 October 2026 (1.0529 and
-  // 0.5609). The per-LLM-call abort gates in the orchestrator
-  // still let at most one in-flight call finish after the watchdog
-  // trips.
-  const disconnectGraceMs = options.disconnectGraceMs ?? 600_000;
-  /** Current sim's AbortController, or null when no sim is running. */
-  let activeSimAbortController: AbortController | null = null;
-  /** Timer id for the pending disconnect-watchdog fire. Null when disarmed. */
-  let disconnectWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const armDisconnectWatchdog = () => {
-    if (!activeSimAbortController) return; // no sim running, nothing to cancel
-    if (disconnectWatchdogTimer) return;   // already armed
-    disconnectWatchdogTimer = setTimeout(() => {
-      disconnectWatchdogTimer = null;
-      if (!activeSimAbortController) return;
-      if (clients.size > 0) return; // somebody reconnected just in time
-      console.log(`  [watchdog] No SSE clients for ${disconnectGraceMs}ms — aborting active simulation.`);
-      activeSimAbortController.abort();
-    }, disconnectGraceMs);
-    // The timer alone never keeps the process alive: a listening server
-    // or a simulation still at work does that, and the watchdog fires
-    // for them as before, while a process whose server has closed can
-    // exit without waiting out the grace.
-    disconnectWatchdogTimer.unref?.();
-  };
-  const disarmDisconnectWatchdog = () => {
-    if (disconnectWatchdogTimer) {
-      clearTimeout(disconnectWatchdogTimer);
-      disconnectWatchdogTimer = null;
-    }
-  };
   const runGenerateText = options.generateText ?? (async args => {
     const { generateText } = await import('@framers/agentos');
     return generateText(args as any);
@@ -1517,6 +1317,32 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   const corsHeaders: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
+  };
+
+  /** Answers a run the server has no room for: 503 with the run cap. Nothing has been charged to the caller. */
+  const writeRunCapacityRefusal = (res: ServerResponse, err: RunCapacityError): void => {
+    res.writeHead(503, {
+      'Content-Type': 'application/json',
+      'Retry-After': String(RUN_CAPACITY_RETRY_AFTER_SECONDS),
+      ...corsHeaders,
+    });
+    res.end(JSON.stringify(err.body()));
+  };
+
+  /** The run a request names with `?run=<key>`, or null when it names none. */
+  const namedRunKey = (url: string | undefined): string | null => {
+    if (!url || !url.includes('?')) return null;
+    try {
+      const key = new URL(url, 'http://localhost').searchParams.get('run');
+      return key && key.length > 0 ? key : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeUnknownRun = (res: ServerResponse, key: string): void => {
+    res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
+    res.end(JSON.stringify({ error: `Unknown run: ${key}` }));
   };
 
   const server = createServer(async (req, res) => {
@@ -1602,12 +1428,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     if (req.url === '/events' || req.url?.startsWith('/events?')) {
-      // Per-actor channel: /events?actor=<leaderName> filters the
-      // stream to events tagged with that leader plus all global
-      // events (status, active_scenario, complete, etc.). The default
-      // /events with no query param keeps the legacy "send me
-      // everything" behavior so the constellation, distribution
-      // panel, and table still receive the full stream.
+      // The stream is its visitor's: it replays and carries their current
+      // run, the one they start next included (or, while they have none of
+      // their own, the anonymous visitor's, so the browser that opened the
+      // CLI's dashboard sees the CLI's run). /events?run=<key> follows one
+      // run instead; a key reaches the public only through a saved session,
+      // whose replay discloses the run already.
+      //
+      // Per-actor channel: /events?actor=<leaderName> filters the stream to
+      // events tagged with that leader plus all global events (status,
+      // active_scenario, complete, etc.). Without it the stream carries
+      // everything, which the constellation, distribution panel, and table
+      // need.
       let actorFilter: string | null = null;
       if (req.url?.includes('?')) {
         try {
@@ -1618,67 +1450,41 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // Malformed URL — fall through with no filter (safest).
         }
       }
+      const visitorId = readVisitorId(req);
+      const runKey = namedRunKey(req.url);
+      // A run nobody has read or watched for the idle time goes before a
+      // stream attaches, so its visitor gets the empty state instead of an
+      // "Interrupted" badge and a frozen turn counter as their first paint.
+      liveRuns.sweep();
+      if (runKey !== null && !liveRuns.get(runKey)) {
+        writeUnknownRun(res, runKey);
+        return;
+      }
+      const run = runKey !== null ? liveRuns.get(runKey) : liveRuns.watched(visitorId);
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
       });
-      res.write(`event: connected\ndata: ${JSON.stringify({ actorFilter })}\n\n`);
-      // Stale-buffer gate: when this is the first reconnect after a long
-      // idle and the buffer hasn't moved in over STALE_BUFFER_MS, the run
-      // it represents is terminal in practice (user closed the tab,
-      // watchdog aborted, cost meter froze). Replaying that to a fresh
-      // visitor surfaces an "Interrupted" badge + frozen turn counter as
-      // their first paint. Drop the buffer so they get the empty state
-      // instead. Active runs (clients still connected, or a recent
-      // broadcast) keep replaying as before.
+      res.write(`event: connected\ndata: ${JSON.stringify({ actorFilter, runKey: run?.key ?? null, visitorId })}\n\n`);
+      // Replay the run's buffered events so a new client catches up. The
+      // trailing `replay_done` marker lets the client distinguish
+      // historical-buffer events from truly live ones so toasts (transient
+      // per-event notifications) only fire for events that arrive AFTER the
+      // user reached the page, never for the replay of a prior run.
       //
-      // Concurrency invariant: this gate, the replay loop below, and the
-      // `clients.add(res)` call all execute synchronously on a single
-      // Node turn — there is no `await` between them. Two simultaneous
-      // /events requests cannot interleave inside this block, so the
-      // worst case for concurrent fresh visitors is two redundant calls
-      // to clearEventBuffer() (idempotent: the second is a no-op against
-      // an already-emptied array). Do NOT introduce an `await` between
-      // here and `clients.add(res)` without re-evaluating this.
-      if (clients.size === 0 && eventBuffer.length > 0) {
-        const lastTs = eventTimestamps[eventTimestamps.length - 1] || 0;
-        if (lastTs > 0 && Date.now() - lastTs > STALE_BUFFER_MS) {
-          const ageMin = Math.round((Date.now() - lastTs) / 60000);
-          console.log(`  [event-buffer] Dropping stale buffer on first reconnect: last event ${ageMin}m ago (> ${STALE_BUFFER_MS / 60000}m)`);
-          clearEventBuffer();
-        }
-      }
-      // Replay all buffered events so new clients catch up. The trailing
-      // `replay_done` marker lets the client distinguish historical-buffer
-      // events from truly live ones so toasts (transient per-event
-      // notifications) only fire for events that arrive AFTER the user
-      // reached the page, never for the replay of a prior run.
-      for (let i = 0; i < eventBuffer.length; i++) {
-        // Replay-time filtering: skip events tagged with a different
-        // actor when the client subscribed with ?actor=. Untagged
-        // (global) events always replay so the dashboard's run
-        // metadata (active_scenario, status) reaches per-actor
-        // subscribers.
-        const tag = eventActorIds[i] ?? null;
-        if (actorFilter !== null && tag !== null && tag !== actorFilter) continue;
-        try { res.write(eventBuffer[i]); } catch { break; }
-      }
+      // The replay and the attach run on one Node turn, with no `await`
+      // between them, so no event of the run falls between the replay and
+      // the stream's first live frame.
+      if (run) liveRuns.replay(res, run, actorFilter);
       try { res.write('event: replay_done\ndata: {}\n\n'); } catch {}
-      clients.set(res, actorFilter);
-      // Reconnection cancels any pending disconnect watchdog fire so
-      // the sim keeps running once the returning user is watching again.
-      disarmDisconnectWatchdog();
-      req.on('close', () => {
-        clients.delete(res);
-        if (clients.size === 0) {
-          // Start (or re-start) the grace-period countdown. If no
-          // client reconnects before it fires, the watchdog aborts
-          // the active sim.
-          armDisconnectWatchdog();
-        }
-      });
+      // Attaching disarms the watchdog of the run the stream watches, so a
+      // returning viewer keeps the run going.
+      liveRuns.attach(res, { visitorId, runKey, actorFilter });
+      // A run whose last viewer leaves starts its grace-period countdown; if
+      // no viewer comes back before it fires, the watchdog stops that run.
+      req.on('close', () => liveRuns.detach(res));
       return;
     }
 
@@ -2098,37 +1904,41 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
           getDigitalTwinWorld,
-          // Pipe simulate-intervention's per-event stream into the same
-          // SSE bus /setup uses, with the frames /setup's runners write.
-          broadcast,
-          // A digital-twin run opens the buffer as a /setup run does.
-          resetEventBuffer: (scenario, runKey) => {
-            if (!scenario) {
-              clearEventBuffer();
-              return;
-            }
-            // A /setup run in flight stops, as a second /setup stops it: the
-            // buffer is no longer its own, and it would go on spending for
-            // nobody to see.
-            activeSimAbortController?.abort();
-            digitalTwinOpening = openRunBuffer(scenario, compiledScenarioMeta.get(scenario.id)?.seedText ?? null, null, runKey);
-            digitalTwinRunKey = currentRunKey;
+          // A digital-twin run is its caller's run, as a /setup run is: it
+          // replaces their current run and leaves every other visitor's
+          // alone, and it holds a capacity slot until `finish`. Its events go
+          // through the broadcast bound to it, so a late event of a twin its
+          // visitor has since replaced is discarded.
+          openRun: (scenario, runKey) => {
+            const run = liveRuns.open({
+              visitorId: readVisitorId(req),
+              kind: 'intervention',
+              scenario,
+              seedText: compiledScenarioMeta.get(scenario.id)?.seedText ?? null,
+              config: null,
+              runKey,
+            });
+            return {
+              runKey: run.key,
+              visitorId: run.visitorId,
+              broadcast: liveRuns.broadcastFor(run),
+              finish: () => liveRuns.finish(run),
+            };
           },
-          isCurrentRun: (runKey) => currentRunKey === runKey,
-          isRunKeyUsed: (runKey) => openedRunKeys.has(runKey),
+          isRunKeyUsed: (runKey) => liveRuns.isKeyUsed(runKey),
         };
-        // compile-from-seed is the first call in a new Quickstart
-        // launch flow. Clearing the event buffer here means that any
-        // SSE clients reconnecting between compile and /setup won't
-        // re-receive events from the prior run (which was leaving
-        // QuickstartProgress's "Run N simulations" stage card with
-        // 100+ stale events from the previous bookstore/AGI/clinical
-        // run before the new run had even started simulating).
-        // Status polls are NOT a fresh-launch event so they MUST NOT
-        // clear the buffer — they fire every 2s while a compile is in
-        // flight, and clearing here would wipe in-flight SSE state.
+        // compile-from-seed is the first call in a new Quickstart launch
+        // flow. Dropping the caller's finished run here means their streams
+        // reconnecting between compile and /setup won't re-receive events
+        // from it (which was leaving QuickstartProgress's "Run N
+        // simulations" stage card with 100+ stale events from the previous
+        // bookstore/AGI/clinical run before the new run had even started
+        // simulating). A run of theirs in flight is left alone, and so is
+        // every other visitor's run. Status polls are NOT a fresh-launch
+        // event: they fire every 2s while a compile is in flight.
         if (req.url === '/api/quickstart/compile-from-seed') {
-          clearEventBuffer();
+          const own = liveRuns.current(readVisitorId(req));
+          if (own && !own.inFlight) liveRuns.clear(own, 'a new compile');
         }
         if (req.url === '/api/quickstart/fetch-seed') {
           await handleFetchSeed(req, res, body, quickstartDeps);
@@ -2362,30 +2172,51 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
+    // POST /clear drops the caller's own current run: a run in flight is
+    // stopped (reason user_aborted), and its other viewers (the visitor's
+    // other tabs) are told with `run_cleared`. An optional `{ runKey }`
+    // body names the run the page held: a page posts /clear and its next
+    // run together, and a /clear that lands after the new run opened names
+    // the old one, so it stops nothing. A key of another visitor's run is
+    // refused. A caller with no run of their own clears nothing: the
+    // anonymous run they may be watching is not theirs.
     if (req.url === '/clear' && req.method === 'POST') {
-      if (digitalTwinOpening) {
-        // A Digital Twin run is writing, and the buffer is its run's: a page
-        // posts /clear and the run together, and the /clear can land after
-        // the run's status and first events. The buffer keeps them, so a page
-        // that reconnects keeps the turn count; the connected pages are told
-        // which run is writing, so one that cleared judges the run's later
-        // events by its scenario.
-        const msg = `event: active_scenario\ndata: ${JSON.stringify(digitalTwinOpening)}\n\n`;
-        for (const [client] of clients) {
-          try {
-            client.write(msg);
-          } catch {
-            clients.delete(client);
-          }
+      let body: { runKey?: unknown } = {};
+      try {
+        const raw = await readBody(req, maxRequestBodyBytes);
+        if (raw.trim()) {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) body = parsed as { runKey?: unknown };
         }
-      } else {
-        clearEventBuffer();
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeJsonError(res, err);
+          return;
+        }
+        // Not JSON: read as the empty body the dashboard sends.
       }
-      simConfig = null;
-      // Clear chat agent pool when simulation is cleared
-      import('../runtime/agents/chat-agents.js').then(m => m.clearPool()).catch(() => {});
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ cleared: true }));
+      const visitorId = readVisitorId(req);
+      const own = liveRuns.current(visitorId);
+      const answer = (status: number, payload: Record<string, unknown>) => {
+        res.writeHead(status, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify(payload));
+      };
+      const named = typeof body.runKey === 'string' && body.runKey.length > 0 ? body.runKey : null;
+      if (named !== null && named !== own?.key) {
+        const other = liveRuns.get(named);
+        if (other && other.visitorId !== visitorId) {
+          answer(403, { error: 'Not your run' });
+        } else {
+          answer(200, { cleared: false, reason: 'not_current' });
+        }
+        return;
+      }
+      if (!own) {
+        answer(200, { cleared: false, reason: 'no_run' });
+        return;
+      }
+      liveRuns.clear(own);
+      answer(200, { cleared: true, runKey: own.key });
       return;
     }
 
@@ -2401,7 +2232,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       let inflightSlot = false;
       try {
         const parsed = JSON.parse(await readBody(req, maxRequestBodyBytes));
-        const { agentId, message, history, apiKey, anthropicKey } = parsed;
+        const { agentId, message, history, apiKey, anthropicKey, runKey: chatRunKey, leader: chatLeader } = parsed;
         if (!agentId || !message) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'agentId and message required' }));
@@ -2439,6 +2270,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             }
           }
         }
+
+        // The run the chat reads: the caller's own current run, else, while
+        // they have none, the anonymous run they watch. A `runKey` in the
+        // body may name only the caller's own current run: a key read out
+        // of a public session replay must not reach another visitor's
+        // characters, their memories or their histories.
+        const chatVisitor = readVisitorId(req);
+        if (chatRunKey !== undefined && chatRunKey !== null && chatRunKey !== liveRuns.current(chatVisitor)?.key) {
+          res.writeHead(403, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ error: 'Not your run' }));
+          return;
+        }
+        const chatRun = liveRuns.watched(chatVisitor);
 
         const chatCredentials = {
           apiKey: normalizeCredential(apiKey),
@@ -2490,31 +2334,57 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         chatInflight++;
         inflightSlot = true;
 
-        // The chat route builds agents from the event buffer. If the
-        // buffer was lost (fresh boot with no persisted snapshot on disk,
-        // or the user hit /clear) there is nothing to build from. Phrase
-        // the error so users understand it is a server-side emptiness,
-        // not "the run you just finished is gone forever".
-        if (eventBuffer.length === 0) {
+        // The chat route builds agents from the run's event buffer. If there
+        // is no run (the visitor has not run one, the buffer went with the
+        // idle time, or the visitor hit /clear) there is nothing to build
+        // from. Phrase the error so users understand it is a server-side
+        // emptiness, not "the run you just finished is gone forever".
+        if (!chatRun || chatRun.buffer.length === 0) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Server has no simulation in memory right now. Run a new simulation from the Settings tab, or reload this page so your saved events restore from cache.' }));
           return;
         }
+        liveRuns.touch(chatRun);
 
         // Import chat agent system (lazy to avoid startup cost)
-        const { getOrCreateChatAgent, extractColonistMemories, extractColonistRoster } = await import('../runtime/agents/chat-agents.js');
+        const chatAgents = await import('../runtime/agents/chat-agents.js');
+        const { extractColonistMemories, extractColonistRoster } = chatAgents;
+        const getOrCreateChatAgent = options.chatAgent ?? chatAgents.getOrCreateChatAgent;
 
         // Extract sim events and find colonist profile
-        const simEvents = eventBuffer
+        const runSimEvents = chatRun.buffer
           .filter(msg => msg.startsWith('event: sim\n'))
           .map(msg => { try { return JSON.parse(msg.split('data: ')[1]); } catch { return null; } })
           .filter(Boolean);
+        const reactsAs = (r: any) =>
+          r.agentId === agentId || String(r.name || '').toLowerCase().includes(String(agentId).toLowerCase());
+
+        // A pair run holds two colonies of the same people, one under each
+        // leader. The character speaks from one of them: the leader the
+        // request names, else the first leader under whom they reacted, so
+        // their memories, their roster and their agent are that colony's
+        // alone and never a mix of two lives.
+        const runLeaders: string[] = [];
+        for (const e of runSimEvents as any[]) {
+          const name = typeof e.leader === 'string' ? e.leader : '';
+          if (name && !runLeaders.includes(name)) runLeaders.push(name);
+        }
+        if (chatLeader !== undefined && chatLeader !== null && (typeof chatLeader !== 'string' || !runLeaders.includes(chatLeader))) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `No leader named ${JSON.stringify(chatLeader)} in this run.` }));
+          return;
+        }
+        const reactedUnder = (runSimEvents as any[]).find(e =>
+          e.type === 'agent_reactions' && typeof e.leader === 'string' && e.leader && (e.data?.reactions || []).some(reactsAs),
+        )?.leader as string | undefined;
+        const leaderName: string | undefined = typeof chatLeader === 'string' ? chatLeader : reactedUnder ?? runLeaders[0];
+        const simEvents = leaderName
+          ? (runSimEvents as any[]).filter(e => e.leader === leaderName)
+          : runSimEvents;
 
         const agentReactions = simEvents
           .filter((e: any) => e.type === 'agent_reactions')
-          .flatMap((e: any) => (e.data?.reactions || []).filter((r: any) =>
-            r.agentId === agentId || String(r.name || '').toLowerCase().includes(agentId.toLowerCase())
-          ));
+          .flatMap((e: any) => (e.data?.reactions || []).filter(reactsAs));
         const colonist = agentReactions[0];
 
         // Build colonist profile
@@ -2533,17 +2403,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         };
 
         // Extract simulation memories for this colonist. The nouns are the
-        // buffered run's, whatever scenario this visitor has picked since.
-        const runLabels = currentRunScenario.labels;
+        // run's, whatever scenario this visitor has picked since.
+        const runScenario = chatRun.scenario ?? customScenarioCatalog.get(chatRun.scenarioId)?.scenario ?? marsScenario;
+        const runLabels = runScenario.labels;
         const memories = extractColonistMemories(agentId, simEvents, runLabels?.timeUnitNoun, runLabels);
         // Extract the full agent roster from the latest systems_snapshot so
         // the chat agent knows who else exists. Without this, the agent
         // confabulates fake bios for any name the user invents.
         const roster = extractColonistRoster(simEvents);
 
-        // Get or create the agent (lazy init with memory seeding)
+        // Get or create the agent (lazy init with memory seeding). The pool
+        // keys it by run and leader, so two visitors talking to one
+        // colonist id in two runs, or one visitor talking to the same
+        // person under each leader, get agents with their own memories.
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
-        const provider = resolveProviderFromCredentials(simConfig?.provider, chatCredentials, envDefaultProvider);
+        const provider = resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
         const { session, isNew } = await getOrCreateChatAgent(profile, memories, {
           provider,
           apiKey: chatCredentials.apiKey,
@@ -2552,6 +2426,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           populationNoun: runLabels?.populationNoun,
           labels: runLabels,
           roster,
+          runKey: chatRun.key,
+          leader: leaderName,
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)
@@ -2589,13 +2465,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // GET /results — full structured simulation results including verdict.
-    // Reconstructs per-leader payloads from the SSE buffer so consumers
-    // get the same rich data the dashboard sees, without having to scrape
-    // raw events themselves.
-    if (req.url === '/results' && req.method === 'GET') {
-      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(buildResultsPayloadFromEventBuffer(eventBuffer)));
+    // GET /results[?run=<key>] — full structured simulation results
+    // including verdict, of the named run, else of the caller's current run
+    // (the anonymous run while they have none of their own). Reconstructs
+    // per-leader payloads from the run's SSE buffer so consumers get the
+    // same rich data the dashboard sees, without having to scrape raw
+    // events themselves. The answer varies by cookie, so no cache keeps it.
+    if ((req.url === '/results' || req.url?.startsWith('/results?')) && req.method === 'GET') {
+      const runKey = namedRunKey(req.url);
+      liveRuns.sweep();
+      const run = runKey !== null ? liveRuns.get(runKey) : liveRuns.watched(readVisitorId(req));
+      if (runKey !== null && !run) {
+        writeUnknownRun(res, runKey);
+        return;
+      }
+      if (run) liveRuns.touch(run);
+      res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json', ...PER_VISITOR_HEADERS });
+      res.end(JSON.stringify(run
+        ? { ...buildResultsPayloadFromEventBuffer(run.buffer), runKey: run.key, scenarioId: run.scenarioId, inFlight: run.inFlight }
+        : { ...buildResultsPayloadFromEventBuffer([]), runKey: null }));
       return;
     }
 
@@ -2638,6 +2526,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           version: PARACOSM_VERSION,
           uptimeSeconds: Math.round(process.uptime()),
           runCount: retryRing.length,
+          runsInFlight: liveRuns.inFlightCount(),
+          runsHeld: liveRuns.heldCount(),
+          maxRuns: liveRuns.maxRuns,
         }),
       );
       return;
@@ -2653,14 +2544,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // listing; public /sessions/:id/replay streams the events back at
     // the original pacing (or accelerated via ?speed=N).
 
-    if (req.url === '/admin/sessions/save' && req.method === 'POST') {
+    // Saves the run named with ?run=<key>, else the admin's current run.
+    if ((req.url === '/admin/sessions/save' || req.url?.startsWith('/admin/sessions/save?')) && req.method === 'POST') {
       if (!requireAdminToken(req, res)) return;
       if (!sessionStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'session store unavailable' }));
         return;
       }
-      if (eventBuffer.length === 0) {
+      const runKey = namedRunKey(req.url);
+      const run = runKey !== null ? liveRuns.get(runKey) : liveRuns.watched(readVisitorId(req));
+      if (runKey !== null && !run) {
+        writeUnknownRun(res, runKey);
+        return;
+      }
+      if (!run || run.buffer.length === 0) {
         res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'no buffered events to save' }));
         return;
@@ -2671,8 +2569,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // timestamp-tracking), use the next known timestamp so replay
         // pacing stays monotonic instead of bunching at the start.
         const now = Date.now();
-        const events: TimestampedEvent[] = eventBuffer.map((sse, i) => ({
-          ts: eventTimestamps[i] || now,
+        const events: TimestampedEvent[] = run.buffer.map((sse, i) => ({
+          ts: run.timestamps[i] || now,
           sse,
         }));
         const result = await sessionStore.saveSession(events);
@@ -2762,13 +2660,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const wipeRuns = body.wipeRuns !== false;
       const wipeSessions = body.wipeSessions !== false;
       const wipeOutput = body.wipeOutput === true;
-      // Default-on: the event buffer is the SSE replay source. Leaving
-      // it intact while wiping every other store means a page reload
-      // re-renders the just-wiped run from the buffer, which surprised
-      // users and looked like Wipe All wasn't actually working.
+      // Default-on: the live runs' buffers are the SSE replay source.
+      // Leaving them intact while wiping every other store means a page
+      // reload re-renders the just-wiped run from its buffer, which
+      // surprised users and looked like Wipe All wasn't actually working.
+      // Runs in flight are left alone: they are some visitor's live run.
       const wipeEventBuffer = body.wipeEventBuffer !== false;
 
-      const result: { runs: number; sessions: number; outputFiles: number; eventBuffer: boolean } = { runs: 0, sessions: 0, outputFiles: 0, eventBuffer: false };
+      const result: { runs: number; sessions: number; outputFiles: number; eventBuffer: boolean; runsKept?: number } = { runs: 0, sessions: 0, outputFiles: 0, eventBuffer: false };
       try {
         if (wipeRuns && runHistoryStore?.wipeAll) {
           result.runs = await runHistoryStore.wipeAll();
@@ -2777,11 +2676,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           result.sessions = await sessionStore.wipeAll();
         }
         if (wipeEventBuffer) {
-          // Same path the in-process /clear endpoint uses: clear the
-          // in-memory buffer + cancel any pending persist + remove the
-          // .event-buffer.json snapshot from disk.
-          clearEventBuffer();
-          simConfig = null;
+          // Every visitor's finished runs go, with their files under
+          // .live-runs/; their pages are told with run_cleared.
+          result.runsKept = liveRuns.dropFinished();
           result.eventBuffer = true;
         }
         if (wipeOutput) {
@@ -2979,35 +2876,34 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const runScenario = resolvedScenario.scenario;
         const runScenarioSeedText = compiledScenarioMeta.get(runScenario.id)?.seedText ?? null;
 
-        // Rate limit check: bypass when user provides real API keys.
+        // The per-IP day limit is bypassed when the request brings its own
+        // provider keys. It is checked here and charged only once the run
+        // is admitted, below: a request refused for any reason costs no run.
         const requestCredentials = {
           apiKey: normalizeCredential(config.apiKey),
           anthropicKey: normalizeCredential(config.anthropicKey),
         };
         const hasUserKeys = hasProviderCredentials(requestCredentials);
-        if (rateLimiter && !hasUserKeys) {
-          const ip = IpRateLimiter.getIp(req);
-          const { allowed, remaining, limit } = rateLimiter.check(ip);
-          if (!allowed) {
-            console.log(`  [rate-limit] Blocked ${ip} (${limit}/${limit} used)`);
-            res.writeHead(429, {
-              'Content-Type': 'application/json',
-              'Retry-After': '86400',
-              'X-RateLimit-Limit': String(limit),
-              'X-RateLimit-Remaining': '0',
-            });
-            res.end(JSON.stringify({
-              error: `Rate limit exceeded. Maximum ${limit} simulations per day. Add your own API keys in Settings to remove this limit.`,
-              limit,
-              remaining: 0,
-            }));
-            return;
-          }
-          rateLimiter.record(ip);
-          console.log(`  [rate-limit] ${ip}: ${remaining - 1} remaining of ${limit}`);
-        } else if (hasUserKeys) {
-          console.log(`  [rate-limit] Bypassed — user provided API keys`);
-        }
+        const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req) : null;
+        /** Answers 429 and returns true when the caller's IP has used its runs of the day. */
+        const overTheDay = (): boolean => {
+          if (!rateLimiter || rateIp === null) return false;
+          const { allowed, limit } = rateLimiter.check(rateIp);
+          if (allowed) return false;
+          console.log(`  [rate-limit] Blocked ${rateIp} (${limit}/${limit} used)`);
+          res.writeHead(429, {
+            'Content-Type': 'application/json',
+            'Retry-After': '86400',
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': '0',
+          });
+          res.end(JSON.stringify({
+            error: `Rate limit exceeded. Maximum ${limit} simulations per day. Add your own API keys in Settings to remove this limit.`,
+            limit,
+            remaining: 0,
+          }));
+          return true;
+        };
         // Fork setups take exactly one actor (the override for the
         // forked branch). Regular setups take exactly two. Spec 2B.
         const isForkSetup = !!config.forkFrom;
@@ -3024,7 +2920,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
 
-        simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
+        // The visitor whose run this is: the paracosm_visitor cookie the
+        // dashboard's HTML gave the browser, else the anonymous visitor.
+        const visitorId = readVisitorId(req);
+        let simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.
@@ -3035,7 +2934,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             parentArtifact,
             atTurn: forkTurn,
             activeScenarioId: runScenario.id,
-            activeRunInProgress: simRunning && !!activeSimAbortController,
+            // Only the caller's own run in flight refuses a fork; another
+            // visitor's run is theirs.
+            activeRunInProgress: liveRuns.current(visitorId)?.inFlight === true,
           });
           if (!forkValidation.ok) {
             res.writeHead(forkValidation.statusCode, { 'Content-Type': 'application/json' });
@@ -3076,17 +2977,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
 
-        // Capture into a local non-null reference BEFORE the first
-        // await. Earlier code only captured at the startWithConfig call
-        // site (line ~2367), but every read of `simConfig` between the
-        // first `await import(...)` below and that capture site was
-        // still racing against `/clear` / `/select-scenario` (lines
-        // 1353, 1672, 2013) which null out the closure variable. A
-        // concurrent /clear during the bundle-id import or the
-        // in-flight-sim abort drain produced "Cannot read properties of
-        // null (reading 'actors')" 400s for the originating /setup.
-        // Single capture here removes the whole race surface.
+        // The config this request launches. It was a closure variable that
+        // a concurrent /clear nulled during the awaits below, which
+        // produced "Cannot read properties of null (reading 'actors')"
+        // 400s; it is this request's own now.
         const launchConfig = simConfig;
+        // The run's key, minted here so the answer and the run's
+        // `active_scenario` event carry the same one.
+        const launchRunKey = randomUUID();
 
         // Build a base RunRecord for the /setup response (line ~1830). The
         // record is NOT inserted at run-start; instead, server-app inserts
@@ -3142,47 +3040,55 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // session_id once the broadcast's sessionStore.saveSession
             // returns. The push happens AFTER insertRun resolves so a
             // failed insert doesn't enqueue a runId that doesn't exist.
-            currentRunInsertedRunIds.push(enriched.runId);
+            liveRuns.get(launchRunKey)?.insertedRunIds.push(enriched.runId);
           } catch (error) {
             console.warn('[run-history] per-artifact insert failed:', error);
           }
         };
 
-        // If a run is already in flight, abort it before starting the
-        // new one. Previously /setup silently no-op'd on simRunning,
-        // which left the old sim draining API credits while the user
-        // thought their new config had taken effect. The orchestrator
-        // handles AbortSignal via its finally block in startWithConfig
-        // (resets simRunning + activeSimAbortController), so awaiting
-        // that unwind before starting ensures the event buffer clear +
-        // new config take effect cleanly.
-        if (simRunning && activeSimAbortController) {
-          console.log(`  [setup] Aborting in-flight sim before launching new one`);
-          activeSimAbortController.abort();
-          // Wait up to 5s for the previous run's finally block to run.
-          // Without this, the orchestrator's finally could reset
-          // simRunning AFTER the new startWithConfig has already set
-          // it, then the watchdog would never re-arm on the new sim.
-          const waitStart = Date.now();
-          while (simRunning && Date.now() - waitStart < 5000) {
-            await new Promise(resolve => setTimeout(resolve, 50));
+        // From here to the charge there is no await: of two requests of one
+        // IP at its last run of the day, one gets the run, and a refused
+        // request stops nothing. A refused request leaves the visitor's run
+        // alone: over their day, or the server at its run cap. The visitor's
+        // run in flight, which this run replaces and stops as it opens, does
+        // not count against them, nor does a run their Clear stopped right
+        // before; every other run still settling does, and so does a Digital
+        // Twin run of theirs, which nothing stops
+        // (LiveRunRegistry.checkCapacity). The new run's runner waits for the
+        // run it replaced to settle (startWithConfig).
+        if (overTheDay()) return;
+
+        // startWithConfig opens the run with its active_scenario event, so a
+        // page that connects later replays it too.
+        const launched = (() => {
+          try {
+            return marsServer.startWithConfig(launchConfig, {
+              scenario: runScenario,
+              seedText: runScenarioSeedText,
+              onArtifact: onArtifactPersist,
+              visitorId,
+              runKey: launchRunKey,
+            });
+          } catch (err) {
+            if (err instanceof RunCapacityError) return err;
+            throw err;
           }
+        })();
+        if (launched instanceof RunCapacityError) {
+          console.log(`  [runs] Refused a run for ${visitorId.slice(0, 8)}: ${launched.runsInFlight} in flight, the most is ${launched.maxRuns}`);
+          writeRunCapacityRefusal(res, launched);
+          return;
         }
-
-        // startWithConfig opens the run's buffer with its active_scenario
-        // event, so a page that connects later replays it too.
         console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
-
-        // launchConfig was captured above (right after applyDemoCaps)
-        // so it stays non-null even if a concurrent /clear nulls out
-        // the closure-level simConfig during one of the awaits.
-        marsServer.startWithConfig(launchConfig, {
-          scenario: runScenario,
-          seedText: runScenarioSeedText,
-          onArtifact: onArtifactPersist,
-        }).catch((error) => {
+        launched.catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
+        if (rateLimiter && rateIp !== null) {
+          rateLimiter.record(rateIp);
+          console.log(`  [rate-limit] ${rateIp}: ${rateLimiter.check(rateIp).remaining} remaining of ${maxSims}`);
+        } else if (hasUserKeys) {
+          console.log(`  [rate-limit] Bypassed — user provided API keys`);
+        }
 
         // A run in a scenario that is not the visitor's pick makes it their
         // pick. The dashboard opens /sim after a run, and a page shows a run
@@ -3199,6 +3105,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           redirect: '/sim',
           scenarioId: runScenario.id,
           scenarioName: runScenario.labels?.name,
+          // The run's key (its active_scenario event's runKey) and the
+          // visitor it belongs to. A page whose stream was opened under
+          // another visitor id reopens it (two tabs opened at once).
+          runKey: launchRunKey,
+          visitorId,
           run: {
             id: runRecord.runId,
             sourceMode: runRecord.sourceMode,
@@ -3716,7 +3627,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (pathname === '/sim' || pathname.startsWith('/sim/') || pathname === '/sim/index.html') {
       if (hasViteBuild) {
         const html = readFileSync(resolve(distDir, 'index.html'), 'utf-8');
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        // The dashboard's HTML gives a browser its visitor id, once: the one
+        // answer every dashboard load gets before any script runs. The page
+        // opens /events and fetches /scenario at the same moment, so if those
+        // minted ids too the stream and the run could belong to two visitors.
+        // No cache may hand one visitor's id to another.
+        const htmlHeaders: Record<string, string> = { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' };
+        if (readVisitorId(req) === ANONYMOUS_VISITOR) {
+          htmlHeaders['Set-Cookie'] = visitorCookie(randomUUID(), pickCookieSecure);
+        }
+        res.writeHead(200, htmlHeaders);
         // The bundle loads Google Analytics and Clarity itself when deploy.yml builds it with their ids.
         res.end(siteAnalytics ? withSiteAnalytics(html, 'plausible') : html);
         return;
@@ -3732,62 +3652,74 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end('Not found');
   }) as MarsServer;
 
-  // Clean up rate limiter on server close
-  (server as Server).on('close', () => { if (rateLimiter) rateLimiter.destroy(); });
+  // Clean up on server close: the rate limiter's timers, and the live runs'
+  // pending writes (flushed, so a restart reads every run back) and timers.
+  (server as Server).on('close', () => {
+    if (rateLimiter) rateLimiter.destroy();
+    liveRuns.close();
+  });
 
   const marsServer = Object.assign(server, {
-    async startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks) {
-      // Clear previous run data
+    startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks): Promise<void> {
+      // Opening the run is synchronous: admission (RunCapacityError when the
+      // server is at its cap), the replacement of the visitor's current run,
+      // and the run's active_scenario event, so /setup can answer 503 before
+      // any run exists.
       const runScenario = hooks?.scenario ?? marsScenario;
-      openRunBuffer(
-        runScenario,
-        hooks?.seedText ?? null,
-        config.forkFrom
+      const visitorId = hooks?.visitorId ?? ANONYMOUS_VISITOR;
+      // Run pressed while running means start over: the visitor's run in
+      // flight is replaced as this one opens, dropped (its later events go
+      // nowhere) and stopped.
+      const replacing = liveRuns.current(visitorId);
+      const run = liveRuns.open({
+        visitorId,
+        runKey: hooks?.runKey,
+        kind: config.forkFrom ? 'fork' : config.actors.length >= 3 ? 'batch' : 'pair',
+        scenario: runScenario,
+        seedText: hooks?.seedText ?? null,
+        config,
+        forkedFrom: config.forkFrom
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,
-      );
-      // The run writes to the buffer only while it holds it. Once another run
-      // has opened, its last events and its end would land in that run.
-      const runKey = currentRunKey;
-      const runBroadcast: BroadcastFn = (event, data, actorId) => {
-        if (currentRunKey === runKey) broadcast(event, data, actorId);
-      };
-      simConfig = config;
-      simRunning = true;
-      // Per-run AbortController. Held in a local so the finally block
-      // only clears the global flag when it still points to *our* run.
-      // Without the identity check, a slow cleanup on an old run could
-      // null the active controller of a newer run that /setup just
-      // started, breaking the disconnect watchdog's abort path.
-      const controller = new AbortController();
-      activeSimAbortController = controller;
-      try {
-        // Thread the run's scenario through to the pair
-        // runner. Without this the runner defaults to Mars regardless
-        // of which scenario the user compiled, so the page title would
-        // show the custom name but the simulation would run Mars
-        // hooks + content. Fork path (Spec 2B) dispatches to
-        // runForkSimulation instead of the pair runner when the
-        // config carries a forkFrom reference.
-        if (config.forkFrom) {
-          await startFork(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
-        } else if (config.actors.length >= 3) {
-          // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
-          // runner (same SSE contract per leader, no verdict).
-          await runBatchSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
-        } else {
-          await startSimulations(config, runBroadcast, controller.signal, runScenario, hooks?.onArtifact);
+      });
+      // The run writes to its own buffer and viewers. Once its visitor has
+      // replaced or cleared it, its last events and its end go nowhere.
+      const runBroadcast = liveRuns.broadcastFor(run);
+      const signal = run.controller!.signal;
+      return (async () => {
+        try {
+          // The run this one replaced gets up to 5 s to settle first, so its
+          // last model calls do not run beside this run's first. A Digital
+          // Twin run takes no signal, so there is nothing to wait for.
+          if (replacing?.inFlight && replacing.kind !== 'intervention') {
+            console.log(`  [setup] Run ${run.key} waits for run ${replacing.key}, which it replaced, to stop`);
+            const waitStart = Date.now();
+            while (replacing.inFlight && Date.now() - waitStart < 5000) {
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+          }
+          // Thread the run's scenario through to the pair
+          // runner. Without this the runner defaults to Mars regardless
+          // of which scenario the user compiled, so the page title would
+          // show the custom name but the simulation would run Mars
+          // hooks + content. Fork path (Spec 2B) dispatches to
+          // runForkSimulation instead of the pair runner when the
+          // config carries a forkFrom reference.
+          if (config.forkFrom) {
+            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+          } else if (config.actors.length >= 3) {
+            // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
+            // runner (same SSE contract per leader, no verdict).
+            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+          } else {
+            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+          }
+        } finally {
+          // The run's capacity slot is free once its runner has settled,
+          // whether or not it was dropped before that.
+          liveRuns.finish(run);
         }
-      } finally {
-        disarmDisconnectWatchdog();
-        if (activeSimAbortController === controller) {
-          simRunning = false;
-          activeSimAbortController = null;
-        }
-        // Else: a newer run already replaced us. Leave simRunning and
-        // activeSimAbortController alone so the new run's watchdog
-        // continues to work.
-      }
+      })();
     },
   });
 

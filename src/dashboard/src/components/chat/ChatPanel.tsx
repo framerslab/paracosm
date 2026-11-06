@@ -174,8 +174,6 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   // Listens to hashchange so repeated handoffs (user goes back and
   // picks a different colonist) re-select without a hard reload.
 
-  const messages = selectedId ? (threads.get(selectedId) ?? []) : [];
-  const history = selectedId ? (historyByAgent.get(selectedId) ?? []) : [];
 
   // Group reactions by the lead actor that produced them so cohort runs
   // can dropdown-filter to one actor's swarm at a time. Same character
@@ -298,6 +296,23 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
 
   const selected = agents.find(c => c.name === selectedId);
 
+  // The leader under whom a character lived: the actor filter's, else the
+  // first leader whose people include them. A pair run holds the same people
+  // under each leader, so the server answers as that leader's colonist, from
+  // that colony's memories alone, and the thread here is that leader's too.
+  const leaderOf = (name: string): string | undefined => {
+    if (filterActorId && filterActorId !== 'all') return filterActorId;
+    for (const [actorName, list] of agentsByActor) {
+      if (list.some(a => a.name === name)) return actorName;
+    }
+    return undefined;
+  };
+  const threadKey = (name: string): string => {
+    const leader = leaderOf(name);
+    return leader ? `${leader}\u0000${name}` : name;
+  };
+  const messages = selectedId ? (threads.get(threadKey(selectedId)) ?? []) : [];
+
   useEffect(() => {
     if (!chatPinnedRef.current) return;
     if (messagesRef.current) messagesRef.current.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
@@ -321,9 +336,11 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     setSelectedId(name);
     // Initialize a thread the first time we open this agent. Re-selects keep
     // the existing thread intact so the user can switch agents and back
-    // without losing the conversation.
+    // without losing the conversation. The thread is the one the panel shows
+    // and sends to: the person as they lived under their leader.
+    const thread = threadKey(name);
     setThreads(prev => {
-      if (prev.has(name)) return prev;
+      if (prev.has(thread)) return prev;
       const c = agents.find(a => a.name === name);
       const greeting: ChatMessage = c ? {
         role: 'agent', name: c.name,
@@ -338,7 +355,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           `"who do you trust on the team?", or "what was the worst moment for you?"`,
       } : { role: 'agent', text: 'Connected.' };
       const next = new Map(prev);
-      next.set(name, [greeting]);
+      next.set(thread, [greeting]);
       return next;
     });
   };
@@ -362,13 +379,15 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   const send = async () => {
     if (!input.trim() || !selectedId || sending) return;
     const targetId = selectedId;
+    const leader = leaderOf(targetId);
+    const thread = threadKey(targetId);
     const msg = input.trim();
     setInput('');
     setSending(true);
-    setMessagesFor(targetId, prev => [...prev, { role: 'user', text: msg }]);
-    const currentHistory = historyByAgent.get(targetId) ?? [];
+    setMessagesFor(thread, prev => [...prev, { role: 'user', text: msg }]);
+    const currentHistory = historyByAgent.get(thread) ?? [];
     const newHistory = [...currentHistory, { role: 'user', content: msg }];
-    setHistoryFor(targetId, () => newHistory);
+    setHistoryFor(thread, () => newHistory);
     try {
       // Forward any locally-saved BYO API keys so chat routes to the
       // user's own provider account instead of the host's. Matches the
@@ -382,6 +401,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: targetId,
+          ...(leader ? { leader } : {}),
           message: msg,
           history: newHistory,
           ...(storedKeys.openai ? { apiKey: storedKeys.openai } : {}),
@@ -390,8 +410,8 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
       });
       const data = await res.json();
       if (data.reply) {
-        setMessagesFor(targetId, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply }]);
-        setHistoryFor(targetId, prev => [...prev, { role: 'assistant', content: data.reply }]);
+        setMessagesFor(thread, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply }]);
+        setHistoryFor(thread, prev => [...prev, { role: 'assistant', content: data.reply }]);
         // Bubble the chat turn's token/cost usage up so the footer can
         // add it to the simulation-cost total. Failure-path responses
         // (no reply, error text) don't incur server-side LLM cost so
@@ -404,10 +424,10 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           });
         }
       } else {
-        setMessagesFor(targetId, prev => [...prev, { role: 'agent', text: data.error || 'No response' }]);
+        setMessagesFor(thread, prev => [...prev, { role: 'agent', text: data.error || 'No response' }]);
       }
     } catch (err) {
-      setMessagesFor(targetId, prev => [...prev, { role: 'agent', text: `Chat failed: ${err}` }]);
+      setMessagesFor(thread, prev => [...prev, { role: 'agent', text: `Chat failed: ${err}` }]);
     }
     setSending(false);
   };
