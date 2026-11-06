@@ -8,7 +8,7 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -17,12 +17,17 @@ const root = resolve(import.meta.dirname, '..', '..');
 const demoRoot = resolve(root, 'assets', 'demo');
 const demoFile = 'branches-poster.jpg';
 const demoSubdir = `test-directory-${process.pid}`;
+const unreadableFile = `test-unreadable-${process.pid}.mp4`;
 
 let site = '';
 let closeServer: () => Promise<void> = async () => {};
 
 before(async () => {
   mkdirSync(resolve(demoRoot, demoSubdir), { recursive: true });
+  // A regular file the server cannot open: it passes the file check and
+  // fails when the read stream opens it.
+  writeFileSync(resolve(demoRoot, unreadableFile), Buffer.alloc(64));
+  chmodSync(resolve(demoRoot, unreadableFile), 0o000);
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-static-'));
   const env = { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: undefined };
   const server = createMarsServer({ env, runPairSimulations: async () => {} });
@@ -36,6 +41,7 @@ before(async () => {
     await once(server, 'close');
     rmSync(appDir, { recursive: true, force: true });
     rmSync(resolve(demoRoot, demoSubdir), { recursive: true, force: true });
+    rmSync(resolve(demoRoot, unreadableFile), { force: true });
   };
 });
 
@@ -48,6 +54,7 @@ after(() => closeServer());
  */
 const answerWithin = () => AbortSignal.timeout(10_000);
 
+/** /health answers 200, so the process is still serving after the request before it. */
 async function assertStillAnswers(): Promise<void> {
   const res = await fetch(`${site}/health`, { signal: answerWithin() });
   assert.equal(res.status, 200);
@@ -89,4 +96,16 @@ test('a demo file is still served whole, and by range', async () => {
   assert.equal((await part.arrayBuffer()).byteLength, 10);
 
   await assertStillAnswers();
+});
+
+// root opens a mode-000 file, so the case only holds for an ordinary user (CI's runner).
+const runsAsRoot = process.getuid?.() === 0;
+
+test('a demo file that cannot be opened answers 500, whole and by range, and the server keeps answering', { skip: runsAsRoot && 'root can open any file' }, async () => {
+  for (const headers of [{}, { Range: 'bytes=0-9' }]) {
+    const res = await fetch(`${site}/demo/${unreadableFile}`, { headers, signal: answerWithin() });
+    assert.equal(res.status, 500);
+    assert.equal(await res.text(), 'Read failed');
+    await assertStillAnswers();
+  }
 });
