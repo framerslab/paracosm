@@ -32,6 +32,7 @@ before(async () => {
   site = `http://127.0.0.1:${port}`;
   closeServer = async () => {
     server.close();
+    server.closeAllConnections();
     await once(server, 'close');
     rmSync(appDir, { recursive: true, force: true });
     rmSync(resolve(demoRoot, demoSubdir), { recursive: true, force: true });
@@ -40,8 +41,15 @@ before(async () => {
 
 after(() => closeServer());
 
+/**
+ * Every request gives up after ten seconds. A response the server never
+ * finishes fails its own test quickly instead of waiting out the client's
+ * five-minute header limit.
+ */
+const answerWithin = () => AbortSignal.timeout(10_000);
+
 async function assertStillAnswers(): Promise<void> {
-  const res = await fetch(`${site}/health`);
+  const res = await fetch(`${site}/health`, { signal: answerWithin() });
   assert.equal(res.status, 200);
   await res.arrayBuffer();
 }
@@ -59,7 +67,7 @@ const directoryAndMissingPaths: ReadonlyArray<readonly [string, Record<string, s
 for (const [path, headers] of directoryAndMissingPaths) {
   const label = headers.Range ? `${path} with Range ${headers.Range}` : path;
   test(`GET ${label} answers 404 and the server keeps answering`, async () => {
-    const res = await fetch(`${site}${path}`, { headers });
+    const res = await fetch(`${site}${path}`, { headers, signal: answerWithin() });
     assert.equal(res.status, 404);
     await res.arrayBuffer();
     await assertStillAnswers();
@@ -69,13 +77,13 @@ for (const [path, headers] of directoryAndMissingPaths) {
 test('a demo file is still served whole, and by range', async () => {
   const size = statSync(resolve(demoRoot, demoFile)).size;
 
-  const whole = await fetch(`${site}/demo/${demoFile}`);
+  const whole = await fetch(`${site}/demo/${demoFile}`, { signal: answerWithin() });
   assert.equal(whole.status, 200);
   assert.equal(whole.headers.get('content-type'), 'image/jpeg');
   assert.equal(whole.headers.get('accept-ranges'), 'bytes');
   assert.equal((await whole.arrayBuffer()).byteLength, size);
 
-  const part = await fetch(`${site}/demo/${demoFile}`, { headers: { Range: 'bytes=0-9' } });
+  const part = await fetch(`${site}/demo/${demoFile}`, { headers: { Range: 'bytes=0-9' }, signal: answerWithin() });
   assert.equal(part.status, 206);
   assert.equal(part.headers.get('content-range'), `bytes 0-9/${size}`);
   assert.equal((await part.arrayBuffer()).byteLength, 10);
