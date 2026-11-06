@@ -28,7 +28,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
@@ -245,11 +245,11 @@ function shortTurns(sc: ScenarioPackage, seed: number, population: number, turns
   return rows;
 }
 
-test('a turn of a year or less runs as it did before long turns settled morale each year', (t) => {
+test('a turn of a year or less runs as it did before long turns settled morale each year', () => {
   // Atlas Lab's monthly turns, the Digital Twin's two-week turns (its JSON,
   // with no compiled hook: compiling one calls a model) and Mars on
   // one-year turns, on fixed seeds. The pinned rows were read from CI on
-  // the kernel of b43ee952, before this change.
+  // the kernel of b43ee952, before long turns settled morale each year.
   const scenarios = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
   const atlasLab = scenarios.get('atlas-lab')!.scenario as ScenarioPackage;
   const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
@@ -259,12 +259,7 @@ test('a turn of a year or less runs as it did before long turns settled morale e
     'mars-genesis, seed 101, 100 people, 17 one-year turns': shortTurns(marsScenario, 101, 100, 17, 1),
     'mars-genesis, seed 950, 30 people, 17 one-year turns': shortTurns(marsScenario, 950, 30, 17, 1),
   };
-  const pinnedPath = resolve(here, '../fixtures/short-turns-before-yearly-morale.json');
-  if (!existsSync(pinnedPath)) {
-    t.diagnostic(`PINNED ${JSON.stringify(actual)}`);
-    assert.fail('no pinned rows yet: the diagnostic above holds this kernel\'s');
-  }
-  const pinned = JSON.parse(readFileSync(pinnedPath, 'utf-8')).runs as Record<string, TurnRow[]>;
+  const pinned = JSON.parse(readFileSync(resolve(here, '../fixtures/short-turns-before-yearly-morale.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
   assert.deepEqual(actual, pinned);
 });
 
