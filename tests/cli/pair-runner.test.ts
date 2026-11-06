@@ -584,3 +584,46 @@ test('a batch takes no further actor once its run is aborted', async () => {
     if (saved.anthropic !== undefined) process.env.ANTHROPIC_API_KEY = saved.anthropic;
   }
 });
+
+test('a batch stopped after some actors finished ends as aborted, and no verdict judges the actors that finished', async () => {
+  // The pool takes no further actor once the signal fires, so a batch cleared
+  // after two of its four actors finished cleanly holds two clean results and
+  // no aborted one. Its end said nothing of the stop: the page showed a cut
+  // batch as a finished one, and the cohort verdict judged half the cohort.
+  const { runBatchSimulations } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const base = marsScenario.presets[0].leaders[0];
+  const leaders = Array.from({ length: 4 }, (_, i) => ({ ...base, name: `Leader ${i + 1}`, archetype: `Archetype ${i + 1}` }));
+  const config = normalizeSimulationConfig({ actors: leaders, turns: 1, economics: { batchConcurrency: 2 } } as any, marsScenario);
+
+  // No provider key, so a verdict call stops before it reaches a model.
+  const saved = { openai: process.env.OPENAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY };
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const controller = new AbortController();
+    const calls: string[] = [];
+    const runSimulationImpl = async (leader: { name: string }) => {
+      calls.push(leader.name);
+      if (calls.length === 2) controller.abort('user_aborted');
+      return { finalState: { metrics: { population: 30, morale: 0.6 } }, citations: [], fingerprint: null } as any;
+    };
+    const frames: Array<{ event: string; data: any }> = [];
+    await (runBatchSimulations as (...args: unknown[]) => Promise<void>)(
+      config,
+      (event: string, data: unknown) => { frames.push({ event, data }); },
+      controller.signal,
+      marsScenario,
+      undefined,
+      runSimulationImpl,
+    );
+    assert.deepEqual(calls, ['Leader 1', 'Leader 2']);
+    assert.equal(frames.filter(f => f.event === 'result').length, 2, 'the two actors that finished report their results');
+    const complete = frames.find(f => f.event === 'complete');
+    assert.equal(complete?.data.aborted, true, 'the batch ends as aborted');
+    assert.deepEqual(frames.filter(f => f.event === 'cohort_verdict' || f.event === 'verdict_skipped').map(f => f.event), [], 'no verdict over part of the cohort');
+  } finally {
+    if (saved.openai !== undefined) process.env.OPENAI_API_KEY = saved.openai;
+    if (saved.anthropic !== undefined) process.env.ANTHROPIC_API_KEY = saved.anthropic;
+  }
+});

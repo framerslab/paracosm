@@ -351,6 +351,42 @@ test('a run key the server has opened a run with is refused, so no request takes
   });
 });
 
+test('the key of a run the server still holds is refused however many runs opened since', async () => {
+  // The server remembers the last 1024 run keys. A run in flight while more
+  // than that many runs opened after it had its key forgotten, and a Digital
+  // Twin request naming the key took its place: the run's visitor read the
+  // twin from then on, and the run went on with nothing holding it.
+  let finishSetup = () => {};
+  const setupHeld = new Promise<void>(resolve => { finishSetup = resolve; });
+  let setupAborted = false;
+  const as = (visitor: string, path: string, payload: unknown) => fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: `paracosm_visitor=${visitor}` },
+    body: JSON.stringify(payload),
+  });
+  const a = randomUUID();
+  const b = randomUUID();
+  await withServer(async () => ({ metadata: { runId: 'twin-1' } }), async base => {
+    const setup = await as(a, `${base}/setup`, { actors: mars.presets[0].leaders, turns: 6, seed: 951, scenarioId: mars.id });
+    assert.equal(setup.status, 200);
+    const { runKey } = await setup.json() as { runKey: string };
+    for (let i = 0; i < 1025; i++) {
+      const twin = await as(b, `${base}/api/quickstart/simulate-intervention`, body());
+      assert.equal(twin.status, 200);
+    }
+    const stolen = await as(randomUUID(), `${base}/api/quickstart/simulate-intervention`, body({ runKey }));
+    assert.equal(stolen.status, 409);
+    const aResults = (await (await fetch(`${base}/results`, { headers: { Cookie: `paracosm_visitor=${a}` } })).json()) as { runKey?: string; inFlight?: boolean };
+    assert.equal(aResults.runKey, runKey, "A's run is still A's");
+    assert.equal(aResults.inFlight, true);
+    assert.equal(setupAborted, false);
+    finishSetup();
+  }, async (_config, _broadcast, signal) => {
+    signal?.addEventListener('abort', () => { setupAborted = true; });
+    await setupHeld;
+  });
+});
+
 test("a caller's Digital Twin run stops their own /setup run in flight, and that run writes nothing more to it", async () => {
   let finish = () => {};
   const held = new Promise<void>(resolve => { finish = resolve; });
