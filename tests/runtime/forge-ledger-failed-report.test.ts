@@ -137,3 +137,21 @@ test('a rejected forge whose report failed is still no tool of the run', () => {
   assert.deepEqual(forgedToolNames(ledger, allForges), []);
   assert.equal(buildAvailableToolsBlock(ledger), '');
 });
+
+test('an approval stays when the report recorded a later rejected forge of the same tool', () => {
+  const ledger: ForgedLedger = new Map();
+  const allForges: RunForge[] = [];
+  // Governance forges incident_risk, approved, then forges it again and the
+  // reviewers reject that one. Its report parses and records the tool once,
+  // from the last capture: rejected. The engine holds the approved tool.
+  const approved = capture('incident_risk', governance, true);
+  const rejected = capture('incident_risk', governance, false);
+  reportWrote(ledger, rejected, turnOne);
+  recordEventForges([approved, rejected], turnOne, ledger, allForges);
+
+  assert.deepEqual(forgedToolNames(ledger, allForges), ['incident_risk']);
+  const [tool] = buildForgedToolbox(ledger, allForges);
+  assert.equal(tool.approved, true);
+  assert.equal(tool.firstForgedDepartment, governance);
+  assert.match(buildAvailableToolsBlock(ledger), /incident_risk/);
+});
