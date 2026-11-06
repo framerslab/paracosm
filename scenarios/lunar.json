@@ -442,7 +442,7 @@
         {
           "name": "Dr. Sarah Anderson",
           "department": "medical",
-          "role": "Chief Medical Officer",
+          "role": "Senior Flight Surgeon",
           "specialization": "Aerospace Medicine",
           "age": 42,
           "featured": true
@@ -450,7 +450,7 @@
         {
           "name": "James Mueller",
           "department": "engineering",
-          "role": "Chief Engineer",
+          "role": "Senior Structural Engineer",
           "specialization": "Structural Systems",
           "age": 48,
           "featured": true
@@ -458,7 +458,7 @@
         {
           "name": "Dr. Yuki Nakamura",
           "department": "mining",
-          "role": "Mining Operations Lead",
+          "role": "Senior ISRU Engineer",
           "specialization": "ISRU Engineering",
           "age": 39,
           "featured": true
@@ -466,7 +466,7 @@
         {
           "name": "Chen Wei",
           "department": "life-support",
-          "role": "Life Support Chief",
+          "role": "Senior ECLSS Engineer",
           "specialization": "ECLSS Design",
           "age": 44,
           "featured": true
@@ -474,7 +474,7 @@
         {
           "name": "Maria Santos",
           "department": "communications",
-          "role": "Communications Officer",
+          "role": "Senior Network Engineer",
           "specialization": "Deep Space Networks",
           "age": 36,
           "featured": true

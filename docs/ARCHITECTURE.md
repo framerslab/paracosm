@@ -190,6 +190,8 @@ Custom scenarios define their own health metrics in their progression hooks. The
 
 ### Turn Pipeline
 
+Before turn 1 the commander names a head for each department the run keeps active (`runDepartmentPromotions`), from the top candidates the kernel lists; a department the commander leaves open goes to its top candidate. A department counts as headed only by a living person with a promotion record, so the people a scenario's preset seeds carry specialist titles ("Senior Physician, Radiation Medicine" on Mars), never a head's title: a seeded head would sit beside the one the commander names.
+
 Each turn follows a fixed pipeline:
 
 ```
