@@ -34,6 +34,7 @@
 import type { Agent, SimulationState } from '../core/state.js';
 import type { ActorConfig, MilestoneEventDef, ScenarioHooks } from '../types.js';
 import { physicsModules, type ProgressionPhysics } from '../physics/index.js';
+import { ageInYears } from '../core/time-unit.js';
 
 /**
  * Per-department row of metric chips that get formatted into the
@@ -503,13 +504,15 @@ function renderFeaturedRoster(
   const lines = [spec.header];
   for (const agent of filtered) {
     lines.push(spec.template.replace(/\{\{([\w.]+)\}\}/g, (_, key: string) => {
-      // Special-case shortcuts: {{name}}, {{age}}, {{years}} (years
-      // since birthTime when present, else 0).
+      // Special-case shortcuts: {{name}}, {{age}} (whole years since
+      // birthTime, in the run's time unit converted to years).
       if (key === 'name') return agent.core?.name ?? '?';
       if (key === 'age') {
         const t = state.metadata?.currentTime;
         const b = agent.core?.birthTime;
-        return typeof t === 'number' && typeof b === 'number' ? String(t - b) : '?';
+        return typeof t === 'number' && typeof b === 'number'
+          ? String(Math.floor(ageInYears(agent, t, state.metadata?.yearsPerUnit ?? 1)))
+          : '?';
       }
       const raw = readDeepPath(agent, key);
       if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -622,13 +625,14 @@ export function compileJsonDataDrivenConfig(json: JsonDataDrivenScenarioConfig):
  * per-line predicates) into the `(agent, ctx) => string` shape the
  * engine consumes. Supported `{{key}}` substitutions:
  *   - `{{role}}`, `{{department}}`, `{{name}}`
- *   - `{{years}}` — `ctx.time - agent.core.birthTime` if both numeric
+ *   - `{{years}}` — the agent's age in whole years (`ctx.time -
+ *     agent.core.birthTime` in the run's unit, times `ctx.yearsPerUnit`)
  *   - any agent path (e.g., `{{health.boneDensityPct}}`,
  *     `{{core.marsborn}}`)
  */
 function compileStructuredReactionTemplate(
   spec: JsonReactionTemplate,
-): (agent: Agent, ctx: { time: number; turn: number }) => string {
+): (agent: Agent, ctx: { time: number; turn: number; yearsPerUnit?: number }) => string {
   const compiled = spec.lines.map((line) => ({
     template: line.template,
     when: line.when ? compileAgentPredicate(line.when) : null,
@@ -644,7 +648,9 @@ function compileStructuredReactionTemplate(
         if (key === 'name') return agent.core?.name ?? '?';
         if (key === 'years') {
           const b = agent.core?.birthTime;
-          return typeof ctx.time === 'number' && typeof b === 'number' ? String(ctx.time - b) : '?';
+          return typeof ctx.time === 'number' && typeof b === 'number'
+            ? String(Math.floor(ageInYears(agent, ctx.time, ctx.yearsPerUnit ?? 1)))
+            : '?';
         }
         const raw = readDeepPath(agent, key);
         if (typeof raw === 'number' && Number.isFinite(raw)) {

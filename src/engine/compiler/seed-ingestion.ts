@@ -5,8 +5,8 @@
  * a scenario's knowledge bundle via:
  *
  * 1. LLM extraction: extract entities, facts, and domain knowledge from the seed
- * 2. Optional web search: use AgentOS WebSearchService (Tavily, Firecrawl, Serper, Brave)
- *    with Cohere neural reranking to find real citations grounding the seed material
+ * 2. Optional web search: use AgentOS WebSearchService (Tavily, Firecrawl, Serper, Brave),
+ *    reranked by Cohere when COHERE_API_KEY is set, to find real citations grounding the seed material
  * 3. Knowledge bundle assembly: structure extracted + searched knowledge into
  *    KnowledgeBundle format compatible with the ScenarioPackage
  *
@@ -20,6 +20,7 @@ import {
   searchCredential,
   type SearchCredentialOptions,
 } from '../provider/credentials.js';
+import { createResearchSearch } from '../provider/web-search.js';
 
 export interface SeedIngestionOptions extends SearchCredentialOptions {
   /** LLM generateText function */
@@ -88,25 +89,19 @@ async function searchForCitations(
   const braveKey = searchCredential(credentials.braveKey, 'BRAVE_API_KEY');
 
   try {
-    const { WebSearchService, FirecrawlProvider, TavilyProvider, SerperProvider, BraveProvider } = await import('@framers/agentos/cognition/web-search');
-    const service = new WebSearchService();
-
-    if (firecrawlKey) service.registerProvider(new FirecrawlProvider(firecrawlKey));
-    if (tavilyKey) service.registerProvider(new TavilyProvider(tavilyKey));
-    if (serperKey) service.registerProvider(new SerperProvider(serperKey));
-    if (braveKey) service.registerProvider(new BraveProvider(braveKey));
+    const cohereKey = searchCredential(credentials.cohereKey, 'COHERE_API_KEY');
+    const service = await createResearchSearch({ firecrawlKey, tavilyKey, serperKey, braveKey, cohereKey });
 
     if (!service.hasProviders()) {
       console.log('  [seed] No search API keys configured. Skipping web search enrichment.');
       return [];
     }
 
-    const useRerank = !!searchCredential(credentials.cohereKey, 'COHERE_API_KEY');
     const queriesToRun = queries.slice(0, maxSearches);
 
     for (const query of queriesToRun) {
       try {
-        const results = await service.search(query, { maxResults: 3, rerank: useRerank });
+        const { results } = await service.search(query, 3);
         searchResults.push({
           query,
           results: results.map(r => ({ title: r.title, url: r.url, snippet: r.snippet })),

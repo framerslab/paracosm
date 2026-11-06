@@ -211,6 +211,12 @@ export interface SimulationMetadata {
   startTime: number;
   currentTime: number;
   currentTurn: number;
+  /**
+   * Years in one unit of the scenario's time (a month is 1/12), which ages
+   * and the yearly rates read. Absent in a state saved before units had
+   * lengths, which reads as 1.
+   */
+  yearsPerUnit?: number;
 }
 
 export interface TurnEvent {

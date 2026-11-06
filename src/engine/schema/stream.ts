@@ -148,6 +148,7 @@ const TurnDoneDataSchema = z.object({
    * Same emit rule as statuses.
    */
   environment: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional(),
+  /** The tools the run has forged so far, each approved tool once however often it was used. */
   toolsForged: z.number().int().min(0),
   totalEvents: z.number().int().optional(),
   deathCauses: z.record(z.string(), z.number()).optional(),
@@ -191,6 +192,7 @@ const SimAbortedDataSchema = z.object({
   reason: z.string(),
   completedTurns: z.number().int().min(0),
   metrics: z.record(z.string(), z.number()),
+  /** The tools the run has forged so far, each approved tool once however often it was used. */
   toolsForged: z.number().int().min(0),
 });
 
