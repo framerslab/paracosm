@@ -1,11 +1,12 @@
 import type { SimulationState, Agent, TurnEvent, HexacoProfile, TurnOutcome, Department } from './state.js';
 import type { WorldMetrics, WorldPolitics } from './state.js';
-import type { ScenarioPackage } from '../types.js';
+import type { ProgressionHookContext, ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
 import { agentIdKeys, generateInitialPopulation, generateJoiners, type KeyPersonnel } from './agent-generator.js';
 import { progressBetweenTurns, applyPersonalityDrift, ROLE_ACTIVATIONS } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
+import { ageInYears, yearsPerTimeUnit } from './time-unit.js';
 
 interface DeclaredMetric {
   id?: string;
@@ -152,6 +153,17 @@ function changeMade(asked: number, before: number, after: number): number {
   return Math.abs(moved - asked) < 1e-9 ? asked : Math.round(moved * 1e6) / 1e6;
 }
 
+/**
+ * The most a department's report or patch moves a person's psych score in
+ * one write. A report can say a featured person is struggling; a model's
+ * 0.05 does not become a despair roll the leader never chose.
+ */
+export const PSYCH_STEP = 0.15;
+
+/** The health keys a department's patch may write. */
+const PATCHABLE_HEALTH = new Set(['psychScore', 'conditions']);
+
+
 export interface SystemsPatch {
   metrics?: Partial<WorldMetrics>;
   politics?: Partial<WorldPolitics>;
@@ -184,6 +196,11 @@ export interface SimulationInitOverrides {
    * hardcoded defaults only.
    */
   scenario?: ScenarioPackage;
+  /**
+   * Years in one unit of the run's time. Absent, it comes from the
+   * scenario (see {@link yearsPerTimeUnit}); with no scenario it is 1.
+   */
+  yearsPerUnit?: number;
   startingResources?: Partial<WorldMetrics>;
   startingPolitics?: Partial<WorldPolitics>;
   startingStatuses?: Record<string, string | boolean>;
@@ -205,7 +222,10 @@ export class SimulationKernel {
     const rosterDepartments = init.scenario && init.scenario.id !== 'mars-genesis' && init.scenario.departments?.length
       ? init.scenario.departments
       : undefined;
-    const agents = generateInitialPopulation(seed, startTime, keyPersonnel, init.initialPopulation ?? 100, rosterDepartments);
+    const yearsPerUnit = typeof init.yearsPerUnit === 'number' && Number.isFinite(init.yearsPerUnit) && init.yearsPerUnit > 0
+      ? init.yearsPerUnit
+      : init.scenario ? yearsPerTimeUnit(init.scenario.labels, init.scenario.setup) : 1;
+    const agents = generateInitialPopulation(seed, startTime, keyPersonnel, init.initialPopulation ?? 100, rosterDepartments, yearsPerUnit);
 
     // Layer sources: Mars-heritage defaults (the ones the scenario
     // declares) → scenario declarations → caller overlays (last writer
@@ -239,6 +259,7 @@ export class SimulationKernel {
         simulationId: `sim-${seed}-${leaderId.toLowerCase().replace(/\s+/g, '-')}`,
         leaderId, seed,
         startTime, currentTime: startTime, currentTurn: 0,
+        yearsPerUnit,
       },
       metrics: {
         // Every run has people and morale; the heritage resources only
@@ -283,6 +304,43 @@ export class SimulationKernel {
   }
 
   getState(): SimulationState { return structuredClone(this.state); }
+
+  /** The turn {@link psychAtFirstWrite} holds, and each person's psych at the turn's first department write. */
+  private psychTurn = -1;
+  private psychAtFirstWrite = new Map<string, number>();
+
+  /**
+   * Move a person's psych toward `target` (clamped 0 to 1), never more
+   * than {@link PSYCH_STEP} from where it stood at the turn's first
+   * department write, however many reports and patches name them.
+   */
+  private movePsych(agent: Agent, target: number): void {
+    if (!Number.isFinite(target)) return;
+    const turn = this.state.metadata.currentTurn;
+    if (turn !== this.psychTurn) {
+      this.psychTurn = turn;
+      this.psychAtFirstWrite.clear();
+    }
+    const id = agent.core.id;
+    if (!this.psychAtFirstWrite.has(id)) this.psychAtFirstWrite.set(id, agent.health.psychScore);
+    const start = this.psychAtFirstWrite.get(id)!;
+    const goal = Math.max(0, Math.min(1, target));
+    agent.health.psychScore = start + Math.max(-PSYCH_STEP, Math.min(PSYCH_STEP, goal - start));
+  }
+
+  /**
+   * Years in one unit of the run's time. A state saved before units had
+   * lengths carries none, and its ages were written as if a unit were a
+   * year, so it reads 1.
+   */
+  get yearsPerUnit(): number {
+    return this.state.metadata.yearsPerUnit ?? 1;
+  }
+
+  /** A person's age in years now. */
+  ageYears(agent: Agent): number {
+    return ageInYears(agent, this.state.metadata.currentTime, this.yearsPerUnit);
+  }
 
   /**
    * Capture a {@link KernelSnapshot} bundle. The returned object is
@@ -418,19 +476,32 @@ export class SimulationKernel {
     }
 
     if (patches.agentUpdates) {
+      const dropped = new Set<string>();
       for (const u of patches.agentUpdates) {
         const col = this.findAgent(u.agentId);
         if (!col) continue;
         if (u.health) {
-          // A patch never decides who lives. A death comes from progression,
-          // with the `death` event the roster and the verdict's mortality
-          // line are read from.
-          const { alive: _alive, deathTime: _deathTime, deathCause: _deathCause, ...health } = u.health;
-          Object.assign(col.health, health);
+          // A patch writes a person's psych (within the bound a report's
+          // update has) and conditions. It never decides who lives (a death
+          // comes from progression, with the `death` event the roster and
+          // the verdict's mortality line are read from), and never writes
+          // what a physics hook owns: dose and bone density gate deaths.
+          for (const key of Object.keys(u.health)) {
+            if (!PATCHABLE_HEALTH.has(key)) dropped.add(key);
+          }
+          if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
+          if (Array.isArray(u.health.conditions)) col.health.conditions = [...u.health.conditions];
         }
         if (u.career) Object.assign(col.career, u.career);
       }
       this.state.metrics.population = this.getAliveCount();
+      if (dropped.size > 0) {
+        const { currentTurn: turn, currentTime: time } = this.state.metadata;
+        this.state.eventLog.push({
+          turn, time, type: 'system',
+          description: `A department's patch wrote ${[...dropped].sort().join(', ')}, which a patch cannot set; left as they were`,
+        });
+      }
     }
 
     // One sum per key: a key both bags name moves once, within its range,
@@ -462,7 +533,7 @@ export class SimulationKernel {
   }
 
   /** Advance to the next turn. Runs between-turn progression. */
-  advanceTurn(nextTurn: number, nextTime: number, progressionHook?: (ctx: { agents: any[]; timeDelta: number; time: number; turn: number; startTime: number; rng: any }) => void): SimulationState {
+  advanceTurn(nextTurn: number, nextTime: number, progressionHook?: (ctx: ProgressionHookContext) => void): SimulationState {
     const prevTime = this.state.metadata.currentTime;
     const timeDelta = nextTime - prevTime;
     const turnRng = this.rng.turnSeed(nextTurn);
@@ -471,7 +542,7 @@ export class SimulationKernel {
     this.state.metadata.currentTime = nextTime;
     this.state.metadata.currentTurn = nextTurn;
 
-    const { state: progressed, events } = progressBetweenTurns(this.state, timeDelta, turnRng, progressionHook);
+    const { state: progressed, events } = progressBetweenTurns(this.state, timeDelta, turnRng, progressionHook, this.yearsPerUnit);
     this.state = progressed;
     this.state.metrics.population = this.getAliveCount();
     this.updateFeaturedAgents(events);
@@ -498,9 +569,8 @@ export class SimulationKernel {
    */
   getCandidates(dept: Department, topN: number = 5): Agent[] {
     const activation = ROLE_ACTIVATIONS[dept] ?? {};
-    const now = this.state.metadata.currentTime;
     return this.state.agents
-      .filter(c => c.health.alive && !c.promotion && now - c.core.birthTime >= 18)
+      .filter(c => c.health.alive && !c.promotion && this.ageYears(c) >= 18)
       .map(c => ({
         colonist: c,
         score: Object.entries(activation).reduce((s, [trait, target]) =>
@@ -629,7 +699,7 @@ export class SimulationKernel {
     const former = this.state.eventLog.flatMap(e => (
       e.type === 'departure' && e.agentId ? [{ id: e.agentId, name: String(e.data?.name) }] : []
     ));
-    const joiners = generateJoiners(rng, time, turn, count, this.state.agents, former);
+    const joiners = generateJoiners(rng, time, turn, count, this.state.agents, former, this.yearsPerUnit);
     this.state.agents.push(...joiners);
     for (const a of joiners) {
       this.state.eventLog.push({
@@ -641,7 +711,7 @@ export class SimulationKernel {
   }
 
   private removePeople(count: number, rng: SeededRng, turn: number, time: number): number {
-    const eligible = this.state.agents.filter(a => a.health.alive && !a.promotion && time - a.core.birthTime >= 18);
+    const eligible = this.state.agents.filter(a => a.health.alive && !a.promotion && ageInYears(a, time, this.yearsPerUnit) >= 18);
     for (let i = eligible.length - 1; i > 0; i--) {
       const j = rng.int(0, i);
       [eligible[i], eligible[j]] = [eligible[j], eligible[i]];
@@ -701,16 +771,18 @@ export class SimulationKernel {
     );
   }
 
-  /** Apply featured colonist updates from department reports. */
+  /**
+   * Apply featured colonist updates from department reports. A report's
+   * psych score moves the person at most 0.15 toward the value it writes
+   * ({@link PSYCH_STEP}); its conditions are set as written.
+   */
   applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string }>): void {
     for (const u of updates) {
       const col = this.findAgent(u.agentId);
       if (!col || !col.health.alive) continue;
 
       if (u.health) {
-        if (u.health.psychScore !== undefined) {
-          col.health.psychScore = Math.max(0, Math.min(1, u.health.psychScore));
-        }
+        if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
         if (u.health.conditions) {
           col.health.conditions = u.health.conditions;
         }

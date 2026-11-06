@@ -313,6 +313,8 @@ Full output: [`output/cookbook/04-output-replay-result.json`](../output/cookbook
 
 `replay()` re-executed the deterministic between-turn progression hook from each recorded snapshot and compared the fresh `kernelSnapshotsPerTurn` array against the input artifact's via canonical JSON. The hook is supposed to be deterministic; the captured `agreeableness` divergence on agent 0 between the original run and the replay is a real determinism gap to investigate. This is what the API is for: pillar 2 (Reproducible) is verifiable in code, not promised in copy. Use `replay()` for regression testing (replay golden artifacts in CI), forensic comparison (find the first kernel-state divergence between two versions of paracosm), and pre-merge gates that block on `matches !== true` for a committed golden artifact.
 
+Replay compares against the kernel that runs it. An artifact captured before the kernel rolled each person's deaths on dice of their own, or (for a scenario not counted in years) before it read ages and yearly rates in years, replays with `matches: false`; capture the golden artifact again on the current kernel.
+
 ---
 
 ## 5. `POST /simulate`

@@ -623,7 +623,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'status', leader: '', data };
-          const key = eventKey(evt);
+          // A status event carries no turn, leader or title, so eventKey
+          // gives every status event of a run one key. A pair run writes two
+          // (`starting`, then `parallel` with the leaders, which is what marks
+          // the run running), a fork `starting` and `fork-running`. The run's
+          // key and the frame itself tell them apart, and a replay after a
+          // reconnect sends the same frame under the same run, so it still
+          // counts once.
+          const key = `status|${runKeyRef.current ?? ''}|${e.data}`;
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));

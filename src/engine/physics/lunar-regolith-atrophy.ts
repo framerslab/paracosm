@@ -15,6 +15,7 @@
  * @module paracosm/engine/physics/lunar-regolith-atrophy
  */
 import type { ProgressionHookContext } from '../types.js';
+import { habitatDoseShare } from './mars-radiation-bone.js';
 
 /** Lunar regolith dust toxicity index — arbitrary annualized units. */
 const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
@@ -38,12 +39,21 @@ const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
  */
 export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): void {
   const { agents, timeDelta, time, startTime } = ctx;
+  // The step and the time since landing in years (a hook called without
+  // them counts in years, as the Moon does).
+  const yearsDelta = ctx.yearsDelta ?? timeDelta;
+  const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
+  // A declared surface dose (mSv a day) replaces the default index; the
+  // habitat's modules shield either.
+  const declared = ctx.environment?.surfaceRadiationMsvDay;
+  const perYear = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) * 365 : LUNAR_REGOLITH_EXPOSURE_PER_YEAR;
+  const exposurePerYear = perYear * habitatDoseShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
 
     c.health.cumulativeRadiationMsv =
-      (c.health.cumulativeRadiationMsv ?? 0) + LUNAR_REGOLITH_EXPOSURE_PER_YEAR * timeDelta;
+      (c.health.cumulativeRadiationMsv ?? 0) + exposurePerYear * yearsDelta;
 
     // Snapshot the immutable baseline on the first call so the decay
     // curve always targets the agent's original bone density rather
@@ -66,7 +76,7 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
     // above baseline. The min(yearsOnMoon, 15) handles the upper end
     // (saturation); Math.max(0, ...) handles the lower end (no-op
     // before crew lands).
-    const yearsOnMoon = Math.max(0, time - startTime);
+    const yearsOnMoon = Math.max(0, yearsSinceStart);
     const targetRatio = Math.max(0.4, 1 - lossRate * Math.min(yearsOnMoon, 15));
     // Floor at 40% but never above the immutable baseline — guards
     // the theoretical case where an agent starts with bone density
