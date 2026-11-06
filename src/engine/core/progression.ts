@@ -385,7 +385,8 @@ export const MORALE_PULL_PER_YEAR = 0.2;
  * dose, moves psych a year's worth and rolls every yearly chance once on
  * dice of its own, so one eight-year turn gives the chances eight
  * one-year turns give. A step shorter than a year rolls
- * `1 - (1 - rate)^years`. Morale drift runs once a turn, after the steps.
+ * `1 - (1 - rate)^years`. Morale drift runs once a turn, after the steps,
+ * with the death shock of each step.
  */
 export function progressBetweenTurns(
   state: SimulationState,
@@ -402,6 +403,7 @@ export function progressBetweenTurns(
   const turnStart = time - timeDelta;
   let elapsedYears = 0;
   let stepStart = turnStart;
+  let deathShock = 0;
   steps.forEach((years, step) => {
     elapsedYears += years;
     // The step's end in the scenario's time; the last step ends on the
@@ -409,7 +411,7 @@ export function progressBetweenTurns(
     const stepEnd = step === steps.length - 1
       ? time
       : turnStart + Math.round((elapsedYears / yearsPerUnit) * 1e9) / 1e9;
-    progressStep({
+    deathShock += progressStep({
       state, colonists, metrics, events, turnRng, progressionHook, yearsPerUnit,
       step, years,
       time: stepEnd,
@@ -420,15 +422,15 @@ export function progressBetweenTurns(
 
   // 6. Morale drift (now informed by average psych scores), once a turn:
   // a turn is where a leader decides, and the drift is the colony's mood
-  // settling between decisions.
-  const deadThisTurn = new Set(events.filter(e => e.type === 'death' && e.agentId).map(e => e.agentId!));
+  // settling between decisions. The death shock is the sum of the steps'
+  // shocks: three deaths in three years of one turn are no shock, as they
+  // are over three one-year turns.
   const aliveColonists = colonists.filter(c => c.health.alive);
   const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
   const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
   // Food and life support weigh on morale only in a run that carries them.
   const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
   const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
-  const deathShock = deadThisTurn.size > 2 ? -0.04 * deadThisTurn.size : 0;
   metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
 
   return {
@@ -460,7 +462,8 @@ interface StepInput {
   time: number;
 }
 
-function progressStep(input: StepInput): void {
+/** Run one step of a turn and return the morale shock of its deaths: 0.04 a death when more than two people die in it. */
+function progressStep(input: StepInput): number {
   const { state, colonists, metrics, events, turnRng, progressionHook, yearsPerUnit, step, years, units, time } = input;
   const turn = state.metadata.currentTurn;
   const ageOf = (c: Agent) => ageInYears(c, time, yearsPerUnit);
@@ -826,4 +829,6 @@ function progressStep(input: StepInput): void {
 
   // 7. Update population count, which the next step's hook reads.
   metrics.population = colonists.filter(c => c.health.alive).length;
+
+  return deadThisStep.size > 2 ? -0.04 * deadThisStep.size : 0;
 }
