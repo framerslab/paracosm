@@ -229,6 +229,26 @@ test('a department\'s report format lists the keys its run holds, with their uni
   assert.equal(buildForgeGuidance('engineering', mars.world, kernelFor(mars, 2035).getState()), marsGuidance);
 });
 
+test('a custom scenario\'s key with a quote or a backslash still gives a report example that parses', () => {
+  // A custom scenario's world maps are string-keyed records, so a key may
+  // hold a quote or a backslash; written between bare quotes it broke the
+  // worked JSON example the department copies.
+  const world = {
+    metrics: { 'reserve"days': { label: 'Reserve days', unit: 'days', min: 0 }, 'a\\b': { label: 'Ratio', unit: '', min: 0, max: 1 } },
+    politics: { 'trust"index': { label: 'Trust', unit: '', min: 0, max: 100 } },
+  };
+  const state = { metrics: { population: 10, morale: 0.8, 'reserve"days': 30, 'a\\b': 0.5 }, politics: { 'trust"index': 50 } };
+  const guidance = buildForgeGuidance('operations', world as never, state);
+  const format = guidance.slice(guidance.indexOf('REPORT FORMAT'));
+  const effects = format.match(/"recommendedEffects": \[(\{.*\})\],\n/)![1];
+  const parsed = JSON.parse(effects) as { systemDelta: Record<string, number>; politicsDelta: Record<string, number> };
+  assert.deepEqual(Object.keys(parsed.systemDelta), ['reserve"days', 'a\\b']);
+  assert.deepEqual(Object.keys(parsed.politicsDelta), ['trust"index']);
+  for (const key of ['reserve"days', 'a\\b', 'trust"index']) {
+    assert.ok(format.includes(`- ${JSON.stringify(key)} (`), `the key list names ${key} as JSON`);
+  }
+});
+
 test('the event summaries a viewer reads name the scenario\'s leader', () => {
   assert.equal(buildEventSummary('decision_pending', {}, atlasLab.labels), 'release director deciding');
   assert.match(buildEventSummary('decision_made', { decision: 'Hold the release' }, atlasLab.labels), /^release director decided: Hold the release/);
