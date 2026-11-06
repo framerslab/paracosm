@@ -91,6 +91,7 @@ export interface BuildArtifactInputs {
       selectedPolicies: string[];
     };
     policyEffectsApplied: string[];
+    policyKeysDropped?: string[];
   }>;
   /** Flat list of commander decisions across turns. */
   commanderDecisions: Array<{
