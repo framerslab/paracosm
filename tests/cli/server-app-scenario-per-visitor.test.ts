@@ -15,48 +15,11 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMarsServer, type CreateMarsServerOptions } from '../../src/server/server-app.js';
-import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
-import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
-import type { BroadcastFn } from '../../src/cli/pair-runner.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
-import { visitor, type Visitor } from './helpers/visitor.js';
-
-interface ScenarioJson {
-  id: string;
-  labels: { name: string };
-  setup: { defaultTurns: number; defaultSeed: number };
-  presets: Array<{
-    leaders: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions: string }>;
-  }>;
-}
-
-function readScenario(file: string): ScenarioJson {
-  return JSON.parse(readFileSync(new URL(`../../scenarios/${file}`, import.meta.url), 'utf-8')) as ScenarioJson;
-}
-
-const atlasLab = readScenario('atlas-lab.json');
-const mars = readScenario('mars.json');
-
-/** The body QuickstartView posts: the preset's leaders, turns and seed, the scenario under quickstart. */
-function quickstartBody(scenario: ScenarioJson) {
-  return {
-    actors: scenario.presets[0].leaders,
-    turns: scenario.setup.defaultTurns,
-    seed: scenario.setup.defaultSeed,
-    captureSnapshots: true,
-    quickstart: { scenarioId: scenario.id },
-  };
-}
-
-/** The body Settings and the re-run button post: the scenario at the top level. */
-function settingsBody(scenario: ScenarioJson) {
-  return { actors: scenario.presets[0].leaders, turns: 6, seed: 951, scenarioId: scenario.id };
-}
+import { atlasLab, mars, quickstartBody, readReplay, settingsBody, waitFor, withVisitors } from './helpers/run-server.js';
 
 /** A runnable scenario stored through /scenario/store (tests/cli/server-app.test.ts uses the same one). */
 const oceanStation = {
@@ -92,87 +55,6 @@ const oceanStation = {
 
 /** Stored but not runnable: no hooks, world or policies. */
 const draftStation = { id: 'draft-ocean-station', labels: { name: 'Draft Ocean Station' }, departments: [{ id: 'operations', label: 'Operations' }] };
-
-interface Launch { config: NormalizedSimulationConfig; scenario: ScenarioPackage | undefined }
-type Runner = (config: NormalizedSimulationConfig, broadcast: BroadcastFn, scenario: ScenarioPackage | undefined) => Promise<void>;
-
-async function withVisitors(
-  body: (api: { visitor: (cookies?: Record<string, string>) => Visitor; launches: Launch[]; forkLaunches: Launch[]; base: string }) => Promise<void>,
-  options: {
-    runner?: Runner;
-    env?: Record<string, string>;
-    maxSimsPerDay?: number;
-    scenarioDir?: string;
-    compileScenario?: CreateMarsServerOptions['compileScenario'];
-  } = {},
-): Promise<void> {
-  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-scenario-per-visitor-'));
-  const launches: Launch[] = [];
-  const forkLaunches: Launch[] = [];
-  const server = createMarsServer({
-    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '', ...options.env },
-    maxSimsPerDay: options.maxSimsPerDay ?? 0,
-    runHistoryStore: createNoopRunHistoryStore(),
-    runPairSimulations: async (config, broadcast, _signal, scenario) => {
-      launches.push({ config, scenario });
-      await options.runner?.(config, broadcast, scenario);
-    },
-    // A fork is recorded and never run, so no fork reaches a model.
-    runForkSimulation: async (config, _broadcast, _signal, scenario) => {
-      forkLaunches.push({ config, scenario });
-    },
-    ...(options.scenarioDir ? { scenarioDir: options.scenarioDir } : {}),
-    ...(options.compileScenario ? { compileScenario: options.compileScenario } : {}),
-  });
-  server.listen(0);
-  await once(server, 'listening');
-  const { port } = server.address() as { port: number };
-  const base = `http://127.0.0.1:${port}`;
-  try {
-    await body({ visitor: cookies => visitor(base, cookies), launches, forkLaunches, base });
-  } finally {
-    server.closeAllConnections?.();
-    server.close();
-    await once(server, 'close');
-    rmSync(appDir, { recursive: true, force: true });
-  }
-}
-
-async function waitFor<T>(read: () => T | null | undefined | Promise<T | null | undefined>, what: string, ms = 2000): Promise<T> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await read();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise(resolve => setTimeout(resolve, 10));
-  }
-}
-
-/** Connects to /events and returns the frames it replays before replay_done. */
-async function readReplay(base: string): Promise<Array<{ event: string; data: Record<string, unknown> }>> {
-  const ac = new AbortController();
-  const res = await fetch(`${base}/events`, { signal: ac.signal });
-  assert.equal(res.status, 200);
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  try {
-    while (!text.includes('event: replay_done')) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    ac.abort();
-  }
-  assert.ok(text.includes('event: replay_done'), `no replay_done: ${text}`);
-  const frames = text.split('\n\n').filter(frame => frame.startsWith('event: ')).map(frame => {
-    const [eventLine, dataLine = 'data: {}'] = frame.split('\n');
-    return { event: eventLine.slice('event: '.length), data: JSON.parse(dataLine.slice('data: '.length)) as Record<string, unknown> };
-  });
-  const done = frames.findIndex(f => f.event === 'replay_done');
-  return frames.slice(1, done);
-}
 
 test("another visitor's switch neither refuses this visitor's run nor moves their scenario", async () => {
   await withVisitors(async ({ visitor, launches }) => {

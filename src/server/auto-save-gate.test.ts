@@ -3,9 +3,10 @@
  *
  * The contract: `paracosm.agentos.sh/sessions` (and its replay surface)
  * must only ever expose runs that played to completion. The gating
- * itself lives in `server-app.ts` (`autoSaveOnComplete`, lines ~790-872):
- * `currentRunAborted`, `currentRunErrored`, `eventBuffer.length === 0`,
- * `turnDoneCount < AUTO_SAVE_MIN_TURNS`, and `turnDoneCount <
+ * itself lives in `server-app.ts` (`autoSaveOnComplete(run)`), over each
+ * visitor's run and its own flags (src/server/live-runs.ts): a Digital
+ * Twin run, `run.aborted`, `run.errored`, `run.saved`, an empty
+ * `run.buffer`, `turnDoneCount < AUTO_SAVE_MIN_TURNS`, and `turnDoneCount <
  * expectedTurnDone` all short-circuit before `saveSession` is called.
  *
  * The store itself does NOT re-validate the gate — performance + design
