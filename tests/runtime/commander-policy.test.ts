@@ -20,6 +20,7 @@ import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
+import { EffectRegistry } from '../../src/engine/registries/effects.js';
 import { CommanderDecisionSchema } from '../../src/runtime/validators/commander.js';
 import { buildCommanderBootstrap, buildCommanderTurnPrompt, buildEffectsBlock } from '../../src/runtime/orchestrator/commander-setup.js';
 import { applyCommanderPolicy } from '../../src/runtime/orchestrator/commander-policy.js';
@@ -29,7 +30,17 @@ import type { CommanderDecision, DepartmentReport } from '../../src/runtime/cont
 const here = dirname(fileURLToPath(import.meta.url));
 const atlasLab = loadDiskCustomScenarios(resolve(here, '../../scenarios')).get('atlas-lab')?.scenario as ScenarioPackage;
 
-type Effect = { id: string; type: string; description: string; systemDelta: Record<string, number> };
+/** The outcome tables a run of the scenario bounds its decisions by, as the orchestrator passes them. */
+function tablesOf(scenario: ScenarioPackage) {
+  return {
+    registry: EffectRegistry.forScenario(scenario),
+    politicsHook: scenario.hooks.politicsHook,
+    categories: Object.keys(scenario.knowledge?.categoryMapping ?? {}),
+  };
+}
+const marsTables = tablesOf(marsScenario);
+
+type Effect = { id: string; type: string; description: string; systemDelta?: Record<string, number>; politicsDelta?: Record<string, number> };
 
 function report(department: string, recommendedEffects: Effect[]): DepartmentReport {
   return { ...emptyReport(department), recommendedEffects } as unknown as DepartmentReport;
@@ -92,13 +103,18 @@ function marsKernel(): SimulationKernel {
   });
 }
 
+/** The Mars Genesis run of the live pair of 6 November 2026: seed 950, 30 people. */
+function mars950(): SimulationKernel {
+  return new SimulationKernel(950, 'Aria Chen', [], { startTime: 2035, initialPopulation: 30, scenario: marsScenario });
+}
+
 function near(actual: number, expected: number, label: string): void {
   assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: expected ${expected}, got ${actual}`);
 }
 
-function step(kernel: SimulationKernel, decision: CommanderDecision, reports: DepartmentReport[]) {
+function step(kernel: SimulationKernel, decision: CommanderDecision, reports: DepartmentReport[], tables = marsTables) {
   const lines: string[] = [];
-  const applied = applyCommanderPolicy(kernel, decision, reports, 1, kernel.getState().metadata.currentTime, l => lines.push(l));
+  const applied = applyCommanderPolicy(kernel, decision, reports, 1, kernel.getState().metadata.currentTime, l => lines.push(l), tables);
   return { ...applied, lines };
 }
 
@@ -152,8 +168,105 @@ test('a key with the type or the description after it still reads', () => {
       'alignment_research/effect_2 (resource_shift): Shift red-team time toward mixed-modality prompt coverage and away from lower-yield general canary repetition.',
       'governance/effect_1 (risk_mitigation): Shift a small engineering slice from general capability work into explanation-head suppression and mixed-modality red-teaming.',
     ],
-  }), marcusTurn2());
+  }), marcusTurn2(), tablesOf(atlasLab));
   near(lab.getState().metrics.morale, before + 0.01, 'Marcus morale');
+});
+
+test('one decision moves a key at most what one ordinary event outcome brings, and the log names what was asked', () => {
+  // #214: the policy step summed any number a report wrote. An engineering
+  // effect of ten habitat modules took Mars Genesis from 3 modules to 13 in
+  // one decision; the outcome tables bring 2 at most (infrastructure).
+  const reports = [
+    report('engineering', [
+      { id: 'effect_1', type: 'capacity_expansion', description: 'Build two habitat modules.', systemDelta: { infrastructureModules: 10 } },
+    ]),
+    report('medical', [
+      { id: 'effect_1', type: 'social_investment', description: 'Rest rotation for the whole crew.', systemDelta: { morale: 0.5 } },
+    ]),
+    report('governance', [
+      { id: 'effect_1', type: 'governance_change', description: 'Local water and air accounts.', politicsDelta: { earthDependencyPct: -20 } },
+    ]),
+  ];
+  const kernel = mars950();
+  assert.equal(kernel.getState().metrics.infrastructureModules, 3);
+  assert.equal(kernel.getState().metrics.morale, 0.85);
+  const { deltas, lines, ...applied } = step(kernel, reply({
+    selectedPolicies: ['engineering/effect_1', 'medical/effect_1', 'governance/effect_1'],
+  }), reports);
+  const state = kernel.getState();
+  assert.equal(state.metrics.infrastructureModules, 5, 'the infrastructure table brings 2 modules');
+  near(state.metrics.morale, 1, 'morale: the psychological table brings 0.15');
+  assert.equal(state.politics.earthDependencyPct, 92, 'the politics table brings 3 points');
+  assert.deepEqual(deltas, { infrastructureModules: 2, morale: 0.15, earthDependencyPct: -3 });
+  const line = lines.find(l => l.includes('[policy] effects'));
+  assert.ok(line, lines.join('\n'));
+  assert.match(line, /asked: \{"infrastructureModules":10,"morale":0\.5,"earthDependencyPct":-20\}/);
+  assert.deepEqual((applied as Record<string, unknown>).limited, {
+    infrastructureModules: { asked: 10, applied: 2 },
+    morale: { asked: 0.5, applied: 0.15 },
+    earthDependencyPct: { asked: -20, applied: -3 },
+  });
+
+  // A fall is bounded the same way, and well inside the ceiling.
+  const down = mars950();
+  step(down, reply({ selectedPolicies: ['medical/effect_1'] }), [report('medical', [
+    { id: 'effect_1', type: 'resource_shift', description: 'Cut the rest rotation.', systemDelta: { morale: -0.5 } },
+  ])]);
+  near(down.getState().metrics.morale, 0.7, 'morale -0.5 asked, -0.15 applied');
+
+  // Two effects on one key add up before the bound.
+  const two = mars950();
+  step(two, reply({ selectedPolicies: ['engineering/effect_1', 'engineering/effect_2'] }), [report('engineering', [
+    { id: 'effect_1', type: 'capacity_expansion', description: 'One module.', systemDelta: { infrastructureModules: 1.5 } },
+    { id: 'effect_2', type: 'capacity_expansion', description: 'Another.', systemDelta: { infrastructureModules: 1.5 } },
+  ])]);
+  assert.equal(two.getState().metrics.infrastructureModules, 5);
+});
+
+test('a choice a ceiling stops is logged with what it asked, and one that moved as asked is not', () => {
+  const kernel = mars950();
+  const raise = (delta: number) => step(kernel, reply({ selectedPolicies: ['psychology/effect_1'] }), [report('psychology', [
+    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: delta } },
+  ])]);
+  const first = raise(0.1);
+  near(kernel.getState().metrics.morale, 0.95, 'first');
+  assert.ok(!first.lines.some(l => l.includes('asked')), first.lines.join('\n'));
+  assert.deepEqual((first as Record<string, unknown>).limited, {});
+
+  const second = raise(0.1);
+  near(kernel.getState().metrics.morale, 1, 'at the ceiling');
+  const line = second.lines.find(l => l.includes('[policy] effects'));
+  assert.ok(line, second.lines.join('\n'));
+  assert.match(line, /asked: \{"morale":0\.1\}/);
+
+  const third = raise(0.1);
+  assert.deepEqual(third.deltas, { morale: 0 }, 'the choice moved nothing');
+  assert.match(third.lines.join('\n'), /\[policy\] effects: \{"morale":0\} asked: \{"morale":0\.1\}/);
+  assert.deepEqual((third as Record<string, unknown>).limited, { morale: { asked: 0.1, applied: 0 } });
+});
+
+test('a key no outcome table names moves at most a tenth of its value, or 1 from zero', () => {
+  assert.ok(atlasLab, 'scenarios/ holds atlas-lab');
+  const lab = new SimulationKernel(950, 'Marcus Reinhardt', [], { startTime: 1, initialPopulation: 30, scenario: atlasLab });
+  assert.equal(lab.getState().metrics.trainingRunsPerMonth, 4);
+  const runs = step(lab, reply({ selectedPolicies: ['alignment_research/effect_1'] }), [report('alignment_research', [
+    { id: 'effect_1', type: 'capacity_expansion', description: 'Three more training runs a month.', systemDelta: { trainingRunsPerMonth: 3 } },
+  ])], tablesOf(atlasLab));
+  near(lab.getState().metrics.trainingRunsPerMonth, 4.4, 'a tenth of 4');
+  assert.match(runs.lines.join('\n'), /asked: \{"trainingRunsPerMonth":3\}/);
+
+  lab.applySystemDeltas({ redTeamPassesPerMonth: -6 });
+  assert.equal(lab.getState().metrics.redTeamPassesPerMonth, 0);
+  step(lab, reply({ selectedPolicies: ['governance/effect_1'] }), [report('governance', [
+    { id: 'effect_1', type: 'capacity_expansion', description: 'Five red-team passes a month.', systemDelta: { redTeamPassesPerMonth: 5 } },
+  ])], tablesOf(atlasLab));
+  assert.equal(lab.getState().metrics.redTeamPassesPerMonth, 1, '1 from zero');
+
+  // A key the tables name keeps its table's bound: talent brings 8 people.
+  const hires = step(lab, reply({ selectedPolicies: ['governance/effect_1'] }), [report('governance', [
+    { id: 'effect_1', type: 'population_intake', description: 'Hire forty researchers.', systemDelta: { population: 40 } },
+  ])], tablesOf(atlasLab));
+  assert.equal(hires.deltas.population, 8);
 });
 
 test('a selection that names no effect moves nothing and is reported in the log', () => {
