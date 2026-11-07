@@ -32,7 +32,7 @@ import {
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
-import { applyCommanderPolicy } from './commander-policy.js';
+import { applyCommanderPolicy, type PolicyEffectTables } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, forgedToolNames, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
@@ -935,11 +935,19 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
+  let turnPolicyLimited: NonNullable<TurnArtifact['policyEffectsLimited']> = [];
   let turnDeptReports: DepartmentReport[] = [];
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
   const director = new EventDirector();
   const effectRegistry = EffectRegistry.forScenario(sc);
+  // One decision's adopted effects move a key at most what one event
+  // outcome brings on it: the scenario's outcome tables bound them (#214).
+  const policyTables: PolicyEffectTables = {
+    registry: effectRegistry,
+    politicsHook: sc.hooks.politicsHook,
+    categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
+  };
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
@@ -1119,6 +1127,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     let lastEventCategory = '';
     // Reset per-turn slots so the artifacts.push() below captures only this
     // turn's reports / decisions / policies.
+    turnPolicyLimited = [];
     turnDeptReports = [];
     turnDecisions = [];
     turnPolicyEffects = [];
@@ -1563,7 +1572,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      applyCommanderPolicy(kernel, decision, reports, turn, time);
+      const { limited } = applyCommanderPolicy(kernel, decision, reports, turn, time, console.log, policyTables);
+      for (const [key, { asked, applied }] of Object.entries(limited)) turnPolicyLimited.push({ eventIndex: ei, key, asked, applied });
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1790,6 +1800,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         ...(Object.keys(after.politics).length > 0 ? { politics: { ...after.politics } } : {}),
         ...(Object.keys(after.environment).length > 0 ? { environment: { ...after.environment } } : {}),
       },
+      ...(turnPolicyLimited.length > 0 ? { policyEffectsLimited: turnPolicyLimited.slice() } : {}),
     });
     // Per-turn kernel snapshot for WorldModel.forkFromArtifact. Opt-in
     // via opts.captureSnapshots; adds ~100 KB per turn for 100-agent
