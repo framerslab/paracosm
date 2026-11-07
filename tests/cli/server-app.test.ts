@@ -1,7 +1,7 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync, writeFileSync, utimesSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, utimesSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildResultsPayloadFromEventBuffer, createMarsServer } from '../../src/server/server-app.js';
@@ -9,6 +9,15 @@ import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { RunRecord } from '../../src/server/services/run-record.js';
 import type { RunHistoryStore } from '../../src/server/stores/run-history.js';
 import { visitor } from './helpers/visitor.js';
+
+// A server that names no APP_DIR keeps its state under it: the runs it holds
+// (.live-runs/), its rate-limit file, its stores. The tests below that name
+// none share this folder, never the checkout, where the end-to-end server
+// started after this suite would read their last run back as an interrupted
+// run.
+const SUITE_APP_DIR = mkdtempSync(join(tmpdir(), 'paracosm-server-app-suite-'));
+process.env.APP_DIR = SUITE_APP_DIR;
+after(() => rmSync(SUITE_APP_DIR, { recursive: true, force: true }));
 
 const leaderA = {
   name: 'Aria Chen',
@@ -1137,22 +1146,48 @@ test('DELETE /admin/scenarios/:id: 400 when target is a builtin (mars-genesis is
   }
 });
 
-test('skips rehydration of stale .event-buffer.json (older than STALE_BUFFER_MS)', async () => {
+/**
+ * A run as the server writes it to `${APP_DIR}/.live-runs/<key>.json`: the
+ * anonymous visitor's, the visitor of every caller that sends no cookie.
+ */
+function writeHeldRun(appDir: string, events: string[]): string {
+  const key = 'held-run-0001';
+  const dir = join(appDir, '.live-runs');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${key}.json`);
+  writeFileSync(file, JSON.stringify({
+    version: 1,
+    key,
+    visitorId: 'anonymous',
+    kind: 'pair',
+    scenarioId: 'mars-genesis',
+    scenarioName: 'Mars Genesis',
+    seedText: null,
+    aborted: false,
+    errored: false,
+    saved: false,
+    events,
+    timestamps: events.map(() => 0),
+    actorIds: events.map(() => null),
+  }));
+  return file;
+}
+
+test('does not read back a held run written longer ago than STALE_BUFFER_MS', async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-stale-buffer-'));
-  const bufferPath = join(appDir, '.event-buffer.json');
-  // Write a buffer that simulates a finished (but old) run: a turn_done
-  // and a sim_aborted, plus a cost_update. These are exactly the events
-  // that polluted fresh-visitor sessions in the production audit.
-  const stalePayload = JSON.stringify([
+  // A finished (but old) run: a turn_done and a sim_aborted, plus a
+  // cost_update. These are exactly the events that polluted fresh-visitor
+  // sessions in the production audit.
+  const runFile = writeHeldRun(appDir, [
     'event: turn_done\ndata: {"turn":2,"year":2043,"seed":950}\n\n',
     'event: cost_update\ndata: {"totalCostUSD":0.23,"totalTokens":256000,"llmCalls":40}\n\n',
     'event: sim_aborted\ndata: {"reason":"client_disconnected","turn":2,"completedTurns":2}\n\n',
+    'event: complete\ndata: {"aborted":true}\n\n',
   ]);
-  writeFileSync(bufferPath, stalePayload);
   // Backdate the file's mtime to 45 minutes ago. STALE_BUFFER_MS in
   // server-app.ts is 30 minutes, so this is well past the gate.
   const fortyFiveMinAgoSec = (Date.now() - 45 * 60 * 1000) / 1000;
-  utimesSync(bufferPath, fortyFiveMinAgoSec, fortyFiveMinAgoSec);
+  utimesSync(runFile, fortyFiveMinAgoSec, fortyFiveMinAgoSec);
 
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir },
@@ -1164,13 +1199,14 @@ test('skips rehydration of stale .event-buffer.json (older than STALE_BUFFER_MS)
   try {
     const res = await fetch(`http://127.0.0.1:${port}/results`);
     assert.equal(res.status, 200);
-    const data = await res.json() as { events?: unknown[]; results?: unknown[] };
-    // Stale buffer should be dropped on rehydration → /results sees an
-    // empty event stream, not the stale turn_done/cost_update/sim_aborted.
-    assert.equal((data.events ?? []).length, 0, 'stale events should be dropped');
-    // The on-startup gate also unlinks the file so a subsequent restart
-    // doesn't keep tripping the same gate.
-    assert.equal(existsSync(bufferPath), false, 'stale buffer file should be unlinked');
+    const data = await res.json() as { totalEvents?: number; results?: unknown[]; runKey?: string | null };
+    // The stale run is not read back → /results sees no run, not the stale
+    // turn_done/cost_update/sim_aborted.
+    assert.equal(data.runKey, null, 'the stale run should not be read back');
+    assert.equal(data.totalEvents, 0, 'stale events should be dropped');
+    // The boot also unlinks the file so a subsequent restart doesn't keep
+    // tripping the same gate.
+    assert.equal(existsSync(runFile), false, 'stale run file should be unlinked');
   } finally {
     server.close();
     await once(server, 'close');
@@ -1183,27 +1219,25 @@ test('runtime gate drops stale buffer on first reconnect after idle', async () =
   // staleBufferMs is set to 50ms so a 200ms idle is enough to trigger the
   // gate. The flow:
   //   1. Server starts with a captured broadcast handle.
-  //   2. /setup invokes runPairSimulations, which captures broadcast.
+  //   2. /setup invokes runPairSimulations, which captures broadcast and
+  //      returns: the run is finished.
   //   3. Push turn_done + cost_update + sim_aborted via captured handle.
-  //   4. Wait 200ms so eventTimestamps[last] is > 50ms old.
+  //   4. Wait 200ms so the run's last event is > 50ms old.
   //   5. Open a fresh /events client — the runtime gate fires because
-  //      clients.size === 0 at the moment of connection (the /setup
-  //      request did not subscribe to /events).
+  //      the finished run has no viewer at the moment of connection (the
+  //      /setup request did not subscribe to /events), so the run goes.
   //   6. Assert the polluted historical events do NOT replay.
-  // APP_DIR is isolated to a temp dir to keep the test from sharing a
-  // global .event-buffer.json with parallel tests.
+  // APP_DIR is isolated to a temp dir to keep the test from sharing its
+  // .live-runs/ folder with parallel tests.
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-runtime-gate-'));
   let captureBroadcast: ((event: string, data: unknown) => void) | null = null;
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir },
     staleBufferMs: 50,
     runPairSimulations: async (_config, broadcast) => {
+      // The run ends here: the gate applies to a finished run. A run in
+      // flight with no viewer is the disconnect watchdog's.
       captureBroadcast = broadcast;
-      // Hold the promise open so the server treats the sim as active
-      // (otherwise it auto-resolves and the disconnect watchdog logic
-      // changes). The test closes the server in finally{} which races
-      // this promise to rejection — that's fine for a unit test.
-      await new Promise(() => {});
     },
   } as any);
   server.listen(0);
@@ -1264,20 +1298,16 @@ test('runtime gate drops stale buffer on first reconnect after idle', async () =
   }
 });
 
-test('rehydrates fresh .event-buffer.json (within STALE_BUFFER_MS)', async () => {
+test('reads back a held run written within STALE_BUFFER_MS', async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-fresh-buffer-'));
-  const bufferPath = join(appDir, '.event-buffer.json');
   // Use a `result` event because buildResultsPayloadFromEventBuffer
   // filters by event type; turn_done isn't surfaced through /results,
   // but result/verdict/complete are. The gate is what's under test —
-  // event content doesn't matter as long as the rehydrated array is
-  // non-empty when read back.
-  const freshPayload = JSON.stringify([
+  // event content doesn't matter as long as the run read back is
+  // non-empty. Its mtime is "now", so the gate passes.
+  writeHeldRun(appDir, [
     'event: result\ndata: {"runId":"run_fresh_test","leader":"TestLeader","totalTurns":1}\n\n',
   ]);
-  writeFileSync(bufferPath, freshPayload);
-  // mtime defaults to "now" on writeFileSync, so the gate's mtime check
-  // passes and rehydration proceeds.
 
   const server = createMarsServer({
     env: { ...process.env, APP_DIR: appDir },
@@ -1287,11 +1317,11 @@ test('rehydrates fresh .event-buffer.json (within STALE_BUFFER_MS)', async () =>
   await once(server, 'listening');
   const port = (server.address() as { port: number }).port;
   try {
+    // A caller with no cookie is the anonymous visitor, whose run it is.
     const res = await fetch(`http://127.0.0.1:${port}/results`);
     assert.equal(res.status, 200);
-    const data = await res.json() as { results?: unknown[] };
-    // Fresh buffer rehydrates: the seeded `result` event surfaces in
-    // /results.results.
+    const data = await res.json() as { results?: unknown[]; runKey?: string | null };
+    assert.equal(data.runKey, 'held-run-0001');
     assert.equal((data.results ?? []).length, 1, 'fresh result event should rehydrate');
   } finally {
     server.close();
@@ -1537,11 +1567,10 @@ test('eventBuffer is bounded by PARACOSM_EVENT_BUFFER_MAX (FIFO drop on overflow
 // would return 400 with that error in the body. Production server logs
 // caught this as a user-visible "Launch failed" toast on the dashboard.
 //
-// The fix captures simConfig into a non-null `launchConfig` local
-// BEFORE the first await; this test fires 8 concurrent /setup calls
-// against the same server and asserts none of them lands the
-// race-induced 400. With the bug present, several setups would fail
-// with the actors-deref error; with the fix all should return 200.
+// The config is each request's own now. This test fires 8 concurrent
+// /setup calls against the same server, all with no cookie, so all from
+// the anonymous visitor, and asserts every one of them gets its run: each
+// replaces the one before it, as one visitor's next Run does.
 test('concurrent /setup requests do not race on the simConfig closure', async () => {
   let runCount = 0;
   const server = createMarsServer({
@@ -1563,11 +1592,9 @@ test('concurrent /setup requests do not race on the simConfig closure', async ()
     models: { commander: 'gpt-5.4', departments: 'gpt-5.4-mini', judge: 'gpt-5.4' },
   });
   try {
-    // 8 concurrent setups. Each one mutates the closure-level simConfig,
-    // and the in-flight-abort drain in /setup awaits the prior run's
-    // teardown — exactly the window where the race used to fire. With
-    // the fix, every setup completes with a 200 + redirect because
-    // launchConfig is captured before the first await.
+    // 8 concurrent setups from one visitor. Each replaces the run before
+    // it, whose runner gets up to 5 s to settle before the new one starts;
+    // every setup completes with a 200 + redirect.
     const responses = await Promise.all(
       Array.from({ length: 8 }, () =>
         fetch(`http://127.0.0.1:${port}/setup`, {
@@ -1590,9 +1617,9 @@ test('concurrent /setup requests do not race on the simConfig closure', async ()
         `/setup body must not surface a "reading 'actors'" race error: ${text}`,
       );
     }
-    // All 8 calls reach the runner (each one aborts the prior in-flight
-    // run via the simRunning drain) — the count proves no setup short-
-    // circuited with a race-induced 400 before scheduling the runner.
+    // All 8 calls reach the runner (each replaces the visitor's run
+    // before it) — the count proves no setup short-circuited with a
+    // race-induced 400 before scheduling the runner.
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(runCount, 8, 'every /setup should have invoked the runner');
   } finally {

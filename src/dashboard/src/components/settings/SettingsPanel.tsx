@@ -9,7 +9,7 @@ import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
 import { EventLogPanel } from '../log/EventLogPanel';
 import { SubTabNav } from '../shared/SubTabNav';
 import { getDashboardTabFromHref, resolveSetupRedirectHref, setSubTabUrlParam } from '../../tab-routing';
-import { markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
+import { emitLaunched, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import type { SimEvent } from '../../hooks/useSSE';
 import {
   ECONOMICS_PROFILE_OPTIONS,
@@ -475,6 +475,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         // The server took the run: it replaces the Digital Twin views.
         runStart();
         setStatus('Running...');
+        emitLaunched(window, data.visitorId);
         const targetHref = resolveSetupRedirectHref(window.location.href, data.redirect);
         const resolvedTab = getDashboardTabFromHref(targetHref);
         navigateTab(resolvedTab === 'about' ? 'sim' : resolvedTab as Exclude<typeof resolvedTab, 'about'>);
