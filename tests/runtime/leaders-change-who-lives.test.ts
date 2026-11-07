@@ -68,7 +68,9 @@ function run(choice: ReturnType<typeof adopt>) {
   return { state, died, lines };
 }
 
+/** A leader whose engineers build two shielded habitat modules each turn, the most one decision builds on Mars. */
 const builder = () => adopt('engineering', 'Build two shielded habitat modules.', { infrastructureModules: 2 });
+/** A leader who adopts a crew rest rotation each turn. */
 const rester = () => adopt('psychology', 'Rest rotation for the crew.', { morale: 0.05 });
 
 test('two leaders whose adopted effects differ lose different people over six Mars turns, on the same dice', () => {

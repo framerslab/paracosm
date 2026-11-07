@@ -112,7 +112,8 @@ function near(actual: number, expected: number, label: string): void {
   assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: expected ${expected}, got ${actual}`);
 }
 
-function step(kernel: SimulationKernel, decision: CommanderDecision, reports: DepartmentReport[], tables = marsTables) {
+/** Run the policy step the orchestrator runs after a decision, with the outcome tables it passes, and keep its log. */
+function step(kernel: SimulationKernel, decision: CommanderDecision, reports: DepartmentReport[], tables: Parameters<typeof applyCommanderPolicy>[6] = marsTables) {
   const lines: string[] = [];
   const applied = applyCommanderPolicy(kernel, decision, reports, 1, kernel.getState().metadata.currentTime, l => lines.push(l), tables);
   return { ...applied, lines };
@@ -267,6 +268,46 @@ test('a key no outcome table names moves at most a tenth of its value, or 1 from
     { id: 'effect_1', type: 'population_intake', description: 'Hire forty researchers.', systemDelta: { population: 40 } },
   ])], tablesOf(atlasLab));
   assert.equal(hires.deltas.population, 8);
+});
+
+test('a head count moves whole people within the bound', () => {
+  // No Mars table names population, so a decision moves at most a tenth of
+  // the roster: 2.5 of 25 people. The kernel moves whole people, and 2.5
+  // rounds to 3, so the bound counts whole people: 2.
+  const kernel = new SimulationKernel(950, 'Aria Chen', [], { startTime: 2035, initialPopulation: 25, scenario: marsScenario });
+  const { deltas, lines } = step(kernel, reply({ selectedPolicies: ['governance/effect_1'] }), [report('governance', [
+    { id: 'effect_1', type: 'population_intake', description: 'Bring three settlers on the next ship.', systemDelta: { population: 3 } },
+  ])]);
+  assert.equal(deltas.population, 2);
+  assert.equal(kernel.getState().metrics.population, 27);
+  assert.match(lines.join('\n'), /asked: \{"population":3\}/);
+});
+
+test('a key a table names only with 0 does not move, since one event brings nothing on it', () => {
+  const tables = { registry: new EffectRegistry({ drill: { morale: 0, foodMonthsReserve: 2 } }) };
+  const kernel = mars950();
+  step(kernel, reply({ selectedPolicies: ['psychology/effect_1'] }), [report('psychology', [
+    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: 0.1, foodMonthsReserve: 3 } },
+  ])], tables);
+  assert.equal(kernel.getState().metrics.morale, 0.85);
+  assert.equal(kernel.getState().metrics.foodMonthsReserve, 20);
+});
+
+test('a run reads its politics table for the bound once, not at every decision', () => {
+  // A compiled politics hook runs in a sandbox of its own at each call.
+  let calls = 0;
+  const hook = marsScenario.hooks.politicsHook!;
+  const tables = { ...marsTables, politicsHook: (category: string, outcome: string) => { calls += 1; return hook(category, outcome); } };
+  const kernel = mars950();
+  const reports = [report('governance', [
+    { id: 'effect_1', type: 'governance_change', description: 'Local water and air accounts.', politicsDelta: { earthDependencyPct: -20 } },
+  ])];
+  step(kernel, reply({ selectedPolicies: ['governance/effect_1'] }), reports, tables);
+  const first = calls;
+  assert.ok(first > 0);
+  step(kernel, reply({ selectedPolicies: ['governance/effect_1'] }), reports, tables);
+  assert.equal(calls, first, 'the second decision read the table again');
+  assert.equal(kernel.getState().politics.earthDependencyPct, 89, 'both decisions are bounded at 3');
 });
 
 test('a selection that names no effect moves nothing and is reported in the log', () => {
