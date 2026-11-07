@@ -383,10 +383,10 @@ export const MORALE_PULL_PER_YEAR = 0.2;
  * A turn runs as the steps {@link yearSteps} gives: each whole year it
  * spans is a step of its own, which ages people a year, adds a year's
  * dose, moves psych a year's worth and rolls every yearly chance once on
- * dice of its own, so one eight-year turn gives the chances eight
- * one-year turns give. A step shorter than a year rolls
- * `1 - (1 - rate)^years`. Morale drift runs once a turn, after the steps,
- * with the death shock of each step.
+ * dice of its own, then settles the colony's morale with that year's
+ * pressures and death shock ({@link settleMorale}), so one eight-year
+ * turn gives the chances and the morale eight one-year turns give. A
+ * step shorter than a year rolls `1 - (1 - rate)^years`.
  */
 export function progressBetweenTurns(
   state: SimulationState,
@@ -403,7 +403,6 @@ export function progressBetweenTurns(
   const turnStart = time - timeDelta;
   let elapsedYears = 0;
   let stepStart = turnStart;
-  let deathShock = 0;
   steps.forEach((years, step) => {
     elapsedYears += years;
     // The step's end in the scenario's time; the last step ends on the
@@ -411,32 +410,56 @@ export function progressBetweenTurns(
     const stepEnd = step === steps.length - 1
       ? time
       : turnStart + Math.round((elapsedYears / yearsPerUnit) * 1e9) / 1e9;
-    deathShock += progressStep({
+    const deathShock = progressStep({
       state, colonists, metrics, events, turnRng, progressionHook, yearsPerUnit,
       step, years,
       time: stepEnd,
       units: steps.length === 1 ? timeDelta : stepEnd - stepStart,
     });
+    // 6. Morale drift, after each step: a turn of a year or less settles
+    // once, however short; a longer one settles for each year it spans.
+    settleMorale(colonists, metrics, deathShock, steps.length === 1 ? 1 : years);
     stepStart = stepEnd;
   });
 
-  // 6. Morale drift (now informed by average psych scores), once a turn:
-  // a turn is where a leader decides, and the drift is the colony's mood
-  // settling between decisions. The death shock is the sum of the steps'
-  // shocks: three deaths in three years of one turn are no shock, as they
-  // are over three one-year turns.
+  return {
+    state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },
+    events,
+  };
+}
+
+/**
+ * Settle the colony's morale after one step of a turn: it moves a tenth of
+ * the way to 0.6 a year and takes the year's pressures (a food store under
+ * six months -0.05, more people alive than the life support holds -0.08,
+ * an average psych under 0.4 -0.06 or over 0.7 +0.03; food and life
+ * support only in a run that carries them) and the step's death shock.
+ *
+ * `years` is how many years of settling the step takes. A turn of a year
+ * or less is one step and takes one year's, however short, so a month of
+ * Atlas Lab settles as a turn always has. A longer turn takes one for each
+ * whole year it spans, as many as one-year turns over those years take:
+ * the pressures act on the colony through the years between decisions,
+ * not once for each decision. A step of `f` years other than one (the
+ * part of a year a long turn ends with, or the years a turn past
+ * {@link MAX_YEAR_STEPS} folds into its last step) takes what `f` yearly
+ * settlings with the step's pressures held give: morale moves
+ * `1 - 0.9^f` of the way to `0.6 + 10 * pressures`, where those pressures
+ * hold it.
+ */
+function settleMorale(colonists: Agent[], metrics: SimulationState['metrics'], deathShock: number, years: number): void {
   const aliveColonists = colonists.filter(c => c.health.alive);
   const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
   const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
   // Food and life support weigh on morale only in a run that carries them.
   const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
   const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
-  metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
-
-  return {
-    state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },
-    events,
-  };
+  if (years === 1) {
+    metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
+    return;
+  }
+  const held = 0.6 + (foodPressure + popPressure + psychPressure) * 10;
+  metrics.morale = Math.max(0, Math.min(1, held + (metrics.morale - held) * Math.pow(0.9, years) + deathShock));
 }
 
 /** One step of a turn: what {@link progressBetweenTurns} runs for each year a turn spans. */

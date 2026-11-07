@@ -1,99 +1,144 @@
 /**
- * A long turn rolls each year it spans (#194).
+ * A long turn rolls each year it spans (#194) and settles the colony's
+ * morale each year it spans.
  *
  * Mars Genesis turns are eight years apart. A yearly rate has to mean the
  * same thing whatever the turn's length, so one eight-year turn has to give
- * the chances eight one-year turns give: the deaths read the age and the
- * dose as they rise through the turn, and a couple can have more than one
- * child in it. These tests run the kernel the orchestrator runs (`new
- * SimulationKernel` with the scenario, then `advanceTurn` with its
- * progression hook) over the same forty years in eight-year turns and in
- * one-year turns, on forty seeds, and compare what happened. No model call.
+ * what eight one-year turns give: the deaths read the age and the dose as
+ * they rise through the turn, a couple can have more than one child in it,
+ * and morale settles toward 0.6 and takes the pressures of a low food
+ * store, a roster over its life support and a low average psych once a
+ * year, as it does between one-year turns. These tests run the kernel the
+ * orchestrator runs (`new SimulationKernel` with the scenario, then
+ * `advanceTurn` with its progression hook) over the same forty years in
+ * eight-year turns and in one-year turns, on forty seeds, and compare what
+ * happened. No model call: a leader's decision lands through
+ * `applySystemDeltas`, the call an event's outcome lands in.
  *
- * Morale is set to 0.7 before every turn on both sides, so the end-of-turn
- * morale drift, which runs once a turn by design, is the same for both and
- * the only difference left is how the kernel steps through the years.
- *
+ * Morale is left to move: no event touches it, so only the kernel moves it.
  * The two sides roll different dice (an eight-year turn's later years are
- * steps of one turn, the one-year side's are turns of their own), so their
- * counts agree in distribution, not draw for draw. The tolerance is four
- * standard deviations of the counting noise: two counts `a` and `b` agree
- * when `|a - b| <= 4 * sqrt(a + b)`.
+ * steps of one turn, the one-year side's are turns of their own), so they
+ * agree in distribution, not draw for draw. Each seed is one run, and the
+ * tolerance is four standard errors of the difference of the two sides'
+ * means over the seeds, from the spread of the runs on each side. Counts
+ * spread wider than counting noise: a colony whose average psych falls
+ * under 0.4 slides toward morale 0 and loses many people to despair, one
+ * that does not loses few, so the despair deaths of a run are many or
+ * none. Mean morale's tolerance is never under 0.005.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { progressBetweenTurns, yearSteps } from '../../src/engine/core/progression.js';
 import { SeededRng } from '../../src/engine/core/rng.js';
-import type { SimulationState, TurnEvent } from '../../src/engine/core/state.js';
+import type { SimulationState } from '../../src/engine/core/state.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
+import type { ProgressionHookContext, ScenarioPackage } from '../../src/engine/types.js';
+import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
 
-const hook = marsScenario.hooks.progressionHook;
+const here = dirname(fileURLToPath(import.meta.url));
+const hook = marsScenario.hooks.progressionHook!;
 const START = 2035;
 const END = 2075;
 const LONG = 8;
-const MORALE = 0.7;
 const SEEDS = Array.from({ length: 40 }, (_, i) => 101 + i);
-const KINDS = ['deaths', 'natural', 'radiation', 'promotions', 'births'] as const;
-type Kind = typeof KINDS[number];
-type Tally = Record<Kind, number>;
+/** More runs for the comparison of the two turn lengths, whose despair deaths spread wide. */
+const PARITY_SEEDS = Array.from({ length: 80 }, (_, i) => 101 + i);
+const QUANTITIES = ['deaths', 'natural', 'radiation', 'despair', 'promotions', 'births', 'alive', 'morale'] as const;
+type Quantity = typeof QUANTITIES[number];
+type Tally = Record<Quantity, number>;
+/** Each seed's tally at one year, one entry a seed. */
+type PerSeed = Record<Quantity, number[]>;
 
-function tally(log: readonly TurnEvent[]): Tally {
-  const deaths = log.filter(e => e.type === 'death');
+function tally(state: SimulationState): Tally {
+  const deaths = state.eventLog.filter(e => e.type === 'death');
   return {
     deaths: deaths.length,
     natural: deaths.filter(e => e.cause === 'natural causes' || e.cause === 'age-related complications').length,
     radiation: deaths.filter(e => e.cause === 'radiation cancer').length,
-    promotions: log.filter(e => e.type === 'promotion').length,
-    births: log.filter(e => e.type === 'birth').length,
+    despair: deaths.filter(e => e.cause === 'despair').length,
+    promotions: state.eventLog.filter(e => e.type === 'promotion').length,
+    births: state.eventLog.filter(e => e.type === 'birth').length,
+    alive: state.agents.filter(a => a.health.alive).length,
+    morale: state.metrics.morale,
   };
 }
 
-/** Cumulative counts at every eighth year, for one seed and one turn length. */
-function run(seed: number, turnYears: number): Map<number, Tally> {
+/**
+ * What every eighth year left, for one seed and one turn length. `leader`
+ * is a decision's morale change, landing after each turn's progression and
+ * before the next one's, as an event's outcome does in a run.
+ */
+function run(seed: number, turnYears: number, leader = 0): Map<number, Tally> {
   const kernel = new SimulationKernel(seed, 'Aria Chen', [], { startTime: START, initialPopulation: 100, scenario: marsScenario });
-  const hold = () => kernel.applySystemDeltas({ morale: MORALE - kernel.getState().metrics.morale });
   const out = new Map<number, Tally>();
-  hold();
   kernel.advanceTurn(1, START, hook);
   let turn = 1;
   for (let time = START + turnYears; time <= END; time += turnYears) {
-    hold();
-    kernel.advanceTurn(++turn, time, hook);
-    if ((time - START) % LONG === 0) out.set(time, tally(kernel.getState().eventLog));
+    if (leader !== 0) kernel.applySystemDeltas({ morale: leader });
+    const state = kernel.advanceTurn(++turn, time, hook);
+    if ((time - START) % LONG === 0) out.set(time, tally(state));
   }
   return out;
 }
 
-function summed(turnYears: number): Map<number, Tally> {
-  const total = new Map<number, Tally>();
-  for (const seed of SEEDS) {
-    for (const [time, t] of run(seed, turnYears)) {
-      const sum = total.get(time) ?? { deaths: 0, natural: 0, radiation: 0, promotions: 0, births: 0 };
-      for (const k of KINDS) sum[k] += t[k];
-      total.set(time, sum);
+function perSeed(seeds: number[], turnYears: number, leader = 0): Map<number, PerSeed> {
+  const all = new Map<number, PerSeed>();
+  for (const seed of seeds) {
+    for (const [time, t] of run(seed, turnYears, leader)) {
+      const runs = all.get(time) ?? Object.fromEntries(QUANTITIES.map(k => [k, [] as number[]])) as PerSeed;
+      for (const k of QUANTITIES) runs[k].push(t[k]);
+      all.set(time, runs);
     }
   }
-  return total;
+  return all;
 }
 
-test('one eight-year turn gives the deaths, promotions and births eight one-year turns give', (t) => {
-  const long = summed(LONG);
-  const yearly = summed(1);
+const sum = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
+const mean = (xs: number[]) => sum(xs) / xs.length;
+const variance = (xs: number[]) => {
+  const m = mean(xs);
+  return xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1);
+};
+/** Four standard errors of the difference of the means of `a` and `b`. */
+const fourErrors = (a: number[], b: number[]) => 4 * Math.sqrt(variance(a) / a.length + variance(b) / b.length);
+
+test('with morale left to move, one eight-year turn gives the morale, the living, the deaths, promotions and births eight one-year turns give', (t) => {
+  const long = perSeed(PARITY_SEEDS, LONG);
+  const yearly = perSeed(PARITY_SEEDS, 1);
   const rows: string[] = [];
   const off: string[] = [];
   for (let time = START + LONG; time <= END; time += LONG) {
-    for (const k of KINDS) {
-      const a = long.get(time)![k];
-      const b = yearly.get(time)![k];
-      const bound = 4 * Math.sqrt(a + b);
-      const row = `${time} ${k}: eight-year turns ${a}, one-year turns ${b}, bound ${bound.toFixed(1)}`;
+    const a = long.get(time)!;
+    const b = yearly.get(time)!;
+    for (const k of QUANTITIES) {
+      const gap = Math.abs(mean(a[k]) - mean(b[k]));
+      const bound = k === 'morale' ? Math.max(0.005, fourErrors(a[k], b[k])) : fourErrors(a[k], b[k]);
+      const row = `${time} ${k} a run: eight-year turns ${mean(a[k]).toFixed(3)}, one-year turns ${mean(b[k]).toFixed(3)}, gap ${gap.toFixed(3)}, bound ${bound.toFixed(3)}`;
       rows.push(row);
-      if (Math.abs(a - b) > bound) off.push(row);
+      if (gap > bound) off.push(row);
     }
   }
+  const last = (m: Map<number, PerSeed>) => m.get(END)!.despair.join(' ');
+  rows.push(`despair deaths of each run by ${END}, eight-year turns: ${last(long)}`, `one-year turns: ${last(yearly)}`);
   t.diagnostic(rows.join('\n'));
   assert.deepEqual(off, [], `\n${rows.join('\n')}`);
+});
+
+test('a leader who lifts morale a turn keeps more people alive on eight-year turns than one who lowers it', (t) => {
+  // A decision lands once a turn, as it does in a run. On eight-year turns
+  // the colony settles back toward 0.6 each year between decisions, and a
+  // leader's morale still decides who lives.
+  const lifted = perSeed(SEEDS, LONG, 0.15).get(END)!;
+  const lowered = perSeed(SEEDS, LONG, -0.15).get(END)!;
+  const seen = `by ${END} over ${SEEDS.length} seeds: +0.15 a turn ${sum(lifted.alive)} alive, ${sum(lifted.despair)} despair deaths, mean morale ${mean(lifted.morale).toFixed(3)}; `
+    + `-0.15 a turn ${sum(lowered.alive)} alive, ${sum(lowered.despair)} despair deaths, mean morale ${mean(lowered.morale).toFixed(3)}`;
+  t.diagnostic(seen);
+  assert.ok(mean(lifted.alive) - mean(lowered.alive) > fourErrors(lifted.alive, lowered.alive), seen);
+  assert.ok(mean(lowered.despair) - mean(lifted.despair) > fourErrors(lowered.despair, lifted.despair), seen);
 });
 
 test('nobody takes two promotions in one step', () => {
@@ -118,42 +163,103 @@ test('nobody takes two promotions in one step', () => {
   assert.deepEqual(doubled, []);
 });
 
-test('a long turn takes the death shock for a year of deaths, not for the whole turn', () => {
-  // Morale takes a shock when more than two people die together. A turn's
-  // deaths carry the year they happened in, so three deaths in three years
-  // of one eight-year turn shock the colony as they would over eight
-  // one-year turns: not at all. A year that loses three or more still does.
-  const settled = (morale: number, state: SimulationState) => {
-    const alive = state.agents.filter(a => a.health.alive);
-    const psych = alive.reduce((sum, a) => sum + a.health.psychScore, 0) / alive.length;
-    const food = state.metrics.foodMonthsReserve as number;
-    return morale + (0.6 - morale) * 0.1 + (food < 6 ? -0.05 : 0) + (psych < 0.4 ? -0.06 : psych > 0.7 ? 0.03 : 0);
+test('a long turn settles morale each year it spans, with the death shock of that year', () => {
+  // Each year of an eight-year turn moves morale a tenth of the way to 0.6
+  // and adds the year's pressures and its death shock (0.04 a death when
+  // more than two die in it), as a one-year turn does. A hook runs as each
+  // year begins, after the year before it settled: it reads the morale,
+  // the food store, the life support and who is alive and how they feel as
+  // that year left them. The turn's end state holds what its last year
+  // left. Three deaths spread over three years shock nobody; a year that
+  // loses three or more still does.
+  type Seen = { time: number; morale: number; food: number; lifeSupport: number; alive: number; psych: number };
+  const look = (time: number, metrics: Readonly<Record<string, unknown>>, agents: SimulationState['agents']): Seen => {
+    const alive = agents.filter(a => a.health.alive);
+    return {
+      time,
+      morale: metrics.morale as number,
+      food: metrics.foodMonthsReserve as number,
+      lifeSupport: metrics.lifeSupportCapacity as number,
+      alive: alive.length,
+      psych: alive.reduce((sum, a) => sum + a.health.psychScore, 0) / alive.length,
+    };
   };
+  const settle = (morale: number, after: Seen, shock: number) => Math.max(0, Math.min(1, morale + (0.6 - morale) * 0.1
+    + (after.food < 6 ? -0.05 : 0)
+    + (after.alive > after.lifeSupport ? -0.08 : 0)
+    + (after.psych < 0.4 ? -0.06 : after.psych > 0.7 ? 0.03 : 0)
+    + shock));
   let spread = 0;
   let shaken = 0;
   for (const seed of SEEDS) {
     const kernel = new SimulationKernel(seed, 'Aria Chen', [], { startTime: START, initialPopulation: 100, scenario: marsScenario });
     kernel.advanceTurn(1, START, hook);
     for (let turn = 2; turn <= 3; turn++) {
-      // Room for everyone, so the head count puts no pressure on morale.
-      kernel.applySystemDeltas({ morale: MORALE - kernel.getState().metrics.morale, lifeSupportCapacity: 1000 });
-      const before = kernel.getState().metrics.morale;
-      const state = kernel.advanceTurn(turn, START + (turn - 1) * LONG, hook);
+      const seen: Seen[] = [];
+      const watch = (ctx: ProgressionHookContext) => {
+        seen.push(look(ctx.time, ctx.metrics!, ctx.agents));
+        hook(ctx);
+      };
+      const state = kernel.advanceTurn(turn, START + (turn - 1) * LONG, watch);
+      assert.equal(seen.length, LONG, 'one call a year');
+      const end = look(state.metadata.currentTime, state.metrics, state.agents);
+      for (let year = 0; year < LONG; year++) {
+        const after = year + 1 < LONG ? seen[year + 1] : end;
+        const deaths = state.eventLog.filter(e => e.turn === turn && e.type === 'death' && e.time === seen[year].time).length;
+        const shock = deaths > 2 ? -0.04 * deaths : 0;
+        if (shock < 0) shaken++;
+        const expected = settle(seen[year].morale, after, shock);
+        assert.ok(Math.abs(after.morale - expected) < 1e-9,
+          `seed ${seed} turn ${turn}, the year to ${seen[year].time}: ${deaths} deaths, morale ${seen[year].morale} went to ${after.morale}, expected ${expected}`);
+      }
       const perYear = new Map<number, number>();
       for (const e of state.eventLog) {
         if (e.turn === turn && e.type === 'death') perYear.set(e.time, (perYear.get(e.time) ?? 0) + 1);
       }
-      const deaths = [...perYear.values()].reduce((sum, n) => sum + n, 0);
-      const shock = [...perYear.values()].reduce((sum, n) => sum + (n > 2 ? -0.04 * n : 0), 0);
-      if (deaths > 2 && shock === 0) spread++;
-      if (shock < 0) shaken++;
-      const expected = Math.max(0, Math.min(1, settled(before, state) + shock));
-      assert.ok(Math.abs(state.metrics.morale - expected) < 1e-9,
-        `seed ${seed} turn ${turn}: ${deaths} deaths, ${JSON.stringify([...perYear])}: morale ${state.metrics.morale}, expected ${expected}`);
+      const total = [...perYear.values()].reduce((sum, n) => sum + n, 0);
+      if (total > 2 && [...perYear.values()].every(n => n <= 2)) spread++;
     }
   }
   assert.ok(spread > 0, 'some turn spreads three or more deaths over its years');
   assert.ok(shaken > 0, 'some year loses three or more');
+});
+
+/** Each turn's morale, living, deaths and births. */
+type TurnRow = [morale: number, alive: number, deaths: number, births: number];
+
+function shortTurns(sc: ScenarioPackage, seed: number, population: number, turns: number, unitsPerTurn: number): TurnRow[] {
+  const start = sc.setup.defaultStartTime ?? 1;
+  const kernel = new SimulationKernel(seed, 'Aria Chen', [], { startTime: start, initialPopulation: population, scenario: sc });
+  const rows: TurnRow[] = [];
+  for (let turn = 1; turn <= turns; turn++) {
+    const state = kernel.advanceTurn(turn, start + (turn - 1) * unitsPerTurn, sc.hooks?.progressionHook);
+    const mine = state.eventLog.filter(e => e.turn === turn);
+    rows.push([
+      state.metrics.morale,
+      state.agents.filter(a => a.health.alive).length,
+      mine.filter(e => e.type === 'death').length,
+      mine.filter(e => e.type === 'birth').length,
+    ]);
+  }
+  return rows;
+}
+
+test('a turn of a year or less runs as it did before long turns settled morale each year', () => {
+  // Atlas Lab's monthly turns, the Digital Twin's two-week turns (its JSON,
+  // with no compiled hook: compiling one calls a model) and Mars on
+  // one-year turns, on fixed seeds. The pinned rows were read from CI on
+  // the kernel of b43ee952, before long turns settled morale each year.
+  const scenarios = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
+  const atlasLab = scenarios.get('atlas-lab')!.scenario as ScenarioPackage;
+  const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
+  const actual: Record<string, TurnRow[]> = {
+    'atlas-lab, seed 11, 480 people, 12 monthly turns': shortTurns(atlasLab, 11, 480, 12, 1),
+    'digital twin, seed 11, 1 person, 26 two-week turns': shortTurns(twin, 11, 1, 26, 2),
+    'mars-genesis, seed 101, 100 people, 17 one-year turns': shortTurns(marsScenario, 101, 100, 17, 1),
+    'mars-genesis, seed 950, 30 people, 17 one-year turns': shortTurns(marsScenario, 950, 30, 17, 1),
+  };
+  const pinned = JSON.parse(readFileSync(resolve(here, '../fixtures/short-turns-before-yearly-morale.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
+  assert.deepEqual(actual, pinned);
 });
 
 test('a hook in a long turn reads the head count as its step begins', () => {
