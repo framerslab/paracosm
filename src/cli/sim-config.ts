@@ -164,13 +164,15 @@ export interface NormalizedSimulationConfig {
  * that scenario. `normalizeSimulationConfig` does not use this list: a
  * run's personnel come from its payload or from the scenario's own
  * preset (`scenarioKeyPersonnel`), so a non-Mars scenario never starts
- * with these five.
+ * with these five. Nobody here carries a department head's title: the
+ * commander names every head at turn 0, and a seeded head with no
+ * promotion record would sit beside the one it names.
  */
 export const DEFAULT_KEY_PERSONNEL: KeyPersonnel[] = [
-  { name: 'Dr. Yuki Tanaka', department: 'medical', role: 'Chief Medical Officer', specialization: 'Radiation Medicine', age: 38, featured: true },
-  { name: 'Erik Lindqvist', department: 'engineering', role: 'Chief Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
-  { name: 'Amara Osei', department: 'agriculture', role: 'Head of Agriculture', specialization: 'Hydroponics', age: 34, featured: true },
-  { name: 'Dr. Priya Singh', department: 'psychology', role: 'Colony Psychologist', specialization: 'Clinical Psychology', age: 41, featured: true },
+  { name: 'Dr. Yuki Tanaka', department: 'medical', role: 'Senior Physician, Radiation Medicine', specialization: 'Radiation Medicine', age: 38, featured: true },
+  { name: 'Erik Lindqvist', department: 'engineering', role: 'Senior Structural Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
+  { name: 'Amara Osei', department: 'agriculture', role: 'Senior Hydroponics Specialist', specialization: 'Hydroponics', age: 34, featured: true },
+  { name: 'Dr. Priya Singh', department: 'psychology', role: 'Clinical Psychologist', specialization: 'Clinical Psychology', age: 41, featured: true },
   { name: 'Carlos Fernandez', department: 'science', role: 'Chief Scientist', specialization: 'Geology', age: 50, featured: true },
 ];
 

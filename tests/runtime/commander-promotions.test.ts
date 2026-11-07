@@ -332,3 +332,78 @@ test('every head is announced to the viewer, the fallback\'s too', async () => {
     assert.ok(e.role, `no role in ${JSON.stringify(e)}`);
   }
 });
+
+/**
+ * A Mars Genesis run held two heads of medicine, engineering and
+ * agriculture (#210). The scenario's preset seeded Dr. Yuki Tanaka as Chief
+ * Medical Officer, Erik Lindqvist as Chief Engineer and Amara Osei as Head
+ * of Agriculture with no promotion record, so the turn 0 step read each
+ * department as open and the commander named a second head for each:
+ * Carlos Fernandez, Bruno Morales and Bruno Eriksson in Aria Chen's run on
+ * the hosted demo (seed 950, 30 people, three departments). The commander
+ * names every head; the seeded people carry specialist titles.
+ */
+test('a Mars run built from the scenario\'s preset holds one head per department after the commander\'s picks', async () => {
+  const { marsScenario } = await import('../../src/engine/scenarios/index.js');
+  const { scenarioKeyPersonnel } = await import('../../src/cli/sim-config.js');
+  const departments = ['medical', 'engineering', 'agriculture'];
+  const kernel = new SimulationKernel(950, 'Aria Chen', scenarioKeyPersonnel(marsScenario), {
+    startTime: 2035, initialPopulation: 30, scenario: marsScenario,
+  });
+  const preset = new Set(scenarioKeyPersonnel(marsScenario).map(p => p.name));
+  // The live run's picks, by name; where the generated roster holds no
+  // such person, a candidate the preset did not seed.
+  const pick = (name: string, dept: string) =>
+    kernel.getState().agents.find(a => a.core.name === name)?.core.id
+    ?? kernel.getCandidates(dept as never, 10).find(c => !preset.has(c.core.name))!.core.id;
+  const roleOf = (dept: string) => marsScenario.departments.find(d => d.id === dept)!.role;
+  const picks = [
+    { agentId: pick('Carlos Fernandez', 'medical'), department: 'medical', role: roleOf('medical') },
+    { agentId: pick('Bruno Morales', 'engineering'), department: 'engineering', role: roleOf('engineering') },
+    { agentId: pick('Bruno Eriksson', 'agriculture'), department: 'agriculture', role: roleOf('agriculture') },
+  ];
+  const logs: string[] = [];
+  const realLog = console.log;
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  try {
+    await runDepartmentPromotions({
+      kernel,
+      scenario: marsScenario,
+      leader: { name: 'Aria Chen' } as ActorConfig,
+      startTime: 2035,
+      activeDepartments: departments,
+      sendToCommander: async () => ({ text: JSON.stringify({ promotions: picks.map(p => ({ ...p, reason: 'test pick' })) }) }),
+      trackUsage: () => {},
+      emit: () => {},
+    } as Parameters<typeof runDepartmentPromotions>[0]);
+  } finally {
+    console.log = realLog;
+  }
+
+  const living = kernel.getState().agents.filter(a => a.health.alive);
+  for (const dept of departments) {
+    const titled = living.filter(a => a.core.role === roleOf(dept)).map(a => a.core.name);
+    assert.equal(titled.length, 1, `${dept}: ${JSON.stringify(titled)} carry the title ${roleOf(dept)}; logs: ${logs.join(' | ')}`);
+    const head = living.find(a => a.core.role === roleOf(dept))!;
+    assert.equal(head.promotion?.department, dept, `${head.core.name} holds the ${dept} title with a promotion record`);
+    assert.equal(head.core.id, picks.find(p => p.department === dept)!.agentId, `the commander's pick heads ${dept}`);
+  }
+  const yuki = living.find(a => a.core.name === 'Dr. Yuki Tanaka')!;
+  assert.equal(yuki.career.specialization, 'Radiation Medicine');
+  assert.equal(yuki.promotion, undefined);
+  assert.ok(!marsScenario.departments.some(d => d.role === yuki.core.role), `Dr. Yuki Tanaka is seeded as ${yuki.core.role}`);
+});
+
+test('no bundled scenario seeds a person with a department head\'s title', () => {
+  // A seeded person with a head's title holds no promotion record, so the
+  // promotion step reads the department as open and names a second head.
+  for (const file of ['mars.json', 'lunar.json']) {
+    const sc = JSON.parse(readFileSync(new URL(`../../scenarios/${file}`, import.meta.url), 'utf-8')) as ScenarioPackage;
+    const titles = new Map(sc.departments.map(d => [d.role, d.id]));
+    for (const preset of sc.presets ?? []) {
+      for (const p of preset.personnel ?? []) {
+        assert.ok(!titles.has(p.role), `${file} preset ${preset.id} seeds ${p.name} as ${p.role}, the ${titles.get(p.role)} head's title`);
+      }
+    }
+  }
+});

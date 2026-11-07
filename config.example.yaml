@@ -56,29 +56,30 @@ models:
   departments: "gpt-5.4-mini"
   judge: "gpt-5.4"
 
-# Key personnel (first 5 are always promoted as department heads)
+# Key personnel: seeded people with specialist titles. The commander names
+# every department head before turn 1, so none carries a head's title.
 keyPersonnel:
   - name: "Dr. Yuki Tanaka"
     department: medical
-    role: "Chief Medical Officer"
+    role: "Senior Physician, Radiation Medicine"
     specialization: "Radiation Medicine"
     age: 38
 
   - name: "Erik Lindqvist"
     department: engineering
-    role: "Chief Engineer"
+    role: "Senior Structural Engineer"
     specialization: "Structural Engineering"
     age: 45
 
   - name: "Amara Osei"
     department: agriculture
-    role: "Head of Agriculture"
+    role: "Senior Hydroponics Specialist"
     specialization: "Hydroponics"
     age: 34
 
   - name: "Dr. Priya Singh"
     department: psychology
-    role: "Colony Psychologist"
+    role: "Clinical Psychologist"
     specialization: "Clinical Psychology"
     age: 41
 
