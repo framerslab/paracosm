@@ -122,7 +122,7 @@ export function applyCommanderPolicy(
   const asked = Object.fromEntries(Object.keys(deltas).map(k => [k, totals[k] ?? 0]));
   const limited: CommanderPolicyApplied['limited'] = {};
   for (const [key, applied] of Object.entries(deltas)) {
-    if (Math.abs(applied - asked[key]) > 1e-9) limited[key] = { asked: asked[key], applied };
+    if (applied !== asked[key]) limited[key] = { asked: asked[key], applied };
   }
   if (Object.keys(deltas).length > 0) {
     log(`  [policy] effects: ${JSON.stringify(deltas)}${Object.keys(limited).length > 0 ? ` asked: ${JSON.stringify(asked)}` : ''}`);

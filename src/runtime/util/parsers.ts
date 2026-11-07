@@ -140,16 +140,19 @@ export function resolveSelectedEffects(decision: CommanderDecision, reports: Dep
 
 /**
  * What a decision's selected effects ask of each key: the sum of their
- * `systemDelta` and `politicsDelta` entries, one total a key whichever
- * field names it, as the kernel adds them (`applyPolicy`).
+ * `systemDelta` entries plus the sum of their `politicsDelta` entries, one
+ * total a key whichever field names it, added in the order the kernel adds
+ * them (`applyPolicy`), so an unbounded change equals its total exactly.
  */
 export function selectedEffectTotals(decision: CommanderDecision, reports: DepartmentReport[]): Record<string, number> {
-  const totals: Record<string, number> = {};
+  const system: Record<string, number> = {};
+  const politics: Record<string, number> = {};
   for (const { effect } of resolveSelectedEffects(decision, reports).picked) {
-    for (const [key, delta] of [...Object.entries(effect.systemDelta ?? {}), ...Object.entries(effect.politicsDelta ?? {})]) {
-      totals[key] = (totals[key] ?? 0) + (delta as number);
-    }
+    for (const [key, delta] of Object.entries(effect.systemDelta ?? {})) system[key] = (system[key] ?? 0) + (delta as number);
+    for (const [key, delta] of Object.entries(effect.politicsDelta ?? {})) politics[key] = (politics[key] ?? 0) + (delta as number);
   }
+  const totals: Record<string, number> = { ...system };
+  for (const [key, delta] of Object.entries(politics)) totals[key] = (totals[key] ?? 0) + delta;
   return totals;
 }
 
