@@ -117,6 +117,13 @@ export interface TurnArtifact {
     /** Environmental conditions; optional, declared via world.environment. */
     environment?: Record<string, number | string | boolean>;
   };
+  /**
+   * Each key a decision's selected effects moved otherwise than they
+   * asked, by the event's index in the turn: the bound of one decision
+   * held it, or a floor or ceiling stopped it. An `applied` of 0 is a
+   * choice that moved nothing. Absent when every key moved as asked.
+   */
+  policyEffectsLimited?: Array<{ eventIndex: number; key: string; asked: number; applied: number }>;
 }
 
 export interface PromotionDecision {

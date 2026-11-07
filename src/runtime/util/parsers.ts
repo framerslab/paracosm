@@ -10,6 +10,7 @@
  * - `emptyReport` / `emptyDecision` — fallback skeletons used when the
  *   validated wrappers fall through (schema retries exhausted)
  * - `resolveSelectedEffects` — the effects a commander's decision selects
+ * - `selectedEffectTotals` — what those effects ask of each key
  * - `decisionToPolicy` — translates a typed commander decision + the
  *   supporting dept reports into a `PolicyEffect` the kernel applies
  *
@@ -138,17 +139,38 @@ export function resolveSelectedEffects(decision: CommanderDecision, reports: Dep
 }
 
 /**
+ * What a decision's selected effects ask of each key: the sum of their
+ * `systemDelta` entries plus the sum of their `politicsDelta` entries, one
+ * total a key whichever field names it, added in the order the kernel adds
+ * them (`applyPolicy`), so an unbounded change equals its total exactly.
+ */
+export function selectedEffectTotals(decision: CommanderDecision, reports: DepartmentReport[]): Record<string, number> {
+  const system: Record<string, number> = {};
+  const politics: Record<string, number> = {};
+  for (const { effect } of resolveSelectedEffects(decision, reports).picked) {
+    for (const [key, delta] of Object.entries(effect.systemDelta ?? {})) system[key] = (system[key] ?? 0) + (delta as number);
+    for (const [key, delta] of Object.entries(effect.politicsDelta ?? {})) politics[key] = (politics[key] ?? 0) + (delta as number);
+  }
+  const totals: Record<string, number> = { ...system };
+  for (const [key, delta] of Object.entries(politics)) totals[key] = (totals[key] ?? 0) + delta;
+  return totals;
+}
+
+/**
  * Turn a commander's decision + the dept reports into a PolicyEffect
  * the kernel can apply. Legacy `proposedPatches` from reports (backward
  * compat) set values outright; the typed `recommendedEffects` the
  * commander selected (see {@link resolveSelectedEffects}) are changes,
- * added to the current values and to each other.
+ * added to the current values and to each other. With `bound`, each
+ * key's total across both fields moves at most `bound(key)` either way
+ * (the policy step passes the scenario's, `policyEffectBound`).
  */
 export function decisionToPolicy(
   decision: CommanderDecision,
   reports: DepartmentReport[],
   turn: number,
   time: number,
+  bound?: (key: string) => number,
 ): PolicyEffect {
   const patches: PolicyEffect['patches'] = {};
 
@@ -167,6 +189,25 @@ export function decisionToPolicy(
     }
     for (const [key, delta] of Object.entries(effect.politicsDelta ?? {})) {
       deltas.politics[key] = (deltas.politics[key] ?? 0) + (delta as number);
+    }
+  }
+
+  if (bound) {
+    // The kernel adds a key's two fields into one change, so the bound
+    // holds that total; a held total goes in the field that named the key
+    // first, metrics before politics.
+    const totals: Record<string, number> = { ...deltas.metrics };
+    for (const [key, delta] of Object.entries(deltas.politics)) totals[key] = (totals[key] ?? 0) + delta;
+    for (const [key, total] of Object.entries(totals)) {
+      const limit = bound(key);
+      const held = Math.max(-limit, Math.min(limit, total));
+      if (held === total) continue;
+      if (key in deltas.metrics) {
+        deltas.metrics[key] = held;
+        delete deltas.politics[key];
+      } else {
+        deltas.politics[key] = held;
+      }
     }
   }
 
