@@ -181,15 +181,15 @@ export class EffectRegistry {
   /**
    * The largest absolute entry each key has across the category tables:
    * the most one event brings on that key at an ordinary response (a
-   * conservative success, before the modifiers). A key no table names, or
-   * names only with 0, is absent. The policy step bounds what one
-   * decision's selected effects move by it.
+   * conservative success, before the modifiers). A key no table names is
+   * absent; one the tables name only with 0 has 0. The policy step bounds
+   * what one decision's selected effects move by it.
    */
   largestEntries(): Record<string, number> {
     const largest: Record<string, number> = {};
     for (const table of Object.values(this.effects)) {
       for (const [key, value] of Object.entries(table ?? {})) {
-        if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) continue;
+        if (typeof value !== 'number' || !Number.isFinite(value)) continue;
         largest[key] = Math.max(largest[key] ?? 0, Math.abs(value));
       }
     }

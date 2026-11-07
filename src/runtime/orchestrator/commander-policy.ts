@@ -39,16 +39,25 @@ export interface PolicyEffectTables {
 
 const OUTCOMES: TurnOutcome[] = ['risky_success', 'conservative_success', 'conservative_failure', 'risky_failure'];
 
+/** The limits read for each tables object: a run passes one for all its decisions. */
+const limitsByTables = new WeakMap<PolicyEffectTables, Readonly<Record<string, number>>>();
+
 /**
  * The most one decision's adopted effects move each key the outcome
  * tables name: the largest absolute entry the key has in a category table
  * or in the politics table, which is what one event brings on that key at
- * an ordinary response. Mars Genesis: `infrastructureModules` 2,
- * `foodMonthsReserve` 4, `morale` 0.15, `earthDependencyPct` 3.
+ * an ordinary response; a key the tables name only with 0 has 0. Mars
+ * Genesis: `infrastructureModules` 2, `foodMonthsReserve` 4, `morale`
+ * 0.15, `earthDependencyPct` 3. The tables are read once for a tables
+ * object (a compiled politics hook runs in a sandbox of its own at each
+ * call), so the limits stay what they were when first read.
  */
-export function policyEffectLimits(tables?: PolicyEffectTables): Record<string, number> {
+export function policyEffectLimits(tables?: PolicyEffectTables): Readonly<Record<string, number>> {
   if (!tables) return {};
+  const known = limitsByTables.get(tables);
+  if (known) return known;
   const limits = tables.registry.largestEntries();
+  limitsByTables.set(tables, limits);
   const hook = tables.politicsHook;
   if (!hook) return limits;
   for (const category of new Set([...tables.registry.categories(), ...(tables.categories ?? [])])) {
@@ -62,7 +71,7 @@ export function policyEffectLimits(tables?: PolicyEffectTables): Record<string, 
       }
       if (!entry || typeof entry !== 'object') continue;
       for (const [key, value] of Object.entries(entry)) {
-        if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) continue;
+        if (typeof value !== 'number' || !Number.isFinite(value)) continue;
         limits[key] = Math.max(limits[key] ?? 0, Math.abs(value));
       }
     }
@@ -73,10 +82,13 @@ export function policyEffectLimits(tables?: PolicyEffectTables): Record<string, 
 /**
  * How far one decision's adopted effects may move `key` from `current`:
  * its outcome tables' limit ({@link policyEffectLimits}), else a tenth of
- * its current absolute value, or 1 when it is 0.
+ * its current absolute value, or 1 when it is 0. The kernel moves a head
+ * count in whole people, rounding the change, so the bound on
+ * `population` rounds down to whole people.
  */
-export function policyEffectBound(key: string, current: number, limits: Record<string, number>): number {
-  return limits[key] ?? (current !== 0 ? Math.abs(current) / 10 : 1);
+export function policyEffectBound(key: string, current: number, limits: Readonly<Record<string, number>>): number {
+  const limit = limits[key] ?? (current !== 0 ? Math.abs(current) / 10 : 1);
+  return key === 'population' ? Math.floor(limit) : limit;
 }
 
 /**
