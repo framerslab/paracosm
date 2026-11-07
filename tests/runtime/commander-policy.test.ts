@@ -270,6 +270,27 @@ test('a key no outcome table names moves at most a tenth of its value, or 1 from
   assert.equal(hires.deltas.population, 8);
 });
 
+test('every difference between asked and applied is recorded, and a sum alone never reads as one', () => {
+  // A request a hair over the bound is held at the bound, and the record says so.
+  const over = mars950();
+  const held = step(over, reply({ selectedPolicies: ['psychology/effect_1'] }), [report('psychology', [
+    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: 0.1500000005 } },
+  ])]);
+  assert.deepEqual(held.deltas, { morale: 0.15 });
+  assert.deepEqual((held as Record<string, unknown>).limited, { morale: { asked: 0.1500000005, applied: 0.15 } });
+  assert.match(held.lines.join('\n'), /asked: \{"morale":0\.1500000005\}/);
+
+  // Effects naming one key in both fields add up as the kernel adds them,
+  // so a change that moved as asked records nothing.
+  const both = mars950();
+  const summed = step(both, reply({ selectedPolicies: ['psychology/effect_1', 'psychology/effect_2'] }), [report('psychology', [
+    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: 0.01 }, politicsDelta: { morale: 0.03 } },
+    { id: 'effect_2', type: 'social_investment', description: 'Letters home.', systemDelta: { morale: 0.06 } },
+  ])]);
+  assert.deepEqual((summed as Record<string, unknown>).limited, {});
+  assert.ok(!summed.lines.some(l => l.includes('asked')), summed.lines.join('\n'));
+});
+
 test('a head count moves whole people within the bound', () => {
   // No Mars table names population, so a decision moves at most a tenth of
   // the roster: 2.5 of 25 people. The kernel moves whole people, and 2.5
