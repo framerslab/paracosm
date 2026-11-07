@@ -90,3 +90,47 @@ export function formatStateLine(metrics: Record<string, number>, world?: Declare
     .map(([key, value]) => `${displays[key]?.label ?? key} ${formatValue(value, displays[key])}`)
     .join(' | ');
 }
+
+type KeyDisplay = { label?: string; unit?: string; min?: number; max?: number };
+
+/** A key a department's effect may move: one the run holds as a number. */
+export interface EffectKey {
+  id: string;
+  /** The effect field it belongs in: `systemDelta` for a metric or capacity, `politicsDelta` for a politics value. */
+  bag: 'systemDelta' | 'politicsDelta';
+  label: string;
+  unit: string;
+  min?: number;
+  max?: number;
+}
+
+/**
+ * The keys a department's `recommendedEffects` may name: each number the
+ * run holds in its metrics (capacities included) or its politics, as the
+ * prompts may name them (see {@link declaredMetrics}), with the label,
+ * unit and range the scenario declares. The kernel drops a delta on any
+ * other key (`applyDeltas`), so a report is shown these and refused for
+ * any other.
+ */
+export function effectKeys(
+  state: { metrics: Record<string, number>; politics: Record<string, number | string | boolean> },
+  world?: DeclaredWorld | null,
+): EffectKey[] {
+  const systems: Record<string, KeyDisplay> = { ...UNIVERSAL_METRICS, ...world?.capacities, ...world?.metrics };
+  const politics: Record<string, KeyDisplay> = { ...world?.politics };
+  const key = (id: string, bag: EffectKey['bag'], d: KeyDisplay | undefined): EffectKey => ({
+    id, bag,
+    label: d?.label ?? id,
+    unit: d?.unit ?? '',
+    ...(typeof d?.min === 'number' ? { min: d.min } : {}),
+    ...(typeof d?.max === 'number' ? { max: d.max } : {}),
+  });
+  const metricKeys = Object.entries(declaredMetrics(state.metrics, world))
+    .filter(([, v]) => typeof v === 'number')
+    .map(([id]) => key(id, 'systemDelta', systems[id]));
+  const held = new Set(metricKeys.map(k => k.id));
+  const politicsKeys = Object.entries(declaredPolitics(state.politics, world))
+    .filter(([id, v]) => typeof v === 'number' && !held.has(id))
+    .map(([id]) => key(id, 'politicsDelta', politics[id]));
+  return [...metricKeys, ...politicsKeys];
+}
