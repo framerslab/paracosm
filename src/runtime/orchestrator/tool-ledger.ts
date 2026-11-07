@@ -14,6 +14,8 @@
  * @module paracosm/runtime/tool-ledger
  */
 
+import type { OutcomeModifiers } from '../../engine/registries/effects.js';
+
 /** A single invocation of a forged tool, appended to the tool's history. */
 export interface ToolUseRecord {
   turn: number;
@@ -208,4 +210,46 @@ export function forgedToolNames(
   allForges: readonly ForgeCaptureForToolbox[],
 ): string[] {
   return buildForgedToolbox(ledger, allForges).filter(tool => tool.approved).map(tool => tool.name);
+}
+
+/** The tool modifiers an event's outcome reads; see {@link OutcomeModifiers}. */
+export type EventToolModifiers = NonNullable<OutcomeModifiers['toolModifiers']>;
+
+/**
+ * The tool modifiers of one event's outcome. `eventForges` are the forges
+ * the event's departments made during the event, in the order captured: an
+ * approved one is a new tool when the ledger first saw its name this turn
+ * (once per name), else a reuse; a rejected one is a failed forge.
+ * `totalToolsForRun` is the run-wide count the innovation bonus reads: the
+ * run's approved tools, each once, as {@link forgedToolNames} counts them for
+ * the stream, the director and the verdict. A tool whose every forge the
+ * reviewers rejected is none, so it raises no outcome.
+ */
+export function eventToolModifiers(
+  eventForges: readonly Pick<ForgeCaptureForToolbox, 'name' | 'approved'>[],
+  ledger: ForgedLedger,
+  allForges: readonly ForgeCaptureForToolbox[],
+  turn: number,
+): EventToolModifiers {
+  let newCount = 0, reuseCount = 0, failCount = 0;
+  const newNamesThisEvent = new Set<string>();
+  for (const f of eventForges) {
+    if (!f.approved) { failCount++; continue; }
+    // First-time forges: name not seen before (firstForgedTurn === turn
+    // AND we haven't already counted it elsewhere this event).
+    const ledgerEntry = ledger.get(f.name);
+    const isFirstUse = ledgerEntry?.firstForgedTurn === turn && !newNamesThisEvent.has(f.name);
+    if (isFirstUse) {
+      newCount++;
+      newNamesThisEvent.add(f.name);
+    } else {
+      reuseCount++;
+    }
+  }
+  return {
+    newToolsThisEvent: newCount,
+    reuseCountThisEvent: reuseCount,
+    forgeFailures: failCount,
+    totalToolsForRun: forgedToolNames(ledger, allForges).length,
+  };
 }
