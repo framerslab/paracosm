@@ -34,7 +34,7 @@ import {
 } from './commander-setup.js';
 import { applyCommanderPolicy } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
-import { buildAvailableToolsBlock, buildForgedToolbox, eventToolModifiers, forgedToolNames, type ForgedLedger } from './tool-ledger.js';
+import { buildAvailableToolsBlock, buildForgedToolbox, eventToolModifiers, forgedToolNames, recordEventForges, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
@@ -1450,13 +1450,14 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // Use the per-dept eventBucketStarts snapshot instead of scanning
       // the whole bucket and de-duping with .find() (was O(n²) and prone
       // to missed matches when timestamps tied at sub-ms resolution).
-      for (const dept of depts) {
-        const bucket = deptForgeBuckets.get(dept) ?? [];
-        const start = eventBucketStarts.get(dept) ?? 0;
-        for (const forge of bucket.slice(start)) {
-          allForges.push({ ...forge, turn, time, eventIndex: ei });
-        }
-      }
+      // An approved forge of a department whose report failed, which wrote
+      // no ledger entry, is recorded here, so the toolbox keeps it.
+      recordEventForges(
+        depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
+        { turn, time, eventIndex: ei, eventTitle: event.title },
+        forgedLedger,
+        allForges,
+      );
 
       // Accumulate tool outputs across events
       lastTurnToolOutputs.push(...reports.flatMap(r => (r.forgedToolsUsed || []).filter(t => t?.output).map(t => ({ name: t.name || 'unnamed', department: r.department, output: typeof t.output === 'string' ? t.output.slice(0, 200) : JSON.stringify(t.output).slice(0, 200) }))));
