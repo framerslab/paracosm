@@ -451,7 +451,8 @@ export class SimulationKernel {
       const written: string[] = [];
       for (const [k, v] of Object.entries(patches.metrics)) {
         // The head count follows the roster; a model's number cannot replace it.
-        if (k === 'population' || typeof v !== 'number' || !Number.isFinite(v) || !(k in c)) continue;
+        // Number.isFinite is false for anything but a finite number.
+        if (k === 'population' || !Number.isFinite(v) || !(k in c)) continue;
         (c as any)[k] = v;
         written.push(k);
       }

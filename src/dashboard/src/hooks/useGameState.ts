@@ -511,6 +511,20 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
         s.events.push(processed);
         break;
 
+      case 'validation_fallback': {
+        // A schema salvage or fallback shows in the turn row it happened
+        // in (EventCard's SCHEMA SALVAGE / SCHEMA FALLBACK card). The run
+        // emits it with no turn, so it takes the turn of the actor's
+        // latest event that has one: its events arrive in turn order.
+        let turn = processed.turn;
+        for (let j = s.events.length - 1; turn === undefined && j >= 0; j--) {
+          const t = s.events[j].turn;
+          if (typeof t === 'number') turn = t;
+        }
+        s.events.push({ ...processed, turn });
+        break;
+      }
+
       case 'turn_done':
         if (dd.metrics) {
           s.prevMetrics = s.metrics ? { ...s.metrics } : null;

@@ -307,3 +307,53 @@ test('a department\'s patch cannot mark an agent dead: deaths come from progress
   assert.ok(Math.abs(after.health.psychScore - expected) < 1e-9, `psych ${psychBefore} moved to ${after.health.psychScore}`);
   assert.equal(state.eventLog.filter(e => e.type === 'death').length, 0);
 });
+
+/**
+ * The policy step builds no patch from a report since #222, so the
+ * kernel's guards on `patches.metrics` and `patches.politics` are reached
+ * only by a caller that hands `applyPolicy` a patch itself: the kernel and
+ * `PolicyEffect` are public (`paracosm/core`, and the engine's type
+ * exports). These hand it one directly, with every value a guard refuses.
+ */
+test('a patch handed to the kernel writes only the numbers a Mars run holds, within their ranges, and never the head count', () => {
+  const kernel = new SimulationKernel(950, 'Aria Chen', [], { startTime: 2035, initialPopulation: 30, scenario: marsScenario });
+  const before = kernel.getState();
+  assert.equal(before.metrics.population, 30);
+  assert.equal(before.politics.governanceStatus, 'earth-governed');
+
+  kernel.applyPolicy({
+    description: 'patched',
+    patches: {
+      metrics: {
+        population: 999,
+        morale: 7,
+        powerKw: 520,
+        foodMonthsReserve: Number.NaN,
+        waterLitersPerDay: Number.POSITIVE_INFINITY,
+        infrastructureModules: '9',
+        notAMetric: 3,
+      } as never,
+      politics: {
+        earthDependencyPct: 'none',
+        independencePressure: 5,
+        governanceStatus: 3,
+        notAPolitic: 1,
+      } as never,
+    },
+    events: [],
+  });
+
+  const after = kernel.getState();
+  assert.equal(after.metrics.population, 30, 'the head count follows the roster');
+  assert.equal(after.agents.filter(a => a.health.alive).length, 30);
+  assert.equal(after.metrics.morale, 1, 'a written value stays within its range');
+  assert.equal(after.metrics.powerKw, 520, 'a held number is written');
+  assert.equal(after.metrics.foodMonthsReserve, before.metrics.foodMonthsReserve, 'NaN is no value');
+  assert.equal(after.metrics.waterLitersPerDay, before.metrics.waterLitersPerDay, 'Infinity is no value');
+  assert.equal(after.metrics.infrastructureModules, before.metrics.infrastructureModules, 'a number written as a string is no number');
+  assert.ok(!('notAMetric' in after.metrics), 'a key the run does not hold is not added');
+  assert.equal(after.politics.earthDependencyPct, before.politics.earthDependencyPct, 'a string does not replace a number');
+  assert.equal(after.politics.independencePressure, 1, 'a written politic stays within its range');
+  assert.equal(after.politics.governanceStatus, 'earth-governed', 'a number does not replace a status');
+  assert.ok(!('notAPolitic' in after.politics), 'a politic the run does not hold is not added');
+});

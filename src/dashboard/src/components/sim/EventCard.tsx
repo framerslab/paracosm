@@ -671,14 +671,21 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const schemaName = String(dd.schemaName || '<unknown>');
       const site = String(dd.site || '');
       const preview = String(dd.rawTextPreview || '');
+      // A salvage kept the reply with the keys the run does not hold
+      // dropped; a fallback replaced it with the empty skeleton.
+      const salvaged = dd.salvaged === true;
+      const dropped = Array.isArray(dd.droppedKeys) ? dd.droppedKeys.map(k => String(k)) : [];
       return (
         <details
           className={styles.fallbackDetails}
           style={sideStyle}
         >
           <summary className={styles.fallbackSummary}>
-            <span className={styles.fallbackTitle}>⚠ SCHEMA FALLBACK — {schemaName}</span>
+            <span className={styles.fallbackTitle}>⚠ {salvaged ? 'SCHEMA SALVAGE' : 'SCHEMA FALLBACK'} — {schemaName}</span>
             <span className={styles.fallbackSite}>site: {site || 'n/a'}</span>
+            {salvaged && (
+              <span className={styles.fallbackSite}>kept without: {dropped.length > 0 ? dropped.join(', ') : 'n/a'}</span>
+            )}
           </summary>
           {preview && (
             <details className={styles.fallbackPreviewWrap}>

@@ -107,7 +107,8 @@ export function departmentReportSchemaFor(heldKeys: readonly string[]) {
  * The report a department sent once its retries are spent, when its one
  * fault is effect keys the run does not hold: those keys come out of
  * each effect's `systemDelta` and `politicsDelta`, one line through `log`
- * names them with the keys the run holds, and the rest of the report
+ * names them with the keys the run holds (and hands them over, sorted, as
+ * its second argument), and the rest of the report
  * stands (summary, risks, citations, every effect with its held keys).
  * `undefined` when the reply fails the plain schema
  * ({@link DepartmentReportSchema}) too, so the caller's fallback applies.
@@ -116,7 +117,7 @@ export function departmentReportSchemaFor(heldKeys: readonly string[]) {
 export function salvageDepartmentReport(
   raw: unknown,
   heldKeys: readonly string[],
-  log: (line: string) => void,
+  log: (line: string, dropped: string[]) => void,
 ): DepartmentReportZ | undefined {
   const parsed = DepartmentReportSchema.safeParse(raw);
   if (!parsed.success) return undefined;
@@ -135,7 +136,8 @@ export function salvageDepartmentReport(
     }
   }
   if (dropped.size > 0) {
-    log(`effect keys not held, dropped: ${[...dropped].sort().map(oneLine).join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`);
+    const keys = [...dropped].sort();
+    log(`effect keys not held, dropped: ${keys.map(oneLine).join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`, keys);
   }
   return report;
 }
