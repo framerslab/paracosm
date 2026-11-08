@@ -272,6 +272,7 @@ test('a salvaged report and a fallback each show in the turn row they happened i
   );
   const salvageCard = draw(salvage[0]);
   assert.match(salvageCard, /SCHEMA SALVAGE/);
-  assert.match(salvageCard, /kept without: power/);
+  // React's server render puts <!-- --> between adjacent text parts.
+  assert.match(salvageCard, /kept without: (<!-- -->)?power</);
   assert.match(draw(fallback[0]), /SCHEMA FALLBACK/);
 });
