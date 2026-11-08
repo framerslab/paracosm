@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyDemoCaps, normalizeSimulationConfig, resolveSimulationModels } from '../../src/cli/sim-config.js';
+import { applyDemoCaps, DEFAULT_KEY_PERSONNEL, normalizeSimulationConfig, resolveSimulationModels } from '../../src/cli/sim-config.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 
 const leaderA = {
@@ -223,4 +223,16 @@ test('normalizeSimulationConfig resolves explicit economics profiles', () => {
   assert.equal(config.economics.batch.maxConcurrency, 3);
   assert.equal(config.models.commander, 'gpt-5.4-nano');
   assert.equal(config.models.departments, 'gpt-5.4-mini');
+});
+
+test('the run path\'s default people are Mars Genesis\'s preset people, in its own departments', () => {
+  // `paracosm run` seeds these five into Mars Genesis. Carlos Fernandez was
+  // the "Chief Scientist" of a science department Mars does not have,
+  // while scenarios/mars.json seats him in engineering as a geologist.
+  assert.deepEqual(DEFAULT_KEY_PERSONNEL, marsScenario.presets[0].personnel);
+  const departments = new Set(marsScenario.departments.map(d => d.id));
+  for (const person of DEFAULT_KEY_PERSONNEL) {
+    assert.ok(departments.has(person.department), `${person.name} sits in ${person.department}, which Mars Genesis has`);
+    assert.doesNotMatch(person.role, /\b(Chief|Head|Director)\b/, `${person.name} carries no head's title`);
+  }
 });
