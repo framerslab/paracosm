@@ -101,6 +101,91 @@ export function buildAvailableToolsBlock(ledger: ForgedLedger): string {
   return `\n\nALREADY-FORGED TOOLS IN THIS SESSION:\n${lines}\n\nHARD RULE — how to reuse:\n- Preferred: call the tool for real with fresh inputs via call_forged_tool({"name":"<tool_name>","args":{...}}). This produces a new output using the approved, judge-reviewed code. Then cite the tool in "forgedToolsUsed" with the new output.\n- If the analysis is essentially unchanged from last invocation, cite the tool name in "forgedToolsUsed" and reference the last output from the list above in your summary — no tool call needed.\n- Do NOT call forge_tool with a name from this list. Re-forging costs −0.06 outcome bonus and −0.015 morale. Only forge a NEW tool when NO existing one applies. Each reuse (via call_forged_tool or citation) is +0.02 outcome bonus.\n`;
 }
 
+/** A forge as a department's forge_tool call captured it. */
+export interface CapturedForgeForLedger {
+  name: string;
+  description: string;
+  mode: string;
+  approved: boolean;
+  confidence: number;
+  department: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  output: unknown;
+}
+
+/** The event a run's forges were made in. */
+export interface ForgeEvent {
+  turn: number;
+  time: number;
+  eventIndex: number;
+  eventTitle: string;
+}
+
+/**
+ * Take one event's captured forges into the run, in the order captured:
+ * each joins `allForges` with the event's turn, time and index.
+ *
+ * A department's report writes the ledger for the forges it made, and a
+ * department whose session threw after a forge (a transient provider error
+ * on its next model call) returns the empty report and writes nothing,
+ * though the engine holds the tool. A report also records a tool once per
+ * event, from its last capture, so a department that forged a tool, approved,
+ * and then forged it again, rejected, has a rejected record for it. So an
+ * approved forge whose department has no approved ledger record for this
+ * event is recorded here: as the tool's first forge when the ledger has no
+ * entry for it, else as a further forge in its history. Like a report, it
+ * records a tool once for its department and the event, from the
+ * department's last approved capture of it (its output, confidence and, for
+ * a first forge, schemas). A forge the report recorded as approved is not
+ * recorded again, and a rejected forge is no tool of the run either way.
+ */
+export function recordEventForges<F extends CapturedForgeForLedger>(
+  eventForges: readonly F[],
+  event: ForgeEvent,
+  ledger: ForgedLedger,
+  allForges: Array<F & { turn: number; time: number; eventIndex: number }>,
+): void {
+  // Each department's last approved capture of each tool, in the order of
+  // its first approved capture.
+  const lastApproved = new Map<string, F>();
+  for (const forge of eventForges) {
+    allForges.push({ ...forge, turn: event.turn, time: event.time, eventIndex: event.eventIndex });
+    if (forge.approved) lastApproved.set(JSON.stringify([forge.department, forge.name]), forge);
+  }
+  for (const forge of lastApproved.values()) {
+    const known = ledger.get(forge.name);
+    const recorded = known?.history.some(h =>
+      h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department && !h.rejected,
+    );
+    if (recorded) continue;
+    const entry: ForgedToolLedgerEntry = known ?? {
+      firstForgedTurn: event.turn,
+      firstForgedDepartment: forge.department,
+      firstForgedEventIndex: event.eventIndex,
+      firstForgedEventTitle: event.eventTitle,
+      inputSchema: forge.inputSchema,
+      outputSchema: forge.outputSchema,
+      history: [],
+    };
+    if (!known) ledger.set(forge.name, entry);
+    const output = forge.output != null
+      ? (typeof forge.output === 'string' ? forge.output : JSON.stringify(forge.output))
+      : null;
+    entry.history.push({
+      turn: event.turn,
+      time: event.time,
+      eventIndex: event.eventIndex,
+      eventTitle: event.eventTitle,
+      department: forge.department,
+      output: output?.slice(0, 400) || null,
+      isReforge: true,
+      rejected: false,
+      confidence: forge.confidence,
+    });
+  }
+}
+
 /** One entry in the canonical Forged Toolbox that ships in the run output. */
 export interface ForgedToolboxEntry {
   name: string;
