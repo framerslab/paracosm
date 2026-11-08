@@ -218,3 +218,73 @@ test('an unheld key a model wrote with a line break is named on the one salvage 
   assert.ok(!/[\r\n]/.test(lines[0]), `one line: ${JSON.stringify(lines[0])}`);
   assert.ok(lines[0].includes('dropped: power\\n    [medical] schema fallback; using empty report skeleton (the run holds'), lines[0]);
 });
+
+/**
+ * The replies a department gave in a live Mars run on its three attempts
+ * were a report naming "power", the same report again, and a third reply
+ * in prose with no JSON. The salvage read only the last reply, found no
+ * JSON in it, and the event got the empty report although the second reply
+ * could be kept. The newest reply the salvage can keep is the one kept.
+ */
+test('a salvaged report is the newest reply that can be kept, not only the last one', async () => {
+  const { departmentReportSchemaFor, salvageDepartmentReport } = await import('./department.js');
+  const { sendAndValidate } = await import('../../llm/sendAndValidate.js');
+  const { emptyReport } = await import('../util/parsers.js');
+  const { effectKeys } = await import('../util/scenario-state.js');
+  const { SimulationKernel } = await import('../../engine/core/kernel.js');
+  const { marsScenario } = await import('../../engine/scenarios/index.js');
+  const state = new SimulationKernel(950, 'Aria Chen', [], { startTime: 2035, initialPopulation: 30, scenario: marsScenario }).getState();
+  const held = effectKeys(state, marsScenario.world).map(k => k.id);
+  assert.ok(!held.includes('power') && held.includes('powerKw'), 'Mars holds powerKw, not power');
+
+  const report = (summary: string) => JSON.stringify({
+    ...validReport,
+    summary,
+    recommendedEffects: [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Shield the crew quarters before the dust season.', systemDelta: { power: -0.05, morale: 0.02 } },
+    ],
+  });
+  const prose = 'The medical department recommends shielding the crew quarters before the dust season, at a small cost in power.';
+  const ask = async (replies: string[], schema = departmentReportSchemaFor(held)) => {
+    let i = 0;
+    const lines: string[] = [];
+    const result = await sendAndValidate({
+      session: { send: async () => ({ text: replies[Math.min(i++, replies.length - 1)] }) },
+      prompt: 'medical report',
+      schema,
+      schemaName: 'DepartmentReport',
+      fallback: { ...emptyReport('medical'), summary: 'medical report unavailable this turn.' } as never,
+      salvage: (raw: unknown) => salvageDepartmentReport(raw, held, line => lines.push(line)) as never,
+    });
+    return { result, lines, sent: i };
+  };
+
+  // The failing input: [a report naming power, the same, prose].
+  const same = report('Radiation exposure is trending up; shield the crew quarters first.');
+  const kept = await ask([same, same, prose]);
+  assert.equal(kept.sent, 3, 'the run still asks three times');
+  assert.equal(kept.result.fromFallback, false, `the second reply is kept, not the empty report: ${JSON.stringify(kept.result.object).slice(0, 160)}`);
+  const keptReport = kept.result.object as { summary: string; recommendedEffects: Array<{ systemDelta?: Record<string, number> }> };
+  assert.equal(keptReport.summary, 'Radiation exposure is trending up; shield the crew quarters first.');
+  assert.deepEqual(keptReport.recommendedEffects[0].systemDelta, { morale: 0.02 });
+  assert.equal(kept.result.rawText, same, 'the raw text is the reply that was kept');
+  assert.equal(kept.lines.length, 1, kept.lines.join('\n'));
+
+  // Two salvageable replies: the newer one is kept.
+  const first = report('First reading: shield the crew quarters.');
+  const second = report('Second reading: shield the crew quarters and the clinic.');
+  const newer = await ask([first, second, prose]);
+  assert.equal((newer.result.object as { summary: string }).summary, 'Second reading: shield the crew quarters and the clinic.');
+
+  // A newest reply that fails the plain schema too gives way to an older one that passes it.
+  const broken = JSON.stringify({ ...JSON.parse(second), summary: '' });
+  const older = await ask([first, prose, broken]);
+  assert.equal(older.result.fromFallback, false);
+  assert.equal((older.result.object as { summary: string }).summary, 'First reading: shield the crew quarters.');
+
+  // No reply that can be kept: the empty report, as before.
+  const none = await ask([prose, broken, prose]);
+  assert.equal(none.result.fromFallback, true);
+  assert.equal((none.result.object as { summary: string }).summary, 'medical report unavailable this turn.');
+  assert.equal(none.lines.length, 0);
+});
