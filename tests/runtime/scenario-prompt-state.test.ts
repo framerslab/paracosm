@@ -197,6 +197,58 @@ test('the forge guidance every department reads names no Mars', () => {
   assert.match(guidance, /GOOD FORGE EXAMPLE/);
 });
 
+test('a department\'s report format lists the keys its run holds, with their units, and the example uses them', () => {
+  // The format showed only {"morale": 0.05}, so the Mars departments of
+  // 6 November 2026 wrote "power", "water" and "science", which the run
+  // does not hold (#209).
+  const marsGuidance = buildForgeGuidance('engineering', mars.world, kernelFor(mars, 2035).getState());
+  const format = marsGuidance.slice(marsGuidance.indexOf('REPORT FORMAT'));
+  for (const key of ['infrastructureModules', 'foodMonthsReserve', 'powerKw', 'lifeSupportCapacity', 'earthDependencyPct']) {
+    assert.match(format, new RegExp(`"${key}"`), `the Mars report format names ${key}`);
+  }
+  assert.match(format, /"powerKw"[^\n]*kW/, 'with its unit');
+  assert.match(format, /"foodMonthsReserve"[^\n]*months/);
+  assert.doesNotMatch(format, /"(power|water|science|health)"/, 'no bare key the run does not hold');
+  assert.match(format, /not listed[^\n]*refused/i, 'a key not listed is refused');
+  assert.match(format, /"systemDelta": \{"[A-Za-z]+": -?[0-9.]+/, 'the example delta names a key the run holds');
+  const example = format.match(/"systemDelta": (\{[^}]*\})/)![1];
+  for (const key of Object.keys(JSON.parse(example))) {
+    assert.match(format, new RegExp(`^- "${key}"`, 'm'), `the example's ${key} is a listed key`);
+  }
+  assert.match(format, /"politicsDelta": \{"earthDependencyPct": -?[0-9.]+\}/);
+
+  // Atlas Lab's departments are shown Atlas Lab's keys, and none of Mars.
+  const atlasGuidance = buildForgeGuidance('governance', atlasLab.world, kernelFor(atlasLab, 1).getState());
+  const atlasFormat = atlasGuidance.slice(atlasGuidance.indexOf('REPORT FORMAT'));
+  for (const key of ['alignmentBench', 'releaseReadiness', 'runwayMonths', 'trainingRunsPerMonth', 'boardConfidence']) {
+    assert.match(atlasFormat, new RegExp(`"${key}"`), `the Atlas Lab report format names ${key}`);
+  }
+  assert.doesNotMatch(atlasFormat, /infrastructureModules|foodMonthsReserve|earthDependencyPct|rspTier/);
+
+  // One system block per department per run: the same inputs give the same text.
+  assert.equal(buildForgeGuidance('engineering', mars.world, kernelFor(mars, 2035).getState()), marsGuidance);
+});
+
+test('a custom scenario\'s key with a quote or a backslash still gives a report example that parses', () => {
+  // A custom scenario's world maps are string-keyed records, so a key may
+  // hold a quote or a backslash; written between bare quotes it broke the
+  // worked JSON example the department copies.
+  const world = {
+    metrics: { 'reserve"days': { label: 'Reserve days', unit: 'days', min: 0 }, 'a\\b': { label: 'Ratio', unit: '', min: 0, max: 1 } },
+    politics: { 'trust"index': { label: 'Trust', unit: '', min: 0, max: 100 } },
+  };
+  const state = { metrics: { population: 10, morale: 0.8, 'reserve"days': 30, 'a\\b': 0.5 }, politics: { 'trust"index': 50 } };
+  const guidance = buildForgeGuidance('operations', world as never, state);
+  const format = guidance.slice(guidance.indexOf('REPORT FORMAT'));
+  const effects = format.match(/"recommendedEffects": \[(\{.*\})\],\n/)![1];
+  const parsed = JSON.parse(effects) as { systemDelta: Record<string, number>; politicsDelta: Record<string, number> };
+  assert.deepEqual(Object.keys(parsed.systemDelta), ['reserve"days', 'a\\b']);
+  assert.deepEqual(Object.keys(parsed.politicsDelta), ['trust"index']);
+  for (const key of ['reserve"days', 'a\\b', 'trust"index']) {
+    assert.ok(format.includes(`- ${JSON.stringify(key)} (`), `the key list names ${key} as JSON`);
+  }
+});
+
 test('the event summaries a viewer reads name the scenario\'s leader', () => {
   assert.equal(buildEventSummary('decision_pending', {}, atlasLab.labels), 'release director deciding');
   assert.match(buildEventSummary('decision_made', { decision: 'Hold the release' }, atlasLab.labels), /^release director decided: Hold the release/);

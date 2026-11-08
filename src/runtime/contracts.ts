@@ -91,6 +91,11 @@ export interface TurnArtifact {
   commanderDecision: CommanderDecision;
   policyEffectsApplied: string[];
   /**
+   * The keys of the turn's selected effects that the run holds in neither
+   * its metrics nor its politics, which moved nothing; absent when none.
+   */
+  policyKeysDropped?: string[];
+  /**
    * Snapshot of the five runtime state bags at the end of the turn,
    * produced by the kernel. Widened in 0.7.x from the pre-F23
    * Mars-shape (flat `population`/`morale`/…) to a structural match
@@ -117,6 +122,13 @@ export interface TurnArtifact {
     /** Environmental conditions; optional, declared via world.environment. */
     environment?: Record<string, number | string | boolean>;
   };
+  /**
+   * Each key a decision's selected effects moved otherwise than they
+   * asked, by the event's index in the turn: the bound of one decision
+   * held it, or a floor or ceiling stopped it. An `applied` of 0 is a
+   * choice that moved nothing. Absent when every key moved as asked.
+   */
+  policyEffectsLimited?: Array<{ eventIndex: number; key: string; asked: number; applied: number }>;
 }
 
 export interface PromotionDecision {
