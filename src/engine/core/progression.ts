@@ -251,6 +251,9 @@ export function turnHazard(pYear: number, years: number): number {
   return 1 - Math.pow(1 - pYear, years);
 }
 
+/** Measurement switch for #221, this branch only: the radiation hazard's model. */
+export const radiationMeasurement: { model: 'threshold' | 'linear'; perSv: number } = { model: 'threshold', perSv: 0.003 };
+
 /** Accident weight by department: who is more often in harm's way. */
 const ROLE_ACCIDENT_WEIGHT: Record<string, number> = {
   engineering: 1.5,
@@ -300,7 +303,9 @@ export function causeHazards(
   else if (ageYears >= 60) natural = 0.01;
 
   const doseSv = (health.cumulativeRadiationMsv ?? 0) / 1000;
-  const radiation = ageYears >= 30 ? 0.004 * Math.max(0, doseSv - 0.5) : 0;
+  const radiation = ageYears >= 30
+    ? (radiationMeasurement.model === 'linear' ? radiationMeasurement.perSv * doseSv : 0.004 * Math.max(0, doseSv - 0.5))
+    : 0;
 
   const food = metrics.foodMonthsReserve;
   const starvation = typeof food === 'number' && food < 1 ? (1 - food) * 0.15 : 0;

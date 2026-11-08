@@ -30,12 +30,13 @@ export function habitatDoseShare(metrics?: Readonly<Record<string, unknown>>): n
   if (!(typeof modules === 'number' && Number.isFinite(modules))) return 1;
   const m = Math.max(0, modules);
   if (shieldMeasurement.curve === 'fifth-of-rest') return Math.pow(0.8, m);
+  if (shieldMeasurement.curve === 'quarter-of-rest') return Math.pow(0.75, m);
   if (shieldMeasurement.curve === 'match-at-4') return Math.pow(0.2, m / 4);
   return 1 - Math.min(0.9, 0.2 * m);
 }
 
 /** Measurement switch for #221, this branch only: the shielding curve. */
-export const shieldMeasurement: { curve: 'cap' | 'fifth-of-rest' | 'match-at-4' } = { curve: 'cap' };
+export const shieldMeasurement: { curve: 'cap' | 'fifth-of-rest' | 'quarter-of-rest' | 'match-at-4' } = { curve: 'cap' };
 
 /**
  * Walk the agent roster, accumulate radiation dose, and apply bone-
