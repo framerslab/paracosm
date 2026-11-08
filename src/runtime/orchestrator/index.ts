@@ -18,9 +18,11 @@ import {
   humanizeToolName,
   emptyReport,
   emptyDecision,
+  oneLine,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
-import { departmentReportSchemaFor, salvageDepartmentReport } from '../validators/department.js';
+import { departmentReportSchemaFor } from '../validators/department.js';
+import { sendDepartmentReport, validationFallbackData } from './department-report.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
 import { createCostTracker } from '../economics/cost-tracker.js';
 import {
@@ -228,7 +230,16 @@ export interface SimEventPayloadMap {
     site: string;
   };
   /** Non-terminal: a schema-validated call exhausted retries and returned the fallback skeleton. Run continues degraded. */
-  validation_fallback: { site: string; schemaName?: string; rawTextPreview: string; error: string };
+  validation_fallback: {
+    site: string;
+    schemaName?: string;
+    rawTextPreview: string;
+    error: string;
+    /** True when the call kept a reply with its unheld effect keys dropped rather than returning the fallback. */
+    salvaged?: true;
+    /** The keys a salvage dropped, sorted. */
+    droppedKeys?: string[];
+  };
   /** Run was cancelled via `signal.abort()` (or the server's disconnect watchdog). Partial results preserved. */
   sim_aborted: {
     reason: string;
@@ -348,8 +359,11 @@ export function buildEventSummary(type: SimEventType, data: Record<string, unkno
     }
     case 'provider_error':
       return `provider error (${d.kind ?? 'unknown'}): ${trunc(d.message, 80)}`;
-    case 'validation_fallback':
-      return `schema fallback: ${d.schemaName ?? 'unknown'}`;
+    case 'validation_fallback': {
+      if (d.salvaged !== true) return `schema fallback: ${d.schemaName ?? 'unknown'}`;
+      const dropped: unknown[] = Array.isArray(d.droppedKeys) ? d.droppedKeys : [];
+      return `schema salvage: ${d.schemaName ?? 'unknown'} kept without ${dropped.length > 0 ? dropped.map(k => oneLine(String(k))).join(', ') : 'unheld keys'}`;
+    }
     case 'sim_aborted':
       return `aborted: ${d.reason ?? 'unknown'}`;
     default: {
@@ -613,15 +627,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       (issueSummary ? `\n    issues: ${issueSummary}` : '') +
       `\n    raw[:600]: ${details.rawText.slice(0, 600).replace(/\n/g, '\\n')}`,
     );
-    emit('validation_fallback', {
-      site,
-      schemaName: details.schemaName,
-      rawTextPreview: details.rawText.slice(0, 1500),
-      // Compact Zod issue list for the dashboard / forensic-replay tooling.
-      issues: Array.isArray(zodIssues)
-        ? zodIssues.slice(0, 5).map(i => ({ path: i.path ?? [], message: i.message, code: i.code }))
-        : undefined,
-    });
+    emit('validation_fallback', validationFallbackData(site, details));
   };
 
   /** True when the run should stop launching new LLM work. */
@@ -1229,22 +1235,23 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // it actually forged — captured forges below are authoritative.
         const forgeBucketStart = deptForgeBuckets.get(dept)?.length ?? 0;
         try {
-          const sendResult = await sendAndValidate({
+          // A salvaged report and a fallback are each counted in the run's
+          // schemaRetries and go out as a validation_fallback event
+          // (sendDepartmentReport).
+          const sendResult = await sendDepartmentReport({
             session: sess,
             prompt: ctx,
+            department: dept,
+            site: `dept:${dept}:turn${turn}:event${ei + 1}`,
+            heldKeys: deptHeldKeys,
             schema: deptReportSchema,
-            schemaName: 'DepartmentReport',
             onUsage: (usage) => trackUsage(usage as any, 'departments'),
             onProviderError: (err) => reportProviderError(err, `dept:${dept}:turn${turn}:event${ei + 1}`),
             onValidationFallback: (details) => reportValidationFallback(`dept:${dept}:turn${turn}:event${ei + 1}`, details),
-            salvage: (raw) => salvageDepartmentReport(raw, deptHeldKeys, line => console.log(`    [${dept}] ${line}`)) as any,
-            fallback: { ...emptyReport(dept), summary: `${dept} report unavailable this turn.` } as any,
+            recordSchemaAttempt,
+            emit,
           });
-          const { object: parsedDeptReport, fromFallback: deptFallback } = sendResult;
-          recordSchemaAttempt('DepartmentReport', sendResult.attempts, deptFallback);
-          if (deptFallback) {
-            console.log(`    [${dept}] schema fallback; using empty report skeleton`);
-          }
+          const parsedDeptReport = sendResult.report;
           // Cast schema-inferred result back to the legacy DepartmentReport
           // nominal type so downstream code (reports consumer, cost tracker,
           // citation plumbing) sees the same shape it always has.

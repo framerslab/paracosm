@@ -185,6 +185,14 @@ const ValidationFallbackDataSchema = z.object({
   schemaName: z.string().optional(),
   rawTextPreview: z.string(),
   error: z.string(),
+  /**
+   * True when the call kept a reply that failed its schema rather than
+   * returning the fallback: a department report whose effects named keys
+   * the run does not hold, kept with those keys dropped.
+   */
+  salvaged: z.literal(true).optional(),
+  /** The keys a salvage dropped, sorted. */
+  droppedKeys: z.array(z.string()).optional(),
 });
 
 const SimAbortedDataSchema = z.object({

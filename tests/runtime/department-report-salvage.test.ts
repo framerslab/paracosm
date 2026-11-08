@@ -139,6 +139,11 @@ test('a report kept with an unheld key dropped is counted as salvaged and stream
   assert.equal(fallbacks.length, 0, 'a salvage is no fallback');
 
   assert.deepEqual(tracker.finalCost().schemaRetries?.DepartmentReport, { attempts: 3, calls: 1, fallbacks: 0, salvaged: 1 });
+  // The server folds each run's schemaRetries into /retry-stats.
+  const { aggregateSchemaRetries } = await import('../../src/server/retry-stats.js');
+  const stats = aggregateSchemaRetries([tracker.finalCost().schemaRetries!]);
+  assert.equal(stats.schemas.DepartmentReport.salvaged, 1);
+  assert.equal(stats.schemas.DepartmentReport.fallbacks, 0);
 
   assert.equal(events.length, 1, JSON.stringify(events));
   const [event] = events;

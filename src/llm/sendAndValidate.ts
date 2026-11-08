@@ -40,10 +40,11 @@ export interface SendAndValidateOptions<T extends ZodType> {
    */
   onValidationFallback?: (details: { rawText: string; schemaName?: string; err: unknown }) => void;
   /**
-   * Once the retries are spent, the last reply's parsed JSON goes here
-   * before the fallback: what it returns is the result (not a fallback),
-   * and `undefined` leaves the fallback to apply. A reply that was no
-   * JSON reaches the fallback without it.
+   * Once the retries are spent, each reply's parsed JSON goes here before
+   * the fallback, newest first, until one returns a result: that result is
+   * the call's (`salvaged`, not a fallback), and `undefined` passes to the
+   * next older reply. A reply that was no JSON is skipped. With none kept,
+   * the fallback applies.
    */
   salvage?: (parsed: unknown) => z.infer<T> | undefined;
   fallback?: z.infer<T>;
@@ -60,6 +61,12 @@ export interface SendAndValidateResult<T> {
    * retry rates into the run's cost/quality telemetry.
    */
   attempts: number;
+  /**
+   * True when the result is a reply `salvage` kept after the retries were
+   * spent; `rawText` is then that reply's text, which may be older than
+   * the last one.
+   */
+  salvaged: boolean;
 }
 
 const MAX_ZOD_ERRORS_IN_FEEDBACK = 5;
@@ -88,8 +95,8 @@ export async function sendAndValidate<T extends ZodType>(
   let lastError: ZodError | undefined;
   let lastText = '';
   let lastParseError: string | undefined;
-  let lastParsed: unknown;
-  let lastParsedOk = false;
+  /** Every reply that parsed as JSON, oldest first, for `salvage`. */
+  const parsedReplies: Array<{ parsed: unknown; text: string }> = [];
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const prompt = attempt === 0
@@ -100,7 +107,6 @@ export async function sendAndValidate<T extends ZodType>(
     opts.onUsage?.({ usage: r.usage });
     lastText = r.text;
     lastParseError = undefined;
-    lastParsedOk = false;
 
     // extractJson returns the JSON SUBSTRING (or null), so we still
     // need to JSON.parse it before handing to Zod. Validation errors
@@ -118,18 +124,23 @@ export async function sendAndValidate<T extends ZodType>(
       continue;
     }
 
-    lastParsed = parsed;
-    lastParsedOk = true;
+    parsedReplies.push({ parsed, text: r.text });
     const validation = opts.schema.safeParse(parsed);
     if (validation.success) {
-      return { object: validation.data, fromFallback: false, rawText: r.text, attempts: attempt + 1 };
+      return { object: validation.data, fromFallback: false, rawText: r.text, attempts: attempt + 1, salvaged: false };
     }
     lastError = validation.error;
   }
 
-  if (opts.salvage && lastParsedOk) {
-    const kept = opts.salvage(lastParsed);
-    if (kept !== undefined) return { object: kept, fromFallback: false, rawText: lastText, attempts: maxRetries + 1 };
+  if (opts.salvage) {
+    // The newest reply that can be kept: a model's last reply is not
+    // always its best (a retry can come back as prose with no JSON).
+    for (let i = parsedReplies.length - 1; i >= 0; i--) {
+      const kept = opts.salvage(parsedReplies[i].parsed);
+      if (kept !== undefined) {
+        return { object: kept, fromFallback: false, rawText: parsedReplies[i].text, attempts: maxRetries + 1, salvaged: true };
+      }
+    }
   }
 
   const err = new ObjectGenerationError(
@@ -144,7 +155,7 @@ export async function sendAndValidate<T extends ZodType>(
       schemaName: opts.schemaName,
       err,
     });
-    return { object: opts.fallback, fromFallback: true, rawText: lastText, attempts: maxRetries + 1 };
+    return { object: opts.fallback, fromFallback: true, rawText: lastText, attempts: maxRetries + 1, salvaged: false };
   }
   throw err;
 }
