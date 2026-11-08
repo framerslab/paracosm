@@ -1,5 +1,5 @@
 {
-  "comment": "Each turn's [morale, living, deaths, births] on the kernel of b43ee952, before a long turn settled morale each year it spans, printed by tests/engine/progression-year-steps.test.ts in CI run 42189356195 (commit 7c046ef6, the tests alone on that kernel). A turn of a year or less must keep these rows exactly.",
+  "comment": "Each turn's [morale, living, deaths, births]. The Atlas Lab and Digital Twin rows are from the kernel of b43ee952, before a long turn settled morale each year it spans, printed by tests/engine/progression-year-steps.test.ts in CI run 42189356195 (commit 7c046ef6, the tests alone on that kernel). The Mars rows were read again in CI run 42466726844 (commit 1e33f983) when each Mars habitat module came to keep out a fifth of the dose that still reaches the colonists; the seed 101 rows did not change. A turn of a year or less must keep these rows exactly.",
   "runs": {
     "atlas-lab, seed 11, 480 people, 12 monthly turns": [
       [0.855, 480, 0, 0],
@@ -72,14 +72,14 @@
       [0.8760851550000001, 32, 0, 0],
       [0.8784766395000001, 33, 0, 1],
       [0.8806289755500001, 35, 0, 2],
-      [0.8825660779950001, 34, 1, 0],
-      [0.8843094701955001, 35, 0, 1],
-      [0.8858785231759501, 36, 0, 1],
-      [0.8872906708583551, 37, 0, 1],
-      [0.8885616037725196, 37, 0, 0],
-      [0.8897054433952677, 36, 1, 0],
-      [0.890734899055741, 36, 0, 0],
-      [0.8916614091501669, 36, 0, 0]
+      [0.8825660779950001, 33, 2, 0],
+      [0.8843094701955001, 34, 0, 1],
+      [0.8858785231759501, 34, 0, 0],
+      [0.8872906708583551, 35, 0, 1],
+      [0.8885616037725196, 35, 0, 0],
+      [0.8897054433952677, 35, 0, 0],
+      [0.890734899055741, 35, 0, 0],
+      [0.8916614091501669, 35, 0, 0]
     ]
   }
 }

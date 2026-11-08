@@ -21,14 +21,17 @@ import type { ProgressionHookContext } from '../types.js';
 const MARS_SURFACE_MSV_PER_DAY = 0.67;
 
 /**
- * The share of a surface dose that reaches a colonist: each habitat
- * module keeps out a fifth, at most nine tenths in all. A run that
- * carries no module count is unshielded.
+ * The share of a surface dose that reaches a colonist, `0.8 ^ modules`:
+ * each habitat module keeps out a fifth of the dose that still reaches
+ * the colonists, with no limit, so every module a colony builds lowers
+ * the dose, by less as the colony grows (three modules let through
+ * 0.512 of it, five 0.328, eleven 0.086). A run that carries no module
+ * count is unshielded; a count under zero counts as none.
  */
 export function habitatDoseShare(metrics?: Readonly<Record<string, unknown>>): number {
   const modules = metrics?.infrastructureModules;
   return typeof modules === 'number' && Number.isFinite(modules)
-    ? 1 - Math.min(0.9, 0.2 * Math.max(0, modules))
+    ? Math.pow(0.8, Math.max(0, modules))
     : 1;
 }
 
