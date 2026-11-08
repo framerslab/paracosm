@@ -32,9 +32,9 @@ import {
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
-import { applyCommanderPolicy } from './commander-policy.js';
+import { applyCommanderPolicy, type PolicyEffectTables } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
-import { buildAvailableToolsBlock, buildForgedToolbox, forgedToolNames, type ForgedLedger } from './tool-ledger.js';
+import { buildAvailableToolsBlock, buildForgedToolbox, eventToolModifiers, forgedToolNames, recordEventForges, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
@@ -940,12 +940,20 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
+  let turnPolicyLimited: NonNullable<TurnArtifact['policyEffectsLimited']> = [];
   let turnDeptReports: DepartmentReport[] = [];
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
   let turnPolicyKeysDropped: string[] = [];
   const director = new EventDirector();
   const effectRegistry = EffectRegistry.forScenario(sc);
+  // One decision's adopted effects move a key at most what one event
+  // outcome brings on it: the scenario's outcome tables bound them (#214).
+  const policyTables: PolicyEffectTables = {
+    registry: effectRegistry,
+    politicsHook: sc.hooks.politicsHook,
+    categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
+  };
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
@@ -1125,6 +1133,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     let lastEventCategory = '';
     // Reset per-turn slots so the artifacts.push() below captures only this
     // turn's reports / decisions / policies.
+    turnPolicyLimited = [];
     turnDeptReports = [];
     turnDecisions = [];
     turnPolicyEffects = [];
@@ -1457,13 +1466,14 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // Use the per-dept eventBucketStarts snapshot instead of scanning
       // the whole bucket and de-duping with .find() (was O(n²) and prone
       // to missed matches when timestamps tied at sub-ms resolution).
-      for (const dept of depts) {
-        const bucket = deptForgeBuckets.get(dept) ?? [];
-        const start = eventBucketStarts.get(dept) ?? 0;
-        for (const forge of bucket.slice(start)) {
-          allForges.push({ ...forge, turn, time, eventIndex: ei });
-        }
-      }
+      // An approved forge of a department whose report failed, which wrote
+      // no ledger entry, is recorded here, so the toolbox keeps it.
+      recordEventForges(
+        depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
+        { turn, time, eventIndex: ei, eventTitle: event.title },
+        forgedLedger,
+        allForges,
+      );
 
       // Accumulate tool outputs across events
       lastTurnToolOutputs.push(...reports.flatMap(r => (r.forgedToolsUsed || []).filter(t => t?.output).map(t => ({ name: t.name || 'unnamed', department: r.department, output: typeof t.output === 'string' ? t.output.slice(0, 200) : JSON.stringify(t.output).slice(0, 200) }))));
@@ -1570,8 +1580,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      const policyApplied = applyCommanderPolicy(kernel, decision, reports, turn, time);
+      const policyApplied = applyCommanderPolicy(kernel, decision, reports, turn, time, console.log, policyTables);
       for (const key of policyApplied.notHeld) if (!turnPolicyKeysDropped.includes(key)) turnPolicyKeysDropped.push(key);
+      for (const [key, { asked, applied }] of Object.entries(policyApplied.limited)) turnPolicyLimited.push({ eventIndex: ei, key, asked, applied });
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1606,35 +1617,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // affect outcomes. Reuses are nearly free; failed forges cost
       // morale + power. Run-wide cumulative count gives a small
       // log-scaled innovation bonus with diminishing returns.
-      const eventForges = (() => {
-        let newCount = 0, reuseCount = 0, failCount = 0;
-        const newNamesThisEvent = new Set<string>();
-        for (const dept of depts) {
-          const bucket = deptForgeBuckets.get(dept) ?? [];
-          const start = eventBucketStarts.get(dept) ?? 0;
-          // Forges added DURING this event only — slice past start.
-          const newForges = bucket.slice(start);
-          for (const f of newForges) {
-            if (!f.approved) { failCount++; continue; }
-            // First-time forges: name not seen before (firstForgedTurn === turn
-            // AND we haven't already counted it elsewhere this event).
-            const ledgerEntry = forgedLedger.get(f.name);
-            const isFirstUse = ledgerEntry?.firstForgedTurn === turn && !newNamesThisEvent.has(f.name);
-            if (isFirstUse) {
-              newCount++;
-              newNamesThisEvent.add(f.name);
-            } else {
-              reuseCount++;
-            }
-          }
-        }
-        return {
-          newToolsThisEvent: newCount,
-          reuseCountThisEvent: reuseCount,
-          forgeFailures: failCount,
-          totalToolsForRun: forgedLedger.size,
-        };
-      })();
+      const eventForges = eventToolModifiers(
+        // Forges added DURING this event only: each bucket past its start.
+        depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
+        forgedLedger,
+        allForges,
+        turn,
+      );
 
       const { systemDeltas, politicsDeltas } = applyOutcomeEffects(kernel, effectRegistry, {
         category: event.category,
@@ -1799,6 +1788,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         ...(Object.keys(after.politics).length > 0 ? { politics: { ...after.politics } } : {}),
         ...(Object.keys(after.environment).length > 0 ? { environment: { ...after.environment } } : {}),
       },
+      ...(turnPolicyLimited.length > 0 ? { policyEffectsLimited: turnPolicyLimited.slice() } : {}),
     });
     // Per-turn kernel snapshot for WorldModel.forkFromArtifact. Opt-in
     // via opts.captureSnapshots; adds ~100 KB per turn for 100-agent
