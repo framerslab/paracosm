@@ -257,9 +257,12 @@ test('a salvaged report and a fallback each show in the turn row they happened i
   assert.equal(fallback.length, 1, `turn 2's row holds the fallback: ${JSON.stringify([...rows].map(([t, es]) => [t, es.map(e => e.type)]))}`);
   assert.equal(fallback[0].data.salvaged, undefined);
 
-  // The row draws each with the event card.
-  const React = await import('react');
-  const { renderToString } = await import('react-dom/server');
+  // The row draws each with the event card. React is the dashboard's own
+  // dependency, so it is loaded from there, the copy EventCard imports.
+  const { createRequire } = await import('node:module');
+  const dashboardRequire = createRequire(new URL('../../src/dashboard/package.json', import.meta.url));
+  const React = dashboardRequire('react') as { createElement: (type: unknown, props: unknown, ...children: unknown[]) => unknown };
+  const { renderToString } = dashboardRequire('react-dom/server') as { renderToString: (node: unknown) => string };
   (globalThis as { React?: unknown }).React = React;
   const { ScenarioContext } = await import('../../src/dashboard/src/App.js');
   const { EventCard } = await import('../../src/dashboard/src/components/sim/EventCard.js');
