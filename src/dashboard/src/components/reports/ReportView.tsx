@@ -29,6 +29,7 @@ import { ReportSideNav, type SideNavItem } from './ReportSideNav';
 import { collectMetricSeries, collectMetricSeriesCohort, collectRunStripData } from './reports-shared';
 import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './ReportView.module.scss';
+import { emitLaunched } from '../../scenario-sync';
 
 /**
  * Tiny hook for booleans persisted to localStorage. Used here to remember
@@ -263,6 +264,8 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           });
           return;
         }
+        const launched = (await res.json().catch(() => ({}))) as { visitorId?: string };
+        emitLaunched(window, launched.visitorId);
         // The server took the fork: it replaces the Digital Twin views.
         runStart();
         // Branches is a sub-tab of Studio after the merge.

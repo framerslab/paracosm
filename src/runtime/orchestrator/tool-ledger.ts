@@ -14,6 +14,8 @@
  * @module paracosm/runtime/tool-ledger
  */
 
+import type { OutcomeModifiers } from '../../engine/registries/effects.js';
+
 /** A single invocation of a forged tool, appended to the tool's history. */
 export interface ToolUseRecord {
   turn: number;
@@ -97,6 +99,91 @@ export function buildAvailableToolsBlock(ledger: ForgedLedger): string {
     return t.output ? `${head}\n  last output: ${t.output}` : head;
   }).join('\n');
   return `\n\nALREADY-FORGED TOOLS IN THIS SESSION:\n${lines}\n\nHARD RULE — how to reuse:\n- Preferred: call the tool for real with fresh inputs via call_forged_tool({"name":"<tool_name>","args":{...}}). This produces a new output using the approved, judge-reviewed code. Then cite the tool in "forgedToolsUsed" with the new output.\n- If the analysis is essentially unchanged from last invocation, cite the tool name in "forgedToolsUsed" and reference the last output from the list above in your summary — no tool call needed.\n- Do NOT call forge_tool with a name from this list. Re-forging costs −0.06 outcome bonus and −0.015 morale. Only forge a NEW tool when NO existing one applies. Each reuse (via call_forged_tool or citation) is +0.02 outcome bonus.\n`;
+}
+
+/** A forge as a department's forge_tool call captured it. */
+export interface CapturedForgeForLedger {
+  name: string;
+  description: string;
+  mode: string;
+  approved: boolean;
+  confidence: number;
+  department: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+  output: unknown;
+}
+
+/** The event a run's forges were made in. */
+export interface ForgeEvent {
+  turn: number;
+  time: number;
+  eventIndex: number;
+  eventTitle: string;
+}
+
+/**
+ * Take one event's captured forges into the run, in the order captured:
+ * each joins `allForges` with the event's turn, time and index.
+ *
+ * A department's report writes the ledger for the forges it made, and a
+ * department whose session threw after a forge (a transient provider error
+ * on its next model call) returns the empty report and writes nothing,
+ * though the engine holds the tool. A report also records a tool once per
+ * event, from its last capture, so a department that forged a tool, approved,
+ * and then forged it again, rejected, has a rejected record for it. So an
+ * approved forge whose department has no approved ledger record for this
+ * event is recorded here: as the tool's first forge when the ledger has no
+ * entry for it, else as a further forge in its history. Like a report, it
+ * records a tool once for its department and the event, from the
+ * department's last approved capture of it (its output, confidence and, for
+ * a first forge, schemas). A forge the report recorded as approved is not
+ * recorded again, and a rejected forge is no tool of the run either way.
+ */
+export function recordEventForges<F extends CapturedForgeForLedger>(
+  eventForges: readonly F[],
+  event: ForgeEvent,
+  ledger: ForgedLedger,
+  allForges: Array<F & { turn: number; time: number; eventIndex: number }>,
+): void {
+  // Each department's last approved capture of each tool, in the order of
+  // its first approved capture.
+  const lastApproved = new Map<string, F>();
+  for (const forge of eventForges) {
+    allForges.push({ ...forge, turn: event.turn, time: event.time, eventIndex: event.eventIndex });
+    if (forge.approved) lastApproved.set(JSON.stringify([forge.department, forge.name]), forge);
+  }
+  for (const forge of lastApproved.values()) {
+    const known = ledger.get(forge.name);
+    const recorded = known?.history.some(h =>
+      h.turn === event.turn && h.eventIndex === event.eventIndex && h.department === forge.department && !h.rejected,
+    );
+    if (recorded) continue;
+    const entry: ForgedToolLedgerEntry = known ?? {
+      firstForgedTurn: event.turn,
+      firstForgedDepartment: forge.department,
+      firstForgedEventIndex: event.eventIndex,
+      firstForgedEventTitle: event.eventTitle,
+      inputSchema: forge.inputSchema,
+      outputSchema: forge.outputSchema,
+      history: [],
+    };
+    if (!known) ledger.set(forge.name, entry);
+    const output = forge.output != null
+      ? (typeof forge.output === 'string' ? forge.output : JSON.stringify(forge.output))
+      : null;
+    entry.history.push({
+      turn: event.turn,
+      time: event.time,
+      eventIndex: event.eventIndex,
+      eventTitle: event.eventTitle,
+      department: forge.department,
+      output: output?.slice(0, 400) || null,
+      isReforge: true,
+      rejected: false,
+      confidence: forge.confidence,
+    });
+  }
 }
 
 /** One entry in the canonical Forged Toolbox that ships in the run output. */
@@ -208,4 +295,46 @@ export function forgedToolNames(
   allForges: readonly ForgeCaptureForToolbox[],
 ): string[] {
   return buildForgedToolbox(ledger, allForges).filter(tool => tool.approved).map(tool => tool.name);
+}
+
+/** The tool modifiers an event's outcome reads; see {@link OutcomeModifiers}. */
+export type EventToolModifiers = NonNullable<OutcomeModifiers['toolModifiers']>;
+
+/**
+ * The tool modifiers of one event's outcome. `eventForges` are the forges
+ * the event's departments made during the event, in the order captured: an
+ * approved one is a new tool when the ledger first saw its name this turn
+ * (once per name), else a reuse; a rejected one is a failed forge.
+ * `totalToolsForRun` is the run-wide count the innovation bonus reads: the
+ * run's approved tools, each once, as {@link forgedToolNames} counts them for
+ * the stream, the director and the verdict. A tool whose every forge the
+ * reviewers rejected is none, so it raises no outcome.
+ */
+export function eventToolModifiers(
+  eventForges: readonly Pick<ForgeCaptureForToolbox, 'name' | 'approved'>[],
+  ledger: ForgedLedger,
+  allForges: readonly ForgeCaptureForToolbox[],
+  turn: number,
+): EventToolModifiers {
+  let newCount = 0, reuseCount = 0, failCount = 0;
+  const newNamesThisEvent = new Set<string>();
+  for (const f of eventForges) {
+    if (!f.approved) { failCount++; continue; }
+    // First-time forges: name not seen before (firstForgedTurn === turn
+    // AND we haven't already counted it elsewhere this event).
+    const ledgerEntry = ledger.get(f.name);
+    const isFirstUse = ledgerEntry?.firstForgedTurn === turn && !newNamesThisEvent.has(f.name);
+    if (isFirstUse) {
+      newCount++;
+      newNamesThisEvent.add(f.name);
+    } else {
+      reuseCount++;
+    }
+  }
+  return {
+    newToolsThisEvent: newCount,
+    reuseCountThisEvent: reuseCount,
+    forgeFailures: failCount,
+    totalToolsForRun: forgedToolNames(ledger, allForges).length,
+  };
 }

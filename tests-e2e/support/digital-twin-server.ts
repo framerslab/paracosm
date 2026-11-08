@@ -50,6 +50,12 @@ const server = createMarsServer({
   runHistoryStore: createNoopRunHistoryStore(),
   getDigitalTwinWorld: async () => world,
   maxSimsPerDay: 0,
+  // Each test is a visitor of its own, and a pair run here holds until it is
+  // stopped: nothing stops it when the test's page closes, before the
+  // watchdog's grace. Under the default cap of 3 runs in flight, the tests
+  // that start a pair run filled the server and the later tests' twins were
+  // refused with a 503.
+  maxRuns: 64,
   // One status frame names the turn count and the leaders, which is what
   // marks a run running on the page, then each leader's first turn.
   runPairSimulations: async (config, broadcast, signal) => {

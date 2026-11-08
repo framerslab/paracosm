@@ -75,6 +75,8 @@ interface PoolEntry {
   session: ReturnType<ReturnType<typeof createAgent>['session']>;
   lastUsed: number;
   colonistName: string;
+  /** The run whose events seeded the agent; clearPool(runKey) closes that run's agents. */
+  runKey?: string;
 }
 
 // ============================================================================
@@ -129,6 +131,18 @@ export async function getOrCreateChatAgent(
      *  have my roster loaded" when asked about anyone other than itself,
      *  which is strictly more truthful than the prior confabulate path. */
     roster?: ColonistRosterEntry[];
+    /**
+     * The run the memories come from. Two runs hold the same colonist ids,
+     * so the pool keys an agent by its run: each visitor's characters keep
+     * their own memories and histories.
+     */
+    runKey?: string;
+    /**
+     * The leader under whom the character lived. A pair run holds one
+     * colony of the same people under each leader; an agent per leader
+     * keeps the two lives apart.
+     */
+    leader?: string;
   },
 ): Promise<{ session: PoolEntry['session']; isNew: boolean }> {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
@@ -137,6 +151,8 @@ export async function getOrCreateChatAgent(
     colonist.agentId,
     provider,
     credentialFingerprint(providerApiKey),
+    opts.runKey ?? '',
+    opts.leader ?? '',
   ].join(':');
 
   // Return existing agent if available
@@ -222,7 +238,7 @@ export async function getOrCreateChatAgent(
   });
 
   const session = chatAgent.session(key);
-  const entry: PoolEntry = { agent: chatAgent, session, lastUsed: Date.now(), colonistName: colonist.name };
+  const entry: PoolEntry = { agent: chatAgent, session, lastUsed: Date.now(), colonistName: colonist.name, runKey: opts.runKey };
   pool.set(key, entry);
 
   return { session, isNew: true };
@@ -545,10 +561,11 @@ export function getPoolStats(): { active: number; maxSize: number; agents: strin
   };
 }
 
-/** Clear all agents from the pool. */
-export function clearPool(): void {
-  for (const entry of pool.values()) {
+/** Closes the agents of one run when given its key, else every agent in the pool. */
+export function clearPool(runKey?: string): void {
+  for (const [key, entry] of pool) {
+    if (runKey !== undefined && entry.runKey !== runKey) continue;
     try { entry.agent.close(); } catch { /* ignore */ }
+    pool.delete(key);
   }
-  pool.clear();
 }
