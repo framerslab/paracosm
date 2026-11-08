@@ -454,7 +454,7 @@
         {
           "name": "Dr. Yuki Tanaka",
           "department": "medical",
-          "role": "Chief Medical Officer",
+          "role": "Senior Physician, Radiation Medicine",
           "specialization": "Radiation Medicine",
           "age": 38,
           "featured": true
@@ -462,7 +462,7 @@
         {
           "name": "Erik Lindqvist",
           "department": "engineering",
-          "role": "Chief Engineer",
+          "role": "Senior Structural Engineer",
           "specialization": "Structural Engineering",
           "age": 45,
           "featured": true
@@ -470,7 +470,7 @@
         {
           "name": "Amara Osei",
           "department": "agriculture",
-          "role": "Head of Agriculture",
+          "role": "Senior Hydroponics Specialist",
           "specialization": "Hydroponics",
           "age": 34,
           "featured": true
@@ -478,7 +478,7 @@
         {
           "name": "Dr. Priya Singh",
           "department": "psychology",
-          "role": "Colony Psychologist",
+          "role": "Clinical Psychologist",
           "specialization": "Clinical Psychology",
           "age": 41,
           "featured": true

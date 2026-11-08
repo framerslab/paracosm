@@ -249,7 +249,7 @@ export async function getOrCreateChatAgent(
  * prompt's roster block and for memory seeding.
  *
  * Example output:
- *   "Erik Lindqvist, Chief Engineer (engineering, senior), native-born, age 45, partner: Alice"
+ *   "Erik Lindqvist, Senior Structural Engineer (engineering, senior), native-born, age 45, partner: Alice"
  *
  * Kept terse because the full roster can run 100+ lines and model
  * context is finite. Department, role, alive status, and relationships
