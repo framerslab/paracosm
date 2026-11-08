@@ -157,6 +157,15 @@ export function selectedEffectTotals(decision: CommanderDecision, reports: Depar
 }
 
 /**
+ * A model-written string as it goes into one log line: line breaks, other
+ * control characters, quotes and backslashes escaped as JSON escapes them,
+ * so a department name or an effect key cannot print a line of its own.
+ */
+export function oneLine(text: string): string {
+  return JSON.stringify(String(text)).slice(1, -1);
+}
+
+/**
  * The parts of each report's `proposedPatches` that would write the
  * state (`metrics`, `politics`, `agentUpdates`), by department; a report
  * whose patch holds none of them (the notes in words a model writes

@@ -9,7 +9,7 @@ import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { EffectRegistry, TurnOutcome } from '../../engine/registries/effects.js';
 import type { ScenarioHooks } from '../../engine/types.js';
 import type { CommanderDecision, DepartmentReport } from '../contracts.js';
-import { decisionToPolicy, reportPatchesAsked, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
+import { decisionToPolicy, oneLine, reportPatchesAsked, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
 
 /** What one decision's policy step changed. */
 export interface CommanderPolicyApplied {
@@ -152,7 +152,7 @@ export function applyCommanderPolicy(
   ]))].filter(k => !held.has(k)).sort();
   const patches = reportPatchesAsked(reports);
   if (patches.length > 0) {
-    log(`  [policy] department patches set nothing (only selected effects move the state): ${patches.map(p => `${p.department} asked ${JSON.stringify(p.asked)}`).join('; ')}`);
+    log(`  [policy] department patches set nothing (only selected effects move the state): ${patches.map(p => `${oneLine(p.department)} asked ${JSON.stringify(p.asked)}`).join('; ')}`);
   }
   if (notHeld.length > 0) log(`  [policy] effect keys not held, dropped: ${notHeld.join(', ')} (the run holds ${[...held].join(', ')})`);
   if (unmatched.length > 0) log(`  [policy] no effect named by: ${unmatched.map(u => JSON.stringify(u)).join(', ')}`);

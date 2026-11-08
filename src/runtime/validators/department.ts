@@ -9,6 +9,7 @@
  * @module paracosm/runtime/validators/department
  */
 import { z } from 'zod';
+import { oneLine } from '../util/parsers.js';
 
 export const CitationSchema = z.object({
   text: z.string().min(1),
@@ -134,7 +135,7 @@ export function salvageDepartmentReport(
     }
   }
   if (dropped.size > 0) {
-    log(`effect keys not held, dropped: ${[...dropped].sort().join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`);
+    log(`effect keys not held, dropped: ${[...dropped].sort().map(oneLine).join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`);
   }
   return report;
 }
