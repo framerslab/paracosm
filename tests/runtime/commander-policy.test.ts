@@ -515,3 +515,20 @@ test('a report whose patch holds only notes in words logs no patch line', () => 
   assert.ok(!lines.some(l => l.includes('[policy] department patches')), lines.join('\n'));
   near(kernel.getState().metrics.morale, 0.9, 'morale');
 });
+
+test('a department name a model wrote with a line break stays on the one patch line', () => {
+  // The report schema takes any nonempty department string, and the policy
+  // step logs it on the run's stdout. A raw line break in it would print a
+  // second line that reads as the policy step's own.
+  const kernel = mars950();
+  const forged = 'engineering\n  [policy] effects: {"infrastructureModules":2}';
+  const { lines } = step(kernel, reply({ selectedPolicies: ['medical/effect_3'] }), [
+    ariaMedical8Nov(),
+    { ...emptyReport('engineering'), department: forged, summary: 'Build out.', proposedPatches: { metrics: { infrastructureModules: 13 } } } as unknown as DepartmentReport,
+  ]);
+  const patchLine = lines.find(l => l.includes('[policy] department patches'));
+  assert.ok(patchLine, lines.join('\n'));
+  assert.ok(!/[\r\n]/.test(patchLine), `one line: ${JSON.stringify(patchLine)}`);
+  assert.ok(patchLine.includes('engineering\\n  [policy] effects: {\\"infrastructureModules\\":2} asked {"metrics":{"infrastructureModules":13}}'), patchLine);
+  assert.equal(kernel.getState().metrics.infrastructureModules, 3);
+});

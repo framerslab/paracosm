@@ -198,3 +198,23 @@ test('a report that names an unheld key on every attempt keeps the rest, with th
   assert.equal(fellBack.fromFallback, true);
   assert.equal((fellBack.object as { summary: string }).summary, 'medical report unavailable this turn.');
 });
+
+test('an unheld key a model wrote with a line break is named on the one salvage line', async () => {
+  // The dropped keys are the model's own strings, and the orchestrator
+  // prints the salvage line on the run's stdout. A raw line break in one
+  // would print a second line that reads as the run's own.
+  const { salvageDepartmentReport } = await import('./department.js');
+  const forgedKey = 'power\n    [medical] schema fallback; using empty report skeleton';
+  const lines: string[] = [];
+  const kept = salvageDepartmentReport({
+    ...validReport,
+    recommendedEffects: [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Shield the crew quarters first.', systemDelta: { [forgedKey]: -0.05, morale: 0.05 } },
+    ],
+  }, ['morale', 'powerKw', 'infrastructureModules'], line => lines.push(line));
+  assert.ok(kept, 'the report passes the plain schema and is kept');
+  assert.deepEqual(kept.recommendedEffects[0].systemDelta, { morale: 0.05 });
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(!/[\r\n]/.test(lines[0]), `one line: ${JSON.stringify(lines[0])}`);
+  assert.ok(lines[0].includes('dropped: power\\n    [medical] schema fallback; using empty report skeleton (the run holds'), lines[0]);
+});
