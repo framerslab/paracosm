@@ -169,7 +169,6 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
   "recommendedEffects": [{"id": "effect_1", "type": "resource_shift|capacity_expansion|risk_mitigation|social_investment|research_bet", "description": "...", ${effects.example}}],
   "confidence": 0.85,
   "openQuestions": [],
-  "featuredAgentUpdates": [],
-  "proposedPatches": {}
+  "featuredAgentUpdates": []
 }${effects.list}`;
 }

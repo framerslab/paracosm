@@ -9,6 +9,7 @@
  * @module paracosm/runtime/validators/department
  */
 import { z } from 'zod';
+import { oneLine } from '../util/parsers.js';
 
 export const CitationSchema = z.object({
   text: z.string().min(1),
@@ -100,6 +101,43 @@ export function departmentReportSchemaFor(heldKeys: readonly string[]) {
       }
     });
   });
+}
+
+/**
+ * The report a department sent once its retries are spent, when its one
+ * fault is effect keys the run does not hold: those keys come out of
+ * each effect's `systemDelta` and `politicsDelta`, one line through `log`
+ * names them with the keys the run holds, and the rest of the report
+ * stands (summary, risks, citations, every effect with its held keys).
+ * `undefined` when the reply fails the plain schema
+ * ({@link DepartmentReportSchema}) too, so the caller's fallback applies.
+ * The orchestrator passes it as the `salvage` of `sendAndValidate`.
+ */
+export function salvageDepartmentReport(
+  raw: unknown,
+  heldKeys: readonly string[],
+  log: (line: string) => void,
+): DepartmentReportZ | undefined {
+  const parsed = DepartmentReportSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const held = new Set(heldKeys);
+  const dropped = new Set<string>();
+  const report = parsed.data;
+  for (const effect of report.recommendedEffects) {
+    for (const field of ['systemDelta', 'politicsDelta'] as const) {
+      const deltas = effect[field];
+      if (!deltas) continue;
+      for (const key of Object.keys(deltas)) {
+        if (held.has(key)) continue;
+        delete deltas[key];
+        dropped.add(key);
+      }
+    }
+  }
+  if (dropped.size > 0) {
+    log(`effect keys not held, dropped: ${[...dropped].sort().map(oneLine).join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`);
+  }
+  return report;
 }
 
 export type DepartmentReportZ = z.infer<typeof DepartmentReportSchema>;

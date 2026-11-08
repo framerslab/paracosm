@@ -456,3 +456,79 @@ test('a decision whose effects name only held keys logs no drop', () => {
   assert.ok(!lines.some(l => l.includes('not held')), lines.join('\n'));
   assert.deepEqual((applied as Record<string, unknown>).notHeld ?? [], []);
 });
+
+/**
+ * Aria Chen's turn 1 medical report in the live Mars Genesis pair of 8
+ * November 2026 (seed 950, Year 2035), as its saved turn artifact holds
+ * it: its `proposedPatches` are policy notes in words, as every patch of
+ * that pair's reports was.
+ */
+const ariaMedical8Nov = (): DepartmentReport => ({
+  ...emptyReport('medical'),
+  summary: 'For first landfall, an Arcadia Planitia-like ice-rich plain is the healthiest and safest option for the first permanent settlement.',
+  risks: [{ severity: 'high', description: 'Mars surface radiation remains a chronic hazard; without robust shielding, cancer risk and cumulative dose will grow over time.' }],
+  proposedPatches: {
+    siteSelectionPolicy: 'Default first settlement landing to the lowest-slope confirmed ice-access site available unless radiation shielding is demonstrably worse than alternatives.',
+    medicalPolicy: 'Require storm-shelter access within minutes for all habitation modules and prioritize regolith shielding before expanding science footprint.',
+  },
+  recommendedEffects: [
+    { id: 'effect_1', type: 'risk_mitigation', description: 'Land on an ice-rich plain site and immediately allocate construction to shielding and storm-shelter readiness.', systemDelta: { powerKw: 0, foodMonthsReserve: 0, lifeSupportCapacity: 0 }, politicsDelta: { earthDependencyPct: 0 } },
+    { id: 'effect_2', type: 'capacity_expansion', description: 'Use the flatter site to accelerate habitat deployment and reduce early construction delays.', systemDelta: { pressurizedVolumeM3: 300, lifeSupportCapacity: 20, infrastructureModules: 1 }, politicsDelta: { earthDependencyPct: 0 } },
+    { id: 'effect_3', type: 'social_investment', description: 'Preserve morale by avoiding a high-risk terrain choice for the first settlement and by visibly prioritizing crew safety.', systemDelta: { morale: 0.05 }, politicsDelta: { independencePressure: 0.02 } },
+  ],
+} as unknown as DepartmentReport);
+
+test('a department\'s patch moves nothing, whether or not the commander picks from its report, and the log says what it asked', () => {
+  // The report schema takes `proposedPatches` as any record. The policy
+  // step wrote a patch's metrics outright from every report, outside the
+  // bound of one decision: 13 modules from 3, morale to its ceiling.
+  const kernel = mars950();
+  const before = kernel.getState();
+  assert.equal(before.metrics.infrastructureModules, 3);
+  assert.equal(before.metrics.morale, 0.85);
+  const person = before.agents[0];
+  const psychBefore = person.health.psychScore;
+  const reports = [
+    ariaMedical8Nov(),
+    { ...emptyReport('engineering'), summary: 'Build out.', proposedPatches: { metrics: { infrastructureModules: 13 }, politics: { earthDependencyPct: 0 } } } as unknown as DepartmentReport,
+    { ...emptyReport('psychology'), summary: 'Hold the crew together.', proposedPatches: { metrics: { morale: 1 }, agentUpdates: [{ agentId: person.core.id, health: { psychScore: 0 } }] } } as unknown as DepartmentReport,
+  ];
+  const { deltas, lines } = step(kernel, reply({ selectedPolicies: ['medical/effect_3'] }), reports);
+
+  const after = kernel.getState();
+  assert.equal(after.metrics.infrastructureModules, 3, 'no selected effect names the modules');
+  near(after.metrics.morale, 0.9, 'morale moves by medical/effect_3 alone');
+  assert.equal(after.politics.earthDependencyPct, before.politics.earthDependencyPct);
+  assert.equal(after.agents.find(a => a.core.id === person.core.id)!.health.psychScore, psychBefore);
+  assert.equal(deltas.infrastructureModules, undefined, 'the policy step reports no change to the modules');
+
+  const patchLine = lines.find(l => l.includes('[policy] department patches'));
+  assert.ok(patchLine, `the log names the patches that moved nothing:\n${lines.join('\n')}`);
+  assert.match(patchLine, /engineering asked \{"metrics":\{"infrastructureModules":13\},"politics":\{"earthDependencyPct":0\}\}/);
+  assert.match(patchLine, /psychology asked \{"metrics":\{"morale":1\},"agentUpdates":/);
+  assert.doesNotMatch(patchLine, /siteSelectionPolicy|medical asked/, 'a note in words is not a patch of the state');
+});
+
+test('a report whose patch holds only notes in words logs no patch line', () => {
+  const kernel = mars950();
+  const { lines } = step(kernel, reply({ selectedPolicies: ['medical/effect_3'] }), [ariaMedical8Nov()]);
+  assert.ok(!lines.some(l => l.includes('[policy] department patches')), lines.join('\n'));
+  near(kernel.getState().metrics.morale, 0.9, 'morale');
+});
+
+test('a department name a model wrote with a line break stays on the one patch line', () => {
+  // The report schema takes any nonempty department string, and the policy
+  // step logs it on the run's stdout. A raw line break in it would print a
+  // second line that reads as the policy step's own.
+  const kernel = mars950();
+  const forged = 'engineering\n  [policy] effects: {"infrastructureModules":2}';
+  const { lines } = step(kernel, reply({ selectedPolicies: ['medical/effect_3'] }), [
+    ariaMedical8Nov(),
+    { ...emptyReport('engineering'), department: forged, summary: 'Build out.', proposedPatches: { metrics: { infrastructureModules: 13 } } } as unknown as DepartmentReport,
+  ]);
+  const patchLine = lines.find(l => l.includes('[policy] department patches'));
+  assert.ok(patchLine, lines.join('\n'));
+  assert.ok(!/[\r\n]/.test(patchLine), `one line: ${JSON.stringify(patchLine)}`);
+  assert.ok(patchLine.includes('engineering\\n  [policy] effects: {\\"infrastructureModules\\":2} asked {"metrics":{"infrastructureModules":13}}'), patchLine);
+  assert.equal(kernel.getState().metrics.infrastructureModules, 3);
+});

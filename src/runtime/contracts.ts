@@ -1,5 +1,4 @@
 import type { Department, Agent } from '../engine/core/state.js';
-import type { SystemsPatch } from '../engine/core/kernel.js';
 
 export interface CrisisOption {
   id: string;
@@ -49,7 +48,14 @@ export interface DepartmentReport {
   risks: Risk[];
   opportunities: Opportunity[];
   recommendedActions: string[];
-  proposedPatches: Partial<SystemsPatch>;
+  /**
+   * What a model writes here, kept as it wrote it (notes in words, as a
+   * rule). The policy step applies none of it: only the selected
+   * `recommendedEffects` move the state, within one decision's bound,
+   * and a `metrics`, `politics` or `agentUpdates` entry here is logged as
+   * asked and left unapplied.
+   */
+  proposedPatches: Record<string, unknown>;
   forgedToolsUsed: ForgedToolUsage[];
   featuredAgentUpdates: FeaturedAgentUpdate[];
   confidence: number;

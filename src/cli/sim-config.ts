@@ -161,7 +161,8 @@ export interface NormalizedSimulationConfig {
 
 /**
  * Mars Genesis's key personnel for the `paracosm run` path, which runs
- * that scenario. `normalizeSimulationConfig` does not use this list: a
+ * that scenario: the five of its preset in scenarios/mars.json, each in
+ * a department Mars Genesis has. `normalizeSimulationConfig` does not use this list: a
  * run's personnel come from its payload or from the scenario's own
  * preset (`scenarioKeyPersonnel`), so a non-Mars scenario never starts
  * with these five. Nobody here carries a department head's title: the
@@ -173,7 +174,7 @@ export const DEFAULT_KEY_PERSONNEL: KeyPersonnel[] = [
   { name: 'Erik Lindqvist', department: 'engineering', role: 'Senior Structural Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
   { name: 'Amara Osei', department: 'agriculture', role: 'Senior Hydroponics Specialist', specialization: 'Hydroponics', age: 34, featured: true },
   { name: 'Dr. Priya Singh', department: 'psychology', role: 'Clinical Psychologist', specialization: 'Clinical Psychology', age: 41, featured: true },
-  { name: 'Carlos Fernandez', department: 'science', role: 'Chief Scientist', specialization: 'Geology', age: 50, featured: true },
+  { name: 'Carlos Fernandez', department: 'engineering', role: 'Senior Geologist', specialization: 'Mars Surface Geology', age: 50, featured: true },
 ];
 
 /**

@@ -135,17 +135,18 @@ test('a selected effect moves only what the run carries, wherever the run holds 
   assert.ok(!('boardConfidence' in state.metrics));
 });
 
-test('a legacy patch still sets a value outright, and a selected effect adds to what it set', () => {
+test('a department\'s patch sets nothing, and a selected effect still adds to the value', () => {
   const kernel = kernelFor(marsScenario, 50);
+  const governance = kernel.getState().politics.governanceStatus;
   kernel.applyPolicy(policyFrom(
     [{ id: 'a', systemDelta: { morale: -0.02 } }],
     ['a'],
     { metrics: { morale: 0.5, powerKw: 'plenty' }, politics: { governanceStatus: 'commonwealth' } },
   ));
   const state = kernel.getState();
-  near(state.metrics.morale, 0.48, 'morale');
-  assert.equal(state.metrics.powerKw, 400, 'a patch that is not a number moves nothing');
-  assert.equal(state.politics.governanceStatus, 'commonwealth');
+  near(state.metrics.morale, 0.83, 'morale');
+  assert.equal(state.metrics.powerKw, 400);
+  assert.equal(state.politics.governanceStatus, governance);
 });
 
 test('no patch writes a head count over the roster', () => {

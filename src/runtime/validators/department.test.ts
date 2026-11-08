@@ -124,3 +124,97 @@ test('a report schema built for a Mars run refuses a key the run does not hold a
   assert.equal(held2.success, true, held2.success ? '' : JSON.stringify(held2.error.issues));
   assert.equal(schema.safeParse(validReport).success, true);
 });
+
+/**
+ * A report that still names a key the run does not hold after its retries
+ * keeps the rest. The orchestrator validates each department's report with
+ * `departmentReportSchemaFor` and, once the retries are spent, hands the
+ * last reply to `salvageDepartmentReport` (the `salvage` of
+ * `sendAndValidate`), as below; before, the department's summary, risks
+ * and held effects gave way to the empty report for that event.
+ */
+test('a report that names an unheld key on every attempt keeps the rest, with those keys dropped and logged', async () => {
+  const validators = await import('./department.js') as Record<string, unknown>;
+  const salvage = validators.salvageDepartmentReport as
+    ((raw: unknown, held: readonly string[], log: (line: string) => void) => unknown) | undefined;
+  const { sendAndValidate } = await import('../../llm/sendAndValidate.js');
+  const { emptyReport } = await import('../util/parsers.js');
+  const { SimulationKernel } = await import('../../engine/core/kernel.js');
+  const { marsScenario } = await import('../../engine/scenarios/index.js');
+  const state = new SimulationKernel(950, 'Aria Chen', [], { startTime: 2035, initialPopulation: 30, scenario: marsScenario }).getState();
+  const held = Object.entries({ ...state.metrics, ...state.politics })
+    .filter(([, v]) => typeof v === 'number')
+    .map(([k]) => k);
+
+  // Aria Chen's turn 1 medical report in the live Mars Genesis pair of 8
+  // November 2026 (seed 950), with "power" in effect_1 as the engineering
+  // department wrote it on 6 November.
+  const summary = 'For first landfall, an Arcadia Planitia-like ice-rich plain is the healthiest and safest option for the first permanent settlement.';
+  const reply = JSON.stringify({
+    ...validReport,
+    summary,
+    risks: [
+      { severity: 'high', description: 'Mars surface radiation remains a chronic hazard; without robust shielding, cancer risk and cumulative dose will grow over time.' },
+      { severity: 'medium', description: 'Solar particle events can produce acute dose spikes; a site without nearby storm shelter capacity exposes crew to avoidable medical risk.' },
+    ],
+    recommendedEffects: [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Land on an ice-rich plain site and immediately allocate construction to shielding and storm-shelter readiness.', systemDelta: { power: -0.05, lifeSupportCapacity: 0 }, politicsDelta: { earthDependencyPct: 0 } },
+      { id: 'effect_3', type: 'social_investment', description: 'Preserve morale by avoiding a high-risk terrain choice for the first settlement and by visibly prioritizing crew safety.', systemDelta: { morale: 0.05 }, politicsDelta: { independencePressure: 0.02 } },
+    ],
+  });
+  const prompts: string[] = [];
+  const lines: string[] = [];
+  const result = await sendAndValidate({
+    session: { send: async (prompt: string) => { prompts.push(prompt); return { text: reply }; } },
+    prompt: 'medical report',
+    schema: validators.departmentReportSchemaFor ? (validators.departmentReportSchemaFor as (h: readonly string[]) => typeof DepartmentReportSchema)(held) : DepartmentReportSchema,
+    schemaName: 'DepartmentReport',
+    fallback: { ...emptyReport('medical'), summary: 'medical report unavailable this turn.' } as never,
+    salvage: (raw: unknown) => salvage?.(raw, held, line => lines.push(line)),
+  } as Parameters<typeof sendAndValidate>[0]);
+
+  assert.equal(prompts.length, 3, 'the run still asks again twice');
+  assert.match(prompts[1], /"power" is not a key this run holds/);
+  assert.equal(result.fromFallback, false, `the report is kept, not the empty one: ${JSON.stringify(result.object).slice(0, 200)}`);
+  const report = result.object as { summary: string; risks: unknown[]; recommendedEffects: Array<{ id: string; systemDelta?: Record<string, number>; politicsDelta?: Record<string, number> }> };
+  assert.equal(report.summary, summary);
+  assert.equal(report.risks.length, 2);
+  assert.deepEqual(report.recommendedEffects.map(e => e.id), ['effect_1', 'effect_3']);
+  assert.deepEqual(report.recommendedEffects[0].systemDelta, { lifeSupportCapacity: 0 });
+  assert.deepEqual(report.recommendedEffects[0].politicsDelta, { earthDependencyPct: 0 });
+  assert.deepEqual(report.recommendedEffects[1].systemDelta, { morale: 0.05 });
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.match(lines[0], /effect keys not held, dropped: power \(the run holds [^)]*\binfrastructureModules\b/);
+
+  // A reply that fails the plain schema too still gives way to the empty report.
+  const broken = JSON.stringify({ ...JSON.parse(reply), summary: '' });
+  const fellBack = await sendAndValidate({
+    session: { send: async () => ({ text: broken }) },
+    prompt: 'medical report',
+    schema: DepartmentReportSchema,
+    fallback: { ...emptyReport('medical'), summary: 'medical report unavailable this turn.' } as never,
+    salvage: (raw: unknown) => salvage?.(raw, held, () => {}),
+  } as Parameters<typeof sendAndValidate>[0]);
+  assert.equal(fellBack.fromFallback, true);
+  assert.equal((fellBack.object as { summary: string }).summary, 'medical report unavailable this turn.');
+});
+
+test('an unheld key a model wrote with a line break is named on the one salvage line', async () => {
+  // The dropped keys are the model's own strings, and the orchestrator
+  // prints the salvage line on the run's stdout. A raw line break in one
+  // would print a second line that reads as the run's own.
+  const { salvageDepartmentReport } = await import('./department.js');
+  const forgedKey = 'power\n    [medical] schema fallback; using empty report skeleton';
+  const lines: string[] = [];
+  const kept = salvageDepartmentReport({
+    ...validReport,
+    recommendedEffects: [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Shield the crew quarters first.', systemDelta: { [forgedKey]: -0.05, morale: 0.05 } },
+    ],
+  }, ['morale', 'powerKw', 'infrastructureModules'], line => lines.push(line));
+  assert.ok(kept, 'the report passes the plain schema and is kept');
+  assert.deepEqual(kept.recommendedEffects[0].systemDelta, { morale: 0.05 });
+  assert.equal(lines.length, 1, lines.join('\n'));
+  assert.ok(!/[\r\n]/.test(lines[0]), `one line: ${JSON.stringify(lines[0])}`);
+  assert.ok(lines[0].includes('dropped: power\\n    [medical] schema fallback; using empty report skeleton (the run holds'), lines[0]);
+});

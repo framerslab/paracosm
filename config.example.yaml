@@ -84,7 +84,7 @@ keyPersonnel:
     age: 41
 
   - name: "Carlos Fernandez"
-    department: science
-    role: "Chief Scientist"
-    specialization: "Geology"
+    department: engineering
+    role: "Senior Geologist"
+    specialization: "Mars Surface Geology"
     age: 50
