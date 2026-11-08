@@ -20,7 +20,7 @@ import {
   emptyDecision,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
-import { departmentReportSchemaFor } from '../validators/department.js';
+import { departmentReportSchemaFor, salvageDepartmentReport } from '../validators/department.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
 import { createCostTracker } from '../economics/cost-tracker.js';
 import {
@@ -871,9 +871,12 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const deptSess = new Map<Department, any>();
   // The keys a department's effects may move are the numbers the run
   // holds; the report format lists them and the report schema refuses
-  // any other, so the retry asks the model again (#209).
+  // any other, so the retry asks the model again (#209). A report that
+  // still names one after its retries keeps the rest, with those keys
+  // dropped and logged (salvageDepartmentReport).
   const runState = kernel.getState();
-  const deptReportSchema = departmentReportSchemaFor(effectKeys(runState, sc.world).map(k => k.id));
+  const deptHeldKeys = effectKeys(runState, sc.world).map(k => k.id);
+  const deptReportSchema = departmentReportSchemaFor(deptHeldKeys);
   const promoted = kernel.getState().agents.filter(c => c.promotion);
   for (const p of promoted) {
     const dept = p.promotion!.department;
@@ -1234,6 +1237,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
             onUsage: (usage) => trackUsage(usage as any, 'departments'),
             onProviderError: (err) => reportProviderError(err, `dept:${dept}:turn${turn}:event${ei + 1}`),
             onValidationFallback: (details) => reportValidationFallback(`dept:${dept}:turn${turn}:event${ei + 1}`, details),
+            salvage: (raw) => salvageDepartmentReport(raw, deptHeldKeys, line => console.log(`    [${dept}] ${line}`)) as any,
             fallback: { ...emptyReport(dept), summary: `${dept} report unavailable this turn.` } as any,
           });
           const { object: parsedDeptReport, fromFallback: deptFallback } = sendResult;

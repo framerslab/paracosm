@@ -4,7 +4,6 @@ import { SimulationKernel } from '../../../src/engine/core/kernel.js';
 import type { KeyPersonnel } from '../../../src/engine/core/agent-generator.js';
 import { readFileSync } from 'node:fs';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
-import { decisionToPolicy, emptyDecision, emptyReport } from '../../../src/runtime/util/parsers.js';
 import type { ScenarioPackage } from '../../../src/engine/types.js';
 
 const keyPersonnel: KeyPersonnel[] = [
@@ -285,21 +284,18 @@ test('a department\'s patch cannot mark an agent dead: deaths come from progress
   assert.equal(target.health.alive, true);
   const psychBefore = target.health.psychScore;
 
-  const policy = decisionToPolicy(
-    emptyDecision(['medical']),
-    [{
-      ...emptyReport('medical'),
-      proposedPatches: {
-        agentUpdates: [{
-          agentId: target.core.id,
-          health: { alive: false, deathTime: 2042, deathCause: 'patched', psychScore: 0.31 },
-        }],
-      },
-    }],
-    1,
-    2042,
-  );
-  kernel.applyPolicy(policy);
+  // The policy step builds no patch from a report any more; the kernel
+  // still guards a caller that hands it one.
+  kernel.applyPolicy({
+    description: 'patched',
+    patches: {
+      agentUpdates: [{
+        agentId: target.core.id,
+        health: { alive: false, deathTime: 2042, deathCause: 'patched', psychScore: 0.31 },
+      }],
+    },
+    events: [],
+  });
 
   const state = kernel.getState();
   const after = state.agents.find(a => a.core.id === target.core.id)!;

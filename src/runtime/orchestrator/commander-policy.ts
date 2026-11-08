@@ -9,7 +9,7 @@ import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { EffectRegistry, TurnOutcome } from '../../engine/registries/effects.js';
 import type { ScenarioHooks } from '../../engine/types.js';
 import type { CommanderDecision, DepartmentReport } from '../contracts.js';
-import { decisionToPolicy, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
+import { decisionToPolicy, reportPatchesAsked, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
 
 /** What one decision's policy step changed. */
 export interface CommanderPolicyApplied {
@@ -108,9 +108,13 @@ export function policyEffectBound(key: string, current: number, limits: Readonly
  * hold) as a `[policy] no effect named by` line, and the keys of the
  * selected effects the run does not hold as a `[policy] effect keys not
  * held, dropped` line with the keys it holds, so none is dropped without a
- * trace. A report that passed the run's schema
- * (`departmentReportSchemaFor`) holds no such key; one that came back as
- * the fallback, or from a caller that validated with the plain schema, may.
+ * trace. The run's own reports hold no such key: one that passed the run's
+ * schema (`departmentReportSchemaFor`) names none, one that still named
+ * one after its retries had it dropped (`salvageDepartmentReport`), and
+ * the fallback (`emptyReport`) has no effects; a caller that validated its
+ * reports with the plain schema may pass one. A report's `proposedPatches`
+ * move nothing; each one that would write the state is logged as a
+ * `[policy] department patches set nothing` line with what it asked.
  */
 export function applyCommanderPolicy(
   kernel: SimulationKernel,
@@ -146,6 +150,10 @@ export function applyCommanderPolicy(
     ...Object.keys(effect.systemDelta ?? {}),
     ...Object.keys(effect.politicsDelta ?? {}),
   ]))].filter(k => !held.has(k)).sort();
+  const patches = reportPatchesAsked(reports);
+  if (patches.length > 0) {
+    log(`  [policy] department patches set nothing (only selected effects move the state): ${patches.map(p => `${p.department} asked ${JSON.stringify(p.asked)}`).join('; ')}`);
+  }
   if (notHeld.length > 0) log(`  [policy] effect keys not held, dropped: ${notHeld.join(', ')} (the run holds ${[...held].join(', ')})`);
   if (unmatched.length > 0) log(`  [policy] no effect named by: ${unmatched.map(u => JSON.stringify(u)).join(', ')}`);
   if (ambiguous.length > 0) log(`  [policy] more than one effect named by, none applied: ${ambiguous.map(u => JSON.stringify(u)).join(', ')}`);

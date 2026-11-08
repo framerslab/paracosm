@@ -39,6 +39,13 @@ export interface SendAndValidateOptions<T extends ZodType> {
    * model misbehavior on schema from quota / auth failures.
    */
   onValidationFallback?: (details: { rawText: string; schemaName?: string; err: unknown }) => void;
+  /**
+   * Once the retries are spent, the last reply's parsed JSON goes here
+   * before the fallback: what it returns is the result (not a fallback),
+   * and `undefined` leaves the fallback to apply. A reply that was no
+   * JSON reaches the fallback without it.
+   */
+  salvage?: (parsed: unknown) => z.infer<T> | undefined;
   fallback?: z.infer<T>;
 }
 
@@ -81,6 +88,8 @@ export async function sendAndValidate<T extends ZodType>(
   let lastError: ZodError | undefined;
   let lastText = '';
   let lastParseError: string | undefined;
+  let lastParsed: unknown;
+  let lastParsedOk = false;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const prompt = attempt === 0
@@ -91,6 +100,7 @@ export async function sendAndValidate<T extends ZodType>(
     opts.onUsage?.({ usage: r.usage });
     lastText = r.text;
     lastParseError = undefined;
+    lastParsedOk = false;
 
     // extractJson returns the JSON SUBSTRING (or null), so we still
     // need to JSON.parse it before handing to Zod. Validation errors
@@ -108,11 +118,18 @@ export async function sendAndValidate<T extends ZodType>(
       continue;
     }
 
+    lastParsed = parsed;
+    lastParsedOk = true;
     const validation = opts.schema.safeParse(parsed);
     if (validation.success) {
       return { object: validation.data, fromFallback: false, rawText: r.text, attempts: attempt + 1 };
     }
     lastError = validation.error;
+  }
+
+  if (opts.salvage && lastParsedOk) {
+    const kept = opts.salvage(lastParsed);
+    if (kept !== undefined) return { object: kept, fromFallback: false, rawText: lastText, attempts: maxRetries + 1 };
   }
 
   const err = new ObjectGenerationError(

@@ -157,13 +157,35 @@ export function selectedEffectTotals(decision: CommanderDecision, reports: Depar
 }
 
 /**
+ * The parts of each report's `proposedPatches` that would write the
+ * state (`metrics`, `politics`, `agentUpdates`), by department; a report
+ * whose patch holds none of them (the notes in words a model writes
+ * there) is left out. The policy step applies none of them.
+ */
+export function reportPatchesAsked(reports: DepartmentReport[]): Array<{ department: string; asked: Record<string, unknown> }> {
+  const out: Array<{ department: string; asked: Record<string, unknown> }> = [];
+  for (const r of reports) {
+    const patch = r.proposedPatches;
+    if (!patch || typeof patch !== 'object') continue;
+    const asked: Record<string, unknown> = {};
+    for (const key of ['metrics', 'politics', 'agentUpdates']) {
+      if (patch[key] !== undefined) asked[key] = patch[key];
+    }
+    if (Object.keys(asked).length > 0) out.push({ department: r.department, asked });
+  }
+  return out;
+}
+
+/**
  * Turn a commander's decision + the dept reports into a PolicyEffect
- * the kernel can apply. Legacy `proposedPatches` from reports (backward
- * compat) set values outright; the typed `recommendedEffects` the
- * commander selected (see {@link resolveSelectedEffects}) are changes,
- * added to the current values and to each other. With `bound`, each
- * key's total across both fields moves at most `bound(key)` either way
- * (the policy step passes the scenario's, `policyEffectBound`).
+ * the kernel can apply: the typed `recommendedEffects` the commander
+ * selected (see {@link resolveSelectedEffects}) are changes, added to the
+ * current values and to each other. With `bound`, each key's total
+ * across both fields moves at most `bound(key)` either way (the policy
+ * step passes the scenario's, `policyEffectBound`). A report's
+ * `proposedPatches` set nothing: they came from every report, picked or
+ * not, and wrote values outright past that bound; the policy step logs
+ * what they asked ({@link reportPatchesAsked}).
  */
 export function decisionToPolicy(
   decision: CommanderDecision,
@@ -172,15 +194,6 @@ export function decisionToPolicy(
   time: number,
   bound?: (key: string) => number,
 ): PolicyEffect {
-  const patches: PolicyEffect['patches'] = {};
-
-  // Apply legacy proposedPatches (backward compat).
-  for (const r of reports) {
-    if (r.proposedPatches.metrics) patches.metrics = { ...patches.metrics, ...r.proposedPatches.metrics };
-    if (r.proposedPatches.politics) patches.politics = { ...patches.politics, ...r.proposedPatches.politics };
-    if (r.proposedPatches.agentUpdates) patches.agentUpdates = [...(patches.agentUpdates || []), ...r.proposedPatches.agentUpdates];
-  }
-
   // Add up the typed effects selected by the commander.
   const deltas: Required<NonNullable<PolicyEffect['deltas']>> = { metrics: {}, politics: {} };
   for (const { effect } of resolveSelectedEffects(decision, reports).picked) {
@@ -213,7 +226,7 @@ export function decisionToPolicy(
 
   return {
     description: decision.decision,
-    patches,
+    patches: {},
     deltas,
     events: [{ turn, time, type: 'decision', description: decision.decision.slice(0, 200), data: { policies: decision.selectedPolicies } }],
   };
