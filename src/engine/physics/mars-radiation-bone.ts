@@ -27,16 +27,24 @@ const MARS_SURFACE_MSV_PER_DAY = 0.67;
  */
 export function habitatDoseShare(metrics?: Readonly<Record<string, unknown>>): number {
   const modules = metrics?.infrastructureModules;
+  return typeof modules === 'number' && Number.isFinite(modules)
+    ? 1 - Math.min(0.9, 0.2 * Math.max(0, modules))
+    : 1;
+}
+
+/** Measurement for #221, this branch only: the share the Mars hook lets through, by the switch below. */
+export function marsDoseShare(metrics?: Readonly<Record<string, unknown>>): number {
+  const modules = metrics?.infrastructureModules;
   if (!(typeof modules === 'number' && Number.isFinite(modules))) return 1;
   const m = Math.max(0, modules);
   if (shieldMeasurement.curve === 'fifth-of-rest') return Math.pow(0.8, m);
   if (shieldMeasurement.curve === 'quarter-of-rest') return Math.pow(0.75, m);
   if (shieldMeasurement.curve === 'match-at-4') return Math.pow(0.2, m / 4);
-  return 1 - Math.min(0.9, 0.2 * m);
+  return habitatDoseShare(metrics);
 }
 
-/** Measurement switch for #221, this branch only: the shielding curve. */
-export const shieldMeasurement: { curve: 'cap' | 'fifth-of-rest' | 'quarter-of-rest' | 'match-at-4' } = { curve: 'cap' };
+/** Measurement switch for #221, this branch only: the Mars hook's shielding curve (Lunar keeps habitatDoseShare). */
+export const shieldMeasurement: { curve: 'cap' | 'fifth-of-rest' | 'quarter-of-rest' | 'match-at-4' } = { curve: 'fifth-of-rest' };
 
 /**
  * Walk the agent roster, accumulate radiation dose, and apply bone-
@@ -65,7 +73,7 @@ export function marsRadiationBoneProgression(ctx: ProgressionHookContext): void 
   const declared = ctx.environment?.surfaceRadiationMsvDay;
   // A dose is never negative: a declared rate under zero counts as none.
   const surfacePerDay = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) : MARS_SURFACE_MSV_PER_DAY;
-  const dosePerYear = surfacePerDay * 365 * habitatDoseShare(ctx.metrics);
+  const dosePerYear = surfacePerDay * 365 * marsDoseShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;
