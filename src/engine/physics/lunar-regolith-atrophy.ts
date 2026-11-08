@@ -15,10 +15,23 @@
  * @module paracosm/engine/physics/lunar-regolith-atrophy
  */
 import type { ProgressionHookContext } from '../types.js';
-import { habitatDoseShare } from './mars-radiation-bone.js';
 
 /** Lunar regolith dust toxicity index — arbitrary annualized units. */
 const LUNAR_REGOLITH_EXPOSURE_PER_YEAR = 45;
+
+/**
+ * The share of the exposure that reaches a crew member: each habitat
+ * module keeps out a fifth of the surface exposure, at most nine tenths
+ * in all. The Moon keeps this curve of its own; Mars's shielding
+ * (`habitatDoseShare` in `mars-radiation-bone.ts`) has no stop. A run
+ * that carries no module count is unshielded.
+ */
+function lunarExposureShare(metrics?: Readonly<Record<string, unknown>>): number {
+  const modules = metrics?.infrastructureModules;
+  return typeof modules === 'number' && Number.isFinite(modules)
+    ? 1 - Math.min(0.9, 0.2 * Math.max(0, modules))
+    : 1;
+}
 
 /**
  * Walk the agent roster, accumulate regolith dust exposure (stored on
@@ -44,10 +57,10 @@ export function lunarRegolithAtrophyProgression(ctx: ProgressionHookContext): vo
   const yearsDelta = ctx.yearsDelta ?? timeDelta;
   const yearsSinceStart = ctx.yearsSinceStart ?? (time - startTime);
   // A declared surface dose (mSv a day) replaces the default index; the
-  // habitat's modules shield either.
+  // habitat's modules shield either, on the Moon's own curve.
   const declared = ctx.environment?.surfaceRadiationMsvDay;
   const perYear = typeof declared === 'number' && Number.isFinite(declared) ? Math.max(0, declared) * 365 : LUNAR_REGOLITH_EXPOSURE_PER_YEAR;
-  const exposurePerYear = perYear * habitatDoseShare(ctx.metrics);
+  const exposurePerYear = perYear * lunarExposureShare(ctx.metrics);
 
   for (const c of agents) {
     if (!c.health.alive) continue;

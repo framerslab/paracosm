@@ -244,22 +244,31 @@ function shortTurns(sc: ScenarioPackage, seed: number, population: number, turns
   return rows;
 }
 
-test('a turn of a year or less runs as it did before long turns settled morale each year', () => {
+test('a turn of a year or less runs as it did before long turns settled morale each year', (t) => {
   // Atlas Lab's monthly turns, the Digital Twin's two-week turns (its JSON,
   // with no compiled hook: compiling one calls a model) and Mars on
-  // one-year turns, on fixed seeds. The pinned rows were read from CI on
-  // the kernel of b43ee952, before long turns settled morale each year.
+  // one-year turns, on fixed seeds. The Atlas Lab and Digital Twin rows
+  // were read from CI on the kernel of b43ee952, before long turns settled
+  // morale each year; neither scenario takes a dose. The Mars rows were
+  // read again from CI when each Mars habitat module came to keep out a
+  // fifth of the dose that still reaches the colonists (#221), and the
+  // test prints them.
   const scenarios = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
   const atlasLab = scenarios.get('atlas-lab')!.scenario as ScenarioPackage;
   const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
-  const actual: Record<string, TurnRow[]> = {
+  const pinned = JSON.parse(readFileSync(resolve(here, '../fixtures/short-turns-before-yearly-morale.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
+  const unshielded: Record<string, TurnRow[]> = {
     'atlas-lab, seed 11, 480 people, 12 monthly turns': shortTurns(atlasLab, 11, 480, 12, 1),
     'digital twin, seed 11, 1 person, 26 two-week turns': shortTurns(twin, 11, 1, 26, 2),
+  };
+  const mars: Record<string, TurnRow[]> = {
     'mars-genesis, seed 101, 100 people, 17 one-year turns': shortTurns(marsScenario, 101, 100, 17, 1),
     'mars-genesis, seed 950, 30 people, 17 one-year turns': shortTurns(marsScenario, 950, 30, 17, 1),
   };
-  const pinned = JSON.parse(readFileSync(resolve(here, '../fixtures/short-turns-before-yearly-morale.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
-  assert.deepEqual(actual, pinned);
+  t.diagnostic(`mars rows: ${JSON.stringify(mars)}`);
+  const pick = (keys: string[]) => Object.fromEntries(keys.map(k => [k, pinned[k]]));
+  assert.deepEqual(unshielded, pick(Object.keys(unshielded)), 'Atlas Lab and the Digital Twin');
+  assert.deepEqual(mars, pick(Object.keys(mars)), 'Mars on one-year turns');
 });
 
 test('a hook in a long turn reads the head count as its step begins', () => {
