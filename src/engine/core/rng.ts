@@ -1,3 +1,6 @@
+/** Measurement switch for #221, this branch only: how forDraw turns its key's hash into a state. */
+export const forDrawMeasurement: { mix: 'fnv' | 'fmix' } = { mix: 'fnv' };
+
 /**
  * Mulberry32: fast 32-bit seeded PRNG.
  * Deterministic: same seed always produces same sequence.
@@ -62,7 +65,15 @@ export class SeededRng {
       hash ^= key.charCodeAt(i);
       hash = Math.imul(hash, 0x01000193);
     }
-    return new SeededRng((hash ^ seed) | 0);
+    let state = (hash ^ seed) | 0;
+    if (forDrawMeasurement.mix === 'fmix') {
+      state ^= state >>> 16;
+      state = Math.imul(state, 0x85ebca6b);
+      state ^= state >>> 13;
+      state = Math.imul(state, 0xc2b2ae35);
+      state ^= state >>> 16;
+    }
+    return new SeededRng(state | 0);
   }
 
   /** Derives a child RNG for a specific turn (deterministic sub-stream). */
