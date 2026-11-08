@@ -91,6 +91,11 @@ export interface TurnArtifact {
   commanderDecision: CommanderDecision;
   policyEffectsApplied: string[];
   /**
+   * The keys of the turn's selected effects that the run holds in neither
+   * its metrics nor its politics, which moved nothing; absent when none.
+   */
+  policyKeysDropped?: string[];
+  /**
    * Snapshot of the five runtime state bags at the end of the turn,
    * produced by the kernel. Widened in 0.7.x from the pre-F23
    * Mars-shape (flat `population`/`morale`/…) to a structural match

@@ -20,7 +20,7 @@ import {
   emptyDecision,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
-import { DepartmentReportSchema } from '../validators/department.js';
+import { departmentReportSchemaFor } from '../validators/department.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
 import { createCostTracker } from '../economics/cost-tracker.js';
 import {
@@ -51,7 +51,7 @@ import { getResearchFromBundle } from '../research/scenario-research.js';
 import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext } from './departments.js';
 import { artifactTimeUnit, scenarioWords } from '../util/scenario-words.js';
-import { declaredMetrics, declaredPolitics, formatStateLine } from '../util/scenario-state.js';
+import { declaredMetrics, declaredPolitics, effectKeys, formatStateLine } from '../util/scenario-state.js';
 import { EventDirector, type DirectorEvent, type DirectorContext } from './director.js';
 import { runReactionStep } from './reaction-step.js';
 import type { ScenarioPackage } from '../../engine/types.js';
@@ -869,6 +869,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Create department agent sessions from promoted agents
   const deptAgents = new Map<Department, any>();
   const deptSess = new Map<Department, any>();
+  // The keys a department's effects may move are the numbers the run
+  // holds; the report format lists them and the report schema refuses
+  // any other, so the retry asks the model again (#209).
+  const runState = kernel.getState();
+  const deptReportSchema = departmentReportSchemaFor(effectKeys(runState, sc.world).map(k => k.id));
   const promoted = kernel.getState().agents.filter(c => c.promotion);
   for (const p of promoted) {
     const dept = p.promotion!.department;
@@ -890,7 +895,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     // cfg.instructions from the scenario JSON, which doesn't mention
     // forge_tool. Result: no tools were ever forged unless the scenario
     // author thought to add the instruction themselves.
-    const forgeGuidance = buildForgeGuidance(dept);
+    const forgeGuidance = buildForgeGuidance(dept, sc.world, runState);
     // Prompt caching: the combined role instructions + forge guidance
     // (~1500-2500 tokens) are identical across every session.send() call
     // for this department across all turns/events in one run. Moving it
@@ -939,6 +944,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   let turnDeptReports: DepartmentReport[] = [];
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
+  let turnPolicyKeysDropped: string[] = [];
   const director = new EventDirector();
   const effectRegistry = EffectRegistry.forScenario(sc);
   // One decision's adopted effects move a key at most what one event
@@ -1131,6 +1137,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     turnDeptReports = [];
     turnDecisions = [];
     turnPolicyEffects = [];
+    turnPolicyKeysDropped = [];
 
     for (let ei = 0; ei < turnEvents.length; ei++) {
       try {
@@ -1222,7 +1229,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           const sendResult = await sendAndValidate({
             session: sess,
             prompt: ctx,
-            schema: DepartmentReportSchema,
+            schema: deptReportSchema,
             schemaName: 'DepartmentReport',
             onUsage: (usage) => trackUsage(usage as any, 'departments'),
             onProviderError: (err) => reportProviderError(err, `dept:${dept}:turn${turn}:event${ei + 1}`),
@@ -1573,8 +1580,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      const { limited } = applyCommanderPolicy(kernel, decision, reports, turn, time, console.log, policyTables);
-      for (const [key, { asked, applied }] of Object.entries(limited)) turnPolicyLimited.push({ eventIndex: ei, key, asked, applied });
+      const policyApplied = applyCommanderPolicy(kernel, decision, reports, turn, time, console.log, policyTables);
+      for (const key of policyApplied.notHeld) if (!turnPolicyKeysDropped.includes(key)) turnPolicyKeysDropped.push(key);
+      for (const [key, { asked, applied }] of Object.entries(policyApplied.limited)) turnPolicyLimited.push({ eventIndex: ei, key, asked, applied });
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1766,6 +1774,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       departmentReports: turnDeptReports.slice(),
       commanderDecision: mergedDecision,
       policyEffectsApplied: turnPolicyEffects.slice(),
+      ...(turnPolicyKeysDropped.length > 0 ? { policyKeysDropped: turnPolicyKeysDropped.slice().sort() } : {}),
       stateSnapshotAfter: {
         // Metrics bag (Mars heritage: population, morale, food,
         // infra, science, etc) plus births/deaths computed ad-hoc this

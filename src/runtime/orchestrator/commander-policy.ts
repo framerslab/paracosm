@@ -25,6 +25,12 @@ export interface CommanderPolicyApplied {
    * Empty when every key moved as asked.
    */
   limited: Record<string, { asked: number; applied: number }>;
+  /**
+   * The keys of the selected effects that the run holds in neither its
+   * metrics nor its politics, sorted; the kernel dropped each, so they
+   * moved nothing.
+   */
+  notHeld: string[];
 }
 
 /** The scenario's outcome tables, which bound what one decision's effects move. */
@@ -99,8 +105,12 @@ export function policyEffectBound(key: string, current: number, limits: Readonly
  * as a `[policy] effects` line, with what the effects asked after it
  * (`asked: {...}`) when a key moved otherwise; the selections that name
  * no effect of the reports (a free policy name, a key the reports do not
- * hold) as a `[policy] no effect named by` line, so none is dropped
- * without a trace.
+ * hold) as a `[policy] no effect named by` line, and the keys of the
+ * selected effects the run does not hold as a `[policy] effect keys not
+ * held, dropped` line with the keys it holds, so none is dropped without a
+ * trace. A report that passed the run's schema
+ * (`departmentReportSchemaFor`) holds no such key; one that came back as
+ * the fallback, or from a caller that validated with the plain schema, may.
  */
 export function applyCommanderPolicy(
   kernel: SimulationKernel,
@@ -127,8 +137,17 @@ export function applyCommanderPolicy(
   if (Object.keys(deltas).length > 0) {
     log(`  [policy] effects: ${JSON.stringify(deltas)}${Object.keys(limited).length > 0 ? ` asked: ${JSON.stringify(asked)}` : ''}`);
   }
-  const { unmatched, ambiguous } = resolveSelectedEffects(decision, reports);
+  const { picked, unmatched, ambiguous } = resolveSelectedEffects(decision, reports);
+  const state = kernel.getState();
+  const held = new Set(
+    Object.entries({ ...state.metrics, ...state.politics }).filter(([, v]) => typeof v === 'number').map(([k]) => k),
+  );
+  const notHeld = [...new Set(picked.flatMap(({ effect }) => [
+    ...Object.keys(effect.systemDelta ?? {}),
+    ...Object.keys(effect.politicsDelta ?? {}),
+  ]))].filter(k => !held.has(k)).sort();
+  if (notHeld.length > 0) log(`  [policy] effect keys not held, dropped: ${notHeld.join(', ')} (the run holds ${[...held].join(', ')})`);
   if (unmatched.length > 0) log(`  [policy] no effect named by: ${unmatched.map(u => JSON.stringify(u)).join(', ')}`);
   if (ambiguous.length > 0) log(`  [policy] more than one effect named by, none applied: ${ambiguous.map(u => JSON.stringify(u)).join(', ')}`);
-  return { deltas, unmatched, ambiguous, limited };
+  return { deltas, unmatched, ambiguous, limited, notHeld };
 }

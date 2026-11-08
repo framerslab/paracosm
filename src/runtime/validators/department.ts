@@ -74,6 +74,34 @@ export const DepartmentReportSchema = z.object({
   recommendedEffects: z.array(RecommendedEffectSchema).default([]),
 });
 
+/**
+ * The report schema for a run: {@link DepartmentReportSchema}, refusing an
+ * effect whose `systemDelta` or `politicsDelta` names a key the run does
+ * not hold. The kernel would drop such a delta and move nothing (the Mars
+ * departments of 6 November 2026 wrote "power", "water" and "science");
+ * refused here, the message names the keys the run holds, and the retry
+ * of `sendAndValidate` hands it to the model. A key may sit in either
+ * field: the kernel adds both to wherever the run holds the key.
+ */
+export function departmentReportSchemaFor(heldKeys: readonly string[]) {
+  const held = new Set(heldKeys);
+  const list = [...held].join(', ');
+  return DepartmentReportSchema.superRefine((report, ctx) => {
+    report.recommendedEffects.forEach((effect, i) => {
+      for (const field of ['systemDelta', 'politicsDelta'] as const) {
+        for (const key of Object.keys(effect[field] ?? {})) {
+          if (held.has(key)) continue;
+          ctx.addIssue({
+            code: 'custom',
+            path: ['recommendedEffects', i, field, key],
+            message: `"${key}" is not a key this run holds, so it would move nothing; use only these keys: ${list}`,
+          });
+        }
+      }
+    });
+  });
+}
+
 export type DepartmentReportZ = z.infer<typeof DepartmentReportSchema>;
 export type RiskZ = z.infer<typeof RiskSchema>;
 export type OpportunityZ = z.infer<typeof OpportunitySchema>;

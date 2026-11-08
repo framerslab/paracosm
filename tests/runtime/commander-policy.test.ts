@@ -421,3 +421,38 @@ test('a bare id that two departments hold names neither, and an id one departmen
   step(only, reply({ selectedEffectIds: ['effect_3'] }), ariaTurn1());
   near(only.getState().metrics.morale, 0.84, 'effect_3');
 });
+
+test('a selected effect key the run does not hold is reported and dropped, and the held keys still move', () => {
+  // Aria Chen's turn 2 in the Mars Genesis pair of 6 November 2026
+  // (seed 950): engineering effect_3 and agriculture effect_1 named keys
+  // the run holds in neither its metrics nor its politics, and the run
+  // log printed only `[policy] effects: {"morale":0.01}`.
+  const reports = [
+    report('engineering', [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Stage a controlled perchlorate flush.', systemDelta: { morale: 0.02 } },
+      { id: 'effect_3', type: 'resource_shift', description: 'Shift power to the filter train.', systemDelta: { power: -0.05, water: 0.03 } },
+    ]),
+    report('agriculture', [
+      { id: 'effect_1', type: 'risk_mitigation', description: 'Second water loop for the grow beds.', systemDelta: { waterReliability: 0.08, power: -0.03 } },
+    ]),
+  ];
+  const kernel = marsKernel();
+  const before = kernel.getState().metrics;
+  const { lines, ...applied } = step(kernel, reply({
+    selectedPolicies: ['engineering/effect_1', 'engineering/effect_3', 'agriculture/effect_1'],
+  }), reports);
+  near(kernel.getState().metrics.morale, 0.87, 'engineering/effect_1 still moves morale');
+  assert.equal(kernel.getState().metrics.powerKw, before.powerKw, 'powerKw is not "power"');
+  const dropped = lines.find(l => l.includes('[policy] effect keys not held, dropped:'));
+  assert.ok(dropped, `the log names the keys that moved nothing:\n${lines.join('\n')}`);
+  assert.match(dropped, /dropped: power, water, waterReliability\b/);
+  assert.match(dropped, /infrastructureModules/, 'the line names the keys the run holds');
+  assert.deepEqual((applied as Record<string, unknown>).notHeld, ['power', 'water', 'waterReliability']);
+});
+
+test('a decision whose effects name only held keys logs no drop', () => {
+  const kernel = marsKernel();
+  const { lines, ...applied } = step(kernel, reply({ selectedPolicies: ['medical/effect_1'] }), ariaTurn1());
+  assert.ok(!lines.some(l => l.includes('not held')), lines.join('\n'));
+  assert.deepEqual((applied as Record<string, unknown>).notHeld ?? [], []);
+});

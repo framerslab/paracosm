@@ -1,11 +1,65 @@
 /**
  * The forge and report guidance every department's system prompt carries,
  * whatever the scenario: the universal `forge_tool` instructions, a worked
- * example the department adapts to its own domain, and the report format.
+ * example the department adapts to its own domain, and the report format,
+ * which lists the keys the run's effects may move.
  *
  * @module paracosm/runtime/orchestrator/forge-guidance
  */
-export function buildForgeGuidance(dept: string): string {
+import { effectKeys, type DeclaredWorld, type EffectKey } from '../util/scenario-state.js';
+
+/** One key's line in the report format: its id, field, label, unit and range. */
+function keyLine(k: EffectKey): string {
+  const unit = k.unit === '%' && k.max !== undefined && k.max <= 1 ? 'a fraction' : k.unit ? `in ${k.unit}` : '';
+  const range = k.min !== undefined && k.max !== undefined
+    ? `from ${k.min} to ${k.max}`
+    : k.min !== undefined ? `at least ${k.min}` : k.max !== undefined ? `at most ${k.max}` : '';
+  return `- ${JSON.stringify(k.id)} (${k.bag}): ${[k.label, unit, range].filter(Boolean).join(', ')}`;
+}
+
+/** An example change in the key's own unit: a small step for a fraction, one unit otherwise. */
+function exampleDelta(k: EffectKey, sign: 1 | -1): number {
+  return sign * (k.max !== undefined && k.max <= 1 ? 0.02 : 1);
+}
+
+/**
+ * The effect keys part of the report format. Without the run's keys the
+ * format shows only a morale change, and the Mars departments of 6
+ * November 2026 wrote "power", "water" and "science", which no run holds
+ * and which moved nothing (#209).
+ */
+function effectFormat(keys: EffectKey[]): { example: string; list: string } {
+  if (keys.length === 0) return { example: '"systemDelta": {"morale": 0.05}', list: '' };
+  const universal = new Set(['population', 'morale']);
+  const systems = keys.filter(k => k.bag === 'systemDelta');
+  const shown = [...systems.filter(k => !universal.has(k.id)), ...systems.filter(k => universal.has(k.id) && k.id !== 'population')].slice(0, 2);
+  const politics = keys.find(k => k.bag === 'politicsDelta');
+  const example = [
+    // Keys written as JSON, so a custom scenario's key with a quote or a
+    // backslash still gives an example that parses.
+    `"systemDelta": {${shown.map(k => `${JSON.stringify(k.id)}: ${exampleDelta(k, 1)}`).join(', ')}}`,
+    ...(politics ? [`"politicsDelta": {${JSON.stringify(politics.id)}: ${exampleDelta(politics, -1)}}`] : []),
+  ].join(', ');
+  const list = `
+
+EFFECT KEYS: each recommendedEffects entry moves only the keys below. A delta is a change in the key's own unit, added to its current value (1 on a key counted in months is one month; 0.02 on a fraction is two points). Metrics and capacities go in "systemDelta", politics in "politicsDelta". A key not listed here is refused and the report is asked for again.
+${keys.map(keyLine).join('\n')}`;
+  return { example, list };
+}
+
+/**
+ * The guidance for one department. Given the scenario's world and the
+ * run's state at the start, the report format lists the keys the run holds
+ * (see {@link effectKeys}) and its example names them; the text depends on
+ * nothing that changes during the run, so it stays one cached system block
+ * per department per run.
+ */
+export function buildForgeGuidance(
+  dept: string,
+  world?: DeclaredWorld | null,
+  state?: { metrics: Record<string, number>; politics: Record<string, number | string | boolean> },
+): string {
+  const effects = effectFormat(state ? effectKeys(state, world) : []);
   return `
 
 EMERGENT TOOLING — forge + reuse economy:
@@ -112,10 +166,10 @@ Respond with valid JSON ONLY (no markdown, no prose outside the JSON):
   "opportunities": [{"impact": "low|medium|high", "description": "..."}],
   "recommendedActions": ["..."],
   "forgedToolsUsed": [{"name": "tool_name", "mode": "sandbox", "description": "what it does", "output": {...}, "confidence": 0.9}],
-  "recommendedEffects": [{"id": "effect_1", "type": "resource_shift|capacity_expansion|risk_mitigation|social_investment|research_bet", "description": "...", "systemDelta": {"morale": 0.05}}],
+  "recommendedEffects": [{"id": "effect_1", "type": "resource_shift|capacity_expansion|risk_mitigation|social_investment|research_bet", "description": "...", ${effects.example}}],
   "confidence": 0.85,
   "openQuestions": [],
   "featuredAgentUpdates": [],
   "proposedPatches": {}
-}`;
+}${effects.list}`;
 }
