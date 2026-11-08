@@ -198,3 +198,77 @@ test('a report that no reply can give is still counted and reported as a fallbac
   assert.equal(parsed.success, true, parsed.success ? '' : JSON.stringify(parsed.error.issues));
   assert.equal(data.salvaged, undefined);
 });
+
+/**
+ * The dashboard shows a salvage or a fallback in the turn row it happened
+ * in. The run emits the `validation_fallback` event with no turn, and the
+ * dashboard's game state (`computeGameState`) added no such event to an
+ * actor's events, so the turn grids, which place an event by its turn,
+ * never drew the event card's "SCHEMA SALVAGE" or "SCHEMA FALLBACK" entry:
+ * the salvage reached only the top bar's count and the Log tab.
+ */
+test('a salvaged report and a fallback each show in the turn row they happened in, the salvage with the key it dropped', async () => {
+  const sendDepartmentReport = await loadSend();
+  const tracker = createCostTracker(modelConfig);
+  const leader = 'Aria Chen';
+  // The orchestrator's emit sends { type, leader, data }, with no turn.
+  const stream: Array<{ type: string; leader: string; data: Record<string, unknown> }> = [];
+  const emit = (type: string, data: Record<string, unknown>) => stream.push({ type, leader, data });
+  const fallbacks: unknown[] = [];
+
+  emit('turn_start', { turn: 1, time: 2035, title: 'Landfall' });
+  await sendDepartmentReport({
+    session: session([reply, reply, prose]),
+    prompt: 'medical report',
+    department: 'medical',
+    site: 'dept:medical:turn1:event1',
+    heldKeys: held,
+    recordSchemaAttempt: tracker.recordSchemaAttempt,
+    emit,
+    log: () => {},
+  });
+  emit('turn_start', { turn: 2, time: 2036, title: 'Dust season' });
+  await sendDepartmentReport({
+    session: session([prose, prose, prose]),
+    prompt: 'medical report',
+    department: 'medical',
+    site: 'dept:medical:turn2:event1',
+    heldKeys: held,
+    recordSchemaAttempt: tracker.recordSchemaAttempt,
+    emit,
+    onValidationFallback: details => fallbacks.push(details),
+    log: () => {},
+  });
+  assert.equal(fallbacks.length, 1);
+  const { validationFallbackData } = await import('../../src/runtime/orchestrator/department-report.js');
+  emit('validation_fallback', validationFallbackData('dept:medical:turn2:event1', fallbacks[0] as never));
+
+  const { computeGameState } = await import('../../src/dashboard/src/hooks/useGameState.js');
+  const game = computeGameState(stream as never, false);
+  const rows = new Map<number, Array<{ type: string; data: Record<string, unknown> }>>();
+  for (const e of game.actors[leader].events) {
+    if (typeof e.turn !== 'number') continue;
+    rows.set(e.turn, [...(rows.get(e.turn) ?? []), e]);
+  }
+  const salvage = (rows.get(1) ?? []).filter(e => e.type === 'validation_fallback');
+  const fallback = (rows.get(2) ?? []).filter(e => e.type === 'validation_fallback');
+  assert.equal(salvage.length, 1, `turn 1's row holds the salvage: ${JSON.stringify([...rows].map(([t, es]) => [t, es.map(e => e.type)]))}`);
+  assert.equal(salvage[0].data.salvaged, true);
+  assert.equal(fallback.length, 1, `turn 2's row holds the fallback: ${JSON.stringify([...rows].map(([t, es]) => [t, es.map(e => e.type)]))}`);
+  assert.equal(fallback[0].data.salvaged, undefined);
+
+  // The row draws each with the event card.
+  const React = await import('react');
+  const { renderToString } = await import('react-dom/server');
+  (globalThis as { React?: unknown }).React = React;
+  const { ScenarioContext } = await import('../../src/dashboard/src/App.js');
+  const { EventCard } = await import('../../src/dashboard/src/components/sim/EventCard.js');
+  const draw = (event: unknown) => renderToString(
+    React.createElement(ScenarioContext.Provider, { value: {} as never },
+      React.createElement(EventCard, { actorIndex: 0, event: event as never })),
+  );
+  const salvageCard = draw(salvage[0]);
+  assert.match(salvageCard, /SCHEMA SALVAGE/);
+  assert.match(salvageCard, /kept without: power/);
+  assert.match(draw(fallback[0]), /SCHEMA FALLBACK/);
+});
