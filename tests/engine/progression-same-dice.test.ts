@@ -100,10 +100,13 @@ test('the dose a colonist takes reads the habitat', () => {
     const p = k.getState().agents.find(x => x.health.alive)!;
     return (p.health.cumulativeRadiationMsv ?? 0) - before.get(p.core.id)!;
   };
+  // Each module keeps out a fifth of the dose that still reaches the
+  // colonists, with no stop: 0.8 ^ modules gets through.
   const surface = 0.67 * 365 * 8;
   assert.ok(Math.abs(doseOver8Years(0) - surface) < 0.01, `no shielding: ${doseOver8Years(0)}`);
-  assert.ok(Math.abs(doseOver8Years(3) - surface * 0.4) < 0.01, `three modules: ${doseOver8Years(3)}`);
-  assert.ok(Math.abs(doseOver8Years(5) - surface * 0.1) < 0.01, `five modules: ${doseOver8Years(5)}`);
+  assert.ok(Math.abs(doseOver8Years(3) - surface * 0.512) < 0.01, `three modules: ${doseOver8Years(3)}`);
+  assert.ok(Math.abs(doseOver8Years(5) - surface * 0.32768) < 0.01, `five modules: ${doseOver8Years(5)}`);
+  assert.ok(Math.abs(doseOver8Years(11) - surface * 0.8 ** 11) < 0.01, `eleven modules: ${doseOver8Years(11)}`);
 });
 
 test('the colony\'s morale reaches its people', (t) => {

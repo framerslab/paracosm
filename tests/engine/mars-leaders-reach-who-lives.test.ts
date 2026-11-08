@@ -11,12 +11,13 @@
  * scenario, `advanceTurn` with its progression hook), hold each side's
  * metrics after every turn where the live run's outcomes and adopted
  * effects left them (`applySystemDeltas`, the call both land in), and
- * compare who died. No model call.
+ * compare who died. No model call. The Moon keeps its own shielding
+ * curve, which the last test pins.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
-import { marsScenario } from '../../src/engine/scenarios/index.js';
+import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 import { scenarioKeyPersonnel } from '../../src/cli/sim-config.js';
 
 const hook = marsScenario.hooks.progressionHook;
@@ -192,4 +193,25 @@ test('a module below 4.5 and the live trajectories still change who lives', (t) 
   t.diagnostic(report(sweeps));
   assert.deepEqual(sweeps.filter(s => s.differ < s.floor).map(s => s.label), [], report(sweeps));
   assert.deepEqual(sweeps.flatMap(s => s.notNested), [], 'died only on the better-shielded side');
+});
+
+test('the Moon keeps its own shielding: two modules let through 0.6 of the regolith exposure', () => {
+  // Eight one-year Lunar turns from 2030 are seven years of exposure, so a
+  // crew member there the whole run holds 45 x 0.6 x 7 = 189 on every
+  // seed, and nobody holds more.
+  const lunarHook = lunarScenario.hooks.progressionHook;
+  for (const seed of SEEDS) {
+    const kernel = new SimulationKernel(seed, ARIA, [], { startTime: 2030, initialPopulation: 30, scenario: lunarScenario });
+    const founders = new Set(kernel.getState().agents.map(a => a.core.id));
+    for (let turn = 1; turn <= 8; turn++) kernel.advanceTurn(turn, 2029 + turn, lunarHook);
+    const state = kernel.getState();
+    assert.equal(state.metrics.infrastructureModules, 2, `seed ${seed}'s modules`);
+    for (const a of state.agents) {
+      const exposure = a.health.cumulativeRadiationMsv ?? 0;
+      assert.ok(exposure <= 189 + 1e-9, `seed ${seed}: ${a.core.name} holds ${exposure}`);
+      if (founders.has(a.core.id) && a.health.alive) {
+        assert.ok(Math.abs(exposure - 189) < 1e-9, `seed ${seed}: ${a.core.name} holds ${exposure}`);
+      }
+    }
+  }
 });
