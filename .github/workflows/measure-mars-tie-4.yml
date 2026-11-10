@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [base, dose, supply, events]
+        part: [pins, life, gapfam, choice]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -29,3 +29,39 @@ jobs:
         env:
           PART: ${{ matrix.part }}
         run: npx tsx scripts/measure-tie-4.ts
+
+  others-branch:
+    name: Other scenarios under each candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci
+      - name: Hash every final state
+        run: npx tsx scripts/measure-tie-4-hash.ts
+
+  others-master:
+    name: Other scenarios on master
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+      - uses: actions/checkout@v7
+        with:
+          path: measurement-branch
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci
+      - name: Hash every final state with master's kernel
+        run: |
+          cp measurement-branch/scripts/measure-tie-4-hash.ts scripts/measure-tie-4-hash.ts
+          git rev-parse HEAD
+          npx tsx scripts/measure-tie-4-hash.ts

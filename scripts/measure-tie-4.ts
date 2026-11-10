@@ -18,7 +18,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SimulationKernel } from '../src/engine/core/kernel.js';
 import { SeededRng } from '../src/engine/core/rng.js';
-import { crisis, measure, supplyLevel, type DieRow } from '../src/engine/core/progression.js';
+import { crisis, measure, outcomeSuccessChance, supplyLevel, type DieRow } from '../src/engine/core/progression.js';
+import { EffectRegistry, type TurnOutcome } from '../src/engine/registries/effects.js';
 import { marsScenario } from '../src/engine/scenarios/index.js';
 import { scenarioKeyPersonnel } from '../src/cli/sim-config.js';
 import type { Department } from '../src/engine/core/state.js';
@@ -29,7 +30,7 @@ const TURNS: Array<[number, number]> = [[1, 2035], [2, 2043], [3, 2051], [4, 205
 const SEEDS = [950, ...Array.from({ length: 60 }, (_, i) => i + 1)];
 const PART = process.env.PART ?? 'base';
 
-interface Outcome { turn: number; ei: number; category: string; outcome: string; riskProb: number; risky: boolean }
+interface Outcome { turn: number; ei: number; category: string; outcome: string; riskProb: number; risky: boolean; deltas?: Record<string, number> }
 interface Side {
   key: string; leader: string; pair: string;
   heads: Array<[string, string, string]>;
@@ -37,6 +38,9 @@ interface Side {
   outcomes: Outcome[];
   deaths: Array<[string, number, string]>;
   birthsPerTurn: number[];
+  /** Each turn's metrics after the between-turn step, before the turn's decisions. */
+  start?: Record<string, number[]>;
+  hexaco?: { openness: number; conscientiousness: number };
 }
 const LIVE = JSON.parse(readFileSync(resolve(here, 'measure-tie-4-live.json'), 'utf-8')) as { sides: Record<string, Side> };
 const flatSide = (key: string, held: Record<string, number>): Side => ({
@@ -69,6 +73,8 @@ const GRID_PAIRINGS: Pairing[] = [{ a: 'U4', b: 'O4', kind: 'grid' }, { a: 'UW',
 type OutcomeMode = 'held' | 'redrawn';
 interface RunOpt {
   heads: boolean; trace: boolean; outcomes: OutcomeMode;
+  /** How the side's metrics are set after a turn: outright (a patch), or as the difference from what the kernel holds (`applySystemDeltas`, as the suite's tests do). */
+  hold?: 'patch' | 'delta';
   outcomeAccident?: Record<string, number>; outcomeNatural?: Record<string, number>;
 }
 
@@ -126,7 +132,12 @@ function runSide(seed: number, side: Side, opt: RunOpt): SideRun {
     }
     const metrics: Record<string, number> = {};
     for (const [k, values] of Object.entries(side.held)) metrics[k] = values[i];
-    if (Object.keys(metrics).length > 0) kernel.applyPolicy({ description: 'held', patches: { metrics }, events: [] });
+    if (opt.hold === 'delta') {
+      const now = kernel.getState().metrics as Record<string, number>;
+      kernel.applySystemDeltas(Object.fromEntries(Object.entries(metrics).map(([k, target]) => [k, target - now[k]])));
+    } else if (Object.keys(metrics).length > 0) {
+      kernel.applyPolicy({ description: 'held', patches: { metrics }, events: [] });
+    }
     const after = kernel.getState();
     levelAfterTurn.push(supplyLevel(after.metrics as Record<string, unknown>, after.metadata.landingSupplies));
     aliveAfterTurn.push(after.agents.filter(a => a.health.alive).length);
@@ -209,6 +220,7 @@ function dice(a: SideRun, b: SideRun): DiceStats {
 
 interface Variant {
   name: string;
+  hold?: 'patch' | 'delta';
   set?: () => void;
   outcomes?: OutcomeMode;
   outcomeAccident?: Record<string, number>;
@@ -218,7 +230,7 @@ interface Variant {
 function reset(): void {
   measure.exp = 1; measure.lo = 0.5; measure.hi = 2; measure.per = 'none'; measure.food = false;
   measure.moraleK = 0; measure.birthExp = 0; measure.outcomeAccident = 1; measure.outcomeNatural = 1;
-  measure.trace = false; measure.rows = [];
+  measure.trace = false; measure.rows = []; measure.lifetime = false;
   crisis.mode = 'off';
   crisis.base = { conservative_failure: 0.04, risky_failure: 0.1 };
   crisis.count = { conservative_failure: 1, risky_failure: 2 };
@@ -241,7 +253,7 @@ const newAgg = (): Agg => ({
 function sweepVariant(v: Variant, trace: boolean, pairings: Pairing[] = PAIRINGS): void {
   reset();
   v.set?.();
-  const opt: RunOpt = { heads: false, trace, outcomes: v.outcomes ?? 'held', outcomeAccident: v.outcomeAccident, outcomeNatural: v.outcomeNatural };
+  const opt: RunOpt = { heads: false, trace, outcomes: v.outcomes ?? 'held', outcomeAccident: v.outcomeAccident, outcomeNatural: v.outcomeNatural, hold: v.hold };
   const keys = [...new Set(pairings.flatMap(p => [p.a, p.b])), 'IDLE'];
   const aggs = new Map(pairings.map(p => [`${p.a}-${p.b}`, newAgg()]));
   const deathsBySide: Record<string, number> = {};
@@ -350,10 +362,11 @@ function sweepVariant(v: Variant, trace: boolean, pairings: Pairing[] = PAIRINGS
 }
 
 /** One side at seed 950 with the heads its leader named, beside what the live run recorded. */
-function replicaSide(key: string): SideRun {
+function replicaSide(key: string, hold: 'patch' | 'delta' = 'patch', set?: () => void): SideRun {
   reset();
+  set?.();
   const side = SIDES[key];
-  const run = runSide(950, side, { heads: true, trace: true, outcomes: 'held' });
+  const run = runSide(950, side, { heads: true, trace: true, outcomes: 'held', hold });
   const got = [...run.records].sort();
   const want = side.deaths.map(([id, time, cause]) => `${id}|${time}|${cause}`).sort();
   const missing = want.filter(x => !got.includes(x));
@@ -473,4 +486,176 @@ if (PART === 'events') {
     if (!any) seedsWithNone++;
   }
   console.log('REDRAWN ' + JSON.stringify({ events, failures, share: r3(failures / events), seedsWithNoFailureOnAnySide: seedsWithNone }));
+}
+
+if (PART === 'pins') {
+  // The numbers the suite's own method gives (`applySystemDeltas` to each
+  // turn_done value, as tests/engine/mars-supplies-reach-who-lives.test.ts
+  // holds a side), for the pairs a test would pin.
+  console.log('===== seed 950 with heads, held by applySystemDeltas =====');
+  const reps: Record<string, SideRun> = {};
+  for (const k of LIVE_KEYS) reps[k] = replicaSide(k, 'delta');
+  for (const [a, b] of [['A1', 'D1'], ['A2', 'D2'], ['A3', 'D3']]) {
+    replicaPair(a, b, reps[a], reps[b]);
+    for (const k of [a, b]) console.log(`PIN_DEAD ${k}: ${reps[k].dead.size} dead: ${[...reps[k].dead].map(id => reps[k].names.get(id)).sort().join(', ')}`);
+  }
+  console.log('===== 61 seeds, no promotions, held by applySystemDeltas =====');
+  sweepVariant({ name: 'master, held by applySystemDeltas', hold: 'delta' }, false);
+}
+
+if (PART === 'life') {
+  console.log('===== one die for a life for each cause, seed 950 with heads =====');
+  const reps: Record<string, SideRun> = {};
+  for (const k of LIVE_KEYS) reps[k] = replicaSide(k, 'patch', () => { measure.lifetime = true; });
+  for (const p of PAIRINGS) {
+    const a = reps[p.a], b = reps[p.b];
+    const inB = new Map(b.deaths.map(d => [d.id, d]));
+    const moved = a.deaths.filter(d => inB.has(d.id) && (inB.get(d.id)!.time !== d.time || inB.get(d.id)!.cause !== d.cause))
+      .map(d => `${d.name} ${d.time} ${d.cause} | ${inB.get(d.id)!.time} ${inB.get(d.id)!.cause}`);
+    console.log('LIFE_PAIR ' + JSON.stringify({
+      pairing: `${p.a}-${p.b}`, kind: p.kind, deadA: a.dead.size, deadB: b.dead.size,
+      onlyA: [...a.dead].filter(id => !b.dead.has(id)).map(id => a.names.get(id)),
+      onlyB: [...b.dead].filter(id => !a.dead.has(id)).map(id => b.names.get(id)),
+      sameDeadDifferentYearOrCause: moved,
+    }));
+  }
+  console.log('===== 61 seeds, no promotions =====');
+  sweepVariant({ name: 'master' }, false);
+  sweepVariant({ name: 'one die for a life for each cause', set: () => { measure.lifetime = true; } }, false);
+}
+
+if (PART === 'gapfam') {
+  // Two colonies that build alike: one holds every one of the five supplies
+  // `g` above the other at every turn end, everything else equal.
+  const SUPPLIES = ['lifeSupportCapacity', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3', 'infrastructureModules'];
+  const scaled = (base: string, g: number): Side => {
+    const from = SIDES[base];
+    const held = Object.fromEntries(Object.entries(from.held).map(([k, values]) => [k, SUPPLIES.includes(k) ? values.map(x => x * (1 + g)) : values]));
+    return { ...from, key: `${base}+${g}`, held };
+  };
+  for (const base of ['A3', 'D3', 'D2']) {
+    for (const g of [0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1]) {
+      SIDES[`${base}+${g}`] = scaled(base, g);
+    }
+    const pairings: Pairing[] = [0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1].map(g => ({ a: base, b: `${base}+${g}`, kind: 'grid' as const }));
+    sweepVariant({ name: `builders alike: ${base} against ${base} with every supply g higher` }, true, pairings);
+    // At seed 950 with the heads the leader named.
+    reset();
+    const a = runSide(950, SIDES[base], { heads: true, trace: false, outcomes: 'held' });
+    for (const g of [0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1]) {
+      const b = runSide(950, SIDES[`${base}+${g}`], { heads: true, trace: false, outcomes: 'held' });
+      console.log(`GAP950 ${base} against ${base}+${g}: dead ${a.dead.size} and ${b.dead.size}; only under the lower ${JSON.stringify([...a.dead].filter(id => !b.dead.has(id)).map(id => a.names.get(id)))}; only under the higher ${JSON.stringify([...b.dead].filter(id => !a.dead.has(id)).map(id => b.names.get(id)))}; level after each turn ${JSON.stringify(b.levelAfterTurn.map(r4))}`);
+    }
+  }
+}
+
+if (PART === 'choice') {
+  // What the one thing a commander decides (the risky option or a safe one)
+  // does on master: the recorded events and the recorded adopted effects of
+  // a side, with each event's outcome drawn on the seed's own draw against
+  // the chosen option's chance and its effects taken from the scenario's
+  // tables (`EffectRegistry.applyOutcome`), as the orchestrator does. The
+  // tool modifiers a live run adds are left out on every side.
+  const registry = EffectRegistry.forScenario(marsScenario);
+  const POLICY_KEYS = ['infrastructureModules', 'foodMonthsReserve', 'morale', 'lifeSupportCapacity', 'powerKw', 'pressurizedVolumeM3', 'waterLitersPerDay', 'scienceOutput'];
+  type Choice = 'recorded' | 'risky' | 'safe' | 'half';
+  const bonus = (h: { openness: number; conscientiousness: number }, risky: boolean) =>
+    (h.openness - 0.5) * 0.2 + (h.conscientiousness - 0.5) * 0.12 + ((risky ? h.openness : h.conscientiousness) - 0.5) * 0.1;
+  interface ChoiceRun extends SideRun { classes: string[]; finalMetrics: Record<string, number> }
+  const runChoice = (seed: number, side: Side, choice: Choice, heads: boolean): ChoiceRun => {
+    const kernel = new SimulationKernel(seed, side.leader, scenarioKeyPersonnel(marsScenario), { startTime: 2035, initialPopulation: 30, scenario: marsScenario });
+    const founders = new Set(kernel.getState().agents.map(a => a.core.id));
+    if (heads) for (const [id, department, role] of side.heads) kernel.promoteAgent(id, department as Department, role, side.leader);
+    const levelAfterTurn: number[] = [];
+    const aliveAfterTurn: number[] = [];
+    const classes: string[] = [];
+    TURNS.forEach(([turn, time], i) => {
+      kernel.advanceTurn(turn, time, hook);
+      const mine = side.outcomes.filter(o => o.turn === turn);
+      // The adopted effects the live run recorded for the turn: what it ended with, less where the between-turn step left it, less what its outcomes moved.
+      const policy: Record<string, number> = {};
+      for (const k of POLICY_KEYS) {
+        const moved = mine.reduce((sum, o) => sum + (o.deltas?.[k] ?? 0), 0);
+        const d = side.held[k][i] - side.start![k][i] - moved;
+        if (Math.abs(d) > 1e-9) policy[k] = d;
+      }
+      kernel.applySystemDeltas(policy);
+      for (const o of mine) {
+        const risky = choice === 'recorded' ? o.risky : choice === 'risky' ? true : choice === 'safe' ? false : turn % 2 === 1;
+        const chance = outcomeSuccessChance(risky, o.riskProb, kernel.getState().metrics);
+        const success = new SeededRng(seed).turnSeed(turn * 100 + o.ei).next() < chance;
+        const cls = `${risky ? 'risky' : 'conservative'}_${success ? 'success' : 'failure'}` as TurnOutcome;
+        classes.push(cls);
+        const noise = new SeededRng(seed).turnSeed(turn * 100 + o.ei + 50).next() * 0.2 - 0.1;
+        kernel.applySystemDeltas(registry.applyOutcome(o.category, cls, { personalityBonus: bonus(side.hexaco!, risky), noise }));
+      }
+      const after = kernel.getState();
+      levelAfterTurn.push(supplyLevel(after.metrics as Record<string, unknown>, after.metadata.landingSupplies));
+      aliveAfterTurn.push(after.agents.filter(a => a.health.alive).length);
+    });
+    const state = kernel.getState();
+    const byId = new Map(state.agents.map(a => [a.core.id, a]));
+    const deaths: Death[] = state.eventLog.filter(e => e.type === 'death' && e.agentId).map(e => ({
+      id: e.agentId!, name: byId.get(e.agentId!)?.core.name ?? e.agentId!, time: e.time, turn: e.turn, cause: String(e.cause),
+    }));
+    const count = (type: string) => TURNS.map(([turn]) => state.eventLog.filter(e => e.type === type && e.turn === turn).length);
+    return {
+      dead: new Set(state.agents.filter(a => !a.health.alive).map(a => a.core.id)), founders,
+      names: new Map(state.agents.map(a => [a.core.id, a.core.name])), deaths,
+      records: new Set(deaths.map(d => `${d.id}|${d.time}|${d.cause}`)),
+      born: new Set(state.eventLog.filter(e => e.type === 'birth' && e.agentId).map(e => e.agentId!)),
+      living: new Set(state.agents.filter(a => a.health.alive).map(a => a.core.id)),
+      rows: null, birthsPerTurn: count('birth'), deathsPerTurn: count('death'), levelAfterTurn, aliveAfterTurn, classes,
+      finalMetrics: Object.fromEntries(POLICY_KEYS.map(k => [k, r2((state.metrics as Record<string, number>)[k])])),
+    };
+  };
+  reset();
+  console.log('===== seed 950 with heads: the computed trajectories beside the recorded ones =====');
+  for (const k of LIVE_KEYS) {
+    for (const choice of ['recorded', 'safe', 'half', 'risky'] as Choice[]) {
+      const r = runChoice(950, SIDES[k], choice, true);
+      console.log(`CHOICE950 ${k} ${choice}: dead ${r.dead.size}; level after each turn ${JSON.stringify(r.levelAfterTurn.map(r4))}; classes ${JSON.stringify(r.classes.map(c => c.replace('conservative', 'safe')))}; final ${JSON.stringify(r.finalMetrics)}`);
+    }
+    console.log(`CHOICE950 ${k} recorded turn ends give level ${JSON.stringify(TURNS.map((_, i) => r4(supplyLevel(Object.fromEntries(Object.entries(SIDES[k].held).map(([key, values]) => [key, values[i]])), { powerKw: 400, waterLitersPerDay: 800, pressurizedVolumeM3: 3000, infrastructureModules: 3, lifeSupportCapacity: 120 }))))}`);
+  }
+  console.log('===== 61 seeds, no promotions =====');
+  const pairs: Array<[string, Choice, string, Choice]> = [];
+  for (const n of ['1', '2', '3']) {
+    pairs.push(
+      [`A${n}`, 'recorded', `D${n}`, 'recorded'],
+      [`A${n}`, 'risky', `D${n}`, 'recorded'],
+      [`A${n}`, 'half', `D${n}`, 'recorded'],
+      [`A${n}`, 'risky', `D${n}`, 'safe'],
+      [`A${n}`, 'risky', `A${n}`, 'safe'],
+      [`A${n}`, 'half', `A${n}`, 'safe'],
+      [`D${n}`, 'risky', `D${n}`, 'safe'],
+    );
+  }
+  const cache = new Map<string, ChoiceRun>();
+  const get = (seed: number, key: string, choice: Choice) => {
+    const id = `${seed}|${key}|${choice}`;
+    let r = cache.get(id);
+    if (!r) { r = runChoice(seed, SIDES[key], choice, false); cache.set(id, r); }
+    return r;
+  };
+  for (const [ka, ca, kb, cb] of pairs) {
+    let differ = 0, onlyA = 0, onlyB = 0, deathsA = 0, deathsB = 0, levelA = 0, levelB = 0, failA = 0, failB = 0, bothWays = 0;
+    const ties: number[] = [];
+    for (const seed of SEEDS) {
+      const a = get(seed, ka, ca), b = get(seed, kb, cb);
+      const oa = [...a.dead].filter(id => !b.dead.has(id)).length;
+      const ob = [...b.dead].filter(id => !a.dead.has(id)).length;
+      if (oa + ob > 0) differ++; else ties.push(seed);
+      if (oa > 0 && ob > 0) bothWays++;
+      onlyA += oa; onlyB += ob; deathsA += a.dead.size; deathsB += b.dead.size;
+      levelA += a.levelAfterTurn[4]; levelB += b.levelAfterTurn[4];
+      failA += a.classes.filter(c => c.endsWith('failure')).length; failB += b.classes.filter(c => c.endsWith('failure')).length;
+    }
+    const n = SEEDS.length;
+    console.log('CHOICE ' + JSON.stringify({
+      a: `${ka} ${ca}`, b: `${kb} ${cb}`, differ, bothWays, tieAt950: ties.includes(950),
+      deathsA: r2(deathsA / n), deathsB: r2(deathsB / n), onlyA: r2(onlyA / n), onlyB: r2(onlyB / n),
+      levelAfterTurn5A: r3(levelA / n), levelAfterTurn5B: r3(levelB / n), failuresA: r2(failA / n), failuresB: r2(failB / n),
+    }));
+  }
 }
