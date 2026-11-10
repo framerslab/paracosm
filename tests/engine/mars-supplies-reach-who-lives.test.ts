@@ -307,8 +307,11 @@ function rows(sc: ScenarioPackage, seed: number, population: number, turns: numb
 }
 
 const ROW_SEEDS = [950, 1, 2, 3];
+/** The rows these runs gave before any death rate read a supply. */
+const PINNED = JSON.parse(readFileSync(resolve(here, '../fixtures/supplies-unmarked-and-untouched.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
+const pinned = (keys: string[]) => Object.fromEntries(keys.map(k => [k, PINNED[k]]));
 
-test('a Mars colony nobody leads holds its landing supplies in every year of six turns', (t) => {
+test('a Mars colony nobody leads holds its landing supplies in every year of six turns and loses the people it lost before', (t) => {
   const seen: Record<string, TurnRow[]> = {};
   const moved: string[] = [];
   for (const seed of ROW_SEEDS) {
@@ -320,6 +323,7 @@ test('a Mars colony nobody leads holds its landing supplies in every year of six
   }
   t.diagnostic(`mars rows: ${JSON.stringify(seen)}`);
   assert.deepEqual(moved, [], 'a supply moved with nobody leading');
+  assert.deepEqual(seen, pinned(Object.keys(seen)));
 });
 
 test('Lunar Outpost and the deep-ocean station run as they did before supplies reached the rates', (t) => {
@@ -329,5 +333,5 @@ test('Lunar Outpost and the deep-ocean station run as they did before supplies r
     seen[`deep-ocean-station, seed ${seed}, 30 people, 8 one-year turns`] = rows(station, seed, 30, 8, 1);
   }
   t.diagnostic(`unmarked rows: ${JSON.stringify(seen)}`);
-  for (const [label, r] of Object.entries(seen)) assert.equal(r.length, 8, label);
+  assert.deepEqual(seen, pinned(Object.keys(seen)));
 });
