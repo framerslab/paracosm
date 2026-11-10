@@ -4,10 +4,13 @@
  * A yearly rate holds over every year a turn spans, so a turn of `years`
  * years gives `1 - (1 - pYear)^years`, with no cap per turn. Radiation
  * cancer is an excess hazard of 0.004 a year for each sievert above 0.5.
- * The functions are the ones `progressBetweenTurns` rolls against.
+ * The age and accident rates divide by the colony's supply level, held
+ * within a half and double (#234). The functions are the ones
+ * `progressBetweenTurns` rolls against.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as progression from '../../src/engine/core/progression.js';
 import { causeHazards, turnHazard } from '../../src/engine/core/progression.js';
 import type { Agent } from '../../src/engine/core/state.js';
 
@@ -53,4 +56,42 @@ test('each cause reads its own part of the person and the world', () => {
   near(h.accident, turnHazard(0.003 * 1.5, 8), 'an engineer\'s accident');
   assert.equal(h.starvation, 0, 'a fed colony');
   near(causeHazards(person(), hungry, 40, 8).starvation, turnHazard(0.8 * 0.15, 8), 'a hungry colony');
+});
+
+test('the age and accident rates divide by the supply level, within a half and double', () => {
+  const { supplyRateFactor } = progression;
+  assert.equal(supplyRateFactor(1), 1, 'landing day');
+  assert.equal(supplyRateFactor(0.25), 2, 'a quarter of landing day, held at double');
+  assert.equal(supplyRateFactor(4), 0.5, 'four times landing day, held at a half');
+  assert.equal(supplyRateFactor(0), 2, 'nothing left');
+  near(supplyRateFactor(0.8), 1.25, 'a fifth under', 1e-12);
+});
+
+test('the supply level is the geometric mean of each supply against its landing-day amount', () => {
+  const { supplyLevel, supplyRateFactor } = progression;
+  const landing = { lifeSupportCapacity: 120, waterLitersPerDay: 800, powerKw: 400, pressurizedVolumeM3: 3000, infrastructureModules: 3 };
+  assert.equal(supplyLevel({ population: 30, ...landing }, undefined), 1, 'a run with no landing amounts');
+  assert.equal(supplyLevel({ population: 30, ...landing }, landing), 1, 'landing day, exactly');
+  const doubled = Object.fromEntries(Object.entries(landing).map(([k, v]) => [k, 2 * v]));
+  near(supplyLevel(doubled, landing), 2, 'every supply at twice landing', 1e-12);
+  near(supplyLevel({ ...landing, waterLitersPerDay: 3200, powerKw: 100 }, landing), 1, 'four times one supply, a quarter of another', 1e-12);
+  assert.equal(supplyRateFactor(supplyLevel({ ...landing, waterLitersPerDay: 0 }, landing)), 2, 'one of five at zero');
+  // A supply the run does not hold as a number is left out of the mean.
+  near(supplyLevel({ powerKw: 800 }, { powerKw: 400, waterLitersPerDay: 800 }), 2, 'only power held', 1e-12);
+});
+
+test('a supply factor scales the natural and accident chances and leaves the other causes as they were', () => {
+  const metrics = { population: 30, morale: 0.8, foodMonthsReserve: 0.2 };
+  const p = person({ psychScore: 0.1, boneDensityPct: 50, cumulativeRadiationMsv: 2000 }, 'engineering');
+  const base = causeHazards(p, metrics, 65, 1);
+  const short = causeHazards(p, metrics, 65, 1, 2);
+  near(base.natural, 0.01, 'natural at 65 over a year', 1e-12);
+  near(short.natural, 0.02, 'natural at 65 over a year, at a factor of 2', 1e-12);
+  near(base.accident, 0.0045, 'an engineer\'s accident over a year', 1e-12);
+  near(short.accident, 0.009, 'an engineer\'s accident over a year, at a factor of 2', 1e-12);
+  for (const cause of ['radiation', 'starvation', 'despair', 'fracture'] as const) {
+    assert.ok(base[cause] > 0, `${cause} has a chance here`);
+    assert.equal(short[cause], base[cause], cause);
+  }
+  assert.deepEqual(causeHazards(p, metrics, 65, 8, 1), causeHazards(p, metrics, 65, 8), 'a factor of 1 is no factor');
 });
