@@ -53,15 +53,8 @@ const RUNS: Run[] = [
 
 const DEFAULTS = measure ? { ...measure } : {};
 const CANDIDATES: Array<[string, Record<string, unknown>]> = [
-  ['every switch at its default', {}],
-  ['level^-2 within 0.25 and 4', { exp: 2, lo: 0.25, hi: 4 }],
-  ['level^-3 within 0.25 and 4', { exp: 3, lo: 0.25, hi: 4 }],
-  ['per living person', { per: 'alive' }],
-  ['per person the roster ever held', { per: 'roster' }],
-  ['food as a sixth supply', { food: true }],
-  ['morale reading, k 2', { moraleK: 2 }],
-  ['births x level', { birthExp: 1 }],
-  ['one die for a life for each cause', { lifetime: true }],
+  ['as the branch declares (Mars Genesis keeps a die for life, the others a die a year)', {}],
+  ['a die a year everywhere', { dice: 'year' }],
 ];
 
 for (const [name, knobs] of measure ? CANDIDATES : CANDIDATES.slice(0, 1)) {

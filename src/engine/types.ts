@@ -87,6 +87,15 @@ export interface ScenarioSetupSchema {
   defaultPopulation: number;
   /** Maximum events the Event Director can generate per turn. Default: 3 */
   maxEventsPerTurn?: number;
+  /**
+   * How each person's death dice are kept. `'year'` (the default): a die of
+   * its own for each cause in each year. `'life'`: one die for each cause
+   * for the person's whole life, and the person dies in the year their
+   * chance of having survived that cause falls to it. A run's deaths keep
+   * their chances either way; with a die for life, two runs of one seed
+   * differ in when a person dies wherever the yearly chances differ.
+   */
+  mortalityDice?: 'year' | 'life';
   /** Which setup form sections to expose in the dashboard */
   configurableSections: Array<'actors' | 'personnel' | 'resources' | 'departments' | 'events' | 'models' | 'advanced'>;
 }

@@ -306,6 +306,7 @@ export class SimulationKernel {
       }
     }
     if (Object.keys(landingSupplies).length > 0) this.state.metadata.landingSupplies = landingSupplies;
+    if (init.scenario?.setup?.mortalityDice === 'life') this.state.metadata.mortalityDice = 'life';
     this.setRanges(init.scenario);
   }
 

@@ -66,6 +66,11 @@ export interface AgentHealth {
    *  recursively re-decaying its own output (scenario-specific, used
    *  by Mars/Lunar physics modules). */
   boneDensityBase?: number;
+  /**
+   * The chance of having survived each cause so far, in a run whose
+   * scenario keeps one death die for a life (`setup.mortalityDice`).
+   */
+  survival?: Record<string, number>;
   /** Cumulative radiation exposure in millisieverts (scenario-specific, used by Mars/Lunar) */
   cumulativeRadiationMsv?: number;
   /** Scenario-defined health fields beyond the standard set */
@@ -225,6 +230,12 @@ export interface SimulationMetadata {
    * none; either reads as a supply level of 1.
    */
   landingSupplies?: Record<string, number>;
+  /**
+   * `'life'` where the scenario keeps one death die for each cause for a
+   * person's whole life (`setup.mortalityDice`). Absent, a die a year: every
+   * other scenario, and a state saved before this choice existed.
+   */
+  mortalityDice?: 'life';
 }
 
 export interface TurnEvent {

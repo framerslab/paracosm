@@ -175,6 +175,11 @@ function tally(deaths: Death[]): Record<string, number> {
   for (const d of deaths) out[causeOf(d.cause)] = (out[causeOf(d.cause)] ?? 0) + 1;
   return out;
 }
+/** The founders who die under `x` earlier than under `y`, or under `x` alone. */
+function earlier(x: SideRun, y: SideRun): number {
+  const inY = new Map(y.deaths.map(d => [d.id, d.time]));
+  return x.deaths.filter(d => x.founders.has(d.id) && (!inY.has(d.id) || d.time < inY.get(d.id)!)).length;
+}
 const symdiff = (a: Set<string>, b: Set<string>) => [...a].filter(x => !b.has(x)).length + [...b].filter(x => !a.has(x)).length;
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -230,7 +235,7 @@ interface Variant {
 function reset(): void {
   measure.exp = 1; measure.lo = 0.5; measure.hi = 2; measure.per = 'none'; measure.food = false;
   measure.moraleK = 0; measure.birthExp = 0; measure.outcomeAccident = 1; measure.outcomeNatural = 1;
-  measure.trace = false; measure.rows = []; measure.lifetime = false;
+  measure.trace = false; measure.rows = []; measure.dice = 'year';
   crisis.mode = 'off';
   crisis.base = { conservative_failure: 0.04, risky_failure: 0.1 };
   crisis.count = { conservative_failure: 1, risky_failure: 2 };
@@ -238,11 +243,13 @@ function reset(): void {
 
 interface Agg {
   differ: number; records: number; born: number; living: number; bothWays: number;
+  /** Seeds where the two sides' deaths a turn differ; seeds where a founder dies earlier, or only, under the second side; seeds where one does under the first. */
+  turnCounts: number; earlierUnderB: number; earlierUnderA: number;
   deathsA: number; deathsB: number; onlyA: number; onlyB: number; ties: number[];
   gap: Record<string, number>; between: Record<string, number>; gapByTurn: Record<string, number>; flips: number; masked: number;
 }
 const newAgg = (): Agg => ({
-  differ: 0, records: 0, born: 0, living: 0, bothWays: 0, deathsA: 0, deathsB: 0, onlyA: 0, onlyB: 0, ties: [],
+  differ: 0, records: 0, born: 0, living: 0, bothWays: 0, turnCounts: 0, earlierUnderB: 0, earlierUnderA: 0, deathsA: 0, deathsB: 0, onlyA: 0, onlyB: 0, ties: [],
   gap: {}, between: {}, gapByTurn: {}, flips: 0, masked: 0,
 });
 
@@ -280,6 +287,9 @@ function sweepVariant(v: Variant, trace: boolean, pairings: Pairing[] = PAIRINGS
       if (onlyA + onlyB > 0) { g.differ++; seedCount[p.kind]++; } else g.ties.push(seed);
       if (onlyA > 0 && onlyB > 0) g.bothWays++;
       if (symdiff(a.records, b.records) > 0) g.records++;
+      if (a.deathsPerTurn.join() !== b.deathsPerTurn.join()) g.turnCounts++;
+      if (earlier(b, a) > 0) g.earlierUnderB++;
+      if (earlier(a, b) > 0) g.earlierUnderA++;
       if (symdiff(a.born, b.born) > 0) g.born++;
       if (symdiff(a.living, b.living) > 0) g.living++;
       g.deathsA += a.dead.size; g.deathsB += b.dead.size; g.onlyA += onlyA; g.onlyB += onlyB;
@@ -317,7 +327,8 @@ function sweepVariant(v: Variant, trace: boolean, pairings: Pairing[] = PAIRINGS
     const g = aggs.get(`${p.a}-${p.b}`)!;
     const row: Record<string, unknown> = {
       variant: v.name, pairing: `${p.a}-${p.b}`, kind: p.kind, differ: g.differ, records: g.records, born: g.born, living: g.living,
-      bothWays: g.bothWays, deathsA: r2(g.deathsA / n), deathsB: r2(g.deathsB / n), onlyA: r2(g.onlyA / n), onlyB: r2(g.onlyB / n),
+      bothWays: g.bothWays, turnCounts: g.turnCounts, earlierUnderA: g.earlierUnderA, earlierUnderB: g.earlierUnderB,
+      deathsA: r2(g.deathsA / n), deathsB: r2(g.deathsB / n), onlyA: r2(g.onlyA / n), onlyB: r2(g.onlyB / n),
       tieAt950: g.ties.includes(950), ties: g.ties.length <= 16 ? g.ties : `${g.ties.length} seeds`,
     };
     if (trace) {
@@ -506,7 +517,7 @@ if (PART === 'pins') {
 if (PART === 'life') {
   console.log('===== one die for a life for each cause, seed 950 with heads =====');
   const reps: Record<string, SideRun> = {};
-  for (const k of LIVE_KEYS) reps[k] = replicaSide(k, 'patch', () => { measure.lifetime = true; });
+  for (const k of LIVE_KEYS) reps[k] = replicaSide(k, 'patch', () => { measure.dice = 'life'; });
   for (const p of PAIRINGS) {
     const a = reps[p.a], b = reps[p.b];
     const inB = new Map(b.deaths.map(d => [d.id, d]));
@@ -521,7 +532,7 @@ if (PART === 'life') {
   }
   console.log('===== 61 seeds, no promotions =====');
   sweepVariant({ name: 'master' }, false);
-  sweepVariant({ name: 'one die for a life for each cause', set: () => { measure.lifetime = true; } }, false);
+  sweepVariant({ name: 'one die for a life for each cause', set: () => { measure.dice = 'life'; } }, false);
 }
 
 if (PART === 'gapfam') {
@@ -657,5 +668,87 @@ if (PART === 'choice') {
       deathsA: r2(deathsA / n), deathsB: r2(deathsB / n), onlyA: r2(onlyA / n), onlyB: r2(onlyB / n),
       levelAfterTurn5A: r3(levelA / n), levelAfterTurn5B: r3(levelB / n), failuresA: r2(failA / n), failuresB: r2(failB / n),
     }));
+  }
+}
+
+if (PART === 'base2') {
+  // Master's rates again with every person-year in the trace, so a chance of
+  // zero on one side counts in the gap.
+  console.log('===== seed 950 with heads, a die a year =====');
+  const reps: Record<string, SideRun> = {};
+  for (const k of LIVE_KEYS) reps[k] = replicaSide(k);
+  for (const p of PAIRINGS) replicaPair(p.a, p.b, reps[p.a], reps[p.b]);
+  console.log('===== 61 seeds, no promotions, a die a year =====');
+  sweepVariant({ name: 'a die a year (master)' }, true);
+  sweepVariant({ name: 'a die a year (master), held grids of the sweeps' }, true, GRID_PAIRINGS);
+}
+
+if (PART === 'ship') {
+  // Mars Genesis as this branch declares it: one death die for a life.
+  const life = () => { measure.dice = 'scenario'; };
+  console.log('===== seed 950 with heads, as Mars Genesis declares its dice =====');
+  const reps: Record<string, SideRun> = {};
+  for (const k of LIVE_KEYS) {
+    reps[k] = replicaSide(k, 'delta', life);
+    console.log(`SHIP_DEAD ${k}: ${reps[k].dead.size} dead: ${reps[k].deaths.map(d => `${d.name} ${d.time} ${d.cause}`).join('; ')}; deaths a turn ${JSON.stringify(reps[k].deathsPerTurn)}; births a turn ${JSON.stringify(reps[k].birthsPerTurn)}`);
+  }
+  for (const p of PAIRINGS) {
+    const a = reps[p.a], b = reps[p.b];
+    const inB = new Map(b.deaths.map(d => [d.id, d]));
+    const moved = a.deaths.filter(d => inB.has(d.id) && (inB.get(d.id)!.time !== d.time || inB.get(d.id)!.cause !== d.cause))
+      .map(d => `${d.name} ${d.time} ${d.cause} | ${inB.get(d.id)!.time} ${inB.get(d.id)!.cause}`);
+    console.log('SHIP_PAIR ' + JSON.stringify({
+      pairing: `${p.a}-${p.b}`, kind: p.kind, deadA: a.dead.size, deadB: b.dead.size,
+      onlyA: [...a.dead].filter(id => !b.dead.has(id)).map(id => a.names.get(id)),
+      onlyB: [...b.dead].filter(id => !a.dead.has(id)).map(id => b.names.get(id)),
+      foundersEarlierOrOnlyUnderA: earlier(a, b), foundersEarlierOrOnlyUnderB: earlier(b, a),
+      deathsATurnA: a.deathsPerTurn, deathsATurnB: b.deathsPerTurn,
+      sameDeadDifferentYearOrCause: moved,
+    }));
+  }
+  console.log('===== 61 seeds, no promotions =====');
+  sweepVariant({ name: 'a die a year (master)', hold: 'delta' }, false);
+  sweepVariant({ name: 'a die for life (as declared)', hold: 'delta', set: life }, false);
+  sweepVariant({ name: 'a die a year (master), held grids', hold: 'delta' }, false, GRID_PAIRINGS);
+  sweepVariant({ name: 'a die for life (as declared), held grids', hold: 'delta', set: life }, false, GRID_PAIRINGS);
+  // Two colonies that build alike, every supply g apart.
+  const SUPPLIES = ['lifeSupportCapacity', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3', 'infrastructureModules'];
+  const GAPS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3];
+  for (const base of ['A3', 'D3']) {
+    for (const g of GAPS) {
+      const from = SIDES[base];
+      SIDES[`${base}+${g}`] = { ...from, key: `${base}+${g}`, held: Object.fromEntries(Object.entries(from.held).map(([k, values]) => [k, SUPPLIES.includes(k) ? values.map(x => x * (1 + g)) : values])) };
+    }
+    const pairings: Pairing[] = GAPS.map(g => ({ a: base, b: `${base}+${g}`, kind: 'grid' as const }));
+    sweepVariant({ name: `a die a year (master), ${base} against ${base} with every supply g higher` }, false, pairings);
+    sweepVariant({ name: `a die for life, ${base} against ${base} with every supply g higher`, set: life }, false, pairings);
+  }
+}
+
+if (PART === 'chances') {
+  // Do a run's deaths keep their chances under a die for life? Six hundred
+  // seeds of each recorded side and of a colony nobody leads, both ways.
+  const MANY = Array.from({ length: 600 }, (_, i) => i + 1);
+  for (const [name, dice] of [['a die a year', 'year'], ['a die for life', 'life']] as const) {
+    for (const k of [...LIVE_KEYS, 'IDLE']) {
+      reset();
+      measure.dice = dice;
+      let deaths = 0, sq = 0, births = 0;
+      const causes: Record<string, number> = {};
+      const byTurn = TURNS.map(() => 0);
+      for (const seed of MANY) {
+        const r = runSide(seed, SIDES[k], { heads: false, trace: false, outcomes: 'held' });
+        deaths += r.dead.size; sq += r.dead.size * r.dead.size; births += r.born.size;
+        for (const [c, n] of Object.entries(tally(r.deaths))) causes[c] = (causes[c] ?? 0) + n;
+        r.deathsPerTurn.forEach((n, i) => { byTurn[i] += n; });
+      }
+      const n = MANY.length;
+      const mean = deaths / n;
+      const sd = Math.sqrt(sq / n - mean * mean);
+      console.log('CHANCES ' + JSON.stringify({
+        dice: name, side: k, seeds: n, deathsARun: r3(mean), standardError: r3(sd / Math.sqrt(n)), birthsARun: r3(births / n),
+        causes: Object.fromEntries(Object.entries(causes).map(([c, x]) => [c, r3(x / n)])), deathsATurn: byTurn.map(x => r3(x / n)),
+      }));
+    }
   }
 }

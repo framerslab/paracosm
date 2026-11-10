@@ -333,13 +333,11 @@ export const measure = {
   outcomeAccident: 1,
   outcomeNatural: 1,
   /**
-   * One die for a person's whole life for each cause, in place of one a
-   * year: the person dies in the year their chance of having survived
-   * that cause falls to the die. A run's deaths keep their chances; two
-   * runs of one seed then differ in when a person dies wherever the
-   * yearly chances differ.
+   * Which death dice a run rolls: what its scenario declares
+   * (`setup.mortalityDice`), or a die a year or a die for life whatever it
+   * declares, to run the two beside each other.
    */
-  lifetime: false,
+  dice: 'scenario' as 'scenario' | 'year' | 'life',
 };
 
 /** A crisis outcome's casualties: off, a chance for each person, or a fixed count. */
@@ -731,6 +729,7 @@ function progressStep(input: StepInput): number {
     ? Math.max(0.5, Math.min(2, Math.pow(Math.max(level, 1e-9), measure.birthExp)))
     : 1;
 
+  const lifeDice = measure.dice === 'life' || (measure.dice === 'scenario' && state.metadata.mortalityDice === 'life');
   for (const c of colonists) {
     if (!c.health.alive) continue;
     const exactAge = ageOf(c);
@@ -740,18 +739,22 @@ function progressStep(input: StepInput): number {
     const id = c.core.id;
     if (measure.outcomeNatural !== 1) h.natural = Math.min(1, h.natural * measure.outcomeNatural);
     if (measure.outcomeAccident !== 1) h.accident = Math.min(1, h.accident * measure.outcomeAccident);
-    if (measure.trace) {
+    if (measure.trace && years > 0) {
       for (const cause of ['natural', 'radiation', 'accident'] as const) {
-        if (h[cause] > 0) measure.rows.push({ turn, step, id, cause, h: h[cause], u: roll(id, cause).next(), f: supplyFactor });
+        measure.rows.push({ turn, step, id, cause, h: h[cause], u: roll(id, cause).next(), f: supplyFactor });
       }
     }
 
+    // One die for each cause for the person's whole life, where the scenario
+    // keeps them so: the person dies in the step their chance of having
+    // survived the cause falls to the die. Each step's chance of dying,
+    // given the person lived to it, is the step's hazard, as with a die a
+    // step.
     const dies = (cause: keyof CauseHazards): boolean => {
-      if (!measure.lifetime) return roll(id, cause).chance(h[cause]);
-      const health = c.health as unknown as { lifeSurvival?: Record<string, number> };
-      const bag = (health.lifeSurvival ??= {});
-      const after = (bag[cause] ?? 1) * (1 - h[cause]);
-      bag[cause] = after;
+      if (!lifeDice) return roll(id, cause).chance(h[cause]);
+      const survival = (c.health.survival ??= {});
+      const after = (survival[cause] ?? 1) * (1 - h[cause]);
+      survival[cause] = after;
       return SeededRng.forDraw(seed, 0, id, `life:${cause}`).next() >= after;
     };
 
