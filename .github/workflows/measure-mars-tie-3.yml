@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  measure:
-    name: Measure the supply reading
+  policy-path:
+    name: The supply reading through the policy step
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -22,40 +22,4 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Measure
-        run: npx tsx scripts/measure-mars-tie-3.ts
-
-  others-branch:
-    name: Other scenarios on this branch
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-      - name: Install dependencies
-        run: npm ci
-      - name: Hash every final state
-        run: npx tsx scripts/measure-others-hash.ts
-
-  others-master:
-    name: Other scenarios on master
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: master
-      - uses: actions/checkout@v7
-        with:
-          path: measurement-branch
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-      - name: Install dependencies
-        run: npm ci
-      - name: Hash every final state with master's kernel
-        run: |
-          cp measurement-branch/scripts/measure-others-hash.ts scripts/measure-others-hash.ts
-          git rev-parse HEAD
-          npx tsx scripts/measure-others-hash.ts
+        run: npx tsx scripts/measure-policy-path.ts
