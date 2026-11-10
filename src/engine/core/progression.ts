@@ -269,6 +269,115 @@ export interface CauseHazards {
   despair: number;
   fracture: number;
   accident: number;
+  /** MEASUREMENT ONLY: a candidate cause read from a supply the colony is short of. */
+  hardship: number;
+}
+
+// ── MEASUREMENT ONLY (branch measure/mars-tie-3, never merged) ──────────
+// Candidate readings of the colony's state by the yearly death rates,
+// switched by scripts/measure-mars-tie-3.ts. With CURRENT_HAZARDS every
+// rate is what master rolls.
+
+/** One candidate way the death rates read the colony. */
+export interface HazardCandidate {
+  name: string;
+  /** The supplies whose level per person, against landing day, make the habitat index; none = no index. */
+  supplies: string[];
+  /** The index is the scarcest supply ('min') or the geometric mean of them ('geo'). */
+  combine: 'min' | 'geo';
+  /** The rates the index scales are multiplied by `index ^ -k`. */
+  k: number;
+  /** Count a supply at most at its landing level per person. */
+  shortfallOnly: boolean;
+  /** The multiplier stays within `1 / maxFactor` and `maxFactor`. */
+  maxFactor: number;
+  scaleNatural: boolean;
+  scaleAccident: boolean;
+  /** Natural deaths are multiplied by `(medical staff per person against landing) ^ -kMedical`; 0 = off. */
+  kMedical: number;
+  radThresholdSv: number;
+  radSlope: number;
+  radFromAge: number;
+  /** A yearly chance for everyone of `hardshipRate` times the share of the landing level per person the scarcest of `hardshipSupplies` lacks; 0 = off. */
+  hardshipRate: number;
+  hardshipSupplies: string[];
+}
+
+export const CURRENT_HAZARDS: HazardCandidate = {
+  name: 'current', supplies: [], combine: 'min', k: 0, shortfallOnly: false, maxFactor: 4,
+  scaleNatural: false, scaleAccident: false, kMedical: 0,
+  radThresholdSv: 0.5, radSlope: 0.004, radFromAge: 30,
+  hardshipRate: 0, hardshipSupplies: [],
+};
+
+/** The candidate in force; the measuring script sets it. */
+export const hazardCandidate: HazardCandidate = { ...CURRENT_HAZARDS };
+
+export function setHazardCandidate(c: Partial<HazardCandidate>): void {
+  Object.assign(hazardCandidate, CURRENT_HAZARDS, c);
+}
+
+/** One die of one person in one step: the chance it met and the value it showed. */
+export interface DieRow { turn: number; step: number; id: string; cause: string; h: number; u: number }
+
+/** When `on`, every die of every living person is recorded as the step rolls. */
+export const dieTrace: { on: boolean; rows: DieRow[] } = { on: false, rows: [] };
+
+/** What the colony's state makes of the yearly rates this step. */
+export interface ColonyReading { natural: number; accident: number; hardship: number; index: number | null }
+
+/** The level per person of `keys` against landing day: the scarcest, or their geometric mean. */
+function supplyIndex(
+  keys: string[], combine: 'min' | 'geo', shortfallOnly: boolean,
+  metrics: Readonly<Record<string, unknown>>, population: number, landing: Readonly<Record<string, number>>,
+): number | null {
+  const levels: number[] = [];
+  for (const key of keys) {
+    const now = metrics[key];
+    const then = landing[key];
+    if (typeof now !== 'number' || !Number.isFinite(now) || typeof then !== 'number' || !(then > 0)) continue;
+    let level = Math.max(0, now) / population / then;
+    if (shortfallOnly) level = Math.min(1, level);
+    levels.push(level);
+  }
+  if (levels.length === 0) return null;
+  if (combine === 'min') return Math.min(...levels);
+  return Math.exp(levels.reduce((s, x) => s + Math.log(Math.max(x, 1e-9)), 0) / levels.length);
+}
+
+/** The step's reading of the colony under the candidate in force. */
+export function colonyReading(
+  metrics: Readonly<Record<string, unknown>>,
+  colonists: Agent[],
+  landing: Readonly<Record<string, number>> | undefined,
+  ageOf: (c: Agent) => number,
+): ColonyReading {
+  const cand = hazardCandidate;
+  const reading: ColonyReading = { natural: 1, accident: 1, hardship: 0, index: null };
+  if (!landing) return reading;
+  const alive = colonists.filter(c => c.health.alive);
+  const population = alive.length;
+  if (population === 0) return reading;
+  const clamp = (x: number) => Math.max(1 / cand.maxFactor, Math.min(cand.maxFactor, x));
+  if (cand.supplies.length > 0 && cand.k !== 0) {
+    const index = supplyIndex(cand.supplies, cand.combine, cand.shortfallOnly, metrics, population, landing);
+    if (index !== null) {
+      reading.index = index;
+      const factor = clamp(Math.pow(Math.max(index, 1e-9), -cand.k));
+      if (cand.scaleNatural) reading.natural *= factor;
+      if (cand.scaleAccident) reading.accident *= factor;
+    }
+  }
+  if (cand.kMedical !== 0 && typeof landing.__medical === 'number' && landing.__medical > 0) {
+    const staff = alive.filter(c => c.core.department === 'medical' && ageOf(c) >= 18).length;
+    const level = staff / population / landing.__medical;
+    reading.natural *= clamp(Math.pow(Math.max(level, 1e-9), -cand.kMedical));
+  }
+  if (cand.hardshipRate > 0 && cand.hardshipSupplies.length > 0) {
+    const index = supplyIndex(cand.hardshipSupplies, 'min', true, metrics, population, landing);
+    if (index !== null) reading.hardship = cand.hardshipRate * Math.max(0, 1 - index);
+  }
+  return reading;
 }
 
 /**
@@ -291,16 +400,19 @@ export function causeHazards(
   metrics: Readonly<Record<string, unknown>>,
   ageYears: number,
   years: number,
+  reading?: ColonyReading,
 ): CauseHazards {
   const health = agent.health;
+  const cand = hazardCandidate;
   let natural = 0;
   if (ageYears >= 90) natural = 0.20;
   else if (ageYears >= 80) natural = 0.08;
   else if (ageYears >= 70) natural = 0.03;
   else if (ageYears >= 60) natural = 0.01;
+  natural = Math.min(1, natural * (reading?.natural ?? 1));
 
   const doseSv = (health.cumulativeRadiationMsv ?? 0) / 1000;
-  const radiation = ageYears >= 30 ? 0.004 * Math.max(0, doseSv - 0.5) : 0;
+  const radiation = ageYears >= cand.radFromAge ? cand.radSlope * Math.max(0, doseSv - cand.radThresholdSv) : 0;
 
   const food = metrics.foodMonthsReserve;
   const starvation = typeof food === 'number' && food < 1 ? (1 - food) * 0.15 : 0;
@@ -313,7 +425,7 @@ export function causeHazards(
   const fracture = ageYears >= 40 && typeof bone === 'number' && bone < 60 ? (60 - bone) * 0.003 : 0;
 
   const accident = ageYears >= 18
-    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0)
+    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0) * (reading?.accident ?? 1)
     : 0;
 
   return {
@@ -323,6 +435,7 @@ export function causeHazards(
     despair: turnHazard(despair, years),
     fracture: turnHazard(fracture, years),
     accident: turnHazard(accident, years),
+    hardship: turnHazard(reading?.hardship ?? 0, years),
   };
 }
 
@@ -543,13 +656,22 @@ function progressStep(input: StepInput): number {
     events.push({ turn, time, type: 'death', description: `${c.core.name}: ${description}`, agentId: c.core.id, cause });
   };
 
+  // MEASUREMENT ONLY: the colony as this step's deaths read it, once for
+  // everyone, from the head count as the step's deaths begin.
+  const reading = colonyReading(metrics, colonists, (state.metadata as { landing?: Record<string, number> }).landing, ageOf);
+
   for (const c of colonists) {
     if (!c.health.alive) continue;
     const exactAge = ageOf(c);
     // Whole years, for the descriptions.
     const age = Math.floor(exactAge);
-    const h = causeHazards(c, metrics, exactAge, years);
+    const h = causeHazards(c, metrics, exactAge, years, reading);
     const id = c.core.id;
+    if (dieTrace.on) {
+      for (const cause of ['natural', 'radiation', 'starvation', 'despair', 'fracture', 'accident', 'hardship'] as const) {
+        dieTrace.rows.push({ turn, step, id, cause, h: h[cause], u: roll(id, cause).next() });
+      }
+    }
 
     // 2a. Natural mortality (age-dependent)
     if (roll(id, 'natural').chance(h.natural)) {
@@ -602,6 +724,13 @@ function progressStep(input: StepInput): number {
       const article = /^[aeiou]/i.test(descriptor) ? 'an' : 'a';
       killColonist(c, `accident: ${descriptor}`,
         `died at age ${age} in ${article} ${descriptor}`);
+      continue;
+    }
+
+    // MEASUREMENT ONLY: a candidate cause, on a die of its own, last, so
+    // that no other die's outcome moves when it is off.
+    if (h.hardship > 0 && roll(id, 'hardship').chance(h.hardship)) {
+      killColonist(c, 'habitat failure', `died at age ${age} when the habitat's supply failed`);
       continue;
     }
   }

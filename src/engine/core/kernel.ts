@@ -291,6 +291,18 @@ export class SimulationKernel {
     // The roster is the head count, whatever a scenario declares for a
     // full-size run: a demo run of Atlas Lab has 30 people, not 480.
     this.state.metrics.population = agents.length;
+    // MEASUREMENT ONLY (branch measure/mars-tie-3): what each person had of
+    // each supply on landing day, and the medical staff per person, for
+    // the candidate readings in progression.ts.
+    if (agents.length > 0) {
+      const landing: Record<string, number> = {};
+      for (const key of ['lifeSupportCapacity', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3', 'infrastructureModules']) {
+        const value = (this.state.metrics as Record<string, unknown>)[key];
+        if (typeof value === 'number' && Number.isFinite(value)) landing[key] = value / agents.length;
+      }
+      landing.__medical = agents.filter(a => a.core.department === 'medical' && ageInYears(a, startTime, yearsPerUnit) >= 18).length / agents.length;
+      (this.state.metadata as unknown as { landing: Record<string, number> }).landing = landing;
+    }
     this.setRanges(init.scenario);
   }
 
