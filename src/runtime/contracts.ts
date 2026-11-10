@@ -131,8 +131,9 @@ export interface TurnArtifact {
   /**
    * Each key a decision's selected effects moved otherwise than they
    * asked, by the event's index in the turn: the bound of one decision
-   * held it, or a floor or ceiling stopped it. An `applied` of 0 is a
-   * choice that moved nothing. Absent when every key moved as asked.
+   * held it, a floor or ceiling stopped it, or a morale gain eased above
+   * 0.9. An `applied` of 0 is a choice that moved nothing. Absent when
+   * every key moved as asked.
    */
   policyEffectsLimited?: Array<{ eventIndex: number; key: string; asked: number; applied: number }>;
 }

@@ -21,8 +21,9 @@ export interface CommanderPolicyApplied {
   ambiguous: string[];
   /**
    * The keys whose change differs from what the selected effects asked:
-   * the bound of one decision held it, or a floor or ceiling stopped it.
-   * Empty when every key moved as asked.
+   * the bound of one decision held it, a floor or ceiling stopped it, or
+   * a morale gain eased above 0.9 (`moraleAfterGain`). Empty when every
+   * key moved as asked.
    */
   limited: Record<string, { asked: number; applied: number }>;
   /**

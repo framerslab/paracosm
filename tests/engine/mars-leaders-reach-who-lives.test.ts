@@ -12,8 +12,10 @@
  * scenario, `advanceTurn` with its progression hook), hold each side's
  * metrics after every turn where the live run's outcomes and adopted
  * effects left them (`applySystemDeltas`, the call both land in), and
- * compare who died. No model call. The Moon keeps its own shielding
- * curve, which the last test pins.
+ * compare who died. A morale gain eases above 0.9, so where the live
+ * value is 1 the side lands a little under it; nothing these tests read
+ * depends on morale above 0.5. No model call. The Moon keeps its own
+ * shielding curve, which the last test pins.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -158,8 +160,13 @@ test('the live Mars pair of 8 November 2026 loses different people under its two
   t.diagnostic(seen);
   assert.ok(differ(a, b), `the same people died under both leaders: ${seen}`);
   // Aria Chen's colony held no more modules than Dietrich Voss's in any
-  // turn, so each founder's hazards were no lower under her, on the same
-  // dice.
+  // turn, so each founder's radiation hazard was no lower under her, on
+  // the same dice. The accident hazard is not nested for the two people
+  // the leaders promoted differently, since it follows the department:
+  // Carlos Fernandez heads medical under Aria Chen (weight 1.2) and stays
+  // in engineering under Dietrich Voss (1.5), and Sven Kim is the reverse.
+  // Carlos Fernandez could die in an accident under Dietrich Voss alone;
+  // at this seed he does not.
   assert.deepEqual(onlyUnderBetter(b, a), [], 'died only under the better-shielded leader');
 });
 
