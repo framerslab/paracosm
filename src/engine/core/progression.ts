@@ -371,6 +371,39 @@ export function yearSteps(years: number): number[] {
 export const MORALE_PULL_PER_YEAR = 0.2;
 
 /**
+ * Where the yearly settling holds the morale of a content colony. With the
+ * average psych over 0.7 and no food or life-support pressure, a year moves
+ * morale a tenth of the way to 0.6 and adds 0.03 ({@link settleMorale}),
+ * and the two balance at `0.6 + 10 * 0.03`. The years after a decision
+ * pull back, a tenth a year, whatever it added above this level, so a gain
+ * eases from here on ({@link moraleAfterGain}).
+ */
+export const MORALE_OF_A_CONTENT_COLONY = 0.9;
+
+/**
+ * Morale after a gain of `gain` (over 0), before the floor and the ceiling.
+ *
+ * A gain that ends at or under {@link MORALE_OF_A_CONTENT_COLONY} adds in
+ * full. The part of a gain above that level closes a share of the gap left
+ * to 1, `1 - e^(-part / 0.1)`: 0.05 closes 39 percent of the gap, 0.1
+ * closes 63 percent, 0.15 closes 78 percent, and each further 0.069 halves
+ * what is left. So a larger gain always ends higher, none reaches 1, and
+ * two gains land where one gain of their sum lands.
+ *
+ * Without the easing a gain would add in full up to 1 and stop there: a
+ * content colony begins an eight-year Mars turn at 0.943 at most and one
+ * decision's adopted effects alone bring up to 0.15, so morale would end
+ * most turns at exactly 1 whatever the leader chose, and the ceiling would
+ * cut what was left of every choice. A loss moves in full.
+ */
+export function moraleAfterGain(morale: number, gain: number): number {
+  const lifted = morale + gain;
+  if (lifted <= MORALE_OF_A_CONTENT_COLONY) return lifted;
+  const from = Math.max(morale, MORALE_OF_A_CONTENT_COLONY);
+  return 1 - (1 - from) * Math.exp(-(lifted - from) / (1 - MORALE_OF_A_CONTENT_COLONY));
+}
+
+/**
  * Run all between-turn progression: aging, mortality, births, careers,
  * health degradation, resource production. All deterministic from seed.
  *
@@ -445,7 +478,9 @@ export function progressBetweenTurns(
  * {@link MAX_YEAR_STEPS} folds into its last step) takes what `f` yearly
  * settlings with the step's pressures held give: morale moves
  * `1 - 0.9^f` of the way to `0.6 + 10 * pressures`, where those pressures
- * hold it.
+ * hold it. For a content colony that level is 0.9
+ * ({@link MORALE_OF_A_CONTENT_COLONY}): a turn of eight years that begins
+ * at 1 ends at 0.943, not near 0.6.
  */
 function settleMorale(colonists: Agent[], metrics: SimulationState['metrics'], deathShock: number, years: number): void {
   const aliveColonists = colonists.filter(c => c.health.alive);

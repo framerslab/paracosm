@@ -112,6 +112,15 @@ function near(actual: number, expected: number, label: string): void {
   assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: expected ${expected}, got ${actual}`);
 }
 
+/**
+ * Morale after a gain whose part above 0.9 is `above`: a gain adds in full
+ * up to 0.9 and that part closes `1 - e^(-above / 0.1)` of the 0.1 left to
+ * 1 (`moraleAfterGain`).
+ */
+function eased(above: number): number {
+  return 1 - 0.1 * Math.exp(-above / 0.1);
+}
+
 /** Run the policy step the orchestrator runs after a decision, with the outcome tables it passes, and keep its log. */
 function step(kernel: SimulationKernel, decision: CommanderDecision, reports: DepartmentReport[], tables: Parameters<typeof applyCommanderPolicy>[6] = marsTables) {
   const lines: string[] = [];
@@ -139,9 +148,10 @@ test('Aria Chen\'s turn 1 selection moves morale through the kernel and logs it'
   const { deltas, lines, unmatched } = step(kernel, reply({
     selectedPolicies: ['medical/effect_1', 'medical/effect_2', 'medical/effect_3', 'engineering/effect_1', 'engineering/effect_2'],
   }), ariaTurn1());
-  // 0.03 + 0.02 - 0.01 from medical, 0.03 + 0.01 from engineering.
-  near(kernel.getState().metrics.morale, 0.93, 'morale');
-  near(deltas.morale, 0.08, 'reported change');
+  // 0.03 + 0.02 - 0.01 from medical, 0.03 + 0.01 from engineering: 0.08
+  // asked from 0.85, and the 0.03 of it above 0.9 eases.
+  near(kernel.getState().metrics.morale, eased(0.03), 'morale');
+  near(deltas.morale, 0.075918, 'reported change');
   assert.deepEqual(unmatched, []);
   assert.equal(lines.filter(l => l.includes('[policy] effects')).length, 1, lines.join('\n'));
 
@@ -155,8 +165,9 @@ test('a key with the type or the description after it still reads', () => {
   const { unmatched } = step(kernel, reply({
     selectedPolicies: ['medical/effect_1 (risk_mitigation)', 'medical/effect_2 (capacity_expansion)', 'engineering/effect_1 (risk_mitigation)', 'engineering/effect_2 (resource_shift)'],
   }), vossTurn1());
-  // Dietrich Voss: 0.03 + 0.02 + 0.04 + 0.02.
-  near(kernel.getState().metrics.morale, 0.96, 'Voss morale');
+  // Dietrich Voss: 0.03 + 0.02 + 0.04 + 0.02 asked from 0.85, and the
+  // 0.06 of it above 0.9 eases.
+  near(kernel.getState().metrics.morale, eased(0.06), 'Voss morale');
   assert.deepEqual(unmatched, []);
 
   assert.ok(atlasLab, 'scenarios/ holds atlas-lab');
@@ -196,15 +207,16 @@ test('one decision moves a key at most what one ordinary event outcome brings, a
   }), reports);
   const state = kernel.getState();
   assert.equal(state.metrics.infrastructureModules, 5, 'the infrastructure table brings 2 modules');
-  near(state.metrics.morale, 1, 'morale: the psychological table brings 0.15');
+  // The bound holds morale's 0.5 at 0.15, and the 0.1 of that above 0.9 eases.
+  near(state.metrics.morale, eased(0.1), 'morale: the psychological table brings 0.15');
   assert.equal(state.politics.earthDependencyPct, 92, 'the politics table brings 3 points');
-  assert.deepEqual(deltas, { infrastructureModules: 2, morale: 0.15, earthDependencyPct: -3 });
+  assert.deepEqual(deltas, { infrastructureModules: 2, morale: 0.113212, earthDependencyPct: -3 });
   const line = lines.find(l => l.includes('[policy] effects'));
   assert.ok(line, lines.join('\n'));
   assert.match(line, /asked: \{"infrastructureModules":10,"morale":0\.5,"earthDependencyPct":-20\}/);
   assert.deepEqual((applied as Record<string, unknown>).limited, {
     infrastructureModules: { asked: 10, applied: 2 },
-    morale: { asked: 0.5, applied: 0.15 },
+    morale: { asked: 0.5, applied: 0.113212 },
     earthDependencyPct: { asked: -20, applied: -3 },
   });
 
@@ -224,26 +236,43 @@ test('one decision moves a key at most what one ordinary event outcome brings, a
   assert.equal(two.getState().metrics.infrastructureModules, 5);
 });
 
-test('a choice a ceiling stops is logged with what it asked, and one that moved as asked is not', () => {
+test('a choice the easing holds or a floor stops is logged with what it asked, and one that moved as asked is not', () => {
   const kernel = mars950();
   const raise = (delta: number) => step(kernel, reply({ selectedPolicies: ['psychology/effect_1'] }), [report('psychology', [
     { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: delta } },
   ])]);
-  const first = raise(0.1);
-  near(kernel.getState().metrics.morale, 0.95, 'first');
+  // 0.85 + 0.05 ends at 0.9, so it moves as asked.
+  const first = raise(0.05);
+  near(kernel.getState().metrics.morale, 0.9, 'first');
   assert.ok(!first.lines.some(l => l.includes('asked')), first.lines.join('\n'));
   assert.deepEqual((first as Record<string, unknown>).limited, {});
 
+  // From 0.9 a gain of 0.1 closes 1 - e^-1 of the gap to 1.
   const second = raise(0.1);
-  near(kernel.getState().metrics.morale, 1, 'at the ceiling');
+  near(kernel.getState().metrics.morale, eased(0.1), 'second');
   const line = second.lines.find(l => l.includes('[policy] effects'));
   assert.ok(line, second.lines.join('\n'));
-  assert.match(line, /asked: \{"morale":0\.1\}/);
+  assert.match(line, /\[policy\] effects: \{"morale":0\.063212\} asked: \{"morale":0\.1\}/);
+  assert.deepEqual((second as Record<string, unknown>).limited, { morale: { asked: 0.1, applied: 0.063212 } });
 
+  // No gain reaches 1, so the next one still moves morale: two gains of
+  // 0.1 land where one of 0.2 lands.
   const third = raise(0.1);
-  assert.deepEqual(third.deltas, { morale: 0 }, 'the choice moved nothing');
-  assert.match(third.lines.join('\n'), /\[policy\] effects: \{"morale":0\} asked: \{"morale":0\.1\}/);
-  assert.deepEqual((third as Record<string, unknown>).limited, { morale: { asked: 0.1, applied: 0 } });
+  near(kernel.getState().metrics.morale, eased(0.2), 'third');
+  assert.deepEqual(third.deltas, { morale: 0.023254 });
+  assert.match(third.lines.join('\n'), /asked: \{"morale":0\.1\}/);
+
+  // A floor still stops a choice outright: with no power left, a cut
+  // moves nothing, and the record says so.
+  const dark = mars950();
+  dark.applySystemDeltas({ powerKw: -400 });
+  assert.equal(dark.getState().metrics.powerKw, 0);
+  const cut = step(dark, reply({ selectedPolicies: ['engineering/effect_1'] }), [report('engineering', [
+    { id: 'effect_1', type: 'resource_shift', description: 'Shed load.', systemDelta: { powerKw: -10 } },
+  ])]);
+  assert.deepEqual(cut.deltas, { powerKw: 0 }, 'the choice moved nothing');
+  assert.match(cut.lines.join('\n'), /\[policy\] effects: \{"powerKw":0\} asked: \{"powerKw":-10\}/);
+  assert.deepEqual((cut as Record<string, unknown>).limited, { powerKw: { asked: -10, applied: 0 } });
 });
 
 test('a key no outcome table names moves at most a tenth of its value, or 1 from zero', () => {
@@ -271,21 +300,23 @@ test('a key no outcome table names moves at most a tenth of its value, or 1 from
 });
 
 test('every difference between asked and applied is recorded, and a sum alone never reads as one', () => {
-  // A request a hair over the bound is held at the bound, and the record says so.
+  // A request a hair over the bound is held at the bound, and the record
+  // says so. The requests here are losses, which move in full: a gain that
+  // ends above 0.9 eases, and that difference is recorded too.
   const over = mars950();
   const held = step(over, reply({ selectedPolicies: ['psychology/effect_1'] }), [report('psychology', [
-    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: 0.1500000005 } },
+    { id: 'effect_1', type: 'resource_shift', description: 'Cut the rest rotation.', systemDelta: { morale: -0.1500000005 } },
   ])]);
-  assert.deepEqual(held.deltas, { morale: 0.15 });
-  assert.deepEqual((held as Record<string, unknown>).limited, { morale: { asked: 0.1500000005, applied: 0.15 } });
-  assert.match(held.lines.join('\n'), /asked: \{"morale":0\.1500000005\}/);
+  assert.deepEqual(held.deltas, { morale: -0.15 });
+  assert.deepEqual((held as Record<string, unknown>).limited, { morale: { asked: -0.1500000005, applied: -0.15 } });
+  assert.match(held.lines.join('\n'), /asked: \{"morale":-0\.1500000005\}/);
 
   // Effects naming one key in both fields add up as the kernel adds them,
   // so a change that moved as asked records nothing.
   const both = mars950();
   const summed = step(both, reply({ selectedPolicies: ['psychology/effect_1', 'psychology/effect_2'] }), [report('psychology', [
-    { id: 'effect_1', type: 'social_investment', description: 'Crew festival.', systemDelta: { morale: 0.01 }, politicsDelta: { morale: 0.03 } },
-    { id: 'effect_2', type: 'social_investment', description: 'Letters home.', systemDelta: { morale: 0.06 } },
+    { id: 'effect_1', type: 'resource_shift', description: 'Longer shifts.', systemDelta: { morale: -0.01 }, politicsDelta: { morale: -0.03 } },
+    { id: 'effect_2', type: 'resource_shift', description: 'No letters home this month.', systemDelta: { morale: -0.06 } },
   ])]);
   assert.deepEqual((summed as Record<string, unknown>).limited, {});
   assert.ok(!summed.lines.some(l => l.includes('asked')), summed.lines.join('\n'));
@@ -368,8 +399,9 @@ test('a decision with no selection moves nothing and logs nothing', () => {
 test('two keys written in one selection both apply, and a comma inside a description adds nothing', () => {
   const kernel = marsKernel();
   const { unmatched } = step(kernel, reply({ selectedPolicies: ['medical/effect_1, engineering/effect_1'] }), ariaTurn1());
-  // 0.85 + 0.03 + 0.03: the second key was dropped before.
-  near(kernel.getState().metrics.morale, 0.91, 'both keys');
+  // 0.85 + 0.03 + 0.03, where the second key was dropped before; the
+  // 0.01 above 0.9 eases.
+  near(kernel.getState().metrics.morale, eased(0.01), 'both keys');
   assert.deepEqual(unmatched, []);
 
   const described = marsKernel();

@@ -112,9 +112,11 @@ test('two selected effects on one metric add up, and the floor and ceiling still
   assert.equal(floored.getState().metrics.morale, 0);
   assert.equal(floored.getState().metrics.powerKw, 0);
 
+  // A morale gain eases above 0.9, so even one of 2 ends just under 1.
   const ceiling = kernelFor(marsScenario, 50);
   ceiling.applyPolicy(policyFrom([{ id: 'a', systemDelta: { morale: 2 } }], ['a']));
-  assert.equal(ceiling.getState().metrics.morale, 1);
+  const lifted = ceiling.getState().metrics.morale;
+  assert.ok(lifted > 0.999999 && lifted < 1, `morale ${lifted}`);
 });
 
 test('a selected politics effect moves a politics value by its delta', () => {
