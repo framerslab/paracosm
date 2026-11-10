@@ -6,8 +6,10 @@
  * The live Mars Genesis pair of 6 November 2026 (seed 950, 30 people, six
  * turns) lost the same 18 people under both leaders: every effect the
  * departments recommended moved morale only, and morale sat at its ceiling.
- * The death a leader can reach within six turns is radiation cancer, through
- * the habitat modules that shield the dose. These tests run a pair the way
+ * A leader reaches who dies within six turns through the habitat modules,
+ * which shield the dose, and through the supplies the age and accident rates
+ * read: the modules, water, life support, power and pressurized volume
+ * against landing day (#234). These tests run a pair the way
  * the orchestrator does (`advanceTurn` with the scenario's progression hook
  * at the top of each turn, then the policy step, `applyCommanderPolicy`,
  * with the scenario's outcome tables), on the real Mars Genesis scenario,
@@ -101,4 +103,38 @@ test('a leader who asks for more than the bound moves the run as the bound does'
   assert.equal(greedy.state.metrics.foodMonthsReserve, bounded.state.metrics.foodMonthsReserve);
   assert.deepEqual([...greedy.died].sort(), [...bounded.died].sort());
   assert.equal(greedy.lines.filter(l => /\[policy\] effects: \{"infrastructureModules":2\} asked: \{"infrastructureModules":10\}/.test(l)).length, 6, greedy.lines.join('\n'));
+});
+
+/** A leader whose engineers run the water, life support, power and pressurized volume down each turn, as far as one decision moves each. */
+const runDown = () => adopt('engineering', 'Run the systems down.', { waterLitersPerDay: -100, lifeSupportCapacity: -5, powerKw: -60, pressurizedVolumeM3: -200 });
+/** A leader whose engineers build the same four up each turn, by the same amounts. */
+const buildUp = () => adopt('engineering', 'Build the systems up.', { waterLitersPerDay: 100, lifeSupportCapacity: 5, powerKw: 60, pressurizedVolumeM3: 200 });
+
+test('a leader who runs the colony\'s supplies down loses people one who builds them up keeps, on the same dice', (t) => {
+  // Neither leader touches the habitat modules, so both colonies take the
+  // same dose; only the supply level differs (#234).
+  const down = run(runDown());
+  const up = run(buildUp());
+  // Each amount is the bound of its key, so the policy step applies it as asked.
+  assert.deepEqual(down.lines.filter(l => l.includes('asked:')), [], down.lines.join('\n'));
+  assert.deepEqual(up.lines.filter(l => l.includes('asked:')), [], up.lines.join('\n'));
+  assert.equal(down.state.metrics.infrastructureModules, up.state.metrics.infrastructureModules);
+
+  const dead = (s: ReturnType<typeof run>) => new Set(s.state.agents.filter(a => !a.health.alive).map(a => a.core.id));
+  const deadDown = dead(down);
+  const deadUp = dead(up);
+  const name = (s: ReturnType<typeof run>, ids: string[]) => ids.map(id => s.state.agents.find(a => a.core.id === id)?.core.name ?? id).sort();
+  const onlyDown = [...deadDown].filter(id => !deadUp.has(id));
+  const onlyUp = [...deadUp].filter(id => !deadDown.has(id));
+  t.diagnostic(`run down: ${deadDown.size} died; built up: ${deadUp.size} died; only under the leader who ran them down: ${name(down, onlyDown).join(', ')}; only under the one who built them up: ${name(up, onlyUp).join(', ')}`);
+  assert.ok(onlyDown.length > 0, `the same people died under both leaders: ${name(down, [...deadDown]).join(', ')}`);
+
+  // The same dice, and the colony that holds more only lowers the age and
+  // accident chances: no one the run began with dies only under the
+  // builder, or sooner there.
+  const only = (a: Map<string, number>, b: Map<string, number>) => [...a.keys()].filter(id => !b.has(id)).sort();
+  assert.deepEqual(only(up.died, down.died), [], 'died only under the builder');
+  for (const [id, time] of up.died) {
+    assert.ok(time >= down.died.get(id)!, `${id} died in ${time} under the builder and in ${down.died.get(id)} under the other leader`);
+  }
 });

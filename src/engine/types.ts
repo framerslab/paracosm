@@ -105,6 +105,12 @@ export interface WorldMetricSchema {
   min?: number;
   max?: number;
   category: 'metric' | 'capacity' | 'status' | 'politic' | 'environment';
+  /**
+   * A supply that sustains the people (a metric or a capacity): the yearly
+   * age and accident rates divide by the colony's supply level, the
+   * geometric mean of these supplies against their landing-day amounts.
+   */
+  sustains?: boolean;
 }
 
 /** Declares all world state variables for a scenario. */

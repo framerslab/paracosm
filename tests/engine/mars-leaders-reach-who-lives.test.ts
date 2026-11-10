@@ -4,9 +4,10 @@
  * The live Mars Genesis pair of 8 November 2026 (seed 950, 30 people, six
  * turns of eight years) lost the same 17 people under both leaders, though
  * their colonies held different habitats from the first turn. Each person
- * rolls the same dice under both leaders (#184), and at the states a run
- * reaches only radiation reads anything a leader moves, through the habitat
- * modules that shield the dose. These tests run a pair the way a hosted run
+ * rolls the same dice under both leaders (#184). A habitat module reaches
+ * two rates: radiation, through the dose it shields, and the age and
+ * accident rates, through the colony's supply level, of which the modules
+ * are one of five supplies (#234). These tests run a pair the way a hosted run
  * does (the scenario's preset roster, `new SimulationKernel` with the
  * scenario, `advanceTurn` with its progression hook), hold each side's
  * metrics after every turn where the live run's outcomes and adopted
