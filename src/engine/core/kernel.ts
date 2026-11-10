@@ -14,6 +14,8 @@ interface DeclaredMetric {
   initial?: number | string | boolean;
   min?: number;
   max?: number;
+  /** A supply that sustains the people: its amount against landing day moves the yearly age and accident rates. */
+  sustains?: boolean;
 }
 
 /**
@@ -291,6 +293,19 @@ export class SimulationKernel {
     // The roster is the head count, whatever a scenario declares for a
     // full-size run: a demo run of Atlas Lab has 30 people, not 480.
     this.state.metrics.population = agents.length;
+    // What the colony holds on landing day, after the caller's starting
+    // resources, of each supply the scenario marks as sustaining its
+    // people (`sustains`), when it holds more than nothing. A scenario
+    // that marks none keeps no landing amounts, and its supply level
+    // reads 1.
+    const landingSupplies: Record<string, number> = {};
+    for (const bag of [scenarioWorld.metrics, scenarioWorld.capacities]) {
+      for (const [key, def] of Object.entries(bag ?? {})) {
+        const value = (this.state.metrics as Record<string, unknown>)[key];
+        if (def.sustains === true && typeof value === 'number' && value > 0) landingSupplies[key] = value;
+      }
+    }
+    if (Object.keys(landingSupplies).length > 0) this.state.metadata.landingSupplies = landingSupplies;
     this.setRanges(init.scenario);
   }
 

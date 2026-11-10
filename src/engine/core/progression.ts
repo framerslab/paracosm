@@ -272,10 +272,47 @@ export interface CauseHazards {
 }
 
 /**
+ * The supply level a colony holds: the geometric mean, over the supplies
+ * its scenario declares as sustaining its people (`sustains` in
+ * `world.metrics` and `world.capacities`), of each supply's amount against
+ * its amount on landing day. 1 on landing day and for as long as no
+ * outcome or decision moves a supply; above 1 where the colony has built,
+ * under 1 where a supply ran down. A supply at or under zero counts as a
+ * billionth of its landing amount. A run whose scenario declares no such
+ * supply, and a saved state that holds no landing amounts, read 1.
+ */
+export function supplyLevel(
+  metrics: Readonly<Record<string, unknown>>,
+  landingSupplies: Readonly<Record<string, number>> | undefined,
+): number {
+  if (!landingSupplies) return 1;
+  let logs = 0;
+  let count = 0;
+  for (const [key, landing] of Object.entries(landingSupplies)) {
+    const now = metrics[key];
+    if (typeof now !== 'number' || !Number.isFinite(now) || !(landing > 0)) continue;
+    logs += Math.log(Math.max(now / landing, 1e-9));
+    count++;
+  }
+  return count === 0 ? 1 : Math.exp(logs / count);
+}
+
+/**
+ * What a supply level makes of the yearly age and accident rates: they
+ * divide by it, within a half and double. A colony holding half its
+ * landing supplies loses its old and has its accidents at twice the rate;
+ * one holding twice as much, at half.
+ */
+export function supplyRateFactor(level: number): number {
+  return Math.max(0.5, Math.min(2, 1 / Math.max(level, 1e-9)));
+}
+
+/**
  * Each cause of death's chance for `agent` over a turn of `years` years,
  * from its yearly rate and the state it reads:
  *
- * - natural: 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90;
+ * - natural: 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90,
+ *   times `supplyFactor`;
  * - radiation cancer: 0.004 a year for each sievert of cumulative dose
  *   above 0.5, from age 30;
  * - starvation: `(1 - foodMonthsReserve) * 0.15` a year while the colony
@@ -284,13 +321,18 @@ export interface CauseHazards {
  *   while psych is under 0.2, from age 18;
  * - fracture: `(60 - boneDensityPct) * 0.003` a year under 60 percent
  *   bone density, from age 40;
- * - accident: 0.003 a year times the department's weight, from age 18.
+ * - accident: 0.003 a year times the department's weight, from age 18,
+ *   times `supplyFactor`.
+ *
+ * `supplyFactor` is {@link supplyRateFactor} of the colony's
+ * {@link supplyLevel} at the step; 1 when the caller passes none.
  */
 export function causeHazards(
   agent: Agent,
   metrics: Readonly<Record<string, unknown>>,
   ageYears: number,
   years: number,
+  supplyFactor = 1,
 ): CauseHazards {
   const health = agent.health;
   let natural = 0;
@@ -298,6 +340,7 @@ export function causeHazards(
   else if (ageYears >= 80) natural = 0.08;
   else if (ageYears >= 70) natural = 0.03;
   else if (ageYears >= 60) natural = 0.01;
+  natural *= supplyFactor;
 
   const doseSv = (health.cumulativeRadiationMsv ?? 0) / 1000;
   const radiation = ageYears >= 30 ? 0.004 * Math.max(0, doseSv - 0.5) : 0;
@@ -313,7 +356,7 @@ export function causeHazards(
   const fracture = ageYears >= 40 && typeof bone === 'number' && bone < 60 ? (60 - bone) * 0.003 : 0;
 
   const accident = ageYears >= 18
-    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0)
+    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0) * supplyFactor
     : 0;
 
   return {
@@ -543,12 +586,16 @@ function progressStep(input: StepInput): number {
     events.push({ turn, time, type: 'death', description: `${c.core.name}: ${description}`, agentId: c.core.id, cause });
   };
 
+  // The colony's supplies against landing day, read once for everyone in
+  // the step: the age and accident rates divide by the level.
+  const supplyFactor = supplyRateFactor(supplyLevel(metrics, state.metadata.landingSupplies));
+
   for (const c of colonists) {
     if (!c.health.alive) continue;
     const exactAge = ageOf(c);
     // Whole years, for the descriptions.
     const age = Math.floor(exactAge);
-    const h = causeHazards(c, metrics, exactAge, years);
+    const h = causeHazards(c, metrics, exactAge, years, supplyFactor);
     const id = c.core.id;
 
     // 2a. Natural mortality (age-dependent)

@@ -6,8 +6,10 @@
  * The live Mars Genesis pair of 6 November 2026 (seed 950, 30 people, six
  * turns) lost the same 18 people under both leaders: every effect the
  * departments recommended moved morale only, and morale sat at its ceiling.
- * The death a leader can reach within six turns is radiation cancer, through
- * the habitat modules that shield the dose. These tests run a pair the way
+ * A leader reaches who dies within six turns through the habitat modules,
+ * which shield the dose, and through the supplies the age and accident rates
+ * read: the modules, water, life support, power and pressurized volume
+ * against landing day (#234). These tests run a pair the way
  * the orchestrator does (`advanceTurn` with the scenario's progression hook
  * at the top of each turn, then the policy step, `applyCommanderPolicy`,
  * with the scenario's outcome tables), on the real Mars Genesis scenario,

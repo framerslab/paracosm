@@ -228,7 +228,8 @@
         "type": "number",
         "initial": 400,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "foodMonthsReserve": {
         "id": "foodMonthsReserve",
@@ -246,7 +247,8 @@
         "type": "number",
         "initial": 800,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "pressurizedVolumeM3": {
         "id": "pressurizedVolumeM3",
@@ -255,7 +257,8 @@
         "type": "number",
         "initial": 3000,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "infrastructureModules": {
         "id": "infrastructureModules",
@@ -264,7 +267,8 @@
         "type": "number",
         "initial": 3,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "scienceOutput": {
         "id": "scienceOutput",
@@ -294,7 +298,8 @@
         "type": "number",
         "initial": 120,
         "min": 0,
-        "category": "capacity"
+        "category": "capacity",
+        "sustains": true
       }
     },
     "statuses": {

@@ -10,8 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import * as progression from '../../src/engine/core/progression.js';
-import { causeHazards, turnHazard } from '../../src/engine/core/progression.js';
+import { causeHazards, supplyLevel, supplyRateFactor, turnHazard } from '../../src/engine/core/progression.js';
 import type { Agent } from '../../src/engine/core/state.js';
 
 function near(actual: number, expected: number, label: string, tolerance = 5e-4): void {
@@ -59,7 +58,6 @@ test('each cause reads its own part of the person and the world', () => {
 });
 
 test('the age and accident rates divide by the supply level, within a half and double', () => {
-  const { supplyRateFactor } = progression;
   assert.equal(supplyRateFactor(1), 1, 'landing day');
   assert.equal(supplyRateFactor(0.25), 2, 'a quarter of landing day, held at double');
   assert.equal(supplyRateFactor(4), 0.5, 'four times landing day, held at a half');
@@ -68,7 +66,6 @@ test('the age and accident rates divide by the supply level, within a half and d
 });
 
 test('the supply level is the geometric mean of each supply against its landing-day amount', () => {
-  const { supplyLevel, supplyRateFactor } = progression;
   const landing = { lifeSupportCapacity: 120, waterLitersPerDay: 800, powerKw: 400, pressurizedVolumeM3: 3000, infrastructureModules: 3 };
   assert.equal(supplyLevel({ population: 30, ...landing }, undefined), 1, 'a run with no landing amounts');
   assert.equal(supplyLevel({ population: 30, ...landing }, landing), 1, 'landing day, exactly');
