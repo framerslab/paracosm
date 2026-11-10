@@ -442,10 +442,12 @@ export interface RunOptions extends RuntimeCredentialOptions {
   startingEnvironment?: Record<string, number | string | boolean>;
   execution?: Partial<SimulationExecutionConfig>;
   /**
-   * The scenario the run plays. Omitted, the run plays Mars Genesis in
-   * every part: its events, tables, hooks and research memory, the kernel
-   * it builds (landing-day supplies, declared ranges, starting world) and
-   * its start time (2035) when `startTime` is not given.
+   * The scenario the run plays. Omitted, the run plays Mars Genesis: its
+   * events, tables, hooks and research memory, the kernel it builds
+   * (landing-day supplies, declared ranges, starting world) and its start
+   * time (2035) when `startTime` is not given. The turn length is the
+   * exception: with no scenario and no `timePerTurn`, turns stay one year
+   * apart, not Mars's eight.
    */
   scenario?: ScenarioPackage;
   /**
