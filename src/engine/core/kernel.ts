@@ -3,7 +3,7 @@ import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ProgressionHookContext, ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
 import { agentIdKeys, generateInitialPopulation, generateJoiners, type KeyPersonnel } from './agent-generator.js';
-import { progressBetweenTurns, applyPersonalityDrift, moraleAfterGain, ROLE_ACTIVATIONS } from './progression.js';
+import { progressBetweenTurns, applyPersonalityDrift, moraleAfterGain, ROLE_ACTIVATIONS, applyCrisisCasualties } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
 import { ageInYears, yearsPerTimeUnit } from './time-unit.js';
@@ -546,6 +546,13 @@ export class SimulationKernel {
     const metrics = this.applySystemDeltas(deltas as Partial<WorldMetrics>);
     const rest = Object.fromEntries(Object.entries(deltas).filter(([k]) => !(k in metrics)));
     return { ...metrics, ...this.applyPoliticsDeltas(rest as Partial<WorldPolitics>) };
+  }
+
+  /** MEASUREMENT ONLY (branch measure/mars-tie-4, never merged): the casualties of one event's outcome. */
+  crisisCasualties(eventIndex: number, category: string, outcome: string): string[] {
+    const died = applyCrisisCasualties(this.state, eventIndex, category, outcome);
+    this.state.metrics.population = this.getAliveCount();
+    return died;
   }
 
   /** Advance to the next turn. Runs between-turn progression. */

@@ -1,0 +1,1460 @@
+{
+ "note": "Measurement data for #243: what three live Mars Genesis pairs at seed 950 held after each turn (turn_done metrics), the heads each leader named, each event with its category, outcome, declared risk chance and whether the chosen option was the risky one, and who died (id, year, cause). Never merged.",
+ "sides": {
+  "A1": {
+   "key": "A1",
+   "leader": "Aria Chen",
+   "pair": "the live pair of 8 November 2026",
+   "heads": [
+    [
+     "col-carlos-fernandez",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     4,
+     2.21,
+     3.21,
+     6.42,
+     8.42,
+     9.42
+    ],
+    "foodMonthsReserve": [
+     19.22,
+     24.819999999999993,
+     30.483999999999995,
+     34.188,
+     46.786000000000016,
+     62.993999999999986
+    ],
+    "morale": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ],
+    "lifeSupportCapacity": [
+     125,
+     125,
+     130,
+     130,
+     130,
+     135
+    ],
+    "powerKw": [
+     458.65999999999997,
+     403.9,
+     403.9,
+     470.05999999999995,
+     528.43,
+     586.42
+    ],
+    "pressurizedVolumeM3": [
+     3200,
+     3021.47,
+     3021.47,
+     3242,
+     3292,
+     3492
+    ],
+    "waterLitersPerDay": [
+     900,
+     900,
+     1008.89,
+     1008.89,
+     1008.89,
+     1008.89
+    ],
+    "scienceOutput": [
+     0,
+     8,
+     16,
+     25,
+     33,
+     44.529999999999994
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_failure",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_success",
+     "riskProb": 0.52,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-chen-osei",
+     2046,
+     "radiation cancer"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-dr-priya-singh",
+     2057,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-born-2037-1263",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ],
+    [
+     "col-sofia-kim",
+     2071,
+     "age-related complications"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    2,
+    7
+   ]
+  },
+  "D1": {
+   "key": "D1",
+   "leader": "Dietrich Voss",
+   "pair": "the live pair of 8 November 2026",
+   "heads": [
+    [
+     "col-sven-kim",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     5,
+     7,
+     8,
+     11.22,
+     11.22,
+     11.22
+    ],
+    "foodMonthsReserve": [
+     19.22,
+     23.9,
+     37.83000000000001,
+     53.03,
+     80.648,
+     103.576
+    ],
+    "morale": [
+     1,
+     1,
+     1,
+     0.9730467210000001,
+     1,
+     1
+    ],
+    "lifeSupportCapacity": [
+     125,
+     130.65,
+     130.65,
+     132.65,
+     132.65,
+     132.65
+    ],
+    "powerKw": [
+     448.48,
+     429.08000000000004,
+     476.31000000000006,
+     536.32,
+     527.12,
+     579.91
+    ],
+    "pressurizedVolumeM3": [
+     3200,
+     3320,
+     3320,
+     3542.36,
+     3542.36,
+     3542.36
+    ],
+    "waterLitersPerDay": [
+     900,
+     809.49,
+     809.49,
+     809.49,
+     921.77,
+     921.77
+    ],
+    "scienceOutput": [
+     1,
+     10,
+     19,
+     28,
+     38,
+     50.17
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_failure",
+     "riskProb": 0.48,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 1,
+     "category": "medical",
+     "outcome": "conservative_success",
+     "riskProb": 0.42,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.48,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_success",
+     "riskProb": 0.52,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-chen-osei",
+     2051,
+     "accident: pressure-suit tear"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-dr-priya-singh",
+     2059,
+     "radiation cancer"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-born-2037-1263",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ],
+    [
+     "col-sofia-kim",
+     2071,
+     "age-related complications"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    2,
+    7
+   ]
+  },
+  "A2": {
+   "key": "A2",
+   "leader": "Aria Chen",
+   "pair": "the live pair of 10 November 2026, 02:31 UTC",
+   "heads": [
+    [
+     "col-sven-kim",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     4,
+     4,
+     4,
+     4,
+     4,
+     5
+    ],
+    "foodMonthsReserve": [
+     19.22,
+     22.939999999999994,
+     29.33999999999999,
+     39.58,
+     47.590000000000025,
+     53.19000000000005
+    ],
+    "morale": [
+     0.975,
+     0.89228504075,
+     1,
+     1,
+     1,
+     1
+    ],
+    "lifeSupportCapacity": [
+     125,
+     120,
+     122.71,
+     118.71,
+     116.71,
+     121.71
+    ],
+    "powerKw": [
+     498.65999999999997,
+     496.26,
+     478.06,
+     431.86,
+     466.94,
+     490.63
+    ],
+    "pressurizedVolumeM3": [
+     3200,
+     3200,
+     3200,
+     3200,
+     3200,
+     3200
+    ],
+    "waterLitersPerDay": [
+     900,
+     715.4,
+     625.4,
+     641.3399999999999,
+     571.3399999999999,
+     671.3399999999999
+    ],
+    "scienceOutput": [
+     0,
+     8,
+     18,
+     29,
+     40,
+     51.52
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_failure",
+     "riskProb": 0.48,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "medical",
+     "outcome": "conservative_success",
+     "riskProb": 0.48,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.42,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-ito",
+     2043,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-osei",
+     2046,
+     "radiation cancer"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-dr-priya-singh",
+     2057,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-born-2037-1263",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ],
+    [
+     "col-sofia-kim",
+     2071,
+     "age-related complications"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    3,
+    7
+   ]
+  },
+  "D2": {
+   "key": "D2",
+   "leader": "Dietrich Voss",
+   "pair": "the live pair of 10 November 2026, 02:31 UTC",
+   "heads": [
+    [
+     "col-sven-kim",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     4,
+     4,
+     4,
+     7.38,
+     9.79,
+     10.79
+    ],
+    "foodMonthsReserve": [
+     19.19,
+     24.789999999999996,
+     35.48999999999999,
+     41.09000000000001,
+     54.802,
+     74.29799999999999
+    ],
+    "morale": [
+     1,
+     0.8730467210000001,
+     1,
+     1,
+     1,
+     1
+    ],
+    "lifeSupportCapacity": [
+     125,
+     125.67,
+     125.67,
+     139.15,
+     144.15,
+     149.15
+    ],
+    "powerKw": [
+     518.07,
+     500.6700000000001,
+     438.2700000000001,
+     457.9400000000001,
+     467.8000000000001,
+     510.67000000000013
+    ],
+    "pressurizedVolumeM3": [
+     3200,
+     3320,
+     3320,
+     3557.57,
+     3798.44,
+     3998.44
+    ],
+    "waterLitersPerDay": [
+     900,
+     900,
+     960.06,
+     960.06,
+     960.06,
+     960.06
+    ],
+    "scienceOutput": [
+     0,
+     8,
+     17,
+     25,
+     32,
+     46.29
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "medical",
+     "outcome": "conservative_failure",
+     "riskProb": 0.52,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.46,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_success",
+     "riskProb": 0.52,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 1,
+     "category": "medical",
+     "outcome": "conservative_success",
+     "riskProb": 0.49,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-ito",
+     2043,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-osei",
+     2046,
+     "radiation cancer"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-dr-priya-singh",
+     2057,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-born-2037-1263",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ],
+    [
+     "col-sofia-kim",
+     2071,
+     "age-related complications"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    3,
+    7
+   ]
+  },
+  "A3": {
+   "key": "A3",
+   "leader": "Aria Chen",
+   "pair": "the live pair of 10 November 2026, 14:06 UTC",
+   "heads": [
+    [
+     "col-carlos-fernandez",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     4,
+     5,
+     6,
+     8.2,
+     12.7,
+     14.7
+    ],
+    "foodMonthsReserve": [
+     19.22,
+     22.219999999999995,
+     30.219999999999995,
+     40.619999999999976,
+     56.29999999999998,
+     82.78
+    ],
+    "morale": [
+     0.9871265096412196,
+     0.8957020747141666,
+     0.9862137551503258,
+     0.9914890610499063,
+     0.9983437190327416,
+     0.9857796769287752
+    ],
+    "lifeSupportCapacity": [
+     125,
+     130,
+     140.51,
+     145.51,
+     150.51,
+     155.51
+    ],
+    "powerKw": [
+     443.65999999999997,
+     432.05999999999995,
+     432.05999999999995,
+     424.65999999999997,
+     484.2,
+     536.3
+    ],
+    "pressurizedVolumeM3": [
+     3000,
+     3000,
+     3000,
+     3000,
+     3250.46,
+     3450.46
+    ],
+    "waterLitersPerDay": [
+     800,
+     759.95,
+     729.95,
+     749.95,
+     729.95,
+     729.95
+    ],
+    "scienceOutput": [
+     0,
+     8,
+     16,
+     24,
+     32,
+     46.68
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_failure",
+     "riskProb": 0.45,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "medical",
+     "outcome": "conservative_success",
+     "riskProb": 0.46,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "political",
+     "outcome": "conservative_success",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "infrastructure",
+     "outcome": "conservative_success",
+     "riskProb": 0.42,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 1,
+     "category": "psychological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-ito",
+     2043,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-osei",
+     2046,
+     "radiation cancer"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-dr-priya-singh",
+     2057,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    3,
+    8
+   ]
+  },
+  "D3": {
+   "key": "D3",
+   "leader": "Dietrich Voss",
+   "pair": "the live pair of 10 November 2026, 14:06 UTC",
+   "heads": [
+    [
+     "col-chen-osei",
+     "medical",
+     "Chief Medical Officer"
+    ],
+    [
+     "col-bruno-morales",
+     "engineering",
+     "Chief Engineer"
+    ],
+    [
+     "col-bruno-eriksson",
+     "agriculture",
+     "Head of Agriculture"
+    ]
+   ],
+   "held": {
+    "infrastructureModules": [
+     4,
+     6,
+     10.57,
+     14.57,
+     14.57,
+     16.57
+    ],
+    "foodMonthsReserve": [
+     19.22,
+     24.819999999999993,
+     40.03999999999999,
+     62.50799999999999,
+     98.31599999999996,
+     129.28399999999993
+    ],
+    "morale": [
+     0.971349520313981,
+     0.8845109685352679,
+     0.9983970504713229,
+     0.9985748544402803,
+     0.980837691068314,
+     0.9822303753091499
+    ],
+    "lifeSupportCapacity": [
+     125,
+     123.71,
+     131.70999999999998,
+     145.70999999999998,
+     145.70999999999998,
+     150.70999999999998
+    ],
+    "powerKw": [
+     498.48,
+     470.08000000000004,
+     388.4800000000001,
+     382.5100000000001,
+     362.3100000000001,
+     408.3800000000001
+    ],
+    "pressurizedVolumeM3": [
+     3200,
+     3200,
+     3200,
+     3380,
+     3380,
+     3380
+    ],
+    "waterLitersPerDay": [
+     900,
+     900,
+     1220.52,
+     1320.52,
+     1511.47,
+     1511.47
+    ],
+    "scienceOutput": [
+     2,
+     10,
+     20,
+     30,
+     40,
+     54.56
+    ]
+   },
+   "outcomes": [
+    {
+     "turn": 1,
+     "ei": 0,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.65,
+     "risky": false
+    },
+    {
+     "turn": 2,
+     "ei": 0,
+     "category": "medical",
+     "outcome": "conservative_failure",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.46,
+     "risky": false
+    },
+    {
+     "turn": 3,
+     "ei": 1,
+     "category": "political",
+     "outcome": "risky_success",
+     "riskProb": 0.52,
+     "risky": true
+    },
+    {
+     "turn": 4,
+     "ei": 0,
+     "category": "medical",
+     "outcome": "conservative_success",
+     "riskProb": 0.42,
+     "risky": false
+    },
+    {
+     "turn": 4,
+     "ei": 1,
+     "category": "environmental",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    },
+    {
+     "turn": 5,
+     "ei": 0,
+     "category": "resource",
+     "outcome": "conservative_success",
+     "riskProb": 0.55,
+     "risky": false
+    },
+    {
+     "turn": 6,
+     "ei": 0,
+     "category": "technological",
+     "outcome": "conservative_success",
+     "riskProb": 0.5,
+     "risky": false
+    }
+   ],
+   "deaths": [
+    [
+     "col-liam-nkomo",
+     2037,
+     "accident: airlock failure"
+    ],
+    [
+     "col-dr-yuki-tanaka",
+     2039,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-eriksson",
+     2042,
+     "accident: vehicle rollover"
+    ],
+    [
+     "col-bruno-ito",
+     2043,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-osei",
+     2046,
+     "radiation cancer"
+    ],
+    [
+     "col-yuki-cruz",
+     2052,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-nkomo",
+     2055,
+     "accident: EVA accident"
+    ],
+    [
+     "col-dr-priya-singh",
+     2057,
+     "radiation cancer"
+    ],
+    [
+     "col-chen-ibrahim",
+     2057,
+     "age-related complications"
+    ],
+    [
+     "col-tomas-ahmad",
+     2058,
+     "age-related complications"
+    ],
+    [
+     "col-bruno-morales",
+     2059,
+     "accident: EVA accident"
+    ],
+    [
+     "col-olga-bakker",
+     2061,
+     "natural causes"
+    ],
+    [
+     "col-carlos-costa",
+     2065,
+     "age-related complications"
+    ],
+    [
+     "col-rosa-voss",
+     2067,
+     "age-related complications"
+    ],
+    [
+     "col-viktor-herrera",
+     2067,
+     "natural causes"
+    ],
+    [
+     "col-sven-kim",
+     2071,
+     "natural causes"
+    ]
+   ],
+   "birthsPerTurn": [
+    0,
+    9,
+    4,
+    0,
+    3,
+    8
+   ]
+  }
+ },
+ "pairs": [
+  {
+   "label": "the live pair of 8 November 2026",
+   "a": "A1",
+   "b": "D1"
+  },
+  {
+   "label": "the live pair of 10 November 2026, 02:31 UTC",
+   "a": "A2",
+   "b": "D2"
+  },
+  {
+   "label": "the live pair of 10 November 2026, 14:06 UTC",
+   "a": "A3",
+   "b": "D3"
+  }
+ ]
+}

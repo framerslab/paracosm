@@ -307,6 +307,89 @@ export function supplyRateFactor(level: number): number {
   return Math.max(0.5, Math.min(2, 1 / Math.max(level, 1e-9)));
 }
 
+// MEASUREMENT ONLY (branch measure/mars-tie-4, never merged): switches that
+// run candidate readings beside master's rates, and a record of every die a
+// step rolls. With every switch at its default the kernel runs as master.
+/** One die of one person in one step: the chance it met, the value it showed, the supply factor in force. */
+export interface DieRow { turn: number; step: number; id: string; cause: string; h: number; u: number; f: number }
+export const measure = {
+  trace: false,
+  rows: [] as DieRow[],
+  /** The supply factor is `level ^ -exp` within `lo` and `hi`. */
+  exp: 1,
+  lo: 0.5,
+  hi: 2,
+  /** What the level divides by: nothing, the living head count, or everyone the roster ever held, each against the first roster. */
+  per: 'none' as 'none' | 'alive' | 'roster',
+  landingPop: 30,
+  /** Count the food store as one more supply, against `landingFood` months. */
+  food: false,
+  landingFood: 18,
+  /** The age and accident rates times `1 + moraleK * (0.9 - morale)`, floored at a quarter. */
+  moraleK: 0,
+  /** The yearly birth chance times `level ^ birthExp`, within a half and double. */
+  birthExp: 0,
+  /** Multipliers on the accident and age rates for the years of one advance, set by the caller from the last turn's outcomes. */
+  outcomeAccident: 1,
+  outcomeNatural: 1,
+};
+
+/** A crisis outcome's casualties: off, a chance for each person, or a fixed count. */
+export const crisis = {
+  mode: 'off' as 'off' | 'chance' | 'count',
+  base: { conservative_failure: 0.04, risky_failure: 0.1 } as Record<string, number>,
+  count: { conservative_failure: 1, risky_failure: 2 } as Record<string, number>,
+};
+
+/** How exposed a person is to a crisis of `category`: the measurement's table. */
+function crisisExposure(category: string, c: Agent, age: number): number {
+  if (age < 18) return 0.1;
+  const dept = c.core.department ?? 'science';
+  switch (category) {
+    case 'infrastructure': return dept === 'engineering' ? 1 : 0.3;
+    case 'environmental': return dept === 'engineering' || dept === 'science' || dept === 'agriculture' ? 0.7 : 0.3;
+    case 'medical': return age >= 60 ? 1 : dept === 'medical' ? 0.6 : 0.2;
+    case 'resource': return dept === 'agriculture' ? 1 : age >= 60 ? 0.6 : 0.3;
+    case 'psychological': return c.health.psychScore < 0.6 ? 1 : 0.2;
+    case 'political':
+    case 'social': return dept === 'governance' ? 1 : 0.2;
+    case 'technological': return dept === 'engineering' || dept === 'science' ? 0.8 : 0.2;
+    default: return 0.3;
+  }
+}
+
+/**
+ * MEASUREMENT ONLY: the people a failed crisis kills, on dice keyed by the
+ * person, the turn and the event's place in it, the same under both leaders
+ * of a pair. Changes `state` in place and returns who died.
+ */
+export function applyCrisisCasualties(state: SimulationState, eventIndex: number, category: string, outcome: string): string[] {
+  if (crisis.mode === 'off') return [];
+  const { currentTurn: turn, currentTime: time, seed } = state.metadata;
+  const yearsPerUnit = state.metadata.yearsPerUnit ?? 1;
+  const living = state.agents.filter(c => c.health.alive).map(c => {
+    const age = ageInYears(c, time, yearsPerUnit);
+    return { c, age, exposure: crisisExposure(category, c, age), u: SeededRng.forDraw(seed, turn, c.core.id, `crisis@${eventIndex}`).next() };
+  });
+  let victims: typeof living = [];
+  if (crisis.mode === 'chance') {
+    const base = crisis.base[outcome] ?? 0;
+    victims = living.filter(p => p.u < base * p.exposure);
+  } else {
+    const n = crisis.count[outcome] ?? 0;
+    victims = living.filter(p => p.exposure > 0).sort((a, b) => a.u / a.exposure - b.u / b.exposure).slice(0, n);
+  }
+  for (const { c, age } of victims) {
+    const cause = `crisis: ${category}`;
+    c.health.alive = false;
+    c.health.deathTime = time;
+    c.health.deathCause = cause;
+    c.narrative.lifeEvents.push({ time, event: `Died at age ${Math.floor(age)} (${cause})`, source: 'kernel' });
+    state.eventLog.push({ turn, time, type: 'death', description: `${c.core.name}: died at age ${Math.floor(age)} in the ${category} crisis`, agentId: c.core.id, cause });
+  }
+  return victims.map(v => v.c.core.id);
+}
+
 /**
  * Each cause of death's chance for `agent` over a turn of `years` years,
  * from its yearly rate and the state it reads:
@@ -623,7 +706,22 @@ function progressStep(input: StepInput): number {
 
   // The colony's supplies against landing day, read once for everyone in
   // the step: the age and accident rates divide by the level.
-  const supplyFactor = supplyRateFactor(supplyLevel(metrics, state.metadata.landingSupplies));
+  let level = supplyLevel(metrics, state.metadata.landingSupplies);
+  if (state.metadata.landingSupplies) {
+    if (measure.food && typeof metrics.foodMonthsReserve === 'number') {
+      const n = Object.keys(state.metadata.landingSupplies).length;
+      level = Math.exp((Math.log(level) * n + Math.log(Math.max(metrics.foodMonthsReserve / measure.landingFood, 1e-9))) / (n + 1));
+    }
+    if (measure.per === 'alive') level *= measure.landingPop / Math.max(1, colonists.filter(c => c.health.alive).length);
+    if (measure.per === 'roster') level *= measure.landingPop / Math.max(1, colonists.length);
+  }
+  let supplyFactor = measure.exp === 1 && measure.lo === 0.5 && measure.hi === 2
+    ? supplyRateFactor(level)
+    : Math.max(measure.lo, Math.min(measure.hi, Math.pow(Math.max(level, 1e-9), -measure.exp)));
+  if (measure.moraleK !== 0) supplyFactor *= Math.max(0.25, 1 + measure.moraleK * (MORALE_OF_A_CONTENT_COLONY - metrics.morale));
+  const birthFactor = measure.birthExp !== 0 && state.metadata.landingSupplies
+    ? Math.max(0.5, Math.min(2, Math.pow(Math.max(level, 1e-9), measure.birthExp)))
+    : 1;
 
   for (const c of colonists) {
     if (!c.health.alive) continue;
@@ -632,6 +730,13 @@ function progressStep(input: StepInput): number {
     const age = Math.floor(exactAge);
     const h = causeHazards(c, metrics, exactAge, years, supplyFactor);
     const id = c.core.id;
+    if (measure.outcomeNatural !== 1) h.natural = Math.min(1, h.natural * measure.outcomeNatural);
+    if (measure.outcomeAccident !== 1) h.accident = Math.min(1, h.accident * measure.outcomeAccident);
+    if (measure.trace) {
+      for (const cause of ['natural', 'radiation', 'accident'] as const) {
+        if (h[cause] > 0) measure.rows.push({ turn, step, id, cause, h: h[cause], u: roll(id, cause).next(), f: supplyFactor });
+      }
+    }
 
     // 2a. Natural mortality (age-dependent)
     if (roll(id, 'natural').chance(h.natural)) {
@@ -763,7 +868,7 @@ function progressStep(input: StepInput): number {
   // A run that carries no food store (its scenario declares none) is not
   // short of food.
   const fedEnough = typeof metrics.foodMonthsReserve !== 'number' || metrics.foodMonthsReserve > 6;
-  const baseBirthRate = metrics.morale > 0.4 && fedEnough ? 0.08 : 0.02;
+  const baseBirthRate = (metrics.morale > 0.4 && fedEnough ? 0.08 : 0.02) * birthFactor;
   // Partnered couples: 3x the base rate (stable relationships, higher
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
   const partneredBirthProb = per(baseBirthRate * 3);
