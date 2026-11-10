@@ -84,11 +84,11 @@ console.log(trunk.fingerprint, branch.fingerprint);
 
 ```typescript
 const replay = await wm.replay(storedArtifact);
-console.log(replay.matches);     // true when the kernel reproduces the artifact byte for byte
+console.log(replay.matches);     // true when the between-turn step reproduces each saved snapshot
 console.log(replay.divergence);  // first-mismatch JSON pointer when matches=false
 ```
 
-The kernel's between-turn progression hook reruns deterministically from each recorded snapshot. LLM stages are not invoked, so replay is fast and free. Use it for golden-artifact regression tests in CI, or to find the first kernel-state divergence between two paracosm versions.
+Replay restores the kernel from each saved snapshot, re-runs the between-turn step (ageing, dose, deaths, births, food and morale) to the next turn, and compares the result with the next snapshot. It calls no model, so it is fast and free. It does not re-apply a turn's decisions, and the turn loop saves each snapshot after them, so a run of two or more turns that the turn loop saved reports a mismatch at its second snapshot ([#235](https://github.com/framerslab/paracosm/issues/235)), and a one-turn run, with one snapshot, matches with no transition checked. What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
 
 ---
 
@@ -430,12 +430,12 @@ Running a simulation calls real LLM APIs against the user's key. Paracosm assign
 
 | Preset                | Departments                          | Commander · Director · Judge                       | Reactions                                          | OpenAI / run | Anthropic / run |
 |-----------------------|--------------------------------------|-----------------------------------------------------|----------------------------------------------------|--------------|-----------------|
-| `quality` (default)   | gpt-5.4 · claude-sonnet-4-6          | gpt-5.4-mini · claude-haiku-4-5-20251001            | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$1 to $3    | ~$3 to $7       |
+| `quality` (default)   | gpt-5.4 · claude-sonnet-4-6          | gpt-4o (commander), gpt-5.4-mini (director, judge) · claude-haiku-4-5-20251001 | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$1 to $3    | ~$3 to $7       |
 | `economy`             | gpt-4o · claude-sonnet-4-6           | gpt-5.4-nano · claude-haiku-4-5-20251001            | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$0.20 to $0.60 | ~$3 to $5    |
 
 Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forge approval rate drops 10 to 20 points on `economy` because the mid-tier department model occasionally violates structured-output schemas the judge rejects. Use `economy` for iteration and CI; use `quality` for publishable runs. Explicit `models` entries always win over the preset, so per-role overrides combine cleanly with global defaults.
 
-`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
+`WorldModel.simulate` returns a `cost` field with the run's USD spend and its LLM call count; it leaves the token counts empty. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The cost payload on each streamed event (`_cost`) carries the tokens, the prompt-cache reads and writes, and the USD the cache saved, per stage.
 
 ---
 
@@ -550,6 +550,7 @@ Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:
 | API docs       | [paracosm.agentos.sh/docs](https://paracosm.agentos.sh/docs) |
 | HTTP API       | [docs/HTTP_API.md](https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md) |
 | Cookbook       | [docs/COOKBOOK.md](https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md) |
+| FAQ            | [docs/FAQ.md](https://github.com/framerslab/paracosm/blob/master/docs/FAQ.md): dice, models, seeds, replay and forks |
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |

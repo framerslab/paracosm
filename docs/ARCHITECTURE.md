@@ -131,7 +131,7 @@ Compilation costs ~$0.10 and is cached to disk. The compiler accepts `--seed-tex
 
 ### Deterministic Kernel
 
-The `SimulationKernel` manages all numerical state. It is deterministic: given the same seed, the same commander decisions and the same department reports, it produces identical outcomes.
+The `SimulationKernel` manages all numerical state. It is deterministic: given the same seed, the same commander decisions and the same department reports, it produces identical outcomes. What the seed fixes, what the model decides and what stops the model from moving the numbers, in plain words: [FAQ](FAQ.md#what-decides-what-happens-in-a-run-the-dice-or-the-model).
 
 The kernel tracks:
 - **Colony metrics**: population, morale, food reserves, power, infrastructure modules, science output
@@ -164,9 +164,9 @@ Four things move the numbers during a turn. The first three add to the value the
 
 `metrics.population` is always the number of living people on the roster, from the first state on. A population delta rounds to whole people and moves them: joiners are new adults in the departments the roster has, with an `arrival` event; leavers come off the roster with a `departure` event. A departure is not a death: it counts in no mortality figure, the fingerprint's survival rate counts the person as having survived, and nobody new takes the id or the name of someone who left. One delta brings in at most as many people as the roster holds, and hires stop at 2,000 people or the `max` the scenario declares for `population`. Department heads and children do not leave, and a departure stops at the `min` the scenario declares. So a delta can move fewer people than it asks for, while the other deltas of that outcome (a burn rate that moves with the head count) apply in full.
 
-The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality, birth events, personality drift magnitudes. Two simulations with the same seed start with the same people. Every roll the kernel makes that decides something about one person (a death, a birth, a partnership, a friendship, a recovery, a promotion, a lost outside contact) draws from a stream of its own, keyed by the seed, the turn, the year of the turn, the person and what is rolled for (`SeededRng.forDraw`), so both roll the same dice for the same person and one person's fate never moves another person's dice in those rolls. A progression hook gets the turn's shared stream as `ctx.rng`: a compiled hook that rolls for each person can draw differently for a later person once an earlier one has died. The Mars and Lunar hooks draw nothing from it. A person dies in one run and not the other only where that run's world gave them a higher hazard (see Mortality below). A child's name, id and traits come from the turn's own stream.
+The kernel uses a `SeededRng` (deterministic PRNG) for all random decisions: colonist generation, mortality, births and the other rolls below. Personality drift draws nothing: it is a formula of the leader's traits, the person's department and the event's outcome (`applyPersonalityDrift`). Two simulations with the same seed start with the same people. Every roll the kernel makes that decides something about one person (a death, a birth, a partnership, a friendship, a recovery, a promotion, a lost outside contact) draws from a stream of its own, keyed by the seed, the turn, the step of the turn (each whole year the turn spans, then the part of a year it ends with), the person and what is rolled for (`SeededRng.forDraw`), so both roll the same dice for the same person and one person's fate never moves another person's dice in those rolls. A progression hook gets the turn's shared stream as `ctx.rng`: a compiled hook that rolls for each person can draw differently for a later person once an earlier one has died. The Mars and Lunar hooks draw nothing from it. A person dies in one run and not the other only where that run's world gave them a higher hazard (see Mortality below). A child's name, id and traits come from the turn's own stream.
 
-What differs is each commander's decisions. The crisis is the same, the department analysis is the same, but commanders with different HEXACO profiles choose differently. The kernel applies different numerical effects based on the choice, and divergence compounds across the cohort.
+Each side of a pair runs its own model calls: its own Event Director call for every turn but the ones the scenario fixes (Mars Genesis fixes the first and the last, `milestones`), its own department reports and its own commander. An event's outcome draw and its noise term are shared, by event slot; the personality and tool terms of the outcome differ by side. The kernel applies the effects each side's choices lead to, and the states part from there. Why two leaders on one seed can lose the same people, with the live pair of 10 November 2026: [FAQ](FAQ.md#why-can-two-leaders-on-one-seed-lose-the-same-people).
 
 ### Mortality
 
@@ -359,7 +359,7 @@ Turn N:
     Outcome + effects
 ```
 
-The Event Director generates different crises for each commander based on their colony's current state. Same seed controls the deterministic kernel, but the LLM-generated crises diverge based on accumulated state differences.
+The Event Director generates different crises for each commander based on their colony's current state, except on the turns the scenario fixes. Same seed controls the deterministic kernel, but the LLM-generated crises diverge based on accumulated state differences.
 
 ## The Agent Swarm
 
@@ -668,11 +668,11 @@ const trunk = await wm.simulate({ actor: leader, maxTurns: 6, captureSnapshots: 
 
 // Audit: did the kernel change since this run was produced?
 const replay = await wm.replay(trunk);
-console.log(replay.matches);     // true when nothing in the kernel diverged
+console.log(replay.matches);     // true when the between-turn step reproduces each saved snapshot
 console.log(replay.divergence);  // empty when matches=true; JSON pointer otherwise
 ```
 
-`replay()` re-executes the kernel's between-turn progression hook from each recorded snapshot, captures fresh snapshots, and compares them to the input via canonical JSON. Cost: zero LLM. Wall-clock: dominated by JSON parse plus per-turn kernel state advancement. `matches=true` proves the kernel's progression is byte-equal-deterministic for this artifact's transitions, which is the audit guarantee.
+`replay()` restores the kernel from each recorded snapshot, runs `advanceTurn` to the next snapshot's turn, and compares the fresh snapshots to the input via canonical JSON. Cost: zero LLM. Wall-clock: dominated by JSON parse plus per-turn kernel state advancement. `matches=true` shows the between-turn step reproduces each recorded transition. What a match proves and what it does not, in plain words: [FAQ](FAQ.md#what-does-replay-do).
 
 Required preconditions on the input artifact:
 
@@ -681,7 +681,7 @@ Required preconditions on the input artifact:
 
 Throws `WorldModelReplayError` when either is missing or when the artifact's scenario id does not match the WorldModel's scenario.
 
-Scope note: v1 replay re-runs `advanceTurn` only. Re-applying recorded decisions via `kernel.applyPolicy` is a follow-up once the public RunArtifact preserves enough department-report context for `decisionToPolicy` to reconstruct PolicyEffects faithfully.
+Scope note: v1 replay re-runs `advanceTurn` only. Re-applying recorded decisions via `kernel.applyPolicy` is a follow-up once the public RunArtifact preserves enough department-report context for `decisionToPolicy` to reconstruct PolicyEffects faithfully. The turn loop records each snapshot at the end of its turn, after the turn's policy effects, outcome effects, drift and reactions, so a run the turn loop saved reports a mismatch at its second snapshot; [#235](https://github.com/framerslab/paracosm/issues/235) tracks it. A run with one snapshot matches with no transition checked, since replay copies its only snapshot.
 
 #### HTTP surface
 
