@@ -655,7 +655,8 @@ export class SimulationKernel {
       }
       requested.push([k, v, c[k]]);
       // MEASUREMENT ONLY: a knee above which a morale gain closes a share of the gap to 1.
-      const knee = (globalThis as unknown as { __moraleKnee?: number }).__moraleKnee;
+      // Second measurement run: the knee is on at 0.9 unless a test sets another, so CI names every existing test the change moves.
+      const knee = (globalThis as unknown as { __moraleKnee?: number }).__moraleKnee ?? 0.9;
       if (k === 'morale' && v > 0 && typeof knee === 'number') {
         const m = (c as any)[k] as number;
         if (m + v <= knee) {
