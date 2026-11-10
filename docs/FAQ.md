@@ -1,6 +1,6 @@
 # Paracosm FAQ: dice, models, seeds and replay
 
-This page answers what decides a run, what a seed fixes, and what replay, shared links and forks reproduce. Every answer was checked against the code at commit [`063c9ee6`](https://github.com/framerslab/paracosm/commit/063c9ee6843c43c5285ac7f602f3f5790b4874f2) (npm version 0.9.1095). Each answer that states a mechanism links to the lines that run it.
+This page answers what decides a run, what a seed fixes, and what replay, shared links and forks reproduce. Every answer was checked against the code at commit [`063c9ee6`](https://github.com/framerslab/paracosm/commit/063c9ee6843c43c5285ac7f602f3f5790b4874f2) (npm version 0.9.1095). The answers on who dies (the hazards, the tie and the numbers behind them) follow pull request [#242](https://github.com/framerslab/paracosm/pull/242), which makes the age and accident rates read the colony's supplies; their links point at commit [`1e6090d3`](https://github.com/framerslab/paracosm/commit/1e6090d3f210fd86906e48ab005e4b22524839ee). Each answer that states a mechanism links to the lines that run it.
 
 Words used throughout:
 
@@ -10,7 +10,7 @@ Words used throughout:
 - **Departments** (medical, engineering, agriculture and others) are model agents. Each event names the departments that look at it, and each of those writes a report on it for the leader; an event that names none of the run's departments goes to the first two ([`commander-setup.ts`, lines 208 to 222](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/commander-setup.ts#L208-L222)).
 - The **kernel** is the part of the engine that holds the numbers (people, food, habitat modules, morale) and changes them by fixed rules.
 - **Morale** is the colony's mood, from 0 to 1. Each person's **psych score**, also from 0 to 1, is how well that person is holding up; morale pulls it up or down each year.
-- A person's **hazard** for a cause of death is their chance of dying of it in a year, worked out from their state: age, dose, food, psych, bone density, department.
+- A person's **hazard** for a cause of death is their chance of dying of it in a year, worked out from their state: age, dose, food, psych, bone density, department and, on Mars, the colony's supplies.
 - The **seed** is a whole number, 950 for Mars Genesis by default. It starts the **dice**: Mulberry32, a pseudo-random number generator that gives the same sequence of numbers for the same seed every time ([`rng.ts`, lines 1 to 34](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/rng.ts#L1-L34)).
 - A **language model** (GPT-5.4 or Claude, for example) is called over the network to write text and structured replies. The same request can come back with a different answer.
 
@@ -56,7 +56,7 @@ The seed fixes everything the kernel draws:
 - **Each event's outcome draw and its noise term** ([`orchestrator/index.ts`, lines 1601 and 1609](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1601-L1609)).
 - **A newborn's name, id and traits**, which come from the turn's shared stream ([`progression.ts`, lines 692 to 708](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L692-L708)), and who joins or leaves when an effect changes the head count ([`kernel.ts`, lines 682 to 696](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L682-L696)).
 
-The same die is not the same fate. A die kills a person when it falls under that person's hazard, and the hazard reads that run's state: age, dose, food, psych, bone density, department.
+The same die is not the same fate. A die kills a person when it falls under that person's hazard, and the hazard reads that run's state: age, dose, food, psych, bone density, department and, on Mars, the colony's supplies.
 
 The seed does not control anything the model writes: the Event Director's events, the department reports, the leader's choices, the department heads, the reactions or the verdict. A rerun of the same seed makes new model calls, and they can come back different. Once one choice differs, the states differ, and the same dice can land differently.
 
@@ -115,20 +115,20 @@ An intervention, here, is a custom event you add in the fork dialog, as `turn: t
 
 ## Why can two leaders on one seed lose the same people?
 
-Because both colonies start with the same people, every person rolls the same dice under both leaders, and most causes of death read nothing a leader chooses at the states runs reach.
+Because both colonies start with the same people and every person rolls the same dice under both leaders, so a person's fate differs only where the two colonies give that person different chances. A small difference between the colonies moves those chances a little, and a die seldom falls between two chances that close.
 
-A die kills a person when it falls under that person's hazard. A person dies under one leader and lives under the other only when the die falls between the two colonies' hazards for that person. The yearly hazards and what each reads ([`progression.ts`, lines 254 to 327](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L254-L327)):
+A die kills a person when it falls under that person's hazard. A person dies under one leader and lives under the other only when the die falls between the two colonies' hazards for that person. The yearly hazards and what each reads ([`progression.ts`, lines 254 to 370](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/progression.ts#L254-L370)):
 
 | Cause | Opens when | What a leader's choices move |
 |---|---|---|
-| Natural | age 60 and over | nothing |
-| Accident | age 18 and over; the rate depends on the department | which department a person heads, through the leader's choice of heads |
+| Natural | age 60 and over; the rate divides by the colony's supply level | the supply level: life-support capacity, water, power, pressurized volume and habitat modules against what the colony landed with, which outcomes and adopted effects move |
+| Accident | age 18 and over; the rate depends on the department and divides by the supply level | which department a person heads, through the leader's choice of heads, and the supply level, as for natural deaths |
 | Starvation | under 1 month of food | food; the live Mars pair below held 19 to 74 months at its turn ends |
 | Despair | psych under 0.2, age 18 and over | psych, through morale; in the live pair below morale sat at 1, its ceiling, from turn 3 on |
 | Fatal fracture | bone density under 60 percent, age 40 and over | nothing on Mars: bone density stops at 90 percent of a person's start, 94 for the Mars-born |
 | Radiation cancer | a dose above 0.5 Sv, age 30 and over | the dose, through habitat modules |
 
-So on Mars, at the states runs reach, a leader reaches who dies through the dose, and through whom they name as department heads. Pull request [#225](https://github.com/framerslab/paracosm/pull/225) (closing issue [#221](https://github.com/framerslab/paracosm/issues/221)) changed the shielding: each habitat module keeps out a fifth of the dose the modules before it let through, so the colonists take `0.8 ^ modules` of the surface dose, with no stop ([`mars-radiation-bone.ts`, lines 23 to 36](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L23-L36)). The old curve stopped at 4.5 modules, so two colonies above that took the same dose. The pull request's CI sweep over 61 seeds, with each colony's modules held fixed: colonies one module apart, from 5 against 6 up to 11 against 12, lost different people on 9 to 26 of the 61 seeds; 5 against 11 on 55; two colonies with the same habitat on none.
+So on Mars, at the states runs reach, a leader reaches who dies through the colony's supplies, through the dose, and through whom they name as department heads. Pull request [#225](https://github.com/framerslab/paracosm/pull/225) (closing issue [#221](https://github.com/framerslab/paracosm/issues/221)) changed the shielding: each habitat module keeps out a fifth of the dose the modules before it let through, so the colonists take `0.8 ^ modules` of the surface dose, with no stop ([`mars-radiation-bone.ts`, lines 23 to 36](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L23-L36)). The old curve stopped at 4.5 modules, so two colonies above that took the same dose. The pull request's CI sweep over 61 seeds, with each colony's modules held fixed: colonies one module apart, from 5 against 6 up to 11 against 12, lost different people on 9 to 26 of the 61 seeds; 5 against 11 on 55; two colonies with the same habitat on none.
 
 The live pair after that change lost the same people again. On 10 November 2026, on version 0.9.1095, seed 950 with Aria Chen against Dietrich Voss (6 turns of 8 years, at the hosted demo's cap of 30 people and 3 departments), both colonies lost the same 18 people in the same turns, of the same causes ([issue #234](https://github.com/framerslab/paracosm/issues/234)):
 
@@ -139,7 +139,16 @@ The live pair after that change lost the same people again. On 10 November 2026,
 - Both leaders named the same three department heads, so the accident rates matched.
 - Morale ended at 1 in both colonies from turn 3 to turn 6 and was never under 0.87 at a turn's end. Births and partnerships read morale only against a level: births above 0.4 with more than 6 months of food, partnerships above 0.35 ([`progression.ts`, lines 621 and 683 to 684](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L621-L684)). Both colonies stayed above those levels, so the base birth rate matched, and births matched turn by turn. Pull request [#240](https://github.com/framerslab/paracosm/pull/240) (closing issue [#226](https://github.com/framerslab/paracosm/issues/226)), merged after this run, eases a morale gain above 0.9 so that no gain reaches 1.
 
-The two colonies did end apart: Dietrich Voss held 74.3 months of food against 53.19 and 10.79 modules against 5, and won the verdict. In this pair, at the states it reached, two Mars leaders who named the same department heads reached who died only through the dose, and only from the turn after their module counts parted.
+The two colonies did end apart: Dietrich Voss held 74.3 months of food against 53.19 and 10.79 modules against 5, and won the verdict. On that version, two Mars leaders who named the same department heads reached who died only through the dose, and only from the turn after their module counts parted. The water, life support, power and pressurized volume the two leaders moved apart fed no death rate.
+
+Pull request [#242](https://github.com/framerslab/paracosm/pull/242) (closing issue [#234](https://github.com/framerslab/paracosm/issues/234)) makes the natural and accident rates read the colony's supplies. Mars Genesis marks five as sustaining its people: life-support capacity, water, power, pressurized volume and habitat modules ([`mars.json`, lines 224 to 303](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/scenarios/mars.json#L224-L303)). The kernel keeps what each holds on landing day ([`kernel.ts`, lines 296 to 308](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/kernel.ts#L296-L308)). The colony's supply level is the geometric mean of each supply's amount against that, and both rates divide by it, held within a half and double ([`progression.ts`, lines 274 to 308](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/progression.ts#L274-L308)). A colony that never moves a supply runs as it did before. Measured in CI with each side's metrics held at the live pair's turn-end values ([run 42808038600](https://github.com/framerslab/paracosm/actions/runs/42808038600/job/129802143566)):
+
+- At seed 950, with the pair's three department heads, Aria Chen's colony loses the same 18 and Dietrich Voss's 16: Sol Tanaka and Sofia Kim die only under Aria Chen.
+- Over 61 seeds (950 and 1 to 60), the two dead sets differ in 57, against 23 before. On the turn-end values of the earlier live pair of 8 November 2026, the same two leaders on the same seed, they differ in 60, against 56.
+- A pair a fifth under and a fifth over landing day in one of life support, water, power or pressurized volume, alike in everything else, differs in 23 of 61 seeds; all four together, in 55.
+- Food, morale and science output, each held apart alone, differ in none: at those states they reach no death rate.
+
+Each person still keeps the same dice under both leaders, so small differences still tie on many seeds, and where one colony holds at least the other's habitat modules and supply level at every turn end, nobody dies only in that colony.
 
 ## Which numbers have a source, and which are the simulation's own?
 
@@ -150,8 +159,9 @@ The Mars numbers that decide deaths, with where each comes from. "The simulation
 | Surface radiation dose | 0.67 mSv a day ([`mars.json`, line 338](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/scenarios/mars.json#L333-L340); [`mars-radiation-bone.ts`, line 21](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L21)) | Curiosity's radiation detector: "an average GCR dose equivalent rate of 0.67 millisieverts per day from August 2012 to June 2013" ([Southwest Research Institute, 9 December 2013](https://www.swri.org/newsroom/press-releases/swri-scientists-publish-first-radiation-measurements-the-surface-of-mars)). The paper reports a dose equivalent rate of 0.64 ± 0.12 mSv a day (Hassler et al., Science 343, 2014, [doi:10.1126/science.1244797](https://doi.org/10.1126/science.1244797); summarized by [Reitz et al., 2016](https://elib.dlr.de/106090/1/ME-SBA-2016-Reitz_MSL-RAD_ICES_2016.pdf)). |
 | Share of the dose each module keeps out | a fifth: the colonists take `0.8 ^ modules` of the surface dose | the simulation's choice |
 | Radiation cancer hazard | 0.004 a year for each sievert above 0.5 Sv, from age 30 | the simulation's choice, slope, threshold and age alike. For scale, ICRP's nominal cancer risk coefficient for the whole population is 5.5 percent per sievert of dose received ([UK Health Protection Agency, HPA-CRCE-048, quoting ICRP 2007](https://assets.publishing.service.gov.uk/media/5a7e3c19ed915d74e6224fca/HPA-CRCE-048_for_website.pdf)); the simulation's rate applies again each year the dose stays above its threshold. |
-| Natural death | 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90 | the simulation's choice |
-| Accident | 0.003 a year times the department's weight: engineering 1.5, medical 1.2, agriculture 1.0, science 0.9, psychology 0.6, governance 0.5; from age 18 | the simulation's choice |
+| Natural death | 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90, times the supply factor | the simulation's choice |
+| Accident | 0.003 a year times the department's weight: engineering 1.5, medical 1.2, agriculture 1.0, science 0.9, psychology 0.6, governance 0.5; from age 18; times the supply factor | the simulation's choice |
+| Supply factor | `1 / supply level`, held within 0.5 and 2; the level is the geometric mean of life-support capacity, water, power, pressurized volume and habitat modules, each against its amount on landing day ([`progression.ts`, lines 274 to 308](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/progression.ts#L274-L308)) | the simulation's choice: the exponent, the bounds, the mean and the five supplies alike; none is a measured rate for a habitat |
 | Starvation | `(1 - months of food) * 0.15` a year under 1 month of food | the simulation's choice |
 | Despair | `(0.2 - psych) * 0.25 * (0.5 + emotionality)` a year under psych 0.2, from age 18 | the simulation's choice |
 | Fatal fracture | `(60 - bone density) * 0.003` a year under 60 percent bone density, from age 40 | the simulation's choice |
@@ -159,7 +169,7 @@ The Mars numbers that decide deaths, with where each comes from. "The simulation
 | Food | 0.5 months eaten a year; each module grows 0.3 months a year ([`progression.ts`, lines 844 to 850](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L844-L850)) | the simulation's choice |
 | What an outcome brings | the category tables in `mars.json` and the multipliers 2.5, 1, -1 and -2 | the simulation's choice |
 
-The hazards are in [`progression.ts`, lines 254 to 327](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L254-L327). [docs/ARCHITECTURE.md](ARCHITECTURE.md#mortality) has the full mortality model.
+The hazards are in [`progression.ts`, lines 254 to 370](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/progression.ts#L254-L370). [docs/ARCHITECTURE.md](ARCHITECTURE.md#mortality) has the full mortality model.
 
 ## What does a run cost, and what is free?
 
