@@ -197,18 +197,19 @@ test('an Atlas Lab run saved with the Mars defaults still loads, forks and repla
   assert.deepEqual(notFinite(fresh[1].state.metrics), []);
 });
 
-test('an outcome reports the change the floor and the ceiling let through', () => {
+test('an outcome reports the change the floor and the easing of a morale gain let through', () => {
   // Morale 0.95 and a lift of 0.1 at the risky-success multiplier (2.5)
-  // asks for +0.25; morale stops at 1, so the run moved it by 0.05.
+  // asks for +0.25. A gain above 0.9 eases: it closes 1 - e^-2.5 of the
+  // 0.05 left to 1, so the run moved morale by 0.045896.
   const lab = new SimulationKernel(11, 'Marcus Reinhardt', [], {
     startTime: 1, initialPopulation: 30, scenario: atlasLab, startingResources: { morale: 0.95 },
   });
   const { systemDeltas: lift } = applyOutcomeEffects(lab, new EffectRegistry({ lift: { morale: 0.1 } }), {
     category: 'lift', outcome: 'risky_success', modifiers: { personalityBonus: 0, noise: 0 }, turn: 1, time: 1,
   });
-  assert.equal(lab.getState().metrics.morale, 1);
-  assert.deepEqual(lift, { morale: 0.05 });
-  assert.match(lab.getState().eventLog.at(-1)?.description ?? '', /morale \+0\.05$/);
+  assert.ok(Math.abs(lab.getState().metrics.morale - (1 - 0.05 * Math.exp(-2.5))) < 1e-12, `morale ${lab.getState().metrics.morale}`);
+  assert.deepEqual(lift, { morale: 0.045896 });
+  assert.match(lab.getState().eventLog.at(-1)?.description ?? '', /morale \+0\.045896$/);
 
   // 3 kW left and five forges at 1.2 kW each: power stops at 0, a change of -3.
   const mars = new SimulationKernel(950, 'x', [], {

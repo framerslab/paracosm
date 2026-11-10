@@ -3,7 +3,7 @@ import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ProgressionHookContext, ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
 import { agentIdKeys, generateInitialPopulation, generateJoiners, type KeyPersonnel } from './agent-generator.js';
-import { progressBetweenTurns, applyPersonalityDrift, ROLE_ACTIVATIONS } from './progression.js';
+import { progressBetweenTurns, applyPersonalityDrift, moraleAfterGain, ROLE_ACTIVATIONS } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
 import { ageInYears, yearsPerTimeUnit } from './time-unit.js';
@@ -145,7 +145,7 @@ function clampDeclared(bag: Record<string, unknown>, keys: Iterable<string>, ran
 
 /**
  * The change a delta made: the delta itself, or less where a floor or
- * ceiling stopped it (morale at 1, power at 0).
+ * ceiling stopped it (power at 0) or a morale gain eased above 0.9.
  */
 function changeMade(asked: number, before: number, after: number): number {
   const moved = after - before;
@@ -639,9 +639,11 @@ export class SimulationKernel {
    * Apply additive deltas to world systems (not absolute values). A delta
    * for a metric the run does not carry is dropped. A population delta
    * moves whole people on and off the roster; see {@link movePeople}.
-   * Returns the change each metric made, which is what the run reports:
-   * the delta itself, or less where a floor or ceiling stopped it (morale
-   * at 1, power at 0, a hull a scenario keeps at or under 100).
+   * A morale gain adds in full up to 0.9 and eases above it, so no gain
+   * stops at 1 (`moraleAfterGain`). Returns the change each metric made,
+   * which is what the run reports: the delta itself, or less where a floor
+   * or ceiling stopped it (power at 0, a hull a scenario keeps at or under
+   * 100) or a morale gain eased.
    */
   applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): Record<string, number> {
     const c = this.state.metrics;
@@ -654,7 +656,7 @@ export class SimulationKernel {
         continue;
       }
       requested.push([k, v, c[k]]);
-      (c as any)[k] = (c as any)[k] + v;
+      (c as any)[k] = k === 'morale' && v > 0 ? moraleAfterGain((c as any)[k], v) : (c as any)[k] + v;
     }
     clampField(c, 'morale', 0, 1);
     clampField(c, 'foodMonthsReserve', 0);
