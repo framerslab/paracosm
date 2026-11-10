@@ -1,0 +1,177 @@
+# Paracosm FAQ: dice, models, seeds and replay
+
+This page answers what decides a run, what a seed fixes, and what replay, shared links and forks reproduce. Every answer was checked against the code at commit [`063c9ee6`](https://github.com/framerslab/paracosm/commit/063c9ee6843c43c5285ac7f602f3f5790b4874f2) (npm version 0.9.1095). Each answer that states a mechanism links to the lines that run it.
+
+Words used throughout:
+
+- A **run** is one simulated world played for a number of **turns**. Mars Genesis plays 6 turns of 8 simulated years by default, from 2035, with 100 people ([`scenarios/mars.json`, lines 30 to 36](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/scenarios/mars.json#L30-L36)).
+- The **leader** (the code calls it the commander) decides for the colony. A **pair run** plays two leaders on the same starting world, side by side.
+- **Departments** (medical, engineering, agriculture and others) are model agents. Each writes a report on each event for its leader.
+- The **kernel** is the part of the engine that holds the numbers (people, food, habitat modules, morale) and changes them by fixed rules.
+- The **seed** is a whole number, 950 for Mars Genesis by default. It starts the **dice**: Mulberry32, a pseudo-random number generator that gives the same sequence of numbers for the same seed every time ([`rng.ts`, lines 1 to 34](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/rng.ts#L1-L34)).
+- A **language model** (GPT-5.4 or Claude, for example) is called over the network to write text and structured replies. The same request can come back with a different answer.
+
+## Questions
+
+- [What decides what happens in a run, the dice or the model?](#what-decides-what-happens-in-a-run-the-dice-or-the-model)
+- [Do dice pick the events?](#do-dice-pick-the-events)
+- [What does the seed control?](#what-does-the-seed-control)
+- [What stops the model from making things up?](#what-stops-the-model-from-making-things-up)
+- [What does replay do?](#what-does-replay-do)
+- [What does a shared link do?](#what-does-a-shared-link-do)
+- [What does a fork reuse, and what does it generate fresh?](#what-does-a-fork-reuse-and-what-does-it-generate-fresh)
+- [Why can two leaders on one seed lose the same people?](#why-can-two-leaders-on-one-seed-lose-the-same-people)
+- [Which numbers have a source, and which are the simulation's own?](#which-numbers-have-a-source-and-which-are-the-simulations-own)
+- [What does a run cost, and what is free?](#what-does-a-run-cost-and-what-is-free)
+- [Does the same seed give the same run?](#does-the-same-seed-give-the-same-run)
+
+## What decides what happens in a run, the dice or the model?
+
+Four parts, each with its own job.
+
+1. **Seeded dice decide chance.** Each person rolls one die for each cause of death once for each simulated year of a turn. Births, partnerships, friendships, recoveries, promotions and lost Earth contacts are rolled the same way, each on a die keyed to one person ([`progression.ts`, lines 495 to 503](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L495-L503)). Each event gets one more draw, which decides whether the option the leader chose succeeds ([`orchestrator/index.ts`, lines 1600 to 1607](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1600-L1607)). The seed also builds the starting roster.
+2. **Formulas set each chance and each change.** Ageing, the radiation dose, bone density, morale and psych, food, and each cause's yearly hazard are fixed formulas with no dice in them ([`progression.ts`, lines 274 to 327](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L274-L327); [`mars-radiation-bone.ts`](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L55-L94)). Personality drift is a formula too: it reads the leader's traits, the person's department and the event's outcome ([`progression.ts`, lines 74 to 117](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L74-L117)).
+3. **The scenario's tables say what an outcome does.** For each event category, the scenario lists what an ordinary response brings: on Mars an infrastructure event brings 2 habitat modules, 60 kW of power and 200 m³ of pressurized volume ([`scenarios/mars.json`, lines 177 to 212](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/scenarios/mars.json#L177-L212)). The outcome scales the table: 2.5 times for a risky success, 1 for a safe success, -1 for a safe failure and -2 for a risky failure ([`effects.ts`, lines 6 to 11](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/registries/effects.ts#L6-L11)). The scenario also fixes the starting values and, on Mars, the events of the first and last turns.
+4. **The language model writes.** It writes the events of the turns between the first and the last, each department's report, the leader's choice of option and of the effects the departments propose, the department heads named before turn 1, the colonists' reactions, and the verdict that compares two leaders.
+
+So a run is more than dice. The dice decide luck against chances the formulas set. The model's choices change the state those formulas read, within limits the next answers describe.
+
+## Do dice pick the events?
+
+No. On Mars the first and last turns play events the scenario fixes: "Landfall" and "Legacy Assessment" ([`scenarios/mars.json`, line 1113](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/scenarios/mars.json#L1113); [`orchestrator/index.ts`, lines 1040 to 1058](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1040-L1058)). For the turns between, a model called the Event Director writes each leader's events from that leader's state, one or two a turn on Mars ([`orchestrator/index.ts`, lines 1059 to 1120](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1059-L1120)). It writes the situation, two or three options, which option is risky, the risky option's chance of success and the event's category.
+
+The dice come in after the leader chooses. The engine takes the risky option's chance, adds 0.1 when morale is above 0.7 and 0.05 when the colony holds more than 12 months of food, takes off 0.05 when more than 150 people live, and holds the result between 0.1 and 0.9. A safe option halves the chance of failure: its chance is `(1 + risky) / 2` ([`progression.ts`, lines 150 to 173](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L150-L173)). One draw, keyed by the seed, the turn and the event's place in the turn, meets that chance. Both leaders of a pair get the same draw for the same event slot, so on one draw a risky choice can fail where a safe one succeeds ([`progression.ts`, lines 175 to 184](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L175-L184)).
+
+The outcome's multiplier then scales the category's table, with three small terms added to it: one from the leader's openness and conscientiousness, a seeded noise term between -0.1 and 0.1, and one from the departments' tool forging in that event ([`orchestrator/index.ts`, lines 1609 to 1650](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1609-L1650)).
+
+## What does the seed control?
+
+The seed fixes everything the kernel draws:
+
+- **The starting roster**: names, ages, traits and departments ([`kernel.ts`, line 228](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L228)).
+- **Each person's dice**: deaths, births, partnerships, friendships, recoveries, promotions and lost Earth contacts. Each roll has a stream of its own, keyed by the seed, the turn, the year within the turn, the person and what is rolled for (`SeededRng.forDraw`, [`rng.ts`, lines 51 to 66](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/rng.ts#L51-L66)). So one person's fate never moves another person's dice, and two runs on one seed roll the same dice for the same person.
+- **Each event's outcome draw and its noise term** ([`orchestrator/index.ts`, lines 1601 and 1609](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1601-L1609)).
+- **A newborn's name, id and traits**, which come from the turn's shared stream ([`progression.ts`, lines 692 to 708](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L692-L708)), and who joins or leaves when an effect changes the head count ([`kernel.ts`, lines 682 to 696](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L682-L696)).
+
+The same die is not the same fate. A die kills a person when it falls under that person's hazard, and the hazard reads that run's state: age, dose, food, psych, bone density, department.
+
+The seed does not control anything the model writes: the Event Director's events, the department reports, the leader's choices, the department heads, the reactions or the verdict. A rerun of the same seed makes new model calls, and they can come back different. Once one choice differs, the states differ, and the same dice can land differently.
+
+## What stops the model from making things up?
+
+The model can write any words. What its words can change in the numbers is held by these rules:
+
+- **Every structured reply is checked against a schema.** The Event Director's events, each department report, each decision, the reactions and the verdict must parse as JSON of a fixed shape. A reply that fails is asked for again, up to 2 more times by default ([`sendAndValidate.ts`, lines 91 to 161](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/llm/sendAndValidate.ts#L91-L161) for the reports and decisions; [`generateValidatedObject.ts`](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/llm/generateValidatedObject.ts#L80-L125) for the rest). After that the run uses a fallback: an empty department report, a decision that defers to the departments (which reads as the safe option), one of three prepared events, or no verdict ([`director.ts`, lines 242 and 359 to 361](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/director.ts#L359-L361)). An event must mark its risky option as risky ([`validators/director.ts`, lines 22 to 35](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/validators/director.ts#L22-L35)).
+- **Effects move only keys the run holds.** A department may propose effects, such as "+1 habitat module, -35 kW". The schema refuses an effect that names a key the run does not hold as a number and lists the keys it does hold ([`validators/department.ts`, lines 78 to 104](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/validators/department.ts#L78-L104)). A report that names one after its retries is kept without those keys (the salvage, [lines 106 to 143](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/validators/department.ts#L106-L143)). The kernel drops any key it does not hold in any case ([`kernel.ts`, line 650](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L650)).
+- **One decision moves a key a bounded amount.** The effects a leader adopts move each key at most the largest entry the scenario's tables give it: on Mars 2 habitat modules, 4 months of food, 0.15 of morale and 60 kW of power. A key no table names moves at most a tenth of its value ([`commander-policy.ts`, lines 51 to 98](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/commander-policy.ts#L51-L98)).
+- **Department patches set nothing.** A report's `proposedPatches` (values written outright) are logged and ignored; only adopted effects move the state ([`util/parsers.ts`, lines 188 to 242](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/util/parsers.ts#L188-L242)).
+- **A report's note on a person is bounded.** It moves that person's psych score at most 0.15 a turn and sets their list of conditions. It cannot set a dose, a bone density, or who is alive ([`kernel.ts`, lines 156 to 161 and 775 to 807](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L775-L807)).
+- **Only the dice kill.** Every death comes from the kernel's rolls between turns ([`progression.ts`, lines 531 to 607](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L531-L607)).
+- **Forged tools run sandboxed and judged.** A department can write a small JavaScript tool to compute something. It runs in a `node:vm` context with a 10-second limit, and a judge model approves it only when it passes both a safety and a correctness review of its code and test output ([`emergent-setup.ts`, lines 210 to 237](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/emergent-setup.ts#L210-L237)). A tool's output is text in the report. What reaches the numbers is the count of tools forged, approved and rejected that event, which shifts the outcome's scale by at most 0.5 and costs power and morale ([`effects.ts`, lines 115 to 166](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/registries/effects.ts#L115-L166)).
+
+What stays model writing with no check:
+
+- **The event's text and its numbers within range.** The Event Director picks the risky option's chance (the engine holds it between 0.1 and 0.9) and the category. A category the scenario has no table for moves morale alone, by 0.08 at an ordinary response ([`effects.ts`, lines 73 and 102 to 104](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/registries/effects.ts#L102-L104)).
+- **The size of a proposed effect, within its bound.** An adopted effect costs nothing of its own unless the department wrote a cost into it.
+- **The report prose**: summaries, risks and recommendations.
+- **Citations.** The schema asks each citation for a text and a URL and nothing more ([`validators/department.ts`, lines 14 to 19](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/validators/department.ts#L14-L19)). The code does not open the URL or check that it says what the report says. When a report gives no citation and the event's research packet holds sources, the run attaches up to five of the packet's facts as the report's citations ([`orchestrator/index.ts`, lines 1259 to 1271](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1259-L1271)). The packet comes from the scenario's knowledge bundle, or from a web search when live search is on.
+- **The reactions.** Colonists' quotes update their memories and relationships, and change no health number ([`reaction-step.ts`, lines 213 to 226](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/reaction-step.ts#L213-L226)).
+- **The verdict.** The prompt lists both colonies' final numbers side by side. The scores, the winner and the reasoning are the model's, and no code checks them against the numbers ([`pair-runner.ts`, lines 789 to 834](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/cli/pair-runner.ts#L789-L834)). The verdict card's own figures come from the engine.
+
+## What does replay do?
+
+Replay (`wm.replay(artifact)`, or `POST /api/v1/runs/:runId/replay` on the server) takes a saved run that holds a snapshot of the kernel for each turn. The dashboard saves those snapshots for every run it starts. For each pair of consecutive snapshots, replay restores the kernel from the first, runs the between-turn step to the next turn, and compares every fresh snapshot with the saved one as canonical JSON. It reports `matches` and, when they differ, the first path that differs ([`orchestrator/index.ts`, lines 2100 to 2182](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L2100-L2182); [`world-model/index.ts`, lines 616 to 686](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/world-model/index.ts#L616-L686)). The between-turn step is the kernel's yearly work: ageing, the dose, deaths, births, partnerships, promotions, food and morale. Replay calls no model, so it costs nothing.
+
+What a match proves: the between-turn step, run on today's code, turns each saved state into the same next state. That is the kernel's half of a run, checked for that artifact.
+
+What replay does not do: it does not re-ask the model, re-draw an outcome, or re-apply what a turn's decisions did. The code states that scope limit: re-applying recorded decisions needs the full department reports, which a saved run does not keep in the shape the policy step reads ([`orchestrator/index.ts`, lines 2112 to 2117](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L2112-L2117)).
+
+That limit decides what replay reports on a real run. The turn loop takes each snapshot at the end of its turn, after the turn's decisions, outcomes, drift and reactions ([`orchestrator/index.ts`, lines 1804 to 1809](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1804-L1809)). Replay's fresh snapshot holds the between-turn step alone. So on a run the turn loop saved, replay reports a mismatch at the second snapshot whenever that turn changed anything, and a turn with an event always changes the event log. Issue [#235](https://github.com/framerslab/paracosm/issues/235) tracks this. Replay matches on snapshots taken right after the between-turn step, as its tests build them ([`tests/runtime/world-model/replay.test.ts`](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/tests/runtime/world-model/replay.test.ts#L19-L30)).
+
+## What does a shared link do?
+
+A link of the form `paracosm.agentos.sh/sim?replay=<sessionId>` plays back a stored run. It does not run anything again.
+
+The dashboard reads the `replay` parameter, checks that the session exists with `GET /sessions/<id>`, and opens `/sessions/<id>/replay` ([`App.tsx`, lines 145 to 164](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/dashboard/src/App.tsx#L145-L164)). That endpoint streams back the events the live run broadcast, word for word: at once by default, or at the recorded pace with `?speed=1` ([`server-app.ts`, lines 2753 to 2809](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/server/server-app.ts#L2753-L2809)). It runs no kernel and calls no model, so every viewer sees the same run and it costs nothing.
+
+The server saves a finished run on its own, unless the run was aborted, hit an error or stopped short of its turns ([`server-app.ts`, lines 1140 to 1260](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/server/server-app.ts#L1140-L1260)). It keeps the 10 newest saved runs and deletes the oldest past that ([`stores/session.ts`, lines 29 and 287 to 297](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/server/stores/session.ts#L287-L297)). A link to a deleted run shows a "not found" banner.
+
+A link with `?load=<url>` is a different thing: it loads a run saved as a JSON file from that address.
+
+## What does a fork reuse, and what does it generate fresh?
+
+A fork starts a new branch from the end of one turn of a saved run, with one leader, often a different one. The dashboard's Reports tab has a fork button on each turn; the library call is `wm.forkFromArtifact(artifact, atTurn)` ([`world-model/index.ts`, lines 580 to 614](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/world-model/index.ts#L580-L614)).
+
+Reused from the trunk, without rerunning it: the kernel snapshot at the end of that turn. That is every person (age, health, dose, bone density, psych, department, partner, memories), the colony's numbers, the event log, the seed the dice are keyed by, and the kernel's own stream ([`kernel.ts`, lines 369 to 414](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/kernel.ts#L369-L414)). The fork runs from the next turn on ([`orchestrator/index.ts`, lines 655 to 675](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L655-L675)).
+
+Generated fresh, with model calls: every turn after the fork. That means the Event Director's events (on Mars the last turn's event stays the scenario's), the department reports, the new leader's choices and the reactions. A department whose head is alive keeps them; the new leader names a head only for an empty seat ([`commander-setup.ts`, lines 281 to 324](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/commander-setup.ts#L281-L324)). The toolbox of forged tools, the departments' memory of earlier turns and the Event Director's list of earlier events start empty ([`orchestrator/index.ts`, lines 728, 940 and 967](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L728)). A fork gets no verdict: the Branches tab compares it with its parent.
+
+The seed on a fork: each person's dice stay keyed by the trunk's seed, which the snapshot carries. The fork dialog's seed (the trunk's, unless you set an override) keys the events' outcome draws and noise ([`ReportView.tsx`, line 241](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/dashboard/src/components/reports/ReportView.tsx#L241)). An override changes the luck of the events and leaves the people's dice as they were.
+
+An intervention, here, is a custom event you add in the fork dialog, as `turn: title: description`. The run appends it as a "USER EVENT" line to the text of that turn's events, for the models to read ([`runtime-helpers.ts`, lines 46 to 68](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/util/runtime-helpers.ts#L46-L68)). The kernel does not read it: it moves a number only through what the leader then chooses. The Digital Twin's interventions are a separate feature.
+
+## Why can two leaders on one seed lose the same people?
+
+Because both colonies start with the same people, every person rolls the same dice under both leaders, and most causes of death read nothing a leader chooses at the states runs reach.
+
+A die kills a person when it falls under that person's hazard. A person dies under one leader and lives under the other only when the die falls between the two colonies' hazards for that person. The yearly hazards and what each reads ([`progression.ts`, lines 254 to 327](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L254-L327)):
+
+| Cause | Opens when | What a leader's choices move |
+|---|---|---|
+| Natural | age 60 and over | nothing |
+| Accident | age 18 and over; the rate depends on the department | which department a person heads, through the leader's choice of heads |
+| Starvation | under 1 month of food | food; the live Mars pair below held 19 to 74 months at its turn ends |
+| Despair | psych under 0.2, age 18 and over | psych, through morale; in the live pair below morale sat at 1, its ceiling, from turn 3 on |
+| Fatal fracture | bone density under 60 percent, age 40 and over | nothing on Mars: bone density stops at 90 percent of a person's start, 94 for the Mars-born |
+| Radiation cancer | a dose above 0.5 Sv, age 30 and over | the dose, through habitat modules |
+
+So on Mars the leader reaches who dies through the dose. Pull request [#225](https://github.com/framerslab/paracosm/pull/225) (closing issue [#221](https://github.com/framerslab/paracosm/issues/221)) changed the shielding: each habitat module keeps out a fifth of the dose the modules before it let through, so the colonists take `0.8 ^ modules` of the surface dose, with no stop ([`mars-radiation-bone.ts`, lines 23 to 36](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L23-L36)). The old curve stopped at 4.5 modules, so two colonies above that took the same dose. The pull request's CI sweep over 61 seeds, with each colony's modules held fixed: colonies one module apart, from 5 against 6 up to 11 against 12, lost different people on 9 to 26 of the 61 seeds; 5 against 11 on 55; two colonies with the same habitat on none.
+
+The live pair after that change lost the same people again. On 10 November 2026, on version 0.9.1095, seed 950 with Aria Chen against Dietrich Voss (6 turns of 8 years, at the hosted demo's cap of 30 people and 3 departments), both colonies lost the same 18 people in the same turns, of the same causes ([issue #234](https://github.com/framerslab/paracosm/issues/234)):
+
+- Habitat modules at each turn's end: Aria Chen 4, 4, 4, 4, 4, 5; Dietrich Voss 4, 4, 4, 7.38, 9.79, 10.79.
+- A turn's deaths come from the between-turn step at its start, which reads the state the previous turn left ([`orchestrator/index.ts`, line 1124](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1124)). So the doses first differed in the years of turn 5, 2059 to 2067.
+- The three radiation deaths fell in turns 2 to 4, while both colonies held 4 modules.
+- When the doses parted, the hazards stayed close. In 2071 Sven Kim held 3,606 mSv under Aria Chen and 2,891 mSv under Dietrich Voss: a radiation hazard of 1.24 percent a year against 0.96. No die fell between two such hazards.
+- Both leaders named the same three department heads, so the accident rates matched.
+- Morale ended at 1 in both colonies from turn 3 to turn 6, so the birth and partnership rolls read the same rates on both sides, and births matched turn by turn. Issue [#226](https://github.com/framerslab/paracosm/issues/226) tracks morale sitting at its ceiling.
+
+The two colonies did end apart: Dietrich Voss held 74.3 months of food against 53.19 and 10.79 modules against 5, and won the verdict. As of 10 November 2026, on seed 950, two Mars leaders' choices reach who lives only through the dose, and only from the turn after their module counts part.
+
+## Which numbers have a source, and which are the simulation's own?
+
+The Mars numbers that decide deaths, with where each comes from. "The simulation's choice" means the code picked the value for legible stakes; it is not a measured value.
+
+| Number | Value in the code | Source |
+|---|---|---|
+| Surface radiation dose | 0.67 mSv a day ([`mars.json`, line 338](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/scenarios/mars.json#L333-L340); [`mars-radiation-bone.ts`, line 21](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L21)) | Curiosity's radiation detector: "an average GCR dose equivalent rate of 0.67 millisieverts per day from August 2012 to June 2013" ([Southwest Research Institute, 9 December 2013](https://www.swri.org/newsroom/press-releases/swri-scientists-publish-first-radiation-measurements-the-surface-of-mars)). The paper reports a dose equivalent rate of 0.64 ± 0.12 mSv a day (Hassler et al., Science 343, 2014, [doi:10.1126/science.1244797](https://doi.org/10.1126/science.1244797); summarized by [Reitz et al., 2016](https://elib.dlr.de/106090/1/ME-SBA-2016-Reitz_MSL-RAD_ICES_2016.pdf)). |
+| Share of the dose each module keeps out | a fifth: the colonists take `0.8 ^ modules` of the surface dose | the simulation's choice |
+| Radiation cancer hazard | 0.004 a year for each sievert above 0.5 Sv, from age 30 | the simulation's choice, slope, threshold and age alike. For scale, ICRP's nominal cancer risk coefficient for the whole population is 5.5 percent per sievert of dose received ([UK Health Protection Agency, HPA-CRCE-048, quoting ICRP 2007](https://assets.publishing.service.gov.uk/media/5a7e3c19ed915d74e6224fca/HPA-CRCE-048_for_website.pdf)); the simulation's rate applies again each year the dose stays above its threshold. |
+| Natural death | 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90 | the simulation's choice |
+| Accident | 0.003 a year times the department's weight: engineering 1.5, medical 1.2, agriculture 1.0, science 0.9, psychology 0.6, governance 0.5; from age 18 | the simulation's choice |
+| Starvation | `(1 - months of food) * 0.15` a year under 1 month of food | the simulation's choice |
+| Despair | `(0.2 - psych) * 0.25 * (0.5 + emotionality)` a year under psych 0.2, from age 18 | the simulation's choice |
+| Fatal fracture | `(60 - bone density) * 0.003` a year under 60 percent bone density, from age 40 | the simulation's choice |
+| Bone loss | 0.5 percent of a person's start a year for the Earth-born, 0.3 for the Mars-born, for 20 years at most ([`mars-radiation-bone.ts`, lines 81 to 92](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/physics/mars-radiation-bone.ts#L81-L92)) | the simulation's choice |
+| Food | 0.5 months eaten a year; each module grows 0.3 months a year ([`progression.ts`, lines 844 to 850](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L844-L850)) | the simulation's choice |
+| What an outcome brings | the category tables in `mars.json` and the multipliers 2.5, 1, -1 and -2 | the simulation's choice |
+
+The hazards are in [`progression.ts`, lines 254 to 327](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L254-L327). [docs/ARCHITECTURE.md](ARCHITECTURE.md#mortality) has the full mortality model.
+
+## What does a run cost, and what is free?
+
+Free, because no model is called: replay, and a shared `?replay=` link.
+
+Paid, because they call the model: a new run, a rerun of a seed, and a fork, which calls the model for every turn after the fork point. The fork dialog shows an estimate before you confirm.
+
+Measured on the hosted demo: the Mars pair of 10 November 2026 (6 turns, 30 people, 3 departments, GPT-5.4 mini for the departments and the tool judge, GPT-5.4 nano for the rest) cost $0.6243 in 58 model calls for Aria Chen and $0.8191 in 65 calls for Dietrich Voss, $1.44 for the pair ([issue #234](https://github.com/framerslab/paracosm/issues/234)). The verdict is one more call, outside those two figures. A 6-turn hosted Atlas Lab pair cost $0.7397 on 1 November 2026 ([`sim-config.ts`, lines 525 to 540](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/cli/sim-config.ts#L525-L540)). The hosted demo picks those models when you bring no API key of your own ([`economics-profile.ts`, lines 34 to 40](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/economics/economics-profile.ts#L34-L40)).
+
+The README's cost table gives estimates for 100 people and 5 departments on the default models. Each run's `cost` field reports its own token counts, call counts and spend.
+
+## Does the same seed give the same run?
+
+It gives the same start and the same dice. The run itself can differ.
+
+Rerun a seed with the same scenario and leaders, and the roster starts the same, each person rolls the same dice, each event slot gets the same outcome draw, and Mars's first and last events are the same. Everything the model writes comes from new calls: the events of the middle turns, the reports, the choices, the reactions and the verdict. Those can differ, and once one choice differs, the colony's state differs, and the same dice can land on different fates.
+
+To see the same run again, open the stored run: its `?replay=` link, or its saved JSON file. To check the kernel's half of a saved run against today's code, use replay, within the limit described under [What does replay do?](#what-does-replay-do).
