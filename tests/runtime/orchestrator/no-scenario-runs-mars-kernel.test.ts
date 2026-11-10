@@ -23,6 +23,7 @@ import type { SimulationState } from '../../../src/engine/core/state.js';
 
 type Event = { type: string; data?: { time?: number } };
 
+/** Run the real runSimulation aborted before it starts, and return the kernel state it built and its events. */
 async function abortedRun(extra: Partial<RunOptions>) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async () => { throw new Error('no network in this test'); }) as typeof fetch;
