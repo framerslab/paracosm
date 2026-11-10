@@ -274,25 +274,23 @@ export interface CauseHazards {
 /**
  * The supply level a colony holds: the geometric mean, over the supplies
  * its scenario declares as sustaining its people (`sustains` in
- * `world.metrics` and `world.capacities`), of each supply's amount per
- * person against that amount per person on landing day. 1 on landing day;
- * above 1 where the colony has built faster than it has grown, under 1
- * where a supply ran down or the head count outgrew it. A run whose
- * scenario declares no such supply, or a state saved before runs kept
- * their landing levels, reads 1.
+ * `world.metrics` and `world.capacities`), of each supply's amount against
+ * its amount on landing day. 1 on landing day and for as long as no
+ * outcome or decision moves a supply; above 1 where the colony has built,
+ * under 1 where a supply ran down. A run whose scenario declares no such
+ * supply, or a state saved before runs kept their landing amounts, reads 1.
  */
 export function supplyLevel(
   metrics: Readonly<Record<string, unknown>>,
-  population: number,
   landingSupplies: Readonly<Record<string, number>> | undefined,
 ): number {
-  if (!landingSupplies || !(population > 0)) return 1;
+  if (!landingSupplies) return 1;
   let logs = 0;
   let count = 0;
   for (const [key, landing] of Object.entries(landingSupplies)) {
     const now = metrics[key];
     if (typeof now !== 'number' || !Number.isFinite(now) || !(landing > 0)) continue;
-    logs += Math.log(Math.max(now / population / landing, 1e-9));
+    logs += Math.log(Math.max(now / landing, 1e-9));
     count++;
   }
   return count === 0 ? 1 : Math.exp(logs / count);
@@ -301,8 +299,8 @@ export function supplyLevel(
 /**
  * What a supply level makes of the yearly age and accident rates: they
  * divide by it, within a half and double. A colony holding half its
- * landing supplies per person loses its old and has its accidents at twice
- * the rate; one holding twice as much, at half.
+ * landing supplies loses its old and has its accidents at twice the rate;
+ * one holding twice as much, at half.
  */
 export function supplyRateFactor(level: number): number {
   return Math.max(0.5, Math.min(2, 1 / Math.max(level, 1e-9)));
@@ -595,10 +593,9 @@ function progressStep(input: StepInput): number {
     events.push({ turn, time, type: 'death', description: `${c.core.name}: ${description}`, agentId: c.core.id, cause });
   };
 
-  // The colony's supplies per person, read once for everyone from the
-  // head count as the step's deaths begin.
+  // The colony's supplies against landing day, read once for everyone.
   const supplyFactor = supplyReading.on
-    ? supplyRateFactor(supplyLevel(metrics, colonists.filter(c => c.health.alive).length, state.metadata.landingSupplies))
+    ? supplyRateFactor(supplyLevel(metrics, state.metadata.landingSupplies))
     : 1;
 
   for (const c of colonists) {

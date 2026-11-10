@@ -108,7 +108,7 @@ export interface WorldMetricSchema {
   /**
    * A supply that sustains the people (a metric or a capacity): the yearly
    * age and accident rates divide by the colony's supply level, the
-   * geometric mean of these supplies per person against landing day.
+   * geometric mean of these supplies against their landing-day amounts.
    */
   sustains?: boolean;
 }

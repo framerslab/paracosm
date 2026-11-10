@@ -49,6 +49,28 @@ const RUNS: Run[] = [
   { label: 'Mars Genesis, 30 people, six eight-year turns (expected to change)', seeds: SEEDS, state: seed => run(marsScenario, seed, 30, 6, 8, scenarioKeyPersonnel(marsScenario)) },
 ];
 
+// A Mars colony no leader touches: the same run, hashed without the landing
+// amounts the supply reading keeps in its metadata, so only what happened
+// to the people and the colony is compared with master.
+RUNS.push({
+  label: 'Mars Genesis, 30 people, six eight-year turns, landing amounts left out of the hash',
+  seeds: SEEDS,
+  state: seed => {
+    const state = run(marsScenario, seed, 30, 6, 8, scenarioKeyPersonnel(marsScenario)) as { metadata: Record<string, unknown> };
+    delete state.metadata.landingSupplies;
+    return state;
+  },
+});
+RUNS.push({
+  label: 'Mars Genesis, 100 people, 40 one-year turns, landing amounts left out of the hash',
+  seeds: SEEDS.slice(0, 21),
+  state: seed => {
+    const state = run(marsScenario, seed, 100, 40, 1, scenarioKeyPersonnel(marsScenario)) as { metadata: Record<string, unknown> };
+    delete state.metadata.landingSupplies;
+    return state;
+  },
+});
+
 for (const r of RUNS) {
   const all = createHash('sha256');
   let deaths = 0;

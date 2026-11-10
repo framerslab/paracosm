@@ -4,8 +4,8 @@
  * The Mars scenario declares five supplies as sustaining its people (life
  * support capacity, water, power, pressurized volume, habitat modules), and
  * the yearly age and accident rates divide by the colony's supply level: the
- * geometric mean of those supplies per person against landing day, within a
- * half and double. `supplyReading.on = false` runs master's rates beside it.
+ * geometric mean of those supplies against their landing-day amounts, within
+ * a half and double. `supplyReading.on = false` runs master's rates beside it.
  *
  * Runs pairs of kernels the way a hosted pair run does (`new
  * SimulationKernel` with the Mars scenario and its preset roster, then
@@ -141,7 +141,7 @@ function runSide(seed: number, side: Side, trace: boolean, variant: string): Sid
     for (const [k, values] of Object.entries(side.held)) deltas[k] = values[i] - metrics[k];
     kernel.applySystemDeltas(deltas);
     const after = kernel.getState();
-    levelAfterTurn.push(Math.round(supplyLevel(after.metrics as Record<string, unknown>, after.agents.filter(p => p.health.alive).length, after.metadata.landingSupplies) * 1000) / 1000);
+    levelAfterTurn.push(Math.round(supplyLevel(after.metrics as Record<string, unknown>, after.metadata.landingSupplies) * 1000) / 1000);
   });
   dieTrace.on = false;
   const rows = trace ? dieTrace.rows : null;
@@ -388,6 +388,13 @@ for (const on of [false, true]) {
   for (const cfg of [fifthUnder('lifeSupportCapacity', 120), fifthUnder('waterLitersPerDay', 800), fifthUnder('powerKw', 400), fifthUnder('pressurizedVolumeM3', 3000), fifthUnder('infrastructureModules', 3)]) {
     line('FIFTH', sweep(mode, cfg, true));
   }
+  // The failing tests the brief names, at the numbers they will pin.
+  line('TEST', sweep(mode, { name: '5 against 5 modules, water 640 against 800', a: { leader: ARIA, held: { infrastructureModules: TURNS.map(() => 5), waterLitersPerDay: TURNS.map(() => 640) }, heads: [] }, b: { leader: DIETRICH, held: { infrastructureModules: TURNS.map(() => 5), waterLitersPerDay: TURNS.map(() => 800) }, heads: [] } }, true));
+  for (const [key, low, high] of [['lifeSupportCapacity', 96, 144], ['waterLitersPerDay', 640, 960], ['powerKw', 320, 480], ['pressurizedVolumeM3', 2400, 3600]] as Array<[string, number, number]>) {
+    line('TEST', sweep(mode, { name: `${key} held at ${low} against ${high}, nothing else held`, a: { leader: ARIA, held: flat(key, low), heads: [] }, b: { leader: DIETRICH, held: flat(key, high), heads: [] } }, true));
+  }
+  line('TEST', sweep(mode, { name: 'all four of life support, water, power and volume a fifth under landing against a fifth over, nothing else held', a: { leader: ARIA, held: { lifeSupportCapacity: TURNS.map(() => 96), waterLitersPerDay: TURNS.map(() => 640), powerKw: TURNS.map(() => 320), pressurizedVolumeM3: TURNS.map(() => 2400) }, heads: [] }, b: { leader: DIETRICH, held: { lifeSupportCapacity: TURNS.map(() => 144), waterLitersPerDay: TURNS.map(() => 960), powerKw: TURNS.map(() => 480), pressurizedVolumeM3: TURNS.map(() => 3600) }, heads: [] } }, true));
+  line('TEST', sweep(mode, { name: '10 Nov pair with every supply but the modules as live (modules 4 on both sides)', a: { leader: ARIA, held: L10_A, heads: [] }, b: { leader: DIETRICH, held: { ...L10_B, infrastructureModules: L10_A.infrastructureModules }, heads: [] } }, true));
   line('LATE', sweep(mode, {
     name: 'modules 4 all run against 4, 4, 4, 7.38, 9.79, 10.79, nothing else held',
     a: { leader: ARIA, held: { infrastructureModules: L10_A.infrastructureModules }, heads: [] },
