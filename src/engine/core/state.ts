@@ -217,6 +217,14 @@ export interface SimulationMetadata {
    * lengths, which reads as 1.
    */
   yearsPerUnit?: number;
+  /**
+   * What each person had on landing day of each supply the scenario
+   * declares as sustaining its people (`sustains`), which the yearly age
+   * and accident rates read the colony's supply level against. Absent
+   * where the scenario declares none, and in a state saved before runs
+   * kept it, which reads as a supply level of 1.
+   */
+  landingSupplies?: Record<string, number>;
 }
 
 export interface TurnEvent {

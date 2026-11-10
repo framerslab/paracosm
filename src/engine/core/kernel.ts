@@ -14,6 +14,8 @@ interface DeclaredMetric {
   initial?: number | string | boolean;
   min?: number;
   max?: number;
+  /** A supply that sustains the people: its level per person against landing day moves the yearly age and accident rates. */
+  sustains?: boolean;
 }
 
 /**
@@ -291,19 +293,19 @@ export class SimulationKernel {
     // The roster is the head count, whatever a scenario declares for a
     // full-size run: a demo run of Atlas Lab has 30 people, not 480.
     this.state.metrics.population = agents.length;
-    // MEASUREMENT ONLY (branch measure/mars-tie-3): what each person had of
-    // each supply on landing day, and the medical staff per person, for
-    // the candidate readings in progression.ts.
-    if (agents.length > 0) {
-      const landing: Record<string, number> = {};
-      for (const key of ['lifeSupportCapacity', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3', 'infrastructureModules']) {
+    // What each person has, on landing day, of each supply the scenario
+    // declares as sustaining its people. A scenario that declares none
+    // keeps no landing levels and its rates read none.
+    const landingSupplies: Record<string, number> = {};
+    for (const bag of [scenarioWorld.metrics, scenarioWorld.capacities]) {
+      for (const [key, def] of Object.entries(bag ?? {})) {
         const value = (this.state.metrics as Record<string, unknown>)[key];
-        if (typeof value === 'number' && Number.isFinite(value)) landing[key] = value / agents.length;
+        if (def.sustains === true && typeof value === 'number' && value > 0 && agents.length > 0) {
+          landingSupplies[key] = value / agents.length;
+        }
       }
-      landing.__count = agents.length;
-      landing.__medical = agents.filter(a => a.core.department === 'medical' && ageInYears(a, startTime, yearsPerUnit) >= 18).length / agents.length;
-      (this.state.metadata as unknown as { landing: Record<string, number> }).landing = landing;
     }
+    if (Object.keys(landingSupplies).length > 0) this.state.metadata.landingSupplies = landingSupplies;
     this.setRanges(init.scenario);
   }
 
