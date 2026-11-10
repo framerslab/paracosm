@@ -301,6 +301,11 @@ export interface HazardCandidate {
   /** A yearly chance for everyone of `hardshipRate` times the share of the landing level per person the scarcest of `hardshipSupplies` lacks; 0 = off. */
   hardshipRate: number;
   hardshipSupplies: string[];
+  /** Read each supply per person (true) or as the colony's total against its landing total (false). */
+  perPerson: boolean;
+  /** A second index, the geometric mean of `supplies2` per person against landing, whose `^ -k2` multiplies the first. */
+  supplies2: string[];
+  k2: number;
 }
 
 export const CURRENT_HAZARDS: HazardCandidate = {
@@ -308,6 +313,7 @@ export const CURRENT_HAZARDS: HazardCandidate = {
   scaleNatural: false, scaleAccident: false, kMedical: 0,
   radThresholdSv: 0.5, radSlope: 0.004, radFromAge: 30,
   hardshipRate: 0, hardshipSupplies: [],
+  perPerson: true, supplies2: [], k2: 0,
 };
 
 /** The candidate in force; the measuring script sets it. */
@@ -336,13 +342,18 @@ function supplyIndex(
     const now = metrics[key];
     const then = landing[key];
     if (typeof now !== 'number' || !Number.isFinite(now) || typeof then !== 'number' || !(then > 0)) continue;
-    let level = Math.max(0, now) / population / then;
+    let level = hazardCandidate.perPerson ? Math.max(0, now) / population / then : Math.max(0, now) / (then * landingCount(landing));
     if (shortfallOnly) level = Math.min(1, level);
     levels.push(level);
   }
   if (levels.length === 0) return null;
   if (combine === 'min') return Math.min(...levels);
   return Math.exp(levels.reduce((s, x) => s + Math.log(Math.max(x, 1e-9)), 0) / levels.length);
+}
+
+/** The head count on landing day, kept beside the landing levels. */
+function landingCount(landing: Readonly<Record<string, number>>): number {
+  return typeof landing.__count === 'number' && landing.__count > 0 ? landing.__count : 1;
 }
 
 /** The step's reading of the colony under the candidate in force. */
@@ -363,7 +374,12 @@ export function colonyReading(
     const index = supplyIndex(cand.supplies, cand.combine, cand.shortfallOnly, metrics, population, landing);
     if (index !== null) {
       reading.index = index;
-      const factor = clamp(Math.pow(Math.max(index, 1e-9), -cand.k));
+      let raw = Math.pow(Math.max(index, 1e-9), -cand.k);
+      if (cand.supplies2.length > 0 && cand.k2 !== 0) {
+        const second = supplyIndex(cand.supplies2, 'geo', cand.shortfallOnly, metrics, population, landing);
+        if (second !== null) raw *= Math.pow(Math.max(second, 1e-9), -cand.k2);
+      }
+      const factor = clamp(raw);
       if (cand.scaleNatural) reading.natural *= factor;
       if (cand.scaleAccident) reading.accident *= factor;
     }

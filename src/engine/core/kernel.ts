@@ -300,6 +300,7 @@ export class SimulationKernel {
         const value = (this.state.metrics as Record<string, unknown>)[key];
         if (typeof value === 'number' && Number.isFinite(value)) landing[key] = value / agents.length;
       }
+      landing.__count = agents.length;
       landing.__medical = agents.filter(a => a.core.department === 'medical' && ageInYears(a, startTime, yearsPerUnit) >= 18).length / agents.length;
       (this.state.metadata as unknown as { landing: Record<string, number> }).landing = landing;
     }

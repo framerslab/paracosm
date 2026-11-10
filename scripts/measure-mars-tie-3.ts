@@ -403,6 +403,72 @@ const VARIANTS: Record<string, Array<Partial<HazardCandidate>>> = {
   ],
 };
 
+// Round 2: the readings that reached most seeds in round 1, compared.
+VARIANTS.r2a = [
+  hab('natural+accident x geomean5^-1', S5, 'geo', 1, 'both'),
+  hab('natural+accident x geomean5^-1, within 1/2 and 2', S5, 'geo', 1, 'both', false, { maxFactor: 2 }),
+  hab('natural+accident x geomean5^-1.5', S5, 'geo', 1.5, 'both'),
+  hab('natural+accident x geomean5^-2', S5, 'geo', 2, 'both'),
+  hab('natural+accident x geomean5^-2, within 1/2 and 2', S5, 'geo', 2, 'both', false, { maxFactor: 2 }),
+  hab('natural x geomean5^-1', S5, 'geo', 1, 'nat'),
+  hab('natural x geomean5^-2', S5, 'geo', 2, 'nat'),
+];
+VARIANTS.r2b = [
+  hab('natural+accident x geomean5^-1, totals not per person', S5, 'geo', 1, 'both', false, { perPerson: false }),
+  hab('natural+accident x geomean5^-1, shortfall only', S5, 'geo', 1, 'both', true),
+  hab('natural+accident x scarcest5^-1', S5, 'min', 1, 'both'),
+  hab('natural+accident x scarcest5^-1, within 1/2 and 2', S5, 'min', 1, 'both', false, { maxFactor: 2 }),
+  hab('natural+accident x scarcest5^-0.5', S5, 'min', 0.5, 'both'),
+  hab('natural+accident x geomean4^-1', S4, 'geo', 1, 'both'),
+];
+VARIANTS.r2c = [
+  hab('natural+accident x modules^-0.5', M, 'min', 0.5, 'both'),
+  hab('natural+accident x modules^-0.25', M, 'min', 0.25, 'both'),
+  hab('natural+accident x scarcest4^-0.5 x modules^-0.5', S4, 'min', 0.5, 'both', false, { supplies2: M, k2: 0.5 }),
+  hab('natural+accident x geomean4^-1 x modules^-0.5', S4, 'geo', 1, 'both', false, { supplies2: M, k2: 0.5 }),
+  hab('natural+accident x scarcest4^-0.5 x modules^-0.25', S4, 'min', 0.5, 'both', false, { supplies2: M, k2: 0.25 }),
+  hab('natural+accident x geomean5^-1, radiation without threshold', S5, 'geo', 1, 'both', false, { radThresholdSv: 0 }),
+];
+
+/** A colony that holds one supply a fifth under its landing level all run, against one that holds it there. */
+function fifthUnder(key: string, landing: number): PairConfig {
+  return {
+    name: `${key} held at ${landing * 0.8} against ${landing}, nothing else held`,
+    a: { leader: ARIA, held: flat(key, landing * 0.8), heads: [] },
+    b: { leader: DIETRICH, held: flat(key, landing), heads: [] },
+  };
+}
+
+/** Round 2: a candidate on the live pairs, the grid, a colony nobody leads, and each key alone. */
+function measureVariant2(v: Partial<HazardCandidate>): void {
+  const name = v.name ?? 'unnamed';
+  setHazardCandidate(v);
+  const rows = [L10, L8].map(cfg => sweep(name, cfg, true));
+  const reps = [replica(name, L10_REPLICA, false), replica(name, L8_REPLICA, false)];
+  const grid = gridConfigs().map(cfg => sweep(name, cfg, false));
+  const idle: PairConfig = { name: 'nothing held (three modules, no decisions)', a: { leader: ARIA, held: {}, heads: [] }, b: { leader: DIETRICH, held: {}, heads: [] } };
+  const idleRow = sweep(name, idle, false);
+  const only = Object.keys(L10_A).map(key => sweep(name, {
+    name: `10 Nov pair, only ${key} differs`,
+    a: { leader: ARIA, held: L10_A, heads: [] },
+    b: { leader: DIETRICH, held: { ...L10_A, [key]: L10_B[key] }, heads: [] },
+  }, false));
+  const fifths = [fifthUnder('lifeSupportCapacity', 120), fifthUnder('waterLitersPerDay', 800), fifthUnder('powerKw', 400), fifthUnder('pressurizedVolumeM3', 3000), fifthUnder('infrastructureModules', 3)]
+    .map(cfg => sweep(name, cfg, false));
+  const lateModules: PairConfig = {
+    name: 'modules 4 all run against 4, 4, 4, 7.38, 9.79, 10.79, nothing else held',
+    a: { leader: ARIA, held: { infrastructureModules: L10_A.infrastructureModules }, heads: [] },
+    b: { leader: DIETRICH, held: { infrastructureModules: L10_B.infrastructureModules }, heads: [] },
+  };
+  const late = sweep(name, lateModules, false);
+  for (const row of rows) console.log('ROW ' + JSON.stringify(row));
+  for (const rep of reps) console.log('REP ' + JSON.stringify(rep));
+  for (const row of grid) console.log('GRID ' + JSON.stringify({ variant: row.variant, config: row.config, differ: row.differ, deathsA: row.deathsA, deathsB: row.deathsB, causesA: row.causesA, founderOnlyBSeeds: row.founderOnlyBSeeds }));
+  console.log('IDLE ' + JSON.stringify({ variant: name, deaths: idleRow.deathsA, causes: idleRow.causesA }));
+  const total = (o?: Record<string, number>) => r2(Object.values(o ?? {}).reduce((s, x) => s + x, 0));
+  console.log(`TABLE2 ${name} | 10 Nov ${rows[0].differ}/61 (deaths ${rows[0].deathsA}/${rows[0].deathsB}, gap ${total(rows[0].gap)}, founders only under B in ${rows[0].founderOnlyBSeeds} seeds) | 8 Nov ${rows[1].differ}/61 (deaths ${rows[1].deathsA}/${rows[1].deathsB}, gap ${total(rows[1].gap)}, founders only under B in ${rows[1].founderOnlyBSeeds} seeds) | replica 10 Nov ${reps[0].deadA}/${reps[0].deadB} onlyA ${JSON.stringify(reps[0].onlyA)} onlyB ${JSON.stringify(reps[0].onlyB)} | replica 8 Nov ${reps[1].deadA}/${reps[1].deadB} onlyA ${JSON.stringify(reps[1].onlyA)} onlyB ${JSON.stringify(reps[1].onlyB)} | grid ${grid.map(g => g.differ).join(',')} | grid deaths at 3..11 ${grid.slice(0, 9).map(g => g.deathsA).join(',')} | nobody leads: ${idleRow.deathsA} deaths ${JSON.stringify(idleRow.causesA)} | 10 Nov only-one-key differs: ${only.map(o => `${o.config.replace('10 Nov pair, only ', '').replace(' differs', '')} ${o.differ}`).join(', ')} | a fifth under landing: ${fifths.map(f => `${f.config.split(' ')[0]} ${f.differ} (deaths ${f.deathsA}/${f.deathsB})`).join(', ')} | late modules only: ${late.differ}`);
+}
+
 function measureVariant(v: Partial<HazardCandidate>): void {
   const name = v.name ?? 'unnamed';
   setHazardCandidate(v);
@@ -507,6 +573,11 @@ if (PART === 'base') {
     const changed = RUNS.map((r, i) => r.seeds.filter((seed, j) => r.run(seed).hash !== base[i][j].hash).length);
     console.log('OTHER ' + JSON.stringify({ variant: v.name, changedSeeds: Object.fromEntries(RUNS.map((r, i) => [r.label, `${changed[i]} of ${r.seeds.length}`])) }));
   }
+} else if (PART.startsWith('r2')) {
+  const list = VARIANTS[PART];
+  if (!list) throw new Error(`unknown PART ${PART}`);
+  measureVariant2(CURRENT);
+  for (const v of list) measureVariant2(v);
 } else {
   const list = VARIANTS[PART];
   if (!list) throw new Error(`unknown PART ${PART}`);
