@@ -88,7 +88,7 @@ console.log(replay.matches);     // true when the between-turn step reproduces e
 console.log(replay.divergence);  // first-mismatch JSON pointer when matches=false
 ```
 
-Replay restores the kernel from each saved snapshot, re-runs the between-turn step (ageing, dose, deaths, births, food and morale) to the next turn, and compares the result with the next snapshot. It calls no model, so it is fast and free. It does not re-apply a turn's decisions, and the turn loop saves each snapshot after them, so a run the turn loop saved reports a mismatch at its second snapshot ([#235](https://github.com/framerslab/paracosm/issues/235)). What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
+Replay restores the kernel from each saved snapshot, re-runs the between-turn step (ageing, dose, deaths, births, food and morale) to the next turn, and compares the result with the next snapshot. It calls no model, so it is fast and free. It does not re-apply a turn's decisions, and the turn loop saves each snapshot after them, so a run of two or more turns that the turn loop saved reports a mismatch at its second snapshot ([#235](https://github.com/framerslab/paracosm/issues/235)), and a one-turn run, with one snapshot, matches with no transition checked. What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
 
 ---
 
