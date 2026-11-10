@@ -308,7 +308,7 @@
         <ul class="l-list-md">
           <li><strong style="color:var(--t1)">Output:</strong> typed JSON state, decisions, citations</li>
           <li><strong style="color:var(--t1)">Audience:</strong> AI agents deciding and measuring</li>
-          <li><strong style="color:var(--t1)">Replay:</strong> deterministic kernel, byte-equal output</li>
+          <li><strong style="color:var(--t1)">Replay:</strong> re-run the seeded kernel step from saved snapshots, no model call</li>
           <li><strong style="color:var(--t1)">For agents:</strong> direct. Each turn is a state transition the agent can reason over.</li>
         </ul>
       </div>
@@ -465,9 +465,9 @@ setTimeout(() =&gt; ctrl.<span class="fn">abort</span>(), <span class="num">120_
 console.<span class="fn">log</span>(<span class="str">'baseline:'</span>, baseline.fingerprint);
 console.<span class="fn">log</span>(<span class="str">'fork(reyes -&gt; okafor):'</span>, alt.fingerprint);
 
-<span class="cm">// 3. Replay the original deterministically. Proves the kernel is byte-equal.</span>
+<span class="cm">// 3. Replay the original: re-runs the kernel's between-turn step from each snapshot, no model call.</span>
 <span class="kw">const</span> { matches, divergence } = <span class="kw">await</span> wm.<span class="fn">replay</span>(baseline);
-console.<span class="fn">log</span>(<span class="str">'replay matches:'</span>, matches);  <span class="cm">// true</span>
+console.<span class="fn">log</span>(<span class="str">'replay matches:'</span>, matches);  <span class="cm">// false on a turn-loop run: decisions are not re-applied (#235)</span>
 <span class="kw">if</span> (!matches) console.<span class="fn">error</span>(<span class="str">'first divergence at:'</span>, divergence);
 
 <span class="cm">// 4. Inject an event at turn 4 by forking + running with a custom event.</span>
@@ -723,7 +723,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
       <div class="arch-row" style="border-left:3px solid var(--amber)">
         <svg style="color:var(--amber);width:24px;height:24px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="13" y1="14" x2="17" y2="14"/></svg>
         <div class="arch-label" style="color:var(--amber)">Structured state, deterministic spine</div>
-        <div class="arch-desc">A JSON-contract-backed world schema with metrics, capacities, statuses, politics, and environment. The kernel is a seeded Mulberry32 state machine — given the same seed, scenario, and actor profiles, every run produces an identical agent roster, lifecycle schedule, and resource trajectory. Divergence comes from personality, not luck. <code>wm.replay(artifact)</code> is byte-equal-deterministic.</div>
+        <div class="arch-desc">A JSON-contract-backed world schema with metrics, capacities, statuses, politics, and environment. The kernel is a seeded Mulberry32 state machine: given the same seed, scenario, population and key personnel, every run starts with an identical agent roster, and each person rolls the same dice each year. Divergence comes from the leaders and the choices they make, not luck. <code>wm.replay(artifact)</code> re-runs the kernel's between-turn step from each saved snapshot with no model call.</div>
         <div class="arch-tech">Zod schema · Mulberry32 PRNG · ScenarioPackage</div>
       </div>
       <div class="arch-row" style="border-left:3px solid var(--amber)">
@@ -943,14 +943,14 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
               </tr>
               <tr>
                 <th scope="row">Determinism</th>
-                <td><strong>Byte-equal at fixed seed</strong> via Mulberry32 + canonical JSON</td>
+                <td><strong>Seeded kernel</strong>: the same roster and the same dice at a fixed seed (Mulberry32); model calls are not deterministic</td>
                 <td>None — LLM non-determinism throughout</td>
                 <td>None — LLM non-determinism throughout</td>
                 <td>Partial — graph control flow is deterministic, agent calls are not</td>
               </tr>
               <tr>
                 <th scope="row">Counterfactual replay</th>
-                <td><code>wm.replay(artifact)</code> reproduces byte-equal artifacts</td>
+                <td><code>wm.forkFromArtifact(artifact, turn)</code> branches from any captured turn; <code>wm.replay(artifact)</code> re-runs the kernel's between-turn step</td>
                 <td>Not supported</td>
                 <td>Not supported</td>
                 <td>Not supported (rerun the graph from scratch)</td>
@@ -1014,7 +1014,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
             </tbody>
           </table>
         </div>
-        <p class="compare-footer">Picking a framework is downstream of picking a task. Use <strong>AutoGen / CrewAI</strong> when the task is multi-agent <em>conversation</em> with predefined tools. Use <strong>LangGraph</strong> when the task is a state machine you want explicit control over. Use <strong>paracosm</strong> when the task is a <em>simulation</em>: world state evolves over turns, decisions affect outcomes, you need to fork or replay at a past turn, or you need byte-equal reproducibility for evals or compliance.</p>
+        <p class="compare-footer">Picking a framework is downstream of picking a task. Use <strong>AutoGen / CrewAI</strong> when the task is multi-agent <em>conversation</em> with predefined tools. Use <strong>LangGraph</strong> when the task is a state machine you want explicit control over. Use <strong>paracosm</strong> when the task is a <em>simulation</em>: world state evolves over turns, decisions affect outcomes, you need to fork or replay at a past turn, or you need the same starting world and the same dice across runs for evals or compliance.</p>
       </div>
     </details>
   </div>
