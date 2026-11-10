@@ -654,7 +654,20 @@ export class SimulationKernel {
         continue;
       }
       requested.push([k, v, c[k]]);
-      (c as any)[k] = (c as any)[k] + v;
+      // MEASUREMENT ONLY: a knee above which a morale gain closes a share of the gap to 1.
+      const knee = (globalThis as unknown as { __moraleKnee?: number }).__moraleKnee;
+      if (k === 'morale' && v > 0 && typeof knee === 'number') {
+        const m = (c as any)[k] as number;
+        if (m + v <= knee) {
+          (c as any)[k] = m + v;
+        } else {
+          const base = Math.max(m, knee);
+          const rest = v - Math.max(0, knee - m);
+          (c as any)[k] = 1 - (1 - base) * Math.exp(-rest / (1 - knee));
+        }
+      } else {
+        (c as any)[k] = (c as any)[k] + v;
+      }
     }
     clampField(c, 'morale', 0, 1);
     clampField(c, 'foodMonthsReserve', 0);

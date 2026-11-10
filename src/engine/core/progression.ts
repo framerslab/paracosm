@@ -450,7 +450,8 @@ export function progressBetweenTurns(
 function settleMorale(colonists: Agent[], metrics: SimulationState['metrics'], deathShock: number, years: number): void {
   const aliveColonists = colonists.filter(c => c.health.alive);
   const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
-  const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
+  // MEASUREMENT ONLY: the lift a content colony's morale takes a year.
+  const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? ((globalThis as unknown as { __psychLift?: number }).__psychLift ?? 0.03) : 0;
   // Food and life support weigh on morale only in a run that carries them.
   const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
   const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
