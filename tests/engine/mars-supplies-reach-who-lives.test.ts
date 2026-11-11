@@ -11,7 +11,15 @@
  * colony's supply level: the geometric mean of the supplies the scenario
  * marks as sustaining its people, each against its amount on landing day,
  * held within a half and double. Each person rolls the same dice under
- * both leaders (#184), so nobody dies only on the side that holds more.
+ * both leaders (#184), so in a pair alike in everything else the rates
+ * read (the same department heads, more than a month of food and psych
+ * above the despair range), none of the people the colony began with, while
+ * they stay on both rosters, dies only on the side that holds at least the
+ * other's modules and supply level. These tests move nobody off a roster
+ * and count those people alone: a child born on one side only
+ * changes the ids, and so the dice, of the children born after it in that
+ * turn, and food under a month, low morale or a different head opens a
+ * death on one side only.
  *
  * These tests run a pair the way a hosted run does (the scenario's preset
  * roster, `new SimulationKernel` with the scenario, `advanceTurn` with its
@@ -178,7 +186,7 @@ function report(sweeps: Sweep[]): string {
   return sweeps.map(s => `${s.label}: ${s.differ} of ${SEEDS.length} differ, deaths a run ${s.deaths[0]} against ${s.deaths[1]}`).join('; ');
 }
 
-/** Sweeps that must reach at least `floor` of the 61 seeds, with nobody dying only on the side that holds more. */
+/** Sweeps that must reach at least `floor` of the 61 seeds, with no founder dying only on the side that holds more. */
 function assertFloors(t: { diagnostic(message: string): void }, sweeps: Array<Sweep & { floor: number }>): void {
   t.diagnostic(report(sweeps));
   assert.deepEqual(sweeps.filter(s => s.differ < s.floor).map(s => `${s.label} (floor ${s.floor})`), [], report(sweeps));

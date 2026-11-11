@@ -441,6 +441,14 @@ export interface RunOptions extends RuntimeCredentialOptions {
   startingStatuses?: Record<string, string | boolean>;
   startingEnvironment?: Record<string, number | string | boolean>;
   execution?: Partial<SimulationExecutionConfig>;
+  /**
+   * The scenario the run plays. Omitted, the run plays Mars Genesis: its
+   * events, tables, hooks and research memory, the kernel it builds
+   * (landing-day supplies, declared ranges, starting world) and its start
+   * time (2035) when `startTime` is not given. The turn length is the
+   * exception: with no scenario and no `timePerTurn`, turns stay one year
+   * apart, not Mars's eight.
+   */
   scenario?: ScenarioPackage;
   /**
    * Cancellation signal. When `.aborted` flips to true, the turn loop
@@ -482,7 +490,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const { agent } = await import('@framers/agentos');
   const sc = opts.scenario ?? marsScenario;
   const maxTurns = opts.maxTurns ?? 12;
-  const startTime = opts.startTime ?? opts.scenario?.setup?.defaultStartTime ?? 0;
+  // A run given no scenario is a Mars Genesis run, its start and its
+  // kernel included.
+  const startTime = opts.startTime ?? sc.setup?.defaultStartTime ?? 0;
 
   // Normalize the leader so traitProfile is guaranteed populated before
   // any downstream code reads it. Legacy hexaco-only callers continue
@@ -661,7 +671,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     : new SimulationKernel(seed, leader.name, keyPersonnel, {
         startTime,
         initialPopulation: opts.initialPopulation,
-        scenario: opts.scenario,
+        scenario: sc,
         // StartingResources / StartingPolitics are subsets of the kernel's
         // Partial<WorldMetrics / WorldPolitics> shape. The kernel's types
         // carry index signatures for scenario-defined fields; the starter
