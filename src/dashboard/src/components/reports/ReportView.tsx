@@ -6,7 +6,7 @@ import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
-import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
+import { canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers';
 import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
@@ -250,7 +250,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
             captureSnapshots: true,
             customEvents: payload.customEvents,
             forkFrom: {
-              parentArtifact: payload.parentArtifact,
+              parentArtifact: forkParentForPost(payload.parentArtifact),
               atTurn: payload.atTurn,
             },
           }),

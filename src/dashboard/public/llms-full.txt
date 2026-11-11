@@ -47,7 +47,7 @@ Full per-turn record appends to the RunArtifact.
 
 The kernel is deterministic, seeded by Mulberry32 (a 32-bit pseudo-random number generator). Given the same seed, scenario, population and key personnel, a run starts with the same roster, and each person rolls the same dice for each cause each year whoever leads. What differs between two leaders' worlds comes from each leader's traits, which scale an event's outcome and pull the department heads' personalities, from what the model writes for each (events, department reports, choices), and from the states those leave. A rerun of the same seed makes new model calls and can go differently. The FAQ covers what the dice, the formulas, the scenario's tables and the model each decide: https://github.com/framerslab/paracosm/blob/master/docs/FAQ.md
 
-- `wm.replay(artifact)` re-runs the between-turn step from each recorded snapshot without calling a model and compares the result with the next snapshot. Returns `{ artifact, matches, divergence }`; `divergence` names the first path that differs. The turn loop records each snapshot after the turn's decisions, which replay does not re-apply, so a run it saved reports a mismatch at its second snapshot (https://github.com/framerslab/paracosm/issues/235). A run with one snapshot matches with no transition checked, since replay copies its only snapshot.
+- `wm.replay(artifact)` re-runs each between-turn step without calling a model, from the state the run started it from, and compares the result with the state the run saved right after that step, before the turn's decisions (`scenarioExtensions.kernelSnapshotsAfterProgression`, with `kernelSnapshotAtStart`; the turn loop saves both with `captureSnapshots: true`). Returns `{ artifact, matches, divergence }`; `divergence` names the first path that differs, from the artifact's root. A run saved before the turn loop kept those snapshots gets a `WorldModelReplayError` saying replay cannot verify it, never a match or a mismatch (https://github.com/framerslab/paracosm/issues/235).
 - `wm.forkFromArtifact(trunk, atTurn).simulate(altLeader)` branches a counterfactual from any captured turn — the CWSM (Counterfactual World State Model) pattern (Kirfel et al, 2025).
 
 ## Runtime tool forging (sandboxed)
@@ -167,7 +167,7 @@ Every method has real input/output JSON captured in `docs/COOKBOOK.md`. `scripts
 | **LLM-driven?** | Yes (events + decisions) | Yes (per-agent) | Yes (per-agent) | No (rule-based) | Mostly no |
 | **Personality model** | HEXACO + pluggable | Heterogeneous prompt | Persona prompts | n/a | n/a |
 | **Determinism** | Seeded kernel | Stochastic | Stochastic | Stochastic | Mixed |
-| **Replay verified?** | The between-turn step (`wm.replay`; a turn-loop run mismatches at its second snapshot, #235) | No | No | Save/load only | Save/load only |
+| **Replay verified?** | Each between-turn step against the state saved after it (`wm.replay`) | No | No | Save/load only | Save/load only |
 | **Counterfactual fork** | Yes (`wm.forkFromArtifact`) | Manual | Manual | Manual | Manual |
 | **Tool forging** | Sandboxed runtime forge | No | No | No | No |
 | **Output** | Universal forkable RunArtifact | Aggregate forecast | Aggregate forecast | Custom logs | Custom logs |

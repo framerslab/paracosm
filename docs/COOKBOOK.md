@@ -8,7 +8,7 @@ The runner exercises the API in this order:
 - [`compileScenario` + `WorldModel.fromScenario`](#1b-known-good-scenario-via-compilescenario) load a cached scenario for the rest of the steps
 - [`wm.quickstart`](#2-wmquickstart) auto-generate HEXACO leaders and run them in parallel
 - [`wm.forkFromArtifact`](#3-wmforkfromartifact) branch at any past turn with a different leader
-- [`wm.replay`](#4-wmreplay) verify the kernel is byte-equal-deterministic
+- [`wm.replay`](#4-wmreplay) verify each between-turn step of a saved run on today's kernel
 - [`POST /simulate`](#5-post-simulate) one-shot HTTP endpoint for non-SSE consumers
 - [`wm.intervene`](#6-wmintervene) digital-twin pattern with subject + intervention
 - [`wm.batch`](#7-wmbatch) N actors per scenario manifest
@@ -286,7 +286,7 @@ The trunk used Marin Kade (Aggressive Sales Optimizer, low conscientiousness) an
 
 ## 4. `wm.replay`
 
-The kernel is fully deterministic. `wm.replay(artifact)` re-executes the between-turn progression hook from each recorded snapshot and compares the fresh `kernelSnapshotsPerTurn` array against the input artifact's via canonical JSON. No LLM calls. Free, fast, regression-test-shaped.
+The between-turn step is deterministic. `wm.replay(artifact)` restores the kernel from the state each between-turn step of a saved run started from, re-runs the step, and compares the fresh state with the state the run saved right after it (`scenarioExtensions.kernelSnapshotsAfterProgression`) via canonical JSON. No LLM calls. Free, fast, regression-test-shaped.
 
 ### Input
 
@@ -296,7 +296,7 @@ const replay = await wm.replay(trunk);
 
 Full input: [`output/cookbook/04-input-replay.json`](../output/cookbook/04-input-replay.json).
 
-### Output (real captured)
+### Output (captured before the fix for #235)
 
 ```json
 {
@@ -305,15 +305,17 @@ Full input: [`output/cookbook/04-input-replay.json`](../output/cookbook/04-input
 }
 ```
 
-The replay caught a real divergence: agent 0's HEXACO agreeableness drifted differently in the second pass than the first. The output pinpoints the exact JSON pointer + the two values. `matches=true` would prove byte-equal kernel determinism for the full transition graph; `matches=false` is exactly what you want for forensic diff after a kernel change. This run's failure is honest: the cookbook documents the tool as it actually behaves on this artifact.
+This output came from a run of `scripts/cookbook-e2e.ts` made before the turn loop saved the state right after each between-turn step. Replay then compared the step with the next end-of-turn snapshot, which holds that turn's decisions, outcomes and drift. Agent 0 is a department head: the turn's drift step (`applyPersonalityDrift`) moves a head's traits, and the between-turn step writes no living person's traits, so the divergence is the drift replay did not re-apply, not a gap in the kernel ([#235](https://github.com/framerslab/paracosm/issues/235)).
 
 Full output: [`output/cookbook/04-output-replay-result.json`](../output/cookbook/04-output-replay-result.json).
 
+A trunk saved with the current code holds the after-step snapshots and replays to `{ "matches": true, "divergence": "" }`; `tests/runtime/world-model/replay-turn-loop.test.ts` replays a Mars Genesis run of the real turn loop, with recorded commander replies from a stub model, to that answer. A run saved without them, like the trunk behind this output, gets a `WorldModelReplayError` whose message begins `Replay cannot verify this run`, never a match or a mismatch. The script records the new output on its next run.
+
 ### What just happened
 
-`replay()` re-executed the deterministic between-turn progression hook from each recorded snapshot and compared the fresh `kernelSnapshotsPerTurn` array against the input artifact's via canonical JSON. The hook is supposed to be deterministic; the captured `agreeableness` divergence on agent 0 between the original run and the replay is a real determinism gap to investigate. This is what the API is for: pillar 2 (Reproducible) is verifiable in code, not promised in copy. Use `replay()` for regression testing (replay golden artifacts in CI), forensic comparison (find the first kernel-state divergence between two versions of paracosm), and pre-merge gates that block on `matches !== true` for a committed golden artifact.
+`replay()` re-ran the between-turn step from the state each turn started from and compared the fresh `kernelSnapshotsAfterProgression` with the input artifact's via canonical JSON. When they differ, `divergence` names the first path that differs from the artifact's root, such as `/scenarioExtensions/kernelSnapshotsAfterProgression/1/state/metrics/morale`, with the saved and the fresh value. Use `replay()` for regression testing (replay golden artifacts in CI), forensic comparison (find the first kernel-state divergence between two versions of paracosm), and pre-merge gates that block on `matches !== true` for a committed golden artifact.
 
-Replay compares against the kernel that runs it. An artifact captured before one of these kernel changes replays with `matches: false` when the change moves its snapshots: each person's deaths, births, partnerships, recoveries and promotions rolled on dice of their own; a turn longer than a year rolled each year it spans; such a turn settling morale each year it spans; and (for a scenario not counted in years) ages and yearly rates read in years. A run whose turns are all a year or less is untouched by the yearly morale settling, so its artifact still matches on that count. Read the first divergence before capturing the golden artifact again on the current kernel, so a change the kernel did not intend is not taken into the new golden artifact.
+Replay compares against the kernel that runs it: a later kernel change that moves the between-turn step makes a saved run replay with `matches: false` at the first step it moves. Read the first divergence before capturing the golden artifact again on the current kernel, so a change the kernel did not intend is not taken into the new golden artifact.
 
 ---
 
