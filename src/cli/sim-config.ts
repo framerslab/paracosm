@@ -323,6 +323,24 @@ export const DEMO_MODELS: Record<LlmProvider, SimulationModelConfig> = {
 };
 
 /**
+ * The commander's model on the hosted demo, over the economy profile's,
+ * for a provider whose economy commander is too small to follow its own
+ * decision rule. The director, departments, judge and reactions keep the
+ * economy profile's models.
+ *
+ * Two live Mars Genesis pairs on 11 November 2026 (seed 950) ran the
+ * commander on gpt-5.4-nano: in each, Aria Chen stated that the bold
+ * option's chance cleared her bar and chose a safe option on 5 of her 6
+ * events. The same pair with the commander alone on gpt-5.4-mini followed
+ * the bar on all 12 decisions, for 0.7043 USD against 0.6420 and 0.6380
+ * (#252). That is one pair on one seed. Anthropic's economy commander is
+ * Haiku, as before.
+ */
+export const DEMO_COMMANDER_MODELS: Partial<Record<LlmProvider, string>> = {
+  openai: 'gpt-5.4-mini',
+};
+
+/**
  * Demo-mode execution caps. Enforced server-side when the request has no
  * user API key. Caps apply on top of whatever the client posted.
  *
@@ -539,11 +557,23 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   // leaders). Users who provide their own keys
   // keep their selected profile — this path only fires when the
   // server is running on host-provided keys in hosted-demo mode.
-  const economics = resolveEconomicsProfile({
+  const economy = resolveEconomicsProfile({
     profileId: 'economy',
     provider: config.provider,
     baseModels: demoModels,
   });
+  // The commander alone moves up (DEMO_COMMANDER_MODELS). A commander
+  // override also moves the director unless the director is named, so the
+  // economy profile's director is named with it.
+  const demoCommander = DEMO_COMMANDER_MODELS[config.provider];
+  const economics = demoCommander
+    ? resolveEconomicsProfile({
+        profileId: 'economy',
+        provider: config.provider,
+        baseModels: demoModels,
+        overrides: { commander: demoCommander, director: economy.models.director },
+      })
+    : economy;
   return {
     ...config,
     turns: Math.min(config.turns, DEMO_EXECUTION.maxTurns),

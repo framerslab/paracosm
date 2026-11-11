@@ -342,16 +342,28 @@ const NO_FACT = /^(?:none|nothing|n\/?a|null|nil|not applicable|-+)(?:\s*[.,;:!(
 
 /**
  * A departure field that opens by saying the bar is followed or nothing
- * departs ("I follow my bar", "No departure."); with no number in it, it
- * names no fact.
+ * departs ("I follow my bar", "No departure.").
  */
 const SAYS_FOLLOWED = /^(?:i\s+)?(?:follow(?:s|ing)?\s+(?:my|the)\s+bar|no\s+departure|not\s+departing)\b/i;
 
-/** The fact a departure field names, or "" when it names none. */
-function departureFactOf(written: string): string {
-  if (NO_FACT.test(written)) return '';
-  if (SAYS_FOLLOWED.test(written) && !/\d/.test(written)) return '';
-  return written;
+/** "in 100", "out of 100" and "/100": the scale the prompt states its numbers on. */
+const OUT_OF_100 = /\b(?:in|out\s+of)\s+100\b|\/\s*100\b/gi;
+
+/** The numbers a text writes, outside words such as option_2 and the scale "in 100". */
+function numbersIn(text: string): number[] {
+  return (text.replace(OUT_OF_100, ' ').match(/(?<![\w.])\d+(?:\.\d+)?/g) ?? []).map(Number);
+}
+
+/**
+ * The fact a departure field names, or "" when it names none. A field that
+ * opens with a placeholder or by saying the bar is followed names a fact
+ * only when it writes a number its prompt did not state ("None: 0 spare
+ * cartridges"); the bar and the chances restated ("I follow my bar (41)")
+ * are no fact. A field that opens any other way is kept as written.
+ */
+function departureFactOf(written: string, stated: readonly number[]): string {
+  if (!NO_FACT.test(written) && !SAYS_FOLLOWED.test(written)) return written;
+  return numbersIn(written).some(n => !stated.includes(n)) ? written : '';
 }
 
 /**
@@ -377,7 +389,7 @@ export function checkBarDeparture(
   const clearsBar = numbers.boldChance >= numbers.bar;
   const departs = clearsBar !== choseBold;
   const written = typeof barDeparture === 'string' ? barDeparture.trim() : '';
-  const departureFact = departureFactOf(written);
+  const departureFact = departureFactOf(written, [numbers.bar, numbers.boldChance, numbers.safeChance]);
   return {
     boldChance: numbers.boldChance,
     bar: numbers.bar,
