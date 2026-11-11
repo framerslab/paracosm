@@ -17,6 +17,14 @@
  * the prompt states stands in for the model, and its reply goes through the
  * real decision schema, option reading, seeded outcome draw, effects and
  * drift, in the orchestrator's order, on a real Mars kernel.
+ *
+ * The first live pair with the rule (11 November 2026 at 07:39 UTC, version
+ * 0.9.1101, the same body and seed) read it and quoted it, and Aria Chen
+ * still took the bold option once in 6 (#250): on 5 events she stated that
+ * its chance cleared her bar and chose a safe option, each time for a danger
+ * the event described, which the chance and the multiples already count.
+ * Her 6 replies and Dietrich Voss's 7 are in the fixture under
+ * `ruleReplies`.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,9 +69,18 @@ interface RecordedRun {
   decisions: RecordedDecision[];
 }
 
+/** A decision of the 11 November pair, with the reply the commander wrote. */
+interface RecordedReply extends RecordedDecision {
+  reply: { selectedOptionId?: string; decision: string; rationale: string; reasoning: string };
+}
+
 const fixture = JSON.parse(
   readFileSync(new URL('../fixtures/mars-live-decisions-2026-11.json', import.meta.url), 'utf-8'),
-) as { seed: number; runs: RecordedRun[] };
+) as {
+  seed: number;
+  runs: RecordedRun[];
+  ruleReplies: { pairStartedAt: string; version: string; runs: Array<Omit<RecordedRun, 'pairStartedAt' | 'decisions'> & { decisions: RecordedReply[] }> };
+};
 const recorded = fixture.runs.flatMap(r => r.decisions);
 
 const leaders = marsScenario.presets[0].leaders!;
@@ -72,9 +89,30 @@ const ARIA = 'Aria Chen';
 const VOSS = 'Dietrich Voss';
 
 /** The decision rule the commander step builds, or "" where the code has none. */
-const ruleFor = (args: { hexaco: HexacoProfile; options: CrisisOption[]; riskSuccessProbability: number; metrics: WorldMetrics }): string => {
+const ruleFor = (args: { hexaco: HexacoProfile; options: CrisisOption[]; riskSuccessProbability: number; metrics: WorldMetrics; withBar?: boolean }): string => {
   const build = (setup as any).buildDecisionRule;
   return typeof build === 'function' ? build(args) : '';
+};
+
+/** The numbers a decision's rule states (the chances and the bar), or undefined where the code reads none. */
+const numbersFor = (args: { hexaco: HexacoProfile; options: CrisisOption[]; riskSuccessProbability: number; metrics: WorldMetrics }): unknown => {
+  const read = (setup as any).decisionRuleNumbers;
+  return typeof read === 'function' ? read(args) : undefined;
+};
+
+/** How a decision stands against the bar its prompt stated, or undefined where the code checks none. */
+interface BarCheckSeen {
+  boldChance: number;
+  bar: number;
+  clearsBar: boolean;
+  choseBold: boolean;
+  departs: boolean;
+  departureFact: string;
+  unexplained: boolean;
+}
+const checkFor = (numbers: unknown, chosenOptionId: string | null | undefined, barDeparture: unknown): BarCheckSeen | undefined => {
+  const check = (setup as any).checkBarDeparture;
+  return typeof check === 'function' ? check(numbers, chosenOptionId, barDeparture) : undefined;
 };
 
 /** The options block, as the commander step writes it. */
@@ -207,9 +245,7 @@ test('the prompt states the bold option\'s chance, the safe options\' chance and
   const stakes = statedStakes(prompt);
   assert.deepEqual(stakes.gain, [2.5, -2, 1, -1], 'what a gain is multiplied by on a bold success and failure, a safe success and failure');
   assert.match(prompt, /The departments wrote their reports without this option list or these odds/);
-  assert.match(prompt, /Choose by your bar\. Depart from it only for a reason that belongs to this event/);
   assert.match(prompt, /\(2\) What do the department reports establish about the problem\?/);
-  assert.match(prompt, /\(4\) The bold option's chance against my bar/);
   assert.doesNotMatch(prompt, /Do the department reports converge or conflict/);
 });
 
@@ -260,6 +296,7 @@ function followTheStatedRule(prompt: string): string {
   const choice = n.boldId && n.bold !== undefined && n.bar !== undefined && n.bold >= n.bar ? n.boldId : firstSafe;
   return JSON.stringify({
     selectedOptionId: choice,
+    barDeparture: '',
     decision: `${choice}, by the rule the prompt states.`,
     rationale: '',
     reasoning: `(4) chance ${n.bold ?? 'not stated'} against bar ${n.bar ?? 'not stated'}`,
@@ -280,6 +317,7 @@ function runLeader(name: string, events: RecordedDecision[]) {
   const turns = [...new Set(events.map(e => e.turn))].sort((a, b) => a - b);
   const chosen: string[] = [];
   const outcomes: TurnOutcome[] = [];
+  const checks: unknown[] = [];
   let prevTime = 2035;
   for (const turn of turns) {
     const turnEvents = events.filter(e => e.turn === turn).sort((a, b) => a.eventIndex - b.eventIndex);
@@ -289,9 +327,11 @@ function runLeader(name: string, events: RecordedDecision[]) {
     for (const e of turnEvents) {
       const ei = e.eventIndex;
       const prompt = promptFor(live, e, kernel.getState().metrics);
+      const numbers = numbersFor({ hexaco: live, options: e.options, riskSuccessProbability: e.riskSuccessProbability, metrics: kernel.getState().metrics });
       const decision = CommanderDecisionSchema.parse(JSON.parse(followTheStatedRule(prompt)));
       const resolved = resolveChosenOption(decision.selectedOptionId, decision.decision, e.options);
       assert.ok(resolved, `${name}, "${e.title}": the reply names an option the event offers`);
+      checks.push(checkFor(numbers, resolved, (decision as { barDeparture?: unknown }).barDeparture));
       const outcome = classifyOutcomeById(resolved!, e.options, e.riskSuccessProbability, kernel.getState().metrics, new SeededRng(seed).turnSeed(turn * 100 + ei));
       const isRiskyChoice = resolved === e.riskyOptionId;
       const personalityBonus =
@@ -315,7 +355,7 @@ function runLeader(name: string, events: RecordedDecision[]) {
     driftCommanderHexaco(live, lastOutcome, timeDelta, turn, time, history);
     prevTime = time;
   }
-  return { chosen, outcomes, live, history };
+  return { chosen, outcomes, live, history, checks };
 }
 
 test('a reader that follows the stated rule decides differently for the two leaders on the same events, and the outcome step and the drift keep them apart', (t) => {
@@ -386,10 +426,162 @@ test('a /setup leader whose profile leaves traits out or empty gets the trait mo
   assert.doesNotMatch(lines[1], /\bconscientiousness\b/);
 });
 
-test('the commander step builds the rule from the live profile and passes it to the decision prompt', () => {
+test('the commander step builds the rule from the live profile, passes it to the decision prompt, checks the reply against the bar it stated and keeps the check in the artifact', () => {
   const src = readFileSync(new URL('../../src/runtime/orchestrator/index.ts', import.meta.url), 'utf-8');
-  assert.match(src, /buildDecisionRule\(\{\s*hexaco: commanderHexacoLive,/);
+  assert.match(src, /const ruleArgs\b[^=]*= \{\s*hexaco: commanderHexacoLive,/, 'one set of arguments, from the live profile');
+  assert.match(src, /const decisionRule = buildDecisionRule\(ruleArgs\);/);
+  assert.match(src, /const ruleNumbers = decisionRuleNumbers\(ruleArgs\);/, 'the numbers the rule states, read before the reply');
   assert.match(src, /buildCommanderTurnPrompt\(\{[^}]*\bdecisionRule\b[^}]*\}\)/);
+  assert.match(src, /const barCheck = checkBarDeparture\(ruleNumbers, resolvedOptionId, decision\.barDeparture\);/, 'the reply checked against the option it chose');
+  assert.match(src, /allCommanderDecisions\.push\(\{[^}]*\bbarCheck\b/, 'the check kept in the decision record');
+  assert.match(src, /barChecks: summarizeBarChecks\(allCommanderDecisions\.map\(/, 'the run counts the checks in its artifact');
+});
+
+/** One recorded reply of the 11 November pair, read as the commander step reads it, and checked against the bar its prompt stated. */
+function checkRecordedReply(run: { hexacoHistory: Array<{ turn: number; hexaco: HexacoProfile }> }, d: RecordedReply, reply: Record<string, unknown> = d.reply) {
+  // The profile a decision reads is the one after the turn before.
+  const hexaco = run.hexacoHistory.find(h => h.turn === d.turn - 1)!.hexaco;
+  const metrics = asMetrics(d.metricsAtTurnStart);
+  const decision = CommanderDecisionSchema.parse(reply);
+  const resolved = resolveChosenOption(decision.selectedOptionId, decision.decision, d.options);
+  const numbers = numbersFor({ hexaco, options: d.options, riskSuccessProbability: d.riskSuccessProbability, metrics });
+  return { hexaco, metrics, decision, resolved, check: checkFor(numbers, resolved, (decision as { barDeparture?: unknown }).barDeparture) };
+}
+
+const ariaReplies = fixture.ruleReplies.runs.find(r => r.leader === ARIA)!;
+const vossReplies = fixture.ruleReplies.runs.find(r => r.leader === VOSS)!;
+
+test('the rule says the chances and multiples already count the dangers the event describes, what following the bar means, and that a departure names a fact the odds do not count in its own field', () => {
+  // On 11 November Aria Chen quoted her bar under the bold option's chance on
+  // every event and departed on 5 of 6 for the event's own dangers ("toxicity
+  // already manifesting", "a large downside tail", "the downside is
+  // systemic", "the downside tail is unacceptable"): the departure line let
+  // any danger the event describes count as "a reason that belongs to this
+  // event", though a bold failure is that danger and its chance and cost
+  // multiple are stated beside it.
+  const applied = appliedStakes();
+  for (const run of [ariaReplies, vossReplies]) {
+    for (const d of run.decisions) {
+      const hexaco = run.hexacoHistory.find(h => h.turn === d.turn - 1)!.hexaco;
+      const prompt = promptFor(hexaco, d, asMetrics(d.metricsAtTurnStart));
+      const where = `${run.leader}, turn ${d.turn}, "${d.title}"`;
+      assert.match(prompt, /The chances and multiples above already include the dangers this event describes\./, `${where}: the odds include the event's dangers`);
+      const failure = /what the event gains is multiplied by (\S+) against (\S+) for a safe failure, and what it costs by (\S+) against (\S+)\./.exec(prompt);
+      assert.deepEqual(failure?.slice(1, 5).map(Number), [applied.gain[1], applied.gain[3], applied.cost[1], applied.cost[3]], `${where}: what a failure multiplies a gain and a cost by, as the outcome step applies them`);
+      assert.match(prompt, /A danger the event describes is not a reason to depart from your bar/, `${where}: a described danger is no reason to depart`);
+      assert.match(prompt, /when the bold option's chance is at least your bar, following it means choosing the bold option; when it is under, a safe option\./, `${where}: what following the bar means`);
+      assert.match(prompt, /Depart from it only for a fact these odds do not count/, `${where}: what a departure must name`);
+      assert.match(prompt, /Write that fact in "barDeparture"; leave "barDeparture" empty when you follow your bar\./, `${where}: the departure's own field`);
+      assert.doesNotMatch(prompt, /a reason that belongs to this event/, `${where}: the old departure line is gone`);
+      assert.match(prompt, /\(4\) Is the bold option's chance at least my bar\? Give both numbers and answer yes or no\./, `${where}: point (4) asks for the comparison first`);
+      assert.match(prompt, /Then set selectedOptionId, barDeparture, decision, and rationale\./, `${where}: the reply's fields`);
+    }
+  }
+  // Mars's tables hold gains only, so on these 13 events a bold failure
+  // moves every entry by the gain multiple of a failure and no entry by a
+  // cost multiple: the line must state the gain multiple, not the cost
+  // multiple alone. The registry is the one the run builds
+  // (EffectRegistry.forScenario(sc) in orchestrator/index.ts).
+  const marsRegistry = EffectRegistry.forScenario(marsScenario as any);
+  for (const d of [...ariaReplies.decisions, ...vossReplies.decisions]) {
+    const table = marsRegistry.getBaseEffect(d.category);
+    assert.ok(Object.keys(table).length > 0, `Mars "${d.category}": a table`);
+    const failed = marsRegistry.applyOutcome(d.category, 'risky_failure', { personalityBonus: 0, noise: 0 });
+    for (const [key, v] of Object.entries(table)) {
+      assert.equal(Math.round((failed[key] / v) * 100) / 100, applied.gain[1], `Mars "${d.category}" ${key}: a bold failure moves it by the gain multiple`);
+    }
+  }
+  // A leader on another trait model has no bar, so nothing to depart from.
+  const landfall = ariaReplies.decisions[0];
+  const noBar = setup.buildCommanderTurnPrompt({
+    turn: 1, time: 2035, eventLabel: '', title: landfall.title, description: landfall.description,
+    summaries: SUMMARIES, toolboxBlock: '', stateLine: 'Population 30 | Morale 85%', optionText: optionText(landfall.options), effectsText: '', labels: marsScenario.labels,
+    decisionRule: ruleFor({ hexaco: preset(ARIA), options: landfall.options, riskSuccessProbability: landfall.riskSuccessProbability, metrics: asMetrics(landfall.metricsAtTurnStart), withBar: false }),
+  } as any);
+  assert.match(noBar, /is the bold option\. It succeeds about \d+ times in 100\./, 'the chances still stated');
+  assert.doesNotMatch(noBar, /barDeparture|your bar/, 'no bar and no departure field without a bar');
+  assert.match(noBar, /Then set selectedOptionId, decision, and rationale\./);
+});
+
+test('a reply that clears the bar, chooses a safe option and names no fact is flagged in its decision record and counted, and a reply that names one is kept with it', () => {
+  // The 13 replies of 11 November, as the commander wrote them.
+  assert.equal(ariaReplies.decisions.length, 6);
+  assert.equal(vossReplies.decisions.length, 7);
+  const flagged = (run: typeof ariaReplies) => run.decisions.filter(d => checkRecordedReply(run, d).check?.unexplained).map(d => d.turn);
+  const followed = (run: typeof ariaReplies) => run.decisions.filter(d => checkRecordedReply(run, d).check?.departs === false).map(d => d.turn);
+  // Aria Chen: the bold option's chance cleared her bar on all 6; she took it on Landfall only.
+  assert.deepEqual(flagged(ariaReplies), [2, 3, 4, 5, 6], 'Aria Chen\'s replies flagged as departures with no fact named, by turn');
+  assert.deepEqual(followed(ariaReplies), [1], 'Aria Chen followed her bar on Landfall');
+  // Dietrich Voss: the chance was under his bar on all 7, and he chose safe on all 7.
+  assert.deepEqual(flagged(vossReplies), [], 'none of Dietrich Voss\'s replies flagged');
+  assert.deepEqual(followed(vossReplies), [1, 2, 3, 4, 4, 5, 6], 'Dietrich Voss followed his bar on every event');
+  for (const [run, d] of [...ariaReplies.decisions.map(d => [ariaReplies, d] as const), ...vossReplies.decisions.map(d => [vossReplies, d] as const)]) {
+    const { hexaco, metrics, check, decision } = checkRecordedReply(run, d);
+    assert.equal(decision.barDeparture, '', `${run.leader}, turn ${d.turn}: a reply written before the field reads as naming no fact`);
+    assert.equal(check?.boldChance, Math.round(100 * outcomeSuccessChance(true, d.riskSuccessProbability, metrics)), `${run.leader}, turn ${d.turn}: the bold chance the prompt stated`);
+    assert.equal(check?.bar, Math.round(100 * barOf(hexaco)), `${run.leader}, turn ${d.turn}: the bar the prompt stated`);
+  }
+
+  // Counted for the run.
+  const summarize = (setup as any).summarizeBarChecks;
+  const all = [...ariaReplies.decisions.map(d => checkRecordedReply(ariaReplies, d).check), ...vossReplies.decisions.map(d => checkRecordedReply(vossReplies, d).check)];
+  assert.deepEqual(typeof summarize === 'function' ? summarize(all) : undefined, { decisions: 13, followed: 8, departed: 5, departedWithoutFact: 5 });
+
+  // The same turn 5 reply with a fact named: a departure, kept with its fact, not flagged.
+  const turn5 = ariaReplies.decisions.find(d => d.turn === 5)!;
+  const fact = 'lifeSupportCapacity 120.75 against a population of 38';
+  const named = checkRecordedReply(ariaReplies, turn5, { ...turn5.reply, barDeparture: fact });
+  assert.equal(named.decision.barDeparture, fact, 'the schema keeps the field');
+  assert.equal(named.check?.departs, true);
+  assert.equal(named.check?.unexplained, false);
+  assert.equal(named.check?.departureFact, fact);
+  // "none" and null name no fact, and neither costs a retry.
+  for (const empty of ['none', 'N/A', null]) {
+    const parsed = CommanderDecisionSchema.safeParse({ ...turn5.reply, barDeparture: empty });
+    assert.equal(parsed.success, true, `barDeparture ${JSON.stringify(empty)} parses`);
+    assert.equal(checkRecordedReply(ariaReplies, turn5, { ...turn5.reply, barDeparture: empty }).check?.unexplained, true, `barDeparture ${JSON.stringify(empty)} names no fact`);
+  }
+});
+
+test('the reader that follows the stated rule is never flagged, and its decisions all count as followed', () => {
+  const run = fixture.runs.find(r => r.pairStartedAt === '2026-11-10T14:06Z' && r.leader === ARIA)!;
+  for (const name of [ARIA, VOSS]) {
+    const { checks } = runLeader(name, run.decisions);
+    const seen = checks as Array<BarCheckSeen | undefined>;
+    assert.equal(seen.filter(c => c && !c.departs).length, 7, `${name}: the bar check reads 7 of 7 decisions as following the bar`);
+    assert.equal(seen.filter(c => c?.unexplained).length, 0, `${name}: none flagged`);
+  }
+});
+
+test('a departure field that says the bar is followed, or puts a placeholder before other words, names no fact', () => {
+  // Aria Chen's turn 6 reply ("Legacy Assessment"): the bold option's chance
+  // cleared her bar, she chose the safe option, and her point (4) says "I
+  // follow my bar for truth". Words like those in the field are no fact the
+  // odds do not count, so the departure stays flagged and counted.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  for (const said of ['None, I follow my bar', 'N/A - following the bar', 'Nothing; following my bar.', 'none (I follow my bar)', 'I follow my bar', 'Following my bar for truth', 'No departure.']) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+    assert.equal(check?.departs, true, `"${said}": the reply departs from the bar`);
+    assert.equal(check?.departureFact, '', `"${said}": no fact kept`);
+    assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+  }
+  // A value that is not text and holds nothing reads as empty, costs no
+  // retry, and names no fact; one that holds something is kept as its JSON.
+  for (const empty of [false, true, 0, {}, []]) {
+    const { decision, check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: empty });
+    assert.equal(decision.barDeparture, '', `${JSON.stringify(empty)}: reads as empty`);
+    assert.equal(check?.unexplained, true, `${JSON.stringify(empty)}: flagged as naming no fact`);
+  }
+  const structured = { foodMonthsReserve: 69.9, people: 39 };
+  const kept = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: structured });
+  assert.equal(kept.check?.departureFact, JSON.stringify(structured), 'an object that holds a fact is kept as its JSON');
+  assert.equal(kept.check?.unexplained, false);
+  // A fact that opens with a placeholder word, or names a number, is kept.
+  for (const fact of ['None of the 39 colonists has the training option_b needs', 'foodMonthsReserve 69.9 with 39 people to feed']) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+    assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+    assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+  }
 });
 
 test('the opening cues fire at the poles the two presets were written at', () => {

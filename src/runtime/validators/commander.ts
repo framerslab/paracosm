@@ -11,8 +11,28 @@
  */
 import { z } from 'zod';
 
+/** A reply value that holds nothing: missing, null, a boolean, 0, an empty array or an empty object. */
+function holdsNothing(v: unknown): boolean {
+  if (v == null || typeof v === 'boolean' || v === 0) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  return typeof v === 'object' && Object.keys(v as object).length === 0;
+}
+
 export const CommanderDecisionSchema = z.object({
   selectedOptionId: z.string().optional(),
+  /**
+   * The fact the commander departs from its bar for, when its prompt
+   * stated one (see `buildDecisionRule`): a fact the stated odds do not
+   * count, with its number. Empty when it follows its bar. A value that
+   * holds nothing (missing, null, a boolean, 0, [] or {}) reads as empty
+   * and any other value that is not text as its JSON, so the field never
+   * costs a retry; the commander step flags a departure with this field
+   * empty (`checkBarDeparture`).
+   */
+  barDeparture: z.preprocess(
+    (v) => (holdsNothing(v) ? '' : typeof v === 'string' ? v : JSON.stringify(v)),
+    z.string().default(''),
+  ),
   selectedEffectIds: z.array(z.string()).optional(),
   decision: z.string().min(1),
   rationale: z.string().default(''),

@@ -30,6 +30,11 @@ import {
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
   buildDecisionRule,
+  decisionRuleNumbers,
+  checkBarDeparture,
+  summarizeBarChecks,
+  type BarCheck,
+  type DecisionRuleArgs,
   buildEffectsBlock,
   resolveActiveDepartments,
   resolveEventDepartments,
@@ -954,7 +959,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Run-wide accumulators surfaced in the final runSimulation() result so
   // programmatic consumers see the same data the dashboard sees via SSE.
   const allDepartmentReports: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; report: DepartmentReport }> = [];
-  const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome }> = [];
+  // `barCheck`: how the choice stands against the bar the decision prompt
+  // stated, when it stated one (see checkBarDeparture).
+  const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome; barCheck?: BarCheck }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
   const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agents/agent-reactions.js').AgentReaction[] }> = [];
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
@@ -1555,14 +1562,17 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // and the multipliers. The leader's profile reached a decision only
       // through the drift line, and two opposite Mars leaders chose a safe
       // option in 40 of 41 live decisions (#248). A leader on another trait
-      // model is shown the odds and the multipliers without a bar.
-      const decisionRule = buildDecisionRule({
+      // model is shown the odds and the multipliers without a bar. The
+      // numbers the rule states are kept to check the reply against (#250).
+      const ruleArgs: DecisionRuleArgs = {
         hexaco: commanderHexacoLive,
         options: event.options,
         riskSuccessProbability: event.riskSuccessProbability,
         metrics: kernel.getState().metrics,
         withBar: commanderTraitProfileLive.modelId === 'hexaco',
-      });
+      };
+      const decisionRule = buildDecisionRule(ruleArgs);
+      const ruleNumbers = decisionRuleNumbers(ruleArgs);
       const cmdPrompt = buildCommanderTurnPrompt({
         turn,
         time,
@@ -1629,6 +1639,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // The option the decision chose: an id the event offers, else the one
       // its text names; an id the event does not offer is not a choice.
       const resolvedOptionId = resolveChosenOption(decision.selectedOptionId, decision.decision, event.options);
+      // A choice against the stated bar with no fact named for it is
+      // flagged in the decision record and counted in the artifact; the
+      // choice stands (#250).
+      const barCheck = checkBarDeparture(ruleNumbers, resolvedOptionId, decision.barDeparture);
+      if (barCheck?.unexplained) {
+        console.log(`  [commander] turn ${turn} event ${ei + 1}: the bold option's chance ${barCheck.boldChance} is ${barCheck.clearsBar ? 'at or above' : 'under'} the bar ${barCheck.bar}, the choice departs from it, and the reply names no fact for the departure`);
+      }
       const outcome = resolvedOptionId
         ? classifyOutcomeById(resolvedOptionId, event.options, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng)
         : classifyOutcome(decision.decision, scenario.riskyOption, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng);
@@ -1684,7 +1701,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       if (decision.selectedPolicies?.length) {
         turnPolicyEffects.push(...decision.selectedPolicies.map(p => typeof p === 'string' ? p : JSON.stringify(p)));
       }
-      allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome });
+      allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome, ...(barCheck ? { barCheck } : {}) });
       allDirectorEvents.push({ turn, time, eventIndex: ei, event, pacing: batchPacing });
       lastOutcome = outcome;
       lastEventCategory = event.category;
@@ -2074,6 +2091,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         outcomeClassifications: outcomeLog,
         directorEvents: allDirectorEvents,
         commanderDecisions: allCommanderDecisions,
+        // The run's choices against the bars their prompts stated: how many
+        // followed, departed, and departed with no fact named.
+        barChecks: summarizeBarChecks(allCommanderDecisions.map(cd => cd.barCheck)),
         forgeAttempts: allForges,
         totalCitations: citationCatalog.length,
         totalToolsForged: forgedToolbox.length,
