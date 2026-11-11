@@ -31,6 +31,7 @@
     "defaultTurns": 8,
     "maxEventsPerTurn": 2,
     "defaultSeed": 1200,
+    "mortalityDice": "life",
     "defaultStartTime": 2030,
     "defaultPopulation": 50,
     "configurableSections": [
@@ -227,7 +228,8 @@
         "type": "number",
         "initial": 200,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "foodMonthsReserve": {
         "id": "foodMonthsReserve",
@@ -245,7 +247,8 @@
         "type": "number",
         "initial": 400,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "pressurizedVolumeM3": {
         "id": "pressurizedVolumeM3",
@@ -254,7 +257,8 @@
         "type": "number",
         "initial": 1500,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "infrastructureModules": {
         "id": "infrastructureModules",
@@ -263,7 +267,8 @@
         "type": "number",
         "initial": 2,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "scienceOutput": {
         "id": "scienceOutput",
@@ -293,7 +298,8 @@
         "type": "number",
         "initial": 60,
         "min": 0,
-        "category": "capacity"
+        "category": "capacity",
+        "sustains": true
       }
     },
     "statuses": {},
