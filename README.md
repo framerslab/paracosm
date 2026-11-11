@@ -84,11 +84,11 @@ console.log(trunk.fingerprint, branch.fingerprint);
 
 ```typescript
 const replay = await wm.replay(storedArtifact);
-console.log(replay.matches);     // true when the between-turn step reproduces each saved snapshot
-console.log(replay.divergence);  // first-mismatch JSON pointer when matches=false
+console.log(replay.matches);     // true when each between-turn step reproduces the state the run saved after it
+console.log(replay.divergence);  // first path that differs, from the artifact's root, when matches=false
 ```
 
-Replay restores the kernel from each saved snapshot, re-runs the between-turn step (ageing, dose, deaths, births, food and morale) to the next turn, and compares the result with the next snapshot. It calls no model, so it is fast and free. It does not re-apply a turn's decisions, and the turn loop saves each snapshot after them, so a run of two or more turns that the turn loop saved reports a mismatch at its second snapshot ([#235](https://github.com/framerslab/paracosm/issues/235)), and a one-turn run, with one snapshot, matches with no transition checked. What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
+With `captureSnapshots: true` the turn loop saves, beside each turn's end-of-turn snapshot, the state its first between-turn step starts from and the state right after each turn's step, before the turn's decisions move it. Replay restores the kernel from the state each step started from, re-runs the step (ageing, dose, deaths, births, food and morale), and compares the result with the state the run saved after it. It calls no model, so it is fast and free. It does not re-apply a turn's decisions. A run saved before the turn loop kept those snapshots gets a `WorldModelReplayError` saying replay cannot verify it, never a match or a mismatch ([#235](https://github.com/framerslab/paracosm/issues/235)). What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
 
 ---
 
