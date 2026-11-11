@@ -2258,13 +2258,17 @@ export async function replaySimulation(
 
   // Every entry is read as a snapshot below, so each must be one a kernel
   // of this scenario restores: the version `SimulationKernel.fromSnapshot`
-  // reads, this scenario's id, a turn, a time and a state.
+  // reads, this scenario's id, a turn, a time, the generator state, the
+  // seed, the start time and a state.
   const isSnapshot = (s: unknown): s is Snapshot =>
     typeof s === 'object' && s !== null
     && (s as Snapshot).snapshotVersion === 1
     && (s as Snapshot).scenarioId === scenario.id
     && Number.isInteger((s as Snapshot).turn)
     && typeof (s as Snapshot).time === 'number'
+    && typeof (s as Snapshot).rngState === 'number'
+    && typeof (s as Snapshot).seed === 'number'
+    && typeof (s as Snapshot).startTime === 'number'
     && typeof (s as Snapshot).state === 'object' && (s as Snapshot).state !== null;
   const notSnapshot = [
     ...(isSnapshot(start) ? [] : ['kernelSnapshotAtStart']),
