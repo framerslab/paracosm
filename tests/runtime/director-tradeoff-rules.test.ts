@@ -68,3 +68,29 @@ test('a run with no scenario instructions sends the default with the rules once'
   assert.equal(count(text, TRADE_OFF), 1);
   assert.match(text, /You generate 1 to 2 events per turn/);
 });
+
+test('the events a failed director falls back on follow the rules: no label carries a word the rules forbid, and no bold option is a bypass or a shortcut', () => {
+  // The first prepared event offered "Improvised bypass" ("Build a bypass
+  // from non-standard parts") as its bold option, which the rules forbid.
+  const rules = (director.OPTION_TRADEOFF_RULES as string).replace(/\s+/g, ' ');
+  const labelWords = /Write every label without the words ([^.]+)\./.exec(rules)![1].split(/,\s*|\s+or\s+/).filter(Boolean);
+  const notABet = /never the omission of a safety step, a (\w+), or a (\w+) past a check/.exec(rules)!.slice(1, 3);
+  assert.deepEqual(labelWords, ['risky', 'safe', 'conservative', 'bypass']);
+  assert.deepEqual(notABet, ['bypass', 'shortcut']);
+  const word = (w: string) => new RegExp(`\\b${w}`, 'i');
+  const events = director.FALLBACK_EVENTS;
+  assert.ok(events.length > 0);
+  for (const event of events) {
+    const bold = event.options.filter(o => o.isRisky);
+    assert.equal(bold.length, 1, `${event.title}: one bold option`);
+    assert.equal(bold[0].id, event.riskyOptionId, `${event.title}: the bold option is the one the event names`);
+    for (const option of event.options) {
+      for (const w of labelWords) assert.doesNotMatch(option.label, word(w), `${event.title}, ${option.id}: the label "${option.label}" carries "${w}"`);
+    }
+    for (const w of notABet) {
+      assert.doesNotMatch(`${bold[0].label} ${bold[0].description}`, word(w), `${event.title}: the bold option reads as a ${w}`);
+    }
+  }
+  // Any id may hold the bold option: the prepared events do not keep it in one place.
+  assert.ok(new Set(events.map(e => e.riskyOptionId)).size > 1, `the bold option sits at ${events.map(e => e.riskyOptionId).join(', ')}`);
+});

@@ -36,6 +36,8 @@ import { applyOutcomeEffects } from '../../src/runtime/orchestrator/outcome-effe
 import { CommanderDecisionSchema } from '../../src/runtime/validators/commander.js';
 import type { HexacoProfile, TurnOutcome, WorldMetrics } from '../../src/engine/core/state.js';
 import type { CrisisOption } from '../../src/runtime/contracts.js';
+import { normalizeSimulationConfig } from '../../src/cli/sim-config.js';
+import { hexacoModel } from '../../src/engine/traits/hexaco.js';
 
 interface RecordedDecision {
   turn: number;
@@ -331,6 +333,53 @@ test('a reader that follows the stated rule decides differently for the two lead
   assert.equal(bold(voss.outcomes), 0, `Dietrich Voss took the bold option on ${bold(voss.outcomes)} of 7`);
   assert.ok(gap >= 0.15, `after turn 6 Aria Chen's bar is ${gap.toFixed(3)} under Dietrich Voss's`);
   assert.ok(aria.live.conscientiousness <= 0.65, `Aria Chen's conscientiousness after turn 6 is ${aria.live.conscientiousness}`);
+});
+
+test('a /setup leader whose profile leaves traits out or empty gets the trait model\'s neutral value for each, one log line names them, and the leader decides', (t) => {
+  // A /setup body is not checked trait by trait, and a profile with
+  // openness alone reached the decision rule with five traits undefined:
+  // the rule threw at the first one it printed, and the event loop skipped
+  // every decision of the run. A JSON body cannot carry NaN, so an empty
+  // trait arrives as null.
+  const warn = t.mock.method(console, 'warn', () => {});
+  const body = JSON.parse(JSON.stringify({
+    actors: [
+      { name: 'Partial Lead', archetype: 'The Visionary', hexaco: { openness: 0.9 }, instructions: '' },
+      { name: VOSS, archetype: 'The Engineer', hexaco: { ...preset(VOSS), emotionality: null }, instructions: '' },
+    ],
+    turns: 1,
+  }));
+  const config = normalizeSimulationConfig(body, marsScenario);
+  const neutral = (trait: string) => hexacoModel.defaults[trait] ?? 0.5;
+  const landfall = recorded[0];
+  for (const actor of config.actors) {
+    const hexaco = actor.hexaco as HexacoProfile;
+    const prompt = promptFor(hexaco, landfall, asMetrics(landfall.metricsAtTurnStart));
+    assert.doesNotMatch(prompt, /NaN/, `${actor.name}: the rule block prints a number for every trait`);
+    assert.equal(statedNumbers(prompt).bar, Math.round(100 * barOf(hexaco)), `${actor.name}: the bar`);
+    const decision = CommanderDecisionSchema.parse(JSON.parse(followTheStatedRule(prompt)));
+    assert.ok(resolveChosenOption(decision.selectedOptionId, decision.decision, landfall.options), `${actor.name}: a decision is made`);
+  }
+  const [partial, voss] = config.actors.map(a => a.hexaco as HexacoProfile);
+  assert.deepEqual(partial, {
+    openness: 0.9,
+    conscientiousness: neutral('conscientiousness'),
+    extraversion: neutral('extraversion'),
+    agreeableness: neutral('agreeableness'),
+    emotionality: neutral('emotionality'),
+    honestyHumility: neutral('honestyHumility'),
+  });
+  assert.deepEqual(voss, { ...preset(VOSS), emotionality: neutral('emotionality') });
+  const lines = warn.mock.calls.map(c => c.arguments.map(String).join(' '));
+  assert.equal(lines.length, 2, `one line for each leader with a trait filled: ${JSON.stringify(lines)}`);
+  assert.match(lines[0], /Partial Lead/);
+  for (const trait of ['conscientiousness', 'extraversion', 'agreeableness', 'emotionality', 'honestyHumility']) {
+    assert.match(lines[0], new RegExp(`\\b${trait}\\b`), `the first line names ${trait}`);
+  }
+  assert.doesNotMatch(lines[0], /\bopenness\b/);
+  assert.match(lines[1], /Dietrich Voss/);
+  assert.match(lines[1], /\bemotionality\b/);
+  assert.doesNotMatch(lines[1], /\bconscientiousness\b/);
 });
 
 test('the commander step builds the rule from the live profile and passes it to the decision prompt', () => {
