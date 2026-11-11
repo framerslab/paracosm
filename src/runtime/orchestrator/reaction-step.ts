@@ -83,6 +83,11 @@ export interface RunReactionStepArgs {
   /** Record schema retry attempts for the reactions batch. */
   recordSchemaAttempt?: (schemaName: string, attempts: number, fellBack: boolean) => void;
   emit: (type: SimEventType, data?: Record<string, unknown>) => void;
+  /**
+   * Replaces the provider call for the reaction batches (tests). Production
+   * callers omit it and the reactions go to the provider.
+   */
+  generateObjectImpl?: NonNullable<Parameters<typeof generateAgentReactions>[2]>['generateObjectImpl'];
 }
 
 export interface ReactionStepResult {
@@ -107,7 +112,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
     kernel, scenario, turn, time, seed,
     turnEvents, turnEventTitles, lastEventCategory, lastOutcome,
     provider, apiKey, modelConfig, execution,
-    trackUsage, reportProviderError, recordSchemaAttempt, emit,
+    trackUsage, reportProviderError, recordSchemaAttempt, emit, generateObjectImpl,
   } = args;
 
   const reactionCtx: ReactionContext = {
@@ -178,6 +183,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
         onUsage: (result) => trackUsage(result, 'reactions'),
         onProviderError: (err) => reportProviderError(err, 'reactions'),
         onSchemaAttempt: (attempts, fellBack) => recordSchemaAttempt?.('ReactionBatch', attempts, fellBack),
+        generateObjectImpl,
       },
     );
   } catch (err) {
