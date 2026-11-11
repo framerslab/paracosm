@@ -479,6 +479,14 @@ export interface RunOptions extends RuntimeCredentialOptions {
    * `RunArtifact.intervention`. Turn-loop ignores; batch modes consume.
    */
   intervention?: InterventionConfig;
+  /**
+   * The directory the run's output file (`v3-<tag>-<timestamp>.json`) is
+   * written to. Omitted, the run writes to `PARACOSM_OUTPUT_DIR` from
+   * `process.env`, else `<cwd>/output`. The server passes its runs
+   * directory, so a server started with its own env writes, reads,
+   * sweeps and wipes its runs in one directory.
+   */
+  outputDir?: string;
 }
 
 export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
@@ -2114,6 +2122,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     actorArchetype: leader.archetype,
     turns: artifacts.length,
     toolRegs,
+    outputDir: opts.outputDir,
   });
   // Stash the on-disk path on scenarioExtensions so server-app can
   // enrich the SQLite RunRecord at run-end. /api/v1/runs/:runId reads

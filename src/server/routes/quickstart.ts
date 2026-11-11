@@ -192,6 +192,12 @@ export interface QuickstartDeps {
    */
   getDigitalTwinWorld?: () => Promise<WorldModel | null>;
   /**
+   * The directory a digital-twin run's output file is written to: the
+   * server's runs directory. Omitted, the run writes to
+   * `PARACOSM_OUTPUT_DIR` from `process.env`, else `<cwd>/output`.
+   */
+  outputDir?: string;
+  /**
    * Opens the caller's run for a digital-twin request: it replaces their
    * current run, is admitted under the server's run cap (throws
    * RunCapacityError above it), and opens with the run's active_scenario
@@ -700,6 +706,7 @@ export async function handleSimulateIntervention(
         costPreset: options.costPreset ?? 'economy',
         captureSnapshots: false,
         onEvent,
+        outputDir: deps.outputDir,
       });
     } catch (err) {
       console.error('[simulate-intervention] intervene failed:', err);

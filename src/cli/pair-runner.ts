@@ -215,6 +215,16 @@ function resolveVerdictModel(
   }
 }
 
+/** Options the server hands each runner along with the run's config. */
+export interface RunnerOptions {
+  /**
+   * The directory each leader's output file is written to. Omitted, the
+   * orchestrator writes to `PARACOSM_OUTPUT_DIR` from `process.env`,
+   * else `<cwd>/output`. The server passes its runs directory.
+   */
+  outputDir?: string;
+}
+
 export async function runPairSimulations(
   simConfig: NormalizedSimulationConfig,
   broadcast: BroadcastFn,
@@ -243,6 +253,7 @@ export async function runPairSimulations(
    * caught and logged so a failing handler does not break the run.
    */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  runnerOptions: RunnerOptions = {},
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
@@ -296,6 +307,7 @@ export async function runPairSimulations(
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
+      outputDir: runnerOptions.outputDir,
     }).then(async result => {
       broadcast('result', {
         leader: tag,
@@ -384,6 +396,7 @@ export async function runForkSimulation(
   scenario: ScenarioPackage = marsScenario,
   /** Optional callback fired after the forked artifact completes. */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  runnerOptions: RunnerOptions = {},
 ): Promise<void> {
   if (!simConfig.forkFrom) {
     throw new Error('runForkSimulation called without simConfig.forkFrom set');
@@ -454,6 +467,7 @@ export async function runForkSimulation(
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
+      outputDir: runnerOptions.outputDir,
     });
     broadcast('result', {
       leader: leaderTag(leader, 0),
@@ -508,6 +522,7 @@ export async function runBatchSimulations(
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
   /** Test seam: runs one actor in place of the orchestrator's runSimulation, so a test calls no model. */
   runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
+  runnerOptions: RunnerOptions = {},
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents, batch: true, actorCount: actors.length });
@@ -577,6 +592,7 @@ export async function runBatchSimulations(
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
+      outputDir: runnerOptions.outputDir,
     }).then(async result => {
       broadcast('result', {
         leader: tag,

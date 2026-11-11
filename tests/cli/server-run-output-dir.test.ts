@@ -78,8 +78,8 @@ test('a server given its own PARACOSM_OUTPUT_DIR writes its runs there and reads
     generateText: async () => ({ text: 'Output directory test' }),
     // The real pair runner, with the signal aborted before the runs
     // start: every argument the server passes is handed on unchanged.
-    runPairSimulations: (config, broadcast, _signal, scenario, onArtifact, ...rest: unknown[]) =>
-      (runPairSimulations as (...args: unknown[]) => Promise<void>)(config, broadcast, aborted.signal, scenario, onArtifact, ...rest),
+    runPairSimulations: (config, broadcast, _signal, scenario, onArtifact, runnerOptions) =>
+      runPairSimulations(config, broadcast, aborted.signal, scenario, onArtifact, runnerOptions),
   });
   server.listen(0);
   await once(server, 'listening');

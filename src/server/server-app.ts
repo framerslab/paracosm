@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
-import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn } from '../cli/pair-runner.js';
+import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
@@ -285,6 +285,8 @@ export interface CreateMarsServerOptions {
       artifact: import('../engine/schema/index.js').RunArtifact,
       leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
+    /** The server's runs directory, which each leader's output file is written to. */
+    runnerOptions?: RunnerOptions,
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
@@ -1911,6 +1913,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
           getDigitalTwinWorld,
+          outputDir: runsDir,
           // A digital-twin run is its caller's run, as a /setup run is: it
           // replaces their current run and leaves every other visitor's
           // alone, and it holds a capacity slot until `finish`. Its events go
@@ -2030,7 +2033,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           runSimulation: async (leader, keyPersonnel, runOpts) => {
             const { runSimulation } = await import('../runtime/orchestrator/index.js');
-            return runSimulation(leader, keyPersonnel, runOpts);
+            return runSimulation(leader, keyPersonnel, { ...runOpts, outputDir: runsDir });
           },
         };
         await handleSimulate(req, res, body, deps, simulateCredentials);
@@ -3714,13 +3717,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // runForkSimulation instead of the pair runner when the
           // config carries a forkFrom reference.
           if (config.forkFrom) {
-            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir });
           } else {
-            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
           }
         } finally {
           // The run's capacity slot is free once its runner has settled,

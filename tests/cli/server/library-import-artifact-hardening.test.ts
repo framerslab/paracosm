@@ -5,15 +5,21 @@
  * - a link already sitting at the name an import would write to;
  * - the artifact entry replaced by a link between the read's check and
  *   its read;
- * - two imports of one run id arriving at once.
+ * - two imports of one run id arriving at once;
+ * - an entry, a file or a link, already at the exact name an import
+ *   writes to;
+ * - a directory on the artifact's path replaced by a link to a
+ *   directory outside the runs directory, and put back, around the
+ *   read's open;
+ * - an import whose record insert fails.
  *
  * Runs the real import handler and the real run-history routes over a
  * real SQLite store, with the Studio fixture as the imported artifact.
  */
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import crypto, { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -223,4 +229,135 @@ test('an import whose record cannot be read back right after the insert answers 
   const got = await getRun(inner, runId);
   assert.equal(got.status, 200, got.body);
   assert.equal(JSON.parse(got.body).artifact.metadata.runId, runId);
+});
+
+test('an import refuses an entry already at the exact name it writes to, a file or a link, and leaves it as it was', async (t) => {
+  // The random suffix is pinned, so the import writes to a name the test
+  // knows and the entry planted there is really in its way.
+  t.mock.method(crypto, 'randomBytes', (size: number) => Buffer.alloc(size, 0x5a));
+  syncBuiltinESMExports();
+  const suffix = '5a'.repeat(8);
+  try {
+    const store = memoryStore();
+
+    const fileRunId = 'run_import_name_taken_by_file';
+    const taken = join(runsDir, `${importedNamePrefix(fileRunId)}-${suffix}.json`);
+    writeFileSync(taken, 'an entry that was here first');
+    const overFile = await importBody(store, { artifact: artifactFor(fileRunId) });
+    assert.equal(overFile.status, 500, overFile.body);
+    assert.equal(readFileSync(taken, 'utf-8'), 'an entry that was here first', 'the file at the name is untouched');
+    assert.equal(await store.getRun(fileRunId), null, 'no record was stored');
+
+    const linkRunId = 'run_import_name_taken_by_link';
+    const victim = join(outsideDir, 'victim-at-exact-name.json');
+    writeFileSync(victim, 'original contents');
+    const link = join(runsDir, `${importedNamePrefix(linkRunId)}-${suffix}.json`);
+    symlinkSync(victim, link);
+    const overLink = await importBody(store, { artifact: artifactFor(linkRunId) });
+    assert.equal(overLink.status, 500, overLink.body);
+    assert.equal(readFileSync(victim, 'utf-8'), 'original contents', 'the file the link points at is untouched');
+    assert.equal(readlinkSync(link), victim, 'the link is still there');
+    assert.equal(await store.getRun(linkRunId), null, 'no record was stored');
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+/**
+ * Store a record whose artifact is `<runs dir>/<name>/v3-x.json` and
+ * read it while the directory `<name>` is replaced by a link to a
+ * directory outside the runs directory that holds its own v3-x.json.
+ * The swap happens right after the read first resolves the entry, so
+ * the open goes through the link. With `swapBack`, the directory is put
+ * back just before the read resolves the entry again, so the second
+ * resolve lands inside the runs directory while the open file is the
+ * outside one.
+ */
+async function readAcrossParentSwap(t: TestContext, name: string, swapBack: boolean): Promise<{ got: Captured; resolves: number }> {
+  const store = memoryStore();
+  const runId = `run_parent_${name}`;
+  const sub = join(runsDir, name);
+  const parked = join(base, `${name}-parked`);
+  const outsideSub = join(outsideDir, name);
+  mkdirSync(sub);
+  mkdirSync(outsideSub);
+  const entry = join(sub, 'v3-x.json');
+  writeFileSync(entry, JSON.stringify(artifactFor(runId)));
+  writeFileSync(join(outsideSub, 'v3-x.json'), readFileSync(outsideFile));
+  await store.insertRun({
+    runId,
+    createdAt: '2026-11-11T00:00:00.000Z',
+    scenarioId: 'mars-genesis',
+    scenarioVersion: '1.0.0',
+    actorConfigHash: `leaders:${name}`,
+    economicsProfile: 'imported',
+    sourceMode: 'local_demo',
+    createdBy: 'user',
+    artifactPath: entry,
+  });
+
+  const entryTail = join(name, 'v3-x.json');
+  const realRealpath = fsp.realpath;
+  let resolves = 0;
+  t.mock.method(fsp, 'realpath', async (...args: Parameters<typeof fsp.realpath>) => {
+    if (!String(args[0]).endsWith(entryTail)) return realRealpath(...args);
+    resolves += 1;
+    if (resolves === 2 && swapBack) {
+      unlinkSync(sub);
+      renameSync(parked, sub);
+    }
+    const out = await realRealpath(...args);
+    if (resolves === 1) {
+      renameSync(sub, parked);
+      symlinkSync(outsideSub, sub);
+    }
+    return out;
+  });
+  syncBuiltinESMExports();
+  try {
+    return { got: await getRun(store, runId), resolves };
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+}
+
+test('a run read whose parent directory becomes a link outside the runs directory before its open is refused', async (t) => {
+  const { got, resolves } = await readAcrossParentSwap(t, 'swapped-out', false);
+  assert.equal(resolves, 2, 'the read resolved the entry before and after its open');
+  assert.doesNotMatch(got.body, new RegExp(MARKER));
+  assert.equal(got.status, 410, got.body);
+  assert.equal(JSON.parse(got.body).error, 'artifact_outside_runs_dir');
+});
+
+test('a run read whose parent directory is swapped out before its open and back before its second resolve is refused', async (t) => {
+  const { got, resolves } = await readAcrossParentSwap(t, 'swapped-back', true);
+  assert.equal(resolves, 2, 'the read resolved the entry before and after its open');
+  assert.doesNotMatch(got.body, new RegExp(MARKER));
+  assert.equal(got.status, 410, got.body);
+  assert.equal(JSON.parse(got.body).error, 'artifact_unreadable');
+});
+
+test('an import whose record insert fails answers 500 and removes the file it wrote', async () => {
+  const inner = memoryStore();
+  let written: string | undefined;
+  let existedAtInsert = false;
+  const store: RunHistoryStore = {
+    ...inner,
+    async insertRun(run: RunRecord) {
+      written = run.artifactPath;
+      existedAtInsert = Boolean(written && existsSync(written));
+      throw new Error('disk I/O error');
+    },
+  };
+
+  const runId = 'run_insert_fails';
+  const imported = await importBody(store, { artifact: artifactFor(runId) });
+  assert.equal(imported.status, 500, imported.body);
+  assert.ok(written, 'the insert was attempted');
+  assert.ok(existedAtInsert, 'the import wrote its file before the insert');
+  assert.equal(existsSync(written), false, 'the file the import wrote is removed');
+  assert.deepEqual(readdirSync(runsDir).filter((n) => n.startsWith(importedNamePrefix(runId))), []);
+  assert.equal(await inner.getRun(runId), null);
 });

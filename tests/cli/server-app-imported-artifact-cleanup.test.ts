@@ -38,8 +38,8 @@ function dirs(): { appDir: string; runsDir: string; cleanup: () => void } {
 }
 
 function serverFor(appDir: string, runsDir: string): MarsServer {
-  // The run writer and the import read the process environment; the
-  // server reads the env it is given. Both name the same directory.
+  // The server reads the env it is given; the process names the same
+  // directory, so nothing in these tests depends on which one is read.
   process.env.PARACOSM_OUTPUT_DIR = runsDir;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
