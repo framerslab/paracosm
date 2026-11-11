@@ -328,11 +328,15 @@ test('a reader that follows the stated rule decides differently for the two lead
   const gap = barOf(voss.live) - barOf(aria.live);
   t.diagnostic(`choices differ on ${differ} of 7; Aria Chen: ${aria.chosen.join(', ')} -> ${aria.outcomes.join(', ')}; Dietrich Voss: ${voss.chosen.join(', ')} -> ${voss.outcomes.join(', ')}`);
   t.diagnostic(`after turn 6: Aria Chen's bar ${barOf(aria.live).toFixed(3)}, conscientiousness ${aria.live.conscientiousness.toFixed(3)}; Dietrich Voss's bar ${barOf(voss.live).toFixed(3)}; gap ${gap.toFixed(3)}`);
-  assert.ok(differ >= 5, `the two leaders' choices differ on ${differ} of 7 events`);
-  assert.ok(bold(aria.outcomes) >= 5, `Aria Chen took the bold option on ${bold(aria.outcomes)} of 7`);
+  // The run is deterministic (seeded draws, a reader in place of the
+  // model), so the values are pinned as the head's CI run printed them
+  // (run 42975714106): choices differ on 7 of 7, Aria Chen bold on 7,
+  // Dietrich Voss on 0, a bar gap of 0.400 and her conscientiousness 0.450.
+  assert.equal(differ, 7, `the two leaders' choices differ on ${differ} of 7 events`);
+  assert.equal(bold(aria.outcomes), 7, `Aria Chen took the bold option on ${bold(aria.outcomes)} of 7`);
   assert.equal(bold(voss.outcomes), 0, `Dietrich Voss took the bold option on ${bold(voss.outcomes)} of 7`);
-  assert.ok(gap >= 0.15, `after turn 6 Aria Chen's bar is ${gap.toFixed(3)} under Dietrich Voss's`);
-  assert.ok(aria.live.conscientiousness <= 0.65, `Aria Chen's conscientiousness after turn 6 is ${aria.live.conscientiousness}`);
+  assert.equal(gap.toFixed(3), '0.400', `after turn 6 Aria Chen's bar is ${gap.toFixed(3)} under Dietrich Voss's`);
+  assert.equal(aria.live.conscientiousness.toFixed(3), '0.450', `Aria Chen's conscientiousness after turn 6 is ${aria.live.conscientiousness}`);
 });
 
 test('a /setup leader whose profile leaves traits out or empty gets the trait model\'s neutral value for each, one log line names them, and the leader decides', (t) => {
