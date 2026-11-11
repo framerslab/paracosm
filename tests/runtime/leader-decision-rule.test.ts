@@ -614,6 +614,25 @@ test('a number the prompt itself stated names no fact in a departure field that 
   }
 });
 
+test('a departure field after a placeholder names a fact with a decimal written without its leading zero, or a negative number the size of the bar', () => {
+  // Review of #253: ".5" was read as no number, and "-41" as the bar 41.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  const { bar, boldChance } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' }).check!;
+  for (const fact of [
+    'None: .5 months of food left',
+    `None: a power margin of -${bar} kW against a bold failure's draw`,
+  ]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+    assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+    assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+  }
+  // A hyphen between two of the prompt's numbers is no minus sign.
+  const said = `No departure (bar and chance ${bar}-${boldChance})`;
+  const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+  assert.equal(check?.departureFact, '', `"${said}": the prompt's own numbers name no fact`);
+  assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+});
+
 test('the opening cues fire at the poles the two presets were written at', () => {
   const aria = setup.buildPersonalityCue(preset(ARIA));
   const voss = setup.buildPersonalityCue(preset(VOSS));
