@@ -231,10 +231,14 @@ test('one decision stream run twice ends the same on every seed', (t) => {
 
 test('every scenario in scenarios/ has a row here', () => {
   // A scenario added to scenarios/ is measured before it ships: the count
-  // is read in CI and written beside its floor.
+  // is read in CI and written beside its floor. A file that takes an id
+  // another file holds would pass on that file's row, and the disk loader
+  // keeps one of the two under the id (src/cli/custom-scenarios.ts), so
+  // each id is held by one file.
   const ids = readdirSync(scenariosDir)
     .filter(name => name.endsWith('.json') && !name.endsWith('-knowledge.json'))
     .map(name => JSON.parse(readFileSync(resolve(scenariosDir, name), 'utf-8')).id as string);
+  assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], 'ids held by more than one file in scenarios/');
   const covered = new Set(ROWS.map(r => r.id));
   assert.deepEqual(ids.filter(id => !covered.has(id)), [], 'scenarios with no row');
   assert.ok(ids.length >= 7, `scenarios/ holds ${ids.length} scenarios`);
