@@ -577,6 +577,11 @@ function progressStep(input: StepInput): number {
   // another person's dice. A person's fate differs between two runs only
   // where that run's world gave them a different chance. The first step's
   // key is the turn's own, so a turn of a year or less keeps its dice.
+  // Where the scenario keeps one death die for a life
+  // (`setup.mortalityDice: 'life'`, recorded in the state), the deaths roll
+  // no die a step: each person keeps one die for each cause, keyed by the
+  // seed, the person and the cause (SeededRng.forLife), and dies in the
+  // step where their chance of having survived that cause falls to it.
   const seed = state.metadata.seed;
   const roll = (id: string, what: string) => SeededRng.forDraw(seed, turn, id, step === 0 ? what : `${what}@${step}`);
   const eventsBefore = events.length;
@@ -624,6 +629,7 @@ function progressStep(input: StepInput): number {
   // The colony's supplies against landing day, read once for everyone in
   // the step: the age and accident rates divide by the level.
   const supplyFactor = supplyRateFactor(supplyLevel(metrics, state.metadata.landingSupplies));
+  const diceForLife = state.metadata.mortalityDice === 'life';
 
   for (const c of colonists) {
     if (!c.health.alive) continue;
@@ -633,8 +639,22 @@ function progressStep(input: StepInput): number {
     const h = causeHazards(c, metrics, exactAge, years, supplyFactor);
     const id = c.core.id;
 
+    // Whether the person dies of `cause` in this step. A die a year: the
+    // step's own die against the step's chance. A die for life: the
+    // person's chance of having survived the cause so far takes this
+    // step's chance, and the person dies when it falls to the die they
+    // keep for that cause. Given that they lived to this step, their
+    // chance of dying of it here is the step's chance either way.
+    const dies = (cause: keyof CauseHazards): boolean => {
+      if (!diceForLife) return roll(id, cause).chance(h[cause]);
+      const survival = (c.health.survival ??= {});
+      const after = (survival[cause] ?? 1) * (1 - h[cause]);
+      survival[cause] = after;
+      return SeededRng.forLife(seed, id, cause).next() >= after;
+    };
+
     // 2a. Natural mortality (age-dependent)
-    if (roll(id, 'natural').chance(h.natural)) {
+    if (dies('natural')) {
       const cause = exactAge >= 80 ? 'natural causes' : 'age-related complications';
       killColonist(c, cause, `died at age ${age} of ${cause}`);
       continue;
@@ -642,7 +662,7 @@ function progressStep(input: StepInput): number {
 
     // 2b. Radiation cancer: an excess hazard that grows with the dose,
     // a distinct story from natural aging. Adults only.
-    if (roll(id, 'radiation').chance(h.radiation)) {
+    if (dies('radiation')) {
       killColonist(c, 'radiation cancer',
         `died at age ${age} of radiation-induced cancer (cumulative ${Math.round(c.health.cumulativeRadiationMsv ?? 0)} mSv)`);
       continue;
@@ -650,7 +670,7 @@ function progressStep(input: StepInput): number {
 
     // 2c. Starvation: a food reserve below a month puts everyone at risk;
     // the shortage is shared, not individual.
-    if (roll(id, 'starvation').chance(h.starvation)) {
+    if (dies('starvation')) {
       killColonist(c, 'starvation',
         `died at age ${age} of starvation (food reserve ${(metrics.foodMonthsReserve as number).toFixed(1)} months)`);
       continue;
@@ -659,7 +679,7 @@ function progressStep(input: StepInput): number {
     // 2d. Despair: a psych score under 0.2, weighted by emotionality.
     // Covered as a real phenomenon in long-duration isolation studies
     // (Antarctic, submarine crews, ISS).
-    if (roll(id, 'despair').chance(h.despair)) {
+    if (dies('despair')) {
       killColonist(c, 'despair',
         `died at age ${age} of prolonged psychological decline (psych ${c.health.psychScore.toFixed(2)})`);
       continue;
@@ -667,7 +687,7 @@ function progressStep(input: StepInput): number {
 
     // 2e. Bone-density fracture: below 60 percent bone density a fall
     // can be fatal where medical capacity is low. From age 40.
-    if (roll(id, 'fracture').chance(h.fracture)) {
+    if (dies('fracture')) {
       killColonist(c, 'fatal fracture',
         `died at age ${age} of a fall-induced fracture (bone density ${(c.health.boneDensityPct as number).toFixed(0)}%)`);
       continue;
@@ -676,7 +696,7 @@ function progressStep(input: StepInput): number {
     // 2f. Baseline accident risk, weighted by department. A run with a
     // pressurized habitat (it carries that metric) has EVA and
     // life-support hazards; any other run has everyday ones.
-    if (roll(id, 'accident').chance(h.accident)) {
+    if (dies('accident')) {
       const descriptors = typeof metrics.pressurizedVolumeM3 === 'number'
         ? ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover']
         : ['equipment failure', 'vehicle accident', 'fall', 'electrical fault', 'workplace accident'];

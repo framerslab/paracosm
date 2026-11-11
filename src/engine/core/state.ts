@@ -68,6 +68,14 @@ export interface AgentHealth {
   boneDensityBase?: number;
   /** Cumulative radiation exposure in millisieverts (scenario-specific, used by Mars/Lunar) */
   cumulativeRadiationMsv?: number;
+  /**
+   * The person's chance of having survived each cause of death so far, in
+   * a run whose scenario keeps one death die for each cause for a person's
+   * whole life (`setup.mortalityDice: 'life'`). Each step multiplies a
+   * cause's entry by one minus that step's chance of it. Absent in any
+   * other run.
+   */
+  survival?: Record<string, number>;
   /** Scenario-defined health fields beyond the standard set */
   [key: string]: unknown;
 }
@@ -225,6 +233,14 @@ export interface SimulationMetadata {
    * none; either reads as a supply level of 1.
    */
   landingSupplies?: Record<string, number>;
+  /**
+   * `'life'` where the scenario keeps one death die for each cause for a
+   * person's whole life (`setup.mortalityDice`). Absent, a die for each
+   * cause in each year: every scenario that declares no `'life'`, and a
+   * state saved before this choice existed, so a saved run and a fork of
+   * one keep the dice they were saved with.
+   */
+  mortalityDice?: 'life';
 }
 
 export interface TurnEvent {
