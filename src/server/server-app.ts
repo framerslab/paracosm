@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
-import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn } from '../cli/pair-runner.js';
+import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
@@ -51,6 +51,7 @@ import { resolveServerMode } from './server-mode.js';
 import { withSiteAnalytics } from './site-analytics.js';
 import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
+import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
@@ -284,6 +285,8 @@ export interface CreateMarsServerOptions {
       artifact: import('../engine/schema/index.js').RunArtifact,
       leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
+    /** The server's runs directory, which each leader's output file is written to. */
+    runnerOptions?: RunnerOptions,
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
@@ -513,6 +516,9 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  // The one directory run output, imported artifacts, run reads, the
+  // retention sweep and the output wipe all use.
+  const runsDir = resolveRunsDir(env);
   // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
   // copy run from the package or a clone sends its pages without them.
   const siteAnalytics = serverMode === 'hosted_demo';
@@ -591,22 +597,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
 
-  // Output retention: sweep simulation output JSON older than
-  // OUTPUT_RETENTION_DAYS on boot. /opt/paracosm/output/ otherwise
-  // grows unbounded (~300KB per run × N daily runs = GB over months).
+  // Output retention: sweep run output (v3-*.json, imported copies
+  // included) older than OUTPUT_RETENTION_DAYS from the runs directory
+  // on boot. Other files there are left alone: PARACOSM_OUTPUT_DIR can
+  // name a directory that holds more than run output.
+  // The directory otherwise grows unbounded (~300KB per run × N daily runs = GB over months).
   // Default 30 days. Set to 0 to disable the sweep. Non-fatal on any
   // filesystem error — missing dir is fine, permission denied is
   // logged once and skipped.
   (() => {
     const retentionDays = parseInt(env.OUTPUT_RETENTION_DAYS || '30', 10);
     if (retentionDays <= 0) return;
-    const outputDir = resolve(env.APP_DIR || resolve(__dirname, '..', '..'), 'output');
+    const outputDir = runsDir;
     if (!existsSync(outputDir)) return;
     const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     let removed = 0;
     try {
       for (const name of readdirSync(outputDir)) {
-        if (!name.endsWith('.json')) continue;
+        if (!isRunOutputFileName(name)) continue;
         const full = resolve(outputDir, name);
         try {
           const stat = statSync(full);
@@ -1389,7 +1397,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
-        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode });
+        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode, runsDir });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1422,6 +1430,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runHistoryStore,
       corsHeaders,
       paracosmRoutesEnabled,
+      runsDir,
       scenarioLookup: (id) => customScenarioCatalog.get(id)?.scenario,
     })) {
       return;
@@ -1904,6 +1913,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
           getDigitalTwinWorld,
+          outputDir: runsDir,
           // A digital-twin run is its caller's run, as a /setup run is: it
           // replaces their current run and leaves every other visitor's
           // alone, and it holds a capacity slot until `finish`. Its events go
@@ -2023,7 +2033,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           runSimulation: async (leader, keyPersonnel, runOpts) => {
             const { runSimulation } = await import('../runtime/orchestrator/index.js');
-            return runSimulation(leader, keyPersonnel, runOpts);
+            return runSimulation(leader, keyPersonnel, { ...runOpts, outputDir: runsDir });
           },
         };
         await handleSimulate(req, res, body, deps, simulateCredentials);
@@ -2645,7 +2655,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Admin destructive wipe: clears the runs + sessions tables and
-    // optionally the on-disk artifact JSONs under <APP_DIR>/output/.
+    // optionally the v3-*.json artifact files in the runs directory
+    // (run output and imported copies).
     // Same admin gate as /admin/sessions/save above. Returns the
     // counts of deleted rows + files.
     if (req.url === '/admin/data/wipe' && req.method === 'POST') {
@@ -2682,10 +2693,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           result.eventBuffer = true;
         }
         if (wipeOutput) {
-          const outputDir = resolve(env.APP_DIR || '.', 'output');
+          const outputDir = runsDir;
           if (existsSync(outputDir)) {
             for (const file of readdirSync(outputDir)) {
-              if (file.startsWith('v3-') && file.endsWith('.json')) {
+              if (isRunOutputFileName(file)) {
                 try {
                   unlinkSync(resolve(outputDir, file));
                   result.outputFiles += 1;
@@ -3706,13 +3717,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // runForkSimulation instead of the pair runner when the
           // config carries a forkFrom reference.
           if (config.forkFrom) {
-            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir });
           } else {
-            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact);
+            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
           }
         } finally {
           // The run's capacity slot is free once its runner has settled,

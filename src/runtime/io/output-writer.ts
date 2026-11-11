@@ -33,9 +33,13 @@ import type { RunArtifact } from '../../engine/schema/index.js';
  * like `node_modules/.pnpm/paracosm@x.y.z_hash/node_modules/paracosm/output/`),
  * which is impossible to find, invisible to git, and gets nuked on
  * `rm -rf node_modules`.
+ *
+ * The server passes the environment it was started with; everything
+ * else reads `process.env`. A run given `outputDir` writes there and
+ * does not read this.
  */
-export function resolveOutputDir(): string {
-  const override = process.env.PARACOSM_OUTPUT_DIR;
+export function resolveOutputDir(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.PARACOSM_OUTPUT_DIR;
   if (override && override.trim().length > 0) {
     return resolve(process.cwd(), override);
   }
@@ -44,7 +48,8 @@ export function resolveOutputDir(): string {
 
 /**
  * Write a simulation result payload to `<cwd>/output/v3-<tag>-<ts>.json`
- * (or `$PARACOSM_OUTPUT_DIR/...`) and log a one-screen summary to stdout.
+ * (or `$PARACOSM_OUTPUT_DIR/...`, or `args.outputDir/...` when given) and
+ * log a one-screen summary to stdout.
  * Ensures the output dir exists before writing. Returns the absolute
  * path of the written file.
  *
@@ -59,9 +64,11 @@ export function writeRunOutput(
     actorArchetype: string;
     turns: number;
     toolRegs: Record<string, string[]>;
+    /** The directory to write to; omitted, {@link resolveOutputDir} picks it. */
+    outputDir?: string;
   },
 ): string {
-  const outDir = resolveOutputDir();
+  const outDir = args.outputDir ? resolve(process.cwd(), args.outputDir) : resolveOutputDir();
   mkdirSync(outDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const tag = args.actorArchetype.toLowerCase().replace(/\s+/g, '-');
