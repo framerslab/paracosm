@@ -130,6 +130,50 @@ function barOf(h: HexacoProfile): number {
   return Math.max(0.1, Math.min(0.9, breakEven + 0.8 * (0.5 - appetite)));
 }
 
+/**
+ * What a decision prompt says a gain and a cost are multiplied by on a bold
+ * success, a bold failure, a safe success and a safe failure, and the
+ * chances at which the bold and a safe option come out even on each.
+ */
+function statedStakes(prompt: string) {
+  const four = (re: RegExp) => re.exec(prompt)?.slice(1, 5).map(Number);
+  const even = /where the two paths gain the same on average\. On what the event costs they are even at (\d+) in 100\./.exec(prompt);
+  const gainEven = /takes it at (\d+) in 100, where the two paths gain the same on average/.exec(prompt);
+  return {
+    gain: four(/What this kind of event gains is multiplied by (\S+) on a bold success and (\S+) on a bold failure, against (\S+) and (\S+) on a safe success and a safe failure\./),
+    cost: four(/What it costs is multiplied by (\S+) on a bold success and (\S+) on a bold failure, against (\S+) and (\S+) on a safe success and a safe failure\./),
+    gainEven: gainEven ? Number(gainEven[1]) : undefined,
+    costEven: even ? Number(even[1]) : undefined,
+  };
+}
+
+/**
+ * What the outcome step multiplies a gain and a cost by, read from Atlas
+ * Lab's own tables through the effect registry a run applies, at no
+ * modifier: board confidence is a gain in a press event (+4) and a cost in
+ * a safety breach (-8). In that order: bold success, bold failure, safe
+ * success, safe failure.
+ */
+function appliedStakes() {
+  const atlas = JSON.parse(readFileSync(new URL('../../scenarios/atlas-lab.json', import.meta.url), 'utf-8'));
+  // The compiler's shape: the category tables under one effect (src/engine/compiler/index.ts).
+  const registry = EffectRegistry.forScenario({ effects: [{ categoryDefaults: atlas.effects }], metrics: atlas.metrics } as any);
+  const order: TurnOutcome[] = ['risky_success', 'risky_failure', 'conservative_success', 'conservative_failure'];
+  const scale = (category: string, key: string) => order.map(outcome => {
+    const base = atlas.effects[category][key] as number;
+    const moved = registry.applyOutcome(category, outcome, { personalityBonus: 0, noise: 0 })[key];
+    // A cost is a fall in board confidence: its multiple is the fall over the table's fall.
+    return Math.round((moved / base) * 100) / 100 + 0;
+  });
+  assert.ok(atlas.effects.press.boardConfidence > 0 && atlas.effects.safety_breach.boardConfidence < 0);
+  return { gain: scale('press', 'boardConfidence'), cost: scale('safety_breach', 'boardConfidence') };
+}
+
+/** The bold option's chance at which it and a safe option come out even, for one outcome's multiples: a safe option's chance is (1 + p) / 2. */
+function evenChance([rs, rf, cs, cf]: number[]): number {
+  return ((cs + cf) / 2 - rf) / (rs - rf - (cs - cf) / 2);
+}
+
 test('the 41 recorded decisions are in the fixture, 40 of them safe', () => {
   assert.equal(recorded.length, 41);
   assert.equal(recorded.filter(d => d.options.find(o => o.id === d.chosenOptionId)?.isRisky).length, 1);
@@ -158,12 +202,34 @@ test('the prompt states the bold option\'s chance, the safe options\' chance and
   assert.equal(statedNumbers(promptFor(preset(ARIA), landfall, asMetrics(landfall.metricsAtTurnStart))).bar, 36);
   assert.equal(statedNumbers(promptFor(preset(VOSS), landfall, asMetrics(landfall.metricsAtTurnStart))).bar, 82);
   const prompt = promptFor(preset(ARIA), landfall, asMetrics(landfall.metricsAtTurnStart));
-  assert.match(prompt, /A bold success counts 2\.5 and a bold failure -2, against 1 and -1 for a safe success and a safe failure/);
+  const stakes = statedStakes(prompt);
+  assert.deepEqual(stakes.gain, [2.5, -2, 1, -1], 'what a gain is multiplied by on a bold success and failure, a safe success and failure');
   assert.match(prompt, /The departments wrote their reports without this option list or these odds/);
   assert.match(prompt, /Choose by your bar\. Depart from it only for a reason that belongs to this event/);
   assert.match(prompt, /\(2\) What do the department reports establish about the problem\?/);
   assert.match(prompt, /\(4\) The bold option's chance against my bar/);
   assert.doesNotMatch(prompt, /Do the department reports converge or conflict/);
+});
+
+test('the prompt states what a gain and what a cost are multiplied by as the outcome step applies them, and where each comes out even', () => {
+  // The outcome step multiplies a gain by 2.5, -2, 1 and -1, and a cost by
+  // 0, 4, 1 and 3 (a cost stays a cost: a bold success removes it, a bold
+  // failure takes it four times). On a cost the two paths come out even at
+  // 2 in 3, not 4 in 7: at a 60 in 100 bold chance a safety breach costs
+  // 1.6 times its table on the bold path and 1.4 on the safe one, and a
+  // prompt that gave the gain multiples alone called the bold path the
+  // better one there.
+  const applied = appliedStakes();
+  const landfall = recorded[0];
+  for (const name of [ARIA, VOSS]) {
+    const stakes = statedStakes(promptFor(preset(name), landfall, asMetrics(landfall.metricsAtTurnStart)));
+    assert.deepEqual(stakes.gain, applied.gain, `${name}: what a gain is multiplied by`);
+    assert.deepEqual(stakes.cost, applied.cost, `${name}: what a cost is multiplied by`);
+    assert.equal(stakes.gainEven, Math.round(100 * evenChance(applied.gain)), `${name}: where the gains come out even`);
+    assert.equal(stakes.costEven, Math.round(100 * evenChance(applied.cost)), `${name}: where the costs come out even`);
+  }
+  assert.deepEqual(applied.cost, [0, 4, 1, 3]);
+  assert.equal(Math.round(100 * evenChance(applied.cost)), 67);
 });
 
 test('by the stated numbers the Visionary\'s bar is under the bold option\'s chance on all 41 recorded events, and the Engineer\'s is over it on all 41', () => {
