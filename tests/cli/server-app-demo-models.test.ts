@@ -77,6 +77,9 @@ async function withHostedDemo(
     maxSimsPerDay: 0,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: async (config, _broadcast, _signal, scenario) => { launches.push({ config, scenario }); },
+    // The server warms the digital-twin world on start; with a provider
+    // key in the environment that would compile it against the provider.
+    getDigitalTwinWorld: async () => null,
   });
   server.listen(0);
   await once(server, 'listening');

@@ -349,9 +349,16 @@ const SAYS_FOLLOWED = /^(?:i\s+)?(?:follow(?:s|ing)?\s+(?:my|the)\s+bar|no\s+dep
 /** "in 100", "out of 100" and "/100": the scale the prompt states its numbers on. */
 const OUT_OF_100 = /\b(?:in|out\s+of)\s+100\b|\/\s*100\b/gi;
 
+/**
+ * A number as a text writes it: "41", "0.5", ".5", and "-41" with its sign.
+ * A hyphen after a word or a number ("36-41") is no minus sign, and a digit
+ * inside a word (option_2) starts no number.
+ */
+const NUMBER = /(?:(?<![\w.])-)?(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)/g;
+
 /** The numbers a text writes, outside words such as option_2 and the scale "in 100". */
 function numbersIn(text: string): number[] {
-  return (text.replace(OUT_OF_100, ' ').match(/(?<![\w.])\d+(?:\.\d+)?/g) ?? []).map(Number);
+  return (text.replace(OUT_OF_100, ' ').match(NUMBER) ?? []).map(Number);
 }
 
 /**
