@@ -79,6 +79,20 @@ function formatValue(value: number, display?: MetricDisplay): string {
 }
 
 /**
+ * One metric's value as the prompts show it: with the unit the scenario
+ * declares for it (morale, declared or not, as a percent of 1: "100%";
+ * Mars food as "18 months"), else a share strictly between 0 and 1 as a
+ * percent and anything else as it is. The director's state lines read it.
+ */
+export function formatMetricValue(key: string, value: unknown, world?: DeclaredWorld | null): string {
+  if (typeof value !== 'number') return String(value);
+  const displays: Record<string, MetricDisplay> = { ...UNIVERSAL_METRICS, ...world?.capacities, ...world?.metrics };
+  const display = displays[key];
+  if (display) return formatValue(value, display);
+  return value < 1 && value > 0 ? `${Math.round(value * 100)}%` : String(value);
+}
+
+/**
  * One line of the scenario's metrics with their labels and units, for the
  * department and commander prompts: "Researchers 480 people | Morale 85% |
  * AlignmentBench 0.84 score | Release Readiness 65%".

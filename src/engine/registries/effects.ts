@@ -3,7 +3,12 @@ import type { EffectDefinition, MetricDefinition } from '../types.js';
 /** Possible outcome classifications for a simulation turn. */
 export type TurnOutcome = 'risky_success' | 'risky_failure' | 'conservative_success' | 'conservative_failure';
 
-const OUTCOME_MULTIPLIERS: Record<TurnOutcome, number> = {
+/**
+ * What each outcome multiplies a category table by (see {@link EffectRegistry}).
+ * The commander's decision rule states them and reads its break-even chance
+ * from them.
+ */
+export const OUTCOME_MULTIPLIERS: Readonly<Record<TurnOutcome, number>> = {
   risky_success: 2.5,
   risky_failure: -2.0,
   conservative_success: 1.0,

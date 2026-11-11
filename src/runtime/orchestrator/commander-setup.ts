@@ -20,7 +20,7 @@
  * @module paracosm/runtime/commander-setup
  */
 
-import type { Department, HexacoProfile } from '../../engine/core/state.js';
+import type { Department, HexacoProfile, WorldMetrics } from '../../engine/core/state.js';
 import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { ScenarioPackage, ActorConfig, ScenarioLabels } from '../../engine/types.js';
 import type { CallUsage } from '../economics/cost-tracker.js';
@@ -29,8 +29,10 @@ import { scenarioWords } from '../util/scenario-words.js';
 import { ageInYears } from '../../engine/core/time-unit.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
 import { PromotionsSchema } from '../validators/commander.js';
-import type { DepartmentReport } from '../contracts.js';
+import type { CrisisOption, DepartmentReport } from '../contracts.js';
 import { selectableEffects } from '../util/parsers.js';
+import { outcomeSuccessChance } from '../../engine/core/progression.js';
+import { OUTCOME_MULTIPLIERS, type TurnOutcome } from '../../engine/registries/effects.js';
 
 /**
  * Build a "Your decision style" block from the leader's HEXACO profile.
@@ -45,35 +47,37 @@ import { selectableEffects } from '../util/parsers.js';
  * previously missing produce the sharpest additional divergence
  * between Visionary + Engineer archetypes beyond openness alone.
  *
- * Thresholds (0.7 / 0.3) match the kernel's personality-drift bounds
- * so cues only fire when the trait is meaningfully expressed.
+ * A cue fires at 0.7 and above or at 0.3 and below, so a trait written
+ * at a pole is heard: the Mars presets were written at those poles (Aria
+ * Chen's emotionality 0.30, Dietrich Voss's extraversion 0.30 and
+ * emotionality 0.70), and strict comparisons left them silent.
  */
 export function buildPersonalityCue(h: HexacoProfile): string {
   const cues: string[] = [];
 
   // Openness: novelty vs proven protocols
-  if (h.openness > 0.7) cues.push('You favor novel, untested approaches over proven ones; the unknown is an opportunity, not a threat');
-  if (h.openness < 0.3) cues.push('You trust proven protocols and incremental improvement; experiments need an extraordinary justification');
+  if (h.openness >= 0.7) cues.push('You favor novel, untested approaches over proven ones; the unknown is an opportunity, not a threat');
+  if (h.openness <= 0.3) cues.push('You trust proven protocols and incremental improvement; experiments need an extraordinary justification');
 
   // Conscientiousness: discipline vs improvisation
-  if (h.conscientiousness > 0.7) cues.push('You demand evidence and contingency plans before committing; you would rather be slow and right than fast and wrong');
-  if (h.conscientiousness < 0.3) cues.push('You move fast and accept ambiguity; waiting for full evidence is itself a risk');
+  if (h.conscientiousness >= 0.7) cues.push('You demand evidence and contingency plans before committing; you would rather be slow and right than fast and wrong');
+  if (h.conscientiousness <= 0.3) cues.push('You move fast and accept ambiguity; waiting for full evidence is itself a risk');
 
   // Extraversion: visible command vs quiet technical leadership
-  if (h.extraversion > 0.7) cues.push('You lead from the front: public announcements, rallying speeches, visible command presence; your rationale frames collective purpose');
-  if (h.extraversion < 0.3) cues.push('You work through technical channels: brief memos, quiet protocols, minimal public drama; your rationale reads as an engineering log');
+  if (h.extraversion >= 0.7) cues.push('You lead from the front: public announcements, rallying speeches, visible command presence; your rationale frames collective purpose');
+  if (h.extraversion <= 0.3) cues.push('You work through technical channels: brief memos, quiet protocols, minimal public drama; your rationale reads as an engineering log');
 
   // Agreeableness: consensus vs decisiveness
-  if (h.agreeableness > 0.7) cues.push('You seek consensus across departments and with those you answer to before committing; you treat disagreement as a signal to gather more input');
-  if (h.agreeableness < 0.3) cues.push('You override department consensus when you see a better path; you accept friction as the cost of clarity');
+  if (h.agreeableness >= 0.7) cues.push('You seek consensus across departments and with those you answer to before committing; you treat disagreement as a signal to gather more input');
+  if (h.agreeableness <= 0.3) cues.push('You override department consensus when you see a better path; you accept friction as the cost of clarity');
 
   // Emotionality: human-cost weighting
-  if (h.emotionality > 0.7) cues.push('You weigh human cost heavily — even small mortality risks deter you, and morale is a first-class metric that constrains the option space');
-  if (h.emotionality < 0.3) cues.push('You accept casualties for strategic gain; morale is downstream of results, not a primary constraint');
+  if (h.emotionality >= 0.7) cues.push('You weigh human cost heavily — even small mortality risks deter you, and morale is a first-class metric that constrains the option space');
+  if (h.emotionality <= 0.3) cues.push('You accept casualties for strategic gain; morale is downstream of results, not a primary constraint');
 
   // Honesty-Humility: transparency vs information asymmetry
-  if (h.honestyHumility > 0.7) cues.push('You report failures transparently, accept blame, and refuse to spin bad outcomes; credibility is the only currency that compounds');
-  if (h.honestyHumility < 0.3) cues.push('You leverage information asymmetries when useful; public framing is part of strategy, not a post-hoc wrap');
+  if (h.honestyHumility >= 0.7) cues.push('You report failures transparently, accept blame, and refuse to spin bad outcomes; credibility is the only currency that compounds');
+  if (h.honestyHumility <= 0.3) cues.push('You leverage information asymmetries when useful; public framing is part of strategy, not a post-hoc wrap');
 
   return cues.length ? `Your decision style: ${cues.join('. ')}.` : '';
 }
@@ -116,6 +120,130 @@ export function buildEffectsBlock(reports: DepartmentReport[]): string {
     selectableEffects(reports)[0].key + '"). Each adopted effect changes the state by its delta; an effect you leave out changes nothing.';
 }
 
+/**
+ * How far a leader's appetite moves the bar for the bold option: the bar
+ * is the break-even chance plus this times (0.5 minus the appetite). The
+ * simulation's own choice. At 0.8 the two Mars presets' bars stand 0.46
+ * apart (36 and 82 in 100), and they part on "Landfall", the one event
+ * every Mars pair shares at turn 1 (its bold option's chance is 80 in 100
+ * at the landing state); at 0.6 the Engineer's bar is 76 and he would
+ * take it too.
+ */
+export const RISK_BAR_SLOPE = 0.8;
+/** The range a bar is held in: the range an option's chance can take (`outcomeSuccessChance`). */
+const RISK_BAR_MIN = 0.1;
+const RISK_BAR_MAX = 0.9;
+
+/**
+ * A leader's appetite for the bold option, from 0 (never takes it) to 1
+ * (always does): the mean of openness, one minus conscientiousness and one
+ * minus emotionality, the three axes the opening cues tie to risk. Equal
+ * weights are the simulation's own choice. Aria Chen's preset reads 0.767,
+ * Dietrich Voss's 0.193.
+ */
+export function riskAppetite(h: HexacoProfile): number {
+  return (h.openness + (1 - h.conscientiousness) + (1 - h.emotionality)) / 3;
+}
+
+/**
+ * The bold option's chance at which it and a safe option bring the same on
+ * average, from the outcome multipliers. A safe option's chance is
+ * `(1 + p) / 2` where the bold option's is `p` (see `outcomeSuccessChance`),
+ * so with a bold success `rs`, a bold failure `rf`, a safe success `cs` and
+ * a safe failure `cf`, `p * rs + (1 - p) * rf = (1 + p) / 2 * cs + (1 - p) / 2 * cf`
+ * at `p = ((cs + cf) / 2 - rf) / (rs - rf - (cs - cf) / 2)`: 4/7 with the
+ * multipliers 2.5, -2, 1 and -1. Nothing is chosen here; the multipliers
+ * fix it.
+ */
+export function breakEvenChance(m: Readonly<Record<TurnOutcome, number>> = OUTCOME_MULTIPLIERS): number {
+  const rs = m.risky_success;
+  const rf = m.risky_failure;
+  const cs = m.conservative_success;
+  const cf = m.conservative_failure;
+  return ((cs + cf) / 2 - rf) / (rs - rf - (cs - cf) / 2);
+}
+
+/**
+ * The chance at or above which a leader of this appetite takes the bold
+ * option: the break-even chance for a leader with no lean (appetite 0.5),
+ * lower for a bolder leader and higher for a more careful one, by
+ * {@link RISK_BAR_SLOPE}, held within 0.1 and 0.9.
+ */
+export function riskBar(appetite: number): number {
+  return Math.max(RISK_BAR_MIN, Math.min(RISK_BAR_MAX, breakEvenChance() + RISK_BAR_SLOPE * (0.5 - appetite)));
+}
+
+/** What a decision's rule block is built from. */
+export interface DecisionRuleArgs {
+  /** The leader's profile as it stands this turn. */
+  hexaco: HexacoProfile;
+  /** The event's options; the ones marked risky are the bold ones. */
+  options: ReadonlyArray<Pick<CrisisOption, 'id' | 'isRisky'>>;
+  /** The chance the event declares for its bold option. */
+  riskSuccessProbability: number;
+  /** The run's metrics now, which move that chance (see `outcomeSuccessChance`). */
+  metrics: WorldMetrics;
+  /**
+   * State the leader's bar. A leader on a trait model other than HEXACO
+   * has no appetite here, so it is shown the odds and the multipliers
+   * alone. Default true.
+   */
+  withBar?: boolean;
+}
+
+/** The start of the line of a rule block that states the leader's bar. */
+const BAR_LINE = '- Your bar:';
+
+/** "option_a", "option_a and option_c", "option_a, option_b and option_c". */
+function listIds(options: ReadonlyArray<{ id: string }>): string {
+  const ids = options.map(o => o.id);
+  return ids.length < 2 ? ids.join('') : `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+}
+
+/**
+ * The decision rule a commander reads for one event: the bold option's
+ * chance and the safe options' chance, as the outcome step's
+ * `outcomeSuccessChance` gives them for the run's metrics now; the
+ * multipliers a success and a failure bring; the leader's bar for the bold
+ * option from the profile as it stands this turn ({@link riskBar}); that
+ * the department reports were written without the options; and the
+ * instruction to choose by the bar or to name the event's reason for
+ * departing from it. Whole numbers out of 100, rounded.
+ *
+ * The block states odds and a bar and picks nothing: the commander chooses.
+ * The outcome draw meets the chance after the adopted effects apply, so
+ * the stated chance is "about": it differs only when an adopted effect
+ * carries morale across 0.7, food across 12 months or the population across
+ * 150. Returns "" for an event with no option marked risky, or none safe.
+ */
+export function buildDecisionRule(a: DecisionRuleArgs): string {
+  const bold = a.options.filter(o => o.isRisky);
+  const safe = a.options.filter(o => !o.isRisky);
+  if (!bold.length || !safe.length || !Number.isFinite(a.riskSuccessProbability)) return '';
+  const outOf100 = (x: number) => Math.round(100 * x);
+  const boldChance = outOf100(outcomeSuccessChance(true, a.riskSuccessProbability, a.metrics));
+  const safeChance = outOf100(outcomeSuccessChance(false, a.riskSuccessProbability, a.metrics));
+  const m = OUTCOME_MULTIPLIERS;
+  const withBar = a.withBar !== false;
+  const h = a.hexaco;
+  const lines = [
+    'YOUR DECISION RULE',
+    bold.length === 1
+      ? `- ${bold[0].id} is the bold option. It succeeds about ${boldChance} times in 100.`
+      : `- ${listIds(bold)} are the bold options. Each succeeds about ${boldChance} times in 100.`,
+    safe.length === 1
+      ? `- ${safe[0].id} is the safe option. It succeeds about ${safeChance} times in 100.`
+      : `- ${listIds(safe)} are the safe options. Each succeeds about ${safeChance} times in 100.`,
+    `- A bold success counts ${m.risky_success} and a bold failure ${m.risky_failure}, against ${m.conservative_success} and ${m.conservative_failure} for a safe success and a safe failure, as multipliers on what this kind of event brings.`,
+    ...(withBar
+      ? [`${BAR_LINE} you take the bold option when it succeeds at least ${outOf100(riskBar(riskAppetite(h)))} times in 100. It comes from your profile as it stands this turn (openness ${h.openness.toFixed(2)}, conscientiousness ${h.conscientiousness.toFixed(2)}, emotionality ${h.emotionality.toFixed(2)}). A leader with no lean either way takes it at ${outOf100(breakEvenChance())} in 100, where the two paths bring the same on average.`]
+      : []),
+    '- The departments wrote their reports without this option list or these odds. Their reports describe the problem; the choice between the options is yours.',
+    ...(withBar ? ['- Choose by your bar. Depart from it only for a reason that belongs to this event, and say that reason in point (4).'] : []),
+  ];
+  return lines.join('\n');
+}
+
 /** What one turn's commander decision prompt is built from. */
 export interface CommanderTurnPromptArgs {
   turn: number;
@@ -135,6 +263,8 @@ export interface CommanderTurnPromptArgs {
   optionText: string;
   /** The available policy effects block, or "". */
   effectsText: string;
+  /** The leader's decision rule for this event (see {@link buildDecisionRule}), or "". */
+  decisionRule?: string;
   labels?: Partial<ScenarioLabels>;
 }
 
@@ -142,9 +272,22 @@ export interface CommanderTurnPromptArgs {
  * The commander's decision prompt for one event. The heading names the
  * time in the scenario's unit ("TURN 1, Month 1: ..."); it printed the
  * bare number before, and the lab's commanders filled in years.
+ *
+ * With a decision rule the rule follows the options, and two reasoning
+ * points read from it: (2) asks what the reports establish, since they
+ * were written without the options, and (4) asks for the bold option's
+ * chance against the leader's bar. Without one the points ask whether the
+ * reports converge and what risk is accepted.
  */
 export function buildCommanderTurnPrompt(a: CommanderTurnPromptArgs): string {
   const w = scenarioWords(a.labels);
+  const rule = a.decisionRule?.trim() ? a.decisionRule : '';
+  const point2 = rule
+    ? 'What do the department reports establish about the problem? They were written without the option list or the odds, so they inform my choice and do not make it.'
+    : 'Do the department reports converge or conflict? If they conflict, which voice do I trust given my profile?';
+  const point4 = rule.includes(BAR_LINE)
+    ? 'The bold option\'s chance against my bar: which side is it on, and do I follow my bar? If I depart from it, the reason that belongs to this event. Name the trade I accept and the one I refuse.'
+    : 'What risk am I accepting vs refusing? My rationale must name the specific trade.';
   return `TURN ${a.turn}${a.eventLabel}, ${w.TimeUnit} ${a.time}: ${a.title}
 
 ${a.description}
@@ -152,13 +295,13 @@ ${a.trajectoryCue ? `\n${a.trajectoryCue}\n` : ''}
 DEPARTMENT REPORTS:
 ${a.summaries}
 ${a.toolboxBlock}
-State: ${a.stateLine}${a.optionText}${a.effectsText}
+State: ${a.stateLine}${a.optionText}${rule ? `\n\n${rule}` : ''}${a.effectsText}
 
 REASONING — populate the "reasoning" field of your JSON response BEFORE committing to selectedOptionId. Numbered list, one point per line:
   (1) What does my personality profile push me toward on this call? Name the specific trait poles at play.
-  (2) Do the department reports converge or conflict? If they conflict, which voice do I trust given my profile?
+  (2) ${point2}
   (3) Which forged-tool outputs in the toolbox above directly inform this decision? Cite the numeric output if available.
-  (4) What risk am I accepting vs refusing? My rationale must name the specific trade.
+  (4) ${point4}
   (5) Final choice + one-line justification.
 
 Then set selectedOptionId, decision, and rationale. The rationale compresses the reasoning into a single paragraph for default UI display; the "reasoning" field stores the full working.`;

@@ -61,6 +61,7 @@ function directorPromptFor(sc: ScenarioPackage, startTime: number): string {
     driftSummary: [],
     recentToolOutputs: [],
     labels: sc.labels,
+    world: sc.world,
   });
 }
 
@@ -84,7 +85,8 @@ test('the director of a lab run reads the lab\'s state, and no Mars values', () 
   const prompt = directorPromptFor(atlasLab, 1);
   assert.doesNotMatch(prompt, MARS_METRICS);
   assert.doesNotMatch(prompt, MARS_POLITICS);
-  assert.match(prompt, /- alignmentBench: 84%/);
+  // In the unit the lab declares, as the commander's state line reads it.
+  assert.match(prompt, /- alignmentBench: 0\.84 score/);
   assert.match(prompt, /- boardConfidence: 75/);
   assert.match(prompt, /- morale: /);
 });

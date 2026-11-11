@@ -29,6 +29,7 @@ import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
+  buildDecisionRule,
   buildEffectsBlock,
   resolveActiveDepartments,
   resolveEventDepartments,
@@ -1096,6 +1097,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         knowledgeCategories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
         labels: sc.labels,
         departments: sc.departments.filter(d => activeDepartments.has(d.id)),
+        // The state lines read the units the scenario declares: full morale is "100%".
+        world: sc.world,
       };
       emit('turn_start', { turn, time, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: preState.metrics });
       // Abort gate: if the client already left during the gap between
@@ -1547,6 +1550,19 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       const trajectoryCue = commanderTraitProfileLive.modelId === 'hexaco'
         ? buildTrajectoryCue(commanderHexacoHistory, commanderHexacoLive)
         : buildTrajectoryCueGeneric(commanderTraitProfileHistory, commanderTraitProfileLive);
+      // The leader's rule for the bold option, read each turn from the profile
+      // as it stands, beside the chances the outcome step meets its draw with
+      // and the multipliers. The leader's profile reached a decision only
+      // through the drift line, and two opposite Mars leaders chose a safe
+      // option in 40 of 41 live decisions (#248). A leader on another trait
+      // model is shown the odds and the multipliers without a bar.
+      const decisionRule = buildDecisionRule({
+        hexaco: commanderHexacoLive,
+        options: event.options,
+        riskSuccessProbability: event.riskSuccessProbability,
+        metrics: kernel.getState().metrics,
+        withBar: commanderTraitProfileLive.modelId === 'hexaco',
+      });
       const cmdPrompt = buildCommanderTurnPrompt({
         turn,
         time,
@@ -1559,6 +1575,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         stateLine: formatStateLine(kernel.getState().metrics, sc.world),
         optionText,
         effectsText,
+        decisionRule,
         labels: sc.labels,
       });
 
