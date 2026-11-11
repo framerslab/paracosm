@@ -2256,10 +2256,15 @@ export async function replaySimulation(
   const start = saved.kernelSnapshotAtStart;
   if (afterSteps.length === 0 || !start) throw new WorldModelReplayError(CANNOT_VERIFY);
 
-  // Every entry is read as a snapshot below, so each must be one.
+  // Every entry is read as a snapshot below, so each must be one a kernel
+  // of this scenario restores: the version `SimulationKernel.fromSnapshot`
+  // reads, this scenario's id, a turn, a time and a state.
   const isSnapshot = (s: unknown): s is Snapshot =>
     typeof s === 'object' && s !== null
+    && (s as Snapshot).snapshotVersion === 1
+    && (s as Snapshot).scenarioId === scenario.id
     && Number.isInteger((s as Snapshot).turn)
+    && typeof (s as Snapshot).time === 'number'
     && typeof (s as Snapshot).state === 'object' && (s as Snapshot).state !== null;
   const notSnapshot = [
     ...(isSnapshot(start) ? [] : ['kernelSnapshotAtStart']),
@@ -2267,7 +2272,25 @@ export async function replaySimulation(
     ...endOfTurn.flatMap((s, i) => (isSnapshot(s) ? [] : [`kernelSnapshotsPerTurn/${i}`])),
   ];
   if (notSnapshot.length > 0) {
-    throw new WorldModelReplayError(`Replay cannot verify this run: scenarioExtensions.${notSnapshot[0]} is not a kernel snapshot.`);
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: scenarioExtensions.${notSnapshot[0]} is not a kernel snapshot of scenario '${scenario.id}'.`,
+    );
+  }
+
+  // Each turn the run recorded (a timepoint at its end, a decision during
+  // it) took a between-turn step first, so each needs the state saved
+  // after that step. Without one, a step the run took is not checked.
+  const afterTimes = new Set(afterSteps.map(s => s.time));
+  const recordedTimes = [
+    ...(artifact.trajectory?.timepoints ?? []).map(t => t.time),
+    ...recordedDecisions.map(d => d.time),
+  ];
+  const unstepped = recordedTimes.find(t => !afterTimes.has(t));
+  if (unstepped !== undefined) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: it records a turn at time ${unstepped} but holds no state right after that turn's ` +
+      'between-turn step (scenarioExtensions.kernelSnapshotsAfterProgression).',
+    );
   }
 
   // The turn loop saves the state right after a turn's step before the
@@ -2295,7 +2318,15 @@ export async function replaySimulation(
         'A turn that ends in an error saves none.',
       );
     }
-    const kernel = SimulationKernel.fromSnapshot(from, scenario.id, scenario);
+    let kernel: SimulationKernel;
+    try {
+      kernel = SimulationKernel.fromSnapshot(from, scenario.id, scenario);
+    } catch (err) {
+      throw new WorldModelReplayError(
+        `Replay cannot verify this run: the state its between-turn step to turn ${recorded.turn} started from does not restore ` +
+        `(${err instanceof Error ? err.message : String(err)}).`,
+      );
+    }
     kernel.advanceTurn(recorded.turn, recorded.time, scenario.hooks?.progressionHook);
     return kernel.toSnapshot(scenario.id);
   });
