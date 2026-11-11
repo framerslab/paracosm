@@ -33,9 +33,12 @@ import type { RunArtifact } from '../../engine/schema/index.js';
  * like `node_modules/.pnpm/paracosm@x.y.z_hash/node_modules/paracosm/output/`),
  * which is impossible to find, invisible to git, and gets nuked on
  * `rm -rf node_modules`.
+ *
+ * The server passes the environment it was started with; everything
+ * else reads `process.env`.
  */
-export function resolveOutputDir(): string {
-  const override = process.env.PARACOSM_OUTPUT_DIR;
+export function resolveOutputDir(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.PARACOSM_OUTPUT_DIR;
   if (override && override.trim().length > 0) {
     return resolve(process.cwd(), override);
   }

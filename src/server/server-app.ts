@@ -51,6 +51,7 @@ import { resolveServerMode } from './server-mode.js';
 import { withSiteAnalytics } from './site-analytics.js';
 import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
+import { resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
@@ -513,6 +514,9 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  // The one directory run output, imported artifacts, run reads, the
+  // retention sweep and the output wipe all use.
+  const runsDir = resolveRunsDir(env);
   // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
   // copy run from the package or a clone sends its pages without them.
   const siteAnalytics = serverMode === 'hosted_demo';
@@ -591,16 +595,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
 
-  // Output retention: sweep simulation output JSON older than
-  // OUTPUT_RETENTION_DAYS on boot. /opt/paracosm/output/ otherwise
-  // grows unbounded (~300KB per run × N daily runs = GB over months).
+  // Output retention: sweep run output JSON (imported copies included)
+  // older than OUTPUT_RETENTION_DAYS from the runs directory on boot.
+  // The directory otherwise grows unbounded (~300KB per run × N daily runs = GB over months).
   // Default 30 days. Set to 0 to disable the sweep. Non-fatal on any
   // filesystem error — missing dir is fine, permission denied is
   // logged once and skipped.
   (() => {
     const retentionDays = parseInt(env.OUTPUT_RETENTION_DAYS || '30', 10);
     if (retentionDays <= 0) return;
-    const outputDir = resolve(env.APP_DIR || resolve(__dirname, '..', '..'), 'output');
+    const outputDir = runsDir;
     if (!existsSync(outputDir)) return;
     const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     let removed = 0;
@@ -1389,7 +1393,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
-        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode });
+        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode, runsDir });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1422,6 +1426,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runHistoryStore,
       corsHeaders,
       paracosmRoutesEnabled,
+      runsDir,
       scenarioLookup: (id) => customScenarioCatalog.get(id)?.scenario,
     })) {
       return;
@@ -2645,7 +2650,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Admin destructive wipe: clears the runs + sessions tables and
-    // optionally the on-disk artifact JSONs under <APP_DIR>/output/.
+    // optionally the v3-*.json artifact files in the runs directory
+    // (run output and imported copies).
     // Same admin gate as /admin/sessions/save above. Returns the
     // counts of deleted rows + files.
     if (req.url === '/admin/data/wipe' && req.method === 'POST') {
@@ -2682,7 +2688,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           result.eventBuffer = true;
         }
         if (wipeOutput) {
-          const outputDir = resolve(env.APP_DIR || '.', 'output');
+          const outputDir = runsDir;
           if (existsSync(outputDir)) {
             for (const file of readdirSync(outputDir)) {
               if (file.startsWith('v3-') && file.endsWith('.json')) {
