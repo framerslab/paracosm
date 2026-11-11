@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
+import { runMarsWithStubModel } from '../runtime/helpers/stub-model-mars-run.js';
 import { handlePlatformApiRoute } from '../../src/server/routes/platform-api.js';
 import { createSqliteRunHistoryStore } from '../../src/server/stores/sqlite-run-history.js';
 import type { RunRecord } from '../../src/server/services/run-record.js';
@@ -547,4 +550,55 @@ test('POST /api/v1/runs/:runId/replay calls recordReplayResult with the right ar
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0], ['r-counter-match', true]);
   assert.deepEqual(calls[1], ['r-counter-diverge', false]);
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// POST /api/v1/runs/:runId/replay on runs the turn loop saved (#235)
+// ─────────────────────────────────────────────────────────────────────
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/** A route call that keeps what the store was asked to record. */
+async function replayThroughRoute(runId: string, artifact: RunArtifact, scenario: ScenarioPackage) {
+  const baseStore = createSqliteRunHistoryStore({ dbPath: ':memory:' });
+  const recorded: Array<[string, boolean]> = [];
+  const store = {
+    ...baseStore,
+    recordReplayResult: async (id: string, matches: boolean) => {
+      recorded.push([id, matches]);
+      await baseStore.recordReplayResult?.(id, matches);
+    },
+  };
+  await store.insertRun(makeRun({ runId, scenarioId: scenario.id, artifactPath: writeArtifactToTemp(artifact) }));
+  const captured: CapturedResponse = { statusCode: 0, body: '', headers: {} };
+  const handled = await handlePlatformApiRoute(
+    makeReq(`/api/v1/runs/${runId}/replay`, 'POST'),
+    makeRes(captured),
+    { runHistoryStore: store, corsHeaders: {}, paracosmRoutesEnabled: true, scenarioLookup: lookupReturning(scenario) },
+  );
+  assert.equal(handled, true);
+  return { status: captured.statusCode, body: JSON.parse(captured.body) as Record<string, unknown>, recorded };
+}
+
+test('POST /api/v1/runs/:runId/replay answers matches=true for a Mars run the turn loop saved, decisions applied', async () => {
+  const { artifact, log } = await runMarsWithStubModel();
+  assert.deepEqual(log.decisions, ['Landfall', 'Legacy Assessment'], 'the stub model gave both decisions their recorded replies');
+
+  const answer = await replayThroughRoute('r-turn-loop', artifact, marsScenario);
+  assert.equal(answer.status, 200);
+  assert.equal(answer.body.matches, true, `divergence: ${answer.body.divergence}`);
+  assert.equal(answer.body.divergence, '');
+  assert.deepEqual(answer.recorded, [['r-turn-loop', true]]);
+});
+
+test('POST /api/v1/runs/:runId/replay answers 422 with the reason for a run saved before replay could verify it, and records no result', async () => {
+  const saved = JSON.parse(readFileSync(resolve(here, '../fixtures/atlas-lab-run-2026-11-02.json'), 'utf-8')) as RunArtifact;
+  const atlasLab = loadDiskCustomScenarios(resolve(here, '../../scenarios')).get('atlas-lab')?.scenario as ScenarioPackage | undefined;
+  assert.ok(atlasLab, 'scenarios/ holds atlas-lab');
+
+  const answer = await replayThroughRoute('r-saved-before', saved, atlasLab);
+  assert.equal(answer.status, 422, `answered ${answer.status}: ${JSON.stringify(answer.body)}`);
+  assert.equal(answer.body.error, 'replay_preconditions_unmet');
+  assert.match(String(answer.body.message), /cannot verify this run/);
+  assert.deepEqual(answer.recorded, [], 'neither a match nor a mismatch is recorded');
 });
