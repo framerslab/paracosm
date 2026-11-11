@@ -272,9 +272,16 @@ test('an import refuses an entry already at the exact name it writes to, a file 
  * the open goes through the link. With `swapBack`, the directory is put
  * back just before the read resolves the entry again, so the second
  * resolve lands inside the runs directory while the open file is the
- * outside one.
+ * outside one. With `swapOutAtStat` as well, the link goes back in just
+ * before the read looks the resolved path up again to compare it with
+ * the open file, so that lookup finds the outside file too.
  */
-async function readAcrossParentSwap(t: TestContext, name: string, swapBack: boolean): Promise<{ got: Captured; resolves: number }> {
+async function readAcrossParentSwap(
+  t: TestContext,
+  name: string,
+  swapBack: boolean,
+  swapOutAtStat = false,
+): Promise<{ got: Captured; resolves: number; statSwaps: number }> {
   const store = memoryStore();
   const runId = `run_parent_${name}`;
   const sub = join(runsDir, name);
@@ -314,9 +321,21 @@ async function readAcrossParentSwap(t: TestContext, name: string, swapBack: bool
     }
     return out;
   });
+  const realStat = fsp.stat;
+  let statSwaps = 0;
+  if (swapOutAtStat) {
+    t.mock.method(fsp, 'stat', async (...args: Parameters<typeof fsp.stat>) => {
+      if (String(args[0]).endsWith(entryTail) && resolves === 2 && statSwaps === 0) {
+        statSwaps += 1;
+        renameSync(sub, parked);
+        symlinkSync(outsideSub, sub);
+      }
+      return realStat(...args);
+    });
+  }
   syncBuiltinESMExports();
   try {
-    return { got: await getRun(store, runId), resolves };
+    return { got: await getRun(store, runId), resolves, statSwaps };
   } finally {
     t.mock.restoreAll();
     syncBuiltinESMExports();
@@ -338,6 +357,19 @@ test('a run read whose parent directory is swapped out before its open and back 
   assert.equal(got.status, 410, got.body);
   assert.equal(JSON.parse(got.body).error, 'artifact_unreadable');
 });
+
+test(
+  'a run read whose parent directory is swapped out for its open, back for its second resolve and out again for its identity check is refused',
+  { skip: existsSync('/proc/self/fd') ? false : 'reading where an open descriptor points needs /proc/self/fd' },
+  async (t) => {
+    const { got, resolves, statSwaps } = await readAcrossParentSwap(t, 'swapped-thrice', true, true);
+    assert.equal(resolves, 2, 'the read resolved the entry before and after its open');
+    assert.equal(statSwaps, 1, 'the read looked the entry up again for its identity check, so the third swap ran');
+    assert.doesNotMatch(got.body, new RegExp(MARKER));
+    assert.equal(got.status, 410, got.body);
+    assert.equal(JSON.parse(got.body).error, 'artifact_outside_runs_dir');
+  },
+);
 
 test('an import whose record insert fails answers 500 and removes the file it wrote', async () => {
   const inner = memoryStore();
