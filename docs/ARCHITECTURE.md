@@ -247,6 +247,12 @@ Each turn follows a fixed pipeline:
 6. Colonist reactions generated
    └── Featured colonists react based on their personality and the decision
    └── Reactions are mood-tagged and personality-aware
+   └── Each reaction goes into the person's memory in the kernel's state
+       (applyAgentUpdates): the quote in short-term memory, a stance on the
+       event's category and relationships with the others who reacted, each
+       stance and relationship moved at most 0.15 a turn. No health number,
+       metric, birth, death or kernel die changes. The next turn's reaction
+       prompts, the turn's snapshot and the saved run carry it (#241)
 
 7. State broadcast via SSE
    └── All events streamed to dashboard in real time
@@ -486,7 +492,8 @@ The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard
 After the simulation, users can chat with any colonist. Each colonist is a full AgentOS `agent()` instance with:
 
 - **HEXACO personality** passed to `agent({ personality: { ... } })`
-- **Episodic memory** seeded with their simulation experiences (reactions, crises, department reports, decisions)
+- **Episodic memory** seeded with their simulation experiences (reactions, crises, department reports, decisions), read from the run's events
+- **The memory the run kept**: the chat panel shows each colonist's recent memories, beliefs, stances and relationships from their latest `agent_reactions` entry, which carries their memory as the kernel holds it after that turn's reactions, that turn's reaction included
 - **Full conversation history** managed automatically by `session.send()`
 - **RAG retrieval** before each turn: `memory.getContext()` retrieves relevant simulation memories
 
