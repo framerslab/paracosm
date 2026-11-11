@@ -29,8 +29,13 @@
  *   trait at one half (none), no tool modifiers and no adopted department
  *   effects.
  *
- * So the two streams differ in the option alone, which is the least two
- * leaders can differ by. Over 61 seeds each test counts the seeds on which
+ * So the two streams differ in the option alone, on every turn. The counts
+ * measure these two streams and bound no live pair: a live pair differs in
+ * its events, its adopted effects and its department heads as well, and may
+ * choose alike on some turns. A pair that chooses differently on its last
+ * turn alone records the same deaths, since a turn's deaths fall in
+ * `advanceTurn`, before its outcome is applied, and no turn follows the
+ * last. Over 61 seeds each test counts the seeds on which
  * the streams end with different final values of a score the scenario
  * declares, and, in the scenarios that mark the supplies that sustain their
  * people and keep one death die for a life, the seeds on which the death
@@ -242,10 +247,14 @@ test('one decision stream run twice ends the same on every seed', (t) => {
 
 test('every scenario in scenarios/ has a row here', () => {
   // A scenario added to scenarios/ is measured before it ships: the count
-  // is read in CI and written beside its floor.
+  // is read in CI and written beside its floor. A file that takes an id
+  // another file holds would pass on that file's row, and the disk loader
+  // keeps one of the two under the id (src/cli/custom-scenarios.ts), so
+  // each id is held by one file.
   const ids = readdirSync(scenariosDir)
     .filter(name => name.endsWith('.json') && !name.endsWith('-knowledge.json'))
     .map(name => JSON.parse(readFileSync(resolve(scenariosDir, name), 'utf-8')).id as string);
+  assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], 'ids held by more than one file in scenarios/');
   const covered = new Set(ROWS.map(r => r.id));
   assert.deepEqual(ids.filter(id => !covered.has(id)), [], 'scenarios with no row');
   assert.ok(ids.length >= 7, `scenarios/ holds ${ids.length} scenarios`);
