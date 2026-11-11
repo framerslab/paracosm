@@ -28,8 +28,10 @@
  * progression hook), hold each side's metrics after every turn where the
  * live run's outcomes and adopted effects left them (`applySystemDeltas`,
  * the call both land in), and compare who died. No model call. The last
- * tests pin what must not move: the scenarios that mark no supply, and a
- * Mars colony whose supplies never move.
+ * tests pin what must not move: the scenarios that mark no supply, a Lunar
+ * Outpost run saved before Lunar Outpost marked its supplies, and a Mars
+ * colony, a Lunar Outpost and a deep-ocean station whose supplies never
+ * move.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -381,7 +383,7 @@ function rows(sc: ScenarioPackage, seed: number, population: number, turns: numb
 }
 
 const ROW_SEEDS = [950, 1, 2, 3];
-/** The rows these runs give: Lunar Outpost and the deep-ocean station as before any death rate read a supply; Mars as its dice for life give them. */
+/** The rows these runs give: Mars, Lunar Outpost and the deep-ocean station as their dice for life give them, with their supplies at landing day. */
 const PINNED = JSON.parse(readFileSync(resolve(here, '../fixtures/supplies-unmarked-and-untouched.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
 const pinned = (keys: string[]) => Object.fromEntries(keys.map(k => [k, PINNED[k]]));
 
@@ -400,12 +402,19 @@ test('a Mars colony nobody leads holds its landing supplies in every year of six
   assert.deepEqual(seen, pinned(Object.keys(seen)));
 });
 
-test('Lunar Outpost and the deep-ocean station run as they did before supplies reached the rates', (t) => {
+test('a Lunar Outpost and a deep-ocean station nobody leads hold their landing supplies in every year of eight turns and lose the people their dice for life give them', (t) => {
   const seen: Record<string, TurnRow[]> = {};
+  const moved: string[] = [];
+  const watch = (id: string, seed: number, landing: Record<string, number>) => (ctx: ProgressionHookContext) => {
+    for (const [key, amount] of Object.entries(landing)) {
+      if (ctx.metrics?.[key] !== amount) moved.push(`${id}, seed ${seed}, ${ctx.time}: ${key} ${String(ctx.metrics?.[key])}`);
+    }
+  };
   for (const seed of ROW_SEEDS) {
-    seen[`lunar-outpost, seed ${seed}, 30 people, 8 one-year turns`] = rows(lunarScenario, seed, 30, 8, 1);
-    seen[`deep-ocean-station, seed ${seed}, 30 people, 8 one-year turns`] = rows(station, seed, 30, 8, 1);
+    seen[`lunar-outpost, seed ${seed}, 30 people, 8 one-year turns`] = rows(lunarScenario, seed, 30, 8, 1, watch('lunar-outpost', seed, LUNAR_LANDING));
+    seen[`deep-ocean-station, seed ${seed}, 30 people, 8 one-year turns`] = rows(station, seed, 30, 8, 1, watch('deep-ocean-station', seed, STATION_LANDING));
   }
-  t.diagnostic(`unmarked rows: ${JSON.stringify(seen)}`);
+  t.diagnostic(`lunar and station rows: ${JSON.stringify(seen)}`);
+  assert.deepEqual(moved, [], 'a supply moved with nobody leading');
   assert.deepEqual(seen, pinned(Object.keys(seen)));
 });
