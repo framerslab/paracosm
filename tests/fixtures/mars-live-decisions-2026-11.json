@@ -1,0 +1,1967 @@
+{
+ "about": "The 41 commander decisions of three live Mars Genesis pairs (Aria Chen against Dietrich Voss, seed 950, 6 turns of 8 years, 30 people, 3 departments, the hosted demo models): each event as the Event Director or the scenario wrote it, the option the commander chose, the outcome class, the colony metrics at the turn start, and each leader profile after every turn.",
+ "seed": 950,
+ "runs": [
+  {
+   "pairStartedAt": "2026-11-08T06:06Z",
+   "leader": "Aria Chen",
+   "archetype": "The Visionary",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.35,
+      "extraversion": 0.85,
+      "agreeableness": 0.55,
+      "emotionality": 0.3,
+      "honestyHumility": 0.65
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.3,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.53,
+      "extraversion": 0.85,
+      "agreeableness": 0.7300000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.8300000000000001
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.6900000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.8900000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.8500000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.95,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Micrometeor Impact: Life-Support Scrubbers Drift Out of Spec",
+     "description": "Year 2043 — During routine air-quality checks, Engineering reports a slow leak in a connector manifold feeding the CO₂ scrubbers. With only 30 colonists living in 3,200 m³ of pressurized habitat volume and lifeSupportCapacity rated for 125, the system has margin—but not for long if contamination and dust carryover keep rising. Power is 458.66 kW, yet the scrubber fans are drawing extra load because the filters are clogging with regolith fines.\n\nColony status amplifies the risk: morale is extremely low (morale: 1), Earth dependency remains at 93%, and food reserve is 19.22 months while water production averages 900 L/day—so the immediate emergency isn’t food or water, it’s the atmosphere. If CO₂ climbs or trace contaminants accumulate, psychology and health start to deteriorate fast, especially in a small crew with high isolation.\n\nColony scientists highlight Mars-specific hazards even with conservative landing: dust infiltration and regolith-bearing particulates can elevate respiratory stress; prolonged improper air composition can worsen fatigue and impair decision-making—an existential threat to a colony where scienceOutput is currently 0 and no rapid iteration loop exists.",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative filter rotation and schedule daytime habitat quarantine",
+       "description": "Quarantine only affected habitat bays for 8–12 hours at a time while rotating scrubber filters and re-seating the manifold using standard torque specs. This reduces contamination spread with minimal downtime, but it will consume extra filter cartridges and limit normal work cycles.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Splice in a temporary bypass and divert particulates through the ice-rich intake line",
+       "description": "Engineering proposes a high-efficiency workaround: reroute scrubber intake through the ice-rich plain’s proven filtration path (using the landing site’s ice-adjacent intake hardware) and install a temporary bypass to keep CO₂ down while a full repair is made. Upside: faster stabilization of atmospheric composition and fewer work-hour losses. Downside: if the bypass tolerances fail under dust/grit abrasion, contaminants could spike and trigger acute respiratory issues and psychological breakdowns in a morale-starved crew.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Hard stop to perform full manifold replacement (3-day maintenance)",
+       "description": "Stop most non-critical tasks for 72 hours, fully replace the manifold and perform a leak test sweep across life-support loops. This maximizes engineering certainty and reduces the chance of repeated drift, but it risks compounding morale collapse and increases isolation stress during the extended downtime.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 36,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 24.819999999999993
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Thin-Air Panic: O2 Partial Pressure Drops During Dust-Loaded Scrubber Cycle",
+     "description": "Year 2051 — During tonight’s life-support scrubber rotation, Engineering reports a marginal ECLSS performance drift: the scrubbers are catching more perchlorate-laden particulates than expected. With 36 colonists alive and morale at 1/10, the habitat is already operating close to comfort limits. Life-support capacity is 125, and with infrastructure modules at 2.21, the current buffer margin is thin. Oxygen partial pressure falls below safe target for ~18 minutes before alarms fully trigger; no one dies, but 11 colonists experience hyperventilation, dizziness, and panic-spikes (psychological stress amplified by Mars gravity differences from Earth training). Medical logs increased transient hypoxia symptoms, and Engineering notes that if the next cycle overlaps a dust-heavy period, the O2 dip could last long enough to cause serious injury.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run the next cycle with a full habitat quarantine and manual air-checks",
+       "description": "Engineering isolates nonessential zones and Engineering+Medical perform rapid manual O2 sampling during each scrubber phase; expected to reduce panic by giving colonists clear instructions, at the cost of downtime (higher power draw).",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass quarantine and push an optimized scrubber cadence to “ride through” the dust window",
+       "description": "Engineering keeps the habitat fully active, using an aggressive cadence based on last-turn moderate anomaly risk (42) to minimize time spent off-nominal. Higher upside: more continuous air processing and less power stress. Higher downside: if dust loading continues, an additional O2 dip could trigger injuries and a lasting morale collapse.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Suspend rotations for 12 hours and switch to backup sorbent cartridges",
+       "description": "Engineering pauses scrubber rotation and switches to backup cartridges while prioritizing oxygen stability; Agriculture assists by minimizing exertion schedules to lower demand. Lower downside, but cartridges are limited and water/food logistics tighten if power consumption and cartridge throughput mismatch.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_c",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 39,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 26.123999999999995
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Dust-Overpressure Cascade: Oxygen Compliance Drift After Scrubber Quarantine",
+     "description": "Year 2059 — The colony of 39 colonists (13 native-born) is four births ahead of last month and has only a morale of 1/100. After Turn 3’s 12-hour scrubber suspension to stabilize O2 partial pressure, Engineering warns that the life-support scrubber cycle has been running unevenly against its calibration targets. The current pressure control is compensating by micro-adjusting habitat airflow, which increases internal particulate deposition.\n\nMars science context: Mars dust is electrostatically clingy and contains perchlorate salts; when it infiltrates seals and filtration stages, it can foul oxygen-generation/CO2 scrubbing pathways and produce “feedback loops” that masquerade as oxygen drift. While your tools last turn flagged low medical ECLSS anomaly risk (score 0), Engineering’s ECLSS anomaly risk score was moderate (51), indicating hardware/system coupling risk rather than immediate failure.\n\nOperational snapshot:\n- Power: 403.9 kW (tight margin for frequent filtration backflush)\n- Food reserve: 30.484 months (looks safe, but morale is collapsing)\n- Water: 1008.89 L/day (stable)\n- Pressurized volume: 3021.47 m³ with life-support capacity 130\n- Infrastructure modules: 3.21 (room for upgrades, but not infinite)\n\nThe immediate hazard: measurable O2 compliance drift is expected during the next dust-load cycle, driven by dust-embedded sorbent “channeling” and airflow overpressure that forces particulates deeper into the scrubber manifold. The psychological hazard: with earthDependency at 93% and governance earth-governed, colonists fear another ‘panic loop,’ and 24% of them are already anxious enough to escalate rumors.",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a controlled habitat pressure/airflow recalibration window (24 hours)",
+       "description": "Engineering performs a conservative pressure/airflow calibration using existing filters, pausing high-draw activities (including noncritical comms) to prevent further particulate migration. This reduces compliance drift risk but requires strict procedures and close monitoring.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Force a high-efficiency backflush + sorbent redeploy immediately",
+       "description": "Initiate an aggressive backflush sequence and hot-swap scrubber sorbent routing to clear dust pathways now, prioritizing O2 compliance stability. Upside: likely prevents the next cycle’s drift. Downside: spikes power draw, increases heat/particle re-aerosolization risk, and may trigger a second-order ECLSS fault if any manifold seals are compromised.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Move crew to radiation/particulate shelters and throttle life-support to baseline",
+       "description": "Temporarily concentrate colonists into the highest-particulate-filtration volume zones and run life-support at a ‘baseline’ mode with reduced airflow agitation. This may buy time for a later engineering repair plan, but it intensifies isolation stress and worsens morale during an already tense month.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.52,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 32,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 34.188
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Year 2067: Perchlorate-Heavy Dust Infiltration—Radiation-Shelter Overlap Crisis",
+     "description": "Colonists huddle in Hab 1 after last week’s scrubber/pressure recalibration didn’t fully resolve dust infiltration. With only 32 people alive and morale stuck at 1, the colony’s anxiety spikes when routine external surveys indicate perchlorate-laden regolith dust has breached the habitat airlock seals during pressure cycling. Engineering reports the remaining life-support filter bed is cycling more slowly than spec; tools last turn showed only a moderate ECLSS anomaly risk (46). Today’s radiation monitors also show that the radiation-shielding protocol cannot be safely repeated for every work shift: you have 6.42 infrastructure modules, but shelter overlap time is shrinking.\n\nKey constraints: water 1008.89 L/day (near steady), food reserve 34.188 months (comfortable), but power is stretched at 470.06 kW and morale is critically low. If dust continues to enter, life-support particulate loading will worsen, forcing longer shelter-insulation windows against solar particle events that are more dangerous at Mars’ thin atmosphere. Psychological fallout is immediate—20% defiant and 24% anxious are refusing the next 2-hour decontamination sweep unless governance provides a clear protocol.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a “controlled clean” window and cut external work to essential only",
+       "description": "Limit EVA and non-essential exterior tasks for 24 hours; Engineering adjusts airlock purge cycles to minimize dust entrainment while Agriculture and Medical run rapid crew decon checks. Maintains shelter readiness for radiation spikes, but slows production and may deepen Earth-independence tensions.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass the slow filter stage and boost particulate load handling immediately",
+       "description": "Use an aggressive backflush/flow-reroute to clear the filter bed now, reducing near-term dust in the habitat air. Higher upside (restore normal shifts quickly), but it risks worsening the life-support anomaly (ECLSS drift) and could trigger oxygen compliance instability, exposing colonists to higher radiation dose if shelter time is mismanaged.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Relocate schedules: stagger radiation-shelter shifts by crew rotation",
+       "description": "Instead of overlapping every crew in full shielding at once, rotate smaller teams through shelter hours while others remain in the least-exposed sectors. Requires strict governance discipline and communication to prevent panic; Medical supports monitoring for anxiety and possible radiation-stress symptoms.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 45.59600000000002
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 62.993999999999986
+     }
+    }
+   ]
+  },
+  {
+   "pairStartedAt": "2026-11-08T06:06Z",
+   "leader": "Dietrich Voss",
+   "archetype": "The Engineer",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.97,
+      "extraversion": 0.3,
+      "agreeableness": 0.6,
+      "emotionality": 0.7,
+      "honestyHumility": 0.9
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.62,
+      "emotionality": 0.7,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.78,
+      "emotionality": 0.7,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.9400000000000001,
+      "emotionality": 0.7,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.95,
+      "emotionality": 0.7,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.95,
+      "emotionality": 0.7,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.95,
+      "emotionality": 0.7,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Perchlorate-Driven Water Odor Spike",
+     "description": "Year 2043: Two weeks after landing at Arcadia Planitia, the colonists’ water quality degrades—likely from trace perchlorates in the local brines that intermittently leach when intake valves cycle. Engineering reports carbon-bed throughput has dropped 18%, while Medical notes 6 colonists already report metallic aftertaste and mild GI upset. With 30 colonists alive, morale is 1/10 and 19.22 months of food reserve remain, but waterLitersPerDay is fixed at 900 L/day and life-support capacity is only 125, so any contamination requires fast, tight process control. If perchlorate isn’t reduced, iodine uptake disruption can worsen over months, compounding stress and undermining long-term water reliability on Mars (thin atmosphere reduces dilution; radiation increases baseline health vulnerability).",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative carbon + ion-exchange flush",
+       "description": "Increase flushing cycles, slow intake switching, and log batch-by-batch test results. This protects the current waterLitersPerDay target but may reduce throughput until the filters stabilize; expect minor productivity loss and strict rationing of consumables (cartridges).",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass cartridge constraints with an emergency electrochemical peroxide stage",
+       "description": "Install a rapid electrochemical treatment using stored reagents to attack perchlorates directly. Upside: restore water quality quickly and reduce GI complaints. Downside: unproven on your setup, higher risk of equipment corrosion and a sudden dip in life-support reliability if powerKw or system integrity is stressed during the process.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Halt intake cycling and blend with stored reserve batches",
+       "description": "Stop cycling valves that trigger leaching, blend only from highest-quality stored batches, and gradually return to full intake. Upside: reduces exposure immediately. Downside: you’ll draw down safety margins; if the brine source stays contaminated, the 900 L/day requirement may force an oxygen/water trade later.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.48,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 36,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 27.22
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 1,
+     "title": "Bone-Density Dip After Early Radiation Screening",
+     "description": "Year 2043: The landing site screening looked ‘excellent’ in the risk models, but the actual early operational pattern changed your dose profile: short, repeated EVA sessions to secure infrastructure and communication masts kept colonists near the surface when secondary radiation (from regolith and cosmic rays) was highest. Medical’s first follow-up shows borderline bone-density markers in 9 of 30 colonists—fatigue after long shifts, hip pain after stairs in the habitat, and concentration slips. Morale is already at 1/10 and 20% of colonists are anxious; with EarthDependencyPct at 92% and governanceStatus still earth-governed, any health decline can rapidly become political friction. Food reserve is 19.22 months and powerKw is 448.48, but if this continues, you risk turning a treatable bone-density issue into longer-term radiation-exacerbated injury and psychological collapse. Mars’ lower gravity (about 0.38g) makes weight-bearing exercise essential; without it, bone remodeling slows, especially under stress and isolation.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Implement strict EVA scheduling + indoor loading protocol",
+       "description": "Engineering limits surface time by batching tasks under coordinated windows and installs temporary shielding where feasible. Agriculture and Medical expand daily weight-bearing routines (resistance bands, “mars-g” simulators where possible) and adjust meal composition to support mineral intake. Slower construction progress, but health trajectory stabilizes.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Use extra radiation shielding mass lifted by temporary gantries (fast ramp-up)",
+       "description": "Aggressively protect the most-exposed areas by installing thicker shielding quickly with new temporary gantries. Upside: reduces dose during the riskiest remaining construction. Downside: uses engineering time and powerKw margin; if structural assumptions or load paths fail in low gravity/limited pressurized volume constraints, habitat strain could trigger cascading infrastructure delays that worsen both health and morale.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Shift to a ‘minimal-dose’ work rotation and reduce exercise demands to prevent burnout",
+       "description": "Conserve radiation exposure and reduce required physical routines that feel punishing to anxious colonists. Upside: immediate morale comfort. Downside: neglecting weight-bearing worsens bone-density trend over months, increasing medical load later and raising political pressure from the earth-governed leadership narrative (‘why did you let them weaken?’).",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.42,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 36,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 27.22
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Martian Dust Infiltration Triggers Radiation Hotspots",
+     "description": "Year 2051 — Colonists, morale has fallen to 1/100 as the 7-module habitat stays in constant negative-pressure vigilance after last turn’s water/health scares. Today a persistent wind-driven dust plume (common over Mars’ thin atmosphere and driven by static and abrasion) has started sneaking through microfractures around one airlock. The dust acts like an insulating layer and increases particulate deposition on external radiation shielding panels, shifting local dose rates inside.\n\nEngineering reports the pressurizedVolume is 3,320 m³ with lifeSupportCapacity at 130.65% of nominal duty cycles (already strained), while powerKw sits at 429.08 kW and must run extra HEPA cycling. With only 23.9 months of food reserve and water at 809.49 L/day, you cannot “wait it out” if shielding performance degrades.\n\nRough dosimetry from the habitat’s external sensor patching indicates intermittent radiation spikes consistent with dust-altered shielding effectiveness (not a solar storm—dust plus geometry). Medical’s earlier bone-density dip after early radiation screening makes this particularly dangerous: colonists report more frequent fatigue during EVA prep, and the 24-colonist mood is 38% neutral but 25% anxious and 13% defiant (rumors are spreading that engineering is hiding dose numbers).",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Seal-and-Filter: Slow EVA, deepen HEPA/CO2 cycling",
+       "description": "Immediately switch to conservative air handling: increase HEPA duty cycles, run longer CO2 scrubs to prevent particulate-induced sensor drift, and pause EVA windows for 10 sols while engineering reseats airlock gaskets and adds temporary brush seals. Protects bone-density sensitive colonists; costs power and reduces output/science for a short period.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Redirect Power to Shielding Patch Drones (High gain, high risk)",
+       "description": "Deploy two shielding-facet patch drones to hot-swap external panel coatings and mechanically clean dust layers during brief, carefully timed EVA-less robot windows. If successful, dose rates drop quickly and morale may stabilize. Risk: drones can jam in dust, causing partial shielding coverage and triggering longer-term life-support overwork when powerKw is already tight.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Overrule: Maintain Schedule, Treat Dust as ‘Contained’",
+       "description": "Keep EVA and science on the existing tempo to prevent psychological collapse from prolonged restriction. Engineering will only apply internal HEPA and ignore external panel dust until after next resupply planning. Saves time and maintains social cohesion short-term but increases likelihood of continued radiation hotspots and accelerates bone-density decline.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.48,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 39,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 36.70000000000001
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Year 2059: Oxygen-Scrubber Drift After Dust Hotspot Reseal",
+     "description": "Colonists, population 39, are recovering from last turn’s dust infiltration and radiation hotspots. However, in the rush to reseal and increase HEPA/CO2 scrubbing, Engineering reports mixed cartridge batches and inconsistent replacement intervals across life-support racks. Current life-support capacity is 130.65 (arbitrary units) while pressurizedVolumeM3 is 3320 m^3, and waterLitersPerDay is 809.49—enough to run scrubbers, but not enough to compensate for inefficiency. Power is 476.31 kW, food reserve covers 37.83 months, yet morale is critically low at 1/100. Over the last 48 hours, CO2 levels are trending up in Module 4’s EVA corridor, pushing oxygen partial pressure margins tighter than the bone-density safety window that Medical helped protect earlier this year. Without correction, the habitat’s atmosphere control could slip into a sustained high-CO2 state, worsening sleep, cognition, and anxiety—especially with 86% Earth dependency and independencePressure at 23%.",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Follow the slow cartridge audit and standardize replacement logs",
+       "description": "Engineering halts noncritical EVA and runs a full rack-by-rack scrubber audit; Medical and Agriculture support with controlled occupancy rotations to prevent peak CO2 load while replacements are standardized. Slower but reduces the risk of hidden bad cartridges and helps stabilize colonists’ sleep and cognition.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass and hot-swap using the best-available cartridges despite mixed provenance",
+       "description": "Engineering reroutes airflow to connect the highest-performing cartridges first, even if their provenance is mixed, and initiates a hot-swap while modules remain occupied. Upside: fast stabilization of CO2 and oxygen margins. Downside: mismatch may increase trace off-gassing and trigger additional irritation that can aggravate psychological stress and complicate ongoing bone-density/radiation recovery.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Reduce crew activity and impose strict quiet hours during CO2 peaks",
+       "description": "Governance and Engineering implement strict schedule throttling: reduced exercise, longer rest cycles, and tighter occupancy limits in the affected corridor until scrubber drift returns to normal. This preserves power and avoids risky airflow changes, but it will amplify isolation and burnout effects in a colony already at morale 1.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.52,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 32,
+      "morale": 0.8230467210000001,
+      "foodMonthsReserve": 53.03
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Year 2067: Perchlorate-Laced Condensate Surprise",
+     "description": "While Engineering standardized oxygen-scrubber replacement logs and accelerated dust sealing, Agriculture also confirmed your water output is meeting demand—yet a new batch of atmospheric condensate shows elevated perchlorate carryover. With 32 colonists, waterLitersPerDay=809.49 barely covers consumption after the last odor incident, and foodMonthsReserve=53.03 masks the problem by allowing ration slack. The issue is confined to the condensate loop, but it threatens long-term water safety and raises the risk of bone-density regression again (you stabilized after the earlier dip), especially if colonists ingest trace perchlorate while EVA scheduling remains cautious. Morale is still high (97%), but with 32% anxious and governance still earth-governed (EarthDependencyPct=83), any contamination headline will fuel independencePressure (26%).",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Quarantine condensate to a “flush-and-dilute” mode",
+       "description": "Switch the condensate loop to temporary quarantine: route condensate through extra ion-exchange + carbon stages while limiting uptake to blended supply. Keep daily water volume near 809.49 L/day using blending buffers to avoid sudden rationing. This is conservative and preserves production, but it risks gradual filter saturation if perchlorate levels stay high.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Hot-swap to a rapid reverse-osmosis bypass (RISKY)",
+       "description": "Rapidly bypass the current treatment train and deploy a reverse-osmosis bypass using forged tool-grade membranes (Tools forged so far: 6). Upside: can dramatically cut perchlorate quickly to protect bone-density long-term. Downside: higher membrane fouling rates in Mars-brine conditions could reduce throughput mid-week, forcing abrupt water rationing and increasing psychological stress; a failure could also worsen life-support margins due to tighter water-for-processing cycles.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Pause condensate reliance; raise intake from the deeper well field",
+       "description": "Temporarily reduce atmospheric condensate usage and increase reliance on the deeper well field to restore water quality while the treatment system is re-tuned. This protects water safety immediately and preserves psychology, but it consumes well-field buffers and may reduce future flexibility if infrastructure access is delayed by dust and radiation constraints.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.9314442181885186,
+      "foodMonthsReserve": 75.958
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 103.576
+     }
+    }
+   ]
+  },
+  {
+   "pairStartedAt": "2026-11-10T02:32Z",
+   "leader": "Aria Chen",
+   "archetype": "The Visionary",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.35,
+      "extraversion": 0.85,
+      "agreeableness": 0.55,
+      "emotionality": 0.3,
+      "honestyHumility": 0.65
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.3,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.53,
+      "extraversion": 0.85,
+      "agreeableness": 0.7300000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.8300000000000001
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.6900000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.8900000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.8500000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.95,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Year 2043: Subsurface Ice Pump Salinity Spike",
+     "description": "During settlement build-out at Arcadia Planitia, the ice-processing loop is drawing from a newly exposed stratum. Yesterday’s analysis found brine intrusion: water output quality is now dropping from safe levels of dissolved salts, and perchlorate contamination risk has risen. With 30 colonists alive, your food reserve covers 19.22 months but water is already tight—900 liters/day is being stretched through filtration, and life-support capacity (125) is being run near its comfort envelope to maintain humidity and pressure inside 3200 m³ of pressurized volume. Power is healthy (498.66 kW), but every extra filtration cycle hits water throughput and increases maintenance load on the same modules supporting your life-support. Today, 6 colonists report burning eyes and sore throats after showers and air-scrubber regeneration, suggesting aerosolized contamination and heightened microbial load. If you ignore it, long-term exposure risk rises (Mars water chemistry + microbial stress), threatening oxygen hygiene and water recycling efficiency. The colony’s morale is 98%, and EarthDependency is 92%—failure will immediately amplify governance scrutiny from Earth.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Scale up filtration conservatively",
+       "description": "Increase filter media swaps and run an extra backwash cycle. Hold shower water for crew to essential hygiene only (limit non-critical usage), preserving throughput for drinking and life-support humidity control. Engineering schedules a subsystem inspection; Agriculture adjusts hydroponics nutrient mixing to avoid further salt load.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass with rapid electro-precipitation trial",
+       "description": "Install a prototype electro-precipitation bypass to strip salts faster, using spare power headroom (498.66 kW) to accelerate treatment. Upside: restore full 900 liters/day quickly. Downside: if chamber chemistry is wrong, you could concentrate perchlorate byproducts and push contamination into the recycled loop, risking mass illness and degradation of the life-support system.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Throttle water and freeze nonessential systems",
+       "description": "Reduce water allocation to the minimum needed for drinking and life-support; temporarily suspend certain humidity generation tasks and delay secondary habitat maintenance in the 4 infrastructure modules. Upside: buys time to identify the stratum source. Downside: harsher living conditions may impact psychology (dry air, irritants in the habitat) and increase the risk of compliance problems with Earth-governed oversight.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.48,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9322850407500001,
+      "foodMonthsReserve": 24.819999999999993
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Perchlorate-Laced Water Aftershock",
+     "description": "Year 2051: Engineering has restored water flow, but the stratum contamination hasn’t fully cleared. With 35 colonists alive and only 715.4 liters/day currently available, the colony’s life-support loops are running near the edge: pressurized volume is 3200 m³ with 4 infrastructure modules supporting systems sized for a capacity of 120. After last turn’s conservative filtration and throughput limits, tests now show intermittent perchlorate spikes in recycled water—small enough to miss during the first sampling, large enough to raise concern for long-term thyroid stress and subtle neurological effects. \n\nMedical is tracking 11 colonists reporting fatigue and headaches since the filtration slowdown began; none are severe yet, but the anxiety level is high (39% anxious; morale is 89% but fracturing under uncertainty). If the spike pattern continues for 2–3 weeks, the medical burden will rise while water throughput remains constrained. With food reserves at 22.94 months and power at 496.26 kW, the colony can survive a short medical surge—but not prolonged contamination while systems must be rebalanced.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Double-sample and run a segmented purification loop",
+       "description": "Engineering + Medical tighten sampling cadence (hourly at the return line during peak usage) and agriculture shifts station water schedules so the recycled loop can be segmented. This reduces risk of dosing the whole colony while keeping most throughput stable.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass to a high-flow emergency cartridge (fast fix)",
+       "description": "Switch immediately to a high-flow purification cartridge path that ignores intermittent perchlorate alarms to preserve 715.4 L/day. Upside: fewer headaches within days if the spike window is narrow. Downside: if perchlorate breakthrough occurs, cumulative exposure rises fast and may trigger thyroid/neurological complications.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Temporary rationing + “medical-only” water allocation",
+       "description": "Implement short-term water rationing across habitats for 10–14 days and allocate the best-quality water to Medical, hygiene, and critical drinking lines. This sacrifices comfort to protect dosing integrity and buys time for deeper stratum isolation.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.48,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.8966789630163889,
+      "foodMonthsReserve": 28.53999999999999
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Year 2059: Perchlorate Residual Shock—Thyroid Strain & Contamination Creep",
+     "description": "Colonists, your water system is stable on paper—waterLitersPerDay 625.4 is flowing and foodMonthsReserve 29.34 buys time—but the prior perchlorate aftershock wasn’t a single spike; it left residual chemistry that can rebound as filters load and brine disposal shifts. Today, 7 colonists report escalating fatigue, cold intolerance, and new headaches; lab checks show an elevated perchlorate signal compared to last week. With morale at 1 and earthDependencyPct at 94%, panic spreads faster than evidence. Engineering reports microbial load within tolerance, yet the segmented purification loop may be degrading in performance, pushing trace contaminants toward life-support scrubbers and ultimately the body’s endocrine stress response. If unchecked, the colony faces compounding health impacts (chronic thyroid disruption) that also worsen psychological strain and reduce concentration—critical for maintaining life-support capacity 122.71 and infrastructure modules 4 under continuous operation.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Tighten the segmented purification loop and slow restart cycles",
+       "description": "Engineering increases filtration dwell time and reinstates a conservative isolation protocol for suspect water batches; Medical runs structured symptom triage and tracking; Agriculture limits any process water variability that could cross-contaminate grow beds. Upside: most defensible containment while preserving waterLitersPerDay output. Downside: reduces throughput and strains powerKw 478.06 margin during filter regeneration.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass with aggressive “fast clean” chemistry flush (high throughput)",
+       "description": "Engineering executes a rapid chemical flush and partial media swap to drive perchlorate down quickly, minimizing downtime to protect powerKw and keep waterLitersPerDay steady; Medical uses accelerated screening only for the most symptomatic; Agriculture temporarily pauses non-essential nutrient-water adjustments. Upside: fastest improvement and highest chance to stop symptom escalation this week. Downside: if flush chemistry interacts with life-support plumbing or seals, it can create secondary contamination that becomes harder to reverse under Mars’ harsh environmental constraints.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Ration to stabilize chemistry: draw down to 20-day reserve then rebuild",
+       "description": "Colonists accept reduced water throughput for 10–14 sols to let the system equilibrate, targeting a controlled return of perchlorate to baseline before restoring full flow. Upside: buys time to fully inspect and recalibrate purification trains. Downside: dehydration risk rises, and morale may collapse further given current morale=1 and high Earth dependence.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 34.94
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Year 2067: Perchlorate-Triggered Crop Stress Meets Dust-Radiation Exposure",
+     "description": "Colonists (31 total; 12 native-born) are running life support at tight margins after four cycles of intensified water treatment (water 641.34 L/day; food reserve 39.58 months; power 431.86 kW). Despite last turn’s conservative purification tightening, the tools’ perchlorate escalation score stayed “heightened” (risk 51) and thyroid strain signals remain elevated. This morning, a fine Mars dust veil (low visibility) reduced solar input to the greenhouse algae and stirred settled particulates into air intakes. Radiation exposure rises because dust filtering is imperfect during these veils, pushing effective skin dose rates higher than expected; meanwhile, stressed crops uptake perchlorate residues, worsening iodine/thyroid balance.\n\nCurrent morale is critically low (morale: 1). With 7 deaths still fresh in memory and no births this cycle (+0 births, -7 deaths recently), 29% of colonists are anxious and 13% defiant—some suspect “the system is lying” while others demand Earth oversight. Engineering reports intake filters are degrading faster than baseline; Agriculture reports crop stress. Medical notes the thyroid-risk posture (thyroid strain index 52) may turn into overt radiation/iodine-conversion symptoms if shielding and diet are not corrected within days. Life support capacity is 118.71 vs habitat volume pressure constraints (pressurizedVolume 3200 m³), so emergency sheltering is possible but costs power and oxygen margins.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Switch to Dust-Safe Intake Protocol + Accelerated Crop Quarantine",
+       "description": "Engineering seals and throttles intake pathways during the dust veil; replace/clean the highest-load particulate stages and reroute air through higher-efficiency filters. Agriculture quarantines the most affected grow-lanes (quarantine feeds to a lower-risk recipe) and accelerates a perchlorate-suppression nutrient routine. Medical increases thyroid surveillance frequency for all 31 colonists and prepares iodine-support dosing if labs confirm strain progression. This is slower and uses more filter cartridges, but it avoids a sharp hit to oxygen/power budgets.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Run a High-Upside Emergency: Bio-Activated Shield Additive in the Greenhouse Air Loop",
+       "description": "Engineering injects a bio-activated particulate binding additive into the greenhouse air loop to rapidly reduce dust-bound transfer and improve effective radiation shielding locally. If the additive chemistry behaves as expected, it may simultaneously reduce particulate loading and improve crop environment stability. Risk: unknown interactions with life-support CO2 scrubbers and trace iodine pathways; if it fouls scrubbing media, colonists could face abrupt air quality degradation and a cascade into life-support failure.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Request Earth Override: Pause Local Ops and Adopt Strict Earth Radiation/Thyroid Guidelines Immediately",
+       "description": "Governance initiates an Earth-governed command overlay, suspends greenhouse operations for the most dust-exposed window, and follows Earth’s stricter radiation/thyroid protocols. This reduces immediate exposure variability but increases Earth dependency strain (earthDependencyPct 93) and may delay filter/crop action while communications latency and bureaucracy run their course. Morale could worsen if colonists interpret it as abandoning autonomy.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.42,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 45.18000000000002
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 53.19000000000005
+     }
+    }
+   ]
+  },
+  {
+   "pairStartedAt": "2026-11-10T02:32Z",
+   "leader": "Dietrich Voss",
+   "archetype": "The Engineer",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.97,
+      "extraversion": 0.3,
+      "agreeableness": 0.6,
+      "emotionality": 0.7,
+      "honestyHumility": 0.9
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.62,
+      "emotionality": 0.7,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.62,
+      "emotionality": 0.86,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.78,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.9400000000000001,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.95,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.95,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Radiation-Heavy Dust Fallout: Subsurface Shielding Question",
+     "description": "Year 2043: During the first weeks after landing at Arcadia Planitia, colonists noticed a persistent fine-grain dust deposition inside the forward module. Engineering reports the dust behaves like an adsorbent for charged particles and perchlorate-laced particulates (an access-tube sampling line showed elevated perchlorate in settled dust). Over the last 10 days, cumulative personal dosimetry rose to an estimated 320 mSv-equivalent external exposure risk if activity continues without procedural changes—dangerously close for a 30-colonist crew with morale at 1 and earthDependency at 92% (risk-taking tends to increase when stress and oversight conflict).\n\nCurrent colony numbers: 30 colonists alive, food reserve 19.19 months, water 900 L/day, pressurized volume 3200 m³, lifeSupportCapacity 125, and power 518.07 kW. But the life-support system is being run near its comfort margins because filtration cartridges are saturating faster due to dust loading. If radiation protocols are not tightened, medical expects bone-density degradation acceleration (relevant during partial-G exposure from routine maintenance) and a spike in radiation-sickness complaints in the next 2–4 months, especially given isolation and low morale.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Switch to strict storm-dust procedures and rotate filtration loads",
+       "description": "Implement a conservative operational protocol: every 24 hours, limit EVA window, enforce pre-breath filtration, and rotate/overprovision cartridge cycles using current power (518.07 kW) to keep CO2/O2 recovery stable. Also expand “clean-air” refuge zones within the 3200 m³ habitat volume until dust settlement drops.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Venture outside to manually clear shield-block penetrations (risky)",
+       "description": "Send a 3-person engineering EVA rotation to clear/inspect dust-sealed shielding interfaces around the subsurface access line. If successful, shielding efficiency improves quickly; if not, you risk additional radiation exposure and accidental breach/contamination that could overwhelm medical isolation protocols.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Use habitat pressurization cycling to compact dust and reduce airborne particulates",
+       "description": "Adjust pressurization cycling (within lifeSupportCapacity limits) to compact settled dust and reduce airborne particulate concentration before it reaches intakes. This is less disruptive than full lockdown but may temporarily increase stress for colonists already at morale 1.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.52,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 24.789999999999996
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Perchlorate-Laced Brine Surge: Water Intake Crisis",
+     "description": "Year 2051: Sensors detect a sustained rise in perchlorate in the intake line. Your water system currently provides 900 liters/day to 35 colonists, supporting life-support loops inside 3320 m³ of pressurized habitat volume (lifeSupportCapacity 125.67). After last turn’s strict subsurface dust procedures, pump schedules were tightened and maintenance windows shortened; that reduced flush cycles in the intake filters. Now the brine front is pushing perchlorate above safe operational thresholds, threatening long-term thyroid function and kidney stress—while short-term dilution is constrained by your food-month reserve (24.79 months) and power budget (500.67 kW) needed to run extra filtration and ion exchange.\n\nEven with morale at 87%, the agent mood is unstable (35% anxious, 17% defiant). If you keep water moving without compensating treatment, the colony faces a creeping medical burden that will show up later in bone-density and overall health resilience (Mars low gravity already strains calcium retention).",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Switch to conservative deep-filtering and extended flush cycles",
+       "description": "Pause intake for short flushing windows (2–3 hours) and prioritize deep-filter and ion-exchange stages. Maintains water quality at higher energy cost; protects against perchlorate buildup and buys time for engineering to adjust the intake routing.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Risky: Bypass to keep flow and dilute with emergency tanks",
+       "description": "Temporarily bypass the bottleneck filter and rely on emergency dilution tanks to keep 900 L/day flowing. Higher chance of exceeding perchlorate limits locally, but avoids immediate water-use restrictions and preserves power for habitat life-support continuity.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Reroute to backup extraction zone and stagger consumption quotas",
+       "description": "Move to a backup extraction point and implement 12-hour staggered consumption quotas so engineering can recalibrate flow without fully stopping habitat supply. Likely reduces perchlorate impact, but risks under-supplying hygiene loops and psychological stress if quotas become visible.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.46,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.8883974971885187,
+      "foodMonthsReserve": 30.38999999999999
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Year 2059 — Hab-Hull Micropuncture After Dust Fallout: Oxygen Trace Loss",
+     "description": "Colonists are down to 38 alive (13 native-born). Morale is critically low at 1, even as births continue (+4 births, -1 deaths). Following the last strict subsurface shielding and perchlorate-brine intake protocol, the colony’s maintenance tempo slipped: the dust-radiation mitigation patches reduced exposure but left fine particulate trapped in seals. Today Engineering reports a micropuncture in a life-support trunk line across two habitat modules (of 4 total), causing intermittent oxygen trace loss and elevated CO₂ load.\n\nCurrent readings: power is 438.27 kW (enough to run pumps), but life support capacity is only 125.67 while pressurized habitat volume is 3320 m³. If the leak persists, the oxygen partial pressure will drift enough to trigger respiratory strain within days—especially for colonists with already-worsening radiation recovery. Psychological strain is compounding: with earthDependency at 86% and governance still Earth-governed, isolation and fear spread faster when the habitat feels unsafe.\n\nRisk is highest because this failure hides behind dust: the colony can chase surface cracks, wasting time, while the real breach sits behind a dust-caked connector near the air scrubbers.",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Engineering Patch-and-Verify (Sealed Isolation, Slower)",
+       "description": "Isolate the affected habitat trunk, purge dust from connector faces with filtered gas, apply a sealant patch, then verify with pressure-decay and CO₂ rebound tests before returning full airflow. Slower—requires careful procedure and coordination to avoid temporary overloading of scrubbers.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Risky: Rapid Sealant Flood (Bypass Diagnostics)",
+       "description": "Use a rapid sealant 'flood' through an access port to stop the leak quickly while the colony is still running pumps. Faster symptom control, but higher risk of trapping dust in scrubber/media interfaces and causing secondary life-support degradation.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Re-route Life Support to Redundant Loop (Treat as Systemic)",
+       "description": "Shift airflow and scrubbers to the remaining modules, reducing stress on the suspected trunk while Engineering locates the breach. This protects breathing comfort now but runs scrubbers harder and may increase CO₂ levels if rerouting isn’t tuned.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.52,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 41.09000000000001
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 1,
+     "title": "Year 2059 — Bone-Density Warning: Radiation-Aftereffect + Low Morale",
+     "description": "Engineering’s dust mitigation and the new water-handling discipline have kept the colony alive, but they haven’t fully reversed the long-term risk profile. With morale at 1 and psychological tension rising (21 colonists surveyed: 24% anxious, 14% defiant, 5% resigned), adherence to exercise and medical follow-up is slipping.\n\nMedical logs show a measurable acceleration in bone-density risk markers: colonists are exposed to higher-than-expected background radiation during dust events and during maintenance EVA windows. Even in a pressurized habitat, intermittent exposure during repairs (and time spent outside) increases cumulative radiation dose—one more stressor on calcium regulation and recovery.\n\nColony physiology summary: 38 colonists alive; food reserve is 35.49 months and water is 960.06 L/day, so shortages aren’t immediate. The threat is longer: if exercise compliance drops and radiation recovery lags, bone-density decline makes fractures more likely during routine maintenance, and that spirals into medical load. Psychology matters because with isolation, fear of recurrence, and Earth-governance dependence (86%), people are less likely to volunteer for time-consuming rehab and load-bearing routines.\n\nThis event escalates now because the last dust procedures bought survival but didn’t close the loop on health behavior—meaning the colony’s next injury could be preventable with decisive, coordinated intervention.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Medical-Led Rehab Protocol + Psychology Coaching (Gradual)",
+       "description": "Institute a strict, trackable rehab schedule (load-bearing intervals, calcium/vitamin regimen where possible) paired with Psychology-led daily check-ins to counter isolation and fear. Works best if colonists comply; slow to rebuild trust but stable and low-risk.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Risky: Use “Hard Reset” Drill to Force Compliance",
+       "description": "Run a colony-wide intensive drill for 10 days: timed exercise quotas, mandatory rehab attendance, and reduced social downtime to improve adherence. Upside: faster bone-risk mitigation and stronger routines. Downside: high emotional backlash could deepen unrest and worsen compliance long-term.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Shift to Production-Linked Exercise (Incentives Instead of Enforcement)",
+       "description": "Tie rehab to measurable work outputs (maintenance credits, agriculture task bonuses) so colonists exercise to keep the colony moving. Lower conflict than hard enforcement, but depends on governance buy-in and transparent metrics.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.49,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 41.09000000000001
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Year 2067 — Trace-O₂ Recovery Stalls: Life-Support Drift Under Dust Load",
+     "description": "Colonists report that the habitat’s “oxygen trace” recovery has plateaued after the micropuncture isolation and patching (Turn 4). With 31 colonists alive, morale at 1/100, and lifeSupportCapacity at 139.15, the system is now running closer to its limits than the dashboard admits. Power is 457.94 kW, but dust aerosols and filter media from prior Mars storms are degrading regeneration efficiency, causing a slow, intermittent drop in oxygen partial pressure.\n\nCurrent operating indicators show: life-support headroom is effectively reduced by ~12% (capacity slack shrinking), pressurizedVolume is 3557.57 m³, and engineering estimates a 6–9 hour “soft brownout” risk window if oxygen regeneration remains uncorrected. Psychology is already brittle: 33% anxious and 17% defiant are demanding “proof” that the habitat is safe, and with earthDependency at 81% under earth-governed rule, governance delays on retrofits have made trust worse.\n\nThis crisis directly ties to the earlier oxygen trace loss and the bone-density warning: repeated high-radiation dust exposure increases respiratory irritation and stress physiology, and the colony’s low morale amplifies hypervigilance and conflict.",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Engineering-led recalibration: swap/flush regeneration cartridges on a tight schedule",
+       "description": "Engineering performs controlled cartridge swap/flush cycles and recalibrates oxygen sensors against reference standards, prioritizing safety margins over speed. Keeps habitat stable but reduces science output temporarily.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Convert to ‘partial open-loop’ during dust lulls to clear the system faster",
+       "description": "Use brief open-loop bleed + temporary scrubber rerouting when external dust monitors indicate lowest particulate loads, aiming to restore regeneration efficiency quickly. Faster recovery is possible, but if Mars atmospheric dust spikes or seals are imperfect, oxygen levels and pressure could undershoot, triggering emergency shelter requirements.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Suspend nonessential loads and enforce strict ‘silent hours’ until recalibration completes",
+       "description": "Cut power draws for labs and noncritical air circulation, enforce quiet/low-activity windows to reduce CO₂ and stress signals, and delay major servicing until power margin is safer. This stabilizes immediate physiology but risks letting life-support drift worsen if not corrected soon.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 54.802
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9430467210000001,
+      "foodMonthsReserve": 74.29799999999999
+     }
+    }
+   ]
+  },
+  {
+   "pairStartedAt": "2026-11-10T14:06Z",
+   "leader": "Aria Chen",
+   "archetype": "The Visionary",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.35,
+      "extraversion": 0.85,
+      "agreeableness": 0.55,
+      "emotionality": 0.3,
+      "honestyHumility": 0.65
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.3,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.37,
+      "extraversion": 0.85,
+      "agreeableness": 0.5700000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.67
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.53,
+      "extraversion": 0.85,
+      "agreeableness": 0.7300000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.8300000000000001
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.6900000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.8900000000000001,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.8500000000000001,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.95,
+      "conscientiousness": 0.95,
+      "extraversion": 0.85,
+      "agreeableness": 0.95,
+      "emotionality": 0.45999999999999996,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Dust-Derived Perchlorate Load in the Hab Intake Filters",
+     "description": "Year 2043 — Three days after landing-site hardening, your habitat intake is showing unexpected filter fouling. While you started with 4 infrastructure modules and robust shelter volumes (pressurizedVolumeM3: 3000), the habitat life-support system is now diverting power to deeper particulate capture: powerKw is effectively down from a nominal buffer, while waterLitersPerDay is holding at 800 only because backflush cycles are consuming extra system consumables. Engineers report perchlorate-bearing dust migrating into the intake; Agriculture confirms trace perchlorate contamination risk to hydroponic nutrient loops if wastewater polishing is delayed. With 30 colonists alive, morale remains high at 99%, but 20% of colonists are anxious about “what we breathed during landing,” and 27% are neutral—perfect conditions for rumors if the problem isn’t contained.\n\nIf perchlorate load continues, it can raise the burden on life-support regeneration and worsen long-term bone health outcomes (bone-density effects are a known concern for chronic exposure to disrupted iodine uptake). Medical also flags that symptom triage will be hard: dust ingestion can mimic early respiratory irritation while the true issue is chemical contamination and air handling efficiency. Your current reserves are foodMonthsReserve: 19.22, so you can afford time—but not uncontrolled filter downtime: lifeSupportCapacity is 125, and you’re operating close to its margin when backflush and scrub cycles overlap.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run conservative backflush + quarantine the intake for 8 hours",
+       "description": "Engineering schedules staggered backflush and temporarily isolates the most contaminated intake lines, minimizing risk of pushing perchlorate into water recycling. Agriculture shifts hydroponics to a closed-loop nutrient reserve for one cycle, and Medical performs targeted baseline labs (thyroid/irritation screens) rather than broad testing to save life-support power draw.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Boost airflow through single-stage scrubbers to clear it fast",
+       "description": "Risky acceleration: engineering increases fan draw to push dust through upgraded single-stage scrubbers, aiming to restore normal airflow immediately. Upside: less total time under contamination. Downside: higher powerKw draw may cascade into life-support inefficiency, increasing CO2/trace-gas stress and raising the odds of an overheat or partial failure that forces longer recovery—especially while Earth-governed governance and 92% EarthDependencyPct reduce your tolerance for extended downtime.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Switch to emergency perchlorate bypass for water polishing",
+       "description": "Engineering and Agriculture reroute water polishing to an emergency perchlorate-reduction pathway and reduce intake cycling frequency. This protects waterLitersPerDay output and keeps hydroponics stable, but it increases chemical usage and may trade air quality resilience for water quality stability. Medical focuses on respiratory monitoring because the air pathway may remain imperfect.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.45,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9375051055222939,
+      "foodMonthsReserve": 24.819999999999993
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Perchlorate Fallout: Bone & Thyroid Risk Spike",
+     "description": "Year 2051 — The colonists are out of sync with last turn’s filter backflush results. With 35 colonists alive and 22.2 months of food reserve, your primary life-support capacity (130) is enough, and power is steady (432 kW). But engineering flagged the perchlorate intake filters as urgent (urgency 74) and medical computed a critical perchlorate intake risk (score 94) after Turn 2. Over the last 48 hours, lab assays show increased perchlorate breakthrough in the hab water loop despite quarantine: 9 colonists report new symptoms (fatigue, cold intolerance, dry skin), and 3 have elevated thyroid markers consistent with impaired iodine uptake. Two of the most recent births—your +9 births this cycle—are now exhibiting subtle growth-delay flags, raising concern for developing bone density under altered iodine and mineral dynamics. Given Mars’ higher baseline radiation exposure (shielding depends on water and habitat layout) and your youthful age mix, this becomes a compounded risk: even with morale at 90%, the anxious mood (35%) is turning into fear as colonists connect filter failures to long-term health and generations to come.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a full iodine-and-thyroid mitigation protocol immediately",
+       "description": "Engineering isolates the affected intake manifolds while medical initiates iodine supplementation and serial thyroid/bone-density screening; agriculture adjusts vitamin-mineral rationing to buffer mineral absorption. Maintain strict water loop hold until perchlorate levels return to baseline.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Blind-restart the filtration stack at full load to ‘beat the breakthrough’",
+       "description": "Engineering bypasses the slow-cycle verification step and restarts the stack at full flow while medical monitors only the most symptomatic cases. This may restore normal water chemistry faster, but risks reintroducing perchlorate pulses that worsen thyroid impairment and could amplify bone-density deficits in children.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Switch temporarily to stored condensate and rationed greywater for 10 days",
+       "description": "Agriculture and engineering reroute to older condensate tanks and implement conservative rationing to protect the cleanest water fraction. Medical conducts broader screening while the system stabilizes, trading short-term comfort for lower exposure dose.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.46,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.8981498840934189,
+      "foodMonthsReserve": 30.219999999999995
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Governance Rift After Perchlorate Scare",
+     "description": "Year 2059 — The colony of 38 colonists (13 native-born) is stable but politically brittle: morale sits at 99%, yet 92% of your supplies remain Earth-dependent and independence pressure has climbed to 15%. The recent perchlorate incident (critical medical risk flagged by tools last cycle) has left everyone watching the chain of responsibility—especially in a habitat built with only 6 infrastructure modules and tight life-support headroom (lifeSupportCapacity: 140.51 vs. current capacity margin pressured by filter workload). The mood split is sharp (20 colonists: 30% neutral, 20% hopeful, 15% defiant, 15% anxious, 10% positive, 10% resigned). A governance caucus is demanding independent oversight of the iodine-and-thyroid protocol and filter-backflush procedures, while the Earth-appointed administrator insists on protocol compliance to avoid additional radiation exposure from emergency operations and comms delays.\n\nIf this dispute stalls, intake-filter backflush windows may be delayed, risking renewed perchlorate load resurgence and triggering psychological strain through isolation and perceived incompetence—exactly when the colony has just returned to routine.",
+     "category": "political",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Keep Earth-Run Protocols, Add Local Transparency Boards",
+       "description": "Confirm Earth governance control of life-support procedure, but create a colonist-led transparency board (meeting logs, filter status dashboards, and daily summaries) so decisions feel accountable. Avoids operational disruption; reduces anxiety but may not satisfy defiance factions.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Suspend Earth Oversight and Self-Authorize Filter Operations",
+       "description": "Temporarily revoke Earth-appointed procedural authority and let Engineering + Agriculture authorize backflush schedules and mitigation steps locally, citing prior critical medical risk scores. Higher chance of faster, more trusted decisions—but risks governance sanctions, comms throttling, and political escalation that could divert life-support maintenance resources.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Call a Colony Vote and Freeze Re-Auth Changes for 72 Hours",
+       "description": "Defer major governance changes with a 72-hour vote while you keep existing protocols unchanged. This stabilizes operations but risks prolonged uncertainty, letting anxious/defiant groups mobilize and worsening isolation pressures.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 32,
+      "morale": 0.9371121946431841,
+      "foodMonthsReserve": 40.619999999999976
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Perchlorate-Residue Spike Forces Life-Support Nitrogen Purge",
+     "description": "Year 2067: After Turn 2’s conservative filter backflush and Turn 3’s thyroid mitigation, Engineering reports lingering perchlorate residue is continuing to off-gas under cabin humidity cycling. Today, life-support CO2 scrubbers show rising breakthrough and the O2 partial-pressure controller is compensating harder than normal, driven by atmospheric trace contaminants trapped in the habitat’s support lines.\n\nCurrent colony numbers: 32 colonists alive (13 native-born), morale 99% but with high defiance (32%) amid Earth-governed scrutiny. Food reserve is 40.62 months and water availability is 749.95 L/day, so the immediate risk isn’t crops or wells—it’s atmosphere stability and psychological strain.\n\nLife-support capacity is 145.51, but the system is now operating at ~90% margin due to scrubber regeneration throttling and increased nitrogen purge frequency. With 8.2 infrastructure modules and pressurizedVolume 3000 m^3, the next 18 hours are critical: if trace gases keep cycling, controllers will trigger an emergency mode that reduces cabin air-change rates—raising CO2 levels and increasing hypoxia anxiety risk (especially for the 24% anxious colonists).",
+     "category": "infrastructure",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a full 12-hour habitat purge and recalibrate sensors",
+       "description": "Engineering performs a controlled nitrogen purge cycle, temporarily lowering air recirculation while Medical monitors for dizziness/shortness of breath and Agriculture runs strict hydration timing. This stabilizes atmospheric chemistry but delays routine work.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass purge cycle and patch scrubbers in-place using hot-swaps",
+       "description": "Engineering hot-swaps filter cartridges and applies an in-hab bypass patch to reduce purge time. Upside: keeps schedules and morale steadier for Earth governance compliance. Downside: incomplete seal verification could worsen trace-gas cycling, accelerating CO2 buildup and increasing medical risk.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Convert to radiation/CO2-safe 'limbo mode' (lower activity, longer scrubber regeneration)",
+       "description": "Governed by procedures from Earth protocol (while maintaining independence pressure at 25% with transparent briefings), the colony reduces activity intensity, extends scrubber regeneration windows, and distributes tasks into short shifts. This trades productivity for tighter life-support margins and safer psychology.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.42,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.939383040855673,
+      "foodMonthsReserve": 56.29999999999998
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 1,
+     "title": "Aspirational Report Broadcast Triggers Isolation Spiral",
+     "description": "Year 2067: In the wake of repeated Earth-protocol interventions (EarthDependency 86%) and the fragile governance tier flagged last turn, the colony attempted morale-boosting transparency: Commander Aria Chen approved a weekly 'progress broadcast' to Earth. Unfortunately, the message emphasized the Visionary plan for expansion while mentioning that life-support is currently managed through tight margins.\n\nNow the hab is showing a psychology-and-communication feedback loop. With 32 colonists (13 native-born), zero births in recent months (+0 births) and -6 deaths since last checkpoint, the emotional baseline is fragile even though morale reads 99%. Agent mood: 32% defiant, 24% anxious, 16% hopeful, 16% neutral, 8% resigned, 4% negative. Several anxious colonists interpret 'tight margins' as an admission of failure and begin voluntary isolation in smaller work clusters, increasing conflict and reducing social mixing.\n\nMars constraint reality: with no breathable atmosphere outside, all social life is sealed inside 3000 m^3 pressurized volume; reduced circulation and increased individual isolation worsen burnout risk and can amplify oxygen-conserving behavior that makes people hypervigilant. Additionally, medical history of thyroid risk means any anxiety-related symptoms (palpitations, heat intolerance) can be misread as recurrence, increasing demand on Medical and stressing staffing.\n\nThis crisis escalates because the infrastructure atmosphere event earlier can already increase perceived 'breathing discomfort,' making psychological interpretation more volatile.",
+     "category": "psychological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Institute 'Buddy Loops' and enforced shared-shift rotation",
+       "description": "Psychology coordinates rotating paired buddy checks and shared-task blocks to prevent self-isolation. Governance publishes a consistent interpretation guide for anxiety vs. thyroid symptoms. Medical triages symptom reports with standardized screening to avoid rumor amplification. Stable for morale but may irritate the 32% defiant colonists.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Send a high-frequency Earth update without internal consensus-building",
+       "description": "Aria’s transparency impulse accelerates: engineering + governance send frequent telemetry and interpretive commentary to Earth, hoping validation reduces anxiety. Upside: could stabilize Earth oversight and funding; downside: without internal consensus, defiant colonists may perceive surveillance, fueling governance disputes and escalating isolation behavior.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Pause entertainment/meetings and focus purely on performance metrics for 10 sols",
+       "description": "The colony temporarily swaps social programming for performance and procedure drills tied to life-support and food/water routines (food reserve 40.62 months, water 749.95 L/day). Upside: reduces friction and rumor time; downside: heightened burnout and resignation risk for the 24% anxious and 8% resigned groups.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.939383040855673,
+      "foodMonthsReserve": 56.29999999999998
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.9423337463530483,
+      "foodMonthsReserve": 82.78
+     }
+    }
+   ]
+  },
+  {
+   "pairStartedAt": "2026-11-10T14:06Z",
+   "leader": "Dietrich Voss",
+   "archetype": "The Engineer",
+   "hexacoHistory": [
+    {
+     "turn": 0,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.97,
+      "extraversion": 0.3,
+      "agreeableness": 0.6,
+      "emotionality": 0.7,
+      "honestyHumility": 0.9
+     }
+    },
+    {
+     "turn": 1,
+     "hexaco": {
+      "openness": 0.25,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.62,
+      "emotionality": 0.7,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 2,
+     "hexaco": {
+      "openness": 0.41000000000000003,
+      "conscientiousness": 0.95,
+      "extraversion": 0.3,
+      "agreeableness": 0.62,
+      "emotionality": 0.86,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 3,
+     "hexaco": {
+      "openness": 0.65,
+      "conscientiousness": 0.95,
+      "extraversion": 0.45999999999999996,
+      "agreeableness": 0.62,
+      "emotionality": 0.86,
+      "honestyHumility": 0.76
+     }
+    },
+    {
+     "turn": 4,
+     "hexaco": {
+      "openness": 0.65,
+      "conscientiousness": 0.95,
+      "extraversion": 0.45999999999999996,
+      "agreeableness": 0.78,
+      "emotionality": 0.86,
+      "honestyHumility": 0.92
+     }
+    },
+    {
+     "turn": 5,
+     "hexaco": {
+      "openness": 0.65,
+      "conscientiousness": 0.95,
+      "extraversion": 0.45999999999999996,
+      "agreeableness": 0.9400000000000001,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    },
+    {
+     "turn": 6,
+     "hexaco": {
+      "openness": 0.65,
+      "conscientiousness": 0.95,
+      "extraversion": 0.45999999999999996,
+      "agreeableness": 0.95,
+      "emotionality": 0.86,
+      "honestyHumility": 0.95
+     }
+    }
+   ],
+   "decisions": [
+    {
+     "turn": 1,
+     "time": 2035,
+     "eventIndex": 0,
+     "title": "Landfall",
+     "description": "Your colony ship has entered Mars orbit. You must choose a landing site for the first permanent settlement.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Arcadia Planitia",
+       "description": "Flat basalt plains, safe, ice access",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Valles Marineris rim",
+       "description": "Canyon rim, mineral rich, hazardous terrain",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.65,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 30,
+      "morale": 0.855,
+      "foodMonthsReserve": 18
+     }
+    },
+    {
+     "turn": 2,
+     "time": 2043,
+     "eventIndex": 0,
+     "title": "Year 2043 — First-Shift Radiation Dose Creep (Mars Surface Dust Intrusion)",
+     "description": "Colonists returned to the habitat after establishing surface routines from last turn’s landing. During the first EVA cycles, external dust/particulates likely infiltrated the air-handling train and reduced filtration efficiency. With 30 colonists alive, morale at 97%, power at 498.48 kW, and 19.22 months of food reserve, the colony’s life-support is still nominal—but the background radiation readings in the habitat now show a slow “dose creep” pattern consistent with shielding gaps around the newest entry seals. If the trend continues, bone-density loss and radiation-related stress risks will compound, especially as psychology shifts from relief to vigilance. Engineering’s excellent landing suitability did not account for this operational dust intrusion; medical notes perchlorate risks are manageable, but radiation + isolation effects may trigger sleep disruption and anxiety. The colony must decide how aggressively to redesign the life-support routing now, before effects become measurable in long-term outcomes.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative seal-and-filter tune-up",
+       "description": "Pause EVAs for 48 hours, rotate HEPA/charcoal cartridges, and add temporary sacrificial seals at the airlock collar. Keep shielding layout unchanged; monitor dose rate every 6 hours and correlate with sleep logs and dose exposures.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Rapid reroute: retrofit shielding and air-handling now",
+       "description": "Immediate engineering retrofit: reroute intake through a deeper shielding segment and install upgraded filters around the air-handling manifold, trading downtime for a larger reduction in trapped particulates and secondary radiation from dust. This risks construction delays and temporary life-support instability if the retrofit interfaces don’t calibrate cleanly.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Accept the trend and adjust crew schedules",
+       "description": "Do not retrofit yet. Instead, reschedule EVA windows using real-time radiation mapping and increase internal “quiet hours” to reduce psychological load. Use existing life-support capacity (125 nominal) while tightening isolation protocols to prevent compounding anxiety and sleep disruption.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_failure",
+     "metricsAtTurnStart": {
+      "population": 35,
+      "morale": 0.9307136289443979,
+      "foodMonthsReserve": 24.819999999999993
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 0,
+     "title": "Dust-Driven Waterline Perchlorate Spike",
+     "description": "Year 2051: Three months after the Turn 2 seal-and-filter tune-up, a near-surface Mars dust convection event drives fine particulates through micro-leaks at the habitat’s external intake manifold. The colony has 35 colonists alive and a water supply of 900 liters/day, but assays now show perchlorate contamination climbing to 18× the pre-tune baseline. With life-support capacity at 123.71 and pressurized volume 3200 m³, the engineering team is forced to divert filtered water to upstream process loops to keep oxygen recovery steady; that consumes extra power (currently 470.08 kW) and reduces net effective drinking water by ~22% over 7 days unless the system is reconfigured. Colonists report “metallic” taste and throat irritation; 30% are anxious and 26% defiant, arguing that the previous EVA pause was insufficient and that Earth-governed oversight is prioritizing metrics over safety. If untreated, perchlorate disrupts thyroid function, compounding the radiation dose creep that already makes the medical risk feel personal.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative, full-loop perchlorate purge (no intake expansion)",
+       "description": "Temporarily reduce intake to 78% and circulate through extra adsorption media for 72 hours, preserving drinking water quality at the cost of margin. Maintain morale by updating colonists daily on results and radioing Earth with quantified intake cuts.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass partial adsorption using smart blending and “best-effort” disinfection",
+       "description": "Use online mixing to blend cleaner and contaminated fractions while continuing disinfection to keep total liters/day near target. If the perchlorate spike persists, thyroid exposure risk rises and could trigger a downstream medical cascade; if it stabilizes, you prevent a food/water crunch and preserve power headroom.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Pause all external intake; rely on stored water + short reverse-osmosis expansion",
+       "description": "Stop external intake for 48 hours and draw down reserves; expand RO duty cycle using existing hardware and automation. This protects intake integrity but burns through storage—dangerous if the dust event lasts longer than expected.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.46,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.8933324798397747,
+      "foodMonthsReserve": 35.21999999999999
+     }
+    },
+    {
+     "turn": 3,
+     "time": 2051,
+     "eventIndex": 1,
+     "title": "Earth-Governed Crackdown Over “Water Safety Metrics”",
+     "description": "Year 2051: The perchlorate spike has reached Earth-reportable thresholds. With earthDependencyPct at 89% and governanceStatus set to earth-governed, Earth regulators demand an immediate compliance protocol: suspend any non-approved habitat modifications and require independent verification before resuming full intake. Colonists are already strained—morale is 88% but the agent mood shows 30% anxious and 26% defiant, while 24.82 months of food reserves provides time but not patience. If governance blocks engineering’s reconfiguration, power (470.08 kW) and life-support balancing will force intake throttling beyond what option_a would allow, likely pushing water-effective supply below the level needed to prevent additional stress and dehydration complaints. Independence pressure is at 10%, and tool-forging progress (4 tools) is being used by the defiant faction as proof that “local solutions work” while Earth only checks forms. This creates a political-psychological feedback loop: delayed modifications raise uncertainty, which raises psychological stress, which then worsens cooperation during a critical life-support window.",
+     "category": "political",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Accept Earth protocols; lock changes and wait for verification",
+       "description": "Freeze hardware changes until independent verification arrives. Expect more intake throttling and potential water reduction, but reduce the chance of a governance-triggered compliance breach and maintain external legitimacy.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Lead a controlled unauthorized reconfiguration under “emergency engineering” authority",
+       "description": "Engineering proceeds with a tightly bounded modification (sealed bypass isolation and rapid sampling) while governance is briefed after actions begin. High upside: prevents water crunch and keeps life-support stable; high downside: if Earth views it as noncompliant, it could trigger resource sanctions and deepen factional conflict.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Negotiate: offer Earth remote telemetry + colonist-led sampling audits",
+       "description": "Provide high-frequency sensor streams and let colonists perform supervised sampling to satisfy verification requirements without fully pausing work. Slower than option_b but less disruptive than option_a, balancing openness with procedure.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.52,
+     "chosenOptionId": "option_b",
+     "outcome": "risky_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.8933324798397747,
+      "foodMonthsReserve": 35.21999999999999
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 0,
+     "title": "Perchlorate Aftershock: Thyroid Strain in the Water Loop",
+     "description": "Year 2059: With 38 colonists (13 native-born) and 40.04 months of food in reserve, your colony is stable on supplies (power 388.48 kW; water 1220.52 L/day) and morale reads 100%. However, medical reports echo the earlier water safety work: the perchlorate purge did not fully remove micro-residuals. Over the last 21 days, 6 colonists now show symptoms consistent with thyroid disruption (fatigue, heat intolerance, slowed metabolism). Life-support alarms are subtle but present: the habitat’s life-support margin is effectively tight (capacity 131.71 vs current load increased by 8–10% due to additional trace-filter cycling). On Mars, perchlorate in water threatens iodine uptake, and delayed endocrine effects become a slow-burn medical risk—worsened by isolation stress and the psychological weight of ‘silent illness’ when communications with Earth are intermittent.",
+     "category": "medical",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative iodine+filter stabilization protocol",
+       "description": "Medical and engineering coordinate a 14-day thyroid monitoring cycle (TSH/T3/T4 where available), activate redundant ion-exchange cartridge monitoring, and keep water output steady at 1220.52 L/day while reducing trace exposure via staged cartridge swaps. This preserves habitat life-support margin and reduces long-term endocrine risk, but consumes additional filter media and lab time.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Boost water throughput and bypass filters briefly to keep everyone hydrated",
+       "description": "To reduce symptoms tied to fatigue and dehydration, engineering temporarily increases water throughput and relaxes filter interlocks for 48 hours while purging the line downstream. Upside: improved hydration and quicker symptom relief for some colonists. Downside: if perchlorate spikes persist, the brief bypass can worsen endocrine exposure and trigger a broader cohort of thyroid strain, forcing harsher corrections later.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Staged water rationing + agricultural recapture (biofilter loop)",
+       "description": "Agriculture and engineering shift to a two-tier regimen: ration ‘high-risk’ water for the next 10 days while running a stronger biofiltration/plant uptake loop in the growth bays to scavenge residuals where possible. Hydration may dip for some, but the loop can reduce downstream contamination and lessen future treatment load—at the cost of immediate stress and potential productivity impacts.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.42,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 32,
+      "morale": 0.9423567037886196,
+      "foodMonthsReserve": 61.40799999999999
+     }
+    },
+    {
+     "turn": 4,
+     "time": 2059,
+     "eventIndex": 1,
+     "title": "Radiation-Proofing the Habitat Façade Under Dust Intrusion",
+     "description": "Year 2059: Morale remains high at 100%, but anxiety is rising in the crowd (29% anxious, 19% defiant). Engineering notes the earlier dust-driven intrusion patterns are not fully contained: the habitat’s radiation ‘safe’ zones show small dose creep correlated with micro-leaks during pressure cycling. Even though power is holding (388.48 kW) and food reserves are strong (40.04 months), the effective shielding strategy is being strained by how often life-support cycles now run extra filtration due to the ongoing water contamination work. On Mars, less atmosphere means radiation is a constant background threat; if dust lodges near seals, stray particulates can worsen both radiation exposure and system maintenance burden. With earthDependencyPct at 80% and independencePressure at 24%, any visible “we can’t stop the sky” narrative will quickly become political-and-social friction—so the colony needs a decisive engineering-and-morale response now, before the dose creep becomes undeniable.",
+     "category": "environmental",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Schedule EVA-free patching: internal shielding and seal verification",
+       "description": "Engineering avoids additional EVA risk (low visibility in dust) and instead increases internal shielding layers around the highest-use corridors, then conducts an automated seal-scan and pressure-cycle tests over 7 days. Medical supports by running symptom checklists focused on radiation stress and sleep disruption. This is slower but minimizes risk while dose creep is characterized.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Fast-track external patching during a short dust lull (high EVA intensity)",
+       "description": "Engineering commits an EVA window to replace/augment exterior seal sections during a predicted dust lull. Upside: biggest reduction in radiation intrusion pathways and a clear ‘we fixed it’ narrative for a stressed psychological climate. Downside: EVA exposure time could exceed planned limits if the dust lull ends early—raising acute radiation exposure risk and increasing injury likelihood, potentially forcing an even wider medical response.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Rebalance living quarters: move the most vulnerable colonists to ‘quiet’ sectors",
+       "description": "Medical and psychology coordinate a temporary redistribution: children/most radiosensitive colonists (based on symptoms/history) relocate to the lowest-dose internal sectors while engineering continues non-EVA improvements. Upside: reduces immediate human dose burden without escalating hardware risk. Downside: this changes daily routines and can amplify isolation and resentment, especially with 24% independence pressure.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 32,
+      "morale": 0.9423567037886196,
+      "foodMonthsReserve": 61.40799999999999
+     }
+    },
+    {
+     "turn": 5,
+     "time": 2067,
+     "eventIndex": 0,
+     "title": "Year 2067 — Quiet Contamination: Perchlorate Resonance in the Water Reclamation Loop",
+     "description": "Colonists (32 alive; 13 native-born) keep operating under the safe-but-tuned iodine + filter stabilization from Turn 4, and perchlorate risk scores looked low (medical thyroid risk tier: low). But the water loop is still showing “behavioral” anomalies: a slow mismatch between assumed membrane retention and actual ion breakthrough after the recent dust-driven exposure and purge cycles. \n\nCurrent situation: waterLitersPerDay is 1320.52 L/day while lifeSupportCapacity is 145.71—your margins are thin, and any reclamation slip compounds quickly. FoodMonthsReserve is 62.51 months, and powerKw is 382.51, so the colony can physically survive a few days, but thyroid strain can return if perchlorate rises again. Morale is 100%, yet 16% anxious and 16% defiant among the crew, largely because the water safety metrics have already triggered Earth-governed scrutiny (earthDependencyPct 74; independencePressure 34%). \n\nEngineering notes that the reclamation loop’s sensor calibration drifted after repeated dust intrusion, meaning the “low risk” scores may be underestimating current perchlorate load. If perchlorate remains elevated, long-term iodine uptake suppression can worsen thyroid function, which then feeds psychological stress and fatigue—especially with no births in recent cycles.",
+     "category": "resource",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Run a conservative multi-day membrane validation and manual cartridge swap",
+       "description": "Pause non-essential loop recycling and perform a step-test across the reclaim membranes, then swap cartridges early to re-establish a verified perchlorate barrier. Expect short-term water-use tightening (temporary intake cuts) but keep disruption low and reduce uncertainty for governance reporting.",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Bypass the calibration drift via a rapid “shadow sensor” recalibration using internal brine data",
+       "description": "Use engineering-grade heuristics to recalibrate the sensors against internal brine concentration trends instead of waiting for full instrument certification. Faster recovery and better continuity for the colony’s daily rhythm, but if the brine model is wrong, perchlorate breakthrough could persist longer than expected, risking renewed thyroid strain.",
+       "isRisky": true
+      },
+      {
+       "id": "option_c",
+       "label": "Hard shift to conservative low-perchlorate intake blending (buy time with reservoir and urine reclaim throttling)",
+       "description": "Throttle urine reclaim and blend incoming water with reserved low-contamination tanks (even if it reduces comfort). This buys time for agriculture and medical to re-check thyroid-related biomarkers while you avoid pushing the possibly drifting sensors into action. Slower and more logistically constrained, but reduces immediate exposure uncertainty.",
+       "isRisky": false
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.55,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 31,
+      "morale": 0.9424332425670637,
+      "foodMonthsReserve": 93.47599999999996
+     }
+    },
+    {
+     "turn": 6,
+     "time": 2075,
+     "eventIndex": 0,
+     "title": "Legacy Assessment",
+     "description": "Earth requests a comprehensive status report on your colony. Assess your legacy.",
+     "category": "technological",
+     "options": [
+      {
+       "id": "option_a",
+       "label": "Honest assessment",
+       "description": "Report factually, including failures and regrets",
+       "isRisky": false
+      },
+      {
+       "id": "option_b",
+       "label": "Ambitious projection",
+       "description": "Emphasize achievements, propose bold next-century vision",
+       "isRisky": true
+      }
+     ],
+     "riskyOptionId": "option_b",
+     "riskSuccessProbability": 0.5,
+     "chosenOptionId": "option_a",
+     "outcome": "conservative_success",
+     "metricsAtTurnStart": {
+      "population": 38,
+      "morale": 0.9347979753370191,
+      "foodMonthsReserve": 129.28399999999993
+     }
+    }
+   ]
+  }
+ ]
+}

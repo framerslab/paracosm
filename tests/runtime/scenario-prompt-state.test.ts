@@ -61,6 +61,7 @@ function directorPromptFor(sc: ScenarioPackage, startTime: number): string {
     driftSummary: [],
     recentToolOutputs: [],
     labels: sc.labels,
+    world: sc.world,
   });
 }
 
@@ -84,7 +85,8 @@ test('the director of a lab run reads the lab\'s state, and no Mars values', () 
   const prompt = directorPromptFor(atlasLab, 1);
   assert.doesNotMatch(prompt, MARS_METRICS);
   assert.doesNotMatch(prompt, MARS_POLITICS);
-  assert.match(prompt, /- alignmentBench: 84%/);
+  // In the unit the lab declares, as the commander's state line reads it.
+  assert.match(prompt, /- alignmentBench: 0\.84 score/);
   assert.match(prompt, /- boardConfidence: 75/);
   assert.match(prompt, /- morale: /);
 });
@@ -278,4 +280,89 @@ test('a saved run\'s time unit is the scenario\'s, plural included', () => {
   // A compiled scenario names the unit and no plural.
   assert.deepEqual(artifactTimeUnit({ timeUnitNoun: 'quarter' }), { singular: 'quarter', plural: 'quarters' });
   assert.deepEqual(artifactTimeUnit({}), { singular: 'time', plural: 'times' });
+});
+
+test('the director reads full morale as full: 100%, not 1', () => {
+  // The director's state lines printed a number as a percent only strictly
+  // between 0 and 1, so a colony at full morale read "morale: 1". In the
+  // live Mars pairs of 8 and 10 November 2026, 14 of the 18 director events
+  // of the first two then described morale as 1, "1/10" or "1/100", for
+  // example "morale is extremely low (morale: 1)" (#248).
+  const state = kernelFor(mars, 2035).getState();
+  const prompt = buildDirectorPrompt({
+    turn: 2,
+    time: 2043,
+    actorName: 'Aria Chen',
+    actorArchetype: 'The Visionary',
+    leaderHexaco: hexaco,
+    state: { ...declaredMetrics(state.metrics, mars.world), morale: 1 },
+    politics: declaredPolitics(state.politics, mars.world),
+    aliveCount: state.agents.length,
+    nativeBornCount: 0,
+    recentDeaths: 0,
+    recentBirths: 0,
+    previousEvents: [],
+    toolsForged: [],
+    driftSummary: [],
+    recentToolOutputs: [],
+    labels: mars.labels,
+    world: mars.world,
+  } as Parameters<typeof buildDirectorPrompt>[0]);
+  assert.match(prompt, /^- morale: 100%$/m);
+  assert.doesNotMatch(prompt, /^- morale: 1$/m);
+});
+
+test('the director reads every 0-to-1 fraction a scenario declares as a percent, at 0 and 1 too, and no other number as one', () => {
+  // The politics lines printed a number as a percent only strictly between
+  // 0 and 1, so Mars independence pressure at its ceiling read
+  // "independencePressure: 1", and a politics value held on a 0 to 100
+  // scale (Atlas Lab's board confidence) read 0.5 as "50%".
+  const files = ['atlas-lab.json', 'corporate-quarterly.json', 'dual-superintelligence-council.json', 'lunar.json', 'mars.json', 'submarine.json', 't2d-glp1-protocol.json'];
+  let fractions = 0;
+  let others = 0;
+  for (const file of files) {
+    const sc = readScenario(file);
+    for (const bag of ['metrics', 'capacities', 'politics'] as const) {
+      for (const [key, decl] of Object.entries(sc.world?.[bag] ?? {})) {
+        if (decl.type !== 'number') continue;
+        const fraction = decl.unit === '%' && typeof decl.max === 'number' && decl.max <= 1;
+        const lineAt = (value: number) => {
+          const prompt = buildDirectorPrompt({
+            turn: 2,
+            time: 2,
+            actorName: 'Lead',
+            actorArchetype: 'Lead',
+            leaderHexaco: hexaco,
+            state: bag === 'politics' ? {} : { [key]: value },
+            politics: bag === 'politics' ? { [key]: value } : {},
+            aliveCount: 10,
+            nativeBornCount: 0,
+            recentDeaths: 0,
+            recentBirths: 0,
+            previousEvents: [],
+            toolsForged: [],
+            driftSummary: [],
+            recentToolOutputs: [],
+            labels: sc.labels,
+            world: sc.world,
+          } as Parameters<typeof buildDirectorPrompt>[0]);
+          const line = new RegExp(`^- ${key}: (.*)$`, 'm').exec(prompt);
+          assert.ok(line, `${file} ${bag}.${key} has a line`);
+          return line![1];
+        };
+        if (fraction) {
+          fractions++;
+          assert.equal(lineAt(1), '100%', `${file} ${bag}.${key} at 1`);
+          assert.equal(lineAt(0), '0%', `${file} ${bag}.${key} at 0`);
+          assert.equal(lineAt(0.37), '37%', `${file} ${bag}.${key} at 0.37`);
+        } else {
+          others++;
+          assert.notEqual(lineAt(0.5), '50%', `${file} ${bag}.${key} at 0.5 is not a fraction`);
+          assert.notEqual(lineAt(1), '100%', `${file} ${bag}.${key} at 1 is not a fraction`);
+        }
+      }
+    }
+  }
+  assert.ok(fractions >= 10 && others >= 10, `${fractions} fractions and ${others} other numbers read`);
+  assert.match(directorPromptFor(mars, 2035), /^- independencePressure: 5%$/m);
 });

@@ -121,9 +121,13 @@ export function applyPersonalityDrift(
  *
  * Unlike {@link applyPersonalityDrift} which runs on promoted agents,
  * the commander has no leader to pull them (they ARE the leader) and no
- * department role to activate. Only outcome-pull applies. Same rate cap
- * (±0.05/turn) and bounds [0.05, 0.95] so commander drift and agent
- * drift stay in the same numerical regime.
+ * department role to activate. Only outcome-pull applies. The pull is
+ * scaled by the turn's length and then capped at ±0.05, so one turn moves
+ * a leader's trait at most 0.05 however long the turn: capped first and
+ * scaled after, one safe success moved conscientiousness 0.16 on a Mars
+ * turn of eight years, and two outcomes turned one Mars preset into the
+ * other (#248). Bounds [0.05, 0.95], as for agents. A promoted agent's
+ * pull is still capped per time unit and then scaled.
  *
  * Mutates `leaderHexaco` and `history` in place. Callers should push a
  * baseline snapshot `{ turn: 0, time, hexaco: {...initial} }` onto
@@ -141,7 +145,7 @@ export function driftCommanderHexaco(
   for (const trait of HEXACO_TRAITS) {
     let pull = 0;
     if (outcome) pull += outcomePullForTrait(trait, outcome);
-    const delta = Math.max(-0.05, Math.min(0.05, pull)) * timeDelta;
+    const delta = Math.max(-0.05, Math.min(0.05, pull * timeDelta));
     leaderHexaco[trait] = Math.max(0.05, Math.min(0.95, leaderHexaco[trait] + delta));
   }
   history.push({ turn, time, hexaco: { ...leaderHexaco } });

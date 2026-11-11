@@ -19,6 +19,7 @@ import { SCENARIOS } from '../research/scenarios.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 import { DirectorEventBatchSchema } from '../validators/director.js';
 import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
+import { formatMetricValue, formatPoliticsValue, type DeclaredWorld } from '../util/scenario-state.js';
 
 /** Event category. Scenario-defined, not a fixed union. */
 export type EventCategory = string;
@@ -107,7 +108,57 @@ export interface DirectorContext {
    * and 13 events of a live Atlas Lab pair reached two of its three.
    */
   departments?: ReadonlyArray<{ id: string; label?: string }>;
+  /**
+   * The scenario's declared world. The state lines show each metric with
+   * the unit the scenario declares for it, as the commander's state line
+   * does, so full morale reads "100%"; a metric it does not declare reads
+   * as a percent strictly between 0 and 1 and as a plain number otherwise.
+   * Morale at 1 read "morale: 1" before, and the director wrote of a colony
+   * at its lowest. The politics lines read the units the scenario declares
+   * in `world.politics` the same way, so Mars independence pressure at 1
+   * reads "100%".
+   */
+  world?: DeclaredWorld | null;
 }
+
+/**
+ * The rules on how an event's risky and safe options differ. The default
+ * instructions hold them, and a scenario's own instructions are sent with
+ * them appended (see {@link directorSystemInstructions}): a scenario's text
+ * replaced the default, so Mars Genesis and the five other bundled scenarios
+ * with their own text never received them, and in three live Mars pairs
+ * the risky option read as skipping a safety step ("bypass" in 15 of 29
+ * labels) and sat at option_b in all 29 (#248).
+ */
+export const OPTION_TRADEOFF_RULES = `OPTION POLARIZATION (CRITICAL — drives leader divergence):
+The whole point of the simulation is to surface how different personalities
+produce different civilizations from identical starting conditions. Boring
+options that mostly come out the same defeat that purpose. Make the safe
+option and the risky option DRAMATICALLY DIFFERENT in:
+  - Magnitude of effect (safe = small/incremental; risky = transformative or catastrophic)
+  - Scope of change (safe = preserve status quo; risky = restructure something fundamental)
+  - Time horizon (safe = address immediate symptom; risky = bet on a long arc)
+  - Required commitment (safe = reversible; risky = burns bridges)
+
+If the description of option_a could plausibly be swapped with option_b
+without changing much, the options are too similar — rewrite them so
+they reflect genuinely opposed philosophies.
+
+The risky option should be neither obviously stupid nor obviously correct.
+Aim for ~40-65% success probability so high-openness leaders genuinely
+gamble while high-conscientiousness leaders genuinely have a defensible
+case for the safe path.
+
+THE RISKY OPTION IS A BET (these rules hold over any example above):
+- The risky option is a bet on a larger gain. Its description names what it
+  wins that no safe option can.
+- It is never the omission of a safety step, a bypass, or a shortcut past a
+  check. Skipping a precaution is a mistake, not a bet: write the safe and
+  the risky option as two strategies a capable leader could defend.
+- Any of the ids may be the risky option (option_a, option_b or option_c).
+  Place it where the event reads best, not always in the same place.
+- Write every label without the words risky, safe, conservative or bypass.
+  The engine marks the risky option.`;
 
 const DEFAULT_DIRECTOR_INSTRUCTIONS = `You are the Event Director for a simulation. You observe simulation state and generate events that test the settlement's weaknesses, exploit consequences of prior decisions, and create narrative tension.
 
@@ -127,24 +178,7 @@ RULES:
 7. Include actual state numbers in event descriptions
 8. Specify which departments should analyze each event (2-4 per event)
 
-OPTION POLARIZATION (CRITICAL — drives leader divergence):
-The whole point of the simulation is to surface how different personalities
-produce different civilizations from identical starting conditions. Boring
-options that mostly come out the same defeat that purpose. Make the safe
-option and the risky option DRAMATICALLY DIFFERENT in:
-  - Magnitude of effect (safe = small/incremental; risky = transformative or catastrophic)
-  - Scope of change (safe = preserve status quo; risky = restructure something fundamental)
-  - Time horizon (safe = address immediate symptom; risky = bet on a long arc)
-  - Required commitment (safe = reversible; risky = burns bridges)
-
-If the description of option_a could plausibly be swapped with option_b
-without changing much, the options are too similar — rewrite them so
-they reflect genuinely opposed philosophies.
-
-The risky option should be neither obviously stupid nor obviously correct.
-Aim for ~40-65% success probability so high-openness leaders genuinely
-gamble while high-conscientiousness leaders genuinely have a defensible
-case for the safe path.
+${OPTION_TRADEOFF_RULES}
 
 REASONING — populate the "reasoning" field of the response before the events array with a numbered list:
   (1) What stress signal in the current state pattern is most important?
@@ -167,16 +201,11 @@ export function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3)
   const prevCategories = events.map(e => e.category);
   const lastCategory = prevCategories[prevCategories.length - 1] || 'none';
 
-  // Build state summary from generic key-value pairs
-  const stateLines = Object.entries(ctx.state).map(([k, v]) => {
-    const display = typeof v === 'number' && v < 1 && v > 0 ? `${Math.round(v * 100)}%` : String(v);
-    return `- ${k}: ${display}`;
-  }).join('\n');
+  // Build state summary from generic key-value pairs, each shown with the
+  // unit the scenario declares for it.
+  const stateLines = Object.entries(ctx.state).map(([k, v]) => `- ${k}: ${formatMetricValue(k, v, ctx.world)}`).join('\n');
 
-  const politicsLines = Object.entries(ctx.politics).map(([k, v]) => {
-    const display = typeof v === 'number' && v < 1 && v > 0 ? `${Math.round(v * 100)}%` : String(v);
-    return `- ${k}: ${display}`;
-  }).join('\n');
+  const politicsLines = Object.entries(ctx.politics).map(([k, v]) => `- ${k}: ${formatPoliticsValue(k, v, ctx.world)}`).join('\n');
 
   // Knowledge grounding: tell the director what topics/categories the scenario
   // has citations for, so its researchKeywords match real entries in the bundle.
@@ -238,16 +267,35 @@ CONSTRAINT: Do NOT use category "${lastCategory}" (used last turn). Pick a diffe
 Generate 1 to ${maxEvents} events for this turn. Each event should feel like a consequence of what happened before. If the world is stable, 1 event is fine. If pressure is mounting, generate more. Return JSON with an "events" array.`;
 }
 
-/** Fallback events if director fails, in words that fit any scenario. */
+/**
+ * The system instructions a director call sends: the default when the
+ * scenario has none, else the scenario's own text followed by
+ * {@link OPTION_TRADEOFF_RULES}, so every scenario's director is told how
+ * the risky and the safe option must differ. `{MAX_EVENTS}` becomes the
+ * turn's event cap.
+ */
+export function directorSystemInstructions(scenarioInstructions: string | undefined, maxEvents: number): string {
+  const text = scenarioInstructions
+    ? `${scenarioInstructions}\n\n${OPTION_TRADEOFF_RULES}`
+    : DEFAULT_DIRECTOR_INSTRUCTIONS;
+  return text.replace('{MAX_EVENTS}', String(maxEvents));
+}
+
+/**
+ * Fallback events if director fails, in words that fit any scenario. They
+ * follow {@link OPTION_TRADEOFF_RULES}: each bold option is a bet on a
+ * larger gain, no label carries a word the rules forbid, and the bold
+ * option does not always sit at the same id.
+ */
 export const FALLBACK_EVENTS: DirectorEvent[] = [
   {
     title: 'System Malfunction',
     description: 'A critical support system has developed an intermittent failure. Operating at 60% efficiency. Reserves are becoming dangerously low.',
     options: [
-      { id: 'option_a', label: 'Emergency repair', description: 'Divert all available staff to an immediate repair. Safe but halts all other work for 2 weeks.', isRisky: false },
-      { id: 'option_b', label: 'Improvised bypass', description: 'Build a bypass from non-standard parts. Faster but untested. Could fail catastrophically.', isRisky: true },
+      { id: 'option_a', label: 'Rebuild to a larger design', description: 'Replace the failing system with a redesigned one of greater capacity. If it works, output ends above where it stood before the failure; if it fails, the work is lost and output falls further while the old system is rebuilt.', isRisky: true },
+      { id: 'option_b', label: 'Emergency repair', description: 'Divert all available staff to repair the system as built. Restores the old output but halts all other work for 2 weeks.', isRisky: false },
     ],
-    riskyOptionId: 'option_b', riskSuccessProbability: 0.5, category: 'infrastructure',
+    riskyOptionId: 'option_a', riskSuccessProbability: 0.5, category: 'infrastructure',
     researchKeywords: ['critical system failure', 'system redundancy'], relevantDepartments: ['engineering', 'medical'],
     turnSummary: 'Infrastructure strain triggered a critical system failure.',
   },
@@ -310,8 +358,7 @@ export class EventDirector {
     apiKey?: string,
   ): Promise<DirectorEventBatch> {
     const prompt = buildDirectorPrompt(ctx, maxEvents);
-    const systemInstructions = (instructions || DEFAULT_DIRECTOR_INSTRUCTIONS)
-      .replace('{MAX_EVENTS}', String(maxEvents));
+    const systemInstructions = directorSystemInstructions(instructions, maxEvents);
 
     try {
       // Prompt caching: the director instructions (~1500-2000 tokens) are
