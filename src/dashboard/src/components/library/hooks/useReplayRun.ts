@@ -48,6 +48,13 @@ export function useReplayRun(): {
         setResult({ kind: 'error', error: 'The server has no stored run with this id, so there is nothing to replay.' });
         return;
       }
+      if (res.status === 422) {
+        // The run lacks what replay needs, a run saved before replay could
+        // verify it among them (#235): the server's message says which.
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        setResult({ kind: 'error', error: body.message || 'Replay cannot verify this run (HTTP 422).' });
+        return;
+      }
       if (!res.ok) {
         setResult({ kind: 'error', error: `Replay request failed (HTTP ${res.status}).` });
         return;

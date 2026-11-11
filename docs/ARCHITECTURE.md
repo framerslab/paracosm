@@ -579,7 +579,7 @@ A Digital Twin run (`POST /api/quickstart/simulate-intervention`) writes the fra
 | `GET` | `/api/v1/runs/aggregate` | Rollup counters over the filtered set |
 | `GET` | `/api/v1/runs/:runId` | Full RunArtifact JSON |
 | `GET` | `/api/v1/runs/:runId/swarm` | Final agent-swarm snapshot (lightweight) |
-| `POST` | `/api/v1/runs/:runId/replay` | Re-execute the kernel; report byte-for-byte match |
+| `POST` | `/api/v1/runs/:runId/replay` | Re-run each saved between-turn step; report whether each matches the state saved after it |
 | `GET` | `/api/v1/bundles/:bundleId` | Quickstart-bundle metadata + member RunRecords |
 | `POST` | `/api/v1/library/import` | Import an externally-produced RunArtifact |
 | `GET` | `/api/v1/demo/status` | Public-demo capability flags |
@@ -697,24 +697,34 @@ const trunk = await wm.simulate({ actor: leader, maxTurns: 6, captureSnapshots: 
 
 // Audit: did the kernel change since this run was produced?
 const replay = await wm.replay(trunk);
-console.log(replay.matches);     // true when the between-turn step reproduces each saved snapshot
-console.log(replay.divergence);  // empty when matches=true; JSON pointer otherwise
+console.log(replay.matches);     // true when each between-turn step reproduces the state saved after it
+console.log(replay.divergence);  // empty when matches=true; else the first path that differs, from the artifact's root
 ```
 
-`replay()` restores the kernel from each recorded snapshot, runs `advanceTurn` to the next snapshot's turn, and compares the fresh snapshots to the input via canonical JSON. Cost: zero LLM. Wall-clock: dominated by JSON parse plus per-turn kernel state advancement. `matches=true` shows the between-turn step reproduces each recorded transition. What a match proves and what it does not, in plain words: [FAQ](FAQ.md#what-does-replay-do).
+With `captureSnapshots: true` the turn loop saves three sets of kernel snapshots under `scenarioExtensions`:
+
+| Field | When the turn loop takes it | Read by |
+|---|---|---|
+| `kernelSnapshotAtStart` | Once, right before the first `advanceTurn`: after the turn-0 promotions, or the snapshot a fork resumed from | replay |
+| `kernelSnapshotsAfterProgression` | Each turn, right after `advanceTurn`, before the turn's events | replay |
+| `kernelSnapshotsPerTurn` | Each turn, at its end, after the policy effects, outcome effects and drift | replay, `forkFromArtifact` |
+
+Nothing writes the kernel between the turn-0 promotions and the first `advanceTurn`, or between one turn's end-of-turn snapshot and the next `advanceTurn`. So `replay()` restores the kernel from the state each step started from (`kernelSnapshotAtStart` for the first, else the end-of-turn snapshot of the turn whose step ran before), runs `advanceTurn` to the after-step snapshot's turn and time, and compares the fresh `kernelSnapshotsAfterProgression` with the saved one via canonical JSON. `divergence` names the first path that differs from the artifact's root, such as `/scenarioExtensions/kernelSnapshotsAfterProgression/1/state/metrics/morale`, with the saved and the fresh value. Cost: zero LLM. Wall-clock: dominated by JSON parse plus per-turn kernel state advancement. `matches=true` shows the between-turn step reproduces each step the run took. What a match proves and what it does not, in plain words: [FAQ](FAQ.md#what-does-replay-do).
+
+The two replay-only fields hold one snapshot more than the turns, each about the size of the end-of-turn snapshot of its turn. The hosted Mars Genesis pair of 11 November 2026 (six turns, 30 people at the start) saved 437,035 and 442,195 bytes of end-of-turn snapshots in artifacts of 915,898 and 999,491 bytes as JSON, so its artifacts grow by about as much again as those snapshots. The dashboard's fork request leaves the two fields out.
 
 Required preconditions on the input artifact:
 
-- `scenarioExtensions.kernelSnapshotsPerTurn` populated (parent created with `captureSnapshots: true`).
+- `scenarioExtensions.kernelSnapshotAtStart` and `kernelSnapshotsAfterProgression`, which a run saves with `captureSnapshots: true`.
 - `decisions[]` populated.
 
-Throws `WorldModelReplayError` when either is missing or when the artifact's scenario id does not match the WorldModel's scenario.
+Throws `WorldModelReplayError` when the artifact holds no snapshots or no decisions, when its scenario id does not match the WorldModel's scenario, and when it holds end-of-turn snapshots without the after-step ones: a run saved before the turn loop kept them. Its snapshots were each taken after a turn's decisions, so a comparison with the step alone would report a mismatch whatever the kernel does; the error says replay cannot verify the run, and neither a match nor a mismatch is reported ([#235](https://github.com/framerslab/paracosm/issues/235)).
 
-Scope note: v1 replay re-runs `advanceTurn` only. Re-applying recorded decisions via `kernel.applyPolicy` is a follow-up once the public RunArtifact preserves enough department-report context for `decisionToPolicy` to reconstruct PolicyEffects faithfully. The turn loop records each snapshot at the end of its turn, after the turn's policy effects, outcome effects, drift and reactions, so a run the turn loop saved reports a mismatch at its second snapshot; [#235](https://github.com/framerslab/paracosm/issues/235) tracks it. A run with one snapshot matches with no transition checked, since replay copies its only snapshot.
+Scope note: replay re-runs `advanceTurn` only. Re-applying a turn's decisions, outcomes and drift needs each event's department reports as the turn loop held them, and the artifact keeps the reports merged into one list per turn. A run missing the state a step started from (after a turn that ended in an error, which saves no end-of-turn snapshot), missing the state after a turn's step, or holding an entry that is not a snapshot gets the cannot-verify `WorldModelReplayError`; no step counts as checked that replay did not run.
 
 #### HTTP surface
 
-The HTTP surface for replay is `POST /api/v1/runs/:runId/replay` on the dashboard server. The endpoint loads the stored artifact via `record.artifactPath`, looks up the original scenario via the in-memory catalog, constructs a `WorldModel`, calls `WorldModel.replay(artifact)`, and persists the outcome via `runHistoryStore.recordReplayResult(runId, matches)`. Returns `{ matches: boolean, divergence: string }` on 200, structured errors on 404 / 410 / 422. The client-side hook is `src/dashboard/src/components/library/hooks/useReplayRun.ts`.
+The HTTP surface for replay is `POST /api/v1/runs/:runId/replay` on the dashboard server. The endpoint loads the stored artifact via `record.artifactPath`, looks up the original scenario via the in-memory catalog, constructs a `WorldModel`, calls `WorldModel.replay(artifact)`, and persists the outcome via `runHistoryStore.recordReplayResult(runId, matches)`. Returns `{ matches: boolean, divergence: string }` on 200, structured errors on 404 / 410 / 422. A `WorldModelReplayError` answers 422 `replay_preconditions_unmet` with its message and records no result; the Library tab's replay strip shows that message. The client-side hook is `src/dashboard/src/components/library/hooks/useReplayRun.ts`.
 
 ### Digital-twin subpath (T5.4)
 

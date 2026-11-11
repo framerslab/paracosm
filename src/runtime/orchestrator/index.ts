@@ -395,12 +395,15 @@ export interface RunOptions extends RuntimeCredentialOptions {
   customEvents?: Array<{ turn: number; title: string; description: string }>;
   models?: Partial<SimulationModelConfig>;
   /**
-   * When true, the orchestrator captures a {@link KernelSnapshot} at
-   * the end of every turn and stashes the resulting array under
-   * `artifact.scenarioExtensions.kernelSnapshotsPerTurn`. Enables
-   * `WorldModel.forkFromArtifact()` on the returned artifact. Default
-   * false so normal runs stay lean; snapshots add ~100 KB per turn
-   * for 100-agent Mars-shape runs.
+   * When true, the orchestrator captures {@link KernelSnapshot}s into
+   * `artifact.scenarioExtensions`: `kernelSnapshotsPerTurn`, one at the
+   * end of every turn, which `WorldModel.forkFromArtifact()` branches
+   * from; and, for `WorldModel.replay()`, `kernelSnapshotAtStart`, the
+   * state the first between-turn step starts from, and
+   * `kernelSnapshotsAfterProgression`, one right after each turn's
+   * between-turn step, before the turn's events. Default false so normal
+   * runs stay lean: a run with snapshots holds two per turn and one more,
+   * each about 100 KB for a 100-agent Mars-shape run.
    */
   captureSnapshots?: boolean;
   /**
@@ -692,6 +695,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Per-turn kernel snapshots captured when opts.captureSnapshots is on.
   // Populates RunArtifact.scenarioExtensions.kernelSnapshotsPerTurn.
   const kernelSnapshotsPerTurn: import('../../engine/core/snapshot.js').KernelSnapshot[] = [];
+  // What replay compares (#235): the state the run's first between-turn
+  // step starts from, and the state right after each turn's step, before
+  // the turn's decisions, outcomes and drift move it. The end-of-turn
+  // snapshots above hold those moves, so replaying the step from one of
+  // them to the next could never match.
+  let kernelSnapshotAtStart: import('../../engine/core/snapshot.js').KernelSnapshot | undefined;
+  const kernelSnapshotsAfterProgression: import('../../engine/core/snapshot.js').KernelSnapshot[] = [];
 
   // Rolling capture of the agent-swarm snapshot. Updated at the end of
   // each turn (immediately after the systems_snapshot emit). At end-of-
@@ -1141,7 +1151,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     }
 
     // ── Kernel advance (once per turn, before events) ─────────────────
+    // Nothing writes the kernel between the turn-0 promotions (or a fork's
+    // restore) and the first advance, nor between a turn's end-of-turn
+    // snapshot and the next advance, so replay can start each step from
+    // the start snapshot or the previous turn's end-of-turn snapshot.
+    if (opts.captureSnapshots && !kernelSnapshotAtStart) kernelSnapshotAtStart = kernel.toSnapshot(sc.id);
     const state = kernel.advanceTurn(turn, time, sc.hooks.progressionHook);
+    if (opts.captureSnapshots) kernelSnapshotsAfterProgression.push(kernel.toSnapshot(sc.id));
     const births = state.eventLog.filter(e => e.turn === turn && e.type === 'birth').length;
     const deaths = state.eventLog.filter(e => e.turn === turn && e.type === 'death').length;
     console.log(`  Kernel: +${births} births, -${deaths} deaths → pop ${state.metrics.population}`);
@@ -2105,6 +2121,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       ...(kernelSnapshotsPerTurn.length > 0
         ? { kernelSnapshotsPerTurn }
         : {}),
+      // What WorldModel.replay compares: emitted when at least one
+      // between-turn step ran with snapshots on.
+      ...(kernelSnapshotAtStart && kernelSnapshotsAfterProgression.length > 0
+        ? { kernelSnapshotAtStart, kernelSnapshotsAfterProgression }
+        : {}),
     },
     forkedFrom: opts._forkedFrom,
   });
@@ -2134,8 +2155,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
 /**
  * Thrown by {@link replaySimulation} when the input artifact lacks the
- * preconditions for deterministic replay (missing per-turn kernel
- * snapshots, missing recorded decisions, or a scenario id mismatch).
+ * preconditions for replay: no kernel snapshots, no recorded decisions, a
+ * scenario id mismatch, no snapshot of the state right after each
+ * between-turn step, which replay compares with (a run saved before the
+ * turn loop kept them, #235), a step whose start state the run does not
+ * hold, or an entry that is not a snapshot. The message says which.
  */
 export class WorldModelReplayError extends Error {
   constructor(message: string) {
@@ -2144,24 +2168,46 @@ export class WorldModelReplayError extends Error {
   }
 }
 
+type Snapshot = import('../../engine/core/snapshot.js').KernelSnapshot;
+
+/** The snapshots a saved run holds under `scenarioExtensions`. */
+interface ReplaySnapshots {
+  kernelSnapshotsPerTurn?: Snapshot[];
+  kernelSnapshotAtStart?: Snapshot;
+  kernelSnapshotsAfterProgression?: Snapshot[];
+}
+
+const CANNOT_VERIFY =
+  'Replay cannot verify this run: it holds no snapshot of the state right after each between-turn step ' +
+  '(scenarioExtensions.kernelSnapshotsAfterProgression, with kernelSnapshotAtStart). Its snapshots were each ' +
+  'saved at the end of a turn, after the turn\'s decisions, outcomes and drift, which replay does not re-apply, ' +
+  'so comparing the step with them would report a mismatch whatever the kernel does. The turn loop saves both ' +
+  'with `captureSnapshots: true`; run the simulation again to get a run replay can verify.';
+
 /**
- * Re-execute the kernel transitions captured in a stored RunArtifact.
+ * Re-run each between-turn step a stored RunArtifact recorded.
  *
- * Implementation note (2026-04-25): the v1 replay is a kernel
- * progression-hook re-execution. It restores the kernel from each
- * recorded snapshot and re-runs `advanceTurn` between snapshots,
- * capturing fresh snapshots produced by the current kernel code. The
- * caller compares fresh snapshots to the input artifact's snapshots
- * (via canonicalJson on the kernelSnapshotsPerTurn arrays) to verify
- * kernel determinism: byte-equal arrays prove the progression hook is
- * unchanged since the original run.
+ * The turn loop saves, with `captureSnapshots: true`, the state its first
+ * between-turn step starts from (`kernelSnapshotAtStart`: after the turn-0
+ * promotions, or the snapshot a fork resumed from), the state right after
+ * each turn's step (`kernelSnapshotsAfterProgression`), and the state at
+ * the end of each turn (`kernelSnapshotsPerTurn`), after the turn's
+ * decisions, outcomes and drift. Nothing writes the kernel between the end
+ * of one turn and the next step, so each step starts from the start
+ * snapshot (the first) or the end-of-turn snapshot of the turn whose step
+ * ran before it. This restores the kernel from that state, runs
+ * `advanceTurn` to the recorded turn and time, and captures the fresh
+ * state. The caller compares the fresh `kernelSnapshotsAfterProgression`
+ * with the recorded one under canonical JSON: equal arrays show the
+ * current kernel code reproduces each step the run took.
  *
- * Out of scope for v1: re-applying recorded decisions via
- * `kernel.applyPolicy()`. The orchestrator's policy-application path
- * requires the full department reports, which the public RunArtifact
- * does not preserve in the shape `decisionToPolicy()` expects. A
- * follow-up spec adds policy replay once department reports are
- * normalized into a replay-ready shape on the artifact.
+ * Replay does not re-apply a turn's decisions, outcomes or drift.
+ * Re-running them needs each event's department reports as the turn loop
+ * held them, and the artifact keeps the reports merged into one list per
+ * turn. A run missing the state a step started from (the turn before it
+ * ended in an error, which saves no end-of-turn snapshot), or the state
+ * after a turn's step, gets the cannot-verify answer: no step is counted
+ * as checked that was not run.
  *
  * Used by {@link WorldModel.replay}. Direct callers should prefer the
  * façade method.
@@ -2169,9 +2215,13 @@ export class WorldModelReplayError extends Error {
  * @param scenario The compiled scenario the artifact was produced from.
  *                 Must match `artifact.metadata.scenario.id`.
  * @param artifact The stored RunArtifact to replay.
- * @returns A fresh RunArtifact with kernelSnapshotsPerTurn produced by
- *          the current code's kernel. Other fields copy from the input.
- * @throws WorldModelReplayError when preconditions are not met.
+ * @returns A fresh RunArtifact whose `kernelSnapshotsAfterProgression`
+ *          the current code's kernel produced, index for index with the
+ *          input's. Other fields copy from the input.
+ * @throws WorldModelReplayError when preconditions are not met, and when
+ *         the artifact lacks a snapshot a step needs (the state after it,
+ *         or the state it started from), which replay cannot verify a run
+ *         without.
  */
 export async function replaySimulation(
   scenario: ScenarioPackage,
@@ -2184,8 +2234,10 @@ export async function replaySimulation(
     );
   }
 
-  const inputSnaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: import('../../engine/core/snapshot.js').KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn;
-  if (!inputSnaps || inputSnaps.length === 0) {
+  const saved = (artifact.scenarioExtensions ?? {}) as ReplaySnapshots;
+  const endOfTurn = Array.isArray(saved.kernelSnapshotsPerTurn) ? saved.kernelSnapshotsPerTurn : [];
+  const afterSteps = Array.isArray(saved.kernelSnapshotsAfterProgression) ? saved.kernelSnapshotsAfterProgression : [];
+  if (endOfTurn.length === 0 && afterSteps.length === 0) {
     throw new WorldModelReplayError(
       `Replay requires per-turn kernel snapshots. The input artifact has none. ` +
       `Re-run the original simulation with \`captureSnapshots: true\` on the RunOptions ` +
@@ -2201,17 +2253,88 @@ export async function replaySimulation(
     );
   }
 
-  // Re-execute the deterministic between-turn progression hook from
-  // each snapshot to the next. Fresh snapshots are captured immediately
-  // after each advanceTurn call.
-  const freshSnapshots: import('../../engine/core/snapshot.js').KernelSnapshot[] = [inputSnaps[0]];
-  for (let i = 0; i < inputSnaps.length - 1; i++) {
-    const here = inputSnaps[i];
-    const next = inputSnaps[i + 1];
-    const kernel = SimulationKernel.fromSnapshot(here, scenario.id, scenario);
-    kernel.advanceTurn(next.turn, next.time, scenario.hooks?.progressionHook);
-    freshSnapshots.push(kernel.toSnapshot(scenario.id));
+  const start = saved.kernelSnapshotAtStart;
+  if (afterSteps.length === 0 || !start) throw new WorldModelReplayError(CANNOT_VERIFY);
+
+  // Every entry is read as a snapshot below, so each must be one a kernel
+  // of this scenario restores: the version `SimulationKernel.fromSnapshot`
+  // reads, this scenario's id, a turn, a time, the generator state, the
+  // seed, the start time and a state.
+  const isSnapshot = (s: unknown): s is Snapshot =>
+    typeof s === 'object' && s !== null
+    && (s as Snapshot).snapshotVersion === 1
+    && (s as Snapshot).scenarioId === scenario.id
+    && Number.isInteger((s as Snapshot).turn)
+    && typeof (s as Snapshot).time === 'number'
+    && typeof (s as Snapshot).rngState === 'number'
+    && typeof (s as Snapshot).seed === 'number'
+    && typeof (s as Snapshot).startTime === 'number'
+    && typeof (s as Snapshot).state === 'object' && (s as Snapshot).state !== null;
+  const notSnapshot = [
+    ...(isSnapshot(start) ? [] : ['kernelSnapshotAtStart']),
+    ...afterSteps.flatMap((s, i) => (isSnapshot(s) ? [] : [`kernelSnapshotsAfterProgression/${i}`])),
+    ...endOfTurn.flatMap((s, i) => (isSnapshot(s) ? [] : [`kernelSnapshotsPerTurn/${i}`])),
+  ];
+  if (notSnapshot.length > 0) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: scenarioExtensions.${notSnapshot[0]} is not a kernel snapshot of scenario '${scenario.id}'.`,
+    );
   }
+
+  // Each turn the run recorded (a timepoint at its end, a decision during
+  // it) took a between-turn step first, so each needs the state saved
+  // after that step. Without one, a step the run took is not checked. An
+  // entry with no time names no turn.
+  const afterTimes = new Set(afterSteps.map(s => s.time));
+  const recordedTimes = [
+    ...(artifact.trajectory?.timepoints ?? []).map(t => t.time),
+    ...recordedDecisions.map(d => d.time),
+  ];
+  const unstepped = recordedTimes.find(t => typeof t === 'number' && !afterTimes.has(t));
+  if (unstepped !== undefined) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: it records a turn at time ${unstepped} but holds no state right after that turn's ` +
+      'between-turn step (scenarioExtensions.kernelSnapshotsAfterProgression).',
+    );
+  }
+
+  // The turn loop saves the state right after a turn's step before the
+  // state at the turn's end, so a turn that ended holds both.
+  const afterTurns = new Set(afterSteps.map(s => s.turn));
+  const unmatched = endOfTurn.find(s => !afterTurns.has(s.turn));
+  if (unmatched) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: it holds the state at the end of turn ${unmatched.turn} but not the state ` +
+      'right after that turn\'s between-turn step (scenarioExtensions.kernelSnapshotsAfterProgression).',
+    );
+  }
+
+  // Each step from the state it started from to the recorded turn: the
+  // start snapshot for the first, else the end of the turn before. A step
+  // whose start the run does not hold is not checked, and the run gets the
+  // cannot-verify answer rather than a match it was not checked for.
+  const endByTurn = new Map(endOfTurn.map(s => [s.turn, s]));
+  const fresh: Snapshot[] = afterSteps.map((recorded, i) => {
+    const from = i === 0 ? start : endByTurn.get(afterSteps[i - 1].turn);
+    if (!from) {
+      throw new WorldModelReplayError(
+        `Replay cannot verify this run: its between-turn step to turn ${recorded.turn} started from the state at the end ` +
+        `of turn ${afterSteps[i - 1].turn}, and the run holds no snapshot of it (scenarioExtensions.kernelSnapshotsPerTurn). ` +
+        'A turn that ends in an error saves none.',
+      );
+    }
+    let kernel: SimulationKernel;
+    try {
+      kernel = SimulationKernel.fromSnapshot(from, scenario.id, scenario);
+    } catch (err) {
+      throw new WorldModelReplayError(
+        `Replay cannot verify this run: the state its between-turn step to turn ${recorded.turn} started from does not restore ` +
+        `(${err instanceof Error ? err.message : String(err)}).`,
+      );
+    }
+    kernel.advanceTurn(recorded.turn, recorded.time, scenario.hooks?.progressionHook);
+    return kernel.toSnapshot(scenario.id);
+  });
 
   const freshRunId = `replay-${artifact.metadata.runId}-${Date.now().toString(36)}`;
   const freshArtifact: RunArtifact = {
@@ -2222,7 +2345,7 @@ export async function replaySimulation(
     },
     scenarioExtensions: {
       ...(artifact.scenarioExtensions ?? {}),
-      kernelSnapshotsPerTurn: freshSnapshots,
+      kernelSnapshotsAfterProgression: fresh,
     },
   };
   return freshArtifact;
