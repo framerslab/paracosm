@@ -18,7 +18,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
-    "sass": "^1.107.1",
+    "sass": "^1.108.1",
     "tailwindcss": "^4.3.5",
     "typescript": "^6.0.3",
     "vite": "^8.3.6"
