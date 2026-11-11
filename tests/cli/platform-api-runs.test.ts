@@ -376,8 +376,12 @@ function syntheticReplayArtifact(snaps: KernelSnapshot[], scenarioId = marsScena
       chosenOptionId: 'safe',
       reasoning: 'test',
     })),
+    // snaps[0] is the state before turn 1; with no decisions each turn
+    // ends in the state its step left.
     scenarioExtensions: {
-      kernelSnapshotsPerTurn: snaps,
+      kernelSnapshotsPerTurn: snaps.slice(1),
+      kernelSnapshotAtStart: snaps[0],
+      kernelSnapshotsAfterProgression: snaps.slice(1),
     },
   } as unknown as RunArtifact;
 }
@@ -433,7 +437,7 @@ test('POST /api/v1/runs/:runId/replay returns 200 + matches=false with divergenc
   assert.equal(captured.statusCode, 200);
   const body = JSON.parse(captured.body);
   assert.equal(body.matches, false);
-  assert.ok(body.divergence.length > 0 && body.divergence.startsWith('/'), `divergence must start with /, got: ${body.divergence}`);
+  assert.ok(body.divergence.startsWith('/scenarioExtensions/kernelSnapshotsAfterProgression/1/'), `divergence names the second step, got: ${body.divergence}`);
 });
 
 test('POST /api/v1/runs/:runId/replay returns 404 for unknown runId', async () => {
