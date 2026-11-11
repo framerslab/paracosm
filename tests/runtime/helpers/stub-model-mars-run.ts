@@ -10,11 +10,13 @@
  * three departments), recorded in
  * tests/fixtures/mars-live-decisions-2026-11.json under `ruleReplies`:
  * Landfall, where she took the canyon rim (option_b), and Legacy
- * Assessment, where she gave the honest report (option_a). Every other call
- * (the commander's first message, the promotions, the department reports,
- * the reactions) gets `{}`, which fails its schema, so the run takes the
- * fallback the code keeps for a model that answers badly: the top
- * candidate as head, the empty report, no reactions.
+ * Assessment, where she gave the honest report (option_a). Each reaction
+ * batch gets one hopeful reaction at 0.9 for every person its prompt names,
+ * so the reaction step writes each person's memory. Every other call (the
+ * commander's first message, the promotions, the department reports) gets
+ * `{}`, which fails its schema, so the run takes the fallback the code
+ * keeps for a model that answers badly: the top candidate as head, the
+ * empty report.
  *
  * Two turns: Mars plays its two milestones (turn 1 and the final turn), so
  * the run makes no Event Director call.
@@ -46,6 +48,8 @@ export interface StubModelLog {
   urls: string[];
   /** The titles of the decision prompts it answered with a recorded reply, in order. */
   decisions: string[];
+  /** The reactions it wrote, one for each person a reaction prompt named. */
+  reactions: number;
 }
 
 /** The text of a chat or Responses message's content: a string, or text parts. */
@@ -67,8 +71,19 @@ function lastUserText(messages: unknown): string {
   return textOf((users.at(-1) as { content?: unknown } | undefined)?.content);
 }
 
-/** The reply to one prompt: a recorded decision for the commander's decision prompt, else `{}`. */
+/**
+ * The reply to one prompt: a recorded decision for the commander's decision
+ * prompt, a reaction for each person a reaction prompt names, else `{}`.
+ */
 function replyTo(prompt: string, log: StubModelLog): string {
+  // A reaction batch names each person on a line of its own: "AGENT id=<id>".
+  const reactors = [...prompt.matchAll(/^AGENT id=(\S+)$/gm)].map(m => m[1]);
+  if (reactors.length > 0) {
+    log.reactions += reactors.length;
+    return JSON.stringify({
+      reactions: reactors.map(agentId => ({ agentId, quote: 'The rim held through the night.', mood: 'hopeful', intensity: 0.9 })),
+    });
+  }
   if (!prompt.includes(DECISION_PROMPT_MARK)) return '{}';
   // The decision prompt opens "TURN 1, Year 2035: Landfall".
   const title = /^TURN \d+[^:\n]*: (.+)$/m.exec(prompt)?.[1]?.trim() ?? '';
@@ -135,7 +150,7 @@ function stubFetch(log: StubModelLog): typeof fetch {
  * stub answered.
  */
 export async function runMarsWithStubModel(): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
-  const log: StubModelLog = { urls: [], decisions: [] };
+  const log: StubModelLog = { urls: [], decisions: [], reactions: 0 };
   const realFetch = globalThis.fetch;
   globalThis.fetch = stubFetch(log);
   try {

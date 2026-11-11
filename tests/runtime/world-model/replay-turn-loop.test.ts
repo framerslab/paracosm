@@ -73,6 +73,15 @@ test('a Mars run the turn loop saved, with its decisions applied, replays to mat
   assert.equal(ext.kernelSnapshotAtStart?.turn, 0);
   assert.deepEqual(ext.kernelSnapshotsAfterProgression?.map(s => s.turn), [1, 2]);
   assert.notDeepEqual(ext.kernelSnapshotsAfterProgression?.[1].state, ext.kernelSnapshotsPerTurn?.[1].state);
+
+  // The reactions ran, and the between-turn step neither wrote nor dropped
+  // a person's memory: the state after turn 2's step holds each person's
+  // memory as the end of turn 1 left it, what the reactions wrote included.
+  assert.ok(log.reactions > 0, 'the stub model answered the reaction batches');
+  const endOfTurn1 = new Map(ext.kernelSnapshotsPerTurn![0].state.agents.map(a => [a.core.id, a.memory]));
+  for (const a of ext.kernelSnapshotsAfterProgression![1].state.agents) {
+    if (endOfTurn1.has(a.core.id)) assert.deepEqual(a.memory, endOfTurn1.get(a.core.id), `${a.core.id}'s memory across turn 2's step`);
+  }
 });
 
 test('a tampered snapshot gives matches false and names the first path that differs', async () => {
@@ -125,4 +134,27 @@ test('a run saved before the turn loop kept the state after each between-turn st
       && /cannot verify this run/.test(err.message)
       && /kernelSnapshotsAfterProgression/.test(err.message),
   );
+});
+
+test('a run missing the state a step started from, or the state after a step, gets the cannot-verify answer, never a match', async () => {
+  const { artifact } = await stubbedRun();
+  const wm = WorldModel.fromScenario(marsScenario);
+  const cannotVerify = (err: unknown) => err instanceof WorldModelReplayError && /cannot verify this run/.test(err.message);
+
+  // Turn 2's step starts from the end of turn 1. With the end-of-turn
+  // snapshots gone, a changed after-step state must not pass as checked.
+  const noStart = stored(artifact);
+  delete extensionsOf(noStart).kernelSnapshotsPerTurn;
+  extensionsOf(noStart).kernelSnapshotsAfterProgression![1].state.metrics.morale = 0.123456789;
+  await assert.rejects(() => wm.replay(noStart), cannotVerify, 'a step whose start state the run does not hold');
+
+  // The run ends at turn 2 and holds no state after turn 2's step.
+  const cut = stored(artifact);
+  extensionsOf(cut).kernelSnapshotsAfterProgression!.splice(1);
+  await assert.rejects(() => wm.replay(cut), cannotVerify, 'a turn with no state after its step');
+
+  // An entry that is not a snapshot.
+  const broken = stored(artifact);
+  (extensionsOf(broken).kernelSnapshotsPerTurn as unknown[])[0] = null;
+  await assert.rejects(() => wm.replay(broken), cannotVerify, 'an entry that is not a snapshot');
 });
