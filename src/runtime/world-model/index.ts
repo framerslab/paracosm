@@ -633,6 +633,11 @@ export class WorldModel {
    *     `captureSnapshots: true`. A run saved before the turn loop kept them gets a
    *     `WorldModelReplayError` saying replay cannot verify it, never a
    *     match or a mismatch.
+   *   - For every step after the first, the end-of-turn snapshot of the
+   *     turn before (`kernelSnapshotsPerTurn`), the state it started from;
+   *     and for every end-of-turn snapshot, the state after that turn's
+   *     step. A run missing one (a turn that ended in an error saves no
+   *     end-of-turn snapshot) gets the same cannot-verify error.
    *   - `decisions[]` populated.
    *   - `metadata.scenario.id` matches this WorldModel's scenario.
    *
