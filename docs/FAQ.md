@@ -1,6 +1,6 @@
 # Paracosm FAQ: dice, models, seeds and replay
 
-This page answers what decides a run, what a seed fixes, and what replay, shared links and forks reproduce. Every answer was checked against the code at commit [`063c9ee6`](https://github.com/framerslab/paracosm/commit/063c9ee6843c43c5285ac7f602f3f5790b4874f2) (npm version 0.9.1095). The answers on who dies (the hazards, the tie and the numbers behind them) follow pull request [#242](https://github.com/framerslab/paracosm/pull/242), which makes the age and accident rates read the colony's supplies; their links point at commit [`1e6090d3`](https://github.com/framerslab/paracosm/commit/1e6090d3f210fd86906e48ab005e4b22524839ee). Each answer that states a mechanism links to the lines that run it.
+This page answers what decides a run, what a seed fixes, and what replay, shared links and forks reproduce. Every answer was checked against the code at commit [`063c9ee6`](https://github.com/framerslab/paracosm/commit/063c9ee6843c43c5285ac7f602f3f5790b4874f2) (npm version 0.9.1095). The answers on who dies (the hazards, the tie and the numbers behind them) follow pull request [#242](https://github.com/framerslab/paracosm/pull/242), which makes the age and accident rates read the colony's supplies; their links point at commit [`1e6090d3`](https://github.com/framerslab/paracosm/commit/1e6090d3f210fd86906e48ab005e4b22524839ee). The answers on why the demo leaders chose alike and on what the leader is shown before choosing follow the fix for issue [#248](https://github.com/framerslab/paracosm/issues/248); their links point at commit [`2c9d0ea4`](https://github.com/framerslab/paracosm/commit/2c9d0ea4ec7f5118e271b71845e8447a8ba26455). Each answer that states a mechanism links to the lines that run it.
 
 Words used throughout:
 
@@ -24,6 +24,7 @@ Words used throughout:
 - [What does a shared link do?](#what-does-a-shared-link-do)
 - [What does a fork reuse, and what does it generate fresh?](#what-does-a-fork-reuse-and-what-does-it-generate-fresh)
 - [Why can two leaders on one seed lose the same people?](#why-can-two-leaders-on-one-seed-lose-the-same-people)
+- [Why did the two demo leaders choose alike, and what makes them differ?](#why-did-the-two-demo-leaders-choose-alike-and-what-makes-them-differ)
 - [Which numbers have a source, and which are the simulation's own?](#which-numbers-have-a-source-and-which-are-the-simulations-own)
 - [What does a run cost, and what is free?](#what-does-a-run-cost-and-what-is-free)
 - [Does the same seed give the same run?](#does-the-same-seed-give-the-same-run)
@@ -46,6 +47,8 @@ No. On Mars the first and last turns play events the scenario fixes: "Landfall" 
 The dice come in after the leader chooses. The engine takes the risky option's chance, adds 0.1 when morale is above 0.7 and 0.05 when the colony holds more than 12 months of food, takes off 0.05 when more than 150 people live, and holds the result between 0.1 and 0.9. A safe option halves the chance of failure: its chance is `(1 + risky) / 2` ([`progression.ts`, lines 150 to 173](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L150-L173)). One draw, keyed by the seed, the turn and the event's place in the turn, meets that chance. Both leaders of a pair get the same draw for the same event slot, so on one draw a risky choice can fail where a safe one succeeds ([`progression.ts`, lines 175 to 184](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/engine/core/progression.ts#L175-L184)).
 
 The outcome's multiplier then scales the category's table, with three small terms added to it: one from the leader's openness and conscientiousness, a seeded noise term between -0.1 and 0.1 that both leaders of a pair share for the same event slot, and one from the departments' tool forging in that event ([`orchestrator/index.ts`, lines 1609 to 1650](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/runtime/orchestrator/index.ts#L1609-L1650)).
+
+The leader sees these numbers before choosing. Its decision prompt states the risky option's chance and the safe options' chance, computed this way from the state at that moment, and the four multipliers ([`commander-setup.ts`, lines 219 to 245](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/commander-setup.ts#L219-L245)). The draw meets the chance after the effects the leader adopts are applied, so the two differ only when an adopted effect carries morale across 0.7, food across 12 months or the population across 150.
 
 ## What does the seed control?
 
@@ -152,6 +155,31 @@ Each person still keeps the same dice under both leaders, so small differences s
 
 The tie is not fixed. A third live pair, on 10 November 2026 at about 14:10 UTC on version 0.9.1097, with the supply level in the rates, again lost the same 16 people under both leaders, each of the same cause in the same year ([issue #243](https://github.com/framerslab/paracosm/issues/243)). Both colonies built above their landing supplies: the supply factor at each turn's end was 0.917, 0.884, 0.846, 0.788, 0.691 and 0.645 under Aria Chen, and 0.864, 0.808, 0.696, 0.625, 0.615 and 0.581 under Dietrich Voss. The factor lowered the rates on both sides, so the same two people the pair of [issue #234](https://github.com/framerslab/paracosm/issues/234) lost, Sol Tanaka and Sofia Kim, lived on both sides, and no die fell between the two sides' chances. The model's calls are not seeded, so that run's decisions and supplies were new; the CI figures above hold for the earlier run's turn-end values, not for this one's.
 
+## Why did the two demo leaders choose alike, and what makes them differ?
+
+In three live Mars Genesis pairs on the hosted demo (8 November 2026 at 06:06 UTC, 10 November at 02:32 UTC and 10 November at 14:06 UTC; seed 950, Aria Chen against Dietrich Voss, 6 turns of 8 years, 30 people, 3 departments), the two leaders made 41 decisions and chose a safe option in 40 ([issue #248](https://github.com/framerslab/paracosm/issues/248)). Aria Chen ("The Visionary") took the bold option, the one the event marks risky, in none of her 19 decisions; Dietrich Voss ("The Engineer") took it in 1 of his 22. On the two events every Mars pair shares, "Landfall" and "Legacy Assessment", they chose the same option in all 6 slots.
+
+The model decides from what its prompt says, and the two leaders' prompts said nearly the same:
+
+1. The leader's profile reached a decision prompt through one line about drift and nothing else. The decision style went out once, before turn 1, and its cues fired only strictly above 0.7 or strictly below 0.3, so the presets' traits written at 0.30 and 0.70 were not heard.
+2. The departments write their reports from the event's text and the state, without the options, and the prompt asked whether the reports converged. All 41 recorded reasons said they did. The one bold choice came on the one event where a report asked for the bold action.
+3. The bold option came marked `[RISKY]` with no chance and no payoff. At those runs' states its chance was 57 to 80 in 100, and on the average multiplier it was the better choice in 37 of the 41 decisions.
+4. Mars Genesis's own director instructions replaced the default ones, and only the default held the rules on writing a real trade-off. In the 29 events the director wrote, the bold option sat at `option_b` every time and read as skipping a safety step ("bypass" in 15 labels).
+5. A leader's drift capped the outcome pull at 0.05 and then multiplied it by the turn's length, so one safe success on a Mars turn moved conscientiousness by 0.16. By turn 6 both leaders stood at 0.95 in conscientiousness, agreeableness and honesty-humility in all three pairs, and from turn 4 the drift line told the Visionary so.
+
+The three pairs ran one model for the commander and the director, so they do not show how much of the caution is that model's own.
+
+The fix for [issue #248](https://github.com/framerslab/paracosm/issues/248) changes what the model reads. The model still chooses.
+
+- **Every decision prompt carries a decision rule** ([`commander-setup.ts`, lines 219 to 245](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/commander-setup.ts#L219-L245); [`orchestrator/index.ts`, lines 1559 to 1578](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/index.ts#L1559-L1578)). It states the bold option's chance and the safe options' chance, as the outcome step computes them; the multipliers 2.5, -2, 1 and -1; and the leader's bar, the chance at or above which this leader takes the bold option. It says the reports were written without the options, and asks the commander to choose by its bar or to name the reason, belonging to the event, for departing from it. It states odds and a bar and does not pick the option.
+- **The bar comes from the profile as it stands that turn** ([`commander-setup.ts`, lines 123 to 174](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/commander-setup.ts#L123-L174)). The appetite is `(openness + (1 - conscientiousness) + (1 - emotionality)) / 3`, and the bar is `4/7 + 0.8 * (0.5 - appetite)`, held within 0.1 and 0.9. At 4 in 7 the bold and a safe option bring the same on average under the multipliers, so a leader with no lean either way takes the bold option from there. Aria Chen's preset reads a bar of 36 in 100, Dietrich Voss's 82.
+- **The opening cues fire at 0.7 and above and at 0.3 and below** ([`commander-setup.ts`, lines 55 to 83](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/commander-setup.ts#L55-L83)).
+- **One turn moves a leader's trait at most 0.05**: the pull is scaled by the turn's length and then capped ([`progression.ts`, line 148](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/engine/core/progression.ts#L148)). A department head's drift is unchanged.
+- **Every scenario's director receives the trade-off rules**, after its own instructions where it has them, with the rule that the bold option is a bet on a larger gain and never the omission of a safety step ([`director.ts`, lines 131 to 159 and 278 to 283](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/director.ts#L131-L159)).
+- **The director prints full morale as 100%.** It printed "morale: 1", and in the first two pairs 14 of the 18 director events described a colony at full morale as at 1, "1/10" or "1/100".
+
+Whether the demo's two leaders now choose differently is read from a live pair after the release, and this answer adds that result, with its date and version, once it is read.
+
 ## Which numbers have a source, and which are the simulation's own?
 
 The Mars numbers that decide deaths, with where each comes from. "The simulation's choice" means the code picked the value for legible stakes; it is not a measured value.
@@ -172,6 +200,16 @@ The Mars numbers that decide deaths, with where each comes from. "The simulation
 | What an outcome brings | the category tables in `mars.json` and the multipliers 2.5, 1, -1 and -2 | the simulation's choice |
 
 The hazards are in [`progression.ts`, lines 254 to 370](https://github.com/framerslab/paracosm/blob/1e6090d3f210fd86906e48ab005e4b22524839ee/src/engine/core/progression.ts#L254-L370). [docs/ARCHITECTURE.md](ARCHITECTURE.md#mortality) has the full mortality model.
+
+The leader's decision rule ([`commander-setup.ts`, lines 123 to 174](https://github.com/framerslab/paracosm/blob/2c9d0ea4ec7f5118e271b71845e8447a8ba26455/src/runtime/orchestrator/commander-setup.ts#L123-L174)) has these numbers:
+
+| Number | Value in the code | Source |
+|---|---|---|
+| The traits the appetite reads, and their directions | openness raises the appetite; conscientiousness and emotionality lower it | the simulation's choice |
+| Their weights | a third each | the simulation's choice |
+| Slope of the bar | 0.8: the bar moves 0.8 for each unit of appetite away from 0.5 | the simulation's choice; at 0.8 the two Mars presets' bars part on "Landfall", the bold option's chance there being 80 in 100 at the landing state |
+| Bounds of the bar | 0.1 and 0.9, the range an option's chance takes | the simulation's choice |
+| Centre of the bar | 4 in 7, where the bold and a safe option bring the same on average | not chosen: it follows from the multipliers 2.5, -2, 1 and -1, which are the simulation's choice |
 
 ## What does a run cost, and what is free?
 
