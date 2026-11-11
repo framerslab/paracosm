@@ -51,7 +51,7 @@ import { resolveServerMode } from './server-mode.js';
 import { withSiteAnalytics } from './site-analytics.js';
 import { createRunRecord, hashActorConfig } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
-import { resolveRunsDir } from './services/run-artifact-file.js';
+import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
@@ -595,8 +595,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
 
-  // Output retention: sweep run output JSON (imported copies included)
-  // older than OUTPUT_RETENTION_DAYS from the runs directory on boot.
+  // Output retention: sweep run output (v3-*.json, imported copies
+  // included) older than OUTPUT_RETENTION_DAYS from the runs directory
+  // on boot. Other files there are left alone: PARACOSM_OUTPUT_DIR can
+  // name a directory that holds more than run output.
   // The directory otherwise grows unbounded (~300KB per run × N daily runs = GB over months).
   // Default 30 days. Set to 0 to disable the sweep. Non-fatal on any
   // filesystem error — missing dir is fine, permission denied is
@@ -610,7 +612,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     let removed = 0;
     try {
       for (const name of readdirSync(outputDir)) {
-        if (!name.endsWith('.json')) continue;
+        if (!isRunOutputFileName(name)) continue;
         const full = resolve(outputDir, name);
         try {
           const stat = statSync(full);
@@ -2691,7 +2693,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           const outputDir = runsDir;
           if (existsSync(outputDir)) {
             for (const file of readdirSync(outputDir)) {
-              if (file.startsWith('v3-') && file.endsWith('.json')) {
+              if (isRunOutputFileName(file)) {
                 try {
                   unlinkSync(resolve(outputDir, file));
                   result.outputFiles += 1;

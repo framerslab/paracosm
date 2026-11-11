@@ -30,6 +30,17 @@ export function resolveRunsDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolveOutputDir(env);
 }
 
+/**
+ * Whether a file name in the runs directory is run output: the run
+ * writer's `v3-<tag>-<timestamp>.json` and the import's
+ * `v3-imported-<hash>-<suffix>.json`. The retention sweep and the
+ * output wipe remove these names only, so other files in the directory
+ * stay.
+ */
+export function isRunOutputFileName(name: string): boolean {
+  return name.startsWith('v3-') && name.endsWith('.json');
+}
+
 function isInside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);

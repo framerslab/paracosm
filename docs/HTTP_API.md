@@ -120,7 +120,7 @@ Single run record plus the full RunArtifact loaded from disk.
 - `410 artifact_unreadable` — file was preserved but is missing or unreadable on disk
 - `410 artifact_outside_runs_dir` — the record's artifact path resolves outside the server's runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`, links resolved); the file is not read. A record imported before imports wrote their own copy can carry such a path.
 
-The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. An entry that changes between the check and the read answers `410 artifact_unreadable`.
+The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. An entry that changes between the check and the read answers `410 artifact_unreadable`, or `410 artifact_outside_runs_dir` when it then resolves outside the runs directory.
 
 `HEAD /api/v1/runs/:runId` answers `200`, `404` or `410` with no body. It checks the record's path text against the runs directory and does not open the file or resolve links, so a `200` there can still be a `410` on `GET`.
 
@@ -263,9 +263,9 @@ Import an externally-produced RunArtifact (Studio JSON drop, shared export, repl
 
 The server keeps its own copy of each imported artifact: it writes the artifact to a new file, `v3-imported-<hash of runId>-<random suffix>.json`, in its runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`) and the record's artifact path points at that file. The file is created exclusively: an entry already at that name, a link included, is never followed or overwritten. No file path is taken from the request; a `scenarioExtensions.outputPath` in the imported artifact is dropped from the stored copy. `GET /api/v1/runs/:runId` then serves the imported artifact.
 
-When two imports of one `runId` arrive together, the record stored first is kept with its file; the other import answers `alreadyExisted: true` and removes the file it wrote.
+When two imports of one `runId` arrive together, the record stored first is kept with its file; the other import answers `alreadyExisted: true` and removes the file it wrote. An import whose record cannot be read back right after its insert keeps its file and answers `alreadyExisted: false`.
 
-The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes `.json` files older than that) and `POST /admin/data/wipe` with `wipeOutput: true` (removes `v3-*.json` files) work on the same runs directory, so they remove imported copies as they do run output.
+The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes `v3-*.json` files older than that) and `POST /admin/data/wipe` with `wipeOutput: true` (removes `v3-*.json` files) work on the same runs directory, so they remove imported copies as they do run output. Neither removes any other file in the directory.
 
 **Request body — single**
 

@@ -186,8 +186,16 @@ async function insertOne(
   // The store keeps the first record for a run id. When another import
   // of the same run id stored its record between the check above and
   // this insert, the stored record points at that import's file: this
-  // copy is removed and the run reported as already there.
-  const storedRecord = await deps.runHistoryStore.getRun(importedRunId);
+  // copy is removed and the run reported as already there. The insert
+  // went through, so a failed read back keeps this copy and reports the
+  // run as this import's rather than failing a stored import.
+  let storedRecord: RunRecord | null;
+  try {
+    storedRecord = await deps.runHistoryStore.getRun(importedRunId);
+  } catch (err) {
+    console.warn('[library-import] stored record not read back after insert; copy kept:', importedRunId, err instanceof Error ? err.message : String(err));
+    return { runId: importedRunId, alreadyExisted: false };
+  }
   if (storedRecord && storedRecord.artifactPath !== artifactPath) {
     await removeImportedRunArtifact(artifactPath);
     return { runId: importedRunId, alreadyExisted: true };
