@@ -158,3 +158,31 @@ test('a run missing the state a step started from, or the state after a step, ge
   (extensionsOf(broken).kernelSnapshotsPerTurn as unknown[])[0] = null;
   await assert.rejects(() => wm.replay(broken), cannotVerify, 'an entry that is not a snapshot');
 });
+
+test('a run whose saved steps end before its recorded turns, or that holds an entry no kernel can restore, gets the cannot-verify answer', async () => {
+  const { artifact } = await stubbedRun();
+  const wm = WorldModel.fromScenario(marsScenario);
+  const cannotVerify = (err: unknown) => err instanceof WorldModelReplayError && /cannot verify this run/.test(err.message);
+  assert.deepEqual(artifact.trajectory?.timepoints?.map(t => t.time), extensionsOf(artifact).kernelSnapshotsPerTurn?.map(s => s.time), 'the run records a timepoint for each turn it ended');
+
+  // Turn 2 taken out of both snapshot sets; its decision and timepoint stay.
+  // Only turn 1's step would be checked, so the run must not pass as a match.
+  const shortened = stored(artifact);
+  extensionsOf(shortened).kernelSnapshotsAfterProgression!.splice(1);
+  extensionsOf(shortened).kernelSnapshotsPerTurn!.splice(1);
+  await assert.rejects(() => wm.replay(shortened), cannotVerify, 'a recorded turn with no saved step');
+
+  // An entry with a turn and a state but no snapshotVersion: no kernel restores it.
+  for (const where of ['kernelSnapshotAtStart', 'kernelSnapshotsPerTurn', 'kernelSnapshotsAfterProgression'] as const) {
+    const run = stored(artifact);
+    const ext = extensionsOf(run);
+    const entry = where === 'kernelSnapshotAtStart' ? ext.kernelSnapshotAtStart! : ext[where]![0];
+    delete (entry as Partial<KernelSnapshot>).snapshotVersion;
+    await assert.rejects(() => wm.replay(run), cannotVerify, `${where} without snapshotVersion`);
+  }
+
+  // A start snapshot taken against another scenario.
+  const otherScenario = stored(artifact);
+  (extensionsOf(otherScenario).kernelSnapshotAtStart as { scenarioId: string }).scenarioId = 'lunar-outpost';
+  await assert.rejects(() => wm.replay(otherScenario), cannotVerify, 'a start snapshot of another scenario');
+});
