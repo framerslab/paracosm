@@ -40,7 +40,7 @@ import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 import { scenarioKeyPersonnel } from '../../src/cli/sim-config.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
-import type { ProgressionHookContext, ScenarioPackage } from '../../src/engine/types.js';
+import type { ProgressionHookContext, ScenarioPackage, WorldMetricSchema } from '../../src/engine/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const hook = marsScenario.hooks.progressionHook;
@@ -275,17 +275,81 @@ test('Mars Genesis keeps the five supplies it marks as they stood on landing day
 const disk = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
 const station = disk.get('deep-ocean-station')!.scenario as ScenarioPackage;
 const atlasLab = disk.get('atlas-lab')!.scenario as ScenarioPackage;
+const corporate = disk.get('corporate-quarterly')!.scenario as ScenarioPackage;
+const council = disk.get('dual-superintelligence-council')!.scenario as ScenarioPackage;
 const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
 
-test('Lunar Outpost, the deep-ocean station, Atlas Lab, the Digital Twin and a kernel with no scenario keep no landing amounts', () => {
+/** Lunar Outpost on landing day: what its five marked supplies hold. */
+const LUNAR_LANDING = { powerKw: 200, waterLitersPerDay: 400, pressurizedVolumeM3: 1500, infrastructureModules: 2, lifeSupportCapacity: 60 };
+/** The deep-ocean station on its first day: what its two marked supplies hold. */
+const STATION_LANDING = { powerKw: 200, oxygenReserveHours: 720 };
+
+test('Lunar Outpost and the deep-ocean station keep the supplies they mark as they stood on landing day, and Atlas Lab, Q-Scope Corp, the council, the Digital Twin and a kernel with no scenario keep none', () => {
   const kept = (sc: ScenarioPackage | undefined, population: number) => new SimulationKernel(950, ARIA, sc ? scenarioKeyPersonnel(sc) : [], {
     startTime: sc?.setup?.defaultStartTime ?? 1, initialPopulation: population, ...(sc ? { scenario: sc } : {}),
   }).getState().metadata.landingSupplies;
-  assert.equal(kept(lunarScenario, 30), undefined, 'Lunar Outpost');
-  assert.equal(kept(station, 30), undefined, 'the deep-ocean station');
+  assert.deepEqual(kept(lunarScenario, 30), LUNAR_LANDING, 'Lunar Outpost');
+  assert.deepEqual(kept(station, 30), STATION_LANDING, 'the deep-ocean station');
   assert.equal(kept(atlasLab, 100), undefined, 'Atlas Lab');
+  assert.equal(kept(corporate, 40), undefined, 'Q-Scope Corp');
+  assert.equal(kept(council, 30), undefined, 'the Dual Superintelligence Council');
   assert.equal(kept(twin, 1), undefined, 'the Digital Twin');
   assert.equal(kept(undefined, 30), undefined, 'a kernel with no scenario');
+});
+
+/** A world bag with no supply marked. */
+function unmarked(bag: Record<string, WorldMetricSchema>): Record<string, WorldMetricSchema> {
+  return Object.fromEntries(Object.entries(bag).map(([key, def]) => {
+    const { sustains: _marked, ...rest } = def;
+    return [key, rest];
+  }));
+}
+
+/** Lunar Outpost as it ran before it marked its supplies and kept one death die for a life. */
+const lunarBefore: ScenarioPackage = {
+  ...lunarScenario,
+  setup: { ...lunarScenario.setup, mortalityDice: 'year' },
+  world: { ...lunarScenario.world, metrics: unmarked(lunarScenario.world.metrics), capacities: unmarked(lunarScenario.world.capacities) },
+};
+
+/**
+ * Eight Lunar turns nobody leads, 50 people, on `lunarBefore`. Where
+ * `restore` is set, the last six run on a kernel restored from the snapshot
+ * taken after turn 2 and handed the shipped Lunar Outpost, as a saved run
+ * or a fork of one is.
+ */
+function lunarSaved(seed: number, restore: boolean): SimulationKernel {
+  const start = lunarScenario.setup.defaultStartTime ?? 1;
+  let kernel = new SimulationKernel(seed, ARIA, scenarioKeyPersonnel(lunarBefore), { startTime: start, initialPopulation: 50, scenario: lunarBefore });
+  for (let turn = 1; turn <= 8; turn++) {
+    if (turn === 3 && restore) {
+      const snap = JSON.parse(JSON.stringify(kernel.toSnapshot(lunarScenario.id)));
+      kernel = SimulationKernel.fromSnapshot(snap, lunarScenario.id, lunarScenario);
+    }
+    kernel.advanceTurn(turn, start + turn - 1, lunarScenario.hooks.progressionHook);
+  }
+  return kernel;
+}
+
+test('a Lunar Outpost run saved before it marked its supplies keeps a die a year and a supply level of 1 when restored', (t) => {
+  // A saved state holds no landing amounts and no declaration of its dice,
+  // so a kernel restored from one and handed the shipped Lunar Outpost runs
+  // on as the scenario it was saved with: the same deaths in turns 3 to 8.
+  const deaths = (k: SimulationKernel) => k.getState().eventLog.filter(e => e.type === 'death');
+  const records = (k: SimulationKernel) => deaths(k).map(e => `${e.agentId}|${e.time}|${e.cause}`).join('\n');
+  const differ: number[] = [];
+  let later = 0;
+  for (const seed of SEEDS) {
+    const saved = lunarSaved(seed, false);
+    if (records(saved) !== records(lunarSaved(seed, true))) differ.push(seed);
+    later += deaths(saved).filter(e => e.turn >= 3).length;
+  }
+  t.diagnostic(`deaths in turns 3 to 8 over ${SEEDS.length} seeds: ${later}; seeds whose restored run differs: ${differ.length}`);
+  assert.deepEqual(differ, [], 'seeds on which the restored run lost other people, or in other years');
+  assert.ok(later > 0, 'no death in turns 3 to 8 to compare');
+  const metadata = lunarSaved(950, true).getState().metadata;
+  assert.equal(metadata.landingSupplies, undefined, 'the restored run keeps no landing amounts');
+  assert.equal(metadata.mortalityDice, undefined, 'the restored run keeps a die a year');
 });
 
 /** Each turn's morale, living, deaths and births. */

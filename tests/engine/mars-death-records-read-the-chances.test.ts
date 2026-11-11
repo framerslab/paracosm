@@ -352,20 +352,24 @@ test('one die for a life keeps a Mars run\'s chances of death', (t) => {
 const disk = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
 const station = disk.get('deep-ocean-station')!.scenario as ScenarioPackage;
 const atlasLab = disk.get('atlas-lab')!.scenario as ScenarioPackage;
+const corporate = disk.get('corporate-quarterly')!.scenario as ScenarioPackage;
+const council = disk.get('dual-superintelligence-council')!.scenario as ScenarioPackage;
 const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
 
 /** What a kernel records of how its death dice are kept. */
 const diceOf = (kernel: SimulationKernel) => kernel.getState().metadata.mortalityDice;
 
-test('Mars Genesis declares one die for a life, and no other scenario does', () => {
+test('Mars Genesis, Lunar Outpost and the deep-ocean station declare one die for a life, and no other scenario does', () => {
   const kept = (sc: ScenarioPackage | undefined, population: number) => diceOf(new SimulationKernel(950, ARIA, sc ? scenarioKeyPersonnel(sc) : [], {
     startTime: sc?.setup?.defaultStartTime ?? 1, initialPopulation: population, ...(sc ? { scenario: sc } : {}),
   }));
   assert.equal(kept(marsScenario, 30), 'life', 'Mars Genesis');
+  assert.equal(kept(lunarScenario, 30), 'life', 'Lunar Outpost');
+  assert.equal(kept(station, 30), 'life', 'the deep-ocean station');
   assert.equal(kept(yearly, 30), undefined, 'Mars Genesis with a die a year declared');
-  assert.equal(kept(lunarScenario, 30), undefined, 'Lunar Outpost');
-  assert.equal(kept(station, 30), undefined, 'the deep-ocean station');
   assert.equal(kept(atlasLab, 100), undefined, 'Atlas Lab');
+  assert.equal(kept(corporate, 40), undefined, 'Q-Scope Corp');
+  assert.equal(kept(council, 30), undefined, 'the Dual Superintelligence Council');
   assert.equal(kept(twin, 1), undefined, 'the Digital Twin');
   assert.equal(kept(undefined, 30), undefined, 'a kernel with no scenario');
 });

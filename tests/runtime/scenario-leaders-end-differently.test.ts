@@ -32,12 +32,13 @@
  * So the two streams differ in the option alone, which is the least two
  * leaders can differ by. Over 61 seeds each test counts the seeds on which
  * the streams end with different final values of a score the scenario
- * declares, and, on Mars Genesis, which marks the supplies that sustain its
- * people and keeps one death die for a life, the seeds on which the death
- * records and the dead differ. A scenario compiled from a seed draft holds
- * none of the scores its draft declares (#257), so its row counts the
- * verdict's score block. Each floor sits a margin under the count read in
- * CI, which stands beside it.
+ * declares, and, in the scenarios that mark the supplies that sustain their
+ * people and keep one death die for a life, the seeds on which the death
+ * records differ: Mars Genesis at the hosted shape, with the dead as well,
+ * and Lunar Outpost and the deep-ocean station at their own population and
+ * turns. A scenario compiled from a seed draft holds none of the scores its
+ * draft declares (#257), so its row counts the verdict's score block. Each
+ * floor sits a margin under the count read in CI, which stands beside it.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -177,6 +178,8 @@ const seedCompiled = await compileScenario(DraftScenarioSchema.parse({
 
 /** The shape a hosted run has: at most 30 people and six turns. */
 const hosted = (sc: ScenarioPackage): Shape => ({ population: Math.min(sc.setup?.defaultPopulation ?? 30, 30), turns: Math.min(sc.setup?.defaultTurns ?? 6, 6) });
+/** The scenario's own population and turns. */
+const own = (sc: ScenarioPackage): Shape => ({ population: sc.setup?.defaultPopulation ?? 30, turns: sc.setup?.defaultTurns ?? 6 });
 
 interface Row {
   /** The scenario's id; a row for a file in scenarios/ carries that file's id. */
@@ -193,8 +196,9 @@ const atlasLab = fromDisk('atlas-lab');
 const corporate = fromDisk('corporate-quarterly');
 const council = fromDisk('dual-superintelligence-council');
 
-// The counts beside each row were read in CI run 43060543910 (job
-// 130661614497), on the scenarios and kernel of master e70e4f88.
+// The counts beside the rows at the hosted shape were read in CI run
+// 43060543910 (job 130661614497), on the scenarios and kernel of master
+// e70e4f88.
 const ROWS: Row[] = [
   // A declared score 61 of 61, the death records 61, the dead 35.
   { id: 'mars-genesis', label: 'Mars Genesis', scenario: marsScenario, shape: hosted(marsScenario), floors: { declared: 58, records: 58, dead: 28 } },
@@ -205,6 +209,13 @@ const ROWS: Row[] = [
   { id: 'corporate-quarterly', label: 'Q-Scope Corp', scenario: corporate, shape: hosted(corporate), floors: { declared: 58 } },
   { id: 'dual-superintelligence-council', label: 'the Dual Superintelligence Council', scenario: council, shape: hosted(council), floors: { declared: 58 } },
   { id: 't2d-glp1-protocol', label: 'the Digital Twin', scenario: twin, shape: hosted(twin), floors: { declared: 58 } },
+  // Lunar Outpost and the deep-ocean station mark the supplies that sustain
+  // their crews and keep one death die for a life. At their own population
+  // and turns (50 people, 8 one-year turns) the death records differ on 23
+  // and 26 of 61 seeds with both settings, against 1 and 13 with neither
+  // (CI run 43061258861, job 130664143877, and run 43060543910).
+  { id: 'lunar-outpost', label: 'Lunar Outpost at its own size', scenario: lunarScenario, shape: own(lunarScenario), floors: { records: 15 } },
+  { id: 'deep-ocean-station', label: 'the deep-ocean station at its own size', scenario: station, shape: own(station), floors: { records: 18 } },
   // A scenario compiled from a seed draft holds the head count and morale
   // alone, so its score block is those two rows, neither a score its draft
   // declares: the score block 56 of 61 (morale), a declared score 0.
