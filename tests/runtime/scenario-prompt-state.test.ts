@@ -279,3 +279,33 @@ test('a saved run\'s time unit is the scenario\'s, plural included', () => {
   assert.deepEqual(artifactTimeUnit({ timeUnitNoun: 'quarter' }), { singular: 'quarter', plural: 'quarters' });
   assert.deepEqual(artifactTimeUnit({}), { singular: 'time', plural: 'times' });
 });
+
+test('the director reads full morale as full: 100%, not 1', () => {
+  // The director's state lines printed a number as a percent only strictly
+  // between 0 and 1, so a colony at full morale read "morale: 1". In the
+  // live Mars pairs of 8 and 10 November 2026, 14 of the 18 director events
+  // of the first two then described morale as 1, "1/10" or "1/100", for
+  // example "morale is extremely low (morale: 1)" (#248).
+  const state = kernelFor(mars, 2035).getState();
+  const prompt = buildDirectorPrompt({
+    turn: 2,
+    time: 2043,
+    actorName: 'Aria Chen',
+    actorArchetype: 'The Visionary',
+    leaderHexaco: hexaco,
+    state: { ...declaredMetrics(state.metrics, mars.world), morale: 1 },
+    politics: declaredPolitics(state.politics, mars.world),
+    aliveCount: state.agents.length,
+    nativeBornCount: 0,
+    recentDeaths: 0,
+    recentBirths: 0,
+    previousEvents: [],
+    toolsForged: [],
+    driftSummary: [],
+    recentToolOutputs: [],
+    labels: mars.labels,
+    world: mars.world,
+  } as Parameters<typeof buildDirectorPrompt>[0]);
+  assert.match(prompt, /^- morale: 100%$/m);
+  assert.doesNotMatch(prompt, /^- morale: 1$/m);
+});
