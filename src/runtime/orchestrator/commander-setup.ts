@@ -209,10 +209,52 @@ export interface DecisionRuleArgs {
 /** The start of the line of a rule block that states the leader's bar. */
 const BAR_LINE = '- Your bar:';
 
+/**
+ * The reply field a commander writes the fact it departs from its bar for
+ * in (see `CommanderDecisionSchema`).
+ */
+export const BAR_DEPARTURE_FIELD = 'barDeparture';
+
 /** "option_a", "option_a and option_c", "option_a, option_b and option_c". */
-function listIds(options: ReadonlyArray<{ id: string }>): string {
-  const ids = options.map(o => o.id);
+function listIds(ids: readonly string[]): string {
   return ids.length < 2 ? ids.join('') : `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+}
+
+/**
+ * The numbers a decision's rule block states, in whole numbers out of 100,
+ * so the commander step can check the reply against what its prompt said.
+ */
+export interface DecisionRuleNumbers {
+  /** The ids of the options marked risky. */
+  boldIds: string[];
+  /** The ids of the other options. */
+  safeIds: string[];
+  /** The bold option's chance of success. */
+  boldChance: number;
+  /** Each safe option's chance of success. */
+  safeChance: number;
+  /** The leader's bar for the bold option; absent for a leader with no bar. */
+  bar?: number;
+}
+
+/**
+ * The chances and the bar a decision's rule block states, or undefined for
+ * an event with no option marked risky, or none safe. The chances are the
+ * outcome step's `outcomeSuccessChance` for the run's metrics now; the bar
+ * is {@link riskBar} for the profile as it stands this turn.
+ */
+export function decisionRuleNumbers(a: DecisionRuleArgs): DecisionRuleNumbers | undefined {
+  const boldIds = a.options.filter(o => o.isRisky).map(o => o.id);
+  const safeIds = a.options.filter(o => !o.isRisky).map(o => o.id);
+  if (!boldIds.length || !safeIds.length || !Number.isFinite(a.riskSuccessProbability)) return undefined;
+  const outOf100 = (x: number) => Math.round(100 * x);
+  return {
+    boldIds,
+    safeIds,
+    boldChance: outOf100(outcomeSuccessChance(true, a.riskSuccessProbability, a.metrics)),
+    safeChance: outOf100(outcomeSuccessChance(false, a.riskSuccessProbability, a.metrics)),
+    ...(a.withBar !== false ? { bar: outOf100(riskBar(riskAppetite(a.hexaco))) } : {}),
+  };
 }
 
 /**
@@ -223,9 +265,17 @@ function listIds(options: ReadonlyArray<{ id: string }>): string {
  * ({@link OUTCOME_MULTIPLIERS}) and its costs by ({@link COST_MULTIPLES}),
  * as the effect registry applies them; the leader's bar for the bold
  * option from the profile as it stands this turn ({@link riskBar}); that
- * the department reports were written without the options; and the
- * instruction to choose by the bar or to name the event's reason for
- * departing from it. Whole numbers out of 100, rounded.
+ * the department reports were written without the options; that the
+ * chances and multiples already include the dangers the event describes;
+ * what following the bar means; and that a departure from it names, in its
+ * own reply field ({@link BAR_DEPARTURE_FIELD}), a fact the odds do not
+ * count. Whole numbers out of 100, rounded.
+ *
+ * The departure line read "for a reason that belongs to this event" until
+ * #250: on the first live pair with the rule, Aria Chen stated that the
+ * bold option's chance cleared her bar on all 6 events and chose a safe
+ * option on 5, each time for a danger the event described, which a bold
+ * failure is and which its chance and cost multiple already count.
  *
  * The block states odds and a bar and picks nothing: the commander chooses.
  * The outcome draw meets the chance after the adopted effects apply, so
@@ -234,33 +284,114 @@ function listIds(options: ReadonlyArray<{ id: string }>): string {
  * 150. Returns "" for an event with no option marked risky, or none safe.
  */
 export function buildDecisionRule(a: DecisionRuleArgs): string {
-  const bold = a.options.filter(o => o.isRisky);
-  const safe = a.options.filter(o => !o.isRisky);
-  if (!bold.length || !safe.length || !Number.isFinite(a.riskSuccessProbability)) return '';
+  const n = decisionRuleNumbers(a);
+  if (!n) return '';
   const outOf100 = (x: number) => Math.round(100 * x);
-  const boldChance = outOf100(outcomeSuccessChance(true, a.riskSuccessProbability, a.metrics));
-  const safeChance = outOf100(outcomeSuccessChance(false, a.riskSuccessProbability, a.metrics));
   const m = OUTCOME_MULTIPLIERS;
   const c = COST_MULTIPLES;
-  const withBar = a.withBar !== false;
   const h = a.hexaco;
+  const theBold = n.boldIds.length === 1 ? 'the bold option' : 'a bold option';
   const lines = [
     'YOUR DECISION RULE',
-    bold.length === 1
-      ? `- ${bold[0].id} is the bold option. It succeeds about ${boldChance} times in 100.`
-      : `- ${listIds(bold)} are the bold options. Each succeeds about ${boldChance} times in 100.`,
-    safe.length === 1
-      ? `- ${safe[0].id} is the safe option. It succeeds about ${safeChance} times in 100.`
-      : `- ${listIds(safe)} are the safe options. Each succeeds about ${safeChance} times in 100.`,
+    n.boldIds.length === 1
+      ? `- ${n.boldIds[0]} is the bold option. It succeeds about ${n.boldChance} times in 100.`
+      : `- ${listIds(n.boldIds)} are the bold options. Each succeeds about ${n.boldChance} times in 100.`,
+    n.safeIds.length === 1
+      ? `- ${n.safeIds[0]} is the safe option. It succeeds about ${n.safeChance} times in 100.`
+      : `- ${listIds(n.safeIds)} are the safe options. Each succeeds about ${n.safeChance} times in 100.`,
     `- What this kind of event gains is multiplied by ${m.risky_success} on a bold success and ${m.risky_failure} on a bold failure, against ${m.conservative_success} and ${m.conservative_failure} on a safe success and a safe failure.`,
     `- What it costs is multiplied by ${c.risky_success} on a bold success and ${c.risky_failure} on a bold failure, against ${c.conservative_success} and ${c.conservative_failure} on a safe success and a safe failure.`,
-    ...(withBar
-      ? [`${BAR_LINE} you take the bold option when it succeeds at least ${outOf100(riskBar(riskAppetite(h)))} times in 100. It comes from your profile as it stands this turn (openness ${h.openness.toFixed(2)}, conscientiousness ${h.conscientiousness.toFixed(2)}, emotionality ${h.emotionality.toFixed(2)}). A leader with no lean either way takes it at ${outOf100(breakEvenChance())} in 100, where the two paths gain the same on average. On what the event costs they are even at ${outOf100(breakEvenChance(COST_MULTIPLES))} in 100.`]
+    ...(n.bar !== undefined
+      ? [`${BAR_LINE} you take the bold option when it succeeds at least ${n.bar} times in 100. It comes from your profile as it stands this turn (openness ${h.openness.toFixed(2)}, conscientiousness ${h.conscientiousness.toFixed(2)}, emotionality ${h.emotionality.toFixed(2)}). A leader with no lean either way takes it at ${outOf100(breakEvenChance())} in 100, where the two paths gain the same on average. On what the event costs they are even at ${outOf100(breakEvenChance(COST_MULTIPLES))} in 100.`]
       : []),
     '- The departments wrote their reports without this option list or these odds. Their reports describe the problem; the choice between the options is yours.',
-    ...(withBar ? ['- Choose by your bar. Depart from it only for a reason that belongs to this event, and say that reason in point (4).'] : []),
+    ...(n.bar !== undefined
+      ? [
+          `- The chances and multiples above already include the dangers this event describes. If ${theBold} goes wrong, that is a bold failure: the chance above already allows for it, and its cost is counted ${c.risky_failure} times, against ${c.conservative_failure} times for a safe failure. A danger the event describes is not a reason to depart from your bar, and neither is a downside tail or the cost of failing.`,
+          `- Choose by your bar: when the bold option's chance is at least your bar, following it means choosing ${theBold}; when it is under, a safe option. Depart from it only for a fact these odds do not count: a supply in the State line too low to take a bold failure, named with its number and what it falls short of, or something an option needs that the colony lacks. Write that fact in "${BAR_DEPARTURE_FIELD}"; leave "${BAR_DEPARTURE_FIELD}" empty when you follow your bar.`,
+        ]
+      : []),
   ];
   return lines.join('\n');
+}
+
+/** How one decision stands against the bar its prompt stated. */
+export interface BarCheck {
+  /** The bold option's chance the prompt stated, out of 100. */
+  boldChance: number;
+  /** The bar the prompt stated, out of 100. */
+  bar: number;
+  /** The bold option's chance is at least the bar. */
+  clearsBar: boolean;
+  /** The option chosen is a bold one. */
+  choseBold: boolean;
+  /** The choice is not the one the bar gives. */
+  departs: boolean;
+  /** What the reply wrote in its departure field, trimmed; "" for none. */
+  departureFact: string;
+  /** A departure whose reply names no fact for it. */
+  unexplained: boolean;
+}
+
+/** A departure field that says there is none. */
+const NO_FACT = /^(?:none|nothing|n\/?a|null|nil|not applicable|-+)\.?$/i;
+
+/**
+ * Check a reply against the bar its prompt stated: whether the option it
+ * chose is the one the bar gives (the bold option when its chance is at
+ * least the bar, a safe one when under), and, when it is not, whether the
+ * reply named the fact it departs for. Undefined when the prompt stated no
+ * bar or the reply chose no option the event offers.
+ *
+ * The check flags and counts; it changes nothing. A departure with no fact
+ * stands as the commander's choice: a retry could only check that the
+ * field is filled, not that the fact lies outside the odds, and would teach
+ * the model to fill it.
+ */
+export function checkBarDeparture(
+  numbers: DecisionRuleNumbers | undefined,
+  chosenOptionId: string | null | undefined,
+  barDeparture: unknown,
+): BarCheck | undefined {
+  if (!numbers || numbers.bar === undefined || !chosenOptionId) return undefined;
+  const choseBold = numbers.boldIds.includes(chosenOptionId);
+  if (!choseBold && !numbers.safeIds.includes(chosenOptionId)) return undefined;
+  const clearsBar = numbers.boldChance >= numbers.bar;
+  const departs = clearsBar !== choseBold;
+  const written = typeof barDeparture === 'string' ? barDeparture.trim() : '';
+  const departureFact = NO_FACT.test(written) ? '' : written;
+  return {
+    boldChance: numbers.boldChance,
+    bar: numbers.bar,
+    clearsBar,
+    choseBold,
+    departs,
+    departureFact,
+    unexplained: departs && !departureFact,
+  };
+}
+
+/** A run's decisions against their bars. */
+export interface BarCheckSummary {
+  /** Decisions checked: a bar was stated and an offered option chosen. */
+  decisions: number;
+  /** Of those, the choices the bar gives. */
+  followed: number;
+  /** Of those, the choices against the bar. */
+  departed: number;
+  /** Of the departures, the ones whose reply named no fact. */
+  departedWithoutFact: number;
+}
+
+/** Count a run's bar checks; a decision with no check is not counted. */
+export function summarizeBarChecks(checks: ReadonlyArray<BarCheck | undefined>): BarCheckSummary {
+  const seen = checks.filter((c): c is BarCheck => !!c);
+  return {
+    decisions: seen.length,
+    followed: seen.filter(c => !c.departs).length,
+    departed: seen.filter(c => c.departs).length,
+    departedWithoutFact: seen.filter(c => c.unexplained).length,
+  };
 }
 
 /** What one turn's commander decision prompt is built from. */
@@ -294,19 +425,23 @@ export interface CommanderTurnPromptArgs {
  *
  * With a decision rule the rule follows the options, and two reasoning
  * points read from it: (2) asks what the reports establish, since they
- * were written without the options, and (4) asks for the bold option's
- * chance against the leader's bar. Without one the points ask whether the
- * reports converge and what risk is accepted.
+ * were written without the options, and (4) asks whether the bold option's
+ * chance is at least the leader's bar, with both numbers, and says which
+ * choice that gives unless a departure fact is written in its field.
+ * Without one the points ask whether the reports converge and what risk is
+ * accepted.
  */
 export function buildCommanderTurnPrompt(a: CommanderTurnPromptArgs): string {
   const w = scenarioWords(a.labels);
   const rule = a.decisionRule?.trim() ? a.decisionRule : '';
+  const withBar = rule.includes(BAR_LINE);
   const point2 = rule
     ? 'What do the department reports establish about the problem? They were written without the option list or the odds, so they inform my choice and do not make it.'
     : 'Do the department reports converge or conflict? If they conflict, which voice do I trust given my profile?';
-  const point4 = rule.includes(BAR_LINE)
-    ? 'The bold option\'s chance against my bar: which side is it on, and do I follow my bar? If I depart from it, the reason that belongs to this event. Name the trade I accept and the one I refuse.'
+  const point4 = withBar
+    ? `Is the bold option's chance at least my bar? Give both numbers and answer yes or no. Yes means the bold option and no means a safe option, unless I depart for a fact these odds do not count and write it in "${BAR_DEPARTURE_FIELD}". Name the trade I accept and the one I refuse.`
     : 'What risk am I accepting vs refusing? My rationale must name the specific trade.';
+  const fields = withBar ? `selectedOptionId, ${BAR_DEPARTURE_FIELD}, decision, and rationale` : 'selectedOptionId, decision, and rationale';
   return `TURN ${a.turn}${a.eventLabel}, ${w.TimeUnit} ${a.time}: ${a.title}
 
 ${a.description}
@@ -323,7 +458,7 @@ REASONING — populate the "reasoning" field of your JSON response BEFORE commit
   (4) ${point4}
   (5) Final choice + one-line justification.
 
-Then set selectedOptionId, decision, and rationale. The rationale compresses the reasoning into a single paragraph for default UI display; the "reasoning" field stores the full working.`;
+Then set ${fields}. The rationale compresses the reasoning into a single paragraph for default UI display; the "reasoning" field stores the full working.`;
 }
 
 /**

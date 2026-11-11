@@ -65,6 +65,12 @@ export interface DepartmentReport {
 
 export interface CommanderDecision {
   selectedOptionId?: string;
+  /**
+   * The fact the commander departs from the bar its prompt stated for, ""
+   * when it follows the bar; absent on a fallback decision and on a run
+   * from before the field.
+   */
+  barDeparture?: string;
   selectedEffectIds?: string[];
   decision: string;
   rationale: string;

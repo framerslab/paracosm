@@ -13,6 +13,18 @@ import { z } from 'zod';
 
 export const CommanderDecisionSchema = z.object({
   selectedOptionId: z.string().optional(),
+  /**
+   * The fact the commander departs from its bar for, when its prompt
+   * stated one (see `buildDecisionRule`): a fact the stated odds do not
+   * count, with its number. Empty when it follows its bar. A missing or
+   * null value reads as empty and any other value as its JSON, so the
+   * field never costs a retry; the commander step flags a departure with
+   * this field empty (`checkBarDeparture`).
+   */
+  barDeparture: z.preprocess(
+    (v) => (v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v)),
+    z.string().default(''),
+  ),
   selectedEffectIds: z.array(z.string()).optional(),
   decision: z.string().min(1),
   rationale: z.string().default(''),
