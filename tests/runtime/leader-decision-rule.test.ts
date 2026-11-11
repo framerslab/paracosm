@@ -22,8 +22,8 @@
  * 0.9.1101, the same body and seed) read it and quoted it, and Aria Chen
  * still took the bold option once in 6 (#250): on 5 events she stated that
  * its chance cleared her bar and chose a safe option, each time for a danger
- * the event described, which the chance and the cost multiple already
- * count. Her 6 replies and Dietrich Voss's 7 are in the fixture under
+ * the event described, which the chance and the multiples already count.
+ * Her 6 replies and Dietrich Voss's 7 are in the fixture under
  * `ruleReplies`.
  */
 import test from 'node:test';

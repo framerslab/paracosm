@@ -275,7 +275,7 @@ export function decisionRuleNumbers(a: DecisionRuleArgs): DecisionRuleNumbers | 
  * #250: on the first live pair with the rule, Aria Chen stated that the
  * bold option's chance cleared her bar on all 6 events and chose a safe
  * option on 5, each time for a danger the event described, which a bold
- * failure is and which its chance and cost multiple already count.
+ * failure is and which its chance and multiples already count.
  *
  * The block states odds and a bar and picks nothing: the commander chooses.
  * The outcome draw meets the chance after the adopted effects apply, so
@@ -307,7 +307,7 @@ export function buildDecisionRule(a: DecisionRuleArgs): string {
     '- The departments wrote their reports without this option list or these odds. Their reports describe the problem; the choice between the options is yours.',
     ...(n.bar !== undefined
       ? [
-          `- The chances and multiples above already include the dangers this event describes. If ${theBold} goes wrong, that is a bold failure: the chance above already allows for it, and its cost is counted ${c.risky_failure} times, against ${c.conservative_failure} times for a safe failure. A danger the event describes is not a reason to depart from your bar, and neither is a downside tail or the cost of failing.`,
+          `- The chances and multiples above already include the dangers this event describes. If ${theBold} goes wrong, that is a bold failure: the chance above already allows for it, what the event gains is multiplied by ${m.risky_failure} against ${m.conservative_failure} for a safe failure, and what it costs by ${c.risky_failure} against ${c.conservative_failure}. A danger the event describes is not a reason to depart from your bar, and neither is a downside tail or the cost of failing.`,
           `- Choose by your bar: when the bold option's chance is at least your bar, following it means choosing ${theBold}; when it is under, a safe option. Depart from it only for a fact these odds do not count: a supply in the State line too low to take a bold failure, named with its number and what it falls short of, or something an option needs that the colony lacks. Write that fact in "${BAR_DEPARTURE_FIELD}"; leave "${BAR_DEPARTURE_FIELD}" empty when you follow your bar.`,
         ]
       : []),
