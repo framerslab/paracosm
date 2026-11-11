@@ -187,8 +187,8 @@ async function insertOne(
   // of the same run id stored its record between the check above and
   // this insert, the stored record points at that import's file: this
   // copy is removed and the run reported as already there.
-  const stored = await deps.runHistoryStore.getRun(importedRunId);
-  if (stored && stored.artifactPath !== artifactPath) {
+  const storedRecord = await deps.runHistoryStore.getRun(importedRunId);
+  if (storedRecord && storedRecord.artifactPath !== artifactPath) {
     await removeImportedRunArtifact(artifactPath);
     return { runId: importedRunId, alreadyExisted: true };
   }
