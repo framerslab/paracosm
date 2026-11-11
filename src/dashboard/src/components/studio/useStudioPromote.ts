@@ -7,7 +7,6 @@
  */
 import * as React from 'react';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
-import { artifactForImport } from './useStudioPromote.helpers.js';
 
 export interface PromoteSingleResult {
   kind: 'single';
@@ -44,7 +43,7 @@ export function useStudioPromote(): UseStudioPromote {
       const res = await fetch('/api/v1/library/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifact: artifactForImport(artifact) }),
+        body: JSON.stringify({ artifact }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { error?: string }));
@@ -70,7 +69,7 @@ export function useStudioPromote(): UseStudioPromote {
       const res = await fetch('/api/v1/library/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artifacts: artifacts.map(artifactForImport) }),
+        body: JSON.stringify({ artifacts }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { error?: string }));

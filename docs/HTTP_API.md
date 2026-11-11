@@ -291,8 +291,6 @@ The server keeps its own copy of each imported artifact: it writes the artifact 
 
 `alreadyExisted` is `true` for any artifact whose `metadata.runId` was already present in the store — re-imports collapse to the existing row instead of duplicating.
 
-The stored record is built from the artifact's metadata, leader, cost and trajectory; the import keeps none of its kernel snapshots (`scenarioExtensions.kernelSnapshotsPerTurn`, `kernelSnapshotAtStart`, `kernelSnapshotsAfterProgression`). The Studio tab posts each artifact without them, so a bundle stays under the request body limit (5 MiB unless `MAX_REQUEST_BODY_BYTES` sets another); the run the page holds keeps them.
-
 **Status codes**
 
 - `201 Created` — single or full bundle inserted
