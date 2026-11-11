@@ -1,5 +1,5 @@
 {
-  "comment": "Each turn's [morale, living, deaths, births] with no decisions, on the preset roster, printed by tests/engine/mars-supplies-reach-who-lives.test.ts. The Lunar Outpost and deep-ocean station rows are from the kernel of 063c9ee6, before any death rate read a supply, in CI run 42805042653 (commit 7783e84b, the tests alone on that kernel): those scenarios mark no supply and keep a die a year, so they must keep these rows exactly. The Mars rows were read again in CI run 42847089724 (commit e73c3d82, the measurement of #243, whose kernel change this is) when Mars Genesis came to keep one death die for each person and cause for a life: a Mars colony nobody leads holds its landing supplies, so its chances are the ones it had, and it loses the people its dice for life give it.",
+  "comment": "Each turn's [morale, living, deaths, births] with no decisions, on the preset roster, printed by tests/engine/mars-supplies-reach-who-lives.test.ts. The Lunar Outpost and deep-ocean station rows are a Lunar Outpost and a station nobody leads, which hold their landing supplies and lose the people their dice for life give them. They were printed in CI run 43061300570 (commit 2288be6d, the measurement of #257, whose scenario edits these are) when both scenarios came to mark the supplies that sustain their crews and to keep one death die for a life: six of the eight changed with the die for life (Lunar Outpost seeds 1, 2 and 3, the station seeds 950, 1 and 3), and a habitat nobody leads keeps a supply level of 1. The Mars rows were read again in CI run 42847089724 (commit e73c3d82, the measurement of #243, whose kernel change this is) when Mars Genesis came to keep one death die for each person and cause for a life: a Mars colony nobody leads holds its landing supplies, so its chances are the ones it had, and it loses the people its dice for life give it.",
   "runs": {
     "lunar-outpost, seed 950, 30 people, 8 one-year turns": [
       [0.81, 30, 0, 0],
@@ -18,26 +18,26 @@
       [0.8015850000000001, 32, 0, 1],
       [0.8114265000000002, 34, 0, 2],
       [0.7702838500000001, 34, 0, 0],
-      [0.733255465, 33, 1, 0],
-      [0.6999299185000001, 33, 0, 0]
+      [0.733255465, 34, 0, 0],
+      [0.6999299185000001, 34, 0, 0]
     ],
     "lunar-outpost, seed 1, 30 people, 8 one-year turns": [
       [0.81, 30, 0, 0],
       [0.8190000000000001, 31, 0, 1],
       [0.8271000000000001, 32, 0, 1],
-      [0.8343900000000001, 34, 0, 2],
-      [0.8409510000000001, 35, 0, 1],
-      [0.8468559000000001, 35, 0, 0],
-      [0.8521703100000001, 34, 1, 0],
-      [0.8569532790000001, 34, 0, 0]
+      [0.8343900000000001, 33, 1, 2],
+      [0.8409510000000001, 34, 0, 1],
+      [0.8468559000000001, 34, 0, 0],
+      [0.8521703100000001, 33, 1, 0],
+      [0.8569532790000001, 33, 0, 0]
     ],
     "deep-ocean-station, seed 1, 30 people, 8 one-year turns": [
       [0.765, 30, 0, 0],
       [0.7785000000000001, 30, 0, 0],
       [0.7906500000000001, 33, 0, 3],
-      [0.8015850000000001, 33, 1, 1],
-      [0.8114265000000002, 36, 0, 3],
-      [0.7702838500000001, 37, 0, 1],
+      [0.8015850000000001, 34, 0, 1],
+      [0.8114265000000002, 37, 0, 3],
+      [0.7702838500000001, 37, 1, 1],
       [0.733255465, 38, 0, 1],
       [0.6999299185000001, 38, 0, 0]
     ],
@@ -45,11 +45,11 @@
       [0.81, 30, 0, 0],
       [0.8190000000000001, 32, 0, 2],
       [0.8271000000000001, 32, 0, 0],
-      [0.8343900000000001, 32, 0, 0],
-      [0.8409510000000001, 33, 0, 1],
-      [0.8468559000000001, 33, 0, 0],
-      [0.8521703100000001, 34, 1, 2],
-      [0.8569532790000001, 35, 0, 1]
+      [0.8343900000000001, 31, 1, 0],
+      [0.8409510000000001, 32, 0, 1],
+      [0.8468559000000001, 32, 0, 0],
+      [0.8521703100000001, 35, 0, 3],
+      [0.8569532790000001, 37, 0, 2]
     ],
     "deep-ocean-station, seed 2, 30 people, 8 one-year turns": [
       [0.765, 30, 0, 0],
@@ -65,21 +65,21 @@
       [0.81, 30, 0, 0],
       [0.8190000000000001, 30, 0, 0],
       [0.8271000000000001, 32, 0, 2],
-      [0.8343900000000001, 31, 1, 0],
-      [0.8409510000000001, 33, 0, 2],
-      [0.8468559000000001, 34, 0, 1],
-      [0.8521703100000001, 37, 0, 3],
-      [0.8569532790000001, 38, 0, 1]
+      [0.8343900000000001, 33, 0, 1],
+      [0.8409510000000001, 35, 0, 2],
+      [0.8468559000000001, 36, 0, 1],
+      [0.8521703100000001, 39, 0, 3],
+      [0.8569532790000001, 40, 0, 1]
     ],
     "deep-ocean-station, seed 3, 30 people, 8 one-year turns": [
       [0.765, 30, 0, 0],
       [0.7785000000000001, 30, 0, 0],
-      [0.7906500000000001, 32, 0, 2],
-      [0.8015850000000001, 34, 0, 2],
-      [0.8114265000000002, 35, 0, 1],
-      [0.7702838500000001, 35, 0, 0],
-      [0.733255465, 35, 0, 0],
-      [0.6999299185000001, 35, 0, 0]
+      [0.7906500000000001, 31, 1, 2],
+      [0.8015850000000001, 31, 2, 2],
+      [0.8114265000000002, 32, 0, 1],
+      [0.7702838500000001, 32, 0, 0],
+      [0.733255465, 32, 0, 0],
+      [0.6999299185000001, 32, 0, 0]
     ],
     "mars-genesis, seed 950, 30 people, 6 eight-year turns": [
       [0.855, 30, 0, 0],
