@@ -2279,13 +2279,14 @@ export async function replaySimulation(
 
   // Each turn the run recorded (a timepoint at its end, a decision during
   // it) took a between-turn step first, so each needs the state saved
-  // after that step. Without one, a step the run took is not checked.
+  // after that step. Without one, a step the run took is not checked. An
+  // entry with no time names no turn.
   const afterTimes = new Set(afterSteps.map(s => s.time));
   const recordedTimes = [
     ...(artifact.trajectory?.timepoints ?? []).map(t => t.time),
     ...recordedDecisions.map(d => d.time),
   ];
-  const unstepped = recordedTimes.find(t => !afterTimes.has(t));
+  const unstepped = recordedTimes.find(t => typeof t === 'number' && !afterTimes.has(t));
   if (unstepped !== undefined) {
     throw new WorldModelReplayError(
       `Replay cannot verify this run: it records a turn at time ${unstepped} but holds no state right after that turn's ` +
