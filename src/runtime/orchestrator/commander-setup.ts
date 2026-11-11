@@ -333,8 +333,26 @@ export interface BarCheck {
   unexplained: boolean;
 }
 
-/** A departure field that says there is none. */
-const NO_FACT = /^(?:none|nothing|n\/?a|null|nil|not applicable|-+)\.?$/i;
+/**
+ * A departure field that says there is none: a placeholder word alone or
+ * before punctuation ("None, I follow my bar", "N/A - following the bar").
+ * A placeholder before a word ("None of the 39 colonists ...") opens a fact.
+ */
+const NO_FACT = /^(?:none|nothing|n\/?a|null|nil|not applicable|-+)(?:\s*[.,;:!()–—-][\s\S]*)?$/i;
+
+/**
+ * A departure field that opens by saying the bar is followed or nothing
+ * departs ("I follow my bar", "No departure."); with no number in it, it
+ * names no fact.
+ */
+const SAYS_FOLLOWED = /^(?:i\s+)?(?:follow(?:s|ing)?\s+(?:my|the)\s+bar|no\s+departure|not\s+departing)\b/i;
+
+/** The fact a departure field names, or "" when it names none. */
+function departureFactOf(written: string): string {
+  if (NO_FACT.test(written)) return '';
+  if (SAYS_FOLLOWED.test(written) && !/\d/.test(written)) return '';
+  return written;
+}
 
 /**
  * Check a reply against the bar its prompt stated: whether the option it
@@ -359,7 +377,7 @@ export function checkBarDeparture(
   const clearsBar = numbers.boldChance >= numbers.bar;
   const departs = clearsBar !== choseBold;
   const written = typeof barDeparture === 'string' ? barDeparture.trim() : '';
-  const departureFact = NO_FACT.test(written) ? '' : written;
+  const departureFact = departureFactOf(written);
   return {
     boldChance: numbers.boldChance,
     bar: numbers.bar,
