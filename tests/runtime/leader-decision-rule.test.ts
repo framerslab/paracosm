@@ -120,7 +120,7 @@ function statedNumbers(prompt: string) {
  * The bar for the bold option written out here from its definition: the
  * mean of openness, one minus conscientiousness and one minus emotionality
  * is the appetite; the bar is the chance where the bold and a safe option
- * bring the same on average under the multipliers 2.5, -2, 1 and -1 (4/7),
+ * gain the same on average under the multipliers 2.5, -2, 1 and -1 (4/7),
  * moved by 0.8 times (0.5 minus the appetite), held within 0.1 and 0.9.
  */
 function barOf(h: HexacoProfile): number {

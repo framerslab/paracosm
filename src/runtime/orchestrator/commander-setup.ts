@@ -32,7 +32,7 @@ import { PromotionsSchema } from '../validators/commander.js';
 import type { CrisisOption, DepartmentReport } from '../contracts.js';
 import { selectableEffects } from '../util/parsers.js';
 import { outcomeSuccessChance } from '../../engine/core/progression.js';
-import { OUTCOME_MULTIPLIERS, type TurnOutcome } from '../../engine/registries/effects.js';
+import { OUTCOME_MULTIPLIERS, costMultiple, type TurnOutcome } from '../../engine/registries/effects.js';
 
 /**
  * Build a "Your decision style" block from the leader's HEXACO profile.
@@ -146,14 +146,28 @@ export function riskAppetite(h: HexacoProfile): number {
 }
 
 /**
- * The bold option's chance at which it and a safe option bring the same on
- * average, from the outcome multipliers. A safe option's chance is
+ * What a cost (a harmful entry of a category table) is multiplied by on
+ * each outcome at no modifier, as the effect registry applies it
+ * ({@link costMultiple}): 0, 4, 1 and 3 for a risky success, a risky
+ * failure, a conservative success and a conservative failure.
+ */
+export const COST_MULTIPLES: Readonly<Record<TurnOutcome, number>> = {
+  risky_success: costMultiple(OUTCOME_MULTIPLIERS.risky_success),
+  risky_failure: costMultiple(OUTCOME_MULTIPLIERS.risky_failure),
+  conservative_success: costMultiple(OUTCOME_MULTIPLIERS.conservative_success),
+  conservative_failure: costMultiple(OUTCOME_MULTIPLIERS.conservative_failure),
+};
+
+/**
+ * The bold option's chance at which it and a safe option come out even on
+ * average, for one set of outcome multiples. A safe option's chance is
  * `(1 + p) / 2` where the bold option's is `p` (see `outcomeSuccessChance`),
  * so with a bold success `rs`, a bold failure `rf`, a safe success `cs` and
  * a safe failure `cf`, `p * rs + (1 - p) * rf = (1 + p) / 2 * cs + (1 - p) / 2 * cf`
- * at `p = ((cs + cf) / 2 - rf) / (rs - rf - (cs - cf) / 2)`: 4/7 with the
- * multipliers 2.5, -2, 1 and -1. Nothing is chosen here; the multipliers
- * fix it.
+ * at `p = ((cs + cf) / 2 - rf) / (rs - rf - (cs - cf) / 2)`. On what an
+ * event gains (the multipliers 2.5, -2, 1 and -1) that is 4/7, the default
+ * and the centre of the bar; on what it costs ({@link COST_MULTIPLES}: 0, 4,
+ * 1 and 3) it is 2/3. Nothing is chosen here; the multiples fix it.
  */
 export function breakEvenChance(m: Readonly<Record<TurnOutcome, number>> = OUTCOME_MULTIPLIERS): number {
   const rs = m.risky_success;
@@ -165,7 +179,8 @@ export function breakEvenChance(m: Readonly<Record<TurnOutcome, number>> = OUTCO
 
 /**
  * The chance at or above which a leader of this appetite takes the bold
- * option: the break-even chance for a leader with no lean (appetite 0.5),
+ * option: the break-even chance on what an event gains for a leader with
+ * no lean (appetite 0.5),
  * lower for a bolder leader and higher for a more careful one, by
  * {@link RISK_BAR_SLOPE}, held within 0.1 and 0.9.
  */
@@ -203,8 +218,10 @@ function listIds(options: ReadonlyArray<{ id: string }>): string {
 /**
  * The decision rule a commander reads for one event: the bold option's
  * chance and the safe options' chance, as the outcome step's
- * `outcomeSuccessChance` gives them for the run's metrics now; the
- * multipliers a success and a failure bring; the leader's bar for the bold
+ * `outcomeSuccessChance` gives them for the run's metrics now; what a
+ * success and a failure multiply the event's gains by
+ * ({@link OUTCOME_MULTIPLIERS}) and its costs by ({@link COST_MULTIPLES}),
+ * as the effect registry applies them; the leader's bar for the bold
  * option from the profile as it stands this turn ({@link riskBar}); that
  * the department reports were written without the options; and the
  * instruction to choose by the bar or to name the event's reason for
@@ -224,6 +241,7 @@ export function buildDecisionRule(a: DecisionRuleArgs): string {
   const boldChance = outOf100(outcomeSuccessChance(true, a.riskSuccessProbability, a.metrics));
   const safeChance = outOf100(outcomeSuccessChance(false, a.riskSuccessProbability, a.metrics));
   const m = OUTCOME_MULTIPLIERS;
+  const c = COST_MULTIPLES;
   const withBar = a.withBar !== false;
   const h = a.hexaco;
   const lines = [
@@ -234,9 +252,10 @@ export function buildDecisionRule(a: DecisionRuleArgs): string {
     safe.length === 1
       ? `- ${safe[0].id} is the safe option. It succeeds about ${safeChance} times in 100.`
       : `- ${listIds(safe)} are the safe options. Each succeeds about ${safeChance} times in 100.`,
-    `- A bold success counts ${m.risky_success} and a bold failure ${m.risky_failure}, against ${m.conservative_success} and ${m.conservative_failure} for a safe success and a safe failure, as multipliers on what this kind of event brings.`,
+    `- What this kind of event gains is multiplied by ${m.risky_success} on a bold success and ${m.risky_failure} on a bold failure, against ${m.conservative_success} and ${m.conservative_failure} on a safe success and a safe failure.`,
+    `- What it costs is multiplied by ${c.risky_success} on a bold success and ${c.risky_failure} on a bold failure, against ${c.conservative_success} and ${c.conservative_failure} on a safe success and a safe failure.`,
     ...(withBar
-      ? [`${BAR_LINE} you take the bold option when it succeeds at least ${outOf100(riskBar(riskAppetite(h)))} times in 100. It comes from your profile as it stands this turn (openness ${h.openness.toFixed(2)}, conscientiousness ${h.conscientiousness.toFixed(2)}, emotionality ${h.emotionality.toFixed(2)}). A leader with no lean either way takes it at ${outOf100(breakEvenChance())} in 100, where the two paths bring the same on average.`]
+      ? [`${BAR_LINE} you take the bold option when it succeeds at least ${outOf100(riskBar(riskAppetite(h)))} times in 100. It comes from your profile as it stands this turn (openness ${h.openness.toFixed(2)}, conscientiousness ${h.conscientiousness.toFixed(2)}, emotionality ${h.emotionality.toFixed(2)}). A leader with no lean either way takes it at ${outOf100(breakEvenChance())} in 100, where the two paths gain the same on average. On what the event costs they are even at ${outOf100(breakEvenChance(COST_MULTIPLES))} in 100.`]
       : []),
     '- The departments wrote their reports without this option list or these odds. Their reports describe the problem; the choice between the options is yours.',
     ...(withBar ? ['- Choose by your bar. Depart from it only for a reason that belongs to this event, and say that reason in point (4).'] : []),

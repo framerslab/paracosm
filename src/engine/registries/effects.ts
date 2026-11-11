@@ -15,6 +15,18 @@ export const OUTCOME_MULTIPLIERS: Readonly<Record<TurnOutcome, number>> = {
   conservative_failure: -1.0,
 };
 
+/**
+ * What a harmful entry of a category table (a cost) is multiplied by when
+ * the response went as well as `effective`: `max(0, 2 - effective)`. A
+ * cost stays a cost: 0 at a risky success, 1 at a conservative success, 3
+ * at a conservative failure and 4 at a risky failure, at no modifier (see
+ * {@link EffectRegistry}). The commander's decision rule states these
+ * beside {@link OUTCOME_MULTIPLIERS}.
+ */
+export function costMultiple(effective: number): number {
+  return Math.max(0, 2 - effective);
+}
+
 export interface OutcomeModifiers {
   personalityBonus: number;
   noise: number;
@@ -142,7 +154,7 @@ export class EffectRegistry {
     const addsPeople = (base.population ?? 0) > 0;
     for (const [key, value] of Object.entries(base)) {
       const cost = !addsPeople && this.isHarmful(key, value);
-      const raw = value * (cost ? Math.max(0, 2 - effective) : effective);
+      const raw = value * (cost ? costMultiple(effective) : effective);
       deltas[key] = Math.round(raw * 100) / 100;
     }
 
