@@ -13,6 +13,11 @@ import type { RunArtifact } from '../../src/engine/schema/index.js';
 import type { KernelSnapshot } from '../../src/engine/core/snapshot.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
+// The routes read a record's artifact file only inside the runs
+// directory (PARACOSM_OUTPUT_DIR). The artifacts these tests write sit
+// in temp directories, so the temp root is the runs directory here.
+process.env.PARACOSM_OUTPUT_DIR = tmpdir();
+
 function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
     runId: `run_${Math.random().toString(36).slice(2, 10)}`,
@@ -211,7 +216,7 @@ test('GET /api/v1/runs/:runId returns 410 when artifactPath is missing on the re
 
 test('GET /api/v1/runs/:runId returns 410 when artifact file is unreadable', async () => {
   const store = createSqliteRunHistoryStore({ dbPath: ':memory:' });
-  await store.insertRun(makeRun({ runId: 'r-bad-path', artifactPath: '/tmp/does-not-exist-xyz-test.json' }));
+  await store.insertRun(makeRun({ runId: 'r-bad-path', artifactPath: join(tmpdir(), 'does-not-exist-xyz-test.json') }));
   const captured: CapturedResponse = { statusCode: 0, body: '', headers: {} };
   await handlePlatformApiRoute(
     makeReq('/api/v1/runs/r-bad-path'),

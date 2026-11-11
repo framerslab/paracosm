@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleLibraryImport } from '../../../src/server/routes/library-import.js';
 import { createSqliteRunHistoryStore } from '../../../src/server/stores/sqlite-run-history.js';
@@ -9,6 +10,8 @@ import type { RunHistoryStore } from '../../../src/server/stores/run-history.js'
 import type { ServerResponse, IncomingMessage } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Imports write their artifact under the runs directory; keep it out of the checkout.
+process.env.PARACOSM_OUTPUT_DIR = mkdtempSync(join(tmpdir(), 'paracosm-import-route-'));
 const fixtureDir = resolve(__dirname, '../../fixtures');
 const turnLoopArtifact = JSON.parse(readFileSync(resolve(fixtureDir, 'runArtifact-v0.8-turn-loop.json'), 'utf-8'));
 const bundleArtifacts = JSON.parse(readFileSync(resolve(fixtureDir, 'runArtifact-v0.8-bundle.json'), 'utf-8'));

@@ -118,6 +118,9 @@ Single run record plus the full RunArtifact loaded from disk.
 - `404 not_found` — `runId` not in the run-history store
 - `410 artifact_unavailable` — record exists but `artifactPath` was never preserved (legacy run)
 - `410 artifact_unreadable` — file was preserved but is missing or unreadable on disk
+- `410 artifact_outside_runs_dir` — the record's artifact path resolves outside the server's runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`, links resolved); the file is not read. A record imported before imports wrote their own copy can carry such a path.
+
+`HEAD /api/v1/runs/:runId` answers `200`, `404` or `410` with no body. It checks the record's path text against the runs directory and does not open the file or resolve links, so a `200` there can still be a `410` on `GET`.
 
 ## `GET /api/v1/runs/:runId/swarm`
 
@@ -167,6 +170,7 @@ Final agent-swarm snapshot for the run — every agent's name, department, role,
 - `404 swarm_not_captured` — run exists but did not produce a swarm (e.g., `batch-point` mode that bypassed the turn loop)
 - `410 artifact_unavailable` — record exists but the artifact file was never preserved
 - `410 artifact_unreadable` — file is missing or unreadable on disk
+- `410 artifact_outside_runs_dir` — same as `/runs/:runId`
 
 Equivalent SDK access: `WorldModel.swarm(artifact)` (or `artifact.finalSwarm` directly). Derived helpers: `WorldModel.swarmByDepartment(artifact)`, `WorldModel.swarmFamilyTree(artifact)`.
 
@@ -189,7 +193,7 @@ Re-execute the kernel against the stored artifact and report whether the replay 
 **Status codes**
 
 - `404 not_found` — unknown `runId`
-- `410 artifact_unavailable` / `410 artifact_unreadable` — same as `/runs/:runId`
+- `410 artifact_unavailable` / `410 artifact_unreadable` / `410 artifact_outside_runs_dir` — same as `/runs/:runId`
 - `410 scenario_unavailable` — the scenario referenced by the artifact is not in the active catalog
 - `422 replay_preconditions_unmet` — replay refused because the kernel cannot recreate the input state (returns the underlying `WorldModelReplayError` message)
 
@@ -254,6 +258,8 @@ Bundle-scoped rollup. Used by the Compare modal's `AggregateStrip`.
 ## `POST /api/v1/library/import`
 
 Import an externally-produced RunArtifact (Studio JSON drop, shared export, replay clone) so it shows up in the Library tab. The artifact is enriched into a RunRecord and inserted into the active store.
+
+The server keeps its own copy of each imported artifact: it writes the artifact to `v3-imported-<hash of runId>.json` in its runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`) and the record's artifact path points at that file. No file path is taken from the request; a `scenarioExtensions.outputPath` in the imported artifact is dropped from the stored copy. `GET /api/v1/runs/:runId` then serves the imported artifact. The output-retention sweep (`OUTPUT_RETENTION_DAYS`) and the wipe of output files apply to these copies as they do to run output.
 
 **Request body — single**
 
