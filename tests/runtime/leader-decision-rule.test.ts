@@ -539,6 +539,26 @@ test('the reader that follows the stated rule is never flagged, and its decision
   }
 });
 
+test('a departure field that says the bar is followed, or puts a placeholder before other words, names no fact', () => {
+  // Aria Chen's turn 6 reply ("Legacy Assessment"): the bold option's chance
+  // cleared her bar, she chose the safe option, and her point (4) says "I
+  // follow my bar for truth". Words like those in the field are no fact the
+  // odds do not count, so the departure stays flagged and counted.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  for (const said of ['None, I follow my bar', 'N/A - following the bar', 'Nothing; following my bar.', 'none (I follow my bar)', 'I follow my bar', 'Following my bar for truth', 'No departure.']) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+    assert.equal(check?.departs, true, `"${said}": the reply departs from the bar`);
+    assert.equal(check?.departureFact, '', `"${said}": no fact kept`);
+    assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+  }
+  // A fact that opens with a placeholder word, or names a number, is kept.
+  for (const fact of ['None of the 39 colonists has the training option_b needs', 'foodMonthsReserve 69.9 with 39 people to feed']) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+    assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+    assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+  }
+});
+
 test('the opening cues fire at the poles the two presets were written at', () => {
   const aria = setup.buildPersonalityCue(preset(ARIA));
   const voss = setup.buildPersonalityCue(preset(VOSS));
