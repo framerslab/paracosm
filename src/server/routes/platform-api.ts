@@ -5,6 +5,7 @@ import type { ParacosmServerMode } from '../server-mode.js';
 import type { ScenarioPackage } from '../../engine/types.js';
 import { WorldModel, WorldModelReplayError } from '../../runtime/world-model/index.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
+import { artifactPathInsideRunsDir, readRunArtifactFile } from '../services/run-artifact-file.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
@@ -53,6 +54,43 @@ export interface HandlePlatformApiOptions {
    * Wired by server-app.ts as `(id) => customScenarioCatalog.get(id)?.scenario`.
    */
   scenarioLookup: (scenarioId: string) => ScenarioPackage | undefined;
+  /**
+   * The runs directory a record's `artifactPath` must resolve inside to
+   * be read. Defaults to the directory run output is written to
+   * (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`).
+   */
+  runsDir?: string;
+}
+
+const OUTSIDE_RUNS_DIR_MESSAGE = 'The run\'s artifact file is outside the server\'s runs directory and is not read.';
+
+type ArtifactLoad =
+  | { ok: true; artifact: unknown }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+/**
+ * Load a record's artifact JSON through the runs-directory check. A
+ * path outside the runs directory is refused with
+ * `artifact_outside_runs_dir` and never read.
+ */
+async function loadRecordArtifact(record: RunRecord, runsDir: string | undefined): Promise<ArtifactLoad> {
+  const runId = record.runId;
+  if (!record.artifactPath) {
+    return { ok: false, status: 410, body: { error: 'artifact_unavailable', runId } };
+  }
+  const read = await readRunArtifactFile(record.artifactPath, runsDir);
+  if (!read.ok) {
+    if (read.reason === 'outside_runs_dir') {
+      console.warn('[run-history] artifact path outside the runs directory refused:', runId);
+      return { ok: false, status: 410, body: { error: 'artifact_outside_runs_dir', runId, message: OUTSIDE_RUNS_DIR_MESSAGE } };
+    }
+    return { ok: false, status: 410, body: { error: 'artifact_unreadable', runId, message: 'Artifact file unreadable' } };
+  }
+  try {
+    return { ok: true, artifact: JSON.parse(read.text) as unknown };
+  } catch {
+    return { ok: false, status: 410, body: { error: 'artifact_unreadable', runId, message: 'Artifact file unreadable' } };
+  }
 }
 
 export async function handlePlatformApiRoute(
@@ -178,22 +216,14 @@ export async function handlePlatformApiRoute(
         res.end(JSON.stringify({ error: 'not_found', runId }));
         return true;
       }
-      if (!record.artifactPath) {
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unavailable', runId }));
+      const loaded = await loadRecordArtifact(record, options.runsDir);
+      if (!loaded.ok) {
+        if (loaded.body.error === 'artifact_unreadable') console.warn('[run-history] artifact unreadable for replay:', runId);
+        res.writeHead(loaded.status, { 'Content-Type': 'application/json', ...options.corsHeaders });
+        res.end(JSON.stringify(loaded.body));
         return true;
       }
-
-      let artifact: RunArtifact;
-      try {
-        const fs = await import('node:fs/promises');
-        artifact = JSON.parse(await fs.readFile(record.artifactPath, 'utf-8')) as RunArtifact;
-      } catch {
-        console.warn('[run-history] artifact unreadable for replay:', runId);
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unreadable', runId, message: 'Artifact file unreadable' }));
-        return true;
-      }
+      const artifact = loaded.artifact as RunArtifact;
 
       const scenarioId = artifact.metadata.scenario.id;
       const scenario = options.scenarioLookup(scenarioId);
@@ -232,28 +262,21 @@ export async function handlePlatformApiRoute(
         res.end(JSON.stringify({ error: 'not_found', runId }));
         return true;
       }
-      if (!record.artifactPath) {
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unavailable', runId }));
+      const loaded = await loadRecordArtifact(record, options.runsDir);
+      if (!loaded.ok) {
+        res.writeHead(loaded.status, { 'Content-Type': 'application/json', ...options.corsHeaders });
+        res.end(JSON.stringify(loaded.body));
         return true;
       }
-      try {
-        const fs = await import('node:fs/promises');
-        const artifact = JSON.parse(await fs.readFile(record.artifactPath, 'utf-8')) as { finalSwarm?: unknown };
-        const swarm = artifact.finalSwarm;
-        if (!swarm) {
-          res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
-          res.end(JSON.stringify({ error: 'swarm_not_captured', runId, message: 'This run did not produce a swarm snapshot (e.g., batch-point mode).' }));
-          return true;
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ runId, swarm }));
-        return true;
-      } catch {
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unreadable', runId }));
+      const swarm = (loaded.artifact as { finalSwarm?: unknown } | null)?.finalSwarm;
+      if (!swarm) {
+        res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
+        res.end(JSON.stringify({ error: 'swarm_not_captured', runId, message: 'This run did not produce a swarm snapshot (e.g., batch-point mode).' }));
         return true;
       }
+      res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
+      res.end(JSON.stringify({ runId, swarm }));
+      return true;
     }
 
     // HEAD /api/v1/runs/:runId — lightweight existence check without
@@ -270,7 +293,7 @@ export async function handlePlatformApiRoute(
         res.end();
         return true;
       }
-      if (!record.artifactPath) {
+      if (!record.artifactPath || !artifactPathInsideRunsDir(record.artifactPath, options.runsDir)) {
         res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end();
         return true;
@@ -288,22 +311,14 @@ export async function handlePlatformApiRoute(
         res.end(JSON.stringify({ error: 'not_found', runId }));
         return true;
       }
-      if (!record.artifactPath) {
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unavailable', runId }));
-        return true;
-      }
-      let artifact: unknown;
-      try {
-        const fs = await import('node:fs/promises');
-        artifact = JSON.parse(await fs.readFile(record.artifactPath, 'utf-8'));
-      } catch {
-        res.writeHead(410, { 'Content-Type': 'application/json', ...options.corsHeaders });
-        res.end(JSON.stringify({ error: 'artifact_unreadable', runId, message: 'Artifact file unreadable' }));
+      const loaded = await loadRecordArtifact(record, options.runsDir);
+      if (!loaded.ok) {
+        res.writeHead(loaded.status, { 'Content-Type': 'application/json', ...options.corsHeaders });
+        res.end(JSON.stringify(loaded.body));
         return true;
       }
       res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
-      res.end(JSON.stringify({ record: publicRunRecord(record), artifact }));
+      res.end(JSON.stringify({ record: publicRunRecord(record), artifact: loaded.artifact }));
       return true;
     }
   } catch (error) {

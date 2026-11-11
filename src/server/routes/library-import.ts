@@ -3,7 +3,9 @@
  * of RunArtifacts (bundle) from a Studio drop and inserts the enriched
  * RunRecord(s) into the active run-history store. Lets users persist
  * artifacts that originated outside this server (Studio JSON drops,
- * shared exports, replay clones).
+ * shared exports, replay clones). Each imported artifact is written
+ * under the server's runs directory and its record points at that
+ * copy; no file path is taken from the request.
  *
  * @module paracosm/cli/server/library-import-route
  */
@@ -16,6 +18,7 @@ import type { RunHistoryStore } from '../stores/run-history.js';
 import type { RunRecord } from '../services/run-record.js';
 import { createRunRecord, hashActorConfig } from '../services/run-record.js';
 import { enrichRunRecordFromArtifact } from '../services/enrich-run-record.js';
+import { removeImportedRunArtifact, writeImportedRunArtifact } from '../services/run-artifact-file.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 
 const MAX_BUNDLE_SIZE = 50;
@@ -26,6 +29,12 @@ const BundleBodySchema = z.object({ artifacts: z.array(z.unknown()).min(1).max(M
 export interface LibraryImportDeps {
   runHistoryStore: RunHistoryStore;
   sourceMode: ParacosmServerMode;
+  /**
+   * Where imported artifacts are written. Defaults to the runs
+   * directory run output is written to (`PARACOSM_OUTPUT_DIR`, else
+   * `<cwd>/output`), the only directory the run-history routes read.
+   */
+  runsDir?: string;
 }
 
 export async function handleLibraryImport(
@@ -162,7 +171,25 @@ async function insertOne(
     ...createRunRecord(baseInput),
     runId: importedRunId,
   };
-  const enriched = enrichRunRecordFromArtifact(base, artifact);
-  await deps.runHistoryStore.insertRun(enriched);
+  // The artifact file is the server's own: a path in the imported
+  // artifact (`scenarioExtensions.outputPath`) is dropped, the artifact
+  // is written under the runs directory, and the record points there.
+  const stored = withoutOutputPath(artifact);
+  const artifactPath = await writeImportedRunArtifact(importedRunId, stored, deps.runsDir);
+  const enriched: RunRecord = { ...enrichRunRecordFromArtifact(base, stored), artifactPath };
+  try {
+    await deps.runHistoryStore.insertRun(enriched);
+  } catch (err) {
+    await removeImportedRunArtifact(artifactPath);
+    throw err;
+  }
   return { runId: importedRunId, alreadyExisted: false };
+}
+
+function withoutOutputPath(artifact: RunArtifact): RunArtifact {
+  const ext = artifact.scenarioExtensions as Record<string, unknown> | undefined;
+  if (!ext || typeof ext !== 'object' || !('outputPath' in ext)) return artifact;
+  const { outputPath, ...rest } = ext;
+  void outputPath;
+  return { ...artifact, scenarioExtensions: rest as RunArtifact['scenarioExtensions'] };
 }
