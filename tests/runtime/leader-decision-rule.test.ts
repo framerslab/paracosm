@@ -588,7 +588,8 @@ test('a number the prompt itself stated names no fact in a departure field that 
   // Review of #251: "I follow my bar (41)" was kept as a named fact because
   // it holds a digit, though 41 is only the bar its prompt stated; and
   // "None: 0 spare cartridges" was read as naming none because it opens
-  // with a placeholder, though it names a supply and its number.
+  // with a placeholder, though it names a supply and its number. The rule
+  // block prints 0 as a cost multiple, so the supply here is 9.
   const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
   const stated = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' }).check!;
   const { bar, boldChance } = stated;
@@ -604,8 +605,8 @@ test('a number the prompt itself stated names no fact in a departure field that 
     assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
   }
   for (const fact of [
-    'None: 0 spare cartridges',
-    'N/A - 0 spare filter cartridges for option_b',
+    'None: 9 spare cartridges',
+    'N/A - 9 spare filter cartridges for option_b',
     `I follow my bar of ${bar}, but foodMonthsReserve is 3 with 39 people to feed`,
   ]) {
     const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
@@ -616,10 +617,12 @@ test('a number the prompt itself stated names no fact in a departure field that 
 
 test('a departure field after a placeholder names a fact with a decimal written without its leading zero, or a negative number the size of the bar', () => {
   // Review of #253: ".5" was read as no number, and "-41" as the bar 41.
+  // The rule block prints conscientiousness 0.50 on this turn, so the
+  // decimal here is .2.
   const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
   const { bar, boldChance } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' }).check!;
   for (const fact of [
-    'None: .5 months of food left',
+    'None: .2 months of food left',
     `None: a power margin of -${bar} kW against a bold failure's draw`,
   ]) {
     const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
@@ -631,6 +634,67 @@ test('a departure field after a placeholder names a fact with a decimal written 
   const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
   assert.equal(check?.departureFact, '', `"${said}": the prompt's own numbers name no fact`);
   assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+});
+
+test('a range of the prompt\'s own numbers written on the scale "/100", "in 100" or "%" names no fact', () => {
+  // Review of #253: once the scale was taken out, "41/100-72/100" read as 41
+  // and -72, so the hyphen between them counted as a minus sign and -72 as a
+  // number the prompt did not state.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  const { bar, boldChance } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' }).check!;
+  for (const said of [
+    `No departure (bar and chance ${bar}/100-${boldChance}/100)`,
+    `No departure (bar and chance ${bar} in 100-${boldChance} in 100)`,
+    `No departure (bar and chance ${bar}%-${boldChance}%)`,
+  ]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+    assert.equal(check?.departureFact, '', `"${said}": the prompt's own numbers name no fact`);
+    assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+  }
+  // A minus sign after a space still opens a negative number, after the scale too.
+  const fact = `None: ${bar}/100 against a power margin of -${boldChance} kW`;
+  const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+  assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+  assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+});
+
+test('every number the rule block prints for a decision, and its chances written as fractions, name no fact after a placeholder', () => {
+  // Review of #253: the prompt also states the break-even chances (57 and
+  // 67 in 100), the multiples (2.5, -2, 1 and -1; 0, 4, 1 and 3) and the
+  // leader's trait values, and a reply restating one of them, or a chance
+  // as a fraction ("0.65 >= 0.41"), was read as naming a fact. The numbers
+  // are read here from the rule block this decision's prompt carries.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  const hexaco = ariaReplies.hexacoHistory.find(h => h.turn === turn6.turn - 1)!.hexaco;
+  const block = ruleFor({ hexaco, options: turn6.options, riskSuccessProbability: turn6.riskSuccessProbability, metrics: asMetrics(turn6.metricsAtTurnStart) });
+  const { check: stated } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' });
+  const { bar, boldChance } = stated!;
+  assert.equal(stated!.departs, true, 'Aria Chen\'s turn 6 reply departs from her bar');
+  const printed = [...block.matchAll(/(?<![\w.])-?\d+(?:\.\d+)?/g)].map(m => m[0]).filter(x => x !== '100');
+  const onTheScale = [...block.matchAll(/(?<![\w.])(\d+) (?:times )?in 100\b/g)].map(m => Number(m[1]));
+  const noLean = /takes it at (\d+) in 100/.exec(block)?.[1];
+  const evenOnCosts = /even at (\d+) in 100/.exec(block)?.[1];
+  assert.ok(noLean && evenOnCosts, 'the block states both break-even chances');
+  for (const x of [String(bar), String(boldChance), noLean!, evenOnCosts!, '2.5', '-2', '-1', '0', '4', '3', hexaco.openness.toFixed(2)]) {
+    assert.ok(printed.includes(x), `the block prints ${x}`);
+  }
+  for (const said of [
+    `None, I follow my bar; a leader with no lean takes it at ${noLean} in 100`,
+    `None (${(boldChance / 100).toFixed(2)} >= ${(bar / 100).toFixed(2)})`,
+    `None: even at ${(Number(evenOnCosts) / 100).toFixed(2)} on what it costs`,
+    ...printed.map(x => `None, I follow my bar; the rule states ${x}`),
+    ...onTheScale.map(x => `None, I follow my bar; the rule states ${(x / 100).toFixed(2)}`),
+  ]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+    assert.equal(check?.departureFact, '', `"${said}": the rule block's own numbers name no fact`);
+    assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+  }
+  // A number the block does not print still names a fact.
+  for (const fact of ['None: 9 spare cartridges', `None: ${(bar + 1) / 100} of the water reserve left`]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+    assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+    assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+  }
 });
 
 test('the opening cues fire at the poles the two presets were written at', () => {

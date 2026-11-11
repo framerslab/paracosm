@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
-import { normalizeSimulationConfig, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../../src/cli/sim-config.js';
+import { DEMO_EXECUTION, normalizeSimulationConfig, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../../src/cli/sim-config.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
 interface ScenarioJson {
@@ -104,7 +104,9 @@ test('POST /setup on the hosted demo with no key of its own runs the commander o
     assert.equal(setup.status, 200);
     const { config } = await waitFor(() => launches[0] ?? null);
 
-    assert.equal(config.turns, 6, 'the demo cap ran');
+    // The cap reads PARACOSM_DEMO_MAX_TURNS when it is set, and 6 when not.
+    if (!process.env.PARACOSM_DEMO_MAX_TURNS) assert.equal(DEMO_EXECUTION.maxTurns, 6, 'the demo cap with no turn limit set');
+    assert.equal(config.turns, Math.min(mars.setup.defaultTurns, DEMO_EXECUTION.maxTurns), 'the demo cap ran');
     assert.equal(config.initialPopulation, 30, 'the demo cap ran');
     assert.equal(config.economics.id, 'economy');
     assert.equal(config.models.commander, 'gpt-5.4-mini', 'the commander one model up from gpt-5.4-nano');
