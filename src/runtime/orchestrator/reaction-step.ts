@@ -100,8 +100,9 @@ export interface ReactionStepResult {
 /**
  * Run the full reaction step for the current turn and return the
  * reactions + an aggregate mood summary. Side effects: memory writes
- * into every reacting agent, relationship-sentiment updates across the
- * roster, and two SSE emits (`agent_reactions`, `bulletin`).
+ * into every reacting agent and relationship-sentiment updates across the
+ * roster, kept in the kernel's state through `applyAgentUpdates`, and two
+ * SSE emits (`agent_reactions`, `bulletin`).
  *
  * Returning the reactions array lets the turn-loop caller append into
  * allAgentReactions and fold the mood summary into the next
@@ -192,6 +193,30 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
 
   if (reactions.length === 0) return { reactions, moodSummary: null };
 
+  // Memory + relationship updates for every reactor, then consolidate
+  // the shortTerm/longTerm split for the whole alive roster (even
+  // non-reactors drift; they just don't have a fresh personal reaction
+  // memory this turn). The writes run on one copy of the state, since
+  // getState() returns a copy, and reach the kernel through
+  // applyAgentUpdates, which holds each stance and relationship to the
+  // bound a report's psych write has and touches nothing the dice read.
+  // recordReactionMemory takes `outcome: string` (not nullable) so coerce
+  // the TurnOutcome|null into a stable placeholder when the turn ended
+  // before the outcome roll (e.g. director batch produced zero events).
+  const working = kernel.getState().agents;
+  const workingById = new Map(working.map(c => [c.core.id, c]));
+  const outcomeLabel: string = lastOutcome ?? 'unknown';
+  for (const r of reactions) {
+    const c = workingById.get(r.agentId);
+    if (c?.health.alive) recordReactionMemory(c, r, turnEventTitles.join(' / '), lastEventCategory, outcomeLabel, turn, time);
+  }
+  updateRelationshipsFromReactions(working, reactions);
+  const alive = working.filter(c => c.health.alive);
+  for (const c of alive) consolidateMemory(c);
+  kernel.applyAgentUpdates(alive.filter(c => c.memory).map(c => ({ agentId: c.core.id, memory: c.memory })));
+
+  // The event shows each reactor's memory as the kernel now holds it,
+  // this turn's reaction included.
   const agentMap = new Map(kernel.getState().agents.map(c => [c.core.id, c]));
 
   emit('agent_reactions', {
@@ -215,21 +240,6 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
     }),
     totalReactions: reactions.length,
   });
-
-  // Memory + relationship updates for every reactor, then consolidate
-  // the shortTerm/longTerm split for the whole alive roster (even
-  // non-reactors drift; they just don't have a fresh personal reaction
-  // memory this turn).
-  // recordReactionMemory takes `outcome: string` (not nullable) so coerce
-  // the TurnOutcome|null into a stable placeholder when the turn ended
-  // before the outcome roll (e.g. director batch produced zero events).
-  const outcomeLabel: string = lastOutcome ?? 'unknown';
-  for (const r of reactions) {
-    const c = agentMap.get(r.agentId);
-    if (c) recordReactionMemory(c, r, turnEventTitles.join(' / '), lastEventCategory, outcomeLabel, turn, time);
-  }
-  updateRelationshipsFromReactions(kernel.getState().agents, reactions);
-  for (const c of kernel.getState().agents) if (c.health.alive) consolidateMemory(c);
 
   const moodCounts: Record<string, number> = {};
   for (const r of reactions) moodCounts[r.mood] = (moodCounts[r.mood] || 0) + 1;
