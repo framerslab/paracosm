@@ -1,4 +1,4 @@
-import type { SimulationState, Agent, TurnEvent, HexacoProfile, TurnOutcome, Department } from './state.js';
+import type { SimulationState, Agent, AgentMemory, TurnEvent, HexacoProfile, TurnOutcome, Department } from './state.js';
 import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ProgressionHookContext, ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
@@ -793,14 +793,22 @@ export class SimulationKernel {
   }
 
   /**
-   * Apply featured colonist updates from department reports. A report's
+   * Apply updates to living people: the featured colonist updates of the
+   * department reports, and the memory the reaction step writes. A report's
    * psych score moves the person at most 0.15 toward the value it writes
-   * ({@link PSYCH_STEP}); its conditions are set as written.
+   * ({@link PSYCH_STEP}); its conditions are set as written. A memory
+   * write is held by {@link writeMemory}; it moves no number the dice read.
    */
-  applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string }>): void {
+  applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string; memory?: AgentMemory }>): void {
+    let roster: Set<string> | undefined;
     for (const u of updates) {
       const col = this.findAgent(u.agentId);
       if (!col || !col.health.alive) continue;
+
+      if (u.memory) {
+        roster ??= new Set(this.state.agents.map(a => a.core.id));
+        this.writeMemory(col, u.memory, roster);
+      }
 
       if (u.health) {
         if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
@@ -824,6 +832,44 @@ export class SimulationKernel {
         });
       }
     }
+  }
+
+  /**
+   * Replace a person's memory with the one the reaction step wrote. A stance
+   * or a relationship moves at most {@link PSYCH_STEP} from where it stood
+   * (0 when it had none), within -1 to 1, the bound a report's psych write
+   * has; a relationship names someone else on the roster. A person saved
+   * with no memory object starts from an empty one.
+   */
+  private writeMemory(agent: Agent, next: AgentMemory, roster: Set<string>): void {
+    const before = agent.memory ?? { shortTerm: [], longTerm: [], stances: {}, relationships: {} };
+    const step = (from: number, to: number): number => {
+      const goal = Math.max(-1, Math.min(1, to));
+      return Math.abs(goal - from) <= PSYCH_STEP ? goal : from + Math.sign(goal - from) * PSYCH_STEP;
+    };
+    // A topic is an event category, model-written text, so only the
+    // person's own entries count as where it stood: "constructor" names
+    // a property every object inherits.
+    const stood = (held: Record<string, number> | undefined, key: string): number => {
+      const value = held && Object.hasOwn(held, key) ? held[key] : 0;
+      return Number.isFinite(value) ? value : 0;
+    };
+    const stances: Record<string, number> = {};
+    for (const [topic, value] of Object.entries(next.stances ?? {})) {
+      if (Number.isFinite(value)) stances[topic] = step(stood(before.stances, topic), value);
+    }
+    const relationships: Record<string, number> = {};
+    for (const [id, value] of Object.entries(next.relationships ?? {})) {
+      if (id !== agent.core.id && roster.has(id) && Number.isFinite(value)) {
+        relationships[id] = step(stood(before.relationships, id), value);
+      }
+    }
+    agent.memory = {
+      shortTerm: (next.shortTerm ?? []).map(entry => ({ ...entry })),
+      longTerm: [...(next.longTerm ?? [])],
+      stances,
+      relationships,
+    };
   }
 
   export(): SimulationState { return structuredClone(this.state); }
