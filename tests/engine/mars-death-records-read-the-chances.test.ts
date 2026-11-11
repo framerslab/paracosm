@@ -13,10 +13,11 @@
  * Mars Genesis declares one die for a life (`setup.mortalityDice: 'life'`):
  * one die for each person and cause for as long as they live, and the person
  * dies in the year their chance of having survived that cause falls to it.
- * Every year's chance then moves the year a person's death comes due, so two
- * colonies that give a person different chances record that person's death
- * in different years, and a person whose die lies between the two colonies'
- * chances of dying by the last turn dies in one and lives in the other.
+ * Every year's chance then counts toward the year a person's death comes due,
+ * so two colonies that give a person different chances can record that
+ * person's death in different years, and a person whose die lies between
+ * the two colonies' chances of dying by the last turn dies in one and lives
+ * in the other.
  *
  * These tests run each recorded side the way a hosted run does (the
  * scenario's preset roster, `new SimulationKernel` with the scenario,
