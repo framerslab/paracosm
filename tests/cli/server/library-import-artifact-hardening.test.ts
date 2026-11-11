@@ -16,10 +16,10 @@
  * Runs the real import handler and the real run-history routes over a
  * real SQLite store, with the Studio fixture as the imported artifact.
  */
-import test, { type TestContext } from 'node:test';
+import test, { after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -42,6 +42,9 @@ const outsideDir = join(base, 'outside');
 mkdirSync(runsDir, { recursive: true });
 mkdirSync(outsideDir, { recursive: true });
 process.env.PARACOSM_OUTPUT_DIR = runsDir;
+// The module owns base: its runs, links and outside files go with it,
+// after a failing test too. rmSync removes links without following them.
+after(() => rmSync(base, { recursive: true, force: true }));
 
 const MARKER = 'file-outside-the-runs-directory';
 const outsideFile = join(outsideDir, 'other.json');

@@ -10,8 +10,8 @@
  * @module paracosm/cli/server/run-artifact-file
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { constants } from 'node:fs';
-import { mkdir, open, realpath, stat, unlink, type FileHandle } from 'node:fs/promises';
+import { constants, existsSync } from 'node:fs';
+import { mkdir, open, readlink, realpath, stat, unlink, type FileHandle } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { resolveOutputDir } from '../../runtime/io/output-writer.js';
 
@@ -76,6 +76,21 @@ export type RunArtifactFileRead =
 const UNREADABLE: RunArtifactFileRead = { ok: false, reason: 'unreadable' };
 const OUTSIDE: RunArtifactFileRead = { ok: false, reason: 'outside_runs_dir' };
 
+/** Linux's per-descriptor links; other platforms have no such directory. */
+const FD_LINKS_DIR = '/proc/self/fd';
+const HAS_FD_LINKS = existsSync(FD_LINKS_DIR);
+
+/**
+ * The path the kernel holds for an open descriptor, read from its
+ * `/proc/self/fd` link without resolving anything further, or
+ * `undefined` where the platform has no such links. A read that fails
+ * there throws, so the caller refuses the file.
+ */
+async function descriptorPath(handle: FileHandle): Promise<string | undefined> {
+  if (!HAS_FD_LINKS) return undefined;
+  return readlink(`${FD_LINKS_DIR}/${handle.fd}`);
+}
+
 /**
  * Read a run record's artifact file. Refuses a path outside the runs
  * directory, by its text or once links are resolved, without reading it.
@@ -85,6 +100,10 @@ const OUTSIDE: RunArtifactFileRead = { ok: false, reason: 'outside_runs_dir' };
  * resolved again and must still be inside the runs directory and name
  * the same file (device and inode) as the descriptor; otherwise the
  * entry changed between the check and the read and nothing is returned.
+ * On Linux the path the kernel holds for the descriptor
+ * (`/proc/self/fd/<n>`) must be inside the runs directory as well, which
+ * no later swap of a parent directory can change; elsewhere the two
+ * path checks above are the guard.
  */
 export async function readRunArtifactFile(
   artifactPath: string,
@@ -121,6 +140,11 @@ export async function readRunArtifactFile(
     if (!isInside(realRoot, nowPath)) return OUTSIDE;
     const now = await stat(nowPath);
     if (now.dev !== opened.dev || now.ino !== opened.ino) return UNREADABLE;
+    // The lookups above go by path, so a parent directory swapped between
+    // them can point each one at a different file. Where the descriptor's
+    // own path can be read, it must be inside the runs directory too.
+    const openedPath = await descriptorPath(handle);
+    if (openedPath !== undefined && !isInside(realRoot, openedPath)) return OUTSIDE;
     return { ok: true, text: await handle.readFile('utf-8') };
   } catch {
     return UNREADABLE;

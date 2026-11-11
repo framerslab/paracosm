@@ -122,7 +122,7 @@ Single run record plus the full RunArtifact loaded from disk.
 
 The runs directory is resolved from the environment the server was started with. The server's own runs (`/setup`, `/simulate` and digital-twin runs) write their output files there, as imports do, so every record the server stores points into it.
 
-The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. An entry that changes between the check and the read answers `410 artifact_unreadable`, or `410 artifact_outside_runs_dir` when it then resolves outside the runs directory.
+The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. On Linux it also reads the path the kernel holds for the open file (`/proc/self/fd/<n>`) and refuses the file when that path is outside the runs directory, so a parent directory swapped between the checks cannot point the read elsewhere. An entry that changes between the check and the read answers `410 artifact_unreadable`, or `410 artifact_outside_runs_dir` when it then resolves outside the runs directory.
 
 `HEAD /api/v1/runs/:runId` answers `200`, `404` or `410` with no body. It checks the record's path text against the runs directory and does not open the file or resolve links, so a `200` there can still be a `410` on `GET`.
 
