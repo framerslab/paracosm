@@ -466,8 +466,8 @@ test('the rule says the chances and multiples already count the dangers the even
       const prompt = promptFor(hexaco, d, asMetrics(d.metricsAtTurnStart));
       const where = `${run.leader}, turn ${d.turn}, "${d.title}"`;
       assert.match(prompt, /The chances and multiples above already include the dangers this event describes\./, `${where}: the odds include the event's dangers`);
-      const counted = /its cost is counted (\d+) times, against (\d+) times for a safe failure/.exec(prompt);
-      assert.deepEqual(counted?.slice(1, 3).map(Number), [applied.cost[1], applied.cost[3]], `${where}: the cost multiples a failure is counted at, as the outcome step applies them`);
+      const failure = /what the event gains is multiplied by (\S+) against (\S+) for a safe failure, and what it costs by (\S+) against (\S+)\./.exec(prompt);
+      assert.deepEqual(failure?.slice(1, 5).map(Number), [applied.gain[1], applied.gain[3], applied.cost[1], applied.cost[3]], `${where}: what a failure multiplies a gain and a cost by, as the outcome step applies them`);
       assert.match(prompt, /A danger the event describes is not a reason to depart from your bar/, `${where}: a described danger is no reason to depart`);
       assert.match(prompt, /when the bold option's chance is at least your bar, following it means choosing the bold option; when it is under, a safe option\./, `${where}: what following the bar means`);
       assert.match(prompt, /Depart from it only for a fact these odds do not count/, `${where}: what a departure must name`);
@@ -475,6 +475,20 @@ test('the rule says the chances and multiples already count the dangers the even
       assert.doesNotMatch(prompt, /a reason that belongs to this event/, `${where}: the old departure line is gone`);
       assert.match(prompt, /\(4\) Is the bold option's chance at least my bar\? Give both numbers and answer yes or no\./, `${where}: point (4) asks for the comparison first`);
       assert.match(prompt, /Then set selectedOptionId, barDeparture, decision, and rationale\./, `${where}: the reply's fields`);
+    }
+  }
+  // Mars's tables hold gains only, so on these 13 events a bold failure
+  // moves every entry by the gain multiple of a failure and no entry by a
+  // cost multiple: the line must state the gain multiple, not the cost
+  // multiple alone. The registry is the one the run builds
+  // (EffectRegistry.forScenario(sc) in orchestrator/index.ts).
+  const marsRegistry = EffectRegistry.forScenario(marsScenario as any);
+  for (const d of [...ariaReplies.decisions, ...vossReplies.decisions]) {
+    const table = marsRegistry.getBaseEffect(d.category);
+    assert.ok(Object.keys(table).length > 0, `Mars "${d.category}": a table`);
+    const failed = marsRegistry.applyOutcome(d.category, 'risky_failure', { personalityBonus: 0, noise: 0 });
+    for (const [key, v] of Object.entries(table)) {
+      assert.equal(Math.round((failed[key] / v) * 100) / 100, applied.gain[1], `Mars "${d.category}" ${key}: a bold failure moves it by the gain multiple`);
     }
   }
   // A leader on another trait model has no bar, so nothing to depart from.
@@ -551,6 +565,17 @@ test('a departure field that says the bar is followed, or puts a placeholder bef
     assert.equal(check?.departureFact, '', `"${said}": no fact kept`);
     assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
   }
+  // A value that is not text and holds nothing reads as empty, costs no
+  // retry, and names no fact; one that holds something is kept as its JSON.
+  for (const empty of [false, true, 0, {}, []]) {
+    const { decision, check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: empty });
+    assert.equal(decision.barDeparture, '', `${JSON.stringify(empty)}: reads as empty`);
+    assert.equal(check?.unexplained, true, `${JSON.stringify(empty)}: flagged as naming no fact`);
+  }
+  const structured = { foodMonthsReserve: 69.9, people: 39 };
+  const kept = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: structured });
+  assert.equal(kept.check?.departureFact, JSON.stringify(structured), 'an object that holds a fact is kept as its JSON');
+  assert.equal(kept.check?.unexplained, false);
   // A fact that opens with a placeholder word, or names a number, is kept.
   for (const fact of ['None of the 39 colonists has the training option_b needs', 'foodMonthsReserve 69.9 with 39 people to feed']) {
     const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
