@@ -1,0 +1,35 @@
+name: Measure scenarios
+
+# Measurement only. Runs on pushes to its own branch and is never merged.
+on:
+  push:
+    branches: ['measure/scenario-streams']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: measure-scenarios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    name: Measure ${{ matrix.part }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [describe, streams, two-events, hash]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: npm ci
+      - name: Measure
+        env:
+          PART: ${{ matrix.part }}
+        run: npx tsx scripts/measure-scenarios.ts
