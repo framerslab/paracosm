@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,6 +123,28 @@ test('the retention sweep at boot removes an imported copy older than OUTPUT_RET
     assert.deepEqual(importedCopies(runsDir), [], 'the boot sweep removed the 40-day-old copy');
   } finally {
     second.close();
+    cleanup();
+  }
+});
+
+test('the retention sweep at boot removes only run output: other JSON files in the runs directory stay', async () => {
+  // PARACOSM_OUTPUT_DIR can name a directory that holds more than run
+  // output, such as a project folder with its scenario files.
+  const { appDir, runsDir, cleanup } = dirs();
+  const scenarioCopy = join(runsDir, 'mars.json');
+  copyFileSync(resolve(__dirname, '../../scenarios/mars.json'), scenarioCopy);
+  const runOutput = join(runsDir, 'v3-the-visionary-2026-09-01T00-00-00-000Z.json');
+  writeFileSync(runOutput, JSON.stringify(turnLoopArtifact, null, 2));
+  const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+  utimesSync(scenarioCopy, fortyDaysAgo, fortyDaysAgo);
+  utimesSync(runOutput, fortyDaysAgo, fortyDaysAgo);
+
+  const server = serverFor(appDir, runsDir);
+  try {
+    assert.equal(existsSync(runOutput), false, 'the boot sweep removed the 40-day-old run output');
+    assert.equal(existsSync(scenarioCopy), true, 'the boot sweep left the scenario file alone');
+  } finally {
+    server.close();
     cleanup();
   }
 });

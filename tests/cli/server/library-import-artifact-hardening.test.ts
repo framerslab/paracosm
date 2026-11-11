@@ -200,3 +200,27 @@ test('two imports of one run id at once: the file on disk belongs to the stored 
   const files = readdirSync(runsDir).filter((name) => name.startsWith(importedNamePrefix(runId)));
   assert.equal(files.length, 1, `one imported file for the run, found: ${files.join(', ')}`);
 });
+
+test('an import whose record cannot be read back right after the insert answers 201 and keeps its file', async () => {
+  const inner = memoryStore();
+  // The first lookup (is the run stored?) answers; the read back after
+  // the insert fails, as a locked or dropped database connection does.
+  let lookups = 0;
+  const store: RunHistoryStore = {
+    ...inner,
+    async getRun(id: string) {
+      lookups += 1;
+      if (lookups === 2) throw new Error('database is locked');
+      return inner.getRun(id);
+    },
+  };
+
+  const runId = 'run_read_back_fails';
+  const imported = await importBody(store, { artifact: artifactFor(runId) });
+  assert.equal(imported.status, 201, imported.body);
+  assert.deepEqual(JSON.parse(imported.body), { runId, alreadyExisted: false });
+
+  const got = await getRun(inner, runId);
+  assert.equal(got.status, 200, got.body);
+  assert.equal(JSON.parse(got.body).artifact.metadata.runId, runId);
+});
