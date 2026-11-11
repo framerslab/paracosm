@@ -251,7 +251,8 @@ test('a turn of a year or less runs as it did before long turns settled morale e
   // were read from CI on the kernel of b43ee952, before long turns settled
   // morale each year; neither scenario takes a dose. The Mars rows were
   // read again from CI when each Mars habitat module came to keep out a
-  // fifth of the dose that still reaches the colonists (#221), and the
+  // fifth of the dose that still reaches the colonists (#221), and again
+  // when Mars Genesis came to keep one death die for a life (#243); the
   // test prints them.
   const scenarios = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
   const atlasLab = scenarios.get('atlas-lab')!.scenario as ScenarioPackage;
