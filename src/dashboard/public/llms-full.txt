@@ -198,7 +198,7 @@ All three produce the same canonical ScenarioPackage.
 
 - **OpenAI** (the default for a dashboard run, `runSimulation` and `WorldModel.simulate`; `WorldModel.quickstart` and `paracosm compile` default to Anthropic): for `runSimulation` and `WorldModel.simulate`, GPT-5.4 for the departments, GPT-4o for the commander, GPT-5.4 mini for the Event Director and the tool judge, GPT-5.4 nano for agent reactions; the dashboard's model picker keeps those but sets the commander to GPT-5.4 mini
 - **Anthropic**: Claude Sonnet 4.6 for the departments, Claude Haiku 4.5 for every other role
-- **Hosted demo** (on the host's keys): GPT-5.4 mini for the departments, the tool judge and the verdict; GPT-5.4 nano for the commander, the Event Director and agent reactions
+- **Hosted demo** (on the host's keys): GPT-5.4 mini for the commander, the departments, the tool judge and the verdict; GPT-5.4 nano for the Event Director and agent reactions
 
 Each role (commander, departments, director, judge, agent reactions) configurable independently. Cost presets `quality` and `economy` bundle sensible defaults; per-role overrides win. Auto-detects which API key is present, falls back between providers.
 
