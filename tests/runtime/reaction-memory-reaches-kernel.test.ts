@@ -55,15 +55,15 @@ function stubModel(roster: string[]) {
 }
 
 /** Run the real reaction step for one Mars turn, every living person reacting. */
-async function react(kernel: SimulationKernel, turn: number, time: number, impl: unknown) {
+async function react(kernel: SimulationKernel, turn: number, time: number, impl: unknown, event: { title?: string; category?: string } = {}) {
   const events: Array<{ type: string; data?: Record<string, unknown> }> = [];
   const result = await runReactionStep({
     kernel,
     scenario: marsScenario,
     turn, time, seed: 950,
     turnEvents: [{ relevantDepartments: [] }],
-    turnEventTitles: [TITLE],
-    lastEventCategory: CATEGORY,
+    turnEventTitles: [event.title ?? TITLE],
+    lastEventCategory: event.category ?? CATEGORY,
     lastOutcome: 'conservative_success',
     provider: 'openai',
     apiKey: 'placeholder-key-for-a-test',
@@ -184,4 +184,63 @@ test('a run whose people react rolls the same dice as one where nobody reacts: t
   assert.deepEqual(l.metrics, q.metrics);
   assert.deepEqual(l.agents.map(a => [a.core.id, a.health]), q.agents.map(a => [a.core.id, a.health]));
   assert.deepEqual(loud.toSnapshot(marsScenario.id).rngState, quiet.toSnapshot(marsScenario.id).rngState, 'the reactions drew no kernel dice');
+});
+
+/** A turn a year from 2035: sixteen reactions take a person's short-term memory past its fifteen entries. */
+const YEARLY = Array.from({ length: 17 }, (_, i): [number, number] => [i + 1, 2035 + i]);
+
+test('a person who has reacted sixteen times keeps their newest memories oldest first, and the event and the next prompt show the latest', async () => {
+  const kernel = marsKernel();
+  const roster = kernel.getState().agents.map(a => a.core.id);
+  const model = stubModel(roster);
+  let shown: Array<{ agentId: string; memory: { recentMemories: Array<{ time: number }> } | null }> = [];
+  for (const [turn, time] of YEARLY.slice(0, 16)) {
+    kernel.advanceTurn(turn, time, hook);
+    const { events } = await react(kernel, turn, time, model.impl, { title: `Dust storm ${turn}` });
+    shown = events.find(e => e.type === 'agent_reactions')?.data?.reactions as typeof shown;
+  }
+  const survivor = roster.find(id => person(kernel.getState(), id).health.alive);
+  assert.ok(survivor, 'someone on the roster lives through sixteen Mars years');
+
+  // The sixteenth reaction made sixteen entries, and the step consolidated them.
+  const turns = person(kernel.getState(), survivor).memory.shortTerm.map(e => e.turn);
+  assert.ok(turns.length < 16, `the step consolidated ${survivor}'s short-term memory: turns ${turns.join(', ')}`);
+  assert.deepEqual(turns, [...turns].sort((a, b) => a - b), `${survivor}'s short-term memory runs oldest to newest`);
+  assert.equal(turns.at(-1), 16, `${survivor}'s newest entry is turn 16's reaction`);
+
+  assert.ok(shown?.length, 'turn 16 emitted its reactions');
+  for (const r of shown) {
+    assert.ok(r.memory?.recentMemories.some(m => m.time === 2050), `${r.agentId}'s shown memory holds turn 16's reaction`);
+  }
+
+  const [turn, time] = YEARLY[16];
+  kernel.advanceTurn(turn, time, hook);
+  const before = model.prompts.length;
+  await react(kernel, turn, time, model.impl, { title: `Dust storm ${turn}` });
+  assert.ok(
+    model.prompts.slice(before).join('\n').includes(`Event "Dust storm 16": ${survivor} says the storm walls held.`),
+    `turn 17's reaction prompt recalls ${survivor}'s turn 16 reaction`,
+  );
+});
+
+test('an event category named like a property every object inherits (constructor) keeps its stance, and the step that consolidates memory still runs', async () => {
+  const kernel = marsKernel();
+  const roster = kernel.getState().agents.map(a => a.core.id);
+  const model = stubModel(roster);
+  const first = roster[0];
+  let stanceAfterTurnOne: unknown;
+  for (const [turn, time] of YEARLY.slice(0, 16)) {
+    kernel.advanceTurn(turn, time, hook);
+    await react(kernel, turn, time, model.impl, { category: 'constructor' });
+    if (turn === 1) {
+      const stances = person(kernel.getState(), first).memory.stances;
+      stanceAfterTurnOne = Object.hasOwn(stances, 'constructor') ? stances.constructor : 'none';
+    }
+  }
+  // A success with a hopeful mood moves the stance 0.1 + 0.05.
+  assert.ok(typeof stanceAfterTurnOne === 'number' && Math.abs(stanceAfterTurnOne - 0.15) < 1e-9, `${first}'s stance on constructor after turn 1: ${String(stanceAfterTurnOne)}`);
+  const survivor = roster.find(id => person(kernel.getState(), id).health.alive)!;
+  const memory = person(kernel.getState(), survivor).memory;
+  assert.ok(memory.shortTerm.length < 16, 'the step consolidated short-term memory');
+  assert.ok(memory.longTerm.some(belief => belief.includes('constructor crises')), `${survivor} holds a belief about the category: ${memory.longTerm.join(' | ')}`);
 });
