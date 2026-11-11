@@ -312,7 +312,7 @@ test('two colonies that build alike show in the death records at a fiftieth and 
 });
 
 /** Mars Genesis with a die a year declared outright. */
-const yearly = { ...marsScenario, setup: { ...marsScenario.setup, mortalityDice: 'year' } } as ScenarioPackage;
+const yearly: ScenarioPackage = { ...marsScenario, setup: { ...marsScenario.setup, mortalityDice: 'year' } };
 
 /** Six Mars turns nobody leads: who died, and of which causes. */
 function idle(seed: number, sc: ScenarioPackage): { dead: Set<string>; causes: string[] } {
@@ -354,7 +354,7 @@ const atlasLab = disk.get('atlas-lab')!.scenario as ScenarioPackage;
 const twin = JSON.parse(readFileSync(resolve(here, '../../scenarios/t2d-glp1-protocol.json'), 'utf-8')) as ScenarioPackage;
 
 /** What a kernel records of how its death dice are kept. */
-const diceOf = (kernel: SimulationKernel) => (kernel.getState().metadata as { mortalityDice?: string }).mortalityDice;
+const diceOf = (kernel: SimulationKernel) => kernel.getState().metadata.mortalityDice;
 
 test('Mars Genesis declares one die for a life, and no other scenario does', () => {
   const kept = (sc: ScenarioPackage | undefined, population: number) => diceOf(new SimulationKernel(950, ARIA, sc ? scenarioKeyPersonnel(sc) : [], {

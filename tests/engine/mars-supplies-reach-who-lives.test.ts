@@ -11,9 +11,11 @@
  * colony's supply level: the geometric mean of the supplies the scenario
  * marks as sustaining its people, each against its amount on landing day,
  * held within a half and double. Each person rolls the same dice under
- * both leaders (#184), so in a pair alike in everything else the rates
- * read (the same department heads, more than a month of food and psych
- * above the despair range), none of the people the colony began with, while
+ * both leaders (#184): on Mars Genesis, which keeps one death die for each
+ * person and cause for a life (#243), the same die for life. So in a pair
+ * alike in everything else the rates read (the same department heads, more
+ * than a month of food and psych above the despair range), none of the
+ * people the colony began with, while
  * they stay on both rosters, dies only on the side that holds at least the
  * other's modules and supply level. These tests move nobody off a roster
  * and count those people alone: a child born on one side only
@@ -315,11 +317,11 @@ function rows(sc: ScenarioPackage, seed: number, population: number, turns: numb
 }
 
 const ROW_SEEDS = [950, 1, 2, 3];
-/** The rows these runs gave before any death rate read a supply. */
+/** The rows these runs give: Lunar Outpost and the deep-ocean station as before any death rate read a supply; Mars as its dice for life give them. */
 const PINNED = JSON.parse(readFileSync(resolve(here, '../fixtures/supplies-unmarked-and-untouched.json'), 'utf-8')).runs as Record<string, TurnRow[]>;
 const pinned = (keys: string[]) => Object.fromEntries(keys.map(k => [k, PINNED[k]]));
 
-test('a Mars colony nobody leads holds its landing supplies in every year of six turns and loses the people it lost before', (t) => {
+test('a Mars colony nobody leads holds its landing supplies in every year of six turns and loses the people its dice for life give it', (t) => {
   const seen: Record<string, TurnRow[]> = {};
   const moved: string[] = [];
   for (const seed of ROW_SEEDS) {

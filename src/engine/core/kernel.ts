@@ -306,6 +306,9 @@ export class SimulationKernel {
       }
     }
     if (Object.keys(landingSupplies).length > 0) this.state.metadata.landingSupplies = landingSupplies;
+    // How each person's death dice are kept, recorded in the state so a
+    // saved run and a fork of one keep the dice they began with.
+    if (init.scenario?.setup?.mortalityDice === 'life') this.state.metadata.mortalityDice = 'life';
     this.setRanges(init.scenario);
   }
 
