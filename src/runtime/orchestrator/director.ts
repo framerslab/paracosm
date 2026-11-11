@@ -19,7 +19,7 @@ import { SCENARIOS } from '../research/scenarios.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 import { DirectorEventBatchSchema } from '../validators/director.js';
 import { buildTrajectoryCue } from '../agents/cues/hexaco/trajectory.js';
-import { formatMetricValue, type DeclaredWorld } from '../util/scenario-state.js';
+import { formatMetricValue, formatPoliticsValue, type DeclaredWorld } from '../util/scenario-state.js';
 
 /** Event category. Scenario-defined, not a fixed union. */
 export type EventCategory = string;
@@ -114,7 +114,9 @@ export interface DirectorContext {
    * does, so full morale reads "100%"; a metric it does not declare reads
    * as a percent strictly between 0 and 1 and as a plain number otherwise.
    * Morale at 1 read "morale: 1" before, and the director wrote of a colony
-   * at its lowest.
+   * at its lowest. The politics lines read the units the scenario declares
+   * in `world.politics` the same way, so Mars independence pressure at 1
+   * reads "100%".
    */
   world?: DeclaredWorld | null;
 }
@@ -203,10 +205,7 @@ export function buildDirectorPrompt(ctx: DirectorContext, maxEvents: number = 3)
   // unit the scenario declares for it.
   const stateLines = Object.entries(ctx.state).map(([k, v]) => `- ${k}: ${formatMetricValue(k, v, ctx.world)}`).join('\n');
 
-  const politicsLines = Object.entries(ctx.politics).map(([k, v]) => {
-    const display = typeof v === 'number' && v < 1 && v > 0 ? `${Math.round(v * 100)}%` : String(v);
-    return `- ${k}: ${display}`;
-  }).join('\n');
+  const politicsLines = Object.entries(ctx.politics).map(([k, v]) => `- ${k}: ${formatPoliticsValue(k, v, ctx.world)}`).join('\n');
 
   // Knowledge grounding: tell the director what topics/categories the scenario
   // has citations for, so its researchKeywords match real entries in the bundle.
@@ -282,16 +281,21 @@ export function directorSystemInstructions(scenarioInstructions: string | undefi
   return text.replace('{MAX_EVENTS}', String(maxEvents));
 }
 
-/** Fallback events if director fails, in words that fit any scenario. */
+/**
+ * Fallback events if director fails, in words that fit any scenario. They
+ * follow {@link OPTION_TRADEOFF_RULES}: each bold option is a bet on a
+ * larger gain, no label carries a word the rules forbid, and the bold
+ * option does not always sit at the same id.
+ */
 export const FALLBACK_EVENTS: DirectorEvent[] = [
   {
     title: 'System Malfunction',
     description: 'A critical support system has developed an intermittent failure. Operating at 60% efficiency. Reserves are becoming dangerously low.',
     options: [
-      { id: 'option_a', label: 'Emergency repair', description: 'Divert all available staff to an immediate repair. Safe but halts all other work for 2 weeks.', isRisky: false },
-      { id: 'option_b', label: 'Improvised bypass', description: 'Build a bypass from non-standard parts. Faster but untested. Could fail catastrophically.', isRisky: true },
+      { id: 'option_a', label: 'Rebuild to a larger design', description: 'Replace the failing system with a redesigned one of greater capacity. If it works, output ends above where it stood before the failure; if it fails, the work is lost and output falls further while the old system is rebuilt.', isRisky: true },
+      { id: 'option_b', label: 'Emergency repair', description: 'Divert all available staff to repair the system as built. Restores the old output but halts all other work for 2 weeks.', isRisky: false },
     ],
-    riskyOptionId: 'option_b', riskSuccessProbability: 0.5, category: 'infrastructure',
+    riskyOptionId: 'option_a', riskSuccessProbability: 0.5, category: 'infrastructure',
     researchKeywords: ['critical system failure', 'system redundancy'], relevantDepartments: ['engineering', 'medical'],
     turnSummary: 'Infrastructure strain triggered a critical system failure.',
   },

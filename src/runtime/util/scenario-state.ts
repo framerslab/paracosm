@@ -93,6 +93,20 @@ export function formatMetricValue(key: string, value: unknown, world?: DeclaredW
 }
 
 /**
+ * One politics value as the prompts show it: with the unit the scenario
+ * declares for it in `world.politics` (Mars independence pressure, a share
+ * of 1, at 1 as "100%"; Atlas Lab's board confidence, held on a 0 to 100
+ * scale, at 0.5 as "0.5%"), else a share strictly between 0 and 1 as a
+ * percent and anything else as it is. The director's politics lines read it.
+ */
+export function formatPoliticsValue(key: string, value: unknown, world?: DeclaredWorld | null): string {
+  if (typeof value !== 'number') return String(value);
+  const display = world?.politics?.[key];
+  if (display) return formatValue(value, display);
+  return value < 1 && value > 0 ? `${Math.round(value * 100)}%` : String(value);
+}
+
+/**
  * One line of the scenario's metrics with their labels and units, for the
  * department and commander prompts: "Researchers 480 people | Morale 85% |
  * AlignmentBench 0.84 score | Release Readiness 65%".

@@ -4,6 +4,8 @@ import type { ScenarioPackage } from '../engine/types.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
+import type { HexacoProfile } from '../engine/core/state.js';
+import { hexacoModel } from '../engine/traits/hexaco.js';
 import {
   resolveEconomicsProfile,
   type ResolvedEconomicsProfile,
@@ -660,6 +662,31 @@ function forkParentTimeline(
 }
 
 /**
+ * An actor whose HEXACO profile leaves a trait out, or holds one that is
+ * not a finite number (a JSON body carries an empty one as null), with that
+ * trait set to the HEXACO model's neutral value (`hexacoModel.defaults`,
+ * 0.5 where it declares none), and one log line naming the traits filled.
+ * A `/setup` profile with openness alone reached the decision rule with
+ * five traits undefined, and the rule threw on every decision of the run.
+ * An actor without a HEXACO profile is returned as it came.
+ */
+function withNeutralTraits(actor: ActorConfig): ActorConfig {
+  const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
+  if (!given || typeof given !== 'object') return actor;
+  const filled: string[] = [];
+  const hexaco = { ...given } as Record<string, unknown>;
+  for (const { id } of hexacoModel.axes) {
+    const value = hexaco[id];
+    if (typeof value === 'number' && Number.isFinite(value)) continue;
+    hexaco[id] = hexacoModel.defaults[id] ?? 0.5;
+    filled.push(id);
+  }
+  if (!filled.length) return actor;
+  console.warn(`[setup] ${actor.name ?? '<unnamed>'}: HEXACO traits missing or not a number, set to the neutral value: ${filled.map(id => `${id} ${hexaco[id]}`).join(', ')}`);
+  return { ...actor, hexaco: hexaco as unknown as HexacoProfile };
+}
+
+/**
  * Turn a `/setup` payload into the config the runners take.
  *
  * Every setup value the payload omits comes from the scenario the run
@@ -745,7 +772,7 @@ export function normalizeSimulationConfig(
   });
 
   return {
-    actors: input.actors,
+    actors: input.actors.map(withNeutralTraits),
     provider: inferredProvider,
     turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
     seed: input.seed ?? setup.defaultSeed ?? 42,
