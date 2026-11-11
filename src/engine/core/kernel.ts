@@ -847,14 +847,21 @@ export class SimulationKernel {
       const goal = Math.max(-1, Math.min(1, to));
       return Math.abs(goal - from) <= PSYCH_STEP ? goal : from + Math.sign(goal - from) * PSYCH_STEP;
     };
+    // A topic is an event category, model-written text, so only the
+    // person's own entries count as where it stood: "constructor" names
+    // a property every object inherits.
+    const stood = (held: Record<string, number> | undefined, key: string): number => {
+      const value = held && Object.hasOwn(held, key) ? held[key] : 0;
+      return Number.isFinite(value) ? value : 0;
+    };
     const stances: Record<string, number> = {};
     for (const [topic, value] of Object.entries(next.stances ?? {})) {
-      if (Number.isFinite(value)) stances[topic] = step(before.stances?.[topic] ?? 0, value);
+      if (Number.isFinite(value)) stances[topic] = step(stood(before.stances, topic), value);
     }
     const relationships: Record<string, number> = {};
     for (const [id, value] of Object.entries(next.relationships ?? {})) {
       if (id !== agent.core.id && roster.has(id) && Number.isFinite(value)) {
-        relationships[id] = step(before.relationships?.[id] ?? 0, value);
+        relationships[id] = step(stood(before.relationships, id), value);
       }
     }
     agent.memory = {
