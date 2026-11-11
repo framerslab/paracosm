@@ -182,6 +182,8 @@ function measure(label: string, sc: ScenarioPackage, shape: Shape, variant: Vari
   const causes: Record<Stream, Record<string, number>> = { bold: {}, safe: {} };
   const outcomeCounts: Record<Stream, Record<string, number>> = { bold: {}, safe: {} };
   let scoreIds: string[] = [];
+  let declaredDiffer = 0;
+  const declaredIds = new Set((Array.isArray(v.metrics) ? v.metrics : []).map(m => m.id));
   for (const seed of SEEDS) {
     const bold = run(v, seed, shape, 'bold', perTurn);
     const safe = run(v, seed, shape, 'safe', perTurn);
@@ -199,6 +201,8 @@ function measure(label: string, sc: ScenarioPackage, shape: Shape, variant: Vari
     const differing = rows.filter(r => formatScoreValue(r.values[0], r.format) !== formatScoreValue(r.values[1], r.format));
     for (const r of differing) scoreDiffer[r.id] = (scoreDiffer[r.id] ?? 0) + 1;
     if (differing.length > 0 || differingStateRows(v, [a, b]).length > 0) scoresDiffer++;
+    // A score the scenario itself declares, held by both runs, with different final values.
+    if (differing.some(r => declaredIds.has(r.id))) declaredDiffer++;
     if (mortalityLine(a) !== mortalityLine(b)) mortalityDiffer++;
     const ra = records(a), rb = records(b);
     if (ra.join('\n') !== rb.join('\n')) recordsDiffer++;
@@ -221,7 +225,7 @@ function measure(label: string, sc: ScenarioPackage, shape: Shape, variant: Vari
   const probe = run(v, SEEDS[0], shape, null, perTurn).state;
   return {
     label, shape: shape.name, population: shape.population, turns: shape.turns, variant: variant.name, eventsPerTurn: perTurn, seeds: n,
-    metricsDiffer, scoresDiffer, mortalityDiffer, recordsDiffer, deadDiffer, anyDeath, sameStreamDiffer,
+    metricsDiffer, scoresDiffer, declaredDiffer, mortalityDiffer, recordsDiffer, deadDiffer, anyDeath, sameStreamDiffer,
     deathsBold: round(deathsBold / n), deathsSafe: round(deathsSafe / n),
     onlyBold: round(onlyBold / n), onlySafe: round(onlySafe / n),
     birthsBold: round(birthsBold / n), birthsSafe: round(birthsSafe / n),
@@ -391,6 +395,7 @@ const long = (turns: number): Shape => ({ name: `${turns} turns`, population: 30
 const SHIPPED: Variant = { name: 'as shipped' };
 const FIVE = ['powerKw', 'waterLitersPerDay', 'pressurizedVolumeM3', 'infrastructureModules', 'lifeSupportCapacity'];
 const STATION_SUPPLIES = ['powerKw', 'hullIntegrity', 'oxygenReserveHours'];
+const STATION_TWO = ['powerKw', 'oxygenReserveHours'];
 const fourWays = (keys: string[]): Variant[] => [
   { name: 'no marks, a die a year', sustains: [], dice: 'year' },
   { name: 'supplies marked, a die a year', sustains: keys, dice: 'year' },
@@ -402,7 +407,7 @@ interface Plan { label: string; sc: ScenarioPackage; shapes: Shape[]; variants: 
 const PLANS: Plan[] = [
   { label: 'Mars Genesis', sc: marsScenario, shapes: [demo(marsScenario), full(marsScenario)], variants: [SHIPPED, ...fourWays(FIVE)] },
   { label: 'Lunar Outpost', sc: lunarScenario, shapes: [demo(lunarScenario), full(lunarScenario), long(20)], variants: [SHIPPED, ...fourWays(FIVE)] },
-  { label: 'Deep Ocean Station', sc: station, shapes: [demo(station), full(station), long(20)], variants: [SHIPPED, ...fourWays(STATION_SUPPLIES), { name: 'supplies and food marked, a die for life', sustains: [...STATION_SUPPLIES, 'foodMonthsReserve'], dice: 'life' }] },
+  { label: 'Deep Ocean Station', sc: station, shapes: [demo(station), full(station), long(20)], variants: [SHIPPED, ...fourWays(STATION_SUPPLIES), { name: 'supplies and food marked, a die for life', sustains: [...STATION_SUPPLIES, 'foodMonthsReserve'], dice: 'life' }, { name: 'power and oxygen marked, a die a year', sustains: STATION_TWO, dice: 'year' }, { name: 'power and oxygen marked, a die for life', sustains: STATION_TWO, dice: 'life' }] },
   { label: 'Deep Ocean Station, compiled with a sandboxed progression hook', sc: stationCompiled, shapes: [demo(stationCompiled)], variants: [SHIPPED, { name: 'supplies marked, a die for life', sustains: STATION_SUPPLIES, dice: 'life' }] },
   { label: 'Atlas Lab', sc: atlas, shapes: [demo(atlas), full(atlas)], variants: [SHIPPED, { name: 'wrong marks: runwayMonths and burnRate, a die for life', sustains: ['runwayMonths', 'burnRate'], dice: 'life' }] },
   { label: 'Q-Scope Corp (corporate quarterly)', sc: corporate, shapes: [demo(corporate), full(corporate)], variants: [SHIPPED, { name: 'wrong marks: revenueArr and runwayMonths, a die for life', sustains: ['revenueArr', 'runwayMonths'], dice: 'life' }, { name: 'wrong mark: burnRate, a die for life', sustains: ['burnRate'], dice: 'life' }] },
@@ -463,5 +468,74 @@ if (PART === 'all' || PART === 'hash') {
   for (const p of PLANS.slice(0, 3)) for (const shape of p.shapes) for (const variant of p.variants) {
     const h = noDecisionHash(p.sc, shape, variant);
     console.log(`HASH ${JSON.stringify({ label: p.label, shape: shape.name, variant: variant.name, ...h })}`);
+  }
+}
+
+if (PART === 'all' || PART === 'chances') {
+  // Does a die for life keep a run's chances where a run is short? Runs with
+  // no decisions over seeds 1 to 600, a die a year against a die for life.
+  const MANY = Array.from({ length: 600 }, (_, i) => i + 1);
+  const plans: Array<[string, ScenarioPackage, Shape]> = [
+    ['Mars Genesis', marsScenario, demo(marsScenario)],
+    ['Lunar Outpost', lunarScenario, demo(lunarScenario)],
+    ['Lunar Outpost', lunarScenario, full(lunarScenario)],
+    ['Lunar Outpost', lunarScenario, long(20)],
+    ['Deep Ocean Station', station, demo(station)],
+    ['Deep Ocean Station', station, full(station)],
+    ['Deep Ocean Station', station, long(20)],
+  ];
+  for (const [label, sc, shape] of plans) {
+    for (const dice of ['year', 'life'] as const) {
+      const v = withVariant(sc, { name: dice, sustains: [], dice });
+      const counts: number[] = [];
+      const byCause: Record<string, number> = {};
+      for (const seed of MANY) {
+        const state = run(v, seed, shape, null, 1).state;
+        const d = deaths(state);
+        counts.push(d.length);
+        for (const e of d) byCause[causeClass(e.cause)] = (byCause[causeClass(e.cause)] ?? 0) + 1;
+      }
+      const mean = counts.reduce((x, y) => x + y, 0) / counts.length;
+      const variance = counts.reduce((x, y) => x + (y - mean) ** 2, 0) / (counts.length - 1);
+      console.log(`CHANCES ${JSON.stringify({ label, shape: shape.name, population: shape.population, turns: shape.turns, dice, seeds: MANY.length, deathsARun: round(mean, 3), standardError: round(Math.sqrt(variance / counts.length), 3), byCauseARun: Object.fromEntries(Object.entries(byCause).map(([k, n]) => [k, round(n / MANY.length, 3)])) })}`);
+    }
+  }
+}
+
+if (PART === 'all' || PART === 'marks') {
+  // Which held values could carry a `sustains` mark? Two candidate rules,
+  // read against every bundled scenario's own declarations: a structural
+  // rule (what a compile validation could check) and a rule from names.
+  const LEXICON = /(oxygen|\bair\b|water|food|ration|power|energy|fuel|heat|shelter|habitat|hull|life.?support|medic|suppl|reserve|stock)/i;
+  const words = (text: string) => text.replace(/([a-z])([A-Z0-9])/g, '$1 $2').replace(/[-_]/g, ' ');
+  const bundles: Array<[string, ScenarioPackage]> = [
+    ['Mars Genesis', marsScenario], ['Lunar Outpost', lunarScenario], ['Deep Ocean Station', station], ['Atlas Lab', atlas],
+    ['Q-Scope Corp', corporate], ['Dual Superintelligence Council', council], ['Digital Twin', twin], ['orchard with a world', orchardWorld],
+  ];
+  for (const [label, sc] of bundles) {
+    const registry = EffectRegistry.forScenario(sc);
+    const world = (sc.world ?? {}) as Record<string, Record<string, { label?: string; unit?: string; type?: string; initial?: unknown; sustains?: boolean }> | undefined>;
+    const metricOf = (key: string) => (Array.isArray(sc.metrics) ? sc.metrics : []).find(m => (typeof m.source === 'string' && m.source ? m.source.split('.').pop() : m.id) === key);
+    const structural: string[] = [];
+    const vetoed: Record<string, string> = {};
+    const byName: string[] = [];
+    const shipped: string[] = [];
+    for (const bag of [world.metrics, world.capacities]) {
+      for (const [key, def] of Object.entries(bag ?? {})) {
+        if (def.sustains === true) shipped.push(key);
+        if (LEXICON.test(words(`${key} ${def.label ?? ''}`))) byName.push(key);
+        const metric = metricOf(key);
+        const unit = String(def.unit ?? '');
+        let veto: string | null = null;
+        if (key === 'population' || key === 'morale') veto = 'the head count or morale';
+        else if (def.type && def.type !== 'number') veto = 'not a number';
+        else if (!(typeof def.initial === 'number' && def.initial > 0)) veto = 'starts at nothing';
+        else if (metric?.better === 'lower') veto = 'better lower';
+        else if (metric?.format === 'percent' || metric?.format === 'currency' || /^(%|frac|score)$/i.test(unit) || /USD|EUR|\$/i.test(unit)) veto = 'a share, a score or money';
+        else if (!registry.categories().some(c => key in registry.getBaseEffect(c))) veto = 'no category table moves it';
+        if (veto) vetoed[key] = veto; else structural.push(key);
+      }
+    }
+    console.log(`MARKRULE ${JSON.stringify({ label, shipped, structural, byName, both: structural.filter(k => byName.includes(k)), vetoed })}`);
   }
 }

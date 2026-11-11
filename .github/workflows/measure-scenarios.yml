@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [describe, streams, two-events, hash]
+        part: [describe, streams, two-events, hash, chances, marks]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
