@@ -181,6 +181,20 @@ test('a run whose saved steps end before its recorded turns, or that holds an en
     await assert.rejects(() => wm.replay(run), cannotVerify, `${where} without snapshotVersion`);
   }
 
+  // An entry missing another field a kernel restores from: the generator
+  // state, the seed or the start time, after a step or at the start.
+  for (const [where, field] of [
+    ['kernelSnapshotsAfterProgression', 'rngState'],
+    ['kernelSnapshotsAfterProgression', 'seed'],
+    ['kernelSnapshotAtStart', 'startTime'],
+  ] as const) {
+    const run = stored(artifact);
+    const ext = extensionsOf(run);
+    const entry = where === 'kernelSnapshotAtStart' ? ext.kernelSnapshotAtStart! : ext[where]![0];
+    delete (entry as Partial<KernelSnapshot>)[field];
+    await assert.rejects(() => wm.replay(run), cannotVerify, `${where} without ${field}`);
+  }
+
   // A start snapshot taken against another scenario.
   const otherScenario = stored(artifact);
   (extensionsOf(otherScenario).kernelSnapshotAtStart as { scenarioId: string }).scenarioId = 'lunar-outpost';
