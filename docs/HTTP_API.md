@@ -191,7 +191,7 @@ Re-run each between-turn step the stored artifact recorded, from the state the r
 - `404 not_found` — unknown `runId`
 - `410 artifact_unavailable` / `410 artifact_unreadable` — same as `/runs/:runId`
 - `410 scenario_unavailable` — the scenario referenced by the artifact is not in the active catalog
-- `422 replay_preconditions_unmet` — replay refused, with the underlying `WorldModelReplayError` message: the artifact holds no snapshots or no decisions, or it was saved before the turn loop kept the state after each between-turn step, which replay cannot verify a run without ([#235](https://github.com/framerslab/paracosm/issues/235)). No result is recorded.
+- `422 replay_preconditions_unmet` — replay refused, with the underlying `WorldModelReplayError` message: the artifact holds no snapshots or no decisions, it was saved before the turn loop kept the state after each between-turn step, or it lacks the state a step started from or the state after a turn's step, which replay cannot verify a run without ([#235](https://github.com/framerslab/paracosm/issues/235)). No result is recorded.
 
 ## `POST /api/v1/runs/:runId/replay-result`
 

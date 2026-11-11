@@ -713,7 +713,7 @@ Required preconditions on the input artifact:
 
 Throws `WorldModelReplayError` when the artifact holds no snapshots or no decisions, when its scenario id does not match the WorldModel's scenario, and when it holds end-of-turn snapshots without the after-step ones: a run saved before the turn loop kept them. Its snapshots were each taken after a turn's decisions, so a comparison with the step alone would report a mismatch whatever the kernel does; the error says replay cannot verify the run, and neither a match nor a mismatch is reported ([#235](https://github.com/framerslab/paracosm/issues/235)).
 
-Scope note: replay re-runs `advanceTurn` only. Re-applying a turn's decisions, outcomes and drift needs each event's department reports as the turn loop held them, and the artifact keeps the reports merged into one list per turn. A step whose start state the run did not save (after a turn that ended in an error, which saves no end-of-turn snapshot) is copied unchecked.
+Scope note: replay re-runs `advanceTurn` only. Re-applying a turn's decisions, outcomes and drift needs each event's department reports as the turn loop held them, and the artifact keeps the reports merged into one list per turn. A run missing the state a step started from (after a turn that ended in an error, which saves no end-of-turn snapshot), missing the state after a turn's step, or holding an entry that is not a snapshot gets the cannot-verify `WorldModelReplayError`; no step counts as checked that replay did not run.
 
 #### HTTP surface
 
