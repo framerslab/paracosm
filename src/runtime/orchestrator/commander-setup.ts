@@ -235,15 +235,32 @@ export interface DecisionRuleNumbers {
   safeChance: number;
   /** The leader's bar for the bold option; absent for a leader with no bar. */
   bar?: number;
+  /**
+   * Every number the rule block prints for this decision, read from the
+   * block itself: the chances, the bar, the break-even chances, the
+   * multiples and the trait values; and each number it writes on the 100
+   * scale as a fraction too (65 in 100 as 0.65). A departure field that
+   * restates one of them names no fact with it.
+   */
+  stated: number[];
 }
 
 /**
- * The chances and the bar a decision's rule block states, or undefined for
- * an event with no option marked risky, or none safe. The chances are the
- * outcome step's `outcomeSuccessChance` for the run's metrics now; the bar
- * is {@link riskBar} for the profile as it stands this turn.
+ * The numbers a decision's rule block states, or undefined for an event
+ * with no option marked risky, or none safe. The chances are the outcome
+ * step's `outcomeSuccessChance` for the run's metrics now; the bar is
+ * {@link riskBar} for the profile as it stands this turn; `stated` is every
+ * number the block built from them prints.
  */
 export function decisionRuleNumbers(a: DecisionRuleArgs): DecisionRuleNumbers | undefined {
+  const n = ruleChances(a);
+  return n && { ...n, stated: numbersStatedBy(ruleBlock(a, n)) };
+}
+
+/** The options' ids, their chances and the bar, out of 100. */
+type RuleChances = Omit<DecisionRuleNumbers, 'stated'>;
+
+function ruleChances(a: DecisionRuleArgs): RuleChances | undefined {
   const boldIds = a.options.filter(o => o.isRisky).map(o => o.id);
   const safeIds = a.options.filter(o => !o.isRisky).map(o => o.id);
   if (!boldIds.length || !safeIds.length || !Number.isFinite(a.riskSuccessProbability)) return undefined;
@@ -284,8 +301,12 @@ export function decisionRuleNumbers(a: DecisionRuleArgs): DecisionRuleNumbers | 
  * 150. Returns "" for an event with no option marked risky, or none safe.
  */
 export function buildDecisionRule(a: DecisionRuleArgs): string {
-  const n = decisionRuleNumbers(a);
-  if (!n) return '';
+  const n = ruleChances(a);
+  return n ? ruleBlock(a, n) : '';
+}
+
+/** The rule block for one event's chances and bar (see {@link buildDecisionRule}). */
+function ruleBlock(a: DecisionRuleArgs, n: RuleChances): string {
   const outOf100 = (x: number) => Math.round(100 * x);
   const m = OUTCOME_MULTIPLIERS;
   const c = COST_MULTIPLES;
@@ -351,22 +372,41 @@ const OUT_OF_100 = /\b(?:in|out\s+of)\s+100\b|\/\s*100\b/gi;
 
 /**
  * A number as a text writes it: "41", "0.5", ".5", and "-41" with its sign.
- * A hyphen after a word or a number ("36-41") is no minus sign, and a digit
- * inside a word (option_2) starts no number.
+ * A hyphen is a minus sign only at the start or after a space or one of
+ * ( [ { : ; , = < >; after a word, a number, "%" or the scale ("36-41",
+ * "36%-41%", "36/100-41/100") it joins a range. A digit inside a word
+ * (option_2) starts no number.
  */
-const NUMBER = /(?:(?<![\w.])-)?(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)/g;
+const NUMBER = /(?:(?<=^|[\s([{:;,=<>])-)?(?<![\w.])(?:\d+(?:\.\d+)?|\.\d+)/g;
 
-/** The numbers a text writes, outside words such as option_2 and the scale "in 100". */
+/**
+ * The numbers a text writes, outside words such as option_2 and the scale
+ * "in 100". The scale is read as a word ("_"), so a hyphen after it joins
+ * a range.
+ */
 function numbersIn(text: string): number[] {
-  return (text.replace(OUT_OF_100, ' ').match(NUMBER) ?? []).map(Number);
+  return (text.replace(OUT_OF_100, '_').match(NUMBER) ?? []).map(Number);
+}
+
+/** A number written on the 100 scale: "65 times in 100", "57 in 100", "41/100". */
+const ON_THE_SCALE = /(?<![\w.])(\d+)\s*(?:(?:times\s+)?(?:in|out\s+of)\s+100\b|\/\s*100\b)/gi;
+
+/**
+ * Every number a rule block prints, and each one it writes on the 100
+ * scale as a fraction as well (65 in 100 as 0.65).
+ */
+function numbersStatedBy(block: string): number[] {
+  const fractions = [...block.matchAll(ON_THE_SCALE)].map(m => Number(m[1]) / 100);
+  return [...new Set([...numbersIn(block), ...fractions])];
 }
 
 /**
  * The fact a departure field names, or "" when it names none. A field that
  * opens with a placeholder or by saying the bar is followed names a fact
- * only when it writes a number its prompt did not state ("None: 0 spare
- * cartridges"); the bar and the chances restated ("I follow my bar (41)")
- * are no fact. A field that opens any other way is kept as written.
+ * only when it writes a number its rule block did not print ("None: 9
+ * spare cartridges"); a number the block printed, restated ("I follow my
+ * bar (41)", "None (0.65 >= 0.41)"), is no fact. A field that opens any
+ * other way is kept as written.
  */
 function departureFactOf(written: string, stated: readonly number[]): string {
   if (!NO_FACT.test(written) && !SAYS_FOLLOWED.test(written)) return written;
@@ -396,7 +436,7 @@ export function checkBarDeparture(
   const clearsBar = numbers.boldChance >= numbers.bar;
   const departs = clearsBar !== choseBold;
   const written = typeof barDeparture === 'string' ? barDeparture.trim() : '';
-  const departureFact = departureFactOf(written, [numbers.bar, numbers.boldChance, numbers.safeChance]);
+  const departureFact = departureFactOf(written, numbers.stated);
   return {
     boldChance: numbers.boldChance,
     bar: numbers.bar,
