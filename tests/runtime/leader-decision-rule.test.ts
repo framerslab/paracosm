@@ -584,6 +584,36 @@ test('a departure field that says the bar is followed, or puts a placeholder bef
   }
 });
 
+test('a number the prompt itself stated names no fact in a departure field that says the bar is followed, and a number after a placeholder names one', () => {
+  // Review of #251: "I follow my bar (41)" was kept as a named fact because
+  // it holds a digit, though 41 is only the bar its prompt stated; and
+  // "None: 0 spare cartridges" was read as naming none because it opens
+  // with a placeholder, though it names a supply and its number.
+  const turn6 = ariaReplies.decisions.find(d => d.turn === 6)!;
+  const stated = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: '' }).check!;
+  const { bar, boldChance } = stated;
+  assert.equal(stated.departs, true, 'Aria Chen\'s turn 6 reply departs from her bar');
+  for (const said of [
+    `I follow my bar (${bar})`,
+    `None, I follow my bar of ${bar}`,
+    `Following my bar: ${boldChance} in 100 against ${bar} in 100`,
+    `No departure (${boldChance}/100 >= ${bar}/100)`,
+  ]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: said });
+    assert.equal(check?.departureFact, '', `"${said}": the prompt's own numbers name no fact`);
+    assert.equal(check?.unexplained, true, `"${said}": flagged as naming no fact`);
+  }
+  for (const fact of [
+    'None: 0 spare cartridges',
+    'N/A - 0 spare filter cartridges for option_b',
+    `I follow my bar of ${bar}, but foodMonthsReserve is 3 with 39 people to feed`,
+  ]) {
+    const { check } = checkRecordedReply(ariaReplies, turn6, { ...turn6.reply, barDeparture: fact });
+    assert.equal(check?.departureFact, fact, `"${fact}": kept as the fact`);
+    assert.equal(check?.unexplained, false, `"${fact}": not flagged`);
+  }
+});
+
 test('the opening cues fire at the poles the two presets were written at', () => {
   const aria = setup.buildPersonalityCue(preset(ARIA));
   const voss = setup.buildPersonalityCue(preset(VOSS));
