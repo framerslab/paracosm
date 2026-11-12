@@ -279,14 +279,13 @@ test('markup with no closing brackets is stripped in linear time', async () => {
 
 test('/compile on the hosted demo bounds the searches a compile runs, with or without a caller key', async () => {
   const captured: Array<Record<string, unknown>> = [];
-  let n = 0;
   await withServer({
     maxSimsPerDay: 1,
     env: { PARACOSM_HOSTED_DEMO: 'true' },
-    compileScenario: async (_json, options) => {
+    // The compile answers with the id it was sent, as the compiler does.
+    compileScenario: async (json, options) => {
       captured.push(options);
-      n += 1;
-      return { ...marsScenario, id: `limits-compiled-${n}` } as never;
+      return { ...marsScenario, id: String(json.id) } as never;
     },
   }, async base => {
     for (let i = 0; i < 7; i++) {
@@ -419,14 +418,12 @@ test('the hosted demo caps keep one custom event a turn, within the run\'s turns
 
 test('a hosted /compile with no seed to search for uses none of the caller\'s search allowance', async () => {
   const captured: Array<Record<string, unknown>> = [];
-  let n = 0;
   await withServer({
     maxSimsPerDay: 1,
     env: { PARACOSM_HOSTED_DEMO: 'true' },
-    compileScenario: async (_json, options) => {
+    compileScenario: async (json, options) => {
       captured.push(options);
-      n += 1;
-      return { ...marsScenario, id: `seedless-compiled-${n}` } as never;
+      return { ...marsScenario, id: String(json.id) } as never;
     },
   }, async base => {
     for (let i = 0; i < 6; i++) {

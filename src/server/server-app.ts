@@ -2187,7 +2187,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               refuse(507, `This server holds at most ${MEMORY_SCENARIOS_PER_VISITOR} scenarios in memory for one visitor. Store over one of yours.`, 'the visitor holds the most scenarios in memory');
               return;
             }
-            const address = IpRateLimiter.getIp(req);
+            const address = IpRateLimiter.getIp(req, clientIpHeader);
             let atAddress = 0;
             for (const stored of memoryScenarios.values()) {
               for (const other of stored.values()) {
