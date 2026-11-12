@@ -148,6 +148,10 @@ jobs:
   # deploy.yml copies the build to the host with rsync --delete. This runs that
   # command's filter options against a stand-in host tree and fails when a
   # deploy would delete data the server writes there, or keep a stale build file.
+  # It then runs the deploy step with stand-in rsync and ssh and fails when the
+  # step copies while APP_DIR is empty, / or relative, when the copy and the
+  # remote script use different directories, or when the remote script changes
+  # the host's APP_DIR.
   deploy-keeps-host-data:
     name: Deploy keeps host data
     runs-on: ubuntu-latest
