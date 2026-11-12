@@ -21,6 +21,7 @@ import {
 } from './hooks/shareUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
+import { LoadFromHostModal } from './components/layout/LoadFromHostModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
@@ -318,6 +319,11 @@ function AppContent() {
       autoload: parseAutoloadParam(window.location.href),
     };
   });
+  // True from the moment the link's own file goes to the preview until a
+  // file the visitor picks or drops takes its place. The link's autoload
+  // and tab apply to that file alone: after the visitor cancels the link,
+  // or its file fails to load, their own file still gets the preview.
+  const linkFileRef = useRef(false);
 
   // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
   // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
@@ -357,7 +363,11 @@ function AppContent() {
   }, [leaveOwnRun]);
 
   const loadPreview = useLoadPreview({
-    pickFile: persistence.pickFile,
+    pickFile: async () => {
+      const file = await persistence.pickFile();
+      if (file) linkFileRef.current = false;
+      return file;
+    },
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
     onConfirm: ({ events, results, verdict }) => {
@@ -368,7 +378,8 @@ function AppContent() {
       // `?load=` — falls back to 'sim' for picker / DnD loads and for
       // share links that didn't pin a tab. 'about' is excluded because
       // landing on / would discard the just-loaded sim state.
-      const target = deepLinkIntent.destinationTab;
+      const target = linkFileRef.current ? deepLinkIntent.destinationTab : null;
+      linkFileRef.current = false;
       setActiveTab(target && target !== 'about' ? target : 'sim');
     },
     onError: (reason) => {
@@ -378,9 +389,13 @@ function AppContent() {
   const handleLoad = loadPreview.openPicker;
 
   // ?load=<url> query-param auto-fetch. Runs once on mount; if the
-  // param isn't present, the hook is a no-op.
-  useLoadFromUrl({
-    openFromFile: (file) => loadPreview.openFromFile(file),
+  // param isn't present, the hook is a no-op. A file on another site
+  // waits for the visitor's answer to LoadFromHostModal.
+  const loadFromUrl = useLoadFromUrl({
+    openFromFile: (file) => {
+      linkFileRef.current = true;
+      return loadPreview.openFromFile(file);
+    },
     onInfo: (title, body) => toast('info', title, body),
     onError: (title, body) => toast('error', title, body),
   });
@@ -390,12 +405,14 @@ function AppContent() {
   // flag. Without this, social-share viewers would see a "Load run?"
   // modal asking them to click before the viz appears — defeats the
   // one-click share. `consumed` guards against re-firing if state ever
-  // cycles back through 'preview' for a subsequent picker / DnD load.
+  // cycles back through 'preview' for a subsequent picker / DnD load,
+  // and `linkFileRef` confirms only the file the link fetched.
   const autoloadConsumedRef = useRef(false);
   useEffect(() => {
     if (autoloadConsumedRef.current) return;
     if (!deepLinkIntent.autoload) return;
     if (loadPreview.state.kind !== 'preview') return;
+    if (!linkFileRef.current) return;
     autoloadConsumedRef.current = true;
     loadPreview.confirm();
   }, [deepLinkIntent.autoload, loadPreview.state.kind, loadPreview]);
@@ -403,7 +420,10 @@ function AppContent() {
   // Drag-and-drop a .json save file anywhere on the dashboard. Uses the
   // same preview + parse pipeline as the file-picker flow.
   const dropZone = useDashboardDropZone({
-    onFile: (file) => loadPreview.openFromFile(file),
+    onFile: (file) => {
+      linkFileRef.current = false;
+      return loadPreview.openFromFile(file);
+    },
     onError: () => {
       toast('error', 'Unsupported file', 'Only .json simulation files supported.');
     },
@@ -1232,6 +1252,13 @@ function AppContent() {
             <VerdictModal
               verdict={sse.verdict as Record<string, unknown>}
               onClose={() => setVerdictModalOpen(false)}
+            />
+          )}
+          {loadFromUrl.pendingHost && (
+            <LoadFromHostModal
+              host={loadFromUrl.pendingHost}
+              onLoad={loadFromUrl.confirmPending}
+              onCancel={loadFromUrl.cancelPending}
             />
           )}
           {loadPreview.metadata && (

@@ -105,7 +105,7 @@ The dashboard reads the `replay` parameter ([`App.tsx`, lines 145 to 164](https:
 
 The server saves a finished run on its own, unless the run was aborted, hit an error or stopped short of its turns ([`server-app.ts`, lines 1140 to 1260](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/server/server-app.ts#L1140-L1260)). It keeps the 10 newest saved runs and deletes the oldest past that ([`stores/session.ts`, lines 29 and 287 to 297](https://github.com/framerslab/paracosm/blob/063c9ee6843c43c5285ac7f602f3f5790b4874f2/src/server/stores/session.ts#L287-L297)). A link to a deleted run shows a "not found" banner.
 
-A link with `?load=<url>` is a different thing: it loads a run saved as a JSON file from that address.
+A link with `?load=<url>` is a different thing: it loads a run saved as a JSON file from that address. When the address is on another site, the dashboard first asks whether to load a run from that site, naming it, and fetches nothing until the visitor chooses Load.
 
 ## What does a fork reuse, and what does it generate fresh?
 
