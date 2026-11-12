@@ -39,6 +39,11 @@
  *   Node's stack formatter never runs for them.
  * - **A time limit.** `vm.runInContext`'s `timeout` ends a loop, including
  *   one inside a getter or a `toJSON` the encoder reads.
+ * - **Node reads nothing after the limit either.** `displayErrors: false`
+ *   stops Node reading the `stack` of a thrown value, and
+ *   `Error.prototype.code` is fixed as a plain data property, so the `code`
+ *   Node sets on its own time-limit error, which it makes inside the
+ *   context, runs no setter.
  *
  * What stays open: memory is not limited (code that fills the heap ends
  * the process), a long-running built-in is not interrupted until it
@@ -141,6 +146,7 @@ function preludeSource(result: 'typed' | 'json'): string {
   }
   O.defineProperty(E, 'stackTraceLimit', { value: undefined, writable: false, enumerable: false, configurable: false });
   O.defineProperty(E, 'prepareStackTrace', { value: undefined, writable: false, enumerable: false, configurable: false });
+  O.defineProperty(E.prototype, 'code', { value: undefined, writable: true, enumerable: false, configurable: false });
   var nothing = function () {};
   g.console = O.freeze({ log: nothing, warn: nothing, error: nothing, info: nothing, debug: nothing });
   function encode(v) {
@@ -240,7 +246,13 @@ __out`;
 
   let out: unknown;
   try {
-    out = vm.runInContext(source, context, { timeout: request.timeoutMs, breakOnSigint: false });
+    out = vm.runInContext(source, context, {
+      timeout: request.timeoutMs,
+      breakOnSigint: false,
+      // With the default, Node reads and rewrites the `stack` of a value
+      // the script throws, after the time limit has ended.
+      displayErrors: false,
+    });
   } catch (thrown) {
     return endingOfThrown(thrown);
   }

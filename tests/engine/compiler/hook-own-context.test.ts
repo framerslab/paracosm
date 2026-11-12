@@ -11,7 +11,8 @@
  * - arguments arrive as data and a result leaves as data: a function is
  *   refused, and a value that runs code when it is read is read inside the
  *   context, under the runner's time limit;
- * - nothing a hook starts goes on after the call returns.
+ * - nothing a hook starts goes on after the call returns, and what Node
+ *   itself reads after the time limit runs none of the hook's code.
  *
  * The calls whose outcome is "the calling process goes on" run in a
  * process of their own (tests/engine/compiler/helpers/hook-probe.ts), so a
@@ -159,6 +160,22 @@ test('a thrown value that runs code when it is read is read under the runner\'s 
       code: "() => { throw Object.defineProperty(new Error('x'), 'message', { get() { for (;;) {} } }); }",
     }),
     'a thrown error with a message getter that never returns',
+  );
+});
+
+test('what Node itself reads once the time limit has ended runs none of the hook\'s code', () => {
+  // Node makes its time-limit error inside the context and sets `code` on it.
+  assertRefusedAndSettled(
+    probe({
+      kind: 'arrow',
+      code: "() => { Object.defineProperty(({}).__proto__, 'code', { set(v) { for (;;) {} } }); for (;;) {} }",
+    }),
+    'a `code` setter that never returns, on the prototype every error inherits from',
+  );
+  // A text that ends the runner's own statement early and throws from the top of the script.
+  assertRefusedAndSettled(
+    probe({ kind: 'arrow', code: '0); } catch (x) {} throw { get stack() { for (;;) {} } }; try { (0' }),
+    'a thrown object with a stack getter that never returns',
   );
 });
 
