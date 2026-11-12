@@ -55,8 +55,16 @@ const CompileFromSeedSchema = z.object({
   actorCount: z.number().int().min(1).max(300).optional(),
 });
 
+/**
+ * The longest scenario id the Quickstart routes the page calls after a
+ * compile take (generate-actors, ground-scenario): 64 characters, the
+ * longest id a compile from a seed gives its draft. The server keeps the id
+ * it installs a Quickstart compile under within it.
+ */
+export const QUICKSTART_SCENARIO_ID_MAX = 64;
+
 const GenerateActorsSchema = z.object({
-  scenarioId: z.string().min(3).max(64),
+  scenarioId: z.string().min(3).max(QUICKSTART_SCENARIO_ID_MAX),
   // Max 300 actors per bundle. A hosted demo actor cost 0.29 to 1.05 USD
   // in the pairs measured on 30 October and 1 November 2026; the
   // SeedInput cost preview surfaces the running total so users opt in
@@ -67,7 +75,7 @@ const GenerateActorsSchema = z.object({
 });
 
 const GroundScenarioSchema = z.object({
-  scenarioId: z.string().min(3).max(64),
+  scenarioId: z.string().min(3).max(QUICKSTART_SCENARIO_ID_MAX),
 });
 
 const SubjectSignalSchema = z.object({

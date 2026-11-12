@@ -333,7 +333,7 @@ A memory store never takes an id the shared catalog holds (a built-in such as `m
 The memory store holds a scenario of at most 256 KiB of JSON (`MEMORY_SCENARIO_MAX_BYTES`), at most 10 scenarios a visitor (`MEMORY_SCENARIOS_PER_VISITOR`), at most 20 for one address, every visitor id that address sends together (`MEMORY_SCENARIOS_PER_ADDRESS`; the address is the one the rate limiter keys on), and at most 100 in all (`MEMORY_SCENARIOS_CAP`). A visitor at any of those counts can still store over an id of their own. A stored scenario leaves the store:
 
 - when 24 hours pass in which it was not stored again, read by its id or run (`MEMORY_SCENARIO_IDLE_MS`), so a full store makes room by itself;
-- when its id enters the shared catalog, through an admin's disk save or its own visitor's [`POST /compile`](#post-compile): from then on the id names the catalog's scenario;
+- when its id enters the shared catalog, through an admin's disk save or its own visitor's [`POST /compile`](#post-compile) or Quickstart compile: from then on the id names the catalog's scenario;
 - when `DELETE /admin/scenarios/:id` names it, from every visitor's store;
 - when the server restarts.
 
@@ -382,7 +382,7 @@ The refusal comes before the stream starts, before the compiler runs and before 
 
 The id is checked again when the compile finishes. If something took it while the compile ran, the stream ends with an `error` event that carries the same message, and the catalog is unchanged.
 
-The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), and the status answer's `scenarioId` and `scenario.id` report the id it landed under.
+The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under.
 
 **Request body**
 

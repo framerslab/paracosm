@@ -9,6 +9,7 @@ import { runPairSimulations, runForkSimulation, runBatchSimulations, type Broadc
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
+  QUICKSTART_SCENARIO_ID_MAX,
   type QuickstartDeps,
 } from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
@@ -2108,14 +2109,22 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               : null;
             // The compile picks the id, and it never replaces a scenario
             // that id already names (scenarioIdTaken): the compiled scenario
-            // lands under the next free id instead, `<id>-2`, `<id>-3`. The
-            // catalog's own entry for this very scenario (a second request
-            // for a compile that already landed) keeps its id.
+            // lands under the next free id instead, `<id>-2`, `<id>-3`, with
+            // the id cut short where it must be so the whole stays within
+            // QUICKSTART_SCENARIO_ID_MAX, the longest id the page's next
+            // Quickstart calls take. The catalog's own entry for this very
+            // scenario (a second request for a compile that already landed)
+            // keeps its id.
             let sc = compiledFromSeed;
             if (customScenarioCatalog.get(sc.id)?.scenario !== sc && scenarioIdTaken(quickstartVisitor, sc.id)) {
+              const takenId = sc.id;
+              const withSuffix = (n: number): string => {
+                const tail = `-${n}`;
+                return `${takenId.slice(0, Math.max(0, QUICKSTART_SCENARIO_ID_MAX - tail.length))}${tail}`;
+              };
               let suffix = 2;
-              while (scenarioIdTaken(quickstartVisitor, `${sc.id}-${suffix}`)) suffix += 1;
-              sc = { ...sc, id: `${sc.id}-${suffix}` };
+              while (scenarioIdTaken(quickstartVisitor, withSuffix(suffix))) suffix += 1;
+              sc = { ...sc, id: withSuffix(suffix) };
             }
             // Quickstart-compiled scenarios reuse the 'compiled' source
             // tag; same post-compile semantics, no new source state
