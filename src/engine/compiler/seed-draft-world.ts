@@ -78,6 +78,14 @@ export const HEADER_METRICS = 4;
 export const SUSTAINS_MIN_YEARS = 5;
 /** At most this many supplies are marked in one scenario, as many as Mars Genesis marks. */
 export const SUSTAINS_MAX_MARKS = 5;
+/**
+ * Where a run's turns start, in time units after its first, when its turn
+ * time is 0 or under: the accelerating schedule of `buildTimeSchedule`
+ * (src/runtime/util/runtime-helpers.ts), each turn past the twelfth five
+ * units after the one before it. The engine does not import the runtime,
+ * so the offsets are kept here, and a test holds the two to one span.
+ */
+const ACCELERATING_TURN_OFFSETS = [0, 2, 5, 8, 11, 14, 18, 23, 28, 33, 40, 50] as const;
 
 const LABEL_MAX = 48;
 const UNIT_MAX = 16;
@@ -207,14 +215,19 @@ export interface SustainsFinding {
  * A mark is refused when:
  *
  * 1. its key is `population` or `morale`: the engine's own two values;
- * 2. it is not a plain quantity: its type is not `number`, the score that
+ * 2. it is not a plain quantity: its type is not `number`, a score that
  *    reads it is a percent or a currency, or its unit is `%`, `frac` or
- *    `score`, or names USD, EUR or `$`;
- * 3. the score that reads it is better lower;
+ *    `score`, or names USD or EUR (alone, or with a k, M or b in front)
+ *    or `$`;
+ * 3. a score that reads it is better lower;
  * 4. it does not start above 0, so the kernel keeps no amount on day one;
+ *    a key both `world.metrics` and `world.capacities` declare starts at
+ *    the capacity's number, the one the kernel holds;
  * 5. no category table names it, so no outcome moves it;
- * 6. the default run spans under {@link SUSTAINS_MIN_YEARS} years, on the
- *    kernel's own reading of the time unit;
+ * 6. the default run spans under {@link SUSTAINS_MIN_YEARS} years, from its
+ *    first turn's start to its last's as a run lays them out (the
+ *    accelerating schedule for a turn time of 0 or under), on the kernel's
+ *    own reading of the time unit;
  * 7. {@link SUSTAINS_MAX_MARKS} marks before it already pass rules 1 to 6.
  *
  * The rules catch what a machine can see. A plain stock that passes all
@@ -233,14 +246,30 @@ export function sustainsVeto(scenarioJson: Record<string, unknown>): SustainsFin
   const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
   const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
 
-  // The declared score that reads a world key, found as the outcome step
-  // finds one: by the last part of its source, or by its id.
-  const scores = new Map<string, Record<string, unknown>>();
+  // Every declared score that reads a world key, each found as the outcome
+  // step finds one: by the last part of its source, or by its id.
+  const scores = new Map<string, Array<Record<string, unknown>>>();
   for (const metric of Array.isArray(json.metrics) ? json.metrics : []) {
     if (!isObject(metric)) continue;
     const key = (text(metric.source) ?? text(metric.id))?.split('.').pop();
-    if (key && !scores.has(key)) scores.set(key, metric);
+    if (key) scores.set(key, [...(scores.get(key) ?? []), metric]);
   }
+
+  // What the kernel holds of a key on day one: it lays the capacities over
+  // the metrics, each field at its start, a number with no start at 0, and
+  // a start that is not a number left out (`seedNumericBag`, kernel.ts). A
+  // key both bags declare holds the capacity's number.
+  const worldMetrics = json.world?.metrics;
+  const worldCapacities = json.world?.capacities;
+  const metricFields: Record<string, unknown> = isObject(worldMetrics) ? worldMetrics : {};
+  const capacityFields: Record<string, unknown> = isObject(worldCapacities) ? worldCapacities : {};
+  const has = (fields: Record<string, unknown>, key: string): boolean => Object.prototype.hasOwnProperty.call(fields, key);
+  const startOf = (field: unknown): number | undefined => {
+    if (!isObject(field)) return undefined;
+    if (field.initial !== undefined) return typeof field.initial === 'number' ? field.initial : undefined;
+    return field.type === 'string' || field.type === 'boolean' ? undefined : 0;
+  };
+  const inBoth = (key: string): boolean => has(metricFields, key) && has(capacityFields, key);
 
   // The category tables: the object form's values, or the tables of the
   // array form's first element, the one a run applies.
@@ -249,20 +278,30 @@ export function sustainsVeto(scenarioJson: Record<string, unknown>): SustainsFin
   const tables = isObject(bag) ? Object.values(bag) : [];
   const named = (key: string): boolean => tables.some(table => isObject(table) && Object.prototype.hasOwnProperty.call(table, key));
 
-  // The years the default run spans: its turns after the first, each a
-  // turn's time long. A run whose turns cannot be read spans none.
+  // The years the default run spans, from its first turn's start to its
+  // last's, as a run lays its turns out: each a turn's time long, one unit
+  // where the scenario gives no turn time, and on the accelerating schedule
+  // where it gives 0 or under. A run whose turns cannot be read spans none.
   const turns = json.setup?.defaultTurns;
-  const perTurn = json.setup?.defaultTimePerTurn;
+  const timePerTurn = json.setup?.defaultTimePerTurn;
+  const perTurn = isNumber(timePerTurn) ? timePerTurn : 1;
+  const lastStart = (count: number): number => {
+    if (perTurn > 0) return (count - 1) * perTurn;
+    const index = Math.floor(count) - 1;
+    if (index <= 0) return 0;
+    const last = ACCELERATING_TURN_OFFSETS.length - 1;
+    return ACCELERATING_TURN_OFFSETS[index] ?? ACCELERATING_TURN_OFFSETS[last] + (index - last) * 5;
+  };
   const years = isNumber(turns)
-    ? unitsToYears((turns - 1) * (isNumber(perTurn) ? perTurn : 1), yearsPerTimeUnit(json.labels, json.setup))
+    ? unitsToYears(lastStart(turns), yearsPerTimeUnit(json.labels, json.setup))
     : undefined;
 
   /** The first of rules 1 to 6 that refuses a marked field, or nothing. */
   const refusal = (key: string, field: Record<string, unknown>): { rule: number; reason: string } | undefined => {
     if (key === 'population') return { rule: 1, reason: 'the head count is the roster, not a supply: it would feed its own death rates' };
     if (key === 'morale') return { rule: 1, reason: 'morale is a mood, not a supply' };
-    const score = scores.get(key);
-    const format = score?.format;
+    const readers = scores.get(key) ?? [];
+    const format = readers.find(score => score.format === 'percent' || score.format === 'currency')?.format;
     const unit = typeof field.unit === 'string' ? field.unit.trim() : '';
     if (field.type !== undefined && field.type !== 'number') {
       return { rule: 2, reason: `it is not a plain quantity: its type is ${JSON.stringify(field.type)}, not a number` };
@@ -273,14 +312,21 @@ export function sustainsVeto(scenarioJson: Record<string, unknown>): SustainsFin
     if (/^(%|frac|score)$/i.test(unit)) {
       return { rule: 2, reason: `it is not a plain quantity: its unit, "${unit}", is a share's or a score's` };
     }
-    // USD and EUR as words of their own, so a unit such as "heures" keeps its mark.
-    if (/\$|(^|[^a-z])(usd|eur)([^a-z]|$)/i.test(unit)) {
+    // USD and EUR as words of their own, or with a k, M or b in front of
+    // them, so "kUSD" is money and a unit such as "heures" keeps its mark.
+    if (/\$|(^|[^a-z])[kmb]?(usd|eur)([^a-z]|$)/i.test(unit)) {
       return { rule: 2, reason: `it is not a plain quantity: its unit, "${unit}", names money` };
     }
-    if (score?.better === 'lower') {
+    if (readers.some(score => score.better === 'lower')) {
       return { rule: 3, reason: 'its score is better lower, and a supply is something the people are better off with more of' };
     }
-    if (!(typeof field.initial === 'number' && field.initial > 0)) {
+    if (inBoth(key)) {
+      const held = startOf(capacityFields[key]) ?? startOf(metricFields[key]);
+      if (!(typeof held === 'number' && held > 0)) {
+        const start = held === undefined ? 'nothing' : JSON.stringify(held);
+        return { rule: 4, reason: `it does not start above 0: world.metrics and world.capacities both declare it, and the kernel holds ${start} of it on day one, so there is no amount to hold it against` };
+      }
+    } else if (!(typeof field.initial === 'number' && field.initial > 0)) {
       const start = field.initial === undefined ? 'nothing' : JSON.stringify(field.initial);
       return { rule: 4, reason: `it does not start above 0 (it starts at ${start}), so there is no amount on day one to hold it against` };
     }
