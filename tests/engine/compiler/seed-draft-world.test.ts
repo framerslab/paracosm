@@ -429,6 +429,92 @@ test('one malformed entry among three tables reads as undefined in its place; th
   assert.deepEqual(noteOf(n, 'table-dropped')?.path, 'effects[2]');
 });
 
+// ---- Numbers at the edges ------------------------------------------------------------
+
+test('an entry of 1e308 on a count that starts empty is held to 1e15, so its outcome stays finite and reaches the score', async () => {
+  const n = normalize({
+    metrics: [{ id: 'patents', format: 'number', initial: 0 }, { id: 'stock', initial: 120 }],
+    effects: [
+      { category: 'research', entries: [{ metric: 'patents', change: 1e308 }, { metric: 'stock', change: -6 }] },
+      { category: 'market', entries: [{ metric: 'stock', change: 6 }, { metric: 'patents', change: -1e308 }] },
+      { category: 'supply', entries: [{ metric: 'stock', change: 6 }, { metric: 'patents', change: 40 }] },
+    ],
+  });
+  assert.equal(n.effects.research.patents, MAX_MAGNITUDE, `the entry is held to 1e15 (read ${n.effects.research.patents})`);
+  assert.equal(n.effects.market.patents, -MAX_MAGNITUDE, `the sign is kept (read ${n.effects.market.patents})`);
+  assert.equal(n.effects.supply.patents, 40, 'an entry under the limit stays as written');
+  assert.deepEqual(
+    n.notes.filter(note => note.rule === 'size-over-limit').map(note => note.path),
+    ['effects[0].entries[0]', 'effects[1].entries[1]'],
+    `each held entry leaves a note (read rules ${JSON.stringify(n.rules)})`,
+  );
+
+  // A bold response that works multiplies the entry by 2.5: the change is finite, and the kernel applies it.
+  const pkg = await compileScenario(n.scenario, { cache: false, generateText: async () => 'not a hook' });
+  const kernel = new SimulationKernel(950, 'Leader', scenarioKeyPersonnel(pkg), { startTime: 1, initialPopulation: 20, scenario: pkg });
+  const deltas = EffectRegistry.forScenario(pkg).applyOutcome('research', 'risky_success', { personalityBonus: 0, noise: 0 });
+  assert.ok(Number.isFinite(deltas.patents), `the outcome's change to patents is finite (read ${deltas.patents})`);
+  kernel.applySystemDeltas(deltas);
+  const held = (kernel.getState().metrics as unknown as Record<string, number>).patents;
+  assert.equal(held, 2.5 * MAX_MAGNITUDE, `the kernel holds the count after the outcome (read ${held})`);
+
+  // The check names an entry over the limit, where a package carries one.
+  const broken = JSON.parse(JSON.stringify(n.scenario));
+  broken.effects.research.patents = 1e300;
+  const { errors } = validateSeedWorld(broken);
+  assert.ok(
+    errors.some(e => e.includes('table "research" changes patents by 1e+300, larger than 1000000000000000 in size')),
+    `validateSeedWorld names an entry larger than 1e15 (read ${JSON.stringify(errors)})`,
+  );
+});
+
+test('no start between a floor and a ceiling less than a millionth apart: the start stays inside them', async () => {
+  // The midpoint, 0.00000045, rounds to 0 at six decimals, under the floor.
+  const n = normalize({ metrics: [{ id: 'trace', format: 'number', min: 0.0000004, max: 0.0000005 }, { id: 'stock' }] });
+  const { initial, min, max } = n.world.trace;
+  assert.deepEqual([min, max], [0.0000004, 0.0000005]);
+  assert.ok(initial >= min && initial <= max, `the start lies within its floor and its ceiling (read ${initial})`);
+  requireNote(n, 'default-start', 'trace');
+  const { metrics } = await kernelOf(n.scenario);
+  assert.equal(metrics.trace, initial, `a kernel holds that start (read ${metrics.trace})`);
+});
+
+test('in a draft written in fractions, an entry that rounds to nothing keeps its sign and is raised to a hundredth of its score\'s scale', () => {
+  const n = normalize({
+    metrics: [{ id: 'retention', format: 'percent', initial: 0.62 }, { id: 'churn', format: 'percent', initial: 0.04, better: 'lower' }, { id: 'stock', format: 'number', initial: 200 }],
+    effects: [
+      { category: 'market', entries: [{ metric: 'retention', change: -0.000000001 }, { metric: 'stock', change: 10 }] },
+      { category: 'service', entries: [{ metric: 'churn', change: 0.000000001 }, { metric: 'retention', change: 0.01 }] },
+      { category: 'supply', entries: [{ metric: 'stock', change: -12 }, { metric: 'churn', change: 0.001 }] },
+    ],
+  });
+  // retention starts at 62 points, 38 from its ceiling: a hundredth of that scale is 0.38. churn starts at 4: 0.04.
+  assert.deepEqual(n.effects, { market: { retention: -0.38, stock: 10 }, service: { churn: 0.04, retention: 1 }, supply: { stock: -12, churn: 0.1 } });
+  assert.equal(n.notes.filter(note => note.rule === 'entry-under-least').length, 2, `both entries leave a note (read rules ${JSON.stringify(n.rules)})`);
+});
+
+test('an entry on morale written in points is divided by 100, as a morale start is', () => {
+  const n = normalize({
+    metrics: [{ id: 'stock', initial: 120 }, { id: 'cash', format: 'currency', initial: 1200 }],
+    effects: [
+      { category: 'supply', entries: [{ metric: 'morale', change: -2 }, { metric: 'stock', change: 6 }, { metric: 'cash', change: 60 }] },
+      { category: 'market', entries: [{ metric: 'morale', change: 4 }, { metric: 'cash', change: -60 }] },
+      { category: 'unrest', entries: [{ metric: 'morale', change: -30 }, { metric: 'stock', change: -6 }] },
+      { category: 'weather', entries: [{ metric: 'stock', change: -6 }, { metric: 'cash', change: 60 }, { metric: 'morale', change: 0.04 }] },
+    ],
+  });
+  assert.deepEqual(
+    [n.effects.supply.morale, n.effects.market.morale, n.effects.unrest.morale, n.effects.weather.morale],
+    [-0.02, 0.04, -0.083333, 0.04],
+    `two points are 0.02, four are 0.04, thirty are cut to a twelfth of morale's range, and a fraction stays (read ${JSON.stringify(n.effects)})`,
+  );
+  assert.deepEqual(
+    n.notes.filter(note => note.rule === 'morale-in-points').map(note => note.path),
+    ['effects[0].entries[0]', 'effects[1].entries[0]', 'effects[2].entries[0]'],
+    `each entry in points leaves a note (read rules ${JSON.stringify(n.rules)})`,
+  );
+});
+
 // ---- The bound, the schema's limits, determinism ---------------------------------
 
 const FIXTURES = [
