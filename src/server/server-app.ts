@@ -123,6 +123,16 @@ const SCENARIO_PICK_MAX_AGE_SECONDS = 2_592_000;
 const SCENARIO_PICK_MAX_BYTES = 1024;
 
 /**
+ * The largest scenario POST /scenario/store holds in memory, as JSON
+ * (256 KiB). The largest scenario under scenarios/ is about 33 KB.
+ */
+export const MEMORY_SCENARIO_MAX_BYTES = 256 * 1024;
+/** The most scenarios one visitor holds in memory. */
+export const MEMORY_SCENARIOS_PER_VISITOR = 10;
+/** The most scenarios the memory store holds, every visitor's together. */
+export const MEMORY_SCENARIOS_CAP = 100;
+
+/**
  * The scenario id in the request's `paracosm_scenario` cookie: the first
  * such pair of the Cookie header, percent-decoded. Null when there is
  * none, when its value is over 1024 bytes, or when it does not decode.
@@ -754,8 +764,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     },
   });
 
-  // Raw custom scenario JSON payloads authored during this session.
-  const memoryScenarios = new Map<string, unknown>();
+  // The scenario JSON each visitor stored through POST /scenario/store
+  // without a disk write, by visitor (the paracosm_visitor cookie; every
+  // caller with no cookie is the one anonymous visitor), then by id. A
+  // visitor's stored scenarios are theirs alone: they never enter the
+  // catalog below, so no other visitor lists, reads or runs them. Held for
+  // the process, at most MEMORY_SCENARIOS_PER_VISITOR a visitor and
+  // MEMORY_SCENARIOS_CAP in all.
+  const memoryScenarios = new Map<string, Map<string, unknown>>();
+  let memoryScenarioCount = 0;
+  const ownMemoryScenarios = (req: IncomingMessage): Map<string, unknown> | undefined =>
+    memoryScenarios.get(readVisitorId(req));
   // Runnable scenarios that can appear in the catalog and be switched to.
   // Disk-loaded + builtins register into the SAME map so the switch /
   // list / active-derivation code is universal — no hardcoded branches
@@ -872,20 +891,32 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const resolveRequestScenario = (req: IncomingMessage, explicitId?: unknown, parentId?: unknown): ScenarioResolution => {
     const named = typeof explicitId === 'string' ? explicitId : typeof parentId === 'string' ? parentId : null;
     if (named !== null) {
-      const entry = customScenarioCatalog.get(named);
-      if (entry) return { scenario: entry.scenario };
+      const scenario = lookupScenario(req, named);
+      if (scenario) return { scenario };
       if (hydratingScenarioIds.has(named)) return { loading: named };
-      if (memoryScenarios.has(named)) return { notRunnable: named };
+      if (ownMemoryScenarios(req)?.has(named)) return { notRunnable: named };
       return { unknown: named };
     }
     const picked = readVisitorScenarioId(req);
     if (picked !== null) {
-      const entry = customScenarioCatalog.get(picked);
-      if (entry) return { scenario: entry.scenario };
+      const scenario = lookupScenario(req, picked);
+      if (scenario) return { scenario };
       if (hydratingScenarioIds.has(picked)) return { loading: picked };
     }
     return { scenario: marsScenario };
   };
+
+  /**
+   * The runnable scenario `id` names for this request: the catalog's, which
+   * every visitor shares, else one this visitor stored in memory. A
+   * visitor's stored scenario never shadows a catalog entry.
+   */
+  function lookupScenario(req: IncomingMessage, id: string): ScenarioPackage | undefined {
+    const entry = customScenarioCatalog.get(id);
+    if (entry) return entry.scenario;
+    const own = ownMemoryScenarios(req)?.get(id);
+    return isRunnableScenarioPackage(own) ? own : undefined;
+  }
 
   /** Answers a request whose scenario did not resolve: 503 while it loads, 400 otherwise. */
   const writeScenarioRefusal = (
@@ -1446,7 +1477,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       corsHeaders,
       paracosmRoutesEnabled,
       runsDir,
-      scenarioLookup: (id) => customScenarioCatalog.get(id)?.scenario,
+      scenarioLookup: (id) => lookupScenario(req, id),
     })) {
       return;
     }
@@ -1539,11 +1570,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // List scenarios that can be switched to. Builtins, disk-loaded,
-    // in-memory runnable customs and compiled scenarios all live in the
-    // same catalog, and this endpoint is a uniform iteration over it. No
-    // hardcoded IDs. `active` is this visitor's pick (or the default),
-    // so the answer varies by cookie.
+    // List scenarios that can be switched to. Builtins, disk-loaded and
+    // compiled scenarios all live in the same catalog, and this endpoint is
+    // a uniform iteration over it, followed by the runnable scenarios this
+    // visitor stored in memory, which no other visitor sees. No hardcoded
+    // IDs. `active` is this visitor's pick (or the default), so the answer
+    // varies by cookie.
     //
     // Each entry now carries persistence metadata + a run-count from
     // the run-history store so the dashboard's scenario picker can
@@ -1574,6 +1606,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           source: entry.source,
           compiledAt: meta?.compiledAt,
           seedText: meta?.seedText,
+        });
+      }
+      // The runnable scenarios this visitor stored in memory, theirs alone.
+      for (const [id, stored] of ownMemoryScenarios(req) ?? new Map<string, unknown>()) {
+        if (customScenarioCatalog.has(id) || !isRunnableScenarioPackage(stored)) continue;
+        entries.push({
+          id,
+          name: stored.labels?.name || id,
+          description: describeCustomScenarioSource('memory'),
+          departments: stored.departments?.length || 0,
+          source: 'memory',
         });
       }
       // While the pick re-compiles after a restart, `active` is its id, so
@@ -1770,7 +1813,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // in the client. Lets operators flip the env var + pm2 restart
       // and the UI updates on the next page load without a redeploy.
       const { DEMO_EXECUTION } = await import('../cli/sim-config.js');
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      // `memoryScenarios` is this visitor's own, so the answer varies by cookie.
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify({
         adminWrite,
         hostedDemo,
@@ -1780,7 +1824,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           maxPopulation: DEMO_EXECUTION.maxPopulation,
           maxActiveDepartments: DEMO_EXECUTION.maxActiveDepartments,
         },
-        memoryScenarios: [...memoryScenarios.keys()],
+        memoryScenarios: [...(ownMemoryScenarios(req)?.keys() ?? [])],
         keys: {
           openai: !!env.OPENAI_API_KEY,
           anthropic: !!env.ANTHROPIC_API_KEY,
@@ -1793,11 +1837,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // Store a scenario in memory (any visitor) and, with saveToDisk, also
-    // write it to <scenarioDir>/<id>.json. The disk write takes the admin
-    // credential the /admin/* routes take (requireAdminToken) and an id
-    // that names one file directly in the scenarios folder
-    // (scenarioJsonPath). A refused disk write stores nothing.
+    // Store a scenario in this visitor's memory (any visitor) or, with
+    // saveToDisk, write it to <scenarioDir>/<id>.json and the catalog every
+    // visitor reads. The disk write takes the admin credential the /admin/*
+    // routes take (requireAdminToken) and an id that names one file directly
+    // in the scenarios folder (scenarioJsonPath). A memory store is the storing visitor's alone (memoryScenarios), so
+    // it never takes an id the catalog holds, and it is held to
+    // MEMORY_SCENARIO_MAX_BYTES, MEMORY_SCENARIOS_PER_VISITOR and
+    // MEMORY_SCENARIOS_CAP. A refused request stores nothing.
     if (req.url === '/scenario/store' && req.method === 'POST') {
       try {
         const { scenario: scenarioJson, saveToDisk } = JSON.parse(await readBody(req, maxRequestBodyBytes));
@@ -1806,32 +1853,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           res.end(JSON.stringify({ error: 'scenario with id required' }));
           return;
         }
-        let diskPath: string | null = null;
+        const refuse = (status: number, error: string, log: string): void => {
+          console.warn(`[scenarios] scenario store refused: ${log}`);
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error }));
+        };
+        const switchable = isRunnableScenarioPackage(scenarioJson);
+        let savedToDisk = false;
         if (saveToDisk) {
           if (!requireAdminToken(req, res)) {
             console.warn('[scenarios] scenario disk write refused: admin credential missing, wrong or not configured');
             return;
           }
-          diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
+          const diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
           if (!diskPath) {
             console.warn('[scenarios] scenario disk write refused: the id is not a plain scenario id');
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: `Invalid scenario id for a disk write: ${SCENARIO_ID_RULE}.` }));
             return;
           }
-        }
-        // Store raw JSON in memory for this authoring session.
-        memoryScenarios.set(scenarioJson.id, scenarioJson);
-        const switchable = isRunnableScenarioPackage(scenarioJson);
-        if (switchable) {
-          customScenarioCatalog.set(scenarioJson.id, {
-            scenario: scenarioJson,
-            source: diskPath ? 'disk' : 'memory',
-          });
-        }
-
-        let savedToDisk = false;
-        if (diskPath) {
           const { writeFileSync, mkdirSync } = await import('node:fs');
           mkdirSync(scenarioDir, { recursive: true });
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
@@ -1842,6 +1882,35 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               source: 'disk',
             });
           }
+        } else {
+          const id: unknown = scenarioJson.id;
+          if (typeof id !== 'string') {
+            refuse(400, 'The scenario id must be a string.', 'an id that is not a string');
+            return;
+          }
+          if (customScenarioCatalog.has(id) || hydratingScenarioIds.has(id)) {
+            refuse(409, `"${id}" is the id of a scenario every visitor sees. Give your copy an id of its own.`, 'an id the shared catalog holds');
+            return;
+          }
+          if (Buffer.byteLength(JSON.stringify(scenarioJson)) > MEMORY_SCENARIO_MAX_BYTES) {
+            refuse(413, `A scenario held in memory is at most ${MEMORY_SCENARIO_MAX_BYTES / 1024} KiB of JSON.`, 'over the size held in memory');
+            return;
+          }
+          const visitorId = readVisitorId(req);
+          const own = memoryScenarios.get(visitorId) ?? new Map<string, unknown>();
+          if (!own.has(id)) {
+            if (own.size >= MEMORY_SCENARIOS_PER_VISITOR) {
+              refuse(507, `This server holds at most ${MEMORY_SCENARIOS_PER_VISITOR} scenarios in memory for one visitor. Store over one of yours.`, 'the visitor holds the most scenarios in memory');
+              return;
+            }
+            if (memoryScenarioCount >= MEMORY_SCENARIOS_CAP) {
+              refuse(507, `This server holds at most ${MEMORY_SCENARIOS_CAP} scenarios in memory, every visitor's together, and it is full until it restarts.`, 'the memory store is full');
+              return;
+            }
+            memoryScenarios.set(visitorId, own);
+            memoryScenarioCount += 1;
+          }
+          own.set(id, scenarioJson);
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -1924,7 +1993,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             const persistResult = persistCompiledScenario(scenarioDir, sc, seed);
             compiledScenarioMeta.set(sc.id, persistResult?.meta ?? { compiledAt: new Date().toISOString(), seedText: seed });
           },
-          getScenarioById: (id) => customScenarioCatalog.get(id)?.scenario,
+          getScenarioById: (id) => lookupScenario(req, id),
           pickHeaders: (id): Record<string, string> => {
             const cookie = pickCookie(id, pickCookieSecure);
             return cookie ? { 'Set-Cookie': cookie } : {};
@@ -2174,7 +2243,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // out before the compile, so it cannot carry a cookie; the editor
         // that compiled it posts /scenario/switch with the id from
         // `complete`, which makes it that visitor's pick.
-        memoryScenarios.set(compiled.id, compiled);
         customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
 
         // Snapshot compile telemetry into the ring buffer so /retry-stats
@@ -2645,7 +2713,26 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (!requireAdminToken(req, res)) return;
       const id = decodeURIComponent(adminScenarioMatch[1]);
       const entry = customScenarioCatalog.get(id);
+      // A scenario visitors stored in memory under this id goes from every
+      // visitor's store; the catalog's entry, if any, is handled below.
+      const dropFromMemory = (): number => {
+        let dropped = 0;
+        for (const [visitorId, own] of memoryScenarios) {
+          if (!own.delete(id)) continue;
+          dropped += 1;
+          memoryScenarioCount -= 1;
+          if (own.size === 0) memoryScenarios.delete(visitorId);
+        }
+        return dropped;
+      };
       if (!entry) {
+        const memoryDeleted = dropFromMemory();
+        if (memoryDeleted > 0) {
+          console.log(`[scenarios] admin deleted ${id} from ${memoryDeleted} visitor memory store(s)`);
+          res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ deleted: true, id, fileDeleted: false, catalogDeleted: false, metaDeleted: false, memoryDeleted }));
+          return;
+        }
         res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'scenario_not_found', id }));
         return;
@@ -2674,7 +2761,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const fileDeleted = deletePersistedCompiledScenario(scenarioDir, id);
       const catalogDeleted = customScenarioCatalog.delete(id);
       const metaDeleted = compiledScenarioMeta.delete(id);
-      console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted})`);
+      const memoryDeleted = dropFromMemory();
+      console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted} memory=${memoryDeleted})`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({
         deleted: true,
@@ -2682,6 +2770,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         fileDeleted,
         catalogDeleted,
         metaDeleted,
+        memoryDeleted,
       }));
       return;
     }

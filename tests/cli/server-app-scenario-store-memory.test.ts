@@ -32,7 +32,7 @@ const IN_ALL = 100;
 
 /** A runnable scenario (the one tests/cli/server-app-scenario-per-visitor.test.ts stores). */
 const oceanStation = {
-  id: 'deep-ocean-station',
+  id: 'stored-ocean-station',
   version: '1.0.0',
   engineArchetype: 'closed_turn_based_settlement',
   labels: { name: 'Deep Ocean Station', shortName: 'ocean', populationNoun: 'crew members', settlementNoun: 'station', currency: 'credits' },
@@ -83,7 +83,7 @@ test('a store under the id of a built-in or a curated scenario is refused and ch
     const b = cookied();
     const cookieless = visitor();
     for (const [who, author] of [['a visitor', a], ['a caller with no cookie', cookieless]] as const) {
-      for (const id of [mars.id, atlasLab.id]) {
+      for (const id of [mars.id, atlasLab.id, 'deep-ocean-station']) {
         const res = await store(author, station(id, 'Replaced'));
         assert.equal(res.status, 409, `${who} storing ${id}: ${res.status}`);
         assert.match(((await res.json()) as { error: string }).error, new RegExp(`"${id}" is the id of a scenario every visitor`));
