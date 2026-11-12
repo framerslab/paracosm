@@ -494,14 +494,15 @@ The verdict is broadcast as an SSE `verdict` event and rendered in the dashboard
 After the simulation, users can chat with any colonist. Each colonist is a full AgentOS `agent()` instance with:
 
 - **HEXACO personality** passed to `agent({ personality: { ... } })`
-- **Episodic memory** seeded with their simulation experiences (reactions, crises, department reports, decisions), read from the run's events
+- **Episodic memory** seeded with their simulation experiences (reactions, crises, department reports, decisions, outcomes), read from the run's events, each with its turn and year ("Turn 2 (Year 2043): The commander decided: ...")
+- **The run's facts in its instructions**: the leader the colonist lived under, named as their commander (the scenario's leader word), and the turns that leader's run played with the year of each, as the only turns there were, and the turn and year the run ended. No memory names the leader, and the roster holds every person but the leader, so these come from the run itself
 - **The memory the run kept**: the chat panel shows each colonist's recent memories, beliefs, stances and relationships from their latest `agent_reactions` entry, which carries their memory as the kernel holds it after that turn's reactions, that turn's reaction included
 - **Full conversation history** managed automatically by `session.send()`
 - **RAG retrieval** before each turn: `memory.getContext()` retrieves relevant simulation memories
 
 This prevents the contradictions that plagued the old system. The colonist cannot claim Yoruba heritage in one message and deny it in the next because both statements are stored in episodic memory and retrieved by the RAG pipeline.
 
-Agents are created lazily on first chat message (~2-3s init) and pooled (max 10, LRU eviction).
+Agents are created lazily on first chat message (~2-3s init) and pooled (50 by default, `PARACOSM_CHAT_POOL_SIZE`, at least 10; LRU eviction).
 
 ## API
 

@@ -2390,7 +2390,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
         // Import chat agent system (lazy to avoid startup cost)
         const chatAgents = await import('../runtime/agents/chat-agents.js');
-        const { extractColonistMemories, extractColonistRoster } = chatAgents;
+        const { extractColonistMemories, extractColonistRoster, extractRunTurns } = chatAgents;
         const getOrCreateChatAgent = options.chatAgent ?? chatAgents.getOrCreateChatAgent;
 
         // Extract sim events and find colonist profile
@@ -2453,6 +2453,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // the chat agent knows who else exists. Without this, the agent
         // confabulates fake bios for any name the user invents.
         const roster = extractColonistRoster(simEvents);
+        // The turns this life ran through, each with its year: the character
+        // is told these and the leader, which no memory or roster line names.
+        const turns = extractRunTurns(simEvents);
 
         // Get or create the agent (lazy init with memory seeding). The pool
         // keys it by run and leader, so two visitors talking to one
@@ -2470,6 +2473,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           roster,
           runKey: chatRun.key,
           leader: leaderName,
+          turns,
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)

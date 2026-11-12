@@ -69,6 +69,12 @@ export interface ColonistRosterEntry {
   childrenIds?: string[];
 }
 
+/** One turn a run played, and the time it was (Year 2035, Month 3). */
+export interface ChatRunTurn {
+  turn: number;
+  time: number;
+}
+
 /** What the agent factory takes beside the person and their memories. */
 export interface ChatAgentOptions {
   provider?: LlmProvider;
@@ -92,9 +98,15 @@ export interface ChatAgentOptions {
   /**
    * The leader under whom the character lived. A pair run holds one
    * colony of the same people under each leader; an agent per leader
-   * keeps the two lives apart.
+   * keeps the two lives apart. The character is told this leader was
+   * theirs.
    */
   leader?: string;
+  /**
+   * The turns the run played under that leader, each with its time, in
+   * order. The character is told these are the only turns there were.
+   */
+  turns?: ChatRunTurn[];
 }
 
 /** Pool entry for a live chat agent. */
@@ -288,13 +300,13 @@ function renderRosterLine(entry: ColonistRosterEntry, settlement?: string): stri
  *
  * @param colonist The person the agent speaks for.
  * @param opts The factory's options: the scenario's nouns and labels, the
- *        roster, and the leader the person lived under.
+ *        roster, the leader the person lived under and the run's turns.
  */
 export function buildChatAgentInstructions(colonist: ColonistProfile, opts: ChatAgentOptions): string {
   const settlement = opts.settlementNoun ?? 'colony';
   const popNoun = opts.populationNoun ?? 'colonist';
   const roster = (opts.roster ?? []).filter(e => e.agentId !== colonist.agentId);
-  return buildInstructions(colonist, settlement, popNoun, roster, opts.labels);
+  return buildInstructions(colonist, settlement, popNoun, roster, opts.labels, { leader: opts.leader, turns: opts.turns });
 }
 
 /**
@@ -313,6 +325,12 @@ export function buildChatAgentInstructions(colonist: ColonistProfile, opts: Chat
  * @param roster The full colony roster at sim end, excluding this
  *        agent. Rendered as a fixed-format list the model is told to
  *        treat as authoritative.
+ * @param labels The scenario's labels: the leader's word and the time unit.
+ * @param run What the run says about this life: the leader the character
+ *        lived under, and the turns the run played with their times. The
+ *        leader is no person of the roster, and the memories name no
+ *        leader ("The commander decided") and no turn count, so without
+ *        these the character has no way to know either.
  */
 export function buildInstructions(
   colonist: ColonistProfile,
@@ -320,8 +338,11 @@ export function buildInstructions(
   popNoun: string,
   roster: ColonistRosterEntry[],
   labels?: Partial<ScenarioLabels>,
+  run?: { leader?: string; turns?: ChatRunTurn[] },
 ): string {
   const words = scenarioWords(labels);
+  const leader = run?.leader?.trim() || undefined;
+  const turns = run?.turns ?? [];
   // Singular form of the scenario's population noun for inline use.
   // "colonists" → "colonist", "crew" → "crew member", "agents" → "agent".
   const singular = popNoun.endsWith('s') ? popNoun.replace(/s$/, '') : `${popNoun} member`;
@@ -337,6 +358,17 @@ export function buildInstructions(
   }
   if (colonist.role && colonist.department) lines.push(`Role: ${colonist.role} in ${colonist.department}.`);
   if (colonist.specialization) lines.push(`Specialization: ${colonist.specialization}.`);
+
+  // The run's facts, stated once: who led this life, and when it happened.
+  if (leader) lines.push(`Your ${words.actor} for the whole run was ${leader}.`);
+  if (turns.length > 0) {
+    const last = turns[turns.length - 1];
+    const each = turns.map(t => `Turn ${t.turn} (${words.TimeUnit} ${t.time})`).join(', ');
+    lines.push(
+      `The run had ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}, and no others: ${each}. ` +
+      `It ended at Turn ${last.turn}, ${words.TimeUnit} ${last.time}.`
+    );
+  }
 
   // HEXACO personality as behavioral descriptors
   if (colonist.hexaco) {
@@ -359,11 +391,13 @@ export function buildInstructions(
 
   // KNOWN MEMBERS block. Uses the scenario's population noun so it reads
   // "KNOWN COLONISTS" for Mars, "KNOWN CREW" for submarine, "KNOWN AGENTS"
-  // for autonomous-system scenarios, etc. Anything NOT on this list does
-  // not exist in this simulation.
+  // for autonomous-system scenarios, etc. Anything NOT on this list, and
+  // not the leader named above, does not exist in this simulation.
   const rosterLabel = `KNOWN ${popNoun.toUpperCase()}`;
   lines.push('');
-  lines.push(`${rosterLabel} (this is the complete roster. Nobody else exists in this simulation):`);
+  lines.push(leader
+    ? `${rosterLabel} (this is the complete roster. Nobody else exists in this simulation besides you and your ${words.actor}):`
+    : `${rosterLabel} (this is the complete roster. Nobody else exists in this simulation):`);
   if (roster.length === 0) {
     lines.push('(Roster unavailable. If asked about anyone besides yourself, say you do not recognize the name.)');
   } else {
@@ -392,13 +426,14 @@ export function buildInstructions(
   );
   lines.push(
     `Ground every answer in specific turns, ${words.timeUnitPlural}, decisions, people, or events from your ` +
-    `memory. Cite turn numbers and ${words.timeUnitPlural} (e.g. "Turn 3, ${words.TimeUnit} 3"). Name the ` +
+    `memory. Cite turn numbers and ${words.timeUnitPlural} as your memories give them. Name the ` +
     `${words.actor}'s choice that affected you. Name the people involved. ` +
     `If you have no relevant memory, say so and pivot to the closest event you do recall.`
   );
   // Anti-hallucination: name grounding against the roster.
   lines.push(
-    `NAME GROUNDING: When someone mentions a person by name, check the ${rosterLabel} list. ` +
+    `NAME GROUNDING: When someone mentions a person by name, check the ${rosterLabel} list` +
+    `${leader ? ` and your ${words.actor}'s name` : ''}. ` +
     `If the name is NOT on the roster (allow minor typos), say plainly that you do not ` +
     `recognize that person, they are not part of this ${settlement}, and name one or two ` +
     `people you DO work with instead. NEVER invent a biography, department, or story for ` +
@@ -485,7 +520,7 @@ export function extractColonistMemories(
       memories.push({
         type: 'department',
         turn, time,
-        text: `Turn ${turn} ${d.department} department report: ${String(d.summary || '').slice(0, 300)}`,
+        text: `Turn ${turn} (${TimeNoun} ${time}): ${d.department} department report: ${String(d.summary || '').slice(0, 300)}`,
         tags: ['department', String(d.department), `turn-${turn}`],
       });
     }
@@ -495,7 +530,7 @@ export function extractColonistMemories(
       memories.push({
         type: 'decision',
         turn, time,
-        text: `Turn ${turn}: The ${actor} decided: ${String(d.decision || '').slice(0, 300)}`,
+        text: `Turn ${turn} (${TimeNoun} ${time}): The ${actor} decided: ${String(d.decision || '').slice(0, 300)}`,
         tags: ['decision', `turn-${turn}`],
       });
     }
@@ -505,13 +540,31 @@ export function extractColonistMemories(
       memories.push({
         type: 'outcome',
         turn, time,
-        text: `Turn ${turn}: Outcome was ${d.outcome}. Effects applied.`,
+        text: `Turn ${turn} (${TimeNoun} ${time}): Outcome was ${d.outcome}. Effects applied.`,
         tags: ['outcome', `turn-${turn}`],
       });
     }
   }
 
   return memories;
+}
+
+/**
+ * The turns a run played, each with its time, in order, read from its
+ * `turn_start` events. Pass one leader's events: a pair run plays the same
+ * turns under each leader, and a character lived through one of them.
+ */
+export function extractRunTurns(
+  simEvents: Array<{ type: string; leader: string; data: Record<string, unknown> }>,
+): ChatRunTurn[] {
+  const timeOf = new Map<number, number>();
+  for (const evt of simEvents) {
+    if (evt.type !== 'turn_start') continue;
+    const turn = evt.data?.turn;
+    const time = evt.data?.time;
+    if (typeof turn === 'number' && typeof time === 'number' && !timeOf.has(turn)) timeOf.set(turn, time);
+  }
+  return [...timeOf].sort((a, b) => a[0] - b[0]).map(([turn, time]) => ({ turn, time }));
 }
 
 /**
