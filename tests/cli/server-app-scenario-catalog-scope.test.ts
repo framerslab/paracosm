@@ -203,15 +203,24 @@ test('a compile under the id of a built-in or a curated scenario is refused befo
     }
 
     // A built-in stays a built-in: it takes no rename and nothing is saved under its id.
-    const rename = await a.post(`/scenarios/${mars.id}/rename`, { name: 'Renamed' });
+    // A rename takes the admin credential first, so a visitor's is refused
+    // before the built-in check, and the admin's is refused by it.
+    const visitorRename = await a.post(`/scenarios/${mars.id}/rename`, { name: 'Renamed' });
+    assert.equal(visitorRename.status, 401, 'a rename without the admin credential');
+    const rename = await fetch(`${api.base}/scenarios/${mars.id}/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': TOKEN },
+      body: JSON.stringify({ name: 'Renamed' }),
+    });
     assert.equal(rename.status, 400);
+    assert.equal(await errorOf(rename), 'cannot_rename_non_compiled');
     assert.equal(existsSync(join(scenarioDir, 'compiled', `${mars.id}.json`)), false, 'no compiled draft saved under the built-in id');
 
     // B runs the built-in by its id and gets the built-in.
     const run = await b.post('/setup', settingsBody(mars));
     assert.equal(run.status, 200);
     assert.equal((await waitFor(() => api.launches[0], "B's run")).scenario?.labels.name, 'Mars Genesis');
-  });
+  }, { env: ADMIN_ENV });
 });
 
 test('at boot a saved compiled draft under the id of a built-in or a curated scenario is left out, and that scenario stays', async () => {
