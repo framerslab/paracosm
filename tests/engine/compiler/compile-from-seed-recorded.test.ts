@@ -204,6 +204,28 @@ for (const [file, label] of DRAFTS) {
         assert.equal(held[metric.id], metric.initial, `${metric.id} stands at the draft's start (read ${String(held[metric.id])})`);
       }
       assert.deepEqual(tables, draft.effects.map(table => table.category), 'the category tables are the draft\'s, in order');
+      if (file === 'draft-orchard-with-tables.json') {
+        // docs/COOKBOOK.md shows this world.
+        assert.deepEqual(
+          scenario.world,
+          {
+            metrics: {
+              harvest: { id: 'harvest', label: 'Harvest', unit: 'tonnes', type: 'number', initial: 420, min: 0, category: 'metric' },
+              'soil-health': { id: 'soil-health', label: 'Soil health', unit: '%', type: 'number', initial: 62, min: 0, max: 100, category: 'metric' },
+            },
+            capacities: {},
+            statuses: {},
+            politics: {},
+            environment: {},
+          },
+          `the compiled world holds the draft's two scores with their labels, units, starts and ranges (read ${JSON.stringify(scenario.world)})`,
+        );
+        assert.deepEqual(
+          [scenario.effects?.length, scenario.effects?.[0]?.id, scenario.effects?.[0]?.type, scenario.effects?.[0]?.label],
+          [1, 'category_effects', 'category_outcome', 'Category Outcome Effects'],
+          'the tables are the one effect definition a run applies',
+        );
+      }
       assert.deepEqual(
         scenario.effects?.[0]?.categoryDefaults,
         Object.fromEntries(draft.effects.map(table => [table.category, Object.fromEntries(table.entries.map(e => [e.metric, e.change]))])),

@@ -228,7 +228,11 @@ const ROWS: Row[] = [
   // A scenario compiled from a seed draft holds every score its draft
   // declares. A draft that gives no start and no table gets the compiler's
   // default starts and three default tables; one that writes its own keeps
-  // them.
+  // them. A declared score differs on 61 of 61 seeds for the bare orchard
+  // draft, on 61 for the same draft with its own starts and tables, and on
+  // 59 for the AI lab draft (CI run 43148058211, job 130950466431, on
+  // commit 302c3381). The floor of 55 is the bar issue #257 sets for a
+  // compiled scenario.
   { id: 'orchard-seasons', label: 'a scenario compiled from a seed draft', scenario: seedCompiled, shape: hosted(seedCompiled), floors: { declared: 55 } },
   { id: 'orchard-seasons', label: 'a scenario compiled from a seed draft with its own starts and tables', scenario: seedCompiledWithTables, shape: hosted(seedCompiledWithTables), floors: { declared: 55 } },
   { id: seedCompiledAiLab.id, label: 'a scenario compiled from the AI lab draft a model returned', scenario: seedCompiledAiLab, shape: hosted(seedCompiledAiLab), floors: { declared: 55 } },
