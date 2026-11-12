@@ -7,7 +7,7 @@
  */
 import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { EffectRegistry, TurnOutcome } from '../../engine/registries/effects.js';
-import type { ScenarioHooks } from '../../engine/types.js';
+import type { ScenarioHooks, ScenarioPackage } from '../../engine/types.js';
 import type { CommanderDecision, DepartmentReport } from '../contracts.js';
 import { decisionToPolicy, oneLine, reportPatchesAsked, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
 
@@ -45,6 +45,31 @@ export interface PolicyEffectTables {
 }
 
 const OUTCOMES: TurnOutcome[] = ['risky_success', 'conservative_success', 'conservative_failure', 'risky_failure'];
+
+/**
+ * The outcome tables a run of `sc` bounds its decisions by, as the turn
+ * loop builds them once for a run: the category tables of `registry`
+ * (`EffectRegistry.forScenario(sc)`), the politics hook, and the
+ * categories of the scenario's `knowledge.categoryMapping`, which the
+ * politics table is also read for.
+ *
+ * A scenario that declares no politics keys (`world.politics` empty or
+ * absent) has no politics table: at an outcome the kernel drops every key
+ * the hook returns, since the run holds no politics, so its numbers could
+ * act only by lifting a limit. The compiler refuses such a hook for the
+ * categories it knows when it generates it (`generate-politics.ts`); this
+ * also covers a category the seed's knowledge adds after the hooks are
+ * generated and a hook restored from the hook cache, which is not checked
+ * again.
+ */
+export function policyEffectTablesFor(sc: ScenarioPackage, registry: EffectRegistry): PolicyEffectTables {
+  const declaresPolitics = Object.keys(sc.world?.politics ?? {}).length > 0;
+  return {
+    registry,
+    politicsHook: declaresPolitics ? sc.hooks.politicsHook : undefined,
+    categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
+  };
+}
 
 /** The limits read for each tables object: a run passes one for all its decisions. */
 const limitsByTables = new WeakMap<PolicyEffectTables, Readonly<Record<string, number>>>();

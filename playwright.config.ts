@@ -32,11 +32,13 @@ export default defineConfig({
     // they read, so one project runs them: two at once would replace each
     // other's runs. So does the run-per-visitor spec, whose server caps how
     // many runs it holds.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // So does the dashboard display spec, whose Library server counts the
+    // replays its tests run.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -70,11 +72,32 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        // The same server with admin writes on and a temporary scenarios
+        // folder, for the spec that enters the admin token in Settings and
+        // saves a scenario to disk.
+        {
+          command: 'PORT=3461 npx tsx tests-e2e/support/admin-write-server.ts',
+          url: 'http://127.0.0.1:3461/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
         // The same server with a scripted runner, for the spec that starts
         // real runs from several browsers at once through the real /setup.
         {
           command: 'PORT=3459 PARACOSM_MAX_RUNS=2 npx tsx tests-e2e/support/stub-runner-server.ts',
           url: 'http://127.0.0.1:3459/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with three stored Mars Genesis runs in its Library,
+        // for the spec that replays them and reads the replay counters.
+        {
+          command: 'PORT=3460 npx tsx tests-e2e/support/library-replay-server.ts',
+          url: 'http://127.0.0.1:3460/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',

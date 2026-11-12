@@ -98,17 +98,26 @@ jobs:
       - name: Run control end-to-end test
         run: npx playwright test tests-e2e/specs/run-control.spec.ts --project=chromium-desktop
 
+      - name: Admin token field end-to-end test
+        run: npx playwright test tests-e2e/specs/admin-token-field.spec.ts --project=chromium-desktop
+
       - name: Scenario per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/scenario-per-visitor.spec.ts --project=chromium-desktop
 
       - name: Digital Twin events end-to-end test
         run: npx playwright test tests-e2e/specs/digital-twin-events.spec.ts --project=chromium-desktop
 
+      - name: Dashboard display end-to-end test
+        run: npx playwright test tests-e2e/specs/dashboard-display.spec.ts --project=chromium-desktop
+
       - name: Run status events end-to-end test
         run: npx playwright test tests-e2e/specs/run-status-events.spec.ts --project=chromium-desktop
 
       - name: Run per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/run-per-visitor.spec.ts --project=chromium-desktop
+
+      - name: Chat threads per run end-to-end test
+        run: npx playwright test tests-e2e/specs/chat-per-run.spec.ts --project=chromium-desktop
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
@@ -135,3 +144,22 @@ jobs:
 
       - name: Install production dependencies from the lockfile, as the server does
         run: npm ci --omit=dev --no-audit --no-fund
+
+  # deploy.yml copies the build to the host with rsync --delete. This runs that
+  # command's filter options against a stand-in host tree and fails when a
+  # deploy would delete data the server writes there, or keep a stale build file.
+  # It then runs the deploy step with stand-in rsync and ssh and fails when the
+  # step copies while APP_DIR is empty, / or relative, when the copy and the
+  # remote script use different directories, or when the remote script changes
+  # the host's APP_DIR.
+  deploy-keeps-host-data:
+    name: Deploy keeps host data
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run the deploy's rsync filter against a stand-in host
+        run: bash scripts/check-deploy-keeps-host-data.sh

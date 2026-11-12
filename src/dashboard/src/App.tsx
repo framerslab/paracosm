@@ -3,6 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -236,7 +237,8 @@ function AppContent() {
   const useDemoData = tourActive && sse.events.length === 0;
   const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
   const effectiveComplete = useDemoData ? true : sse.isComplete;
-  const gameState = useGameState(effectiveEvents, effectiveComplete);
+  // The results carry each decision's bar check, which the outcome cards show.
+  const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
   // What the Digital Twin views read: the run this page started when the
   // page's own state is not it, and the page's state otherwise.
   const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
@@ -422,25 +424,24 @@ function AppContent() {
     // the exact env-var name + .env path inside a window.prompt).
     //
     // Token-bearing operators still get the full server wipe with no
-    // prompt: paste the token once into Settings (or via the dev-tools
-    // localStorage key `paracosm:adminToken`), and every subsequent
-    // Wipe All click does both the local + server pass automatically.
+    // prompt: enter the token once in Settings (the Admin Token field,
+    // kept under the localStorage key `paracosm:adminToken`), and every
+    // subsequent Wipe All click does both the local + server pass automatically.
+    //
+    // The token is read before the question, so the question says what
+    // this click does: with a token saved, the server wipe below runs too.
+    const adminToken = readAdminToken();
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
+      (adminToken
+        ? 'An admin token is saved in this browser, so this also asks the server to delete its stored runs, saved sessions and run output files, for every visitor.\n\n'
+        : 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n') +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
-
-    let adminToken = '';
-    try {
-      adminToken = localStorage.getItem('paracosm:adminToken') ?? '';
-    } catch {
-      /* localStorage may be disabled (SSR / private window); treat as missing. */
-    }
 
     if (!adminToken) {
       // No admin context. Tell the user what we did + did NOT do, and
@@ -455,7 +456,7 @@ function AppContent() {
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ wipeRuns: true, wipeSessions: true, wipeOutput: true }),
       });
       if (res.ok) {
@@ -467,10 +468,12 @@ function AppContent() {
         );
       } else if (res.status === 401) {
         // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so a future operator paste isn't fighting a stale
-        // entry, then surface the failure as info (local already cleared).
-        try { localStorage.removeItem('paracosm:adminToken'); } catch { /* silent */ }
-        toast('info', 'Local data cleared', 'Server-side wipe skipped: stored admin token rejected. Re-paste it via dev-tools localStorage if needed.');
+        // Drop it so the next entry isn't fighting a stale one, then
+        // surface the failure as info (local already cleared) with
+        // where the token is entered. A token entered since the request
+        // went out is not the refused one, and stays.
+        clearAdminToken(adminToken);
+        toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
       } else if (res.status === 403) {
         // Server has admin-write disabled. Local clear stands.
         toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
@@ -1183,7 +1186,14 @@ function AppContent() {
                 alone removes the subtree from layout, the a11y tree, and
                 tab order. Do NOT switch to visibility/opacity hiding
                 without auditing chat input + send button focus order
-                (would create a hidden-but-focusable trap). */}
+                (would create a hidden-but-focusable trap).
+
+                Keyed on the run the page shows (its key, or which run
+                loaded from a file or from history it is): a new run, the
+                same scenario with the same people included, mounts a fresh
+                panel, so no thread and no history from the last run shows
+                or goes to /chat. A reconnect replays the same key and keeps
+                the threads. */}
             <section
               role="tabpanel"
               id="tabpanel-chat"
@@ -1191,7 +1201,7 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel state={gameState} onChatUsage={handleChatUsage} />
+              <ChatPanel key={`${sse.runKey ?? ''}:${sse.loadedRuns}`} state={gameState} onChatUsage={handleChatUsage} />
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now

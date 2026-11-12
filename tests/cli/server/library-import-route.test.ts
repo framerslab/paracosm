@@ -96,3 +96,15 @@ test('handleLibraryImport: bundle of 51 → 400', async () => {
   await handleLibraryImport({} as IncomingMessage, res, { artifacts: big }, { runHistoryStore: store, sourceMode: 'local_demo' });
   assert.equal(status(), 400);
 });
+
+test('handleLibraryImport: addToBundle that is not bundle_ and a UUID → 400, nothing inserted', async () => {
+  // The id is stored on each record and read back in /api/v1/bundles/:id URLs.
+  for (const addToBundle of ['bundle_123', '../bundle_x', 'bundle_8B1E0C2A-1111-4222-8333-944455556666', 42]) {
+    const store = fakeStore();
+    const { res, status, body } = fakeRes();
+    await handleLibraryImport({} as IncomingMessage, res, { artifacts: bundleArtifacts, addToBundle }, { runHistoryStore: store, sourceMode: 'local_demo' });
+    assert.equal(status(), 400, `addToBundle ${JSON.stringify(addToBundle)}`);
+    assert.equal(JSON.parse(body()).error, 'Invalid bundle');
+    assert.deepEqual(await store.listRuns(), [], `nothing inserted for ${JSON.stringify(addToBundle)}`);
+  }
+});

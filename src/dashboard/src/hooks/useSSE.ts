@@ -73,14 +73,18 @@ export interface AbortReasonState {
 }
 
 /**
- * One rollup bucket per schema name for validation fallbacks observed
- * during a run. Non-terminal — the sim keeps running with the fallback
- * skeleton — but worth surfacing in the topbar because repeated fallbacks
- * on the same schema mean the model is fighting the output format and
- * whatever data the bucket represents is degraded.
+ * One rollup bucket per schema name and kind for the `validation_fallback`
+ * events of a run. Non-terminal (the sim keeps running), but worth
+ * surfacing in the topbar because repeated failures on the same schema
+ * mean the model is fighting the output format. A fallback replaced the
+ * reply with the empty skeleton; a salvage (`salvaged: true`) kept the
+ * model's own reply without the effect keys the run does not hold, so the
+ * two are counted apart.
  */
 export interface ValidationFallbackBucket {
   schemaName: string;
+  /** True for the salvages: the reply was kept with its unheld keys dropped. */
+  salvaged: boolean;
   count: number;
   /** Most recent call-site tag (e.g. `dept:medical:turn3:event1`). */
   lastSite?: string;
@@ -126,10 +130,10 @@ interface SSEState {
   /**
    * Rollup of `validation_fallback` SSE events received during the current
    * run. One bucket per schema name (DepartmentReport, CommanderDecision,
-   * etc.) with counts + most-recent preview. Empty array when no schema
-   * has fallen back. Rendered as a small amber indicator in the topbar
-   * (not a full banner — these are soft degradations, the sim keeps
-   * running).
+   * etc.) and kind (a fallback or a salvage) with counts + most-recent
+   * preview. Empty array when no schema has failed. Rendered as a small
+   * amber indicator in the topbar, not a full banner: these are soft
+   * degradations and the sim keeps running.
    */
   validationFallbacks: ValidationFallbackBucket[];
   /**
@@ -156,6 +160,23 @@ interface SSEState {
    * page leaves its own run.
    */
   heldOwnRun: OwnRun | null;
+  /**
+   * The key of the run the page shows from the live feed (active_scenario's
+   * runKey), null before one arrives, after a reset, when the page takes a
+   * new source until its run arrives, and while the page shows a run loaded
+   * from a file or from its history. A reconnect replays the
+   * same key; a new run, a fork included, brings a new one. A run the page
+   * skips (one in another scenario) leaves it on the key of the run it
+   * shows. The Chat tab's threads belong to this run.
+   */
+  runKey: string | null;
+  /**
+   * How many runs the page has loaded from a file or from its history, or
+   * taken from a new source (the live feed or a saved session's replay). A
+   * loaded run has no key, so this count tells one loaded run from the next;
+   * with runKey it names the run the page shows.
+   */
+  loadedRuns: number;
 }
 
 /**
@@ -193,7 +214,7 @@ export interface UseSSEOptions {
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
@@ -221,6 +242,8 @@ export function useSSE(options: UseSSEOptions = {}) {
     replayDone: false,
     ownRunScenarioId: null,
     heldOwnRun: null,
+    runKey: null,
+    loadedRuns: 0,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -263,6 +286,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   // True while the page shows a run loaded from a file (loadEvents), the
   // visitor's own pick, rather than the run the live feed delivered.
   const shownFromFileRef = useRef(false);
+  // The source (a saved session's id, or null for the live feed) of the
+  // subscription that last connected; undefined before the first.
+  const connectedSourceRef = useRef<string | null | undefined>(undefined);
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
@@ -319,6 +345,8 @@ export function useSSE(options: UseSSEOptions = {}) {
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
+      runKey: null,
+      loadedRuns: prev.loadedRuns,
     }));
   }, []);
 
@@ -400,7 +428,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     const restoredFallbacks = rollupValidationFallbacks(events);
     shownFromFileRef.current = true;
     ownRunKeyRef.current = null;
-    setState({
+    setState(prev => ({
       status: 'connected',
       events,
       results: (results || []) as SSEState['results'],
@@ -416,7 +444,10 @@ export function useSSE(options: UseSSEOptions = {}) {
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
-    });
+      runKey: null,
+      // Each load is a run of its own, the same scenario loaded twice included.
+      loadedRuns: prev.loadedRuns + 1,
+    }));
   }, []);
 
 /**
@@ -425,22 +456,37 @@ export function useSSE(options: UseSSEOptions = {}) {
  * same shape of rollup.
  */
 function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket[] {
-  const bySchema = new Map<string, ValidationFallbackBucket>();
+  let buckets: ValidationFallbackBucket[] = [];
   for (const e of events) {
     if (e.type !== 'validation_fallback' || !e.data) continue;
-    const d = e.data as Record<string, unknown>;
-    const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-      ? d.schemaName
-      : 'unknown';
-    const existing = bySchema.get(schemaName);
-    bySchema.set(schemaName, {
-      schemaName,
-      count: (existing?.count ?? 0) + 1,
-      lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
-      lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
-    });
+    buckets = addValidationFallback(buckets, e.data as Record<string, unknown>);
   }
-  return [...bySchema.values()].sort((a, b) => b.count - a.count);
+  return buckets;
+}
+
+/**
+ * Count one `validation_fallback` event's data into the buckets: by schema
+ * name, a salvage apart from a fallback. Returns new buckets, most counted
+ * first. The live stream and a run loaded from a file both count through it.
+ */
+function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Record<string, unknown>): ValidationFallbackBucket[] {
+  const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
+    ? d.schemaName
+    : 'unknown';
+  const salvaged = d.salvaged === true;
+  const buckets = [...prev];
+  const idx = buckets.findIndex(b => b.schemaName === schemaName && b.salvaged === salvaged);
+  const existing = idx === -1 ? undefined : buckets[idx];
+  const updated: ValidationFallbackBucket = {
+    schemaName,
+    salvaged,
+    count: (existing?.count ?? 0) + 1,
+    lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
+    lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
+  };
+  if (idx === -1) buckets.push(updated);
+  else buckets[idx] = updated;
+  return buckets.sort((a, b) => b.count - a.count);
 }
 
   useEffect(() => {
@@ -497,7 +543,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       // the same turn. Forge attempts carry `name`; agent reactions
       // roll up into a single per-turn event so the turn suffices.
       const forgeName = (e.data?.name ?? '');
-      return `${e.type}|${e.leader || ''}|${turnId}|${eventIndex}|${department}|${title}|${forgeName}`;
+      // A `validation_fallback` event carries no turn, event or department
+      // of its own: its call site names them (`dept:engineering:turn1:event1`),
+      // and a salvage is told apart from a fallback. Without them every such
+      // event of a leader after the first was taken for a repeat and dropped.
+      const schemaCall = e.type === 'validation_fallback'
+        ? `|${String(e.data?.site ?? '')}|${String(e.data?.schemaName ?? '')}|${e.data?.salvaged === true ? 'salvaged' : ''}`
+        : '';
+      return `${e.type}|${e.leader || ''}|${turnId}|${eventIndex}|${department}|${title}|${forgeName}${schemaCall}`;
     };
 
     const open = async () => {
@@ -563,9 +616,24 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         // trailing `replay_done` SSE event once the buffer flush is
         // complete; the listener below flips the flag true again so
         // subsequent truly-live events can toast.
+        //
+        // A first connect from another source than the last (a switch
+        // between the live feed and a saved session's replay without a
+        // reload), or after a run loaded from a file or from the page's
+        // history, drops the run the page held: the Chat tab's threads start
+        // empty with the run this source delivers.
         if (connectCount === 1) {
+          const newSource = connectedSourceRef.current !== replaySessionId || shownFromFileRef.current;
+          connectedSourceRef.current = replaySessionId;
           seenEventKeys.clear();
-          setState(prev => ({ ...prev, status: 'connected', events: [], replayDone: false }));
+          shownFromFileRef.current = false;
+          setState(prev => ({
+            ...prev,
+            status: 'connected',
+            events: [],
+            replayDone: false,
+            ...(newSource ? { runKey: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+          }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
         }
@@ -624,7 +692,8 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         // skips it, and with it the last events of the run it shows, so it
         // ends that run here instead of showing it running for good. A run
         // the page already saw finish stays as it is.
-        if (skipped()) {
+        const skip = skipped();
+        if (skip) {
           setState(prev => (prev.events.length > 0 && !prev.isComplete
             ? {
                 ...prev,
@@ -650,6 +719,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
               ? { events: prev.events, isComplete: true }
               : prev.heldOwnRun,
           }));
+        }
+        // The run the page holds now, which the Chat tab keys its threads on.
+        // A run the page skips leaves it on the run it shows, and a run loaded
+        // from a file stays the page's until a new run replaces it, above.
+        if (!skip && !shownFromFileRef.current) {
+          setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
         }
       });
 
@@ -720,25 +795,11 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // audit + save/reload restoration.
           if (data.type === 'validation_fallback' && data.data) {
             const d = data.data as Record<string, unknown>;
-            const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-              ? d.schemaName
-              : 'unknown';
-            setState(prev => {
-              const buckets = [...prev.validationFallbacks];
-              const idx = buckets.findIndex(b => b.schemaName === schemaName);
-              const updated: ValidationFallbackBucket = idx === -1
-                ? { schemaName, count: 1, lastSite: d.site as string | undefined, lastPreview: d.rawTextPreview as string | undefined }
-                : {
-                    ...buckets[idx],
-                    count: buckets[idx].count + 1,
-                    lastSite: (d.site as string | undefined) ?? buckets[idx].lastSite,
-                    lastPreview: (d.rawTextPreview as string | undefined) ?? buckets[idx].lastPreview,
-                  };
-              if (idx === -1) buckets.push(updated);
-              else buckets[idx] = updated;
-              buckets.sort((a, b) => b.count - a.count);
-              return { ...prev, events: [...prev.events, data], validationFallbacks: buckets };
-            });
+            setState(prev => ({
+              ...prev,
+              events: [...prev.events, data],
+              validationFallbacks: addValidationFallback(prev.validationFallbacks, d),
+            }));
             return;
           }
           // sim_aborted: orchestrator emits this when the run was

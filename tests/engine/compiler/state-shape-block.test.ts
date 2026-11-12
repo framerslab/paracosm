@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { buildStateShapeBlock } from '../../../src/engine/compiler/state-shape-block.js';
 
 test('buildStateShapeBlock lists scenario-declared metric keys under state.metrics', () => {
@@ -72,4 +73,25 @@ test('buildStateShapeBlock encourages defensive access via nullish-coalescing', 
     block.includes('?? 0') || block.includes('Defensive access'),
     'prompt should recommend defensive access pattern',
   );
+});
+
+test('buildStateShapeBlock says a key that is not an identifier is read with brackets, naming the first such key', () => {
+  // A scenario compiled from a prompt declares kebab-case keys, and
+  // state.metrics.soil-health is a subtraction that throws.
+  const block = buildStateShapeBlock({
+    world: {
+      metrics: { harvest: { id: 'harvest' }, 'soil-health': { id: 'soil-health' }, 'water-reserve': { id: 'water-reserve' } },
+      capacities: {},
+      politics: {},
+    },
+  });
+  const line = "- A key that is not a plain identifier is read with brackets: state.metrics['soil-health'].";
+  assert.ok(block.split('\n').includes(line), `the RULES hold the line "${line}" (read:\n${block})`);
+});
+
+test('buildStateShapeBlock adds no bracket line for Mars Genesis, whose keys are all identifiers', () => {
+  const mars = JSON.parse(readFileSync(new URL('../../../scenarios/mars.json', import.meta.url), 'utf-8'));
+  const block = buildStateShapeBlock(mars);
+  assert.ok(block.includes('declared keys: population'), `the block lists Mars Genesis's declared keys (read:\n${block})`);
+  assert.ok(!block.includes('read with brackets'), `the block has no bracket line (read:\n${block})`);
 });

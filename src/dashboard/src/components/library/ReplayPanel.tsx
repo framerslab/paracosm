@@ -5,11 +5,18 @@ import type { RunArtifact } from '../../../../engine/schema/index.js';
 
 export interface ReplayPanelProps {
   artifact: RunArtifact | null;
+  /**
+   * Called once a replay the server answered with a match or a divergence
+   * has been counted in the run's replay counters, so a page that shows
+   * them can read them again. It is called when the server answers, also
+   * when this panel is gone by then.
+   */
+  onReplayed?: () => void;
 }
 
 export function ReplayPanel(props: ReplayPanelProps): JSX.Element {
-  const { artifact } = props;
-  const { result, replay } = useReplayRun();
+  const { artifact, onReplayed } = props;
+  const { result, replay } = useReplayRun(onReplayed);
 
   return (
     <div className={styles.panel}>
@@ -25,16 +32,21 @@ export function ReplayPanel(props: ReplayPanelProps): JSX.Element {
   );
 }
 
+/**
+ * What the replay came to, in full: the divergence names the step, the
+ * field and both values, and a cannot-verify reason says what the run
+ * lacks and what to do, so neither is cut.
+ */
 function ResultStrip({ result }: { result: ReplayResult }): JSX.Element | null {
   switch (result.kind) {
     case 'idle':
     case 'inflight':
       return null;
     case 'match':
-      return <span className={[styles.result, styles.match].join(' ')}>✓ Kernel deterministic</span>;
+      return <p role="status" className={[styles.result, styles.match].join(' ')}>✓ Kernel deterministic</p>;
     case 'diverged':
-      return <span className={[styles.result, styles.diverged].join(' ')} title={result.divergence}>⚠ Diverged at {result.divergence.length > 60 ? result.divergence.slice(0, 60) + '…' : result.divergence}</span>;
+      return <p role="status" className={[styles.result, styles.diverged].join(' ')}>⚠ Diverged at {result.divergence}</p>;
     case 'error':
-      return <span className={[styles.result, styles.errResult].join(' ')} title={result.error}>⚠ {result.error.length > 80 ? result.error.slice(0, 80) + '…' : result.error}</span>;
+      return <p role="status" className={[styles.result, styles.errResult].join(' ')}>⚠ {result.error}</p>;
   }
 }
