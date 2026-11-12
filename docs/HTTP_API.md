@@ -270,7 +270,7 @@ The server keeps its own copy of each imported artifact: it writes the artifact 
 
 When two imports of one `runId` arrive together, the record stored first is kept with its file; the other import answers `alreadyExisted: true` and removes the file it wrote. An import whose record cannot be read back right after its insert keeps its file and answers `alreadyExisted: false`.
 
-The server writes the copy as compact JSON. One client address imports at most `PARACOSM_IMPORTS_PER_DAY` new runs a day (UTC), 500 unless set; a run id the store already holds is not counted. An import past the limit answers `429` with `Retry-After` and `{ "error": "Daily import limit reached. Try again tomorrow." }`, with `bundleId` and `insertedSoFar` for a bundle part of which was stored before the limit.
+The server writes the copy as compact JSON. One client address imports at most `PARACOSM_IMPORTS_PER_DAY` new runs a day (UTC), 500 unless set; a run id the store already holds is not counted. An import past the limit answers `429` with `Retry-After` set to the seconds until the next UTC midnight and `{ "error": "Daily import limit reached. Try again tomorrow." }`, with `bundleId` and `insertedSoFar` for a bundle part of which was stored before the limit.
 
 The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes `v3-*.json` files older than that) and `POST /admin/data/wipe` with `wipeOutput: true` (removes `v3-*.json` files) work on the same runs directory, so they remove imported copies as they do run output. Neither removes any other file in the directory.
 

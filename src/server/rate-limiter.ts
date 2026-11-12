@@ -18,7 +18,8 @@
  *
  * The IP is the connection's address unless the server names the one
  * proxy header it trusts (PARACOSM_CLIENT_IP_HEADER, see
- * readClientIpHeader). Reading a limit adds no entry; only a charge does.
+ * readClientIpHeader); an IPv6 address counts as its /64 network
+ * (clientAddressKey). Reading a limit adds no entry; only a charge does.
  *
  * When a persistencePath is supplied, state is loaded on construct and
  * flushed on every mutation via a 500ms-debounced atomic write
@@ -51,6 +52,46 @@ export function readClientIpHeader(env: NodeJS.ProcessEnv): ClientIpHeader | nul
   if ((CLIENT_IP_HEADERS as readonly string[]).includes(raw)) return raw as ClientIpHeader;
   console.warn(`  [rate-limit] PARACOSM_CLIENT_IP_HEADER=${JSON.stringify(env.PARACOSM_CLIENT_IP_HEADER)} is not one of ${CLIENT_IP_HEADERS.join(', ')}; keying limits on the connection's address.`);
   return null;
+}
+
+/**
+ * The eight 16-bit groups of an IPv6 address, or null for a value that is
+ * not one. A trailing dotted IPv4 part (`::ffff:198.51.100.7`) is two groups.
+ */
+function ipv6Groups(address: string): number[] | null {
+  let text = address;
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0) return null;
+  const groups = [...head, ...Array<string>(fill).fill('0'), ...tail].map(group => Number.parseInt(group, 16));
+  return groups.length === 8 && groups.every(group => Number.isInteger(group) && group >= 0 && group <= 0xffff) ? groups : null;
+}
+
+/**
+ * The key a client address is limited under. An IPv4 address is its own
+ * key; an IPv4-mapped IPv6 address (`::ffff:198.51.100.7`) is the IPv4
+ * address it carries; any other IPv6 address is its /64 network
+ * (`2001:db8:1:2::/64`), since a subscriber or a server is handed a whole
+ * /64 and can send from every address in it. Any other value is returned
+ * as it is.
+ */
+export function clientAddressKey(address: string): string {
+  const bare = address.split('%')[0];
+  if (isIP(bare) !== 6) return address;
+  const groups = ipv6Groups(bare);
+  if (!groups) return address;
+  if (groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff) {
+    return `${groups[6] >> 8}.${groups[6] & 255}.${groups[7] >> 8}.${groups[7] & 255}`;
+  }
+  return `${groups.slice(0, 4).map(group => group.toString(16)).join(':')}::/64`;
 }
 
 interface RateLimitEntry {
@@ -182,7 +223,8 @@ export class IpRateLimiter {
   }
 
   /** The client's address: the connection's, or, when the server trusts
-   *  one proxy header (readClientIpHeader), that header's value.
+   *  one proxy header (readClientIpHeader), that header's value; keyed by
+   *  clientAddressKey, so the addresses of one IPv6 /64 share a limit.
    *
    *  Behind Cloudflare, `cf-connecting-ip` is set by Cloudflare on every
    *  request to the original client IP and Cloudflare strips any inbound
@@ -192,7 +234,7 @@ export class IpRateLimiter {
    *  A header value that is not an IPv4 or IPv6 address (node:net isIP) is
    *  ignored, so a caller cannot make a key of any text they like. */
   static getIp(req: IncomingMessage, trustedHeader: ClientIpHeader | null = null): string {
-    const socketIp = req.socket.remoteAddress || 'unknown';
+    const socketIp = clientAddressKey(req.socket.remoteAddress || 'unknown');
     if (!trustedHeader) return socketIp;
     const raw = req.headers[trustedHeader];
     const value = Array.isArray(raw) ? raw[raw.length - 1] : raw;
@@ -200,7 +242,7 @@ export class IpRateLimiter {
     const candidate = trustedHeader === 'x-forwarded-for'
       ? (value.split(',').pop() ?? '').trim()
       : value.trim();
-    return isIP(candidate) ? candidate : socketIp;
+    return isIP(candidate) ? clientAddressKey(candidate) : socketIp;
   }
 
   private nextReset(kind: WindowKind): number {

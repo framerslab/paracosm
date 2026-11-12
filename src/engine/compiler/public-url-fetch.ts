@@ -32,7 +32,9 @@ export class UrlRefusedError extends Error {
   }
 }
 
+/** The most bytes of decoded body a fetch reads (2 MiB); the rest is dropped. */
 export const DEFAULT_MAX_FETCH_BYTES = 2 * 1024 * 1024;
+/** How long a whole fetch may take, redirects and body included (15 s). */
 export const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const MAX_REDIRECTS = 5;
 
@@ -103,18 +105,27 @@ function checkUrl(raw: string | URL): URL {
   return url;
 }
 
+/** What a fetch may take: its time and byte limits and the Accept header it sends. */
 export interface PublicUrlFetchOptions {
+  /** The whole fetch's time limit; DEFAULT_FETCH_TIMEOUT_MS when omitted. */
   timeoutMs?: number;
+  /** The most bytes of decoded body read; DEFAULT_MAX_FETCH_BYTES when omitted. */
   maxBytes?: number;
+  /** The Accept header sent with each request. */
   accept?: string;
   /** Test seam: skip the address checks, for a server on loopback. */
   allowPrivateAddresses?: boolean;
 }
 
+/** The response a fetch ends with, after its redirects. */
 export interface PublicUrlResponse {
+  /** The HTTP status of the last response. */
   status: number;
+  /** True for a 2xx status. */
   ok: boolean;
+  /** The last response's Content-Type header, or ''. */
   contentType: string;
+  /** The decoded body as UTF-8, at most `maxBytes` of it. */
   text: string;
   /** True when the body was longer than `maxBytes` and was cut there. */
   truncated: boolean;
@@ -179,7 +190,9 @@ export async function fetchPublicUrl(rawUrl: string, options: PublicUrlFetchOpti
     const status = res.statusCode ?? 0;
     const location = res.headers.location;
     if (status >= 300 && status < 400 && location) {
-      res.resume();
+      // The redirect's body is never read: the connection is closed, so a
+      // body the server keeps sending costs nothing past this point.
+      res.destroy();
       if (hop >= MAX_REDIRECTS) throw new Error(`More than ${MAX_REDIRECTS} redirects`);
       url = allowPrivate ? new URL(location, url) : checkUrl(new URL(location, url));
       continue;
@@ -224,35 +237,57 @@ export async function readResponseTextCapped(res: Response, maxBytes = DEFAULT_M
   return { text: Buffer.concat(chunks, size).toString('utf-8'), truncated };
 }
 
+const BASIC_HTML_ENTITIES: Record<string, string> = {
+  '&nbsp;': ' ', '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'",
+};
+
+/** Decodes the basic entities in one pass, so `&amp;lt;` reads `&lt;`, never `<`. */
 function decodeBasicHtmlEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
+  return text.replace(/&(?:nbsp|amp|lt|gt|quot|#39);/g, entity => BASIC_HTML_ENTITIES[entity]);
+}
+
+/**
+ * The index of the first `marker` (`<head`, `</head`) at or after `from`
+ * whose tag name ends there: the next character is whitespace, `>`, `/` or
+ * the end of the text, so `<head` does not match `<header`. -1 when none.
+ * Each candidate is passed once, so the search is linear.
+ */
+function indexOfTag(lower: string, marker: string, from: number): number {
+  for (let pos = lower.indexOf(marker, from); pos !== -1; pos = lower.indexOf(marker, pos + 1)) {
+    const after = lower.charCodeAt(pos + marker.length);
+    // NaN (end of text), '>', '/', space, tab, line feed, form feed, carriage return.
+    if (Number.isNaN(after) || after === 0x3e || after === 0x2f || after === 0x20 || after === 0x09 || after === 0x0a || after === 0x0c || after === 0x0d) return pos;
+  }
+  return -1;
 }
 
 /**
  * Removes each `<tag ...>...</tag>` block of the named tags, with index
- * searches that never rescan text already passed. An unclosed block runs to
- * the end of the page.
+ * searches that never rescan text already passed. A head with no closing
+ * tag ends where the body starts; any other unclosed block runs to the end
+ * of the page.
  */
 function dropBlocks(html: string, tags: readonly string[]): string {
   const lower = html.toLowerCase();
+  // Each marker's next position, searched again only once the scan has
+  // passed it: every marker is searched from a position that only grows,
+  // so each one's searches cover the page once in all.
   const next = new Map<string, number>();
+  const find = (marker: string, from: number): number => {
+    let pos = next.get(marker);
+    if (pos === undefined || (pos !== -1 && pos < from)) {
+      pos = indexOfTag(lower, marker, from);
+      next.set(marker, pos);
+    }
+    return pos;
+  };
   const out: string[] = [];
   let i = 0;
   for (;;) {
     let best = -1;
     let bestTag = '';
     for (const tag of tags) {
-      let pos = next.get(tag);
-      if (pos === undefined || (pos !== -1 && pos < i)) {
-        pos = lower.indexOf(`<${tag}`, i);
-        next.set(tag, pos);
-      }
+      const pos = find(`<${tag}`, i);
       if (pos !== -1 && (best === -1 || pos < best)) {
         best = pos;
         bestTag = tag;
@@ -263,7 +298,12 @@ function dropBlocks(html: string, tags: readonly string[]): string {
       break;
     }
     out.push(html.slice(i, best), ' ');
-    const close = lower.indexOf(`</${bestTag}`, best);
+    const close = find(`</${bestTag}`, best);
+    const body = bestTag === 'head' ? find('<body', best) : -1;
+    if (body !== -1 && (close === -1 || body < close)) {
+      i = body;
+      continue;
+    }
     if (close === -1) break;
     const end = lower.indexOf('>', close);
     if (end === -1) break;

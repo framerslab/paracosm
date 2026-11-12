@@ -58,7 +58,11 @@ export interface LibraryImportDeps {
 class ImportLimitError extends Error {}
 
 function writeImportLimit(res: ServerResponse, extra: Record<string, unknown> = {}): void {
-  res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '3600' });
+  // The daily import limit starts again at the next UTC midnight.
+  const midnight = new Date();
+  midnight.setUTCHours(24, 0, 0, 0);
+  const retryAfter = Math.max(1, Math.ceil((midnight.getTime() - Date.now()) / 1000));
+  res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) });
   res.end(JSON.stringify({ error: 'Daily import limit reached. Try again tomorrow.', ...extra }));
 }
 

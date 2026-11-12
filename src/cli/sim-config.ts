@@ -401,6 +401,23 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
 const DEMO_MAX_INSTRUCTIONS_CHARS = 400;
 const DEMO_MAX_EVENT_TITLE_CHARS = 120;
 const DEMO_MAX_EVENT_DESCRIPTION_CHARS = 600;
+/** A leader's name, archetype and unit, and a key person's name, role and specialization. */
+const DEMO_MAX_LABEL_CHARS = 120;
+
+/** `value` cut to the demo's label length; a value that is not a string passes as it is. */
+function demoLabel<T>(value: T): T {
+  return (typeof value === 'string' ? value.slice(0, DEMO_MAX_LABEL_CHARS) : value) as T;
+}
+
+/** The first custom event of each turn up to `turns`, in turn order. */
+function firstEventPerTurn<T extends { turn: number }>(events: readonly T[], turns: number): T[] {
+  const seen = new Set<number>();
+  return events.filter(event => {
+    if (event.turn > turns || seen.has(event.turn)) return false;
+    seen.add(event.turn);
+    return true;
+  });
+}
 
 export function inferProviderFromModel(model?: string): LlmProvider | undefined {
   if (!model) return undefined;
@@ -544,8 +561,9 @@ function normalizeActiveDepartments(
  * Called server-side when a request arrives without a user-supplied API
  * key, so the run bills against the host's provider key. Replaces models
  * with DEMO_MODELS, clamps turn/population/department counts, keeps the
- * first two leaders with their instructions trimmed, trims key personnel to
- * the population and custom events to one a turn, turns live search off,
+ * first two leaders with their instructions and labels trimmed, trims key
+ * personnel to the population (their labels trimmed) and custom events to
+ * the first one of each turn within the run's turns, turns live search off,
  * and tightens tool-loop step caps. Seed, scenario content, and
  * scenario-level starting state pass through unchanged so the run still
  * feels like a real sim rather than a canned preview.
@@ -589,15 +607,25 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {
     ...config,
-    // The first leaders, each with instructions of at most 400 characters;
-    // key personnel within the population; one custom event a turn at most,
-    // each with a short title and description; no live search.
+    // The first leaders, each with instructions of at most 400 characters
+    // and a name, archetype and unit of at most 120; key personnel within
+    // the population, each name, role and specialization at most 120; one
+    // custom event a turn at most, each with a short title and description;
+    // no live search.
     actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => ({
       ...actor,
+      name: demoLabel(actor.name),
+      archetype: demoLabel(actor.archetype),
+      unit: demoLabel(actor.unit),
       instructions: (actor.instructions ?? '').slice(0, DEMO_MAX_INSTRUCTIONS_CHARS),
     })),
-    keyPersonnel: config.keyPersonnel.slice(0, initialPopulation),
-    customEvents: config.customEvents.slice(0, turns).map(event => ({
+    keyPersonnel: config.keyPersonnel.slice(0, initialPopulation).map(person => ({
+      ...person,
+      name: demoLabel(person.name),
+      role: demoLabel(person.role),
+      specialization: demoLabel(person.specialization),
+    })),
+    customEvents: firstEventPerTurn(config.customEvents, turns).map(event => ({
       turn: event.turn,
       title: event.title.slice(0, DEMO_MAX_EVENT_TITLE_CHARS),
       description: event.description.slice(0, DEMO_MAX_EVENT_DESCRIPTION_CHARS),

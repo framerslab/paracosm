@@ -205,13 +205,17 @@ test('one address with its own key cannot hold every run slot', async () => {
       env: { PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' },
     }, async ({ base }) => {
       const body = (extra: Record<string, unknown> = {}) => ({ actors: mars.presets[0].leaders, turns: 1, scenarioId: 'mars-genesis', ...extra });
+      const ownKeyStatuses: number[] = [];
       for (let i = 0; i < 3; i++) {
         const res = await post(base, '/setup', body({ apiKey: 'sk-test' }), {
           cookie: `paracosm_visitor=${randomUUID()}`,
           'cf-connecting-ip': '198.51.100.7',
         });
         await res.text();
+        ownKeyStatuses.push(res.status);
       }
+      // Two of the three slots are the address's; its third run waits.
+      assert.deepEqual(ownKeyStatuses, [200, 200, 503]);
       const other = await post(base, '/setup', body(), {
         cookie: `paracosm_visitor=${randomUUID()}`,
         'cf-connecting-ip': '198.51.100.8',

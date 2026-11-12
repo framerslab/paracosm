@@ -343,7 +343,11 @@ export interface CreateMarsServerOptions {
       artifact: import('../engine/schema/index.js').RunArtifact,
       leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
-    /** The server's runs directory, which each leader's output file is written to. */
+    /**
+     * The server's runs directory, which each leader's output file is
+     * written to, and on the hosted demo the empty environment the run's
+     * web search reads its keys from.
+     */
     runnerOptions?: RunnerOptions,
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
@@ -454,6 +458,12 @@ export interface StartConfigHooks {
    * one address hold at most all but one of the run slots.
    */
   ownKeyAddress?: string | null;
+  /**
+   * The environment the run's web search reads a search key from when the
+   * run's config names none. Omitted, `process.env`; the hosted demo passes
+   * `{}`, so its runs search on the request's own search keys alone.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
   /** The run's key, which its `active_scenario` event carries; minted when absent. */
   runKey?: string;
   /**
@@ -787,6 +797,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const openStreamsByAddress = new Map<string, number>();
   let openStreams = 0;
   const admitStream = (req: IncomingMessage, res: ServerResponse, headers: Record<string, string>): boolean => {
+    // A reader that left before its stream starts (a replay waits for its
+    // session to load) has nothing to hold, and its response's 'close'
+    // has already fired, so a slot taken now would never be given back.
+    if (res.destroyed || res.closed || req.destroyed) return false;
     const address = IpRateLimiter.getIp(req, clientIpHeader);
     const held = openStreamsByAddress.get(address) ?? 0;
     if (held >= maxStreamsPerAddress || openStreams >= maxStreams) {
@@ -2533,7 +2547,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (isHostedDemoCompile) {
           const requested = typeof maxSearches === 'number' && Number.isFinite(maxSearches) ? Math.floor(maxSearches) : HOSTED_COMPILE_MAX_SEARCHES;
           compileMaxSearches = Math.max(0, Math.min(requested, HOSTED_COMPILE_MAX_SEARCHES));
-          if (userSuppliedKey && compileWebSearch !== false && rateLimiter) {
+          // A compile searches only for a seed (seedText or seedUrl), so one
+          // with neither spends none of the allowance.
+          const hasSeed = (typeof seedText === 'string' && seedText.trim() !== '') || (typeof seedUrl === 'string' && seedUrl.trim() !== '');
+          if (userSuppliedKey && compileWebSearch !== false && hasSeed && rateLimiter) {
             const ip = IpRateLimiter.getIp(req, clientIpHeader);
             if (!rateLimiter.consumeCompile(ip).allowed) {
               compileWebSearch = false;
@@ -3454,6 +3471,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             `depts=${simConfig.activeDepartments.length} models=${simConfig.models.commander}`,
           );
         }
+        // A run's web search on the hosted demo uses only the search keys
+        // the request names: the day's run limit does not count a run on
+        // the caller's own model key, so the host's search keys would have
+        // no bound there. Such a run with no search key of its own runs
+        // without live search.
+        const hasOwnSearchKey = [simConfig.serperKey, simConfig.firecrawlKey, simConfig.tavilyKey]
+          .some(key => normalizeCredential(key) !== undefined);
+        if (isHostedDemo && simConfig.liveSearch && !hasOwnSearchKey) {
+          simConfig = { ...simConfig, liveSearch: false };
+        }
 
         // `turns` is the absolute final turn, after the demo cap. A fork
         // with none left would answer 200 here and fail in the runner.
@@ -3557,6 +3584,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               visitorId,
               runKey: launchRunKey,
               ownKeyAddress: hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+              searchEnv: isHostedDemo ? {} : undefined,
             });
           } catch (err) {
             if (err instanceof RunCapacityError) return err;
@@ -4196,13 +4224,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // runForkSimulation instead of the pair runner when the
           // config carries a forkFrom reference.
           if (config.forkFrom) {
-            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
+            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir });
+            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else {
-            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
+            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           }
         } finally {
           // The run's capacity slot is free once its runner has settled,
