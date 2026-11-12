@@ -342,6 +342,8 @@ The dashboard's scenario editor route. It stores a scenario JSON in the server's
 
 With `saveToDisk: true` the server also writes the scenario to `<scenarios folder>/<id>.json`, where the boot loader reads it after a restart. The disk write takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN` (compared in constant time). Its id must be 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit, and must name one file directly in the scenarios folder. A refused disk write stores nothing, in memory or on disk.
 
+The dashboard sends the header from the token an operator enters in Settings, in the Admin Token field. The field shows only when `GET /admin-config` answers `adminWrite: true`. It is a password field with Save and Clear; the token is kept in that browser's localStorage under `paracosm:adminToken` (in memory until the page reloads, where the browser blocks storage) and is sent as `X-Admin-Token` on this disk write, on `POST /admin/data/wipe` and on `DELETE /admin/scenarios/:id` only. A `401` from any of the three clears the stored token and names the field in its message.
+
 **Request body**
 
 ```json

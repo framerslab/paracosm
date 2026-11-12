@@ -3,6 +3,7 @@ import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } f
 import { buildScenarioCompileRequest } from './scenarioCompileRequest';
 import { SETTINGS_LABEL_STYLE } from './shared/settingsStyles';
 import styles from './ScenarioEditor.module.scss';
+import { ADMIN_TOKEN_WHERE, adminTokenHeader, clearAdminToken } from '../../admin-token';
 
 interface AdminConfig {
   adminWrite: boolean;
@@ -164,14 +165,10 @@ export function ScenarioEditor() {
     if (!jsonText.trim() || parseError || !adminConfig.adminWrite) return;
     try {
       const scenario = JSON.parse(jsonText);
-      // The disk write takes the operator's admin token, the one Wipe All
-      // and the scenario delete send, from this browser's localStorage.
-      let adminToken = '';
-      try { adminToken = localStorage.getItem('paracosm:adminToken') ?? ''; } catch { /* storage unavailable: no token */ }
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (adminToken) headers['X-Admin-Token'] = adminToken;
+      // The disk write takes the operator's admin token, the one the server
+      // wipe and the scenario delete send, entered in Settings (admin-token.ts).
       const res = await fetch('/scenario/store', {
-        method: 'POST', headers,
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...adminTokenHeader() },
         body: JSON.stringify({ scenario, saveToDisk: true }),
       });
       const data = await res.json();
@@ -183,6 +180,11 @@ export function ScenarioEditor() {
             ? `Saved "${data.id}" to disk at scenarios/${data.id}.json and loaded it into the live scenario catalog.`
             : `Saved "${data.id}" draft JSON to disk at scenarios/${data.id}.json. Compile it to make it runnable after restart.`,
         });
+      } else if (res.status === 401) {
+        // No token, or one the server refused: a refused token is dropped,
+        // as the other admin calls drop it, and the message says where it goes.
+        clearAdminToken();
+        setResult({ success: false, message: `Disk write refused: the admin token is missing or wrong. ${ADMIN_TOKEN_WHERE}` });
       } else {
         setResult({ success: false, message: data.error || `Disk write refused (HTTP ${res.status})` });
       }

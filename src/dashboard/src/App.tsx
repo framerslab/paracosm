@@ -3,6 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -422,9 +423,9 @@ function AppContent() {
     // the exact env-var name + .env path inside a window.prompt).
     //
     // Token-bearing operators still get the full server wipe with no
-    // prompt: paste the token once into Settings (or via the dev-tools
-    // localStorage key `paracosm:adminToken`), and every subsequent
-    // Wipe All click does both the local + server pass automatically.
+    // prompt: enter the token once in Settings (the Admin Token field,
+    // kept under the localStorage key `paracosm:adminToken`), and every
+    // subsequent Wipe All click does both the local + server pass automatically.
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
       'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
@@ -435,12 +436,7 @@ function AppContent() {
     sse.reset();
     setUserTriggeredRun(false);
 
-    let adminToken = '';
-    try {
-      adminToken = localStorage.getItem('paracosm:adminToken') ?? '';
-    } catch {
-      /* localStorage may be disabled (SSR / private window); treat as missing. */
-    }
+    const adminToken = readAdminToken();
 
     if (!adminToken) {
       // No admin context. Tell the user what we did + did NOT do, and
@@ -455,7 +451,7 @@ function AppContent() {
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ wipeRuns: true, wipeSessions: true, wipeOutput: true }),
       });
       if (res.ok) {
@@ -467,10 +463,11 @@ function AppContent() {
         );
       } else if (res.status === 401) {
         // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so a future operator paste isn't fighting a stale
-        // entry, then surface the failure as info (local already cleared).
-        try { localStorage.removeItem('paracosm:adminToken'); } catch { /* silent */ }
-        toast('info', 'Local data cleared', 'Server-side wipe skipped: stored admin token rejected. Re-paste it via dev-tools localStorage if needed.');
+        // Drop it so the next entry isn't fighting a stale one, then
+        // surface the failure as info (local already cleared) with
+        // where the token is entered.
+        clearAdminToken();
+        toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
       } else if (res.status === 403) {
         // Server has admin-write disabled. Local clear stands.
         toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
