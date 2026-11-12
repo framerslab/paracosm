@@ -704,6 +704,51 @@ test('veto rule 7: of six marks that pass every other rule, the sixth is dropped
   assert.deepEqual(metadata.landingSupplies, { aa: 100, bb: 100, cc: 100, dd: 100, ee: 100 }, `a kernel keeps five landing supplies (read ${JSON.stringify(metadata.landingSupplies)})`);
 });
 
+test('veto rule 5 reads the tables a compile keeps: a mark that only a ninth table names is dropped with that table', async () => {
+  // A compile keeps a draft's first eight tables. Here eight tables name
+  // the stock alone, and the one table that names the reserve is the ninth.
+  const stockTable = (i: number) => ({ category: `kind-${i + 1}`, entries: [{ metric: 'stock', change: 5 }] });
+  const reserveTable = (i: number) => ({ category: `kind-${i + 1}`, entries: [{ metric: 'stock', change: 5 }, { metric: 'reserve', change: 10 }] });
+  const metrics = [reserve({ sustains: true }), { id: 'stock', initial: 100 }];
+  const eight = ['kind-1', 'kind-2', 'kind-3', 'kind-4', 'kind-5', 'kind-6', 'kind-7', 'kind-8'];
+
+  const n = normalize({ ...TWELVE_YEARS, metrics, effects: [...Array.from({ length: 8 }, (_, i) => stockTable(i)), reserveTable(8)] });
+  requireNote(n, 'table-dropped', 'kind-9');
+  assert.deepEqual(Object.keys(n.effects), eight);
+  assert.deepEqual(refusedMarks(n), ['reserve rule 5'], `the mark goes with the one table that named it (read marked fields ${JSON.stringify(markedFields(n))})`);
+  assert.deepEqual(markedFields(n), []);
+  assert.equal(n.effects['kind-1'].reserve, 10, 'the kept tables give the score its default entry all the same');
+  const { metadata } = await kernelOf(n.scenario);
+  assert.equal(metadata.landingSupplies, undefined, `a kernel keeps no landing supply (read ${JSON.stringify(metadata.landingSupplies)})`);
+
+  // Named by the eighth table, which is kept, the mark stays.
+  const kept = normalize({ ...TWELVE_YEARS, metrics, effects: [...Array.from({ length: 7 }, (_, i) => stockTable(i)), reserveTable(7), stockTable(8)] });
+  requireNote(kept, 'table-dropped', 'kind-9');
+  assert.deepEqual(Object.keys(kept.effects), eight);
+  assert.deepEqual([refusedMarks(kept), markedFields(kept)], [[], ['reserve']], 'a mark the eighth table names stays');
+});
+
+test('veto rule 2 reads the unit a draft wrote: a mark on a number the draft gives in % or in frac is dropped, though the field does not keep that unit', async () => {
+  const n = normalize({
+    ...TWELVE_YEARS,
+    metrics: [
+      { id: 'air', format: 'number', unit: '%', initial: 80, sustains: true },
+      { id: 'ratio', format: 'number', unit: 'frac', initial: 100, sustains: true },
+    ],
+    effects: ['drought', 'works', 'demand'].map(category => ({ category, entries: [{ metric: 'air', change: 4 }, { metric: 'ratio', change: 5 }] })),
+  });
+  assert.deepEqual([n.world.air.unit, n.world.ratio.unit], ['', ''], 'neither field keeps the unit, as before');
+  requireNote(n, 'unit-dropped', 'air');
+  requireNote(n, 'unit-dropped', 'ratio');
+  assert.deepEqual(refusedMarks(n), ['air rule 2', 'ratio rule 2'], `a value its own draft calls a share is not a supply (read marked fields ${JSON.stringify(markedFields(n))})`);
+  assert.deepEqual(markedFields(n), []);
+  requireNote(n, 'mark-refused', 'its unit, "%", is a share\'s or a score\'s');
+  requireNote(n, 'mark-refused', 'its unit, "frac", is a share\'s or a score\'s');
+  assert.deepEqual(n.effects.drought, { air: 4, ratio: 5 }, 'every table names both, so no other rule is in play');
+  const { metadata } = await kernelOf(n.scenario);
+  assert.equal(metadata.landingSupplies, undefined, `a kernel keeps no landing supply (read ${JSON.stringify(metadata.landingSupplies)})`);
+});
+
 /** A scenario JSON whose one mark passes all seven rules. Each case below changes one thing in it. */
 const passingWorld = (): Json => ({
   labels: { timeUnitNoun: 'year' },
