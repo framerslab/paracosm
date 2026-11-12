@@ -1,0 +1,68 @@
+{
+  "id": "orchard-seasons",
+  "labels": {
+    "name": "Orchard",
+    "populationNoun": "growers",
+    "settlementNoun": "orchard",
+    "timeUnitNoun": "season"
+  },
+  "setup": {
+    "defaultTurns": 4,
+    "defaultPopulation": 20,
+    "defaultStartTime": 1,
+    "yearsPerTimeUnit": 0.25
+  },
+  "departments": [
+    {
+      "id": "growing",
+      "label": "Growing",
+      "role": "Head Grower",
+      "instructions": "Weigh the harvest against the soil."
+    },
+    {
+      "id": "market",
+      "label": "Market",
+      "role": "Market Lead",
+      "instructions": "Weigh prices against the stock."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "harvest",
+      "format": "number",
+      "label": "Harvest",
+      "unit": "tonnes",
+      "initial": 420,
+      "min": 0
+    },
+    {
+      "id": "soil-health",
+      "format": "percent",
+      "label": "Soil health",
+      "initial": 62
+    }
+  ],
+  "effects": [
+    {
+      "category": "weather",
+      "entries": [
+        { "metric": "harvest", "change": -20 },
+        { "metric": "soil-health", "change": 2 }
+      ]
+    },
+    {
+      "category": "market",
+      "entries": [
+        { "metric": "harvest", "change": 25 },
+        { "metric": "morale", "change": 0.04 }
+      ]
+    },
+    {
+      "category": "labour",
+      "entries": [
+        { "metric": "soil-health", "change": -3 },
+        { "metric": "harvest", "change": 15 }
+      ]
+    }
+  ]
+}
