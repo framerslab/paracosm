@@ -276,11 +276,23 @@ The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes
 { "artifact": { "metadata": { "...": "..." }, "trajectory": { "...": "..." } } }
 ```
 
-**Request body — bundle (1–50 artifacts share one generated bundleId)**
+**Request body — bundle (1–50 artifacts share one bundleId)**
 
 ```json
 { "artifacts": [ { "...": "RunArtifact" }, { "...": "RunArtifact" } ] }
 ```
+
+The route gives the bundle a new id, `bundle_` and a random UUID. With `addToBundle` set to an id of that form, such as the `bundleId` an earlier request's response gave or a new one the caller makes, the artifacts go in that bundle instead, and the response answers that id:
+
+```json
+{ "addToBundle": "bundle_8b1e...", "artifacts": [ { "...": "RunArtifact" } ] }
+```
+
+**A bundle over the request body limit**
+
+The server refuses a request body over its limit, 5 MiB (5,242,880 bytes) unless `MAX_REQUEST_BODY_BYTES` sets another, with `413` and `Request body too large. Maximum N bytes.` A run saved with `captureSnapshots` carries three kernel snapshot sets in `scenarioExtensions` (`kernelSnapshotsPerTurn`, `kernelSnapshotAtStart`, `kernelSnapshotsAfterProgression`), which replay and fork read from the server's copy, so a bundle of such runs can pass the limit.
+
+The Studio tab sends a bundle in one request when its JSON fits the limit, and otherwise in parts of whole runs, in the bundle's order, each part under the limit. The page names a new bundle in `addToBundle` on every part, the first included, so a part the server stored but whose reply was lost is in the bundle a later promote adds the rest to. Every run goes whole, its snapshots included. A part the server refuses with `413` and a lower limit is made again under that limit. A run whose JSON alone passes 5 MiB goes in one request with the rest of the bundle until the server has stated its limit, so a server started with a higher limit takes it; a run alone over the stated limit is refused with one message naming it, its size and the limit. The import stops at the first part the server does not take, and the page says which runs were imported, into which bundle, and which were not; promoting the same bundle again, from the same file dropped again included, adds the rest to that bundle while the Studio tab stays open.
 
 **Responses (single)**
 
@@ -304,8 +316,9 @@ The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes
 
 - `201 Created` — single or full bundle inserted
 - `400 Invalid artifact body` / `400 Bundle item N is not a valid RunArtifact` — Zod validation failed (shape or content)
-- `400 Invalid bundle` — bundle missing `artifacts` array or exceeds the 50-artifact cap (`MAX_BUNDLE_SIZE`)
-- `500` — store insert raised; the response includes `failedRunId` and (for bundles) `insertedSoFar` so the client can show partial-success state and retry the broken artifact
+- `400 Invalid bundle` — bundle missing `artifacts` array, exceeds the 50-artifact cap (`MAX_BUNDLE_SIZE`), or has an `addToBundle` that is not `bundle_` and a lowercase UUID
+- `413`: the request body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default); the error states the limit
+- `500` — store insert raised; the response includes `failedRunId` and (for bundles) `bundleId` and `insertedSoFar` so the client can show partial-success state and retry the broken artifact
 
 ## `GET /api/v1/demo/status`
 
