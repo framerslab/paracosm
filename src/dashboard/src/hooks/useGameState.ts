@@ -268,18 +268,27 @@ function leaderNameOf(result: RunResultForState): string {
   return typeof name === 'string' && name.length > 0 ? name : result.leader;
 }
 
-/** The bar checks a result's artifact keeps, by `turn:eventIndex`. */
-function barChecksOf(artifact: unknown): Map<string, DecisionBarCheck> {
-  const checks = new Map<string, DecisionBarCheck>();
+/**
+ * The decisions a result's artifact records, by `turn:eventIndex`, each
+ * with its bar check, or `undefined` for a decision recorded with none (a
+ * reply that resolved no option the event offers).
+ */
+function decisionsOf(artifact: unknown): Map<string, DecisionBarCheck | undefined> {
+  const checks = new Map<string, DecisionBarCheck | undefined>();
   const internal = (artifact as { scenarioExtensions?: { paracosmInternal?: { commanderDecisions?: unknown } } } | undefined)
     ?.scenarioExtensions?.paracosmInternal;
   const list = internal?.commanderDecisions;
   const decisions: unknown[] = Array.isArray(list) ? list : [];
   for (const entry of decisions) {
     const d = entry as { turn?: unknown; eventIndex?: unknown; barCheck?: unknown } | null;
-    const b = (d?.barCheck ?? null) as Record<string, unknown> | null;
-    if (!d || typeof d.turn !== 'number' || !b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') continue;
-    checks.set(`${d.turn}:${typeof d.eventIndex === 'number' ? d.eventIndex : 0}`, {
+    if (!d || typeof d.turn !== 'number') continue;
+    const key = `${d.turn}:${typeof d.eventIndex === 'number' ? d.eventIndex : 0}`;
+    const b = (d.barCheck ?? null) as Record<string, unknown> | null;
+    if (!b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') {
+      checks.set(key, undefined);
+      continue;
+    }
+    checks.set(key, {
       boldChance: b.boldChance,
       bar: b.bar,
       clearsBar: b.clearsBar === true,
@@ -646,22 +655,28 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
   }
 
   // Each leader's bar checks from its result, onto its outcome events, by
-  // the name the events carry. The first result that checked a turn's event
-  // keeps its card: a fork picks its leader from the scenario's presets, so
-  // its result can come under a name the page already holds, and the page
-  // keeps the first outcome event it saw for a leader, turn and event (the
-  // forked-from run's), which a fork's check does not describe.
+  // the name the events carry. The first result that recorded a decision
+  // for a turn's event keeps its card, with its check or with none: a fork
+  // picks its leader from the scenario's presets, so its result can come
+  // under a name the page already holds, and the page keeps the first
+  // outcome event it saw for a leader, turn and event (the forked-from
+  // run's), which a fork's decision does not describe.
+  const recorded = new Map<string, Set<string>>();
   for (const result of results ?? []) {
     const name = leaderNameOf(result);
     const side = name ? state.actors[name] : undefined;
     if (!side) continue;
-    const checks = barChecksOf(result.artifact);
-    if (checks.size === 0) continue;
+    const decisions = decisionsOf(result.artifact);
+    const earlier = recorded.get(name) ?? new Set<string>();
+    recorded.set(name, earlier);
     side.events = side.events.map(e => {
       if (e.type !== 'outcome' || e.data._barCheck !== undefined) return e;
-      const check = checks.get(`${e.turn ?? e.data.turn}:${Number(e.data.eventIndex ?? 0)}`);
+      const key = `${e.turn ?? e.data.turn}:${Number(e.data.eventIndex ?? 0)}`;
+      if (earlier.has(key)) return e;
+      const check = decisions.get(key);
       return check ? { ...e, data: { ...e.data, _barCheck: check } } : e;
     });
+    for (const key of decisions.keys()) earlier.add(key);
   }
 
   return state;
