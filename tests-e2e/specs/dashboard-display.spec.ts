@@ -32,6 +32,14 @@ async function serverReplayMatch(request: APIRequestContext): Promise<string> {
   return agg.replaysAttempted > 0 ? `${Math.round((agg.replaysMatched / agg.replaysAttempted) * 100)}%` : 'n/a';
 }
 
+/** The server's replay counters now, with the figure the strip should show for them. */
+async function serverReplays(request: APIRequestContext): Promise<{ attempted: number; figure: string }> {
+  const res = await request.get(`${LIBRARY}/api/v1/runs/aggregate`);
+  expect(res.ok()).toBe(true);
+  const agg = await res.json() as { replaysAttempted: number };
+  return { attempted: agg.replaysAttempted, figure: await serverReplayMatch(request) };
+}
+
 async function openAndReplay(page: Page, leader: string): Promise<void> {
   await card(page, leader).getByRole('button', { name: 'Open' }).click();
   await expect(drawer(page).getByRole('heading', { name: 'Mars Genesis' })).toBeVisible();
@@ -75,6 +83,51 @@ test.describe('Library replay @library', () => {
     await expect(drawer(page)).toContainText('Replay cannot verify this run: it holds no snapshot of the state right after each between-turn step');
     await expect(drawer(page)).toContainText('run the simulation again to get a run replay can verify.');
   });
+
+  test('the Replay match figure follows a replay the server counted after the drawer was closed', async ({ page, request }) => {
+    await page.goto('/sim?tab=library');
+    await expect(card(page, 'Recorded run')).toBeVisible();
+    const before = await serverReplays(request);
+    await expect(replayMatch(page)).toContainText(before.figure);
+
+    // The server replays the run and counts it, and its answer reaches the
+    // page once the drawer is closed.
+    await page.route('**/api/v1/runs/*/replay', async route => {
+      const answer = await route.fetch();
+      await closeDrawer(page);
+      await route.fulfill({ response: answer });
+    });
+    await openAndReplay(page, 'Recorded run');
+    await expect(drawer(page)).toHaveCount(0);
+    await expect.poll(async () => (await serverReplays(request)).attempted).toBe(before.attempted + 1);
+
+    // A match after the replays of the tests above moves the figure, so a
+    // strip that did not read the counters again still shows the old one.
+    const after = await serverReplays(request);
+    expect(after.figure).not.toBe(before.figure);
+    await expect(replayMatch(page)).toContainText(after.figure);
+  });
+
+  test('a new filter set shows none of the last set\'s figures while its own load', async ({ page }) => {
+    await page.goto('/sim?tab=library');
+    await expect(replayMatch(page)).toBeVisible();
+
+    // Hold the server's answer for the new filter set.
+    let release = (): void => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    await page.route(
+      url => url.pathname === '/api/v1/runs/aggregate' && url.searchParams.get('mode') === 'batch-point',
+      async route => { await held; await route.continue(); },
+    );
+    await page.getByRole('button', { name: '+ Filter' }).click();
+    await page.getByRole('dialog', { name: 'Add filter' }).getByRole('button', { name: 'batch-point' }).click();
+    await expect(page.getByRole('button', { name: 'Remove mode: batch-point' })).toBeVisible();
+    // The stored runs are turn-loop runs: their totals are not this filter set's.
+    await expect(page.getByText('Replay match', { exact: true })).toHaveCount(0);
+
+    release();
+    await expect(replayMatch(page)).toContainText('n/a');
+  });
 });
 
 test.describe('A run on the Sim tab @sim', () => {
@@ -97,15 +150,22 @@ test.describe('A run on the Sim tab @sim', () => {
     sim(leader, 'turn_done', { metrics: { population: 30, morale: 0.87 } }),
   ];
 
-  /** A leader's result: the artifact keeps each decision's check against the bar its prompt stated. */
-  const result = (leader: string, barCheck: Record<string, unknown>) => sse('result', {
-    leader,
+  /**
+   * A leader's result as the pair runner writes it (`leaderTag` in
+   * src/cli/pair-runner.ts): the event names the leader by its tag, the
+   * archetype in kebab case without "The", where the `sim` events carry the
+   * leader's name. The artifact keeps that name beside each decision's check
+   * against the bar its prompt stated.
+   */
+  const result = (leader: { name: string; archetype: string }, barCheck: Record<string, unknown>) => sse('result', {
+    leader: leader.archetype.toLowerCase().replace(/^the\s+/, '').replace(/\s+/g, '-'),
     summary: { population: 30, morale: 0.87 },
     fingerprint: null,
     artifact: {
-      metadata: { runId: `run_${leader.split(' ')[0].toLowerCase()}`, scenario: { id: 'mars-genesis', name: 'Mars Genesis' }, seed: 950, mode: 'turn-loop', startedAt: '2026-11-12T00:00:00.000Z' },
+      metadata: { runId: `run_${leader.name.split(' ')[0].toLowerCase()}`, scenario: { id: 'mars-genesis', name: 'Mars Genesis' }, seed: 950, mode: 'turn-loop', startedAt: '2026-11-12T00:00:00.000Z' },
       scenarioExtensions: {
         paracosmInternal: {
+          leader: { name: leader.name, archetype: leader.archetype },
           commanderDecisions: [{ ...turn, eventIndex: 0, eventTitle: 'Landfall', decision: { decision: '', rationale: '', barDeparture: '' }, outcome: 'conservative_success', barCheck }],
           barChecks: { decisions: 1, followed: barCheck.departs ? 0 : 1, departed: barCheck.departs ? 1 : 0, departedWithoutFact: barCheck.unexplained ? 1 : 0 },
         },
@@ -140,9 +200,9 @@ test.describe('A run on the Sim tab @sim', () => {
       }),
     ]),
     // Aria Chen's bar was 82 and the bold option's chance 80: she refused it.
-    result(ARIA.name, { boldChance: 80, bar: 82, clearsBar: false, choseBold: false, departs: false, departureFact: '', unexplained: false }),
+    result(ARIA, { boldChance: 80, bar: 82, clearsBar: false, choseBold: false, departs: false, departureFact: '', unexplained: false }),
     // Dietrich Voss's bar was 36 and the chance 80, yet he refused it and named no fact.
-    result(DIETRICH.name, { boldChance: 80, bar: 36, clearsBar: true, choseBold: false, departs: true, departureFact: '', unexplained: true }),
+    result(DIETRICH, { boldChance: 80, bar: 36, clearsBar: true, choseBold: false, departs: true, departureFact: '', unexplained: true }),
     sse('complete', { timestamp: '2026-11-12T00:01:00.000Z' }),
     sse('replay_done', {}),
   ].join('');
