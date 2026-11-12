@@ -164,3 +164,41 @@ test('validateHookCode passes safe arrow functions', () => {
   validateHookCode('(a, b) => a + b');
   // No throw means pass
 });
+
+test('runProgressionSync never writes a hook\'s own __proto__ key onto the host Object.prototype', () => {
+  const code = "(ctx) => { Object.defineProperty(ctx.agents[0], '__proto__', { value: { polluted: 1 }, enumerable: true }); }";
+  const agent: Record<string, unknown> = { core: {} };
+  try {
+    runProgressionSync(code, { agents: [agent] });
+    assert.equal(({} as Record<string, unknown>).polluted, undefined, 'Object.prototype was not changed');
+    assert.equal(Object.getPrototypeOf(agent), Object.prototype, 'the agent keeps its prototype');
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).polluted;
+  }
+});
+
+test('runProgressionSync never swaps the prototype of a host agent\'s field', () => {
+  const code = "(ctx) => { Object.defineProperty(ctx.agents[0].core, '__proto__', { value: { polluted: 1 }, enumerable: true }); ctx.agents[0].core.marsborn = true; }";
+  const core: Record<string, unknown> = { marsborn: false };
+  const agent: Record<string, unknown> = { core };
+  try {
+    runProgressionSync(code, { agents: [agent] });
+    assert.equal(Object.getPrototypeOf(core), Object.prototype, 'the field keeps its prototype');
+    assert.equal(core.polluted, undefined);
+    assert.equal(core.marsborn, true, 'the hook\'s other changes still apply');
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).polluted;
+  }
+});
+
+test('runProgressionSync leaves Object.prototype alone when the hook parses a __proto__ key from JSON', () => {
+  const code = "(ctx) => { ctx.agents[0] = JSON.parse('{\"core\": {}, \"__proto__\": {\"polluted\": 1}}'); }";
+  const agent: Record<string, unknown> = { core: {} };
+  try {
+    runProgressionSync(code, { agents: [agent] });
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+  } finally {
+    delete (Object.prototype as Record<string, unknown>).polluted;
+  }
+});
