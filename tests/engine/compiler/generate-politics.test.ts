@@ -198,8 +198,9 @@ test('a category the seed adds after the hooks are generated cannot raise a limi
   // knowledge, whose crisis categories become `knowledge.categoryMapping`
   // keys. The turn loop reads the politics hook for those categories too,
   // so a hook that names a key for `Late frost` alone passes the smoke test.
-  const [lateFrost] = ORCHARD_EXTRACTION.crisisCategories;
-  const hook = `(category, outcome) => (category === ${JSON.stringify(lateFrost)} ? { 'soil-health': 100, morale: 5 } : null)`;
+  const lateFrost = 'Late frost';
+  assert.equal(ORCHARD_EXTRACTION.crisisCategories[0], lateFrost, 'the extraction fixture\'s first crisis category');
+  const hook = "(category, outcome) => (category === 'Late frost' ? { 'soil-health': 100, morale: 5 } : null)";
   const generateText = async (args: string | { system?: Array<{ text: string }>; prompt: string }): Promise<string> => {
     if (typeof args === 'string') {
       return args.includes('You are analyzing a document to extract domain knowledge') ? JSON.stringify(ORCHARD_EXTRACTION) : '{}';
