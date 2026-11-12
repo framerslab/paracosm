@@ -128,7 +128,11 @@ function eventToLogLine(e: SimEvent): LogLine | null {
   return {
     ts,
     glyph: e.type === 'turn_done' ? '✓' : e.type === 'turn_start' ? '→' : '·',
-    tag: tagForEventType(e.type),
+    // A salvage kept the model's own reply with its unheld keys dropped; only
+    // a fallback replaced it with the skeleton.
+    tag: e.type === 'validation_fallback' && (e.data as { salvaged?: unknown } | null | undefined)?.salvaged === true
+      ? 'SALVAGE'
+      : tagForEventType(e.type),
     body,
     tone: toneForEventType(e.type),
     actor: typeof actor === 'string' ? actor : undefined,

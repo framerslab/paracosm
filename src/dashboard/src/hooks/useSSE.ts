@@ -73,14 +73,18 @@ export interface AbortReasonState {
 }
 
 /**
- * One rollup bucket per schema name for validation fallbacks observed
- * during a run. Non-terminal — the sim keeps running with the fallback
- * skeleton — but worth surfacing in the topbar because repeated fallbacks
- * on the same schema mean the model is fighting the output format and
- * whatever data the bucket represents is degraded.
+ * One rollup bucket per schema name and kind for the `validation_fallback`
+ * events of a run. Non-terminal (the sim keeps running), but worth
+ * surfacing in the topbar because repeated failures on the same schema
+ * mean the model is fighting the output format. A fallback replaced the
+ * reply with the empty skeleton; a salvage (`salvaged: true`) kept the
+ * model's own reply without the effect keys the run does not hold, so the
+ * two are counted apart.
  */
 export interface ValidationFallbackBucket {
   schemaName: string;
+  /** True for the salvages: the reply was kept with its unheld keys dropped. */
+  salvaged: boolean;
   count: number;
   /** Most recent call-site tag (e.g. `dept:medical:turn3:event1`). */
   lastSite?: string;
@@ -126,10 +130,10 @@ interface SSEState {
   /**
    * Rollup of `validation_fallback` SSE events received during the current
    * run. One bucket per schema name (DepartmentReport, CommanderDecision,
-   * etc.) with counts + most-recent preview. Empty array when no schema
-   * has fallen back. Rendered as a small amber indicator in the topbar
-   * (not a full banner — these are soft degradations, the sim keeps
-   * running).
+   * etc.) and kind (a fallback or a salvage) with counts + most-recent
+   * preview. Empty array when no schema has failed. Rendered as a small
+   * amber indicator in the topbar, not a full banner: these are soft
+   * degradations and the sim keeps running.
    */
   validationFallbacks: ValidationFallbackBucket[];
   /**
@@ -425,22 +429,37 @@ export function useSSE(options: UseSSEOptions = {}) {
  * same shape of rollup.
  */
 function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket[] {
-  const bySchema = new Map<string, ValidationFallbackBucket>();
+  let buckets: ValidationFallbackBucket[] = [];
   for (const e of events) {
     if (e.type !== 'validation_fallback' || !e.data) continue;
-    const d = e.data as Record<string, unknown>;
-    const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-      ? d.schemaName
-      : 'unknown';
-    const existing = bySchema.get(schemaName);
-    bySchema.set(schemaName, {
-      schemaName,
-      count: (existing?.count ?? 0) + 1,
-      lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
-      lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
-    });
+    buckets = addValidationFallback(buckets, e.data as Record<string, unknown>);
   }
-  return [...bySchema.values()].sort((a, b) => b.count - a.count);
+  return buckets;
+}
+
+/**
+ * Count one `validation_fallback` event's data into the buckets: by schema
+ * name, a salvage apart from a fallback. Returns new buckets, most counted
+ * first. The live stream and a run loaded from a file both count through it.
+ */
+function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Record<string, unknown>): ValidationFallbackBucket[] {
+  const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
+    ? d.schemaName
+    : 'unknown';
+  const salvaged = d.salvaged === true;
+  const buckets = [...prev];
+  const idx = buckets.findIndex(b => b.schemaName === schemaName && b.salvaged === salvaged);
+  const existing = idx === -1 ? undefined : buckets[idx];
+  const updated: ValidationFallbackBucket = {
+    schemaName,
+    salvaged,
+    count: (existing?.count ?? 0) + 1,
+    lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
+    lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
+  };
+  if (idx === -1) buckets.push(updated);
+  else buckets[idx] = updated;
+  return buckets.sort((a, b) => b.count - a.count);
 }
 
   useEffect(() => {
@@ -720,25 +739,11 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // audit + save/reload restoration.
           if (data.type === 'validation_fallback' && data.data) {
             const d = data.data as Record<string, unknown>;
-            const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-              ? d.schemaName
-              : 'unknown';
-            setState(prev => {
-              const buckets = [...prev.validationFallbacks];
-              const idx = buckets.findIndex(b => b.schemaName === schemaName);
-              const updated: ValidationFallbackBucket = idx === -1
-                ? { schemaName, count: 1, lastSite: d.site as string | undefined, lastPreview: d.rawTextPreview as string | undefined }
-                : {
-                    ...buckets[idx],
-                    count: buckets[idx].count + 1,
-                    lastSite: (d.site as string | undefined) ?? buckets[idx].lastSite,
-                    lastPreview: (d.rawTextPreview as string | undefined) ?? buckets[idx].lastPreview,
-                  };
-              if (idx === -1) buckets.push(updated);
-              else buckets[idx] = updated;
-              buckets.sort((a, b) => b.count - a.count);
-              return { ...prev, events: [...prev.events, data], validationFallbacks: buckets };
-            });
+            setState(prev => ({
+              ...prev,
+              events: [...prev.events, data],
+              validationFallbacks: addValidationFallback(prev.validationFallbacks, d),
+            }));
             return;
           }
           // sim_aborted: orchestrator emits this when the run was

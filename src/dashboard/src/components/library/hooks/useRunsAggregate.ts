@@ -8,7 +8,12 @@ export interface RunsAggregate {
   replaysMatched: number;
 }
 
-export function useRunsAggregate(filters: { mode?: string; scenario?: string; leader?: string } = {}): {
+/**
+ * The Library's run totals and replay counters from GET /api/v1/runs/aggregate,
+ * read again when the filters change and when `refreshKey` changes (the
+ * Library moves it after each replay the server counts).
+ */
+export function useRunsAggregate(filters: { mode?: string; scenario?: string; leader?: string } = {}, refreshKey = 0): {
   stats: RunsAggregate | null;
   loading: boolean;
   error: string | null;
@@ -33,7 +38,7 @@ export function useRunsAggregate(filters: { mode?: string; scenario?: string; le
       .catch(err => { if (err.name !== 'AbortError') { setError(err.message); setLoading(false); } });
     return () => ctrl.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey]);
+  }, [queryKey, refreshKey]);
 
   return { stats, loading, error };
 }

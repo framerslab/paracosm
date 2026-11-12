@@ -228,7 +228,66 @@ function emptyCost(): CostBreakdown {
  * in useMemo by the hook below; exported here for direct unit testing
  * without a React render context (matches the useRetryStats pattern).
  */
-export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): GameState {
+/**
+ * A commander decision checked against the bar its prompt stated: the
+ * `barCheck` the run keeps for each decision in its artifact
+ * (`scenarioExtensions.paracosmInternal.commanderDecisions`), out of 100.
+ */
+export interface DecisionBarCheck {
+  /** The bold option's chance the prompt stated. */
+  boldChance: number;
+  /** The leader's bar the prompt stated. */
+  bar: number;
+  /** The bold option's chance is at least the bar. */
+  clearsBar: boolean;
+  /** The option chosen is a bold one. */
+  choseBold: boolean;
+  /** The choice is not the one the bar gives. */
+  departs: boolean;
+  /** The fact the reply named for a departure; "" for none. */
+  departureFact: string;
+  /** A departure whose reply named no fact for it. */
+  unexplained: boolean;
+}
+
+/** What the game state reads from a leader's `result` event. */
+export interface RunResultForState {
+  leader: string;
+  artifact?: unknown;
+}
+
+/** The bar checks a result's artifact keeps, by `turn:eventIndex`. */
+function barChecksOf(artifact: unknown): Map<string, DecisionBarCheck> {
+  const checks = new Map<string, DecisionBarCheck>();
+  const internal = (artifact as { scenarioExtensions?: { paracosmInternal?: { commanderDecisions?: unknown } } } | undefined)
+    ?.scenarioExtensions?.paracosmInternal;
+  const list = internal?.commanderDecisions;
+  const decisions: unknown[] = Array.isArray(list) ? list : [];
+  for (const entry of decisions) {
+    const d = entry as { turn?: unknown; eventIndex?: unknown; barCheck?: unknown } | null;
+    const b = (d?.barCheck ?? null) as Record<string, unknown> | null;
+    if (!d || typeof d.turn !== 'number' || !b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') continue;
+    checks.set(`${d.turn}:${typeof d.eventIndex === 'number' ? d.eventIndex : 0}`, {
+      boldChance: b.boldChance,
+      bar: b.bar,
+      clearsBar: b.clearsBar === true,
+      choseBold: b.choseBold === true,
+      departs: b.departs === true,
+      departureFact: typeof b.departureFact === 'string' ? b.departureFact : '',
+      unexplained: b.unexplained === true,
+    });
+  }
+  return checks;
+}
+
+/**
+ * Fold a run's stream into the dashboard's state. `results` are the run's
+ * `result` events: a leader's artifact keeps each decision's check against
+ * the bar its prompt stated, which the stream's decision events do not
+ * carry, so it is joined onto the outcome event of the same turn and event
+ * (`_barCheck`) once the leader's result has arrived.
+ */
+export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
   const state: GameState = {
     actors: {},
     actorIds: [],
@@ -571,9 +630,23 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
     }
   }
 
+  // Each leader's bar checks from its result, onto its outcome events. A
+  // later result for the same leader (a fork's) replaces an earlier one's.
+  for (const result of results ?? []) {
+    const side = result.leader ? state.actors[result.leader] : undefined;
+    if (!side) continue;
+    const checks = barChecksOf(result.artifact);
+    if (checks.size === 0) continue;
+    side.events = side.events.map(e => {
+      if (e.type !== 'outcome') return e;
+      const check = checks.get(`${e.turn ?? e.data.turn}:${Number(e.data.eventIndex ?? 0)}`);
+      return check ? { ...e, data: { ...e.data, _barCheck: check } } : e;
+    });
+  }
+
   return state;
 }
 
-export function useGameState(sseEvents: SimEvent[], isComplete: boolean): GameState {
-  return useMemo(() => computeGameState(sseEvents, isComplete), [sseEvents, isComplete]);
+export function useGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
+  return useMemo(() => computeGameState(sseEvents, isComplete, results), [sseEvents, isComplete, results]);
 }
