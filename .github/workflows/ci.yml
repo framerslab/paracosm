@@ -98,6 +98,9 @@ jobs:
       - name: Run control end-to-end test
         run: npx playwright test tests-e2e/specs/run-control.spec.ts --project=chromium-desktop
 
+      - name: Admin token field end-to-end test
+        run: npx playwright test tests-e2e/specs/admin-token-field.spec.ts --project=chromium-desktop
+
       - name: Scenario per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/scenario-per-visitor.spec.ts --project=chromium-desktop
 

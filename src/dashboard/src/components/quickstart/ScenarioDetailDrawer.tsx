@@ -16,6 +16,7 @@ import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { CatalogScenario } from './ScenarioCatalogGrid';
 import styles from './ScenarioDetailDrawer.module.scss';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from '../../admin-token';
 
 void React;
 
@@ -187,12 +188,9 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
   const [adminToken, setAdminToken] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    try {
-      const t = localStorage.getItem('paracosm:adminToken');
-      setAdminToken(t && t.length > 0 ? t : null);
-    } catch {
-      setAdminToken(null);
-    }
+    // A fresh open starts without the last open's refusal.
+    setDeleteError(null);
+    setAdminToken(readAdminToken() || null);
   }, [open]);
   const canDelete = !!adminToken && scenario?.source === 'compiled';
   const drawerRef = useRef<HTMLDivElement | null>(null);
@@ -371,11 +369,11 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
     try {
       const res = await fetch(`/admin/scenarios/${encodeURIComponent(scenario.id)}`, {
         method: 'DELETE',
-        headers: { 'X-Admin-Token': adminToken },
+        headers: { [ADMIN_TOKEN_HEADER]: adminToken },
       });
       if (res.status === 401) {
-        try { localStorage.removeItem('paracosm:adminToken'); } catch { /* silent */ }
-        setDeleteError('Admin token rejected. The stored token has been cleared; re-paste it via dev-tools localStorage to retry.');
+        clearAdminToken(adminToken);
+        setDeleteError(`Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`);
         setAdminToken(null);
         return;
       }
@@ -673,20 +671,20 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
             Run {actorCount} {actorCount === 1 ? 'actor' : 'actors'} →
           </button>
           {canDelete && (
-            <>
-              <button
-                type="button"
-                className={styles.deleteButton}
-                onClick={handleDelete}
-                disabled={deleting || disabled}
-                aria-label={`Delete scenario ${scenario.name}`}
-              >
-                {deleting ? 'Deleting…' : 'Delete (admin)'}
-              </button>
-              {deleteError && (
-                <p className={styles.deleteError} role="alert">{deleteError}</p>
-              )}
-            </>
+            <button
+              type="button"
+              className={styles.deleteButton}
+              onClick={handleDelete}
+              disabled={deleting || disabled}
+              aria-label={`Delete scenario ${scenario.name}`}
+            >
+              {deleting ? 'Deleting…' : 'Delete (admin)'}
+            </button>
+          )}
+          {/* Outside the button's gate: a refused token is cleared, which
+              hides the button, and the reason has to stay on screen. */}
+          {deleteError && (
+            <p className={styles.deleteError} role="alert">{deleteError}</p>
           )}
         </footer>
       </aside>
