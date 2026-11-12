@@ -24,6 +24,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintSustainsMarks } from '../../../src/engine/compiler/validate.js';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
+import { buildTimeSchedule } from '../../../src/runtime/util/runtime-helpers.js';
 
 type Json = Record<string, any>;
 
@@ -103,4 +104,66 @@ test('a mark the rules refuse is reported with its rule: four fields the bundled
   // Mars Genesis's food store would be a sixth mark: the sixth in the order
   // the world declares them is the life-support capacity, the one capacity.
   assert.deepEqual(found(withMark('mars.json', 'foodMonthsReserve')), [['lifeSupportCapacity', 7]]);
+});
+
+/** The five supplies Mars Genesis marks, in the order its world declares them. */
+const MARS_MARKS = MARKS['mars-genesis'];
+
+test('a default run with a turn time of 0 or under spans what the run\'s accelerating schedule spans, for one to fifteen turns', () => {
+  for (const perTurn of [0, -1]) {
+    for (let turns = 1; turns <= 15; turns++) {
+      const scenario = read('mars.json');
+      scenario.setup.defaultTurns = turns;
+      scenario.setup.defaultTimePerTurn = perTurn;
+      // The years a run of Mars Genesis spans with these settings, read from the run's own schedule.
+      const schedule = buildTimeSchedule(scenario.setup.defaultStartTime, turns, perTurn);
+      const span = schedule[schedule.length - 1] - schedule[0];
+      const findings = lintSustainsMarks(scenario);
+      const at = `${turns} turns, turn time ${perTurn}, a run spanning ${span} years (read ${JSON.stringify(findings)})`;
+      if (span >= 5) {
+        assert.deepEqual(findings, [], `every mark passes: ${at}`);
+      } else {
+        assert.deepEqual(findings.map(f => [f.key, f.rule]), MARS_MARKS.map(key => [key, 6]), `rule 6 refuses every mark: ${at}`);
+        for (const f of findings) assert.ok(f.reason.includes(`the default run spans ${span} years`), `the reason names the run's span: ${at}`);
+      }
+    }
+  }
+});
+
+test('a key both world.metrics and world.capacities declare is read at the start the kernel holds, the capacity\'s', () => {
+  // Mars Genesis marks its power in world.metrics, at 400 kW. A capacity of
+  // the same key at 0 is the value the kernel holds of it on day one, so the
+  // mark has no landing amount.
+  const scenario = read('mars.json');
+  scenario.world.capacities.powerKw = { id: 'powerKw', label: 'Power cap', unit: 'kW', type: 'number', initial: 0, min: 0, category: 'capacity' };
+  const findings = lintSustainsMarks(scenario);
+  assert.deepEqual(findings.map(f => [f.key, f.rule]), [['powerKw', 4]], `the power mark has nothing on day one (read ${JSON.stringify(findings)})`);
+  assert.ok(findings[0].reason.includes('0'), `the reason names the start the kernel holds (read "${findings[0].reason}")`);
+});
+
+test('every declared score that reads a marked field is read, not only the first', () => {
+  const withSecondScore = (score: Json): Json => {
+    const scenario = read('mars.json');
+    scenario.metrics.push({ id: 'powerDraw', label: 'Power draw', source: 'metrics.powerKw', ...score });
+    return scenario;
+  };
+  const found = (scenario: Json) => lintSustainsMarks(scenario).map(f => [f.key, f.rule]);
+  assert.deepEqual(found(withSecondScore({ format: 'number', better: 'lower' })), [['powerKw', 3]], 'a second score on the power, better lower');
+  assert.deepEqual(found(withSecondScore({ format: 'percent' })), [['powerKw', 2]], 'a second score on the power, a percent');
+  assert.deepEqual(found(withSecondScore({ format: 'number' })), [], 'a second plain score on the power');
+});
+
+test('a unit that names money with a multiplier in front of it is money', () => {
+  const withUnit = (unit: string): Json => {
+    const scenario = read('mars.json');
+    scenario.world.metrics.powerKw.unit = unit;
+    return scenario;
+  };
+  const found = (scenario: Json) => lintSustainsMarks(scenario).map(f => [f.key, f.rule]);
+  for (const unit of ['kUSD', 'MUSD', 'bEUR', 'k EUR', 'kUSD/day']) {
+    assert.deepEqual(found(withUnit(unit)), [['powerKw', 2]], `the unit "${unit}" names money`);
+  }
+  for (const unit of ['kW', 'heures', 'beurre', 'museum visits']) {
+    assert.deepEqual(found(withUnit(unit)), [], `the unit "${unit}" names no money`);
+  }
 });
