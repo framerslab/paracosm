@@ -4,7 +4,7 @@ import { resolve, dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { normalizeSimulationConfig, applyDemoCaps, DEMO_EXECUTION, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
@@ -35,7 +35,8 @@ import {
   SCENARIO_ID_RULE,
   type PersistedCompiledMeta,
 } from '../cli/persisted-compiled-scenarios.js';
-import { IpRateLimiter, readLimitFromEnv } from './rate-limiter.js';
+import { IpRateLimiter, readLimitFromEnv, readClientIpHeader } from './rate-limiter.js';
+import type { QuickstartRefusal } from './routes/quickstart.js';
 import {
   aggregateSchemaRetries,
   aggregateForgeStats,
@@ -603,6 +604,67 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const rateLimiter = maxSims > 0
     ? new IpRateLimiter(maxSims, 5, chatPerHour, rateLimitStatePath, chatGlobalPerHour)
     : null;
+  // The header the proxy in front of the server sets to the client's
+  // address (PARACOSM_CLIENT_IP_HEADER). Unset: the connection's address.
+  const clientIpHeader = readClientIpHeader(env);
+
+  /**
+   * The Quickstart routes' limits on the hosted demo, where every
+   * Quickstart call bills the host's keys (the routes take no caller key):
+   * a compile counts against the caller's daily compile limit, as /compile
+   * does, with at most MAX_PENDING_QUICKSTART_COMPILES pending server-wide;
+   * the grounding, actor and URL routes against a daily Quickstart limit of
+   * their own; a Digital Twin run against the day's run limit, as /setup
+   * does, on the demo's turn cap and the economy tier. Elsewhere the
+   * operator's keys pay, and the routes run as asked.
+   */
+  const MAX_PENDING_QUICKSTART_COMPILES = 4;
+  /** The most web searches one /compile runs on the hosted demo. */
+  const HOSTED_COMPILE_MAX_SEARCHES = 5;
+  const quickstartHostLimits = (req: IncomingMessage): QuickstartDeps['hostLimits'] => {
+    const limiter = rateLimiter;
+    if (serverMode !== 'hosted_demo' || !limiter) return undefined;
+    const ip = IpRateLimiter.getIp(req, clientIpHeader);
+    const refusal = (decision: { limit: number; resetAt: number }, what: string, retryAfter: string): QuickstartRefusal => ({
+      status: 429,
+      headers: {
+        'Retry-After': retryAfter,
+        'X-RateLimit-Limit': String(decision.limit),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': String(Math.floor(decision.resetAt / 1000)),
+      },
+      body: { error: `Rate limit exceeded. Maximum ${decision.limit} ${what} per day.`, limit: decision.limit, remaining: 0, resetAt: decision.resetAt },
+    });
+    return {
+      admitCompile: () => {
+        const decision = limiter.consumeCompile(ip);
+        if (decision.allowed) return null;
+        console.log(`  [rate-limit] Quickstart compile blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        return refusal(decision, 'compiles', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
+      },
+      maxPendingCompiles: MAX_PENDING_QUICKSTART_COMPILES,
+      admitCall: () => {
+        const decision = limiter.consumeQuickstart(ip);
+        if (decision.allowed) return null;
+        console.log(`  [rate-limit] Quickstart call blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        return refusal(decision, 'Quickstart grounding, actor and URL requests', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
+      },
+      run: {
+        admit: () => {
+          const decision = limiter.check(ip);
+          if (!decision.allowed) {
+            console.log(`  [rate-limit] Digital Twin run blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+            return refusal(decision, 'simulations', '86400');
+          }
+          limiter.record(ip);
+          return null;
+        },
+        refund: () => limiter.unrecord(ip),
+      },
+      maxTurns: DEMO_EXECUTION.maxTurns,
+      maxActors: DEMO_EXECUTION.maxActors,
+    };
+  };
 
   // Concurrent-/chat limiter: hard cap on in-flight LLM calls. Stops
   // a burst of N parallel POSTs from spawning N parallel LLM calls
@@ -1968,6 +2030,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             };
           },
           isRunKeyUsed: (runKey) => liveRuns.isKeyUsed(runKey),
+          hostLimits: quickstartHostLimits(req),
         };
         // compile-from-seed is the first call in a new Quickstart launch
         // flow. Dropping the caller's finished run here means their streams
@@ -2035,7 +2098,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // Rate limit with BYO-key bypass, matching the /setup pattern.
         // `.check()` alone is advisory; `.record()` consumes the slot.
         if (rateLimiter && !hasUserKeys) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, limit } = rateLimiter.check(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2100,7 +2163,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const isHostedDemoCompile = serverMode === 'hosted_demo';
         const hostBilled = !userSuppliedKey && isHostedDemoCompile;
         if (rateLimiter && hostBilled) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, resetAt, limit } = rateLimiter.consumeCompile(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2118,6 +2181,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           console.log(`  [rate-limit] /compile ${ip}: ${remaining} remaining of ${limit}`);
+        }
+
+        // Web search on the hosted demo runs on the host's search keys,
+        // whoever pays for the model. A compile there runs at most
+        // HOSTED_COMPILE_MAX_SEARCHES searches, and a caller with their own
+        // model key gets the host's search on the same daily compile limit:
+        // past it, the compile runs without web search.
+        let compileWebSearch = webSearch ?? true;
+        let compileMaxSearches = maxSearches;
+        if (isHostedDemoCompile) {
+          const requested = typeof maxSearches === 'number' && Number.isFinite(maxSearches) ? Math.floor(maxSearches) : HOSTED_COMPILE_MAX_SEARCHES;
+          compileMaxSearches = Math.max(0, Math.min(requested, HOSTED_COMPILE_MAX_SEARCHES));
+          if (userSuppliedKey && compileWebSearch !== false && rateLimiter) {
+            const ip = IpRateLimiter.getIp(req, clientIpHeader);
+            if (!rateLimiter.consumeCompile(ip).allowed) {
+              compileWebSearch = false;
+              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; compiling without the host's web search`);
+            }
+          }
         }
 
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
@@ -2160,8 +2242,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           cache: true,
           seedText,
           seedUrl,
-          webSearch: webSearch ?? true,
-          maxSearches,
+          webSearch: compileWebSearch,
+          maxSearches: compileMaxSearches,
           apiKey: compileCredentials.apiKey,
           anthropicKey: compileCredentials.anthropicKey,
           telemetry: compileTelemetry,
@@ -2352,7 +2434,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         if (rateLimiter && !chatUserKey) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, resetAt, limit } = rateLimiter.consumeChat(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2530,7 +2612,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     if (req.url === '/rate-limit' && req.method === 'GET') {
-      const clientIp = IpRateLimiter.getIp(req);
+      const clientIp = IpRateLimiter.getIp(req, clientIpHeader);
       if (!rateLimiter) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ unlimited: true, ip: clientIp }));
@@ -2927,7 +3009,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(config.anthropicKey),
         };
         const hasUserKeys = hasProviderCredentials(requestCredentials);
-        const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req) : null;
+        const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null;
         /** Answers 429 and returns true when the caller's IP has used its runs of the day. */
         const overTheDay = (): boolean => {
           if (!rateLimiter || rateIp === null) return false;

@@ -195,6 +195,23 @@ test('the day limit keys on the connection, not on an address header the caller 
   });
 });
 
+test('behind a proxy the server is told to trust, each client address has its own day limit', async () => {
+  await withServer({ maxSimsPerDay: 1, env: { PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' } }, async base => {
+    const body = { actors: mars.presets[0].leaders, turns: 1, scenarioId: 'mars-genesis' };
+    const statusFor = async (address: string) => {
+      const res = await post(base, '/setup', body, { 'cf-connecting-ip': address });
+      await res.text();
+      return res.status;
+    };
+    assert.equal(await statusFor('198.51.100.1'), 200);
+    assert.equal(await statusFor('198.51.100.2'), 200);
+    assert.equal(await statusFor('198.51.100.1'), 429);
+    // A value that is not an address counts against the connection's address.
+    assert.equal(await statusFor('not-an-address'), 200);
+    assert.equal(await statusFor('also-not-an-address'), 429);
+  });
+});
+
 test('reading a limit adds no entry for the address read', () => {
   const limiter = new IpRateLimiter(1, 5, 30, null, 500);
   try {

@@ -374,6 +374,7 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: number;
   maxPopulation: number;
   maxActiveDepartments: number;
+  maxActors: number;
 } = {
   commanderMaxSteps: 2,
   // Three steps gives the dept loop enough room to: forge attempt #1,
@@ -391,7 +392,15 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: resolveDemoMaxTurns(),
   maxPopulation: 30,
   maxActiveDepartments: 3,
+  // A hosted run on the host's keys is a pair: the day limit charges one
+  // run, and each leader is a run's worth of model calls.
+  maxActors: 2,
 };
+
+/** The hosted demo's bounds on what a run's body may add to every prompt. */
+const DEMO_MAX_INSTRUCTIONS_CHARS = 400;
+const DEMO_MAX_EVENT_TITLE_CHARS = 120;
+const DEMO_MAX_EVENT_DESCRIPTION_CHARS = 600;
 
 export function inferProviderFromModel(model?: string): LlmProvider | undefined {
   if (!model) return undefined;
@@ -534,10 +543,12 @@ function normalizeActiveDepartments(
  *
  * Called server-side when a request arrives without a user-supplied API
  * key, so the run bills against the host's provider key. Replaces models
- * with DEMO_MODELS, clamps turn/population/department counts, and tightens
- * tool-loop step caps. Leaders, seed, scenario content, and scenario-level
- * starting state pass through unchanged so the run still feels like a
- * real sim rather than a canned preview.
+ * with DEMO_MODELS, clamps turn/population/department counts, keeps the
+ * first two leaders with their instructions trimmed, trims key personnel to
+ * the population and custom events to one a turn, turns live search off,
+ * and tightens tool-loop step caps. Seed, scenario content, and
+ * scenario-level starting state pass through unchanged so the run still
+ * feels like a real sim rather than a canned preview.
  *
  * The client cannot bypass by posting its own `models` or `turns` values.
  * Whatever the normalizer produced is overwritten here.
@@ -574,10 +585,26 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
         overrides: { commander: demoCommander, director: economy.models.director },
       })
     : economy;
+  const turns = Math.min(config.turns, DEMO_EXECUTION.maxTurns);
+  const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {
     ...config,
-    turns: Math.min(config.turns, DEMO_EXECUTION.maxTurns),
-    initialPopulation: Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation),
+    // The first leaders, each with instructions of at most 400 characters;
+    // key personnel within the population; one custom event a turn at most,
+    // each with a short title and description; no live search.
+    actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => ({
+      ...actor,
+      instructions: (actor.instructions ?? '').slice(0, DEMO_MAX_INSTRUCTIONS_CHARS),
+    })),
+    keyPersonnel: config.keyPersonnel.slice(0, initialPopulation),
+    customEvents: config.customEvents.slice(0, turns).map(event => ({
+      turn: event.turn,
+      title: event.title.slice(0, DEMO_MAX_EVENT_TITLE_CHARS),
+      description: event.description.slice(0, DEMO_MAX_EVENT_DESCRIPTION_CHARS),
+    })),
+    liveSearch: false,
+    turns,
+    initialPopulation,
     activeDepartments: activeClamped,
     execution: {
       commanderMaxSteps: DEMO_EXECUTION.commanderMaxSteps,

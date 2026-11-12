@@ -5,12 +5,20 @@
  * without spinning up the whole HTTP server and so createMarsServer reads
  * more like a route file. Behavior is unchanged.
  *
- * Three buckets keyed by IP:
- *   - simStore / maxPerDay:        /setup (most expensive action, daily)
- *   - compileStore / maxCompilePerDay: /compile (~$0.10 per call, daily)
+ * Four buckets keyed by IP:
+ *   - simStore / maxPerDay:        /setup and a hosted Digital Twin run
+ *                                  (most expensive action, daily)
+ *   - compileStore / maxCompilePerDay: /compile and a hosted Quickstart
+ *                                  compile (~$0.10 per call, daily)
  *   - chatStore / maxChatPerHour:  /chat (hourly, users legitimately
  *                                  burst but scripts/loops flatten the
  *                                  budget if unlimited)
+ *   - quickstartStore / maxQuickstartPerDay: the hosted Quickstart's
+ *                                  grounding, actor and URL routes (daily)
+ *
+ * The IP is the connection's address unless the server names the one
+ * proxy header it trusts (PARACOSM_CLIENT_IP_HEADER, see
+ * readClientIpHeader). Reading a limit adds no entry; only a charge does.
  *
  * When a persistencePath is supplied, state is loaded on construct and
  * flushed on every mutation via a 500ms-debounced atomic write
@@ -21,7 +29,29 @@
  */
 
 import type { IncomingMessage } from 'node:http';
+import { isIP } from 'node:net';
 import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
+
+/** The proxy headers a server can be told to read the client's address from. */
+export type ClientIpHeader = 'cf-connecting-ip' | 'x-real-ip' | 'x-forwarded-for';
+const CLIENT_IP_HEADERS: readonly ClientIpHeader[] = ['cf-connecting-ip', 'x-real-ip', 'x-forwarded-for'];
+
+/**
+ * Reads PARACOSM_CLIENT_IP_HEADER: the one header the proxy in front of the
+ * server sets to the client's address. Unset or empty, the limits key on
+ * the connection's address and every address header is ignored, since any
+ * caller can send one. Set it only when every request reaches the server
+ * through that proxy, which overwrites the header: `cf-connecting-ip` behind
+ * Cloudflare, `x-real-ip` or `x-forwarded-for` behind a proxy that sets them.
+ * Any other value logs a warning and keys on the connection's address.
+ */
+export function readClientIpHeader(env: NodeJS.ProcessEnv): ClientIpHeader | null {
+  const raw = (env.PARACOSM_CLIENT_IP_HEADER ?? '').trim().toLowerCase();
+  if (!raw) return null;
+  if ((CLIENT_IP_HEADERS as readonly string[]).includes(raw)) return raw as ClientIpHeader;
+  console.warn(`  [rate-limit] PARACOSM_CLIENT_IP_HEADER=${JSON.stringify(env.PARACOSM_CLIENT_IP_HEADER)} is not one of ${CLIENT_IP_HEADERS.join(', ')}; keying limits on the connection's address.`);
+  return null;
+}
 
 interface RateLimitEntry {
   count: number;
@@ -61,6 +91,7 @@ export class IpRateLimiter {
   private simStore = new Map<string, RateLimitEntry>();
   private compileStore = new Map<string, RateLimitEntry>();
   private chatStore = new Map<string, RateLimitEntry>();
+  private quickstartStore = new Map<string, RateLimitEntry>();
   /** Single-bucket global counter for /chat. Per-IP caps are
    *  trivially evaded by IP rotation (VPNs, proxy pools, residential
    *  proxies), so we additionally cap the hosted-key chat budget
@@ -71,6 +102,7 @@ export class IpRateLimiter {
   private maxCompilePerDay: number;
   private maxChatPerHour: number;
   private maxChatGlobalPerHour: number;
+  private maxQuickstartPerDay: number;
   private cleanupTimer: ReturnType<typeof setInterval>;
   private persistencePath: string | null = null;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,7 +113,9 @@ export class IpRateLimiter {
     maxChatPerHour: number = 30,
     persistencePath: string | null = null,
     maxChatGlobalPerHour: number = 500,
+    maxQuickstartPerDay: number = 20,
   ) {
+    this.maxQuickstartPerDay = maxQuickstartPerDay;
     this.maxPerDay = maxPerDay;
     this.maxCompilePerDay = maxCompilePerDay;
     this.maxChatPerHour = maxChatPerHour;
@@ -101,6 +135,7 @@ export class IpRateLimiter {
         sim?: Record<string, RateLimitEntry>;
         compile?: Record<string, RateLimitEntry>;
         chat?: Record<string, RateLimitEntry>;
+        quickstart?: Record<string, RateLimitEntry>;
       };
       const now = Date.now();
       const hydrate = (store: Map<string, RateLimitEntry>, src: Record<string, RateLimitEntry> | undefined) => {
@@ -112,6 +147,7 @@ export class IpRateLimiter {
       hydrate(this.simStore, data.sim);
       hydrate(this.compileStore, data.compile);
       hydrate(this.chatStore, data.chat);
+      hydrate(this.quickstartStore, data.quickstart);
     } catch {
       // Missing file, permission denied, corrupt JSON — start fresh.
     }
@@ -134,6 +170,7 @@ export class IpRateLimiter {
           sim: dump(this.simStore),
           compile: dump(this.compileStore),
           chat: dump(this.chatStore),
+          quickstart: dump(this.quickstartStore),
         });
         const tmp = `${this.persistencePath}.tmp`;
         writeFileSync(tmp, payload, 'utf-8');
@@ -144,36 +181,26 @@ export class IpRateLimiter {
     }, 500);
   }
 
-  /** Extract client IP, respecting reverse proxy headers (Cloudflare,
-   *  nginx, etc).
+  /** The client's address: the connection's, or, when the server trusts
+   *  one proxy header (readClientIpHeader), that header's value.
    *
-   *  Header priority is intentional. Behind Cloudflare,
-   *  `cf-connecting-ip` is set by CF on every request to the original
-   *  client IP and CANNOT be spoofed by the client (CF strips any
-   *  inbound copy). It's the only header that's reliable when the
-   *  origin is reachable through CF.
-   *
-   *  `x-forwarded-for` goes second because nginx configurations differ
-   *  on whether they preserve, append, or overwrite the chain — when
-   *  nginx replaces XFF with `$remote_addr` (the immediate-upstream
-   *  CF edge IP), the "first" in the chain becomes a rotating CF edge
-   *  IP and the rate limiter ends up keying every request to a fresh
-   *  IP. Production traffic was effectively unlimited under this bug
-   *  until cf-connecting-ip was promoted to the top of the chain. */
-  static getIp(req: IncomingMessage): string {
-    const cfIp = req.headers['cf-connecting-ip'];
-    if (cfIp) {
-      const v = Array.isArray(cfIp) ? cfIp[0] : cfIp;
-      if (v) return v;
-    }
-    const xff = req.headers['x-forwarded-for'];
-    if (xff) {
-      const first = (Array.isArray(xff) ? xff[0] : xff).split(',')[0].trim();
-      if (first) return first;
-    }
-    const realIp = req.headers['x-real-ip'];
-    if (realIp) return Array.isArray(realIp) ? realIp[0] : realIp;
-    return req.socket.remoteAddress || 'unknown';
+   *  Behind Cloudflare, `cf-connecting-ip` is set by Cloudflare on every
+   *  request to the original client IP and Cloudflare strips any inbound
+   *  copy, so it is reliable only for requests that came through
+   *  Cloudflare. `x-forwarded-for` is read from its last entry, the one the
+   *  trusted proxy appended; the entries before it are the caller's own.
+   *  A header value that is not an IPv4 or IPv6 address (node:net isIP) is
+   *  ignored, so a caller cannot make a key of any text they like. */
+  static getIp(req: IncomingMessage, trustedHeader: ClientIpHeader | null = null): string {
+    const socketIp = req.socket.remoteAddress || 'unknown';
+    if (!trustedHeader) return socketIp;
+    const raw = req.headers[trustedHeader];
+    const value = Array.isArray(raw) ? raw[raw.length - 1] : raw;
+    if (!value) return socketIp;
+    const candidate = trustedHeader === 'x-forwarded-for'
+      ? (value.split(',').pop() ?? '').trim()
+      : value.trim();
+    return isIP(candidate) ? candidate : socketIp;
   }
 
   private nextReset(kind: WindowKind): number {
@@ -199,6 +226,8 @@ export class IpRateLimiter {
     let mutated = false;
     if (!entry || now >= entry.resetAt) {
       entry = { count: 0, resetAt: this.nextReset(kind) };
+      // A read leaves the store as it was: only a charge keeps an entry.
+      if (!mutate) return { allowed: entry.count < limit, remaining: limit, resetAt: entry.resetAt, limit };
       store.set(ip, entry);
       mutated = true;
     }
@@ -219,9 +248,14 @@ export class IpRateLimiter {
 
   /** Record a simulation start. Prefer `check` + `record` for legacy callers. */
   record(ip: string): void {
+    this.bump(this.simStore, ip, Number.POSITIVE_INFINITY, 'daily', true);
+  }
+
+  /** Gives back a simulation charged by `record` for a run that did not start. */
+  unrecord(ip: string): void {
     const entry = this.simStore.get(ip);
-    if (entry) {
-      entry.count++;
+    if (entry && entry.count > 0) {
+      entry.count--;
       this.persist();
     }
   }
@@ -229,6 +263,12 @@ export class IpRateLimiter {
   /** Check AND consume a slot for /compile (daily bucket, ~$0.10/call). */
   consumeCompile(ip: string): RateLimitDecision {
     return this.bump(this.compileStore, ip, this.maxCompilePerDay, 'daily', true);
+  }
+
+  /** Check AND consume a slot for the hosted Quickstart's grounding, actor
+   *  and URL routes (daily bucket of their own). */
+  consumeQuickstart(ip: string): RateLimitDecision {
+    return this.bump(this.quickstartStore, ip, this.maxQuickstartPerDay, 'daily', true);
   }
 
   /** Check AND consume a slot for /chat (hourly bucket).
@@ -282,7 +322,7 @@ export class IpRateLimiter {
   private cleanup(): void {
     const now = Date.now();
     let mutated = false;
-    for (const store of [this.simStore, this.compileStore, this.chatStore]) {
+    for (const store of [this.simStore, this.compileStore, this.chatStore, this.quickstartStore]) {
       for (const [ip, entry] of store) {
         if (now >= entry.resetAt) {
           store.delete(ip);

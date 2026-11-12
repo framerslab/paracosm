@@ -290,9 +290,14 @@ jobs:
           # Install production dependencies
           npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
-          # Restart with pm2
+          # Restart with pm2. The host sits behind Cloudflare, which sets
+          # CF-Connecting-IP to the client's address on every request, so
+          # the per-IP limits key on that header; without the setting they
+          # key on the connection's address, the local proxy's. pm2 start
+          # passes this shell's environment to the app, and pm2 save keeps
+          # it for a restart after a reboot.
           pm2 delete paracosm 2>/dev/null || true
-          pm2 start "npx tsx src/cli/serve.ts" \
+          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip pm2 start "npx tsx src/cli/serve.ts" \
             --name paracosm \
             --max-memory-restart 3G \
             --env production
