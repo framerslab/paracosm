@@ -84,6 +84,21 @@ export function useLoadFromUrl(opts: UseLoadFromUrlOptions): LoadFromUrlState {
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
+        // The page asked about, or allowed, this URL's origin only. A
+        // redirect to another origin would show a file from a site nobody
+        // named, so it is refused before the body is read.
+        if (res.url) {
+          let finalHost: string | null;
+          try {
+            const finalUrl = new URL(res.url);
+            finalHost = finalUrl.origin === url.origin ? null : finalUrl.host;
+          } catch {
+            finalHost = 'another address';
+          }
+          if (finalHost !== null) {
+            throw new Error(`The file redirects to ${finalHost}, so it was not loaded.`);
+          }
+        }
         const blob = await res.blob();
         if (active.cancelled) return;
         const file = new File([blob], deriveFileNameFromUrl(url), {
