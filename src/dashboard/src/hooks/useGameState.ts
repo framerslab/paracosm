@@ -224,11 +224,94 @@ function emptyCost(): CostBreakdown {
 }
 
 /**
- * Pure reducer: turn an SSE event list into the full GameState. Wrapped
- * in useMemo by the hook below; exported here for direct unit testing
- * without a React render context (matches the useRetryStats pattern).
+ * A commander decision checked against the bar its prompt stated: the
+ * `barCheck` the run keeps for each decision in its artifact
+ * (`scenarioExtensions.paracosmInternal.commanderDecisions`), out of 100.
  */
-export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): GameState {
+export interface DecisionBarCheck {
+  /** The bold option's chance the prompt stated. */
+  boldChance: number;
+  /** The leader's bar the prompt stated. */
+  bar: number;
+  /** The bold option's chance is at least the bar. */
+  clearsBar: boolean;
+  /** The option chosen is a bold one. */
+  choseBold: boolean;
+  /** The choice is not the one the bar gives. */
+  departs: boolean;
+  /** The fact the reply named for a departure; "" for none. */
+  departureFact: string;
+  /** A departure whose reply named no fact for it. */
+  unexplained: boolean;
+}
+
+/** What the game state reads from a leader's `result` event. */
+export interface RunResultForState {
+  /**
+   * The runner's tag for the leader (its archetype in kebab case, such as
+   * "visionary"), not the name the run's `sim` events carry.
+   */
+  leader: string;
+  artifact?: unknown;
+}
+
+/**
+ * The name a result's leader goes by in the stream. A `result` event names
+ * its leader by the runner's tag, while the run's `sim` events carry the
+ * leader's name ("Aria Chen"), which the artifact keeps under
+ * `scenarioExtensions.paracosmInternal.leader.name`. A result whose artifact
+ * names no leader is read by the event's own `leader`.
+ */
+function leaderNameOf(result: RunResultForState): string {
+  const name = (result.artifact as { scenarioExtensions?: { paracosmInternal?: { leader?: { name?: unknown } } } } | undefined)
+    ?.scenarioExtensions?.paracosmInternal?.leader?.name;
+  return typeof name === 'string' && name.length > 0 ? name : result.leader;
+}
+
+/**
+ * The decisions a result's artifact records, by `turn:eventIndex`, each
+ * with its bar check, or `undefined` for a decision recorded with none (a
+ * reply that resolved no option the event offers).
+ */
+function decisionsOf(artifact: unknown): Map<string, DecisionBarCheck | undefined> {
+  const checks = new Map<string, DecisionBarCheck | undefined>();
+  const internal = (artifact as { scenarioExtensions?: { paracosmInternal?: { commanderDecisions?: unknown } } } | undefined)
+    ?.scenarioExtensions?.paracosmInternal;
+  const list = internal?.commanderDecisions;
+  const decisions: unknown[] = Array.isArray(list) ? list : [];
+  for (const entry of decisions) {
+    const d = entry as { turn?: unknown; eventIndex?: unknown; barCheck?: unknown } | null;
+    if (!d || typeof d.turn !== 'number') continue;
+    const key = `${d.turn}:${typeof d.eventIndex === 'number' ? d.eventIndex : 0}`;
+    const b = (d.barCheck ?? null) as Record<string, unknown> | null;
+    if (!b || typeof b.boldChance !== 'number' || typeof b.bar !== 'number') {
+      checks.set(key, undefined);
+      continue;
+    }
+    checks.set(key, {
+      boldChance: b.boldChance,
+      bar: b.bar,
+      clearsBar: b.clearsBar === true,
+      choseBold: b.choseBold === true,
+      departs: b.departs === true,
+      departureFact: typeof b.departureFact === 'string' ? b.departureFact : '',
+      unexplained: b.unexplained === true,
+    });
+  }
+  return checks;
+}
+
+/**
+ * Pure reducer: fold a run's stream into the dashboard's state. Wrapped in
+ * useMemo by the hook below; exported for direct unit testing without a
+ * React render context. `results` are the run's `result` events: a
+ * leader's artifact keeps each decision's check against
+ * the bar its prompt stated, which the stream's decision events do not
+ * carry, so it is joined onto the outcome event of the same turn and event
+ * (`_barCheck`) once the leader's result has arrived. A result names its
+ * leader by the runner's tag; the join goes by the name its artifact keeps.
+ */
+export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
   const state: GameState = {
     actors: {},
     actorIds: [],
@@ -571,9 +654,34 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean): Ga
     }
   }
 
+  // Each leader's bar checks from its result, onto its outcome events, by
+  // the name the events carry. The first result that recorded a decision
+  // for a turn's event keeps its card, with its check or with none: a fork
+  // picks its leader from the scenario's presets, so its result can come
+  // under a name the page already holds, and the page keeps the first
+  // outcome event it saw for a leader, turn and event (the forked-from
+  // run's), which a fork's decision does not describe.
+  const recorded = new Map<string, Set<string>>();
+  for (const result of results ?? []) {
+    const name = leaderNameOf(result);
+    const side = name ? state.actors[name] : undefined;
+    if (!side) continue;
+    const decisions = decisionsOf(result.artifact);
+    const earlier = recorded.get(name) ?? new Set<string>();
+    recorded.set(name, earlier);
+    side.events = side.events.map(e => {
+      if (e.type !== 'outcome' || e.data._barCheck !== undefined) return e;
+      const key = `${e.turn ?? e.data.turn}:${Number(e.data.eventIndex ?? 0)}`;
+      if (earlier.has(key)) return e;
+      const check = decisions.get(key);
+      return check ? { ...e, data: { ...e.data, _barCheck: check } } : e;
+    });
+    for (const key of decisions.keys()) earlier.add(key);
+  }
+
   return state;
 }
 
-export function useGameState(sseEvents: SimEvent[], isComplete: boolean): GameState {
-  return useMemo(() => computeGameState(sseEvents, isComplete), [sseEvents, isComplete]);
+export function useGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
+  return useMemo(() => computeGameState(sseEvents, isComplete, results), [sseEvents, isComplete, results]);
 }
