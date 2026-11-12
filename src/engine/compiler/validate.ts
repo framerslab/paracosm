@@ -146,8 +146,8 @@ export function validateReactionContext(fn: ScenarioHooks['reactionContextHook']
  * the head count is named by a table, and by the first table or the last
  * (a milestone takes those two, so a run of two turns applies no other);
  * every entry is on a declared score or on `morale`, never on the head
- * count, is not 0 and lies inside its score's bounds; and the header names
- * declared scores.
+ * count, is not 0, is no larger than 1e15 in size and lies inside its
+ * score's bounds; and the header names declared scores.
  *
  * It reads `effects` in either form: the object form a draft JSON carries,
  * or the array form of a compiled package, whose first element is the one
@@ -226,6 +226,10 @@ export function validateSeedWorld(scenarioJson: Record<string, unknown>): { ok: 
       }
       if (!isNumber(change) || change === 0) {
         errors.push(`table "${key}" changes ${metric} by ${String(change)}`);
+        continue;
+      }
+      if (Math.abs(change) > MAX_MAGNITUDE) {
+        errors.push(`table "${key}" changes ${metric} by ${change}, larger than ${MAX_MAGNITUDE} in size`);
         continue;
       }
       // Morale's scale is its range whatever its field; any other score needs its start to have one.

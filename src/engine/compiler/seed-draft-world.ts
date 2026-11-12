@@ -34,7 +34,10 @@ export interface DraftNote {
 export const DEFAULT_STARTS = { number: 100, percent: 50, currency: 1_000_000 } as const;
 /** The kernel's own starting morale, for a declared `morale` with no usable start. */
 export const MORALE_START = 0.85;
-/** The largest size a start, a floor or a ceiling is held to. */
+/**
+ * The largest size a start, a floor or a ceiling is held to, and an entry
+ * on a count that starts empty, which has no scale to hold it.
+ */
 export const MAX_MAGNITUDE = 1e15;
 /** A default table entry is this share of its score's scale: a twentieth. */
 export const DEFAULT_ENTRY_SHARE = 1 / 20;
@@ -117,7 +120,8 @@ export interface EntryBounds {
  * What a category table's entry on a score is held to: between a hundredth
  * and a twelfth of the score's scale, with a twentieth as its default, and
  * never under 0.01. A count that starts empty has no scale: its entry is
- * 0.01 or more, and 1 by default.
+ * 0.01 or more, 1 by default, and the normalizer holds it to 1e15 in
+ * size, as it holds a start.
  *
  * One decision moves a score by its event's outcome and by the department
  * effects the leader adopts. The outcome multiplies a cost by at most 4.81
@@ -310,8 +314,10 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
         if (max !== undefined) {
           // The midpoint of the floor and the ceiling, the floor being 0
           // when none is given; at a ceiling of 0 or under with no floor,
-          // the ceiling itself.
-          if (min !== undefined) initial = round6((min + max) / 2);
+          // the ceiling itself. Between bounds less than a millionth apart
+          // the rounded midpoint can fall outside them, so it is held
+          // inside.
+          if (min !== undefined) initial = Math.min(max, Math.max(min, round6((min + max) / 2)));
           else initial = max > 0 ? round6(max / 2) : max;
         } else {
           const fallback = DEFAULT_STARTS[format];
@@ -401,18 +407,34 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
         note(path, 'entry-dropped', `"${key}" has more than ${MAX_DRAFT_ENTRIES} entries; the entry on ${metric} is dropped`);
         continue;
       }
-      let change = fractions && percentIds.has(metric) ? round6(entry.change * 100) : entry.change;
+      // The sign is the entry's as written: a conversion below can round a
+      // small change to 0, and the entry still points the way the draft said.
+      const sign = Math.sign(entry.change);
+      let size = Math.abs(entry.change);
+      if (fractions && percentIds.has(metric)) size = round6(size * 100);
+      if (metric === 'morale' && size > 1 && size <= 100) {
+        // The kernel holds morale from 0 to 1, and the draft is asked for a
+        // percent's change in points: a change above 1 is read as points,
+        // as a morale start is.
+        const points = size;
+        size = round6(size / 100);
+        note(path, 'morale-in-points', `"${key}" changes morale by ${sign * points}, which is read as points and held as ${sign * size}`);
+      }
       const { least, most } = boundsOf(metric);
-      const size = Math.abs(change);
       if (most !== undefined && size > most) {
-        note(path, 'entry-above-most', `"${key}" changes ${metric} by ${change}, more than a twelfth of its scale; it is cut to ${Math.sign(change) * most}`);
-        change = Math.sign(change) * most;
+        note(path, 'entry-above-most', `"${key}" changes ${metric} by ${sign * size}, more than a twelfth of its scale; it is cut to ${sign * most}`);
+        size = most;
+      } else if (most === undefined && size > MAX_MAGNITUDE) {
+        // A count that starts empty has no scale to cut an entry to. Held
+        // to the size a start is held to, its outcome stays finite.
+        note(path, 'size-over-limit', `"${key}" changes ${metric} by ${sign * size}, larger than ${MAX_MAGNITUDE} in size; it is cut to ${sign * MAX_MAGNITUDE}`);
+        size = MAX_MAGNITUDE;
       } else if (size < least) {
-        note(path, 'entry-under-least', `"${key}" changes ${metric} by ${change}, less than a hundredth of its scale; it is raised to ${Math.sign(change) * least}`);
-        change = Math.sign(change) * least;
+        note(path, 'entry-under-least', `"${key}" changes ${metric} by ${sign * size}, less than a hundredth of its scale; it is raised to ${sign * least}`);
+        size = least;
       }
       named.add(metric);
-      table[metric] = change;
+      table[metric] = sign * size;
     }
     tables.push([key, table]);
   }
