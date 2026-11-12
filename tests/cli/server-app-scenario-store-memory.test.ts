@@ -158,7 +158,8 @@ test('the memory store refuses a scenario over its size and a store past its cou
     assert.equal(tooBig.status, 413);
     assert.match(((await tooBig.json()) as { error: string }).error, /256 KiB/);
 
-    const visitors = Array.from({ length: IN_ALL / PER_VISITOR }, () => cookied());
+    // Each visitor at an address of their own: one address holds fewer than the store does in all.
+    const visitors = Array.from({ length: IN_ALL / PER_VISITOR }, (_, v) => cookied({ 'x-forwarded-for': `198.51.100.${v + 1}` }));
     const first = visitors[0];
     for (let i = 0; i < PER_VISITOR; i += 1) {
       assert.equal((await store(first, station(`v0-s${i}`))).status, 200, `store ${i}`);
@@ -175,7 +176,7 @@ test('the memory store refuses a scenario over its size and a store past its cou
         assert.equal((await store(visitors[v], station(`v${v}-s${i}`))).status, 200, `visitor ${v} store ${i}`);
       }
     }
-    const pastAll = await store(cookied(), station('one-past-all'));
+    const pastAll = await store(cookied({ 'x-forwarded-for': '198.51.100.200' }), station('one-past-all'));
     assert.equal(pastAll.status, 507);
     assert.match(((await pastAll.json()) as { error: string }).error, new RegExp(`at most ${IN_ALL} scenarios`));
   });

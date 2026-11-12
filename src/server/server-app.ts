@@ -316,6 +316,12 @@ export interface CreateMarsServerOptions {
   runForkSimulation?: typeof runForkSimulation;
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
+  /**
+   * The compile behind POST /api/quickstart/compile-from-seed; defaults to
+   * the engine's `compileFromSeed`. A test gives a stub that returns a
+   * fixture, so no model is called.
+   */
+  compileFromSeed?: QuickstartDeps['compileFn'];
   scenarioDir?: string;
   /** Max simulations per IP per day. 0 = unlimited. Overrides the RATE_LIMIT env var; with neither set the limit is 1. */
   maxSimsPerDay?: number;
@@ -2014,6 +2020,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
           getDigitalTwinWorld,
+          ...(options.compileFromSeed ? { compileFn: options.compileFromSeed } : {}),
           outputDir: runsDir,
           // A digital-twin run is its caller's run, as a /setup run is: it
           // replaces their current run and leaves every other visitor's
