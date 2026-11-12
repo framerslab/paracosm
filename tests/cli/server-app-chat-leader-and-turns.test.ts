@@ -235,3 +235,34 @@ test('the rule for names he does not know spares his commander', async () => {
     }
   }
 });
+
+test("a run whose buffer lost its first turns is not told those turns were the run's", async () => {
+  // The server keeps a run's newest events up to PARACOSM_EVENT_BUFFER_MAX
+  // and drops the oldest. At 40, the saved pair keeps its last turns alone.
+  const leader = LEADERS[0];
+  const calls: AgentCall[] = [];
+  await withVisitors(async ({ cookied }) => {
+    const v = cookied();
+    assert.equal((await v.post('/setup', settingsBody(mars))).status, 200);
+    await waitFor(async () => (await v.json<{ isComplete: boolean }>('/results')).isComplete, 'the run to finish', 10_000);
+    const res = await v.post('/chat', { agentId: PERSON, leader, message: QUESTION });
+    assert.equal(res.status, 200, `chat under ${leader}: ${res.status} ${await res.clone().text()}`);
+  }, {
+    env: { PARACOSM_EVENT_BUFFER_MAX: '40' },
+    runner: async (_config, broadcast) => {
+      for (const e of pair.events) broadcast('sim', e, e.leader);
+      broadcast('complete', {});
+    },
+    extra: { chatAgent: recordingChatAgent(calls) },
+  });
+  const call = calls[calls.length - 1];
+  const kept = (call.opts.turns ?? []).map(t => t.turn);
+  assert.ok(kept.length > 0 && !kept.includes(1), `the buffer kept a later stretch of the run: turns ${kept.join(', ')}`);
+  const told = buildChatAgentInstructions(call.profile, call.opts);
+  const years = yearsOfTurns(leader);
+  assert.ok(told.includes(`ended at Turn 6, Year ${years.get(6)}`), 'he is told the run ended at Turn 6');
+  for (const claim of [/\bno others\b/, /\bThe run had \d+/]) {
+    const said = told.split(/(?<=[.!?)])\s+/).find(s => claim.test(s));
+    assert.equal(said, undefined, `with Turns ${kept.join(', ')} left of 6, he is told: ${said}`);
+  }
+});
