@@ -13,7 +13,7 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 - Routes are CORS-permissive (`Access-Control-Allow-Origin: *`) for local dashboard development.
 - A local server (neither `PARACOSM_HOSTED_DEMO` nor `PARACOSM_PLATFORM_API` set) answers **403 `cross_site_refused`** to any request whose `Origin` is not a loopback address (`localhost`, `127.0.0.1`, `[::1]`, any port) or the host the request was sent to, `Origin: null` included. Requests with no `Origin` (same-origin reads, curl, scripts) pass.
 - `paracosm dashboard` listens on `127.0.0.1` on a local server; set `HOST` (for example `HOST=0.0.0.0` in a container or for a LAN demo) to listen elsewhere. The hosted demo and the platform API mode listen on every interface unless `HOST` is set.
-- In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
+- In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential, however the request target that names it is written: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
 
 ## Endpoint index
 

@@ -53,12 +53,15 @@ export function resolveOutputDir(env: NodeJS.ProcessEnv = process.env): string {
  * reaches the file name.
  */
 function runOutputTag(archetype: string): string {
-  const tag = String(archetype ?? '')
+  // The runs of letters and digits joined by one hyphen each: no hyphen
+  // leads, trails or doubles, so cutting to 48 can leave one trailing.
+  let tag = String(archetype ?? '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48)
-    .replace(/-+$/, '');
+    .split(/[^a-z0-9]+/)
+    .filter(word => word.length > 0)
+    .join('-')
+    .slice(0, 48);
+  if (tag.endsWith('-')) tag = tag.slice(0, -1);
   return tag || 'leader';
 }
 

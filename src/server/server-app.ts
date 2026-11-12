@@ -287,6 +287,23 @@ function pathDecodes(url: string | undefined): boolean {
   }
 }
 
+/**
+ * Whether a request target names an `/api/v1/` route, read as the routes
+ * read it: the target as written (the bundle and Library import routes match
+ * it) or the path the URL parser gives it (handlePlatformApiRoute's), which
+ * resolves dot segments and reduces an absolute-form target to its path, so
+ * `/./api/v1/runs` and `http://host/api/v1/runs` name `/api/v1/runs` too.
+ */
+function namesPlatformApiRoute(url: string | undefined): boolean {
+  if (url === undefined) return false;
+  if (url.startsWith('/api/v1/')) return true;
+  try {
+    return new URL(url, 'http://localhost').pathname.startsWith('/api/v1/');
+  } catch {
+    return false;
+  }
+}
+
 function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 400): void {
   const status = error instanceof RequestBodyTooLargeError
     ? error.statusCode
@@ -1482,8 +1499,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
     // The platform API mode serves /api/v1 to holders of the admin
     // credential alone (requireAdminToken: 403 without ADMIN_WRITE, 503
-    // without ADMIN_TOKEN, 401 without a matching X-Admin-Token).
-    if (serverMode === 'platform_api' && req.url?.startsWith('/api/v1/') && !requireAdminToken(req, res)) {
+    // without ADMIN_TOKEN, 401 without a matching X-Admin-Token), in every
+    // form of request target that reaches one (namesPlatformApiRoute).
+    if (serverMode === 'platform_api' && namesPlatformApiRoute(req.url) && !requireAdminToken(req, res)) {
       return;
     }
     const runHistoryRoutesDefault = serverMode !== 'hosted_demo';
