@@ -4,6 +4,9 @@ import { useRunsAggregate } from './hooks/useRunsAggregate.js';
 
 export interface HeroStatsStripProps {
   filters: { mode?: string; scenario?: string; leader?: string };
+  /** A value that changes when the counters may have moved (a replay was
+   *  counted), so the strip reads them again. */
+  refreshKey?: number;
 }
 
 const fmtCurrency = (n: number): string => {
@@ -19,9 +22,11 @@ const fmtDuration = (ms: number): string => {
 };
 
 export function HeroStatsStrip(props: HeroStatsStripProps): JSX.Element {
-  const { stats, loading, error } = useRunsAggregate(props.filters);
+  const { stats, loading, error } = useRunsAggregate(props.filters, props.refreshKey);
 
-  if (loading) {
+  // Skeletons only before the first figures arrive: a refresh keeps the
+  // figures on screen until the new ones replace them.
+  if (loading && !stats) {
     return (
       <div className={styles.strip}>
         {Array.from({ length: 5 }).map((_, i) => <div key={i} className={styles.skeleton} />)}
