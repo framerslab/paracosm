@@ -11,7 +11,8 @@
  * - The brief a compiled scenario came from is shown on the hosted demo
  *   only to the visitor who compiled it.
  * - A local server answers no request a page on another site sends.
- * - The platform API mode takes the admin credential on /api/v1.
+ * - The platform API mode takes the admin credential on /api/v1, whatever
+ *   form the request target that names the route takes.
  *
  * Every test goes through createMarsServer over HTTP with a stub runner, so
  * no model is called.
@@ -19,6 +20,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ScenarioPackage } from '../../src/engine/types.js';
@@ -235,6 +237,31 @@ test('the platform API mode answers /api/v1 only with the admin credential', asy
     assert.equal(withToken.status, 200);
     const status = await (await fetch(`${base}/api/v1/demo/status`)).json() as { authenticatedApiAvailable: boolean };
     assert.equal(status.authenticatedApiAvailable, true);
+  }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN } });
+});
+
+/**
+ * The status a GET of `target` answers, the request line carrying `target`
+ * as it is written (fetch would resolve dot segments and send origin form).
+ */
+function rawGet(base: string, target: string): Promise<number> {
+  const { hostname, port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname, port, path: target, method: 'GET', timeout: 5000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on('timeout', () => req.destroy(new Error(`GET ${target} timed out`)));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('the platform API mode asks for the admin credential on every request target that names an /api/v1 route', async () => {
+  await withVisitors(async ({ base }) => {
+    for (const target of ['/./api/v1/runs', '/x/../api/v1/runs', `http://${new URL(base).host}/api/v1/runs`, '/api/v1/../api/v1/runs']) {
+      assert.equal(await rawGet(base, target), 401, `GET ${target} without the credential`);
+    }
   }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN } });
 });
 

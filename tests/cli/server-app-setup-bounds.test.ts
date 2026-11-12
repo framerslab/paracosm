@@ -3,13 +3,17 @@
  * (MAX_SIMULATION_TURNS, MAX_SIMULATION_POPULATION in src/cli/sim-config.ts)
  * whoever pays for the run: a caller who sends a key of their own gets the
  * same bounds as one who sends none. A request past them answers 400 and
- * starts no run.
+ * starts no run. The population bound holds for the people the run starts
+ * with, however the request comes to them: a population the body names, the
+ * key personnel it lists, or the default of the scenario it runs.
  *
  * The server runs with a stub simulation runner, so no model is called.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { normalizeSimulationConfig } from '../../src/cli/sim-config.js';
 
 /** The bounds src/cli/sim-config.ts sets (MAX_SIMULATION_TURNS, MAX_SIMULATION_POPULATION). */
@@ -23,8 +27,18 @@ const actors = [
   { name: 'B', archetype: 'b', hexaco },
 ];
 
-async function withServer(body: (api: RunServer) => Promise<void>): Promise<void> {
-  const api = await startServer();
+/** Key personnel past the population bound, one entry each. */
+const crowdedKeyPersonnel = Array.from({ length: MAX_SIMULATION_POPULATION + 1 }, (_, i) => ({
+  name: `Person ${i}`,
+  department: 'medical',
+  role: 'Medic',
+  specialization: 'General',
+  age: 30,
+  featured: false,
+}));
+
+async function withServer(body: (api: RunServer) => Promise<void>, scenarioDir?: string): Promise<void> {
+  const api = await startServer(scenarioDir ? { scenarioDir } : {});
   try {
     await body(api);
   } finally {
@@ -49,6 +63,8 @@ const refused: Array<{ name: string; payload: Record<string, unknown> }> = [
   { name: 'turns past the bound', payload: { actors, turns: MAX_SIMULATION_TURNS + 1, apiKey: 'sk-x' } },
   { name: 'a population that is not a whole number', payload: { actors, population: 2.5, apiKey: 'sk-x' } },
   { name: 'no turns at all', payload: { actors, turns: 0, apiKey: 'sk-x' } },
+  { name: 'more key personnel than the population bound', payload: { actors, keyPersonnel: crowdedKeyPersonnel, apiKey: 'sk-x' } },
+  { name: 'a population in bounds and more key personnel than the bound', payload: { actors, population: 10, keyPersonnel: crowdedKeyPersonnel, apiKey: 'sk-x' } },
 ];
 
 for (const c of refused) {
@@ -68,6 +84,33 @@ test('POST /setup with a caller key at the bounds starts its run', async () => {
     assert.equal(api.launches.length, 1);
     assert.equal(api.launches[0].config.turns, MAX_SIMULATION_TURNS);
     assert.equal(api.launches[0].config.initialPopulation, MAX_SIMULATION_POPULATION);
+  });
+});
+
+test('POST /setup with a caller key in a scenario whose default population is past the bound answers 400 and starts no run', async () => {
+  const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-crowded-default-'));
+  const atlasLab = JSON.parse(readFileSync(new URL('../../scenarios/atlas-lab.json', import.meta.url), 'utf-8')) as {
+    setup: { defaultPopulation: number };
+  };
+  atlasLab.setup.defaultPopulation = 50_000;
+  writeFileSync(join(scenarioDir, 'atlas-lab.json'), JSON.stringify(atlasLab));
+  try {
+    await withServer(async (api) => {
+      const res = await setup(api.base, { actors, scenarioId: 'atlas-lab', apiKey: 'sk-x' });
+      assert.equal(res.status, 400, JSON.stringify(await res.clone().json().catch(() => null)));
+      assert.equal(api.launches.length, 0, 'no run started');
+    }, scenarioDir);
+  } finally {
+    rmSync(scenarioDir, { recursive: true, force: true });
+  }
+});
+
+test('POST /setup in a scenario whose default population is in bounds starts its run with that population', async () => {
+  await withServer(async (api) => {
+    const res = await setup(api.base, { actors, scenarioId: 'atlas-lab', apiKey: 'sk-x' });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json().catch(() => null)));
+    assert.equal(api.launches.length, 1);
+    assert.equal(api.launches[0].config.initialPopulation, 480);
   });
 });
 
