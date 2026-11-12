@@ -1,0 +1,223 @@
+/**
+ * The admin token is entered in Settings.
+ *
+ * On a server with admin writes on (ADMIN_WRITE=true and an ADMIN_TOKEN) the
+ * dashboard's Save to Disk, its server wipe and its scenario delete send the
+ * token this browser keeps under the localStorage key paracosm:adminToken.
+ * The dashboard had no control that writes that key, so each call answered
+ * 401 with nothing on the page to act on. Settings holds an Admin Token
+ * field, shown only where admin writes are on, and a refused call says where
+ * that field is.
+ *
+ * The pages talk to a real server of their own with admin writes on
+ * (tests-e2e/support/admin-write-server.ts). Its scenarios folder is a
+ * temporary one, and the scenario saved is a real one (scenarios/submarine.json).
+ * No model is called and nothing starts a run. The last test reads the
+ * default server, which runs with admin writes off.
+ */
+import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The admin-write server runs locally, on a port of its own.');
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ADMIN_BASE = 'http://127.0.0.1:3461';
+/** The token tests-e2e/support/admin-write-server.ts starts with; it guards temporary folders only. */
+const TOKEN = 'e2e-admin-token';
+const TOKEN_KEY = 'paracosm:adminToken';
+const submarine = readFileSync(path.resolve(__dirname, '../../scenarios/submarine.json'), 'utf-8');
+const SCENARIO_ID = (JSON.parse(submarine) as { id: string }).id;
+
+const WHERE = 'Enter it in Settings, under Admin Token, and press Save.';
+const REFUSED = `Disk write refused: the admin token is missing or wrong. ${WHERE}`;
+const SAVED = new RegExp(`Saved "${SCENARIO_ID}" (draft JSON )?to disk at scenarios/${SCENARIO_ID}\\.json`);
+
+const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
+const editor = (page: Page) => page.getByRole('textbox', { name: 'Scenario JSON editor' });
+const saveToDisk = (page: Page) => page.getByRole('button', { name: 'Save scenario to disk' });
+const tokenGroup = (page: Page) => page.getByRole('group', { name: 'Admin Token' });
+const tokenInput = (page: Page) => page.locator('#admin-token');
+const saveToken = (page: Page) => page.getByRole('button', { name: 'Save admin token' });
+const clearToken = (page: Page) => page.getByRole('button', { name: 'Clear admin token' });
+const tokenStatus = (page: Page) => page.locator('#admin-token-status');
+
+/** Opens Settings on `base` and waits for the form, which follows GET /scenario. */
+async function openSettings(page: Page, base: string): Promise<void> {
+  await page.goto(`${base}/sim?tab=settings`);
+  await expect(settingsLaunch(page)).toBeEnabled();
+}
+
+/**
+ * Puts the real scenario in the editor. The editor loads the active scenario
+ * on its own first; filling before that load lands would be overwritten.
+ */
+async function fillEditor(page: Page): Promise<void> {
+  await expect(editor(page)).toHaveValue(/"id"/);
+  await editor(page).fill(submarine);
+  await expect(editor(page)).toHaveValue(new RegExp(`"id": "${SCENARIO_ID}"`));
+  await expect(saveToDisk(page)).toBeEnabled();
+}
+
+/** Every request the page sends, kept for the checks on where the token went. */
+function recordRequests(page: Page): Request[] {
+  const requests: Request[] = [];
+  page.on('request', request => { requests.push(request); });
+  return requests;
+}
+
+const isDiskWrite = (request: Request) => request.method() === 'POST' && new URL(request.url()).pathname === '/scenario/store';
+
+test.describe('Admin token field @admin', () => {
+  test('Save to Disk says where to enter the token, works once it is entered, and is refused again once it is cleared', async ({ page }) => {
+    const requests = recordRequests(page);
+    await openSettings(page, ADMIN_BASE);
+    await fillEditor(page);
+
+    // No token entered: the server answers 401 and the page says where the token goes.
+    await saveToDisk(page).click();
+    await expect(page.getByText(REFUSED)).toBeVisible();
+    expect(requests.filter(isDiskWrite).map(request => request.headers()['x-admin-token'])).toEqual([undefined]);
+
+    // The field is a password field with a name, and it does not autofill.
+    await expect(tokenInput(page)).toHaveAttribute('type', 'password');
+    await expect(tokenInput(page)).toHaveAttribute('autocomplete', 'off');
+    await expect(tokenInput(page)).toHaveAccessibleName('Token for this server');
+    await expect(tokenStatus(page)).toHaveText(/No token is saved in this browser/);
+
+    // Entered and saved: kept under the one key, never shown back.
+    await tokenInput(page).fill(TOKEN);
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+    await expect(tokenInput(page)).toHaveValue('');
+    expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBe(TOKEN);
+
+    await saveToDisk(page).click();
+    await expect(page.getByText(SAVED)).toBeVisible();
+    await expect(page.getByText(REFUSED)).toHaveCount(0);
+    const config = await (await page.request.get(`${ADMIN_BASE}/admin-config`)).json() as { memoryScenarios: string[] };
+    expect(config.memoryScenarios).toContain(SCENARIO_ID);
+
+    // The token went out as the header of the disk write and nowhere else.
+    const carrying = requests.filter(request => request.headers()['x-admin-token'] !== undefined);
+    expect(carrying.length).toBe(1);
+    expect(isDiskWrite(carrying[0])).toBe(true);
+    expect(carrying[0].headers()['x-admin-token']).toBe(TOKEN);
+    expect(requests.filter(request => request.url().includes(TOKEN))).toEqual([]);
+
+    // Cleared: gone from the browser, and the next disk write is refused with the same words.
+    await clearToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/No token is saved in this browser/);
+    expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBeNull();
+    // The save reloaded the active scenario into the editor; whichever scenario it holds, the write is refused first.
+    await expect(saveToDisk(page)).toBeEnabled();
+    await saveToDisk(page).click();
+    await expect(page.getByText(REFUSED)).toBeVisible();
+    expect(requests.filter(isDiskWrite).map(request => request.headers()['x-admin-token'])).toEqual([undefined, TOKEN, undefined]);
+  });
+
+  test('the field is one row from 320 px up, with phone-size targets and text of 13 px or more', async ({ page }) => {
+    const box = async (locator: Locator, what: string) => {
+      const found = await locator.boundingBox();
+      expect(found, what).not.toBeNull();
+      return found!;
+    };
+    const fontPx = (locator: Locator) => locator.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize));
+
+    for (const width of [320, 360, 390, 430, 480, 768]) {
+      await page.setViewportSize({ width, height: 800 });
+      await openSettings(page, ADMIN_BASE);
+      await tokenInput(page).scrollIntoViewIfNeeded();
+
+      const group = await box(tokenGroup(page), `${width}px: the Admin Token group`);
+      const input = await box(tokenInput(page), `${width}px: the token input`);
+      const save = await box(saveToken(page), `${width}px: Save`);
+      const clear = await box(clearToken(page), `${width}px: Clear`);
+
+      // One row: the three share a top edge and a height, and run left to right without overlap.
+      for (const control of [save, clear]) {
+        expect(Math.abs(control.y - input.y), `${width}px: one row`).toBeLessThanOrEqual(1);
+        expect(Math.abs(control.height - input.height), `${width}px: one height`).toBeLessThanOrEqual(1);
+      }
+      expect(save.x, `${width}px: Save after the input`).toBeGreaterThanOrEqual(input.x + input.width);
+      expect(clear.x, `${width}px: Clear after Save`).toBeGreaterThanOrEqual(save.x + save.width);
+      // Inside its panel, which the row does not stretch.
+      expect(input.x, `${width}px: starts inside the group`).toBeGreaterThanOrEqual(group.x);
+      expect(clear.x + clear.width, `${width}px: ends inside the group`).toBeLessThanOrEqual(group.x + group.width);
+      const apiKeys = await box(page.getByRole('group', { name: 'API Keys' }), `${width}px: the API Keys group`);
+      expect(group.width, `${width}px: no wider than the API Keys panel above it`).toBeLessThanOrEqual(apiKeys.width + 0.5);
+      // Room to type in.
+      expect(input.width, `${width}px: input width`).toBeGreaterThanOrEqual(80);
+
+      if (width <= 480) {
+        for (const control of [input, save, clear]) {
+          expect(control.height, `${width}px: 44 px targets on a phone`).toBeGreaterThanOrEqual(44);
+        }
+      }
+
+      const texts = [
+        tokenGroup(page).locator('legend'),
+        tokenGroup(page).locator('label[for="admin-token"]'),
+        tokenGroup(page).locator('p').first(),
+        tokenInput(page),
+        saveToken(page),
+        clearToken(page),
+        tokenStatus(page),
+      ];
+      for (const text of texts) {
+        expect(await fontPx(text), `${width}px: text size`).toBeGreaterThanOrEqual(13);
+      }
+    }
+  });
+
+  test('where the browser blocks storage the token is held for the page and Save to Disk works', async ({ page }) => {
+    // This browser refuses the one key, as a browser with storage blocked refuses every key.
+    await page.addInitScript(key => {
+      for (const method of ['getItem', 'setItem', 'removeItem']) {
+        const proto = Storage.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+        const original = proto[method];
+        proto[method] = function (this: Storage, ...args: unknown[]) {
+          if (args[0] === key) throw new DOMException('The operation is insecure.', 'SecurityError');
+          return original.apply(this, args);
+        };
+      }
+    }, TOKEN_KEY);
+    await openSettings(page, ADMIN_BASE);
+    await expect(tokenStatus(page)).toHaveText(/No token is saved in this browser/);
+
+    await tokenInput(page).fill(TOKEN);
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/kept only until this page reloads/);
+
+    await fillEditor(page);
+    await saveToDisk(page).click();
+    await expect(page.getByText(SAVED)).toBeVisible();
+  });
+
+  test('a token the server refuses on the server wipe is dropped, and the page says where to enter it', async ({ page }) => {
+    page.on('dialog', dialog => dialog.accept());
+    await openSettings(page, ADMIN_BASE);
+    await tokenInput(page).fill('not-the-token');
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: 'Clear local data' }).click();
+
+    await expect(page.getByText(`Server-side wipe skipped: the admin token was refused and has been cleared. ${WHERE}`).first()).toBeVisible();
+    await expect(tokenStatus(page)).toHaveText(/No token is saved in this browser/);
+    expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBeNull();
+  });
+
+  test('a server with admin writes off shows no token field', async ({ page }) => {
+    const config = await (await page.request.get('/admin-config')).json() as { adminWrite: boolean };
+    test.skip(config.adminWrite, 'This server runs with admin writes on; the check reads one with them off.');
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(editor(page)).toBeVisible();
+    await expect(tokenGroup(page)).toHaveCount(0);
+    await expect(tokenInput(page)).toHaveCount(0);
+    await expect(saveToDisk(page)).toHaveCount(0);
+  });
+});

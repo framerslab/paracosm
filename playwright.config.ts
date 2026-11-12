@@ -70,6 +70,17 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        // The same server with admin writes on and a temporary scenarios
+        // folder, for the spec that enters the admin token in Settings and
+        // saves a scenario to disk.
+        {
+          command: 'PORT=3461 npx tsx tests-e2e/support/admin-write-server.ts',
+          url: 'http://127.0.0.1:3461/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
         // The same server with a scripted runner, for the spec that starts
         // real runs from several browsers at once through the real /setup.
         {
