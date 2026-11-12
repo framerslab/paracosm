@@ -79,7 +79,7 @@ Before a pull request merges, every unresolved thread from a review bot, includi
 
 ## Security
 
-Never commit API keys or tokens; keep `.env` out of commits (`.env.example` is the template). The admin routes stay off unless `ADMIN_WRITE=true`, and then require `ADMIN_TOKEN`. Report vulnerabilities privately as the [security policy](https://github.com/framerslab/paracosm/blob/master/.github/SECURITY.md) describes.
+Never commit API keys or tokens; keep `.env` out of commits (`.env.example` is the template). The admin routes, and the scenario store's disk write, stay off unless `ADMIN_WRITE=true`, and then require `ADMIN_TOKEN`. Report vulnerabilities privately as the [security policy](https://github.com/framerslab/paracosm/blob/master/.github/SECURITY.md) describes.
 
 ## Do not
 

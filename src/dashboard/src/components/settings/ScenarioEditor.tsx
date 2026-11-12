@@ -164,8 +164,14 @@ export function ScenarioEditor() {
     if (!jsonText.trim() || parseError || !adminConfig.adminWrite) return;
     try {
       const scenario = JSON.parse(jsonText);
+      // The disk write takes the operator's admin token, the one Wipe All
+      // and the scenario delete send, from this browser's localStorage.
+      let adminToken = '';
+      try { adminToken = localStorage.getItem('paracosm:adminToken') ?? ''; } catch { /* storage unavailable: no token */ }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (adminToken) headers['X-Admin-Token'] = adminToken;
       const res = await fetch('/scenario/store', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers,
         body: JSON.stringify({ scenario, saveToDisk: true }),
       });
       const data = await res.json();
@@ -178,7 +184,7 @@ export function ScenarioEditor() {
             : `Saved "${data.id}" draft JSON to disk at scenarios/${data.id}.json. Compile it to make it runnable after restart.`,
         });
       } else {
-        setResult({ success: false, message: data.error || 'Disk write not enabled (ADMIN_WRITE=false)' });
+        setResult({ success: false, message: data.error || `Disk write refused (HTTP ${res.status})` });
       }
     } catch (err) { setResult({ success: false, message: String(err) }); }
   }, [jsonText, parseError, adminConfig.adminWrite]);
