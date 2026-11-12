@@ -373,6 +373,10 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
   const fields: Record<string, SeedWorldField> = {};
   const definitions: Array<{ id: string; label: string; source: string; format: Format; better?: 'higher' | 'lower' }> = [];
   const lowerIsBetter = new Set<string>();
+  // The unit a draft gave a number or a currency where it says a share
+  // (`%`, `frac`). The field does not keep it; the veto on a marked supply
+  // still reads it, since a value its own draft calls a share is not one.
+  const shareUnits = new Map<string, string>();
 
   for (const { metric, id, index } of metrics) {
     const path = `metrics[${index}]`;
@@ -442,6 +446,7 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
       // header read, so a unit that says percent is dropped.
       if (unit === '%' || unit === 'frac') {
         note(`${path}.unit`, 'unit-dropped', `${id}: unit "${unit}" on a ${format} is dropped`);
+        shareUnits.set(id, unit);
         unit = '';
       }
       if (unit === '' && format === 'currency') unit = (draft.labels.currency ?? '').trim().slice(0, UNIT_MAX);
@@ -588,16 +593,25 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
   // passes the mark. The veto reads the tables as they stand here, the
   // draft's own: after this a table left with no entry takes the default
   // table, which names every score, and a mark that no table of the
-  // draft's moves would then pass.
+  // draft's moves would then pass. It reads the first eight of them, the
+  // ones a compile keeps: a mark that only a later table names would be
+  // left to the default entries too. And it reads each field with the unit
+  // its draft wrote where that unit says a share, which the field itself
+  // does not keep.
   const marked = metrics.filter(m => m.metric.sustains === true);
   if (marked.length > 0) {
     for (const { id } of marked) fields[id] = { ...fields[id], sustains: true };
+    const asDrafted: Record<string, SeedWorldField> = {};
+    for (const [id, field] of Object.entries(fields)) {
+      const shareUnit = shareUnits.get(id);
+      asDrafted[id] = shareUnit === undefined ? field : { ...field, unit: shareUnit };
+    }
     const refused = sustainsVeto({
       labels: draft.labels,
       setup: draft.setup,
-      world: { metrics: fields, capacities: {} },
+      world: { metrics: asDrafted, capacities: {} },
       metrics: definitions,
-      effects: Object.fromEntries(tables),
+      effects: Object.fromEntries(tables.slice(0, MAX_TABLES)),
     });
     for (const { key, rule, reason } of refused) {
       const unmarked = { ...fields[key] };
