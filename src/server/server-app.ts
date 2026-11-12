@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkS
 import { resolve, dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
@@ -31,6 +31,8 @@ import {
   deletePersistedCompiledScenario,
   loadPersistedCompiledDrafts,
   persistCompiledScenario,
+  scenarioJsonPath,
+  SCENARIO_ID_RULE,
   type PersistedCompiledMeta,
 } from '../cli/persisted-compiled-scenarios.js';
 import { IpRateLimiter, readLimitFromEnv } from './rate-limiter.js';
@@ -231,6 +233,18 @@ class RequestBodyTooLargeError extends Error {
   constructor(maxBytes: number) {
     super(`Request body too large. Maximum ${maxBytes} bytes.`);
   }
+}
+
+/**
+ * Whether a presented admin token matches the server's, compared in
+ * constant time: both are hashed to the same length first, so neither the
+ * length nor the first differing byte of the server's token shows in how
+ * long the comparison takes.
+ */
+function adminTokenMatches(presented: string, expected: string): boolean {
+  const a = createHash('sha256').update(presented).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 400): void {
@@ -532,10 +546,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // RATE_LIMIT that is not a whole number keeps the default, with a warning.
   const maxSims = options.maxSimsPerDay ?? readLimitFromEnv(env, 'RATE_LIMIT', 1);
   const adminWrite = (env.ADMIN_WRITE || 'false').toLowerCase() === 'true';
-  // Per-request token gate for /admin/* routes. When ADMIN_WRITE=true,
-  // ADMIN_TOKEN must be set to a non-empty secret (paracosm fails the
-  // request closed otherwise). The dashboard's Wipe All path sends
-  // the token via the `X-Admin-Token` header (read from localStorage,
+  // Per-request token gate for /admin/* routes and the disk write of
+  // POST /scenario/store. When ADMIN_WRITE=true, ADMIN_TOKEN must be set
+  // to a non-empty secret (paracosm fails the request closed otherwise),
+  // and the header is compared with it in constant time. The dashboard's
+  // Wipe All path sends the token via the `X-Admin-Token` header (read from localStorage,
   // matches the existing key-overrides pattern). Operators set
   // ADMIN_TOKEN once in /opt/paracosm/.env; the dashboard pastes it
   // once into Settings. Drive-by visitors get 401.
@@ -555,7 +570,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return false;
     }
     const headerToken = String(req.headers['x-admin-token'] ?? '').trim();
-    if (!headerToken || headerToken !== adminToken) {
+    if (!headerToken || !adminTokenMatches(headerToken, adminToken)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid or missing X-Admin-Token header' }));
       return false;
@@ -1778,7 +1793,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // Store a scenario in memory (always allowed) or save to disk (requires ADMIN_WRITE)
+    // Store a scenario in memory (any visitor) and, with saveToDisk, also
+    // write it to <scenarioDir>/<id>.json. The disk write takes the admin
+    // credential the /admin/* routes take (requireAdminToken) and an id
+    // that names one file directly in the scenarios folder
+    // (scenarioJsonPath). A refused disk write stores nothing.
     if (req.url === '/scenario/store' && req.method === 'POST') {
       try {
         const { scenario: scenarioJson, saveToDisk } = JSON.parse(await readBody(req, maxRequestBodyBytes));
@@ -1787,22 +1806,35 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           res.end(JSON.stringify({ error: 'scenario with id required' }));
           return;
         }
+        let diskPath: string | null = null;
+        if (saveToDisk) {
+          if (!requireAdminToken(req, res)) {
+            console.warn('[scenarios] scenario disk write refused: admin credential missing, wrong or not configured');
+            return;
+          }
+          diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
+          if (!diskPath) {
+            console.warn('[scenarios] scenario disk write refused: the id is not a plain scenario id');
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Invalid scenario id for a disk write: ${SCENARIO_ID_RULE}.` }));
+            return;
+          }
+        }
         // Store raw JSON in memory for this authoring session.
         memoryScenarios.set(scenarioJson.id, scenarioJson);
         const switchable = isRunnableScenarioPackage(scenarioJson);
         if (switchable) {
           customScenarioCatalog.set(scenarioJson.id, {
             scenario: scenarioJson,
-            source: saveToDisk && adminWrite ? 'disk' : 'memory',
+            source: diskPath ? 'disk' : 'memory',
           });
         }
 
-        // Optionally save to disk if admin
         let savedToDisk = false;
-        if (saveToDisk && adminWrite) {
+        if (diskPath) {
           const { writeFileSync, mkdirSync } = await import('node:fs');
           mkdirSync(scenarioDir, { recursive: true });
-          writeFileSync(resolve(scenarioDir, `${scenarioJson.id}.json`), JSON.stringify(scenarioJson, null, 2));
+          writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
           if (switchable) {
             customScenarioCatalog.set(scenarioJson.id, {

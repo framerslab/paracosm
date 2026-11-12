@@ -75,9 +75,28 @@ export function hashScenario(scenarioJson: Record<string, unknown>): string {
     .slice(0, 16);
 }
 
-/** Build the cache directory path for a scenario + version combo. */
-function cacheDir(scenarioId: string, version: string, baseDir: string): string {
-  return join(baseDir, `${scenarioId}-v${version}`);
+/**
+ * A cache folder name that is one plain file name: a letter or digit, then
+ * up to 159 letters, digits, dots, hyphens, underscores or plus signs.
+ */
+const PLAIN_CACHE_FOLDER = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
+
+/**
+ * The cache folder of a scenario + version: one folder directly inside
+ * `baseDir`. The scenario JSON's id and version come from whoever asked
+ * for the compile, so they name the folder only when `<id>-v<version>` is
+ * a plain file name, as every built-in and compiled scenario's is (so a
+ * warm cache stays warm). Any other id or version, one with a path
+ * separator, a `..` segment or a null byte, names it by its letters,
+ * digits, hyphens and underscores and a hash of the whole name, still one
+ * folder inside `baseDir`.
+ */
+function cacheDir(scenarioId: unknown, version: unknown, baseDir: string): string {
+  const name = `${String(scenarioId)}-v${String(version)}`;
+  if (PLAIN_CACHE_FOLDER.test(name)) return join(baseDir, name);
+  const readable = name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  const digest = createHash('sha256').update(name).digest('hex').slice(0, 16);
+  return join(baseDir, `${readable}-${digest}`);
 }
 
 /** Read a cached hook result. Returns null on cache miss. */

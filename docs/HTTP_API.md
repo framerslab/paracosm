@@ -2,7 +2,7 @@
 
 The dashboard server (`paracosm dashboard`) exposes a versioned HTTP surface under `/api/v1/*`. The same routes power the React dashboard and any external client. This page documents every endpoint, its request shape, response shape, and status codes.
 
-Source of truth: [`src/server/routes/platform-api.ts`](../src/server/routes/platform-api.ts), [`src/server/routes/public-demo.ts`](../src/server/routes/public-demo.ts), [`src/server/routes/bundle.ts`](../src/server/routes/bundle.ts), and [`src/server/routes/library-import.ts`](../src/server/routes/library-import.ts).
+Source of truth: [`src/server/routes/platform-api.ts`](../src/server/routes/platform-api.ts), [`src/server/routes/public-demo.ts`](../src/server/routes/public-demo.ts), [`src/server/routes/bundle.ts`](../src/server/routes/bundle.ts), and [`src/server/routes/library-import.ts`](../src/server/routes/library-import.ts); `POST /scenario/store`, a dashboard route outside `/api/v1`, is in [`src/server/server-app.ts`](../src/server/server-app.ts).
 
 For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.intervene()`, etc.) see the [Cookbook](./COOKBOOK.md). This page is the wire-level reference for the HTTP surface only.
 
@@ -26,6 +26,7 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 | GET    | `/api/v1/bundles/:bundleId/aggregate` | Bundle-scoped rollup |
 | POST   | `/api/v1/library/import` | Import an externally-produced RunArtifact |
 | GET    | `/api/v1/demo/status` | Public-demo capability flags (always reachable) |
+| POST   | `/scenario/store` | Store a scenario in memory; with `saveToDisk`, also write it to the scenarios folder (admin credential) |
 
 ---
 
@@ -321,6 +322,38 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 ```
 
 `mode` is one of `local`, `hosted_demo`, `platform_api`. `replayAvailable` is `false` only in `platform_api` mode (where replay needs an authenticated path that is not yet exposed). `authenticatedApiAvailable` is `true` only in `platform_api` mode.
+
+## `POST /scenario/store`
+
+The dashboard's scenario editor route. It stores a scenario JSON in the server's memory for this process, and lists it in the scenario catalog when the JSON is a runnable scenario package. Any visitor can store in memory.
+
+With `saveToDisk: true` the server also writes the scenario to `<scenarios folder>/<id>.json`, where the boot loader reads it after a restart. The disk write takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN` (compared in constant time). Its id must be 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit, and must name one file directly in the scenarios folder. A refused disk write stores nothing, in memory or on disk.
+
+**Request body**
+
+```json
+{ "scenario": { "id": "deep-ocean-station", "...": "..." }, "saveToDisk": false }
+```
+
+**200 response**
+
+```json
+{ "stored": true, "id": "deep-ocean-station", "savedToDisk": false, "adminWrite": false, "switchable": true }
+```
+
+`adminWrite` is the server's `ADMIN_WRITE` setting. `switchable` is `true` when the JSON is a runnable scenario package, which `POST /scenario/switch` can then pick.
+
+**Status codes**
+
+- `200` — stored (and written, when `savedToDisk` is `true`)
+- `400 scenario with id required` — no `scenario` or no `scenario.id`
+- `400 Invalid scenario id for a disk write` — `saveToDisk` with an id outside the pattern above (a path separator, a dot, a percent sign, a null byte, over 128 characters, or not a string)
+- `401 Invalid or missing X-Admin-Token header` — `saveToDisk` without the header or with a wrong token
+- `403 ADMIN_WRITE not enabled on this server` — `saveToDisk` on a server started without `ADMIN_WRITE=true`
+- `503` — `saveToDisk` on a server with `ADMIN_WRITE=true` and no `ADMIN_TOKEN` (fail closed)
+- `413` — the body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default)
+
+At boot the server re-compiles the drafts the compile-from-seed flow saved under `<scenarios folder>/compiled/`, newest first, at most 50 (`COMPILED_SCENARIOS_CAP`); a draft whose id is outside the pattern above is skipped with a log line naming its file, and the drafts past the cap are left unread, in one log line.
 
 ---
 
