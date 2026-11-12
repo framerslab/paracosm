@@ -2706,11 +2706,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // The turns this life ran through, each with its year: the character
         // is told these and the leader, which no memory or roster line names.
         const turns = extractRunTurns(simEvents);
+        // The Chat tab opens once the first turn is done, so the run may
+        // still be going: its turns so far are then not the run's. The
+        // run has ended once its buffer holds the `complete` frame, as
+        // /results reads it.
+        const runEnded = chatRun.buffer.some(msg => msg.startsWith('event: complete\n'));
 
         // Get or create the agent (lazy init with memory seeding). The pool
         // keys it by run and leader, so two visitors talking to one
         // colonist id in two runs, or one visitor talking to the same
-        // person under each leader, get agents with their own memories.
+        // person under each leader, get agents with their own memories;
+        // and by whether the run had ended, so the first chat after the
+        // end gets an agent made from the whole run.
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
         const provider = resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
         const { session, isNew } = await getOrCreateChatAgent(profile, memories, {
@@ -2724,6 +2731,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           runKey: chatRun.key,
           leader: leaderName,
           turns,
+          runEnded,
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)

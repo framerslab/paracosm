@@ -104,9 +104,19 @@ export interface ChatAgentOptions {
   leader?: string;
   /**
    * The turns the run played under that leader, each with its time, in
-   * order. The character is told these are the only turns there were.
+   * order. Once the run has ended, the character is told these are the
+   * only turns there were.
    */
   turns?: ChatRunTurn[];
+  /**
+   * Whether the run had ended when the chat came. The Chat tab opens once
+   * the first turn is done, so a chat can come while later turns are still
+   * to be played: the character is then told the run is still going, and
+   * nothing of its turns as the whole run. The pool keys an agent by this
+   * as well, so the first chat after the run ends reaches an agent made
+   * from all of it, and the one made while it ran is not used again.
+   */
+  runEnded?: boolean;
 }
 
 /** Pool entry for a live chat agent. */
@@ -137,8 +147,9 @@ const pool = new Map<string, PoolEntry>();
 
 /**
  * The key the pool holds one person's agent under: the person, the
- * provider and the key that pays for it, the run and the leader. Two
- * chats with equal keys talk to one agent, made once.
+ * provider and the key that pays for it, the run, the leader, and whether
+ * the run had ended. Two chats with equal keys talk to one agent, made
+ * once.
  *
  * @param colonist The person the agent speaks for.
  * @param opts The factory's options.
@@ -151,6 +162,7 @@ export function chatAgentPoolKey(colonist: ColonistProfile, opts: ChatAgentOptio
     credentialFingerprint(apiKeyForProvider(provider, opts)),
     opts.runKey ?? '',
     opts.leader ?? '',
+    opts.runEnded ? 'ended' : 'running',
   ].join(':');
 }
 
@@ -319,7 +331,11 @@ export function buildChatAgentInstructions(colonist: ColonistProfile, opts: Chat
   const settlement = opts.settlementNoun ?? 'colony';
   const popNoun = opts.populationNoun ?? 'colonist';
   const roster = (opts.roster ?? []).filter(e => e.agentId !== colonist.agentId);
-  return buildInstructions(colonist, settlement, popNoun, roster, opts.labels, { leader: opts.leader, turns: opts.turns });
+  return buildInstructions(colonist, settlement, popNoun, roster, opts.labels, {
+    leader: opts.leader,
+    turns: opts.turns,
+    ended: opts.runEnded,
+  });
 }
 
 /**
@@ -340,10 +356,12 @@ export function buildChatAgentInstructions(colonist: ColonistProfile, opts: Chat
  *        treat as authoritative.
  * @param labels The scenario's labels: the leader's word and the time unit.
  * @param run What the run says about this life: the leader the character
- *        lived under, and the turns the run played with their times. The
- *        leader is no person of the roster, and the memories name no
- *        leader ("The commander decided") and no turn count, so without
- *        these the character has no way to know either.
+ *        lived under, the turns the run played with their times, and
+ *        whether the run had ended. The leader is no person of the
+ *        roster, and the memories name no leader ("The commander
+ *        decided") and no turn count, so without these the character has
+ *        no way to know either. The turns are stated as the whole run
+ *        only for a run that has ended.
  */
 export function buildInstructions(
   colonist: ColonistProfile,
@@ -351,7 +369,7 @@ export function buildInstructions(
   popNoun: string,
   roster: ColonistRosterEntry[],
   labels?: Partial<ScenarioLabels>,
-  run?: { leader?: string; turns?: ChatRunTurn[] },
+  run?: { leader?: string; turns?: ChatRunTurn[]; ended?: boolean },
 ): string {
   const words = scenarioWords(labels);
   const leader = run?.leader?.trim() || undefined;
@@ -373,8 +391,11 @@ export function buildInstructions(
   if (colonist.specialization) lines.push(`Specialization: ${colonist.specialization}.`);
 
   // The run's facts, stated once: who led this life, and when it happened.
+  // A run still going has turns to come, so the turns so far are not the
+  // run's, and a turn begun is not yet played.
   if (leader) lines.push(`Your ${words.actor} for the whole run was ${leader}.`);
-  if (turns.length > 0) {
+  if (turns.length > 0 && !run?.ended) lines.push('The run is still going.');
+  if (turns.length > 0 && run?.ended) {
     const last = turns[turns.length - 1];
     const each = turns.map(t => `Turn ${t.turn} (${words.TimeUnit} ${t.time})`).join(', ');
     lines.push(
@@ -412,7 +433,9 @@ export function buildInstructions(
     ? `${rosterLabel} (this is the complete roster. Nobody else exists in this simulation besides you and your ${words.actor}):`
     : `${rosterLabel} (this is the complete roster. Nobody else exists in this simulation):`);
   if (roster.length === 0) {
-    lines.push('(Roster unavailable. If asked about anyone besides yourself, say you do not recognize the name.)');
+    lines.push(leader
+      ? `(Roster unavailable. If asked about anyone besides yourself and your ${words.actor}, say you do not recognize the name.)`
+      : '(Roster unavailable. If asked about anyone besides yourself, say you do not recognize the name.)');
   } else {
     const sorted = [...roster].sort((a, b) => {
       if (a.alive !== b.alive) return a.alive ? -1 : 1;
@@ -447,7 +470,8 @@ export function buildInstructions(
   lines.push(
     `NAME GROUNDING: When someone mentions a person by name, check the ${rosterLabel} list` +
     `${leader ? ` and your ${words.actor}'s name` : ''}. ` +
-    `If the name is NOT on the roster (allow minor typos), say plainly that you do not ` +
+    `If the name is NOT on the roster${leader ? ` and is not your ${words.actor}'s` : ''} ` +
+    `(allow minor typos), say plainly that you do not ` +
     `recognize that person, they are not part of this ${settlement}, and name one or two ` +
     `people you DO work with instead. NEVER invent a biography, department, or story for ` +
     `someone not on the roster.`
