@@ -123,3 +123,49 @@ test('a fork under the same leader leaves the checks of the run it forked from o
     'the card of the run forked from keeps that run\'s check',
   );
 });
+
+/**
+ * The run forked from, as its result carries it, with its decision at the
+ * last checked turn and event either recorded with no check (a reply that
+ * resolved no option the event offers is recorded, with no `barCheck`) or
+ * not recorded at all (the run never reached it); and a fork that decided
+ * that turn and event again with a check of its own.
+ */
+async function forkOverLastCheckedDecision(parentRecord: 'unchecked' | 'absent') {
+  const { events, artifact } = await stubbedRun();
+  const decisions = (internalOf(artifact).commanderDecisions ?? []).filter(d => d.barCheck);
+  const last = decisions.at(-1);
+  assert.ok(last?.barCheck, 'the run checked a decision against its bar');
+  const key = `${last.turn}:${last.eventIndex}`;
+
+  const parent = throughJson(artifact) as RunArtifact;
+  const parentInternal = internalOf(parent);
+  parentInternal.commanderDecisions = (parentInternal.commanderDecisions ?? []).flatMap(d => {
+    if (`${d.turn}:${d.eventIndex}` !== key) return [d];
+    if (parentRecord === 'absent') return [];
+    const unchecked: DecisionRecord = { ...d };
+    delete unchecked.barCheck;
+    return [unchecked];
+  });
+
+  const forkedFrom = { parentRunId: artifact.metadata.runId, atTurn: last.turn - 1 };
+  const fork = throughJson(artifact) as RunArtifact;
+  (fork.metadata as Record<string, unknown>).runId = `${artifact.metadata.runId}-fork`;
+  (fork.metadata as Record<string, unknown>).forkedFrom = forkedFrom;
+  internalOf(fork).commanderDecisions = [last];
+
+  const cards = await outcomeCards(events, [resultFrame(parent), { ...resultFrame(fork), forkedFrom }]);
+  return { card: cards.get(key), forkCheck: last.barCheck };
+}
+
+test('a fork\'s check stays off an outcome of the run it forked from that the run recorded with no check', async () => {
+  const { card } = await forkOverLastCheckedDecision('unchecked');
+  assert.ok(card, 'the run forked from has an outcome card for the decision');
+  assert.equal(card._barCheck, undefined, 'the card shows the run forked from, whose decision had no check');
+});
+
+test('a fork\'s check reaches an outcome the run it forked from recorded no decision for', async () => {
+  const { card, forkCheck } = await forkOverLastCheckedDecision('absent');
+  assert.ok(card, 'the outcome card is on the page');
+  assert.deepEqual(card._barCheck, forkCheck, 'the fork\'s check is the only one for the card');
+});
