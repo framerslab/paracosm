@@ -14,6 +14,7 @@
 #   - a file the build owns and no longer ships is still there afterwards (a
 #     removed bundle, a removed bundled scenario): a rule that protects too
 #     much leaves stale build files behind;
+#   - a file the build ships does not replace the host's earlier copy;
 #   - the command uses --delete-excluded, which deletes excluded paths too.
 #
 # Usage: bash scripts/check-deploy-keeps-host-data.sh [path/to/deploy.yml]
@@ -76,6 +77,7 @@ host_data=(
   ".paracosm/cache/planted-compiled-v1.0.0/manifest.json"
   ".live-runs/planted-run.json"
   ".rate-limit.json"
+  ".rate-limit.json.tmp"
   ".retry-stats.json"
   ".event-buffer.json"
   "data/sessions.db"
@@ -90,9 +92,11 @@ stale_build=(
   "scenarios/removed-bundled.json"
   "docs/api/removed-page.html"
 )
+# The earlier deploy's copies of two build files differ from the new build's,
+# so the copy check below sees the build replace them.
 mkdir -p "$host/dist" "$host/scenarios" "$host/docs/api"
-cp "$build/dist/index.js" "$host/dist/index.js"
-cp "$scenario" "$host/scenarios/mars.json"
+echo 'export const previous = true;' >"$host/dist/index.js"
+cp "$root/scenarios/lunar.json" "$host/scenarios/mars.json"
 for path in "${host_data[@]}" "${stale_build[@]}"; do
   mkdir -p "$(dirname "$host/$path")"
   case "$path" in
@@ -117,7 +121,7 @@ for path in "${stale_build[@]}"; do
   fi
 done
 for path in dist/index.js scenarios/mars.json docs/api/index.html; do
-  if [ ! -e "$host/$path" ]; then
+  if ! cmp -s "$build/$path" "$host/$path"; then
     echo "::error file=$workflow::A deploy does not copy the build file $path"
     failed=1
   fi
