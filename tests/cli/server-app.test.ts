@@ -502,8 +502,10 @@ test('platform API routes serve when PARACOSM_ENABLE_RUN_HISTORY_ROUTES=true ove
 
 test('disk-saved runnable scenarios are reloaded into the live catalog on restart', async () => {
   const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-scenarios-'));
+  // A disk write takes the admin credential: ADMIN_WRITE=true and the
+  // X-Admin-Token header matching ADMIN_TOKEN.
   const firstServer = createMarsServer({
-    env: { ...process.env, ADMIN_WRITE: 'true' },
+    env: { ...process.env, ADMIN_WRITE: 'true', ADMIN_TOKEN: 'reload-test-token' },
     runPairSimulations: async () => {},
     scenarioDir,
   } as any);
@@ -516,7 +518,7 @@ test('disk-saved runnable scenarios are reloaded into the live catalog on restar
   try {
     const stored = await fetch(`http://127.0.0.1:${firstPort}/scenario/store`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': 'reload-test-token' },
       body: JSON.stringify({ scenario: customScenario, saveToDisk: true }),
     });
     assert.equal(stored.status, 200);
