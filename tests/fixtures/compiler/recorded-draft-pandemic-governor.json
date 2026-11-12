@@ -1,0 +1,77 @@
+{
+  "id": "nrv-2026-toluca-response",
+  "labels": {
+    "name": "NRV-2026 Toluca Regional Health Response",
+    "populationNoun": "residents",
+    "settlementNoun": "state",
+    "timeUnitNoun": "day",
+    "currency": "MXN"
+  },
+  "setup": {
+    "defaultTurns": 6,
+    "defaultPopulation": 200,
+    "defaultStartTime": 0,
+    "defaultSeed": 20260314
+  },
+  "departments": [
+    {
+      "id": "surveillance",
+      "label": "Surveillance",
+      "role": "Detect outbreaks early",
+      "instructions": "Track cases, test positivity, and spread signals. Escalate alerts quickly when clusters appear or mobility rises."
+    },
+    {
+      "id": "hospitals",
+      "label": "Hospital Surge",
+      "role": "Protect care capacity",
+      "instructions": "Manage ICU load, staffing, beds, and referrals. Trigger surge plans before occupancy crosses critical thresholds."
+    },
+    {
+      "id": "schools",
+      "label": "Schools",
+      "role": "Coordinate closure policy",
+      "instructions": "Balance transmission control with continuity. Recommend closures or hybrid measures when child-to-household spread risk grows."
+    },
+    {
+      "id": "mobility",
+      "label": "Mobility and Travel",
+      "role": "Limit importation and spread",
+      "instructions": "Advise on movement restrictions, screening, and border measures. Weigh enforcement costs against delayed transmission."
+    },
+    {
+      "id": "supplies",
+      "label": "Vaccine and Supplies",
+      "role": "Secure medical inputs",
+      "instructions": "Procure vaccines, PPE, tests, and therapeutics. Prioritize lead times, stockouts, and rollout readiness."
+    },
+    {
+      "id": "relief",
+      "label": "Economic Relief",
+      "role": "Offset public harm",
+      "instructions": "Design support for workers and businesses affected by restrictions. Keep aid timely enough to preserve compliance."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "transmission",
+      "format": "number"
+    },
+    {
+      "id": "icu-occupancy",
+      "format": "percent"
+    },
+    {
+      "id": "public-compliance",
+      "format": "percent"
+    },
+    {
+      "id": "fiscal-burn",
+      "format": "currency"
+    },
+    {
+      "id": "political-capital",
+      "format": "number"
+    }
+  ],
+  "theme": "A regional governor responds day by day to a novel respiratory outbreak, balancing containment, hospital strain, civil liberties, and political support."
+}

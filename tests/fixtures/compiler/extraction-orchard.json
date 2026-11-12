@@ -1,0 +1,30 @@
+{
+  "topics": [
+    "Soil care",
+    "Harvest timing",
+    "Orchard market"
+  ],
+  "facts": [
+    {
+      "topic": "Soil care",
+      "claim": "Cover crops sown between the rows hold moisture in the ground through a dry season."
+    },
+    {
+      "topic": "Soil care",
+      "claim": "Compost spread after the last pick feeds the roots before the trees go dormant."
+    },
+    {
+      "topic": "Harvest timing",
+      "claim": "Apples picked a week early keep longer in storage and sell for less."
+    },
+    {
+      "topic": "Orchard market",
+      "claim": "Wholesale buyers fix their prices before the first pick of the year."
+    }
+  ],
+  "searchQueries": [],
+  "crisisCategories": [
+    "Late frost",
+    "Buyer shortfall"
+  ]
+}

@@ -40,7 +40,7 @@ import {
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
-import { applyCommanderPolicy, type PolicyEffectTables } from './commander-policy.js';
+import { applyCommanderPolicy, policyEffectTablesFor, type PolicyEffectTables } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
 import { buildAvailableToolsBlock, buildForgedToolbox, eventToolModifiers, forgedToolNames, recordEventForges, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
@@ -994,11 +994,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const effectRegistry = EffectRegistry.forScenario(sc);
   // One decision's adopted effects move a key at most what one event
   // outcome brings on it: the scenario's outcome tables bound them (#214).
-  const policyTables: PolicyEffectTables = {
-    registry: effectRegistry,
-    politicsHook: sc.hooks.politicsHook,
-    categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
-  };
+  const policyTables: PolicyEffectTables = policyEffectTablesFor(sc, effectRegistry);
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
