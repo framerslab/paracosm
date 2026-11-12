@@ -44,7 +44,12 @@ function marsSnapshots(seed: number): KernelSnapshot[] {
   return snapshots;
 }
 
-/** A turn-loop artifact whose turns took no decisions, so each turn ends in the state its step left. */
+/**
+ * A turn-loop artifact whose turns changed nothing after their steps, so
+ * each turn ends in the state its step left. Each decision carries its
+ * turn's time, which replay matches with the state saved after that
+ * turn's step.
+ */
 function artifact(runId: string, snaps: KernelSnapshot[], withStepSnapshots: boolean): Record<string, unknown> {
   return {
     metadata: {
@@ -55,7 +60,7 @@ function artifact(runId: string, snaps: KernelSnapshot[], withStepSnapshots: boo
       startedAt: '2026-11-12T00:00:00.000Z',
       completedAt: '2026-11-12T00:01:00.000Z',
     },
-    decisions: snaps.slice(1).map((_, i) => ({ time: i + 1, actor: 'leader-a', choice: 'safe', rationale: '', outcome: 'conservative_success' })),
+    decisions: snaps.slice(1).map(s => ({ time: s.time, actor: 'leader-a', choice: 'safe', rationale: '', outcome: 'conservative_success' })),
     scenarioExtensions: withStepSnapshots
       ? { kernelSnapshotsPerTurn: snaps.slice(1), kernelSnapshotAtStart: snaps[0], kernelSnapshotsAfterProgression: snaps.slice(1) }
       : { kernelSnapshotsPerTurn: snaps.slice(1) },
