@@ -52,11 +52,21 @@ const OUTCOMES: TurnOutcome[] = ['risky_success', 'conservative_success', 'conse
  * (`EffectRegistry.forScenario(sc)`), the politics hook, and the
  * categories of the scenario's `knowledge.categoryMapping`, which the
  * politics table is also read for.
+ *
+ * A scenario that declares no politics keys (`world.politics` empty or
+ * absent) has no politics table: at an outcome the kernel drops every key
+ * the hook returns, since the run holds no politics, so its numbers could
+ * act only by lifting a limit. The compiler refuses such a hook for the
+ * categories it knows when it generates it (`generate-politics.ts`); this
+ * also covers a category the seed's knowledge adds after the hooks are
+ * generated and a hook restored from the hook cache, which is not checked
+ * again.
  */
 export function policyEffectTablesFor(sc: ScenarioPackage, registry: EffectRegistry): PolicyEffectTables {
+  const declaresPolitics = Object.keys(sc.world?.politics ?? {}).length > 0;
   return {
     registry,
-    politicsHook: sc.hooks.politicsHook,
+    politicsHook: declaresPolitics ? sc.hooks.politicsHook : undefined,
     categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
   };
 }
