@@ -18,14 +18,16 @@
  * kernel built from the scenario holds each as a number; three category
  * tables or more, with the knowledge bundle's categories the tables' keys
  * and every topic under each; the first four declared scores in the
- * header; and the fingerprint and department prompt hooks kept on their
- * first attempt. The death dice and the supply marks are left to the tests
- * of the change that makes them.
+ * header; the fingerprint and department prompt hooks kept on their first
+ * attempt; and nothing for `validateSeedWorld` to report. The death dice
+ * and the supply marks are left to the tests of the change that makes
+ * them.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SimulationKernel } from '../../../src/engine/core/kernel.js';
 import { EffectRegistry } from '../../../src/engine/registries/effects.js';
+import { validateSeedWorld } from '../../../src/engine/compiler/validate.js';
 import { scenarioKeyPersonnel } from '../../../src/cli/sim-config.js';
 import { getResearchFromBundle } from '../../../src/runtime/research/scenario-research.js';
 import {
@@ -186,6 +188,14 @@ for (const [file, label] of DRAFTS) {
     assert.ok(
       counted > 2,
       `the compiled fingerprint hook, given that kernel's state, counts more than the head count and morale (read summary ${JSON.stringify(fingerprint?.summary)})`,
+    );
+
+    // The compiled package keeps the seed path's rules: starts inside their bounds, every
+    // declared score in a table and in the first or the last, every entry inside its bounds.
+    assert.deepEqual(
+      validateSeedWorld(scenario as unknown as Record<string, unknown>).errors,
+      [],
+      'validateSeedWorld reports nothing for the compiled package',
     );
 
     if (draft.effects) {
