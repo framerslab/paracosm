@@ -247,6 +247,22 @@ function adminTokenMatches(presented: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * Whether every percent escape in the request's path decodes to text. A `%`
+ * not followed by two hex digits, or escapes whose bytes are not UTF-8,
+ * make decodeURIComponent throw, so the routes that read an id from the
+ * path decode it only once this holds.
+ */
+function pathDecodes(url: string | undefined): boolean {
+  const path = (url ?? '/').split('?')[0];
+  try {
+    decodeURIComponent(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 400): void {
   const status = error instanceof RequestBodyTooLargeError
     ? error.statusCode
@@ -1368,7 +1384,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end(JSON.stringify({ error: `Unknown run: ${key}` }));
   };
 
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // CORS preflight for browser-based requests across the public API.
     // DELETE is in the allow-list because /admin/scenarios/:id is a
     // cross-origin candidate for the embedded landing-page demos;
@@ -1383,6 +1399,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         'Access-Control-Max-Age': '86400',
       });
       res.end();
+      return;
+    }
+
+    // A path whose percent escapes do not decode names no route.
+    if (!pathDecodes(req.url)) {
+      res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+      res.end(JSON.stringify({ error: 'invalid_path', message: 'The path holds a percent escape that does not decode.' }));
       return;
     }
 
@@ -1607,11 +1630,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // filename) never change — only the display label flips, so
     // every existing run record + URL keeps resolving. Restricted
     // to `compiled` source: builtins and curated disk drafts are
-    // tracked outside the dashboard and shouldn't drift via API.
+    // tracked outside the dashboard and shouldn't drift via API. The
+    // name is every visitor's and the rename writes the scenario's file,
+    // so it takes the admin credential DELETE /admin/scenarios/:id takes.
     const scenarioRenameMatch = req.url
       ? req.url.match(/^\/scenarios\/([^/?#]+)\/rename$/)
       : null;
     if (scenarioRenameMatch && req.method === 'POST') {
+      if (!requireAdminToken(req, res)) {
+        console.warn('[scenarios] rename refused: admin credential missing, wrong or not configured');
+        return;
+      }
       const id = decodeURIComponent(scenarioRenameMatch[1]);
       const entry = customScenarioCatalog.get(id);
       if (!entry) {
@@ -3693,6 +3722,22 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
     res.writeHead(404);
     res.end('Not found');
+  };
+
+  // Every request's handler is awaited here, so an error a route did not
+  // catch answers 500 (or ends a response already under way) instead of
+  // rejecting the listener's promise, which Node's default unhandled
+  // rejection mode turns into the process's exit.
+  const server = createServer((req, res) => {
+    handleRequest(req, res).catch((err: unknown) => {
+      console.error('[server] request failed:', req.method, req.url?.slice(0, 200), err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'internal_error' }));
+      } else if (!res.writableEnded) {
+        res.destroy();
+      }
+    });
   }) as MarsServer;
 
   // Clean up on server close: the rate limiter's timers, and the live runs'

@@ -370,6 +370,37 @@ At boot the server re-compiles the drafts the compile-from-seed flow saved under
 
 ---
 
+## `POST /scenarios/:id/rename`
+
+Changes the display name (`labels.name`) of a compiled scenario, the name every visitor sees, and writes the scenario's file under `<scenarios folder>/compiled/` so the name holds after a restart. The id never changes. It takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN`. The dashboard's scenario drawer shows the rename control only when an admin token is saved in the browser, as it does the delete control.
+
+**Request body**
+
+```json
+{ "name": "Pandemic Sim" }
+```
+
+The name loses control characters and `<` `>`, its runs of whitespace become one space, and it is cut to 100 characters.
+
+**200 response**
+
+```json
+{ "id": "dual-superintelligence-council-x9k2", "name": "Pandemic Sim" }
+```
+
+**Status codes**
+
+- `200` — renamed and written
+- `400 invalid_path` — the path holds a percent escape that does not decode
+- `400 cannot_rename_non_compiled` — a built-in or a scenario from the scenarios folder
+- `400 invalid_json_body` or `400 name_required` — no JSON body, or a name that is empty once cleaned
+- `401 Invalid or missing X-Admin-Token header` — no header or a wrong token
+- `403 ADMIN_WRITE not enabled on this server` — a server started without `ADMIN_WRITE=true`
+- `404 scenario_not_found` — no scenario has that id
+- `503` — a server with `ADMIN_WRITE=true` and no `ADMIN_TOKEN` (fail closed)
+
+---
+
 ## Error envelope
 
 Every error response is JSON-encoded with at minimum an `error` field. Most also include a contextual key (`runId`, `scenarioId`, `path`) to help clients build readable messages.
@@ -379,6 +410,8 @@ Every error response is JSON-encoded with at minimum an `error` field. Most also
 ```
 
 Unknown routes under `/api/v1/` return `404 unknown_platform_route` with the requested path echoed.
+
+A request whose path holds a percent escape that does not decode (`/scenarios/%E0`, `/scenarios/%ZZ`) answers `400 invalid_path`, whatever the route. A path the URL parser refuses, such as `//`, is answered by the routes after the platform routes, which give `404`. An error a route does not handle answers `500 internal_error` and is logged; the server goes on answering other requests.
 
 ## Related docs
 

@@ -740,6 +740,27 @@ function withNeutralTraits(actor: ActorConfig): ActorConfig {
  * a Quickstart run of Atlas Lab, whose body carries only the leaders,
  * turns and seed, started at "Month 2035" with Mars's people.
  */
+/**
+ * The most turns one run takes, whoever pays for it. A turn the provider
+ * refuses still runs the turn loop, so the bound holds with or without a
+ * caller key. The dashboard's Turns field stops at 20; a fork adds the
+ * scenario's turns to its fork turn.
+ */
+export const MAX_SIMULATION_TURNS = 100;
+
+/**
+ * The largest starting population one run takes, whoever pays for it. The
+ * name lists give 2500 distinct names; the largest scenario default is 480.
+ */
+export const MAX_SIMULATION_POPULATION = 2000;
+
+/** Throws unless `value` is a whole number from 1 to `max`. */
+function assertRunBound(value: number, max: number, what: string): void {
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`Simulation ${what} must be a whole number from 1 to ${max}, got ${JSON.stringify(value)}`);
+  }
+}
+
 export function normalizeSimulationConfig(
   input: SimulationSetupPayload,
   scenario: ScenarioPackage = marsScenario,
@@ -801,10 +822,16 @@ export function normalizeSimulationConfig(
     batchConcurrency: input.economics?.batchConcurrency,
   });
 
+  const turns = input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns);
+  assertRunBound(turns, MAX_SIMULATION_TURNS, 'turns');
+  if (input.population !== undefined && input.population !== null) {
+    assertRunBound(input.population, MAX_SIMULATION_POPULATION, 'population');
+  }
+
   return {
     actors: input.actors.map(withNeutralTraits),
     provider: inferredProvider,
-    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    turns,
     seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
     timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
