@@ -5,8 +5,11 @@
  * scenario draft against `DraftScenarioSchema`: the domain's nouns, its
  * departments, its metrics with each one's start and range, and the
  * category tables its events use. `seedDraftToScenarioJson` turns the
- * draft into a scenario JSON whose world holds every declared score, and
- * that JSON routes into the existing `compileScenario` pipeline so the
+ * draft into a scenario JSON whose world holds every declared score,
+ * which keeps a draft's mark on a supply that sustains the people only
+ * where the mark passes the veto (`sustainsVeto`), and which keeps one
+ * death die for each person's whole life. That JSON routes into the
+ * existing `compileScenario` pipeline so the
  * `seedText` research grounding + hook generation still fire. JSON is the
  * canonical contract; this module only provides a convenience entry for
  * callers that start from unstructured source material.
@@ -32,6 +35,8 @@ import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 const lenientString = () => z.string().optional().catch(undefined).optional();
 /** As {@link lenientString}, for a number. */
 const lenientNumber = () => z.number().optional().catch(undefined).optional();
+/** As {@link lenientString}, for a true or a false. */
+const lenientBoolean = () => z.boolean().optional().catch(undefined).optional();
 
 /** One entry of a category table: the change an event of that kind brings to one metric. */
 const DraftEffectEntrySchema = z.object({
@@ -52,10 +57,11 @@ const DraftEffectTableSchema = z.object({
  * purpose: the compiler's existing pipeline fills in defaults, hooks,
  * and seed-ingested citations; we only need the domain-specific fields.
  *
- * The fields that say where a metric starts, what bounds it and what its
- * events bring carry no size or range check here. Every rule on them
- * lives in `seedDraftToScenarioJson`, which repairs and never rejects, so
- * none of them can fail a draft.
+ * The fields that say where a metric starts, what bounds it, whether it
+ * is a supply that sustains the people and what its events bring carry no
+ * size or range check here. Every rule on them lives in
+ * `seedDraftToScenarioJson`, which repairs and never rejects, so none of
+ * them can fail a draft.
  */
 export const DraftScenarioSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[a-z0-9-]+$/, 'kebab-case ids only'),
@@ -95,6 +101,10 @@ export const DraftScenarioSchema = z.object({
     initial: lenientNumber(),
     min: lenientNumber(),
     max: lenientNumber(),
+    // The draft's mark on a supply that sustains the people. Only exactly
+    // `true` is a mark, and the normalizer keeps one only where the veto
+    // passes it.
+    sustains: lenientBoolean(),
   })).min(2).max(12),
   // Lenient as the metric fields are. A malformed table reads as undefined
   // and the normalizer drops it; the other tables stay.
@@ -152,6 +162,7 @@ METRICS (2-12 entries, the most important first: the first four show in the head
   - currency: the amount in the scenario's currency (2400000).
 - unit (optional, number and currency only): at most 16 chars ("tonnes", "kW", "points"). A percent needs none.
 - min, max (optional, number and currency only): a floor or a ceiling the metric cannot pass. Give max only where the metric truly has one (a score out of 100). Leave max out for a stock, a count or an amount that can keep growing.
+- sustains (optional): true ONLY for a physical stock or capacity the people need to stay alive, which decisions can build up or run down (a water reserve, oxygen, power, shelter space). Never for a score, a share, a rate, money, a risk or a head count. Leave it out when unsure. Most scenarios mark none.
 - The ids "population" (the head count) and "morale" (the mood, a percent) name values the engine keeps itself. Declare them only if the leader steers on them.
 - Pick the metrics the leader actually steers on, not every available stat.
 
@@ -184,7 +195,10 @@ export interface CompileFromSeedOptions extends CompileOptions {
  * scenario JSON whose world holds every declared score
  * (`seedDraftToScenarioJson`), then routes into the existing
  * `compileScenario` pipeline with `seedText` threading through for
- * research grounding. The categories the knowledge bundle maps are then
+ * research grounding. That JSON keeps one death die for each person's
+ * whole life (`setup.mortalityDice: 'life'`), and a supply the draft
+ * marks as sustaining the people keeps its mark only where the veto
+ * passes it. The categories the knowledge bundle maps are then
  * the category tables' keys, so every event the director is offered has
  * a table.
  *

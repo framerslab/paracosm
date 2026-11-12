@@ -1,6 +1,8 @@
 /**
  * From a seed draft to a scenario JSON with a world: every default and
- * every repair `seedDraftToScenarioJson` applies.
+ * every repair `seedDraftToScenarioJson` applies, the rules a supply marked
+ * as sustaining the people must pass (`sustainsVeto`), and the one death
+ * die for a life every compile keeps.
  *
  * Each case is a small draft through the real draft schema
  * (`DraftScenarioSchema.parse`) and the normalizer. It reads what the
@@ -16,11 +18,14 @@ import { DraftScenarioSchema } from '../../../src/engine/compiler/compile-from-s
 import {
   DEFAULT_CATEGORIES,
   MAX_MAGNITUDE,
+  SUSTAINS_MAX_MARKS,
+  SUSTAINS_MIN_YEARS,
   scoreScale,
   seedDraftToScenarioJson,
+  sustainsVeto,
   type DraftNote,
 } from '../../../src/engine/compiler/seed-draft-world.js';
-import { validateSeedWorld } from '../../../src/engine/compiler/validate.js';
+import { lintSustainsMarks, validateSeedWorld } from '../../../src/engine/compiler/validate.js';
 import { compileScenario } from '../../../src/engine/compiler/index.js';
 import { SimulationKernel } from '../../../src/engine/core/kernel.js';
 import { EffectRegistry } from '../../../src/engine/registries/effects.js';
@@ -65,7 +70,8 @@ function normalize(over: Json): Normalized {
 async function kernelOf(scenario: Json) {
   const pkg = await compileScenario(scenario, { cache: false, generateText: async () => 'not a hook' });
   const kernel = new SimulationKernel(950, 'Leader', scenarioKeyPersonnel(pkg), { startTime: 1, initialPopulation: 20, scenario: pkg });
-  return { pkg, metrics: kernel.getState().metrics as unknown as Record<string, number>, registry: EffectRegistry.forScenario(pkg) };
+  const state = kernel.getState();
+  return { pkg, metrics: state.metrics as unknown as Record<string, number>, metadata: state.metadata, registry: EffectRegistry.forScenario(pkg) };
 }
 
 const noteOf = (n: Normalized, rule: string) => n.notes.find(note => note.rule === rule);
@@ -515,16 +521,320 @@ test('an entry on morale written in points is divided by 100, as a morale start 
   );
 });
 
-// ---- The bound, the schema's limits, determinism ---------------------------------
-
+/** Every draft of tests/fixtures/compiler/. */
 const FIXTURES = [
   'draft-orchard-bare.json',
   'draft-orchard-with-tables.json',
+  'draft-reservoir-with-mark.json',
   'recorded-draft-ai-lab.json',
   'recorded-draft-generation-ship.json',
   'recorded-draft-pandemic-governor.json',
   'recorded-draft-game-studio.json',
 ];
+
+// ---- A supply that sustains the people -------------------------------------------------
+
+/** Twelve one-year turns: a default run of 11 years. */
+const TWELVE_YEARS = { setup: { defaultTurns: 12, defaultPopulation: 20, defaultStartTime: 1 } };
+/** A number in megalitres that starts at 200, with whatever the case adds. */
+const reserve = (over: Json = {}): Json => ({ id: 'reserve', format: 'number', unit: 'megalitres', initial: 200, ...over });
+/** Three tables that each name `reserve` and `stock`, every entry inside its score's bounds. */
+const RESERVE_TABLES = [
+  { category: 'drought', entries: [{ metric: 'reserve', change: -10 }, { metric: 'stock', change: 5 }] },
+  { category: 'works', entries: [{ metric: 'reserve', change: 10 }, { metric: 'stock', change: -5 }] },
+  { category: 'demand', entries: [{ metric: 'stock', change: 5 }, { metric: 'reserve', change: -5 }] },
+];
+/** The marks a draft lost, each as `<key> rule <n>`, read from the notes. */
+const refusedMarks = (n: Normalized): string[] => n.notes
+  .filter(note => note.rule === 'mark-refused')
+  .map(note => `${note.message.split(':')[0]} rule ${/\(rule (\d)\)/.exec(note.message)?.[1]}`);
+/** The world fields that carry a `sustains` key. */
+const markedFields = (n: Normalized): string[] => Object.keys(n.world).filter(id => 'sustains' in n.world[id]);
+
+test('a mark that passes: a number in megalitres, moved by the draft\'s own tables, in a run of twelve one-year turns keeps sustains: true, and no other field is marked', async () => {
+  const n = normalize({ ...TWELVE_YEARS, metrics: [reserve({ sustains: true }), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual(n.world.reserve, { id: 'reserve', label: 'Reserve', unit: 'megalitres', type: 'number', initial: 200, min: 0, category: 'metric', sustains: true });
+  assert.deepEqual(Object.keys(n.world.reserve), ['id', 'label', 'unit', 'type', 'initial', 'min', 'category', 'sustains'], 'the mark is the field\'s last key');
+  assert.deepEqual(markedFields(n), ['reserve']);
+  assert.deepEqual(refusedMarks(n), [], `no mark is dropped (read ${JSON.stringify(n.notes.map(note => note.message))})`);
+  const { metadata, pkg } = await kernelOf(n.scenario);
+  assert.deepEqual(metadata.landingSupplies, { reserve: 200 }, `a kernel keeps the reserve's amount on day one (read ${JSON.stringify(metadata.landingSupplies)})`);
+  assert.deepEqual(lintSustainsMarks(n.scenario), [], 'the lint reports nothing for the scenario JSON');
+  assert.deepEqual(lintSustainsMarks(pkg as unknown as Json), [], 'nor for the compiled package, whose tables are in the array form');
+});
+
+test('the reservoir draft keeps its mark: a kernel keeps the water reserve\'s 500 megalitres as its landing supply, with one death die for a life', async () => {
+  const { scenario, notes } = seedDraftToScenarioJson(DraftScenarioSchema.parse(loadCompilerFixture('draft-reservoir-with-mark.json')));
+  assert.deepEqual(notes, [], `the draft needs no default and no repair (read ${JSON.stringify(notes.map(note => note.message))})`);
+  assert.deepEqual(validateSeedWorld(scenario).errors, [], 'validateSeedWorld reports nothing');
+  const s = scenario as Json;
+  assert.equal(s.world.metrics['water-reserve'].sustains, true);
+  assert.equal('sustains' in s.world.metrics['service-coverage'], false);
+  assert.deepEqual(sustainsVeto(scenario), [], 'the veto refuses nothing');
+  const { metadata } = await kernelOf(s);
+  assert.deepEqual(metadata.landingSupplies, { 'water-reserve': 500 }, `read ${JSON.stringify(metadata.landingSupplies)}`);
+  assert.equal(metadata.mortalityDice, 'life', `read ${JSON.stringify(metadata.mortalityDice)}`);
+});
+
+test('no metric is marked unless its draft marks it; only exactly true is a mark', () => {
+  const unmarked = normalize({ ...TWELVE_YEARS, metrics: [reserve(), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual(markedFields(unmarked), [], 'a draft that marks nothing compiles to a world that marks nothing');
+  const no = normalize({ ...TWELVE_YEARS, metrics: [reserve({ sustains: false }), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual([markedFields(no), refusedMarks(no)], [[], []], 'sustains: false leaves no key and no note');
+
+  const metrics = (sustains: unknown) => [reserve({ sustains }), { id: 'stock', format: 'number', initial: 100 }];
+  const parsed = (sustains: unknown) => DraftScenarioSchema.parse(draftWith({ ...TWELVE_YEARS, metrics: metrics(sustains), effects: RESERVE_TABLES })).metrics[0].sustains;
+  assert.equal(parsed('yes'), undefined, 'a string where sustains goes reads as absent');
+  assert.equal(parsed(1), undefined, 'a number there reads as absent');
+  assert.equal(parsed(null), undefined, 'a null there reads as absent');
+  assert.equal(parsed(true), true);
+  assert.equal(parsed(false), false);
+  assert.deepEqual(markedFields(normalize({ ...TWELVE_YEARS, metrics: metrics('yes'), effects: RESERVE_TABLES })), [], 'and the field is not marked');
+});
+
+test('veto rule 1: a mark on population or on morale is dropped', () => {
+  const n = normalize({ ...TWELVE_YEARS, metrics: [{ id: 'population', sustains: true }, { id: 'morale', sustains: true }, reserve(), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual(refusedMarks(n), ['population rule 1', 'morale rule 1']);
+  assert.deepEqual(markedFields(n), []);
+  assert.deepEqual(n.notes.filter(note => note.rule === 'mark-refused').map(note => note.path), ['metrics[0].sustains', 'metrics[1].sustains']);
+  requireNote(n, 'mark-refused', 'population: its mark as a supply that sustains the people is dropped (rule 1): the head count is the roster');
+  requireNote(n, 'mark-refused', 'morale is a mood');
+});
+
+test('veto rule 2: a mark on a percent, on a currency, or on a number whose unit is a score\'s or names money is dropped', () => {
+  const four = ['coverage', 'fund', 'rating', 'cash-pile'];
+  const changes: Record<string, number> = { coverage: 2, fund: 60, rating: 5, 'cash-pile': 5 };
+  const n = normalize({
+    ...TWELVE_YEARS,
+    metrics: [
+      { id: 'coverage', format: 'percent', initial: 70, sustains: true },
+      { id: 'fund', format: 'currency', initial: 1200, sustains: true },
+      { id: 'rating', format: 'number', unit: 'score', initial: 100, sustains: true },
+      { id: 'cash-pile', format: 'number', unit: 'USD', initial: 100, sustains: true },
+    ],
+    effects: ['drought', 'works', 'demand'].map(category => ({ category, entries: four.map(metric => ({ metric, change: changes[metric] })) })),
+  });
+  assert.deepEqual(refusedMarks(n), ['coverage rule 2', 'fund rule 2', 'rating rule 2', 'cash-pile rule 2']);
+  assert.deepEqual(markedFields(n), []);
+  requireNote(n, 'mark-refused', 'coverage: its mark as a supply that sustains the people is dropped (rule 2): it is not a plain quantity: its score is a percent');
+  requireNote(n, 'mark-refused', 'its score is a currency');
+  requireNote(n, 'mark-refused', 'its unit, "score", is a share\'s or a score\'s');
+  requireNote(n, 'mark-refused', 'its unit, "USD", names money');
+  assert.deepEqual(n.effects.drought, changes, 'every table names all four, so no other rule is in play');
+});
+
+test('veto rule 3: a mark on a number that is better lower is dropped', () => {
+  const n = normalize({ ...TWELVE_YEARS, metrics: [reserve({ better: 'lower', sustains: true }), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual(refusedMarks(n), ['reserve rule 3']);
+  assert.deepEqual(markedFields(n), []);
+  requireNote(n, 'mark-refused', 'its score is better lower');
+});
+
+test('veto rule 4: a mark on a number that starts at 0 is dropped', () => {
+  const n = normalize({ ...TWELVE_YEARS, metrics: [reserve({ initial: 0, sustains: true }), { id: 'stock', initial: 100 }], effects: RESERVE_TABLES });
+  assert.deepEqual(refusedMarks(n), ['reserve rule 4']);
+  assert.deepEqual(markedFields(n), []);
+  requireNote(n, 'mark-refused', 'it does not start above 0 (it starts at 0)');
+});
+
+test('veto rule 5: a mark on a number none of the draft\'s own tables names is dropped, though the finished tables name every score', () => {
+  const stockOnly = ['drought', 'works', 'demand'].map(category => ({ category, entries: [{ metric: 'stock', change: 5 }] }));
+  const n = normalize({ ...TWELVE_YEARS, metrics: [reserve({ sustains: true }), { id: 'stock', initial: 100 }], effects: stockOnly });
+  assert.deepEqual(refusedMarks(n), ['reserve rule 5']);
+  assert.deepEqual(markedFields(n), []);
+  requireNote(n, 'mark-refused', 'no category table names it');
+  assert.equal(n.effects.drought.reserve, 10, 'the finished tables give the score its default entry all the same');
+
+  // A table whose one entry is dropped takes the default table, which names
+  // every score. The veto reads the tables before that, so the mark still goes.
+  const emptied = normalize({
+    ...TWELVE_YEARS,
+    metrics: [reserve({ sustains: true }), { id: 'stock', initial: 100 }],
+    effects: [{ category: 'drought', entries: [{ metric: 'reserve', change: 0 }] }, ...stockOnly.slice(1)],
+  });
+  assert.deepEqual(refusedMarks(emptied), ['reserve rule 5']);
+  assert.deepEqual(emptied.effects.drought, { reserve: 10, stock: 5 }, 'the emptied table took the default table');
+  requireNote(emptied, 'table-defaulted', 'drought');
+
+  // A draft that lists no table keeps no mark.
+  const none = normalize({ ...TWELVE_YEARS, metrics: [reserve({ sustains: true }), { id: 'stock', initial: 100 }] });
+  assert.deepEqual([refusedMarks(none), markedFields(none)], [['reserve rule 5'], []]);
+});
+
+test('veto rule 6: a mark in a scenario whose default run spans under five years is dropped: the orchard draft spans 0.75', () => {
+  const orchard = loadCompilerFixture('draft-orchard-with-tables.json') as Json;
+  orchard.metrics[0].sustains = true;
+  const { scenario, notes } = seedDraftToScenarioJson(DraftScenarioSchema.parse(orchard));
+  assert.deepEqual(validateSeedWorld(scenario).errors, []);
+  const refused = notes.filter(note => note.rule === 'mark-refused').map(note => note.message);
+  assert.deepEqual(refused, [
+    'harvest: its mark as a supply that sustains the people is dropped (rule 6): the default run spans 0.75 years, under 5: too short for a supply to show in who lives',
+  ]);
+  assert.equal('sustains' in (scenario as Json).world.metrics.harvest, false);
+
+  // Six one-year turns span five years, which is enough; five span four.
+  const turns = (defaultTurns: number, labels?: Json, more: Json = {}) => normalize({
+    setup: { defaultTurns, defaultPopulation: 20, defaultStartTime: 1, ...more },
+    ...(labels ? { labels } : {}),
+    metrics: [reserve({ sustains: true }), { id: 'stock', initial: 100 }],
+    effects: RESERVE_TABLES,
+  });
+  assert.deepEqual(markedFields(turns(6)), ['reserve'], `a run of ${SUSTAINS_MIN_YEARS} years keeps the mark`);
+  assert.deepEqual(refusedMarks(turns(5)), ['reserve rule 6']);
+  const quarters = { name: 'Test world', populationNoun: 'people', settlementNoun: 'site', timeUnitNoun: 'quarter' };
+  const inQuarters = turns(12, quarters);
+  assert.deepEqual(refusedMarks(inQuarters), ['reserve rule 6']);
+  requireNote(inQuarters, 'mark-refused', 'the default run spans 2.75 years');
+  const decades = { name: 'Test world', populationNoun: 'people', settlementNoun: 'site', timeUnitNoun: 'decade' };
+  assert.deepEqual(markedFields(turns(2, decades, { yearsPerTimeUnit: 10 })), ['reserve'], 'two turns of a declared ten years each span ten years');
+});
+
+test('veto rule 7: of six marks that pass every other rule, the sixth is dropped', async () => {
+  const six = ['aa', 'bb', 'cc', 'dd', 'ee', 'ff'];
+  const table = (category: string, ids: string[]) => ({ category, entries: ids.map(metric => ({ metric, change: 5 })) });
+  const n = normalize({
+    ...TWELVE_YEARS,
+    metrics: six.map(id => ({ id, format: 'number', unit: 'tonnes', initial: 100, sustains: true })),
+    effects: [table('drought', ['aa', 'bb', 'cc', 'dd']), table('works', ['ee', 'ff', 'aa', 'bb']), table('demand', ['cc', 'dd', 'ee', 'ff'])],
+  });
+  assert.deepEqual(refusedMarks(n), ['ff rule 7']);
+  assert.deepEqual(markedFields(n), six.slice(0, SUSTAINS_MAX_MARKS));
+  requireNote(n, 'mark-refused', '5 supplies are marked before it');
+  const { metadata } = await kernelOf(n.scenario);
+  assert.deepEqual(metadata.landingSupplies, { aa: 100, bb: 100, cc: 100, dd: 100, ee: 100 }, `a kernel keeps five landing supplies (read ${JSON.stringify(metadata.landingSupplies)})`);
+});
+
+/** A scenario JSON whose one mark passes all seven rules. Each case below changes one thing in it. */
+const passingWorld = (): Json => ({
+  labels: { timeUnitNoun: 'year' },
+  setup: { defaultTurns: 12 },
+  world: {
+    metrics: { reserve: { id: 'reserve', label: 'Reserve', unit: 'megalitres', type: 'number', initial: 500, min: 0, category: 'metric', sustains: true } },
+    capacities: {},
+  },
+  metrics: [{ id: 'reserve', label: 'Reserve', source: 'metrics.reserve', format: 'number' }],
+  effects: { drought: { reserve: -30 }, works: { reserve: 25 }, demand: { morale: 0.03 } },
+});
+/** The passing world with its one field, its score and its tables under another key. */
+const passingWorldKeyed = (key: string): Json => {
+  const json = passingWorld();
+  json.world.metrics = { [key]: { ...json.world.metrics.reserve, id: key } };
+  json.metrics = [{ id: key, label: 'Reserve', source: `metrics.${key}`, format: 'number' }];
+  json.effects = { drought: { [key]: -30 }, works: { [key]: 25 }, demand: { stock: 5 } };
+  return json;
+};
+
+test('the veto passes a plain stock that starts above 0, is moved by a table and has a run of five years or more, in either form of effects', () => {
+  assert.deepEqual(sustainsVeto(passingWorld()), []);
+  const cases: Array<[what: string, edit: (json: Json) => void]> = [
+    ['the tables in the array form of a compiled package', (j) => { j.effects = [{ id: 'category_effects', type: 'category_outcome', label: 'Category Outcome Effects', categoryDefaults: j.effects }]; }],
+    ['no declared score reads the field', (j) => { j.metrics = []; }],
+    ['the field is a capacity', (j) => { j.world.capacities = j.world.metrics; j.world.metrics = {}; j.metrics[0].source = 'capacities.reserve'; }],
+    ['an empty unit', (j) => { j.world.metrics.reserve.unit = ''; }],
+    ['a unit that only holds the letters of a currency code ("heures")', (j) => { j.world.metrics.reserve.unit = 'heures'; }],
+    ['a run of exactly five years: six one-year turns', (j) => { j.setup.defaultTurns = 6; }],
+    ['two turns of eight years each', (j) => { j.setup = { defaultTurns: 2, defaultTimePerTurn: 8 }; }],
+    ['twelve turns of half a year each', (j) => { j.setup.yearsPerTimeUnit = 0.5; }],
+    ['sixty-one monthly turns, five years', (j) => { j.labels.timeUnitNoun = 'month'; j.setup.defaultTurns = 61; }],
+  ];
+  for (const [what, edit] of cases) {
+    const json = passingWorld();
+    edit(json);
+    assert.deepEqual(sustainsVeto(json), [], `${what}: the mark passes`);
+    assert.deepEqual(lintSustainsMarks(json), [], `${what}: the lint agrees`);
+  }
+});
+
+test('each rule of the veto refuses a mark that differs from a passing one in the one thing the rule reads', () => {
+  const cases: Array<[rule: number, what: string, build: () => Json, key: string, words: string]> = [
+    [1, 'the key is population', () => passingWorldKeyed('population'), 'population', 'the head count is the roster'],
+    [1, 'the key is morale', () => passingWorldKeyed('morale'), 'morale', 'morale is a mood'],
+    [2, 'the field\'s type is a string', () => { const j = passingWorld(); j.world.metrics.reserve.type = 'string'; return j; }, 'reserve', 'its type is "string", not a number'],
+    [2, 'its score is a percent', () => { const j = passingWorld(); j.metrics[0].format = 'percent'; return j; }, 'reserve', 'its score is a percent'],
+    [2, 'its score is a currency', () => { const j = passingWorld(); j.metrics[0].format = 'currency'; return j; }, 'reserve', 'its score is a currency'],
+    [2, 'its unit is %', () => { const j = passingWorld(); j.world.metrics.reserve.unit = '%'; return j; }, 'reserve', 'its unit, "%", is a share\'s or a score\'s'],
+    [2, 'its unit is frac', () => { const j = passingWorld(); j.world.metrics.reserve.unit = 'frac'; return j; }, 'reserve', 'its unit, "frac"'],
+    [2, 'its unit is Score', () => { const j = passingWorld(); j.world.metrics.reserve.unit = 'Score'; return j; }, 'reserve', 'its unit, "Score"'],
+    [2, 'its unit is USD/mo', () => { const j = passingWorld(); j.world.metrics.reserve.unit = 'USD/mo'; return j; }, 'reserve', 'its unit, "USD/mo", names money'],
+    [2, 'its unit is k eur', () => { const j = passingWorld(); j.world.metrics.reserve.unit = 'k eur'; return j; }, 'reserve', 'names money'],
+    [2, 'its unit is $M', () => { const j = passingWorld(); j.world.metrics.reserve.unit = '$M'; return j; }, 'reserve', 'names money'],
+    [3, 'its score is better lower', () => { const j = passingWorld(); j.metrics[0].better = 'lower'; return j; }, 'reserve', 'its score is better lower'],
+    [4, 'it starts at 0', () => { const j = passingWorld(); j.world.metrics.reserve.initial = 0; return j; }, 'reserve', 'it starts at 0'],
+    [4, 'it starts under 0', () => { const j = passingWorld(); j.world.metrics.reserve.initial = -5; delete j.world.metrics.reserve.min; return j; }, 'reserve', 'it starts at -5'],
+    [4, 'it has no start', () => { const j = passingWorld(); delete j.world.metrics.reserve.initial; return j; }, 'reserve', 'it starts at nothing'],
+    [5, 'no table names it', () => { const j = passingWorld(); j.effects = { drought: { morale: -0.03 }, works: { stock: 25 } }; return j; }, 'reserve', 'no category table names it'],
+    [5, 'no table names it, in the array form', () => { const j = passingWorld(); j.effects = [{ categoryDefaults: { drought: { morale: -0.03 } } }]; return j; }, 'reserve', 'no category table names it'],
+    [5, 'the scenario has no table', () => { const j = passingWorld(); delete j.effects; return j; }, 'reserve', 'no category table names it'],
+    [6, 'five one-year turns span four years', () => { const j = passingWorld(); j.setup.defaultTurns = 5; return j; }, 'reserve', 'the default run spans 4 years, under 5'],
+    [6, 'twelve monthly turns', () => { const j = passingWorld(); j.labels.timeUnitNoun = 'month'; return j; }, 'reserve', 'the default run spans 0.916667 years'],
+    [6, 'twelve turns of a quarter of a year each', () => { const j = passingWorld(); j.setup.defaultTimePerTurn = 0.25; return j; }, 'reserve', 'the default run spans 2.75 years'],
+    [6, 'no setup to read the run\'s length from', () => { const j = passingWorld(); delete j.setup; return j; }, 'reserve', 'the length of the default run cannot be read'],
+  ];
+  for (const [rule, what, build, key, words] of cases) {
+    const found = sustainsVeto(build());
+    assert.deepEqual(found.map(f => [f.key, f.rule]), [[key, rule]], `${what}: rule ${rule} refuses the mark (read ${JSON.stringify(found)})`);
+    assert.ok(found[0].reason.includes(words), `${what}: the reason says "${words}" (read "${found[0].reason}")`);
+    assert.deepEqual(lintSustainsMarks(build()), found, `${what}: the lint returns the veto's finding`);
+  }
+});
+
+test('veto rule 7 counts the marks that pass the first six, in the order the world declares them, metrics before capacities', () => {
+  const field = (id: string, over: Json = {}) => ({ id, label: id, unit: 'tonnes', type: 'number', initial: 100, min: 0, category: 'metric', sustains: true, ...over });
+  const json: Json = {
+    labels: { timeUnitNoun: 'year' },
+    setup: { defaultTurns: 12 },
+    world: {
+      // `zero` starts at nothing, so rule 4 refuses it and it does not count toward the five.
+      metrics: { aa: field('aa'), zero: field('zero', { initial: 0 }), bb: field('bb'), cc: field('cc'), dd: field('dd'), ee: field('ee') },
+      capacities: { ff: field('ff', { category: 'capacity' }), gg: field('gg', { category: 'capacity' }) },
+    },
+    metrics: [],
+    effects: { supply: { aa: 5, zero: 5, bb: 5, cc: 5, dd: 5, ee: 5, ff: 5, gg: 5 } },
+  };
+  assert.deepEqual(sustainsVeto(json).map(f => [f.key, f.rule]), [['zero', 4], ['ff', 7], ['gg', 7]]);
+});
+
+test('a mark that several rules refuse is reported under the first', () => {
+  const both = passingWorld();
+  both.metrics[0].format = 'percent';
+  both.metrics[0].better = 'lower';
+  both.world.metrics.reserve.initial = 0;
+  both.setup.defaultTurns = 2;
+  assert.deepEqual(sustainsVeto(both).map(f => f.rule), [2]);
+  assert.deepEqual(sustainsVeto({}), [], 'a JSON with no world has no mark to refuse');
+  assert.deepEqual(sustainsVeto({ world: { metrics: { reserve: { sustains: false }, tank: { sustains: 'yes' } } } }), [], 'only exactly true is a mark');
+});
+
+test('validateSeedWorld names a mark the veto refuses and death dice other than one for a life', () => {
+  const { scenario } = seedDraftToScenarioJson(DraftScenarioSchema.parse(loadCompilerFixture('draft-reservoir-with-mark.json')));
+  const marked = JSON.parse(JSON.stringify(scenario));
+  marked.world.metrics['service-coverage'].sustains = true;
+  assert.ok(
+    validateSeedWorld(marked).errors.some(e => e.includes('service-coverage: its mark as a supply that sustains the people breaks rule 2 of the veto')),
+    `the check names the mark on a percent (read ${JSON.stringify(validateSeedWorld(marked).errors)})`,
+  );
+  for (const [dice, words] of [[undefined, 'setup.mortalityDice is absent, not "life"'], ['year', 'setup.mortalityDice is "year", not "life"']] as const) {
+    const diced = JSON.parse(JSON.stringify(scenario));
+    if (dice === undefined) delete diced.setup.mortalityDice;
+    else diced.setup.mortalityDice = dice;
+    assert.deepEqual(validateSeedWorld(diced).errors, [words]);
+  }
+});
+
+test('every compile keeps one death die for a life: setup is the draft\'s own with mortalityDice life, and a kernel records it', async () => {
+  for (const file of FIXTURES) {
+    const draft = DraftScenarioSchema.parse(loadCompilerFixture(file));
+    const { scenario } = seedDraftToScenarioJson(draft);
+    assert.deepEqual((scenario as Json).setup, { ...draft.setup, mortalityDice: 'life' }, `${file}: setup`);
+    assert.deepEqual(Object.keys((scenario as Json).setup).pop(), 'mortalityDice', `${file}: the die is setup's last key`);
+  }
+  const bare = seedDraftToScenarioJson(DraftScenarioSchema.parse(loadCompilerFixture('draft-orchard-bare.json'))).scenario as Json;
+  const { metadata } = await kernelOf(bare);
+  assert.equal(metadata.mortalityDice, 'life', `read ${JSON.stringify(metadata.mortalityDice)}`);
+  assert.equal(metadata.landingSupplies, undefined, 'a draft that marks no supply keeps no landing amount');
+});
+
+// ---- The bound, the schema's limits, determinism ---------------------------------
 
 test('for every fixture draft, 5.81 times a score\'s largest entry is under its scale: no one decision takes a score from its start to a bound', () => {
   let checked = 0;
@@ -554,7 +864,7 @@ function walk(schema: any, visit: (def: any, schema: any) => void): void {
   if (def.valueType) walk(def.valueType, visit);
 }
 
-test('the draft schema holds no record and 14 optional properties, inside the 16 a strict reply allows', () => {
+test('the draft schema holds no record and 15 optional properties, inside the 16 a strict reply allows', () => {
   const types: string[] = [];
   const optional: string[] = [];
   walk(DraftScenarioSchema, (def) => {
@@ -567,8 +877,9 @@ test('the draft schema holds no record and 14 optional properties, inside the 16
   assert.ok(types.includes('object') && types.includes('array') && types.includes('catch'), `the walk reached the schema's wrappers (read ${JSON.stringify([...new Set(types)])})`);
   assert.equal(types.includes('record'), false, 'no record: one takes the whole schema out of strict mode');
   assert.deepEqual(optional.sort(), [
-    'actorNoun', 'actorNounPlural', 'better', 'currency', 'defaultSeed', 'effects', 'format', 'initial', 'label', 'max', 'min', 'theme', 'unit', 'yearsPerTimeUnit',
+    'actorNoun', 'actorNounPlural', 'better', 'currency', 'defaultSeed', 'effects', 'format', 'initial', 'label', 'max', 'min', 'sustains', 'theme', 'unit', 'yearsPerTimeUnit',
   ]);
+  assert.equal(optional.length, 15, `${optional.length} optional properties`);
   assert.ok(optional.length <= 16, `${optional.length} optional properties`);
 });
 
