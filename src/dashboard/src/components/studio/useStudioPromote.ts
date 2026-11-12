@@ -80,7 +80,7 @@ function nextPart(runs: SizedRun[], limit: number): SizedRun[] {
   return runs.slice(0, count);
 }
 
-/** The request body for a part: `{ artifacts }`, with the bundle to add the runs to after the first part. */
+/** The request body for a part: `{ addToBundle, artifacts }`, every part naming the one bundle, the first part included. */
 function partBody(runs: SizedRun[], addToBundle: string | undefined): string {
   const head = addToBundle === undefined
     ? '{"artifacts":['
@@ -240,9 +240,10 @@ export function useStudioPromote(): UseStudioPromote {
   const [busy, setBusy] = React.useState(false);
   const [lastResult, setLastResult] = React.useState<PromoteResult | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  // A bundle a promote left part way, and the Library bundle its imported
-  // runs are in: promoting the same bundle again adds the rest there.
-  const unfinished = React.useRef<{ artifacts: RunArtifact[]; bundleId: string } | null>(null);
+  // A bundle a promote left part way, by its runs' ids, and the Library
+  // bundle its imported runs are in: promoting the same runs again, the same
+  // file dropped again included, adds the rest there.
+  const unfinished = React.useRef<{ runIds: string[]; bundleId: string } | null>(null);
 
   const promoteSingle = React.useCallback(async (artifact: RunArtifact): Promise<PromoteSingleResult | null> => {
     setBusy(true);
@@ -274,10 +275,14 @@ export function useStudioPromote(): UseStudioPromote {
     setBusy(true);
     setError(null);
     try {
-      const addToBundle = unfinished.current?.artifacts === artifacts ? unfinished.current.bundleId : undefined;
+      const runIds = artifacts.map(artifact => artifact.metadata.runId);
+      const same = unfinished.current !== null
+        && unfinished.current.runIds.length === runIds.length
+        && unfinished.current.runIds.every((runId, i) => runId === runIds[i]);
+      const addToBundle = same ? unfinished.current!.bundleId : undefined;
       const outcome = await importBundle(artifacts, { addToBundle });
       if (!outcome.ok) {
-        unfinished.current = { artifacts, bundleId: outcome.bundleId };
+        unfinished.current = { runIds, bundleId: outcome.bundleId };
         setError(outcome.error);
         return null;
       }

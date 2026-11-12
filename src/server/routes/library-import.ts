@@ -29,8 +29,8 @@ const BUNDLE_ID_PATTERN = /^bundle_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const SingleBodySchema = z.object({ artifact: z.unknown() });
 /**
  * `addToBundle` puts the runs in a bundle an earlier request made: the
- * Studio sends a bundle over the request body limit in parts, and each
- * part after the first names the bundle the first one got.
+ * Studio sends a bundle over the request body limit in parts, and every
+ * part, the first included, names one bundle id the page made.
  */
 const BundleBodySchema = z.object({
   artifacts: z.array(z.unknown()).min(1).max(MAX_BUNDLE_SIZE),
