@@ -75,16 +75,16 @@ const FUNCTIONS_A_HOOK_CAN_NAME = [
   'Error', 'TypeError', 'RangeError', 'parseInt', 'parseFloat', 'isNaN', 'isFinite',
   'encodeURI', 'decodeURI', 'encodeURIComponent', 'decodeURIComponent', 'console.log',
   // Names every object answers to, read as bare globals.
-  'valueOf', 'hasOwnProperty', 'toString', 'isPrototypeOf',
+  'valueOf', 'hasOwnProperty', 'toString', 'isPrototypeOf', 'constructor',
 ] as const;
 
 test('every function a hook can name was made by the hook\'s own context', () => {
   const body = FUNCTIONS_A_HOOK_CAN_NAME
     .map(name => `${JSON.stringify(name)}: ${name}.constructor === own`)
     .join(', ');
-  const code = `() => { const own = (() => 0).constructor; return { ${body}, constructor: constructor === ({}).constructor }; }`;
+  const code = `() => { const own = (() => 0).constructor; return { ${body} }; }`;
   const seen = runArrowSync<[], Record<string, boolean>>(code, []);
-  const expected: Record<string, boolean> = { constructor: true };
+  const expected: Record<string, boolean> = {};
   for (const name of FUNCTIONS_A_HOOK_CAN_NAME) expected[name] = true;
   assert.deepEqual(seen, expected);
 });
@@ -186,6 +186,76 @@ test('agents a progression hook hands back are read under the runner\'s time lim
     }),
     'an agent with a getter that never returns',
   );
+});
+
+test('a primitive result comes back as it is, and an object comes back as host data', () => {
+  assert.equal(runArrowSync('() => undefined', []), undefined);
+  assert.equal(runArrowSync('() => null', []), null);
+  assert.equal(runArrowSync('() => true', []), true);
+  assert.equal(runArrowSync('() => false', []), false);
+  assert.equal(runArrowSync("() => 'text'", []), 'text');
+  assert.equal(runArrowSync("() => ''", []), '');
+  assert.equal(runArrowSync('() => 3.5', []), 3.5);
+  assert.equal(runArrowSync('() => 1e21', []), 1e21);
+  assert.ok(Number.isNaN(runArrowSync('() => NaN', [])));
+  assert.equal(runArrowSync('() => -Infinity', []), -Infinity);
+  assert.ok(Object.is(runArrowSync('() => -0', []), -0));
+  assert.equal(runArrowSync('() => 10n ** 20n', []), 10n ** 20n);
+  const data = runArrowSync<[{ list: number[] }], { list: number[]; when: unknown; skipped?: unknown }>(
+    '(a) => ({ list: a.list.map((n) => n * 2), when: new Date(0), skipped: undefined })',
+    [{ list: [1, 2] }],
+  );
+  assert.deepEqual(data, { list: [2, 4], when: '1970-01-01T00:00:00.000Z' });
+  assert.equal(Object.getPrototypeOf(data), Object.prototype);
+  assert.ok(Array.isArray(data.list));
+});
+
+test('a hook that throws is reported with the text of what it threw', () => {
+  assert.throws(
+    () => runArrowSync('(ctx) => ctx.rng.chance(0.5)', [{ rng: {} }]),
+    (err: unknown) => err instanceof SandboxRunnerError && /TypeError: ctx\.rng\.chance is not a function/.test(err.message),
+  );
+  assert.throws(
+    () => runArrowSync("() => { throw 'plain text'; }", []),
+    (err: unknown) => err instanceof SandboxRunnerError && /plain text/.test(err.message),
+  );
+});
+
+test('a hook holding the word `async` or `import` is refused with a reason that names the word', () => {
+  assert.throws(
+    () => runArrowSync('async () => 1', []),
+    (err: unknown) => err instanceof SandboxRunnerError && /`async`/.test(err.message),
+  );
+  assert.throws(
+    () => runArrowSync("() => 'the import tariff'", []),
+    (err: unknown) => err instanceof SandboxRunnerError && /import/.test(err.message),
+  );
+});
+
+test('a hook has a console that does nothing, no stack traces, and the built-ins a calculation uses', () => {
+  const seen = runArrowSync<[number[]], Record<string, unknown>>(
+    `(xs) => {
+      console.log('ignored'); console.warn('ignored');
+      const total = xs.reduce((a, b) => a + b, 0);
+      return {
+        total,
+        max: Math.max(...xs),
+        keys: Object.keys({ a: 1, b: 2 }),
+        set: [...new Set(xs)].length,
+        map: new Map([['k', 1]]).get('k'),
+        text: JSON.stringify({ n: Number('4') }),
+        match: /b+/.exec('abbc')[0],
+        fixed: (1234.5).toFixed(1),
+        framesInStack: String(new Error('x').stack).indexOf('    at ') !== -1,
+        isError: new TypeError('x') instanceof Error,
+      };
+    }`,
+    [[3, 1, 3]],
+  );
+  assert.deepEqual(seen, {
+    total: 7, max: 3, keys: ['a', 'b'], set: 2, map: 1, text: '{"n":4}', match: 'bb', fixed: '1234.5',
+    framesInStack: false, isError: true,
+  });
 });
 
 /** The mark this test's politics hook would leave on the process's own global object. */

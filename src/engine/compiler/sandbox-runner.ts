@@ -1,59 +1,35 @@
 /**
- * Hardened synchronous node:vm wrapper for paracosm's compiled hooks.
+ * Synchronous runner for paracosm's compiled hooks.
  *
- * Replaces the raw `new Function()` evaluation that previously executed
- * LLM-generated arrow functions in the host process. Each invocation
- * runs the user code in a fresh node:vm context with:
+ * A hook is an arrow function a model wrote. Each call evaluates its
+ * source in a node:vm context of its own, through
+ * {@link evaluateInOwnContext} (./own-context.ts), which says in full what
+ * the context holds and what it does not. In short:
  *
- *   - `codeGeneration: { strings: false, wasm: false }` blocks runtime
- *     `eval` and `Function()` reflection that bypass static regex validation.
- *   - Frozen console + explicit `process` / `globalThis` / `require` /
- *     `setTimeout` / `setInterval` / `fetch` set to undefined.
+ *   - The context is made from an empty object: every global and every
+ *     constructor the hook can reach is the context's own, and
+ *     `codeGeneration: { strings: false, wasm: false }` refuses text
+ *     compiled through them.
+ *   - Arguments go in as JSON text the context parses itself. The result
+ *     comes back as one string the context encodes under the time limit;
+ *     the host reads no property of a value the context made, and a
+ *     returned function is refused.
+ *   - `Promise`, `Proxy`, `Reflect`, `WebAssembly`, `SharedArrayBuffer`,
+ *     `Atomics`, `globalThis` and others are deleted from the context; a
+ *     hook holding the word `import` or `async` is refused before it runs.
  *   - Wall-clock `timeout` enforced via vm.runInContext.
  *
- * The sandbox is intentionally synchronous (paracosm's runtime calls these
- * hooks per-turn from sync code paths in kernel / orchestrator). Mirrors
- * the hardenings in `@framers/agentos`'s `CodeSandbox.executeJavaScript`,
- * which is async-only. Candidate for upstream consolidation when the
- * runtime allows an async refactor.
+ * Node's documentation says the node:vm module is not a security mechanism
+ * (https://nodejs.org/api/vm.html), and this runner does not make it one:
+ * the hook runs in the host's process and on its heap, with no memory
+ * limit. docs/ARCHITECTURE.md names what stays open.
  *
- * Inputs are JSON-round-tripped into the sandbox so the user code only
- * sees sandbox-realm objects (host-realm prototype chain reflection
- * cannot reach a host `Function` constructor with permissive
- * codeGeneration).
+ * The runner is synchronous because paracosm's runtime calls these hooks
+ * per-turn from sync code paths in kernel / orchestrator.
  *
  * @module paracosm/engine/compiler/sandbox-runner
  */
-import * as vm from 'node:vm';
-
-/**
- * Keys that must NEVER be exposed inside the sandbox even if a future
- * caller passes extras. Drops them silently to keep the hardening intact.
- */
-/**
- * Mirror of @framers/agentos CodeSandbox DANGEROUS_GLOBAL_KEYS so paracosm's
- * sandbox-runner has the same hardening surface as the agentos forge sandbox.
- *
- * Categorized:
- *   - Host-state escape: process, global, globalThis, require
- *   - Code-generation reflection: eval, Function
- *   - Realm-reflection / introspection: Reflect, Proxy
- *   - Memory side-channels (Spectre family): SharedArrayBuffer, Atomics
- *   - Native compilation surface: WebAssembly
- */
-const DANGEROUS_GLOBAL_KEYS: ReadonlySet<string> = new Set([
-  'process',
-  'global',
-  'globalThis',
-  'require',
-  'eval',
-  'Function',
-  'Reflect',
-  'Proxy',
-  'WebAssembly',
-  'SharedArrayBuffer',
-  'Atomics',
-]);
+import { evaluateInOwnContext, refusedWordIn, type OwnContextEnding } from './own-context.js';
 
 /**
  * Static regex blocklist applied before any code reaches the runtime.
@@ -101,101 +77,31 @@ export function validateHookCode(code: string): void {
       throw new SandboxRunnerError(`Sandbox validation failed: ${message}`);
     }
   }
-}
-
-/**
- * Build the hardened global context object for the sandbox. Provides only
- * safe builtins plus a frozen console stub. All dangerous globals are
- * explicitly nulled so any reference inside the sandbox throws a clear
- * `undefined` error rather than leaking host state.
- *
- * The `extras` parameter (currently used only for the JSON-stringified
- * args bundle and the wrapped user function) is filtered against
- * DANGEROUS_GLOBAL_KEYS before merging.
- */
-function buildContext(extras: Record<string, unknown> = {}): Record<string, unknown> {
-  /* eslint-disable @typescript-eslint/no-explicit-any */
-  const ctx: Record<string, unknown> = {
-    JSON,
-    Math,
-    Date,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Map,
-    Set,
-    RegExp,
-    Error,
-    TypeError,
-    RangeError,
-    Promise,
-    parseInt,
-    parseFloat,
-    isNaN,
-    isFinite,
-    encodeURI,
-    decodeURI,
-    encodeURIComponent,
-    decodeURIComponent,
-    console: Object.freeze({
-      log: () => {},
-      warn: () => {},
-      error: () => {},
-      info: () => {},
-      debug: () => {},
-    }),
-    // Hardened-undefined: any reference inside the sandbox surfaces as
-    // a clear `undefined` rather than leaking the host equivalents.
-    process: undefined,
-    global: undefined,
-    globalThis: undefined,
-    require: undefined,
-    fetch: undefined,
-    setTimeout: undefined,
-    setInterval: undefined,
-    setImmediate: undefined,
-    clearTimeout: undefined,
-    clearInterval: undefined,
-    clearImmediate: undefined,
-    queueMicrotask: undefined,
-    // Realm intrinsics paracosm hooks have no legitimate need for. Blocks
-    // Reflect.construct(Function,...) and Proxy-based prototype attacks
-    // that would otherwise sidestep codeGeneration: { strings: false }.
-    // SharedArrayBuffer/Atomics close the Spectre side-channel surface;
-    // WebAssembly is already blocked via codeGeneration: { wasm: false }
-    // but nulled here for belt-and-suspenders.
-    Reflect: undefined,
-    Proxy: undefined,
-    WebAssembly: undefined,
-    SharedArrayBuffer: undefined,
-    Atomics: undefined,
-  };
-  for (const [key, value] of Object.entries(extras)) {
-    if (!DANGEROUS_GLOBAL_KEYS.has(key)) {
-      ctx[key] = value;
-    }
+  // The two words the context cannot be left holding: see own-context.ts.
+  const word = refusedWordIn(code);
+  if (word !== null) {
+    throw new SandboxRunnerError(`Sandbox validation failed: ${word}`);
   }
-  return ctx;
 }
 
 /**
- * Translate node:vm errors into SandboxRunnerError so callers can catch
- * a single class. Preserves the underlying message for debugging.
+ * The value an evaluation ended with, or a SandboxRunnerError carrying
+ * its message, so callers catch a single class.
  */
-function rethrowAsSandboxError(err: unknown): never {
-  const message = err instanceof Error ? err.message : String(err);
-  throw new SandboxRunnerError(`Sandbox execution failed: ${message}`);
+function valueOrThrow(ending: OwnContextEnding): unknown {
+  if (ending.ended === 'value') return ending.value;
+  throw new SandboxRunnerError(`Sandbox execution failed: ${ending.message}`);
 }
 
 /**
- * Run an LLM-generated arrow function `(...args) => result` inside the
- * hardened sandbox and return the result. Throws SandboxRunnerError on
- * validation failure, escape attempt, timeout, or thrown exception.
+ * Run an LLM-generated arrow function `(...args) => result` in a context
+ * of its own and return the result. Throws SandboxRunnerError on
+ * validation failure, a refused result, timeout, or thrown exception.
  *
- * Args are JSON-serialized into the sandbox source so the user code
- * only sees sandbox-realm objects.
+ * Args go in as JSON text, so the hook only sees values its own context
+ * made. A primitive result comes back as it is (`undefined`, `NaN` and
+ * `-0` included); an object comes back through JSON, as host data; a
+ * function or a symbol is refused.
  */
 export function runArrowSync<TArgs extends unknown[], TReturn>(
   userArrowCode: string,
@@ -203,44 +109,26 @@ export function runArrowSync<TArgs extends unknown[], TReturn>(
 ): TReturn {
   validateHookCode(userArrowCode);
 
-  const context = vm.createContext(buildContext(), {
+  const ending = evaluateInOwnContext({
     name: 'paracosm-hook-sandbox',
-    codeGeneration: { strings: false, wasm: false },
+    timeoutMs: HOOK_TIMEOUT_MS,
+    modelText: userArrowCode,
+    inputJson: JSON.stringify(args),
+    body: `  const __userFn = (${userArrowCode});
+  __result = __userFn(...__input);`,
+    result: 'typed',
   });
-
-  const wrappedCode = `
-    const __userFn = (${userArrowCode});
-    const __args = ${JSON.stringify(args)};
-    __userFn(...__args)
-  `;
-
-  let sandboxResult: unknown;
-  try {
-    sandboxResult = vm.runInContext(wrappedCode, context, {
-      timeout: HOOK_TIMEOUT_MS,
-      breakOnSigint: false,
-    });
-  } catch (err) {
-    rethrowAsSandboxError(err);
-  }
-
-  // JSON round-trip rebases the result onto host-realm prototypes so
-  // host-side equality checks (deepStrictEqual, instanceof Object)
-  // behave normally. Safe for paracosm's plain-data hook outputs.
-  if (sandboxResult === undefined || typeof sandboxResult !== 'object') {
-    return sandboxResult as TReturn;
-  }
-  return JSON.parse(JSON.stringify(sandboxResult)) as TReturn;
+  return valueOrThrow(ending) as TReturn;
 }
 
 /**
  * ProgressionFn-shaped hook variant: the user fn returns void and is
- * expected to mutate `ctx.agents` in place. Sandbox-side, the input is
- * JSON-cloned (so mutations land on a sandbox-realm copy), the user fn
- * is invoked for its side effects, then the mutated agents array is
- * returned to host. Host-side, this function merges each cloned agent's
- * fields back onto the original agent object so external references
- * stay stable.
+ * expected to mutate `ctx.agents` in place. The context parses a JSON
+ * copy of `ctx` (so mutations land on the context's own copy), the user
+ * fn is invoked for its side effects, then the mutated agents array
+ * comes back through JSON as host data. Host-side, this function merges
+ * each returned agent's fields back onto the original agent object so
+ * external references stay stable.
  */
 export function runProgressionSync(
   userArrowCode: string,
@@ -248,27 +136,17 @@ export function runProgressionSync(
 ): void {
   validateHookCode(userArrowCode);
 
-  const context = vm.createContext(buildContext(), {
+  const ending = evaluateInOwnContext({
     name: 'paracosm-hook-progression-sandbox',
-    codeGeneration: { strings: false, wasm: false },
+    timeoutMs: HOOK_TIMEOUT_MS,
+    modelText: userArrowCode,
+    inputJson: JSON.stringify(ctx),
+    body: `  const __userFn = (${userArrowCode});
+  __userFn(__input);
+  __result = __input.agents;`,
+    result: 'typed',
   });
-
-  const wrappedCode = `
-    const __userFn = (${userArrowCode});
-    const __ctx = ${JSON.stringify(ctx)};
-    __userFn(__ctx);
-    __ctx.agents
-  `;
-
-  let mutatedAgents: Array<Record<string, unknown>>;
-  try {
-    mutatedAgents = vm.runInContext(wrappedCode, context, {
-      timeout: HOOK_TIMEOUT_MS,
-      breakOnSigint: false,
-    }) as Array<Record<string, unknown>>;
-  } catch (err) {
-    rethrowAsSandboxError(err);
-  }
+  const mutatedAgents = valueOrThrow(ending) as Array<Record<string, unknown>>;
 
   if (!Array.isArray(mutatedAgents)) {
     throw new SandboxRunnerError(

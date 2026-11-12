@@ -262,6 +262,21 @@ export const DEFAULT_EXECUTION: SimulationExecutionConfig = {
 };
 
 /**
+ * The forged-code time limit a run holds: what the request names when
+ * that is a positive number no greater than the default, and the default
+ * (which is also the most the server allows) for anything else. A call of
+ * forged code is synchronous, so a longer limit would let one run hold
+ * the event loop for every other request. The engine applies the same
+ * bound again where it builds the executor
+ * (src/runtime/orchestrator/forged-code-executor.ts).
+ */
+export function boundedSandboxTimeoutMs(asked: unknown): number {
+  const most = DEFAULT_EXECUTION.sandboxTimeoutMs;
+  if (typeof asked !== 'number' || !Number.isFinite(asked) || asked <= 0) return most;
+  return Math.max(1, Math.min(most, Math.floor(asked)));
+}
+
+/**
  * Demo-mode model assignments. Used when a request arrives without a
  * user-supplied API key, i.e. when the run bills against the host's
  * provider keys. Tiered to keep the demo cost floor bounded while
@@ -821,7 +836,7 @@ export function normalizeSimulationConfig(
     execution: {
       commanderMaxSteps: input.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
       departmentMaxSteps: input.execution?.departmentMaxSteps ?? DEFAULT_EXECUTION.departmentMaxSteps,
-      sandboxTimeoutMs: input.execution?.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs,
+      sandboxTimeoutMs: boundedSandboxTimeoutMs(input.execution?.sandboxTimeoutMs),
       sandboxMemoryMB: input.execution?.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
       reactionBatchSize: input.execution?.reactionBatchSize ?? DEFAULT_EXECUTION.reactionBatchSize,
       progressiveReactions: input.execution?.progressiveReactions ?? DEFAULT_EXECUTION.progressiveReactions,

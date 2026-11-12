@@ -81,6 +81,71 @@ test('a forged tool\'s test case runs its statements in the tool\'s context only
   }
 });
 
+/** The judge reply that approves a forge (EmergentJudge's creation verdict shape). */
+const APPROVE = JSON.stringify({
+  safety: { passed: true, concerns: [] },
+  correctness: { passed: true, failedTests: [] },
+  determinism: { likely: true, reasoning: '' },
+  bounded: { likely: true, reasoning: '' },
+  confidence: 0.9,
+  approved: true,
+  reasoning: 'The outputs match the inputs.',
+});
+
+test('a forged tool that computes runs its test cases and is registered', async () => {
+  const { result, judgeRead } = await withStubOpenAi(() => APPROVE, async (seen) => {
+    const { engine } = createEmergentEngine(
+      new Map(), 'openai', 'gpt-4o', {}, undefined, undefined, undefined, 'placeholder-key-for-a-test',
+    );
+    const forged = await engine.forge(
+      {
+        name: 'sum_two',
+        description: 'Adds two numbers.',
+        inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] },
+        outputSchema: { type: 'object', properties: { total: { type: 'number' } } },
+        implementation: {
+          mode: 'sandbox',
+          code: 'function execute(input) { const xs = [input.a, input.b]; return { total: xs.reduce((s, x) => s + x, 0) }; }',
+          allowlist: [],
+        },
+        testCases: [{ input: { a: 1, b: 2 } }, { input: { a: 3, b: 4 } }],
+      },
+      { agentId: 'dept-test', sessionId: 'sess-test' },
+    );
+    return { result: forged, judgeRead: seen.map(exchange => exchange.text).join('\n') };
+  });
+  assert.match(judgeRead, /output=\{"total":3\} success=true/, 'the judge read the first test case\'s output');
+  assert.match(judgeRead, /output=\{"total":7\} success=true/, 'the judge read the second test case\'s output');
+  assert.equal(result.success, true, `the forge is registered (read ${JSON.stringify(result.error ?? result.verdict)})`);
+});
+
+test('a forged tool written as an async function is refused with a message that says to write it synchronously', async () => {
+  const judgeRead = await withStubOpenAi(() => '{}', async (seen) => {
+    const { engine } = createEmergentEngine(
+      new Map(), 'openai', 'gpt-4o', {}, undefined, undefined, undefined, 'placeholder-key-for-a-test',
+    );
+    await engine.forge(
+      {
+        name: 'sum_two',
+        description: 'Adds two numbers.',
+        inputSchema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] },
+        outputSchema: { type: 'object', properties: { total: { type: 'number' } } },
+        implementation: {
+          mode: 'sandbox',
+          code: 'async function execute(input) { return { total: input.a + input.b }; }',
+          allowlist: [],
+        },
+        testCases: [{ input: { a: 1, b: 2 } }],
+      },
+      { agentId: 'dept-test', sessionId: 'sess-test' },
+    );
+    return seen.map(exchange => exchange.text).join('\n');
+  });
+  assert.match(judgeRead, /success=false/, 'the test case did not run');
+  assert.match(judgeRead, /`async` is forbidden/, 'the judge reads why');
+  assert.match(judgeRead, /synchronous/, 'the message says how to write it');
+});
+
 test('a forged tool that never returns after an await does not hold the process', () => {
   const outcome = forgeInOwnProcess({ code: 'async function execute(input) { await 0; for (;;) {} }' }, 30_000);
   const read = JSON.stringify(outcome);
