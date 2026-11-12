@@ -104,8 +104,9 @@ export interface ChatAgentOptions {
   leader?: string;
   /**
    * The turns the run played under that leader, each with its time, in
-   * order. Once the run has ended, the character is told these are the
-   * only turns there were.
+   * order. Once the run has ended, and when they run from Turn 1 with
+   * none missing, the character is told these are the only turns there
+   * were.
    */
   turns?: ChatRunTurn[];
   /**
@@ -392,16 +393,22 @@ export function buildInstructions(
 
   // The run's facts, stated once: who led this life, and when it happened.
   // A run still going has turns to come, so the turns so far are not the
-  // run's, and a turn begun is not yet played.
+  // run's, and a turn begun is not yet played. An ended run's turns are
+  // the whole run only when they run from Turn 1 with none missing: a
+  // buffer that dropped its oldest events, or a fork that resumed from a
+  // later turn, holds a later stretch of the run alone, and of the run it
+  // can say where it ended.
   if (leader) lines.push(`Your ${words.actor} for the whole run was ${leader}.`);
   if (turns.length > 0 && !run?.ended) lines.push('The run is still going.');
   if (turns.length > 0 && run?.ended) {
     const last = turns[turns.length - 1];
-    const each = turns.map(t => `Turn ${t.turn} (${words.TimeUnit} ${t.time})`).join(', ');
-    lines.push(
-      `The run had ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}, and no others: ${each}. ` +
-      `It ended at Turn ${last.turn}, ${words.TimeUnit} ${last.time}.`
-    );
+    const ended = `It ended at Turn ${last.turn}, ${words.TimeUnit} ${last.time}.`;
+    if (turns.every((t, i) => t.turn === i + 1)) {
+      const each = turns.map(t => `Turn ${t.turn} (${words.TimeUnit} ${t.time})`).join(', ');
+      lines.push(`The run had ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}, and no others: ${each}. ${ended}`);
+    } else {
+      lines.push(ended);
+    }
   }
 
   // HEXACO personality as behavioral descriptors
