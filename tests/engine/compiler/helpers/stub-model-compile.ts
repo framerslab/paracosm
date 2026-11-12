@@ -18,8 +18,10 @@
  * - each code hook, by the first line of its system block, with a small
  *   function that passes that hook's smoke test for any world, or with text
  *   that is no hook (`hooks: 'none'`);
- * - anything else, the director and milestone prompts among them, with
- *   `{}`, so those two are the compiler's own fallbacks.
+ * - the director and milestone prompts, whose system blocks open as the
+ *   hooks' do, with `{}`, or with the text that is no hook under
+ *   `hooks: 'none'`; either way those two are the compiler's own fallbacks;
+ * - anything else with `{}`.
  *
  * `runCompiledOnStub` runs the real `runSimulation` in a compiled scenario
  * on the same transport, answering the commander's decision prompt with a
