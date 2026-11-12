@@ -6,8 +6,8 @@
  * A bundle goes in one request when its JSON fits the server's request
  * body limit (5 MiB unless MAX_REQUEST_BODY_BYTES sets another), and
  * otherwise in parts of whole runs, each under the limit, which the
- * server adds to one Library bundle (`addToBundle`). A run saved with
- * snapshots keeps them: no part leaves anything out of a run.
+ * server adds to one Library bundle the page names (`addToBundle`). A run
+ * saved with snapshots keeps them: no part leaves anything out of a run.
  *
  * @module paracosm/dashboard/studio/useStudioPromote
  */
@@ -94,6 +94,19 @@ function statedLimit(error: unknown): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+/**
+ * A new Library bundle id in the form the import route gives: `bundle_`
+ * and a random (version 4) UUID. Made from `crypto.getRandomValues`,
+ * which a page served from a LAN address has, unlike `randomUUID`.
+ */
+function newBundleId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `bundle_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const mib = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 
 /** A message as a sentence: with a full stop at its end. */
@@ -106,8 +119,8 @@ export type BundleImportOutcome =
       ok: false;
       /** The message the Studio shows. */
       error: string;
-      /** The Library bundle the runs go in: the one this import made or was given; absent when it has neither. */
-      bundleId?: string;
+      /** The Library bundle the runs go in: the one this import named or was given. */
+      bundleId: string;
       /** The runs this import put in the Library or found there, in the bundle's order. */
       imported: string[];
       /** The runs after them, which it did not import. */
@@ -117,9 +130,11 @@ export type BundleImportOutcome =
 /**
  * Import a bundle as the Studio sends it. The bundle goes in one request
  * when its JSON fits the limit, else in parts of whole runs in the
- * bundle's order, the first part making the Library bundle and each
- * later part adding to it. Stops at the first part the server does not
- * take and reports which runs were imported and which were not.
+ * bundle's order. Every part names the Library bundle in `addToBundle`,
+ * the first part included, so a part the server stored but whose reply
+ * was lost is in the bundle a later promote adds the rest to. Stops at
+ * the first part the server does not take and reports which runs were
+ * imported and which were not.
  *
  * A run whose JSON alone passes the default limit is sent with the rest
  * of the bundle in one request until the server states its limit: a
@@ -142,7 +157,7 @@ export async function importBundle(
   });
   const runIds: string[] = [];
   const alreadyExisted: boolean[] = [];
-  let bundleId = options.addToBundle;
+  let bundleId = options.addToBundle ?? newBundleId();
   let next = 0;
   let limit = DEFAULT_REQUEST_BODY_LIMIT_BYTES;
   let limitStated = false;
@@ -172,7 +187,7 @@ export async function importBundle(
       return failed(
         `The server takes at most ${mib(limit)} in one request (MAX_REQUEST_BODY_BYTES), `
         + `and ${one ? 'this run passes' : 'these runs pass'} that on ${one ? 'its' : 'their'} own: ${named}.`
-        + (runIds.length === 0 && bundleId === undefined ? ' Nothing was imported.' : ''),
+        + (runIds.length === 0 && options.addToBundle === undefined ? ' Nothing was imported.' : ''),
       );
     }
     const part = overLimit.length > 0 ? rest : nextPart(rest, limit);
@@ -218,7 +233,7 @@ export async function importBundle(
     }
     return failed(body.error ?? `Promote failed: HTTP ${res.status}`);
   }
-  return { ok: true, bundleId: bundleId as string, runIds, alreadyExisted };
+  return { ok: true, bundleId, runIds, alreadyExisted };
 }
 
 export function useStudioPromote(): UseStudioPromote {
@@ -262,7 +277,7 @@ export function useStudioPromote(): UseStudioPromote {
       const addToBundle = unfinished.current?.artifacts === artifacts ? unfinished.current.bundleId : undefined;
       const outcome = await importBundle(artifacts, { addToBundle });
       if (!outcome.ok) {
-        unfinished.current = outcome.bundleId ? { artifacts, bundleId: outcome.bundleId } : null;
+        unfinished.current = { artifacts, bundleId: outcome.bundleId };
         setError(outcome.error);
         return null;
       }
