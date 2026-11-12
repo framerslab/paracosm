@@ -35,6 +35,14 @@ test('ProviderErrorBanner: links to the Anthropic key page the server sends', ()
   assert.match(html, /<a [^>]*href="https:\/\/console\.anthropic\.com\/settings\/keys"/);
 });
 
+test('ProviderErrorBanner: an address that is not text renders no link and does not throw', () => {
+  // A run file's JSON can hold any value there; useSSE casts it unchecked.
+  const odd = quota({ href: 'https://evil.example/openai-billing' } as unknown as string);
+  const html = renderToString(<ProviderErrorBanner providerError={odd} />);
+  assert.equal(/<a\b/.test(html), false, `banner rendered a link: ${html}`);
+  assert.match(html, /OpenAI credits exhausted/);
+});
+
 for (const hostile of [
   'https://evil.example/openai-billing',
   'https://platform.openai.com.evil.example/billing',

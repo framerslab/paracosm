@@ -116,3 +116,108 @@ test.describe('a load link to another site', () => {
     await expect(page.locator(`a[href^="https://${OTHER_HOST}"]`)).toHaveCount(0);
   });
 });
+
+/** A third site the run file can be sent on to, which nobody named. */
+const ELSEWHERE_HOST = 'elsewhere.example.test';
+
+/** Serves the run file on the third site, after the feed is up, and counts the requests. */
+async function serveElsewhere(page: Page): Promise<{ count: () => number }> {
+  let requests = 0;
+  await page.route(`https://${ELSEWHERE_HOST}/**`, async route => {
+    requests += 1;
+    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify(hostileRun),
+    });
+  });
+  return { count: () => requests };
+}
+
+/** Answers `pattern` with a redirect to the run file on the third site. */
+async function redirectToElsewhere(page: Page, pattern: string): Promise<void> {
+  await page.route(pattern, route => route.fulfill({
+    status: 302,
+    headers: { Location: `https://${ELSEWHERE_HOST}/run.json`, 'Access-Control-Allow-Origin': '*' },
+  }));
+}
+
+const movedToast = (page: Page) => page.getByText(`The file redirects to ${ELSEWHERE_HOST}, so it was not loaded.`);
+
+test.describe('a load link whose file is sent on to another site', () => {
+  test("a link to the page's own site that redirects elsewhere shows nothing from there", async ({ page, baseURL }) => {
+    const elsewhere = await serveElsewhere(page);
+    await redirectToElsewhere(page, '**/own-runs/moved.json');
+    await page.goto(linkTo(`${baseURL}/own-runs/moved.json`));
+    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+
+    await expect(movedToast(page)).toBeVisible();
+    expect(elsewhere.count()).toBeLessThanOrEqual(1);
+    await expect(providerBanner(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
+  });
+
+  test('a site the visitor agreed to that redirects elsewhere shows nothing from there', async ({ page }) => {
+    await serveElsewhere(page);
+    await redirectToElsewhere(page, `https://${OTHER_HOST}/moved.json`);
+    await page.goto(linkTo(`https://${OTHER_HOST}/moved.json`));
+    const dialog = askDialog(page);
+    await expect(dialog).toContainText(OTHER_HOST);
+    await dialog.getByRole('button', { name: 'Load', exact: true }).click();
+
+    await expect(movedToast(page)).toBeVisible();
+    await expect(providerBanner(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
+  });
+});
+
+test.describe('after a load link is cancelled', () => {
+  test("the visitor's own file still gets the preview", async ({ page }) => {
+    await serveOtherHost(page);
+    await page.goto(`${linkTo(RUN_URL)}&tab=reports`);
+    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await askDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(askDialog(page)).toHaveCount(0);
+
+    const ownRun = {
+      schemaVersion: 3,
+      events: [
+        { type: 'turn_start', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
+        { type: 'turn_done', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
+      ],
+    };
+    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: /Load from file/ }).click();
+    await (await chooser).setFiles({ name: 'own-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(ownRun)) });
+
+    // The link's autoload=1 was for the link's file, which the visitor
+    // refused: their own file shows its preview and waits for their click.
+    const preview = page.getByRole('dialog', { name: 'Load simulation' });
+    await expect(preview).toBeVisible();
+    await page.waitForTimeout(500);
+    await expect(preview).toBeVisible();
+    await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+    await expect(preview).toHaveCount(0);
+  });
+});
+
+test.describe('a run file whose provider_error address is not text', () => {
+  test('shows the banner and keeps the page', async ({ page, baseURL }) => {
+    const oddRun = {
+      ...hostileRun,
+      events: hostileRun.events.map(e => (e.type === 'provider_error'
+        ? { ...e, data: { ...e.data, actionUrl: { href: FOREIGN_LINK } } }
+        : e)),
+    };
+    await page.route('**/own-runs/odd.json', async route => {
+      await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(oddRun) });
+    });
+    await page.goto(linkTo(`${baseURL}/own-runs/odd.json`));
+    await expect(providerBanner(page)).toBeVisible();
+    await expect(page.getByText('SIMULATION ERROR')).toHaveCount(0);
+    await expect(page.locator(`a[href^="https://${OTHER_HOST}"]`)).toHaveCount(0);
+  });
+});
