@@ -238,6 +238,9 @@ test('/results for a run whose buffer has not changed does not parse the buffer 
       assert.ok(Date.now() < deadline, 'the run finishes');
       await sleep(50);
     }
+    // The save status lands after the run's end; then the buffer stays.
+    await sleep(500);
+    await (await fetch(`${base}/results`, { headers: { cookie } })).text();
     const original = JSON.parse;
     let parses = 0;
     JSON.parse = ((text: string, reviver?: (this: unknown, key: string, value: unknown) => unknown) => {

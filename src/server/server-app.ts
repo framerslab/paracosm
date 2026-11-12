@@ -256,6 +256,19 @@ function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 40
   res.end(JSON.stringify({ error: String(error) }));
 }
 
+/** Resolves when the response can take more, or when it has closed. */
+function waitForDrain(res: ServerResponse): Promise<void> {
+  return new Promise(resolveDrain => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolveDrain();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
+}
+
 function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   return new Promise((resolveBody, reject) => {
     let body = '';
@@ -394,6 +407,11 @@ export interface StartConfigHooks {
    * cookie reads (the CLI's own run is one).
    */
   visitorId?: string;
+  /**
+   * The client address of a run on the caller's own key; such runs from
+   * one address hold at most all but one of the run slots.
+   */
+  ownKeyAddress?: string | null;
   /** The run's key, which its `active_scenario` event carries; minted when absent. */
   runKey?: string;
   /**
@@ -673,6 +691,80 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // because long queues hide the back-pressure from clients.
   const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
+
+  // What /results and /chat read from a run's buffer, kept per run until
+  // the buffer changes, so a reader polling a finished run does not parse
+  // every frame again on each request. A buffer only grows, or is trimmed
+  // as a frame is added, so its length, size and last frame say whether it
+  // changed.
+  interface BufferRead<T> { length: number; bytes: number; last: string | undefined; value: T }
+  const resultsByRun = new WeakMap<LiveRun, BufferRead<ReturnType<typeof buildResultsPayloadFromEventBuffer>>>();
+  const simEventsByRun = new WeakMap<LiveRun, BufferRead<any[]>>();
+  const readBuffer = <T>(cache: WeakMap<LiveRun, BufferRead<T>>, run: LiveRun, build: (buffer: readonly string[]) => T): T => {
+    const last = run.buffer[run.buffer.length - 1];
+    const held = cache.get(run);
+    if (held && held.length === run.buffer.length && held.bytes === run.bytes && held.last === last) return held.value;
+    const value = build(run.buffer);
+    cache.set(run, { length: run.buffer.length, bytes: run.bytes, last, value });
+    return value;
+  };
+  const resultsOf = (run: LiveRun) => readBuffer(resultsByRun, run, buildResultsPayloadFromEventBuffer);
+  const simEventsOf = (run: LiveRun) => readBuffer(simEventsByRun, run, buffer => buffer
+    .filter(msg => msg.startsWith('event: sim\n'))
+    .map(msg => { try { return JSON.parse(msg.split('data: ')[1]); } catch { return null; } })
+    .filter(Boolean));
+
+  // New runs one client address may import a day (UTC):
+  // PARACOSM_IMPORTS_PER_DAY, 500 by default. A run id the store already
+  // holds is not counted.
+  const maxImportsPerDay = readLimitFromEnv(env, 'PARACOSM_IMPORTS_PER_DAY', 500);
+  const importsByAddress = new Map<string, { count: number; resetAt: number }>();
+  const admitImport = (address: string): boolean => {
+    const now = Date.now();
+    let entry = importsByAddress.get(address);
+    if (!entry || now >= entry.resetAt) {
+      if (importsByAddress.size >= 10_000) {
+        for (const [key, held] of importsByAddress) if (now >= held.resetAt) importsByAddress.delete(key);
+      }
+      const resetAt = new Date(now);
+      resetAt.setUTCHours(24, 0, 0, 0);
+      entry = { count: 0, resetAt: resetAt.getTime() };
+      importsByAddress.set(address, entry);
+    }
+    if (entry.count >= maxImportsPerDay) return false;
+    entry.count += 1;
+    return true;
+  };
+
+  // Open event streams (/events and session replays): at most
+  // PARACOSM_MAX_STREAMS_PER_ADDRESS from one client address (32) and
+  // PARACOSM_MAX_STREAMS in all (2000). A stream over either answers 429;
+  // a stream's slot is given back when its response closes.
+  const maxStreamsPerAddress = readLimitFromEnv(env, 'PARACOSM_MAX_STREAMS_PER_ADDRESS', 32);
+  const maxStreams = readLimitFromEnv(env, 'PARACOSM_MAX_STREAMS', 2000);
+  const openStreamsByAddress = new Map<string, number>();
+  let openStreams = 0;
+  const admitStream = (req: IncomingMessage, res: ServerResponse, headers: Record<string, string>): boolean => {
+    const address = IpRateLimiter.getIp(req, clientIpHeader);
+    const held = openStreamsByAddress.get(address) ?? 0;
+    if (held >= maxStreamsPerAddress || openStreams >= maxStreams) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '10', ...headers });
+      res.end(JSON.stringify({
+        error: 'Too many open streams. Close another tab or try again shortly.',
+        limit: held >= maxStreamsPerAddress ? maxStreamsPerAddress : maxStreams,
+      }));
+      return false;
+    }
+    openStreamsByAddress.set(address, held + 1);
+    openStreams += 1;
+    res.once('close', () => {
+      const left = (openStreamsByAddress.get(address) ?? 1) - 1;
+      if (left > 0) openStreamsByAddress.set(address, left);
+      else openStreamsByAddress.delete(address);
+      openStreams -= 1;
+    });
+    return true;
+  };
 
   // Output retention: sweep run output (v3-*.json, imported copies
   // included) older than OUTPUT_RETENTION_DAYS from the runs directory
@@ -1369,7 +1461,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (!title) return;
         try {
           await store.updateTitle(result.id, title);
-          console.log(`[sessions] titled run ${result.id}: "${title}"`);
+          console.log(`[sessions] titled run ${result.id}: ${JSON.stringify(title)}`);
           try {
             broadcast('sim_saved', {
               status: 'titled',
@@ -1474,7 +1566,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
-        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode, runsDir });
+        const address = IpRateLimiter.getIp(req, clientIpHeader);
+        await handleLibraryImport(req, res, body, {
+          runHistoryStore,
+          sourceMode: serverMode,
+          runsDir,
+          admitNewRun: () => admitImport(address),
+        });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1547,6 +1645,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       const run = runKey !== null ? liveRuns.get(runKey) : liveRuns.watched(visitorId);
+      if (!admitStream(req, res, { 'Access-Control-Allow-Origin': '*' })) return;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1733,7 +1832,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (persistResult) {
         compiledScenarioMeta.set(id, persistResult.meta);
       }
-      console.log(`[scenarios] renamed ${id} → "${sanitized}"`);
+      console.log(`[scenarios] renamed ${JSON.stringify(id)} → ${JSON.stringify(sanitized)}`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({ id, name: sanitized }));
       return;
@@ -2476,10 +2575,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const getOrCreateChatAgent = options.chatAgent ?? chatAgents.getOrCreateChatAgent;
 
         // Extract sim events and find colonist profile
-        const runSimEvents = chatRun.buffer
-          .filter(msg => msg.startsWith('event: sim\n'))
-          .map(msg => { try { return JSON.parse(msg.split('data: ')[1]); } catch { return null; } })
-          .filter(Boolean);
+        const runSimEvents = simEventsOf(chatRun);
         const reactsAs = (r: any) =>
           r.agentId === agentId || String(r.name || '').toLowerCase().includes(String(agentId).toLowerCase());
 
@@ -2606,7 +2702,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (run) liveRuns.touch(run);
       res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify(run
-        ? { ...buildResultsPayloadFromEventBuffer(run.buffer), runKey: run.key, scenarioId: run.scenarioId, inFlight: run.inFlight }
+        ? { ...resultsOf(run), runKey: run.key, scenarioId: run.scenarioId, inFlight: run.inFlight }
         : { ...buildResultsPayloadFromEventBuffer([]), runKey: null }));
       return;
     }
@@ -2904,6 +3000,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // visualization populates immediately. Pass `?speed=1` (or any
       // positive number) to fall back to the original wall-clock pacing
       // scaled by that factor (1 = real-time, 4 = 4x faster, 0.5 = half).
+      if (!admitStream(req, res, corsHeaders)) return;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, no-transform',
@@ -2913,17 +3010,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       });
       let cancelled = false;
       req.on('close', () => { cancelled = true; });
+      res.on('close', () => { cancelled = true; });
       void (async () => {
         let prevTs = session.events[0]?.ts ?? 0;
         for (const ev of session.events) {
-          if (cancelled) return;
+          if (cancelled || res.destroyed) return;
           if (!isInstant) {
             const delay = Math.max(0, (ev.ts - prevTs) / speed);
             if (delay > 0) await new Promise(r => setTimeout(r, delay));
             prevTs = ev.ts;
           }
           try {
-            res.write(ev.sse);
+            // A frame the reader has not taken yet waits for 'drain', so
+            // a reader that does not read holds a buffer's worth of the
+            // session, never the whole of it.
+            if (!res.write(ev.sse)) await waitForDrain(res);
           } catch {
             return;
           }
@@ -3193,6 +3294,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               onArtifact: onArtifactPersist,
               visitorId,
               runKey: launchRunKey,
+              ownKeyAddress: hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
             });
           } catch (err) {
             if (err instanceof RunCapacityError) return err;
@@ -3204,7 +3306,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeRunCapacityRefusal(res, launched);
           return;
         }
-        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
+        console.log(`  Running scenario: ${JSON.stringify(runScenario.labels?.name ?? runScenario.id)} (${JSON.stringify(runScenario.id)})`);
         launched.catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
@@ -3799,6 +3901,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const run = liveRuns.open({
         visitorId,
         runKey: hooks?.runKey,
+        ownKeyAddress: hooks?.ownKeyAddress ?? null,
         kind: config.forkFrom ? 'fork' : config.actors.length >= 3 ? 'batch' : 'pair',
         scenario: runScenario,
         seedText: hooks?.seedText ?? null,

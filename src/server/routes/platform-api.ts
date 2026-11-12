@@ -24,10 +24,44 @@ function clampOffset(raw: string | null): number {
   return Math.floor(n);
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  return Buffer.concat(chunks).toString('utf-8');
+/** The most a replay-result body ({"matches": boolean}) may hold. */
+const MAX_REPLAY_RESULT_BODY_BYTES = 16 * 1024;
+
+class BodyTooLargeError extends Error {}
+
+/**
+ * Reads a request body of at most `maxBytes`. A longer body rejects with
+ * {@link BodyTooLargeError} at the chunk that passes the limit; the rest
+ * is read and dropped, so the connection stays open for the 413.
+ */
+function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  return new Promise((resolveBody, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    req.on('data', (chunk: Buffer | string) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > maxBytes) {
+        settled = true;
+        chunks.length = 0;
+        reject(new BodyTooLargeError(`Request body exceeds ${maxBytes} bytes`));
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolveBody(Buffer.concat(chunks).toString('utf-8'));
+    });
+    req.on('error', err => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+  });
 }
 
 function publicRunRecord(record: RunRecord): Omit<RunRecord, 'artifactPath'> {
@@ -180,8 +214,13 @@ export async function handlePlatformApiRoute(
       const runId = decodeURIComponent(replayMatch[1]);
       let body: { matches?: unknown };
       try {
-        body = JSON.parse(await readBody(req)) as { matches?: unknown };
-      } catch {
+        body = JSON.parse(await readBody(req, MAX_REPLAY_RESULT_BODY_BYTES)) as { matches?: unknown };
+      } catch (err) {
+        if (err instanceof BodyTooLargeError) {
+          res.writeHead(413, { 'Content-Type': 'application/json', ...options.corsHeaders });
+          res.end(JSON.stringify({ error: 'body_too_large', limit: MAX_REPLAY_RESULT_BODY_BYTES }));
+          return true;
+        }
         res.writeHead(400, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'invalid_json' }));
         return true;

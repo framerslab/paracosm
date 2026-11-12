@@ -46,6 +46,20 @@ export interface LibraryImportDeps {
    * `<cwd>/output`), the only directory the run-history routes read.
    */
   runsDir?: string;
+  /**
+   * Charges one new run to the caller's daily import limit; false when the
+   * limit is reached. A run id already in the store is not charged.
+   * Absent, imports are not counted.
+   */
+  admitNewRun?: () => boolean;
+}
+
+/** Thrown by an import past the caller's daily limit of new runs. */
+class ImportLimitError extends Error {}
+
+function writeImportLimit(res: ServerResponse, extra: Record<string, unknown> = {}): void {
+  res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '3600' });
+  res.end(JSON.stringify({ error: 'Daily import limit reached. Try again tomorrow.', ...extra }));
 }
 
 export async function handleLibraryImport(
@@ -96,6 +110,10 @@ export async function handleLibraryImport(
         result.runIds.push(inserted.runId);
         result.alreadyExisted.push(inserted.alreadyExisted);
       } catch (err) {
+        if (err instanceof ImportLimitError) {
+          writeImportLimit(res, { bundleId, insertedSoFar: result });
+          return;
+        }
         // Surface the failing artifact's index + runId so the client
         // can show a partial-success state and retry just the broken
         // one rather than the whole bundle.
@@ -138,6 +156,10 @@ export async function handleLibraryImport(
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(inserted));
   } catch (err) {
+    if (err instanceof ImportLimitError) {
+      writeImportLimit(res);
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     const failedRunId = (parsed.data.artifact as RunArtifact)?.metadata?.runId;
     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -162,6 +184,7 @@ async function insertOne(
   if (existing) {
     return { runId: importedRunId, alreadyExisted: true };
   }
+  if (deps.admitNewRun && !deps.admitNewRun()) throw new ImportLimitError();
 
   const baseInput: Omit<RunRecord, 'runId' | 'createdAt'> = {
     scenarioId: artifact.metadata.scenario.id,

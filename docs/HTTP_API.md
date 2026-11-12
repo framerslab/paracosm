@@ -218,6 +218,7 @@ Record a client-side replay outcome (used by the dashboard's verification loop w
 - `400 invalid_json` — body did not parse
 - `400 matches must be a boolean` — `matches` field missing or wrong type
 - `404 not_found` — unknown `runId`
+- `413 body_too_large` — the body is over 16 KiB (16,384 bytes); nothing is recorded
 
 ## `GET /api/v1/bundles/:bundleId`
 
@@ -267,6 +268,8 @@ Import an externally-produced RunArtifact (Studio JSON drop, shared export, repl
 The server keeps its own copy of each imported artifact: it writes the artifact to a new file, `v3-imported-<hash of runId>-<random suffix>.json`, in its runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`) and the record's artifact path points at that file. The file is created exclusively: an entry already at that name, a link included, is never followed or overwritten. No file path is taken from the request; a `scenarioExtensions.outputPath` in the imported artifact is dropped from the stored copy. `GET /api/v1/runs/:runId` then serves the imported artifact.
 
 When two imports of one `runId` arrive together, the record stored first is kept with its file; the other import answers `alreadyExisted: true` and removes the file it wrote. An import whose record cannot be read back right after its insert keeps its file and answers `alreadyExisted: false`.
+
+The server writes the copy as compact JSON. One client address imports at most `PARACOSM_IMPORTS_PER_DAY` new runs a day (UTC), 500 unless set; a run id the store already holds is not counted. An import past the limit answers `429` with `Retry-After` and `{ "error": "Daily import limit reached. Try again tomorrow." }`, with `bundleId` and `insertedSoFar` for a bundle part of which was stored before the limit.
 
 The output-retention sweep at boot (`OUTPUT_RETENTION_DAYS`, default 30, removes `v3-*.json` files older than that) and `POST /admin/data/wipe` with `wipeOutput: true` (removes `v3-*.json` files) work on the same runs directory, so they remove imported copies as they do run output. Neither removes any other file in the directory.
 
