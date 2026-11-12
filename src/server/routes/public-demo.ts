@@ -6,6 +6,8 @@ export function handlePublicDemoRoute(
   req: IncomingMessage,
   res: ServerResponse,
   corsHeaders: Record<string, string>,
+  /** Whether the platform API mode has the admin credential it requires on /api/v1 configured. */
+  apiCredentialConfigured = false,
 ): boolean {
   // Defensive parse: bots and CF probes send malformed paths like `//`
   // which crash `new URL(...)` with "Invalid URL". A failure here used
@@ -25,7 +27,7 @@ export function handlePublicDemoRoute(
   res.end(JSON.stringify({
     mode,
     replayAvailable: mode !== 'platform_api',
-    authenticatedApiAvailable: mode === 'platform_api',
+    authenticatedApiAvailable: mode === 'platform_api' && apiCredentialConfigured,
   }));
   return true;
 }
