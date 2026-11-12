@@ -156,6 +156,13 @@ interface SSEState {
    * page leaves its own run.
    */
   heldOwnRun: OwnRun | null;
+  /**
+   * The key of the run the live feed opened (active_scenario's runKey), null
+   * before one arrives, after a reset and while the page shows a run loaded
+   * from a file. A reconnect replays the same key; a new run, a fork
+   * included, brings a new one. The Chat tab's threads belong to this run.
+   */
+  runKey: string | null;
 }
 
 /**
@@ -193,7 +200,7 @@ export interface UseSSEOptions {
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
@@ -221,6 +228,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     replayDone: false,
     ownRunScenarioId: null,
     heldOwnRun: null,
+    runKey: null,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -319,6 +327,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
+      runKey: null,
     }));
   }, []);
 
@@ -416,6 +425,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
+      runKey: null,
     });
   }, []);
 
@@ -650,6 +660,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
               ? { events: prev.events, isComplete: true }
               : prev.heldOwnRun,
           }));
+        }
+        // The run the page holds now, which the Chat tab keys its threads on.
+        // A run loaded from a file stays the page's until a new run replaces
+        // it, above.
+        if (!shownFromFileRef.current) {
+          setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
         }
       });
 

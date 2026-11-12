@@ -1183,7 +1183,12 @@ function AppContent() {
                 alone removes the subtree from layout, the a11y tree, and
                 tab order. Do NOT switch to visibility/opacity hiding
                 without auditing chat input + send button focus order
-                (would create a hidden-but-focusable trap). */}
+                (would create a hidden-but-focusable trap).
+
+                Keyed on the run's key: a new run, the same scenario with
+                the same people included, mounts a fresh panel, so no thread
+                and no history from the last run shows or goes to /chat. A
+                reconnect replays the same key and keeps the threads. */}
             <section
               role="tabpanel"
               id="tabpanel-chat"
@@ -1191,7 +1196,7 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel state={gameState} onChatUsage={handleChatUsage} />
+              <ChatPanel key={sse.runKey ?? ''} state={gameState} onChatUsage={handleChatUsage} />
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now
