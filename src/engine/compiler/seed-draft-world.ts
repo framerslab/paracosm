@@ -198,11 +198,11 @@ export interface SustainsFinding {
  * A scenario marks a field of `world.metrics` or `world.capacities` with
  * `sustains: true`, and the yearly age and accident rates then divide by
  * the supply level: the geometric mean of the marked supplies, each
- * against its amount on day one. A wrong mark makes two leaders lose
- * different people for a reason that is not one. This reads a scenario
- * JSON, with `effects` in the object form a draft carries or the array
- * form of a compiled package, and returns the marks it refuses, in the
- * order the world declares them. It changes nothing.
+ * against its amount on day one. A mark on the wrong value changes who
+ * dies in a run with nothing in the scenario to explain it. This reads a
+ * scenario JSON, with `effects` in the object form a draft carries or the
+ * array form of a compiled package, and returns the marks it refuses, in
+ * the order the world declares them. It changes nothing.
  *
  * A mark is refused when:
  *
