@@ -14,6 +14,8 @@
  * - A URL the request names is fetched only from a public address, with a
  *   bounded body, and its markup is stripped in linear time.
  * - /compile on the hosted demo bounds the searches a compile runs.
+ * - A hosted run on the caller's own model key searches only on the search
+ *   keys the caller sends, and the addresses of one IPv6 /64 share a limit.
  *
  * Each server test goes through createMarsServer over HTTP. Only the
  * engine, the compiler and the Digital Twin world are stubbed.
@@ -30,6 +32,7 @@ import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.j
 import { IpRateLimiter } from '../../src/server/rate-limiter.js';
 import { applyDemoCaps, normalizeSimulationConfig } from '../../src/cli/sim-config.js';
 import { fetchSeedFromUrl, type WebSearchModule } from '../../src/cli/fetch-seed-url.js';
+import { fetchPublicUrl, htmlToText } from '../../src/engine/compiler/public-url-fetch.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
 
@@ -300,4 +303,114 @@ test('/compile on the hosted demo bounds the searches a compile runs, with or wi
     assert.ok(typeof options.maxSearches === 'number' && options.maxSearches <= 5, `maxSearches ${String(options.maxSearches)}`);
   }
   assert.ok(captured.some(options => options.webSearch === false), 'a caller past the compile limit compiles without the host\'s search');
+});
+
+const HOST_SEARCH_KEYS = {
+  SERPER_API_KEY: 'host-serper-key',
+  FIRECRAWL_API_KEY: 'host-firecrawl-key',
+  TAVILY_API_KEY: 'host-tavily-key',
+  BRAVE_API_KEY: 'host-brave-key',
+  COHERE_API_KEY: 'host-cohere-key',
+};
+
+test('a hosted run on the caller\'s own model key searches only on search keys the caller sends', async () => {
+  const runs: Array<{ config: { liveSearch: boolean; serperKey?: string }; runnerOptions?: { searchEnv?: NodeJS.ProcessEnv } }> = [];
+  await withServer({
+    maxSimsPerDay: 1,
+    env: { PARACOSM_HOSTED_DEMO: 'true', ...HOST_SEARCH_KEYS },
+    runPairSimulations: async (config, _broadcast, _signal, _scenario, _onArtifact, runnerOptions) => {
+      runs.push({ config, runnerOptions: runnerOptions as { searchEnv?: NodeJS.ProcessEnv } | undefined });
+    },
+  }, async base => {
+    const body = { actors: mars.presets[0].leaders, turns: 1, scenarioId: 'mars-genesis', apiKey: 'sk-caller-own-model-key', liveSearch: true };
+    const withoutSearchKey = await post(base, '/setup', body);
+    await withoutSearchKey.text();
+    assert.equal(withoutSearchKey.status, 200);
+    const withSearchKey = await post(base, '/setup', { ...body, serperKey: 'caller-serper-key' });
+    await withSearchKey.text();
+    assert.equal(withSearchKey.status, 200);
+    const deadline = Date.now() + 8000;
+    while (runs.length < 2 && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
+  });
+  assert.equal(runs.length, 2);
+  // No search key of the caller's: the run has no live search to spend the host's keys on.
+  assert.equal(runs[0].config.liveSearch, false);
+  // The caller's own search key: live search runs, and the run's search
+  // reads no key from the host's environment.
+  assert.equal(runs[1].config.liveSearch, true);
+  assert.equal(runs[1].config.serperKey, 'caller-serper-key');
+  for (const { runnerOptions } of runs) {
+    const searchEnv = runnerOptions?.searchEnv;
+    assert.ok(searchEnv, 'the run names the environment its search reads; without one it reads the host\'s');
+    for (const name of Object.keys(HOST_SEARCH_KEYS)) assert.equal(searchEnv[name], undefined, name);
+  }
+});
+
+test('behind the trusted proxy, the addresses of one IPv6 /64 share a day limit', async () => {
+  await withServer({ maxSimsPerDay: 1, env: { PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' } }, async base => {
+    const body = { actors: mars.presets[0].leaders, turns: 1, scenarioId: 'mars-genesis' };
+    const statusFor = async (address: string) => {
+      const res = await post(base, '/setup', body, { 'cf-connecting-ip': address });
+      await res.text();
+      return res.status;
+    };
+    assert.equal(await statusFor('2001:db8:1:2::1'), 200);
+    assert.equal(await statusFor('2001:db8:1:2:ffff:ffff:ffff:fffe'), 429);
+    assert.equal(await statusFor('2001:0db8:0001:0002:0:0:0:9'), 429);
+    assert.equal(await statusFor('2001:db8:1:3::1'), 200);
+    // An IPv4-mapped IPv6 address is the IPv4 address it carries.
+    assert.equal(await statusFor('198.51.100.7'), 200);
+    assert.equal(await statusFor('::ffff:198.51.100.7'), 429);
+  });
+});
+
+test('a redirect\'s body is not read on once its Location is taken', async () => {
+  let redirectClosed = false;
+  const target = createServer((req, res) => {
+    if (req.url === '/hop') {
+      res.writeHead(302, { Location: '/page', 'Content-Type': 'text/plain' });
+      const chunk = Buffer.alloc(64 * 1024, 'r');
+      const timer = setInterval(() => res.write(chunk), 5);
+      res.on('close', () => { clearInterval(timer); redirectClosed = true; });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('the page');
+  });
+  target.listen(0, '127.0.0.1');
+  await once(target, 'listening');
+  const { port } = target.address() as { port: number };
+  try {
+    const fetched = await fetchPublicUrl(`http://127.0.0.1:${port}/hop`, { allowPrivateAddresses: true, timeoutMs: 10_000 });
+    assert.equal(fetched.text, 'the page');
+    const deadline = Date.now() + 1000;
+    while (!redirectClosed && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
+    assert.ok(redirectClosed, 'the redirect\'s response is closed, not read until the fetch times out');
+  } finally {
+    target.closeAllConnections();
+    target.close();
+  }
+});
+
+test('a page\'s <header> is page text, not the document head', () => {
+  assert.equal(htmlToText('<header>Important summary</header><main>Details</main>'), 'Important summary Details');
+  assert.equal(htmlToText('<html><HEAD><title>T</title></HEAD><body><header>Site</header><p>Body</p></body></html>'), 'Site Body');
+  assert.equal(htmlToText('<body><header class="top">Masthead<p>Lead</p></body>'), 'Masthead Lead');
+  // A head with no closing tag ends where the body starts.
+  assert.equal(htmlToText('<html><head><title>T</title><body><header>Site</header><p>Body</p></body></html>'), 'Site Body');
+});
+
+test('the hosted demo caps keep one custom event a turn, within the run\'s turns', () => {
+  const customEvents = [
+    { turn: 1, title: 'First', description: 'a' },
+    { turn: 1, title: 'Second on turn one', description: 'b' },
+    { turn: 1, title: 'Third on turn one', description: 'c' },
+    { turn: 2, title: 'Turn two', description: 'd' },
+    { turn: 50, title: 'Past the last turn', description: 'e' },
+  ];
+  const config = normalizeSimulationConfig({
+    actors: mars.presets[0].leaders, turns: 3, customEvents,
+  } as unknown as Parameters<typeof normalizeSimulationConfig>[0], marsScenario);
+  const capped = applyDemoCaps(config);
+  assert.deepEqual(capped.customEvents.map(event => [event.turn, event.title]), [[1, 'First'], [2, 'Turn two']]);
 });
