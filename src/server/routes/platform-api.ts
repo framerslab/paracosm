@@ -98,7 +98,14 @@ export async function handlePlatformApiRoute(
   res: ServerResponse,
   options: HandlePlatformApiOptions,
 ): Promise<boolean> {
-  const url = req.url ? new URL(req.url, 'http://localhost') : null;
+  // A path the URL parser refuses (`//`, which names no host) is not a
+  // platform route; the next handler answers it.
+  let url: URL | null = null;
+  try {
+    url = req.url ? new URL(req.url, 'http://localhost') : null;
+  } catch {
+    return false;
+  }
   if (!url || !url.pathname.startsWith('/api/v1/')) return false;
   if (url.pathname === '/api/v1/demo/status') return false;
 

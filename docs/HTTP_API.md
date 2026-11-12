@@ -11,6 +11,9 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 - Local: `http://localhost:3456` (override with `PORT`, set in the environment or in a `.env` file in the directory you start the server from)
 - All `/api/v1/runs*` and `/api/v1/bundles/*` routes return **403 `run_history_routes_disabled`** when the server is started with `PARACOSM_ENABLE_RUN_HISTORY_ROUTES=false`. Default is `true` except in `hosted_demo` mode.
 - Routes are CORS-permissive (`Access-Control-Allow-Origin: *`) for local dashboard development.
+- A local server (neither `PARACOSM_HOSTED_DEMO` nor `PARACOSM_PLATFORM_API` set) answers **403 `cross_site_refused`** to any request whose `Origin` is not a loopback address (`localhost`, `127.0.0.1`, `[::1]`, any port) or the host the request was sent to, `Origin: null` included. Requests with no `Origin` (same-origin reads, curl, scripts) pass.
+- `paracosm dashboard` listens on `127.0.0.1` on a local server; set `HOST` (for example `HOST=0.0.0.0` in a container or for a LAN demo) to listen elsewhere. The hosted demo and the platform API mode listen on every interface unless `HOST` is set.
+- In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential, however the request target that names it is written: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
 
 ## Endpoint index
 
@@ -335,7 +338,7 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 }
 ```
 
-`mode` is one of `local`, `hosted_demo`, `platform_api`. `replayAvailable` is `false` only in `platform_api` mode (where replay needs an authenticated path that is not yet exposed). `authenticatedApiAvailable` is `true` only in `platform_api` mode.
+`mode` is one of `local`, `hosted_demo`, `platform_api`. `replayAvailable` is `false` only in `platform_api` mode (where replay needs an authenticated path that is not yet exposed). `authenticatedApiAvailable` is `true` only in `platform_api` mode with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, the credential `/api/v1` takes there.
 
 ## `POST /scenario/store`
 
@@ -420,6 +423,37 @@ A `text/event-stream`: `status`, one `progress` event per hook, a `compile_valid
 
 ---
 
+## `POST /scenarios/:id/rename`
+
+Changes the display name (`labels.name`) of a compiled scenario, the name every visitor sees, and writes the scenario's file under `<scenarios folder>/compiled/` so the name holds after a restart. The id never changes. It takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN`. The dashboard's scenario drawer shows the rename control only when an admin token is saved in the browser, as it does the delete control.
+
+**Request body**
+
+```json
+{ "name": "Pandemic Sim" }
+```
+
+The name loses control characters and `<` `>`, its runs of whitespace become one space, and it is cut to 100 characters.
+
+**200 response**
+
+```json
+{ "id": "dual-superintelligence-council-x9k2", "name": "Pandemic Sim" }
+```
+
+**Status codes**
+
+- `200` — renamed and written
+- `400 invalid_path` — the path holds a percent escape that does not decode
+- `400 cannot_rename_non_compiled` — a built-in or a scenario from the scenarios folder
+- `400 invalid_json_body` or `400 name_required` — no JSON body, or a name that is empty once cleaned
+- `401 Invalid or missing X-Admin-Token header` — no header or a wrong token
+- `403 ADMIN_WRITE not enabled on this server` — a server started without `ADMIN_WRITE=true`
+- `404 scenario_not_found` — no scenario has that id
+- `503` — a server with `ADMIN_WRITE=true` and no `ADMIN_TOKEN` (fail closed)
+
+---
+
 ## Error envelope
 
 Every error response is JSON-encoded with at minimum an `error` field. Most also include a contextual key (`runId`, `scenarioId`, `path`) to help clients build readable messages.
@@ -429,6 +463,8 @@ Every error response is JSON-encoded with at minimum an `error` field. Most also
 ```
 
 Unknown routes under `/api/v1/` return `404 unknown_platform_route` with the requested path echoed.
+
+A request whose path holds a percent escape that does not decode (`/scenarios/%E0`, `/scenarios/%ZZ`) answers `400 invalid_path`, whatever the route. A path the URL parser refuses, such as `//`, is answered by the routes after the platform routes, which give `404`. An error a route does not handle answers `500 internal_error` and is logged; the server goes on answering other requests.
 
 ## Related docs
 

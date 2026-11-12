@@ -15,7 +15,7 @@
  * @module paracosm/cli/quickstart-routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
 import { generateQuickstartActors } from '../../runtime/world-model/index.js';
@@ -325,19 +325,15 @@ function compileSignature(input: {
   sourceUrl?: string;
   domainHint?: string;
 }): string {
-  // Normalize whitespace + lowercase optional fields so trivially
-  // different submissions share a slot. The seed text is fingerprinted
-  // by length + head + tail; collisions across two 50KB payloads with
-  // the same length are extraordinarily unlikely and the worst case is
-  // one client receives a different scenario than they typed once.
+  // Trim the seed and lowercase the optional fields so trivially
+  // different submissions share a slot. The key is a SHA-256 of the whole
+  // seed, so only the same text shares another submission's compile.
   const text = input.seedText.trim();
-  return JSON.stringify({
-    len: text.length,
-    head: text.slice(0, 256),
-    tail: text.slice(-128),
+  return createHash('sha256').update(JSON.stringify({
+    text,
     url: (input.sourceUrl ?? '').toLowerCase(),
     hint: (input.domainHint ?? '').toLowerCase(),
-  });
+  })).digest('hex');
 }
 
 function sweepStaleJobs(): void {

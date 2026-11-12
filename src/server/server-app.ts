@@ -201,6 +201,30 @@ export function pickCookie(id: string, secure = false): string | null {
  */
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
 
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * Whether a local server answers this request: true when it carries no
+ * Origin (a same-origin GET, curl, a script), or its Origin is a loopback
+ * address on any port (the dashboard itself, the Vite dev server), or its
+ * Origin is the host the request was sent to (the dashboard served under
+ * another name). `Origin: null` and any other site are refused.
+ */
+export function localOriginAllowed(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (LOOPBACK_HOSTNAMES.has(parsed.hostname)) return true;
+  const host = req.headers.host;
+  return typeof host === 'string' && host.length > 0 && parsed.host === host.toLowerCase();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** The path's stats when it names a regular file; undefined for a folder, nothing, or an unreadable path. */
@@ -275,6 +299,39 @@ function adminTokenMatches(presented: string, expected: string): boolean {
   const a = createHash('sha256').update(presented).digest();
   const b = createHash('sha256').update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/**
+ * Whether every percent escape in the request's path decodes to text. A `%`
+ * not followed by two hex digits, or escapes whose bytes are not UTF-8,
+ * make decodeURIComponent throw, so the routes that read an id from the
+ * path decode it only once this holds.
+ */
+function pathDecodes(url: string | undefined): boolean {
+  const path = (url ?? '/').split('?')[0];
+  try {
+    decodeURIComponent(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a request target names an `/api/v1/` route, read as the routes
+ * read it: the target as written (the bundle and Library import routes match
+ * it) or the path the URL parser gives it (handlePlatformApiRoute's), which
+ * resolves dot segments and reduces an absolute-form target to its path, so
+ * `/./api/v1/runs` and `http://host/api/v1/runs` name `/api/v1/runs` too.
+ */
+function namesPlatformApiRoute(url: string | undefined): boolean {
+  if (url === undefined) return false;
+  if (url.startsWith('/api/v1/')) return true;
+  try {
+    return new URL(url, 'http://localhost').pathname.startsWith('/api/v1/');
+  } catch {
+    return false;
+  }
 }
 
 function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 400): void {
@@ -579,6 +636,40 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // copy run from the package or a clone sends its pages without them.
   const siteAnalytics = serverMode === 'hosted_demo';
   const pickCookieSecure = serverMode === 'hosted_demo';
+  /** The visitor whose compile installed each compiled scenario's brief. */
+  const compiledBriefOwners = new Map<string, string>();
+  /**
+   * The brief a compiled scenario came from, for this request: on the hosted
+   * demo only the visitor whose compile installed it reads it (a caller with
+   * no cookie, or a brief loaded from disk at boot, is read by no one); a
+   * local server shows it to its operator.
+   */
+  const briefFor = (id: string, req: IncomingMessage, seedText: string | null | undefined): string | undefined => {
+    if (seedText === null || seedText === undefined) return undefined;
+    if (serverMode !== 'hosted_demo') return seedText;
+    const visitorId = readVisitorId(req);
+    return visitorId !== ANONYMOUS_VISITOR && compiledBriefOwners.get(id) === visitorId ? seedText : undefined;
+  };
+  /**
+   * The key a visitor's saved sessions are stored under: a SHA-256 of their
+   * visitor id, so the session store holds no cookie value. The anonymous
+   * visitor (every caller that sent no cookie) owns none.
+   */
+  const sessionOwner = (visitorId: string): string | null => visitorId === ANONYMOUS_VISITOR
+    ? null
+    : createHash('sha256').update(`paracosm-session-owner:${visitorId}`).digest('hex');
+  /**
+   * The visitor a run a request opens belongs to: the request's own
+   * visitor, except that on the hosted demo a caller that sent no cookie
+   * gets a fresh visitor id (and the Set-Cookie that gives it to them),
+   * since the anonymous visitor holds no run there.
+   */
+  const runVisitorFor = (req: IncomingMessage): { visitorId: string; setCookie: string | null } => {
+    const visitorId = readVisitorId(req);
+    if (visitorId !== ANONYMOUS_VISITOR || serverMode !== 'hosted_demo') return { visitorId, setCookie: null };
+    const fresh = randomUUID();
+    return { visitorId: fresh, setCookie: visitorCookie(fresh, pickCookieSecure) };
+  };
   // Rate limit default: 1 simulation per IP per day for the public-demo
   // path. Even on DEMO_MODELS + DEMO_EXECUTION a run costs ~$0.40 against
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
@@ -1415,7 +1506,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         ts: run.timestamps[i] || now,
         sse,
       }));
-      const result = await sessionStore.saveSession(events);
+      const result = await sessionStore.saveSession(events, undefined, { owner: sessionOwner(run.visitorId) });
       const storeCount = await sessionStore.count();
       console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} turns (store count: ${storeCount})`);
       // Backfill session_id onto every RunRecord that onArtifactPersist
@@ -1511,7 +1602,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end(JSON.stringify({ error: `Unknown run: ${key}` }));
   };
 
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // CORS preflight for browser-based requests across the public API.
     // DELETE is in the allow-list because /admin/scenarios/:id is a
     // cross-origin candidate for the embedded landing-page demos;
@@ -1529,7 +1620,31 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    if (handlePublicDemoRoute(serverMode, req, res, corsHeaders)) {
+    // A local server answers its own pages and other local ports alone: a
+    // request a browser sends from a page on another site carries that
+    // site's Origin, and is refused before any route reads or spends.
+    if (serverMode === 'local_demo' && !localOriginAllowed(req)) {
+      console.warn('[origin] refused a request from another site on a local server');
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'cross_site_refused', message: 'This local server answers requests from its own pages and from localhost only.' }));
+      return;
+    }
+
+    // A path whose percent escapes do not decode names no route.
+    if (!pathDecodes(req.url)) {
+      res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+      res.end(JSON.stringify({ error: 'invalid_path', message: 'The path holds a percent escape that does not decode.' }));
+      return;
+    }
+
+    if (handlePublicDemoRoute(serverMode, req, res, corsHeaders, adminWrite && adminToken.length > 0)) {
+      return;
+    }
+    // The platform API mode serves /api/v1 to holders of the admin
+    // credential alone (requireAdminToken: 403 without ADMIN_WRITE, 503
+    // without ADMIN_TOKEN, 401 without a matching X-Admin-Token), in every
+    // form of request target that reaches one (namesPlatformApiRoute).
+    if (serverMode === 'platform_api' && namesPlatformApiRoute(req.url) && !requireAdminToken(req, res)) {
       return;
     }
     const runHistoryRoutesDefault = serverMode !== 'hosted_demo';
@@ -1717,7 +1832,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           departments: sc.departments?.length || 0,
           source: entry.source,
           compiledAt: meta?.compiledAt,
-          seedText: meta?.seedText,
+          seedText: briefFor(id, req, meta?.seedText),
         });
       }
       // The runnable scenarios this visitor stored in memory, theirs alone.
@@ -1762,11 +1877,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // filename) never change — only the display label flips, so
     // every existing run record + URL keeps resolving. Restricted
     // to `compiled` source: builtins and curated disk drafts are
-    // tracked outside the dashboard and shouldn't drift via API.
+    // tracked outside the dashboard and shouldn't drift via API. The
+    // name is every visitor's and the rename writes the scenario's file,
+    // so it takes the admin credential DELETE /admin/scenarios/:id takes.
     const scenarioRenameMatch = req.url
       ? req.url.match(/^\/scenarios\/([^/?#]+)\/rename$/)
       : null;
     if (scenarioRenameMatch && req.method === 'POST') {
+      if (!requireAdminToken(req, res)) {
+        console.warn('[scenarios] rename refused: admin credential missing, wrong or not configured');
+        return;
+      }
       const id = decodeURIComponent(scenarioRenameMatch[1]);
       const entry = customScenarioCatalog.get(id);
       if (!entry) {
@@ -1906,7 +2027,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         description: describeCustomScenarioSource(source),
         source,
         compiledAt: meta?.compiledAt,
-        seedText: meta?.seedText,
+        seedText: briefFor(id, req, meta?.seedText),
         runCount,
         presets,
         departments,
@@ -2181,10 +2302,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // visitor has since replaced is discarded.
           openRun: (scenario, runKey) => {
             const run = liveRuns.open({
-              visitorId: readVisitorId(req),
+              visitorId: runVisitorFor(req).visitorId,
               kind: 'intervention',
               scenario,
-              seedText: compiledScenarioMeta.get(scenario.id)?.seedText ?? null,
+              seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
               runKey,
             });
@@ -2206,6 +2327,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // simulating). A run of theirs in flight is left alone, and so is
         // every other visitor's run. Status polls are NOT a fresh-launch
         // event: they fire every 2s while a compile is in flight.
+        // The brief a compile installs is its visitor's (briefFor).
+        const installCompiled = quickstartDeps.installCompiledScenario;
+        quickstartDeps.installCompiledScenario = (scenario, seedText) => {
+          const installed: unknown = installCompiled(scenario, seedText);
+          const installedId = installed && typeof installed === 'object' && typeof (installed as { id?: unknown }).id === 'string'
+            ? (installed as { id: string }).id
+            : scenario.id;
+          compiledBriefOwners.set(installedId, readVisitorId(req));
+          return installed as ReturnType<typeof installCompiled>;
+        };
         if (req.url === '/api/quickstart/compile-from-seed') {
           const own = liveRuns.current(readVisitorId(req));
           if (own && !own.inFlight) liveRuns.clear(own, 'a new compile');
@@ -2865,7 +2996,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           ts: run.timestamps[i] || now,
           sse,
         }));
-        const result = await sessionStore.saveSession(events);
+        // An admin save is pinned: listed to every visitor, never evicted.
+        const result = await sessionStore.saveSession(events, undefined, { pinned: true });
         const totalStored = await sessionStore.count();
         res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({
@@ -3017,8 +3149,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       try {
-        const sessions = await sessionStore.listSessions();
-        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        // On the hosted demo a visitor's list holds their own saved runs and
+        // the sessions an admin saved; a local server lists every session.
+        const sessions = await sessionStore.listSessions(
+          serverMode === 'hosted_demo' ? { owner: sessionOwner(readVisitorId(req)) } : undefined,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
         res.end(JSON.stringify({ sessions }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
@@ -3050,8 +3186,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end(JSON.stringify({ error: 'session not found', id }));
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
-      res.end(JSON.stringify({ meta: session.meta }));
+      // The brief a run started from goes only to the visitor whose run it
+      // was, or with an admin-saved session, on the hosted demo.
+      const meta = serverMode === 'hosted_demo' && !session.meta.pinned
+        && (session.owner === null || session.owner !== sessionOwner(readVisitorId(req)))
+        ? { ...session.meta, seedText: undefined }
+        : session.meta;
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
+      res.end(JSON.stringify({ meta }));
       return;
     }
 
@@ -3179,7 +3321,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
         const runScenario = resolvedScenario.scenario;
-        const runScenarioSeedText = compiledScenarioMeta.get(runScenario.id)?.seedText ?? null;
+        const runScenarioSeedText = briefFor(runScenario.id, req, compiledScenarioMeta.get(runScenario.id)?.seedText) ?? null;
 
         // The per-IP day limit is bypassed when the request brings its own
         // provider keys. It is checked here and charged only once the run
@@ -3226,8 +3368,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         // The visitor whose run this is: the paracosm_visitor cookie the
-        // dashboard's HTML gave the browser, else the anonymous visitor.
-        const visitorId = readVisitorId(req);
+        // dashboard's HTML gave the browser, else the anonymous visitor. On
+        // the hosted demo every caller that sends no cookie is a different
+        // person, so such a caller's run gets a visitor id of its own, sent
+        // back as its cookie and in the answer (runVisitorFor).
+        const { visitorId, setCookie: visitorSetCookie } = runVisitorFor(req);
         let simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
@@ -3405,7 +3550,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const runPickCookie = 'scenario' in currentPick && currentPick.scenario.id === runScenario.id
           ? null
           : pickCookie(runScenario.id, pickCookieSecure);
-        res.writeHead(200, { 'Content-Type': 'application/json', ...(runPickCookie ? { 'Set-Cookie': runPickCookie } : {}) });
+        const setupCookies = [runPickCookie, visitorSetCookie].filter((c): c is string => typeof c === 'string');
+        res.writeHead(200, { 'Content-Type': 'application/json', ...(setupCookies.length > 0 ? { 'Set-Cookie': setupCookies } : {}) });
         res.end(JSON.stringify({
           redirect: '/sim',
           scenarioId: runScenario.id,
@@ -3955,6 +4101,22 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
     res.writeHead(404);
     res.end('Not found');
+  };
+
+  // Every request's handler is awaited here, so an error a route did not
+  // catch answers 500 (or ends a response already under way) instead of
+  // rejecting the listener's promise, which Node's default unhandled
+  // rejection mode turns into the process's exit.
+  const server = createServer((req, res) => {
+    handleRequest(req, res).catch((err: unknown) => {
+      console.error('[server] request failed:', req.method, req.url?.slice(0, 200), err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'internal_error' }));
+      } else if (!res.writableEnded) {
+        res.destroy();
+      }
+    });
   }) as MarsServer;
 
   // Clean up on server close: the rate limiter's timers, and the live runs'
