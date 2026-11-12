@@ -117,57 +117,51 @@ test.describe('a load link to another site', () => {
   });
 });
 
-/** A third site the run file can be sent on to, which nobody named. */
-const ELSEWHERE_HOST = 'elsewhere.example.test';
-
-/** Serves the run file on the third site, after the feed is up, and counts the requests. */
-async function serveElsewhere(page: Page): Promise<{ count: () => number }> {
-  let requests = 0;
-  await page.route(`https://${ELSEWHERE_HOST}/**`, async route => {
-    requests += 1;
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
-    await route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify(hostileRun),
-    });
-  });
-  return { count: () => requests };
+/**
+ * The test server under its other name (localhost against 127.0.0.1, or the
+ * reverse): another origin that answers for real. Playwright routes only
+ * the first URL of a redirect, so the redirect's target must be a real
+ * server. Its /health answers JSON with Access-Control-Allow-Origin: *.
+ */
+function otherOrigin(baseURL: string | undefined): URL {
+  const other = new URL(baseURL ?? 'http://127.0.0.1:3456');
+  other.hostname = other.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+  return other;
 }
 
-/** Answers `pattern` with a redirect to the run file on the third site. */
-async function redirectToElsewhere(page: Page, pattern: string): Promise<void> {
+/** Answers `pattern` with a redirect to `target`. */
+async function redirectTo(page: Page, pattern: string, target: string): Promise<void> {
   await page.route(pattern, route => route.fulfill({
     status: 302,
-    headers: { Location: `https://${ELSEWHERE_HOST}/run.json`, 'Access-Control-Allow-Origin': '*' },
+    headers: { Location: target, 'Access-Control-Allow-Origin': '*' },
   }));
 }
 
-const movedToast = (page: Page) => page.getByText(`The file redirects to ${ELSEWHERE_HOST}, so it was not loaded.`);
+const movedToast = (page: Page, host: string) => page.getByText(`The file redirects to ${host}, so it was not loaded.`);
+const parsedToast = (page: Page) => page.getByText('No valid game data found in file.');
 
 test.describe('a load link whose file is sent on to another site', () => {
-  test("a link to the page's own site that redirects elsewhere shows nothing from there", async ({ page, baseURL }) => {
-    const elsewhere = await serveElsewhere(page);
-    await redirectToElsewhere(page, '**/own-runs/moved.json');
+  test("a link to the page's own site that redirects elsewhere is not read", async ({ page, baseURL }) => {
+    const other = otherOrigin(baseURL);
+    await redirectTo(page, '**/own-runs/moved.json', `${other.origin}/health`);
     await page.goto(linkTo(`${baseURL}/own-runs/moved.json`));
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
 
-    await expect(movedToast(page)).toBeVisible();
-    expect(elsewhere.count()).toBeLessThanOrEqual(1);
-    await expect(providerBanner(page)).toHaveCount(0);
+    // Without the check the page parses whatever the other origin sent.
+    await expect(movedToast(page, other.host)).toBeVisible();
+    await expect(parsedToast(page)).toHaveCount(0);
     await expect(page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
   });
 
-  test('a site the visitor agreed to that redirects elsewhere shows nothing from there', async ({ page }) => {
-    await serveElsewhere(page);
-    await redirectToElsewhere(page, `https://${OTHER_HOST}/moved.json`);
+  test('a site the visitor agreed to that redirects elsewhere is not read', async ({ page, baseURL }) => {
+    const other = otherOrigin(baseURL);
+    await redirectTo(page, `https://${OTHER_HOST}/moved.json`, `${other.origin}/health`);
     await page.goto(linkTo(`https://${OTHER_HOST}/moved.json`));
     const dialog = askDialog(page);
     await expect(dialog).toContainText(OTHER_HOST);
     await dialog.getByRole('button', { name: 'Load', exact: true }).click();
 
-    await expect(movedToast(page)).toBeVisible();
-    await expect(providerBanner(page)).toHaveCount(0);
+    await expect(movedToast(page, other.host)).toBeVisible();
+    await expect(parsedToast(page)).toHaveCount(0);
     await expect(page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
   });
 });
