@@ -136,6 +136,25 @@ const MAX_POOL_SIZE = Math.max(10, parseInt(process.env.PARACOSM_CHAT_POOL_SIZE 
 const pool = new Map<string, PoolEntry>();
 
 /**
+ * The key the pool holds one person's agent under: the person, the
+ * provider and the key that pays for it, the run and the leader. Two
+ * chats with equal keys talk to one agent, made once.
+ *
+ * @param colonist The person the agent speaks for.
+ * @param opts The factory's options.
+ */
+export function chatAgentPoolKey(colonist: ColonistProfile, opts: ChatAgentOptions): string {
+  const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
+  return [
+    colonist.agentId,
+    provider,
+    credentialFingerprint(apiKeyForProvider(provider, opts)),
+    opts.runKey ?? '',
+    opts.leader ?? '',
+  ].join(':');
+}
+
+/**
  * Get or create a chat agent for a colonist.
  *
  * On first call for a given colonist: creates an `agent()` instance,
@@ -162,13 +181,7 @@ export async function getOrCreateChatAgent(
 ): Promise<{ session: PoolEntry['session']; isNew: boolean }> {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
   const providerApiKey = apiKeyForProvider(provider, opts);
-  const key = [
-    colonist.agentId,
-    provider,
-    credentialFingerprint(providerApiKey),
-    opts.runKey ?? '',
-    opts.leader ?? '',
-  ].join(':');
+  const key = chatAgentPoolKey(colonist, opts);
 
   // Return existing agent if available
   const existing = pool.get(key);

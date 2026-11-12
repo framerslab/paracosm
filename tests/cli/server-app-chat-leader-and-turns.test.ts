@@ -25,6 +25,7 @@ import { readFileSync } from 'node:fs';
 import { mars, settingsBody, waitFor, withVisitors } from './helpers/run-server.js';
 import {
   buildChatAgentInstructions,
+  chatAgentPoolKey,
   type ChatAgentOptions,
   type ColonistMemoryEntry,
   type ColonistProfile,
@@ -134,6 +135,103 @@ test('each memory seeded into his agent keeps the turn and the year it happened 
         m.text.startsWith(`Turn ${m.turn} (Year ${m.time})`),
         `under ${leader}, the ${m.type} memory says its turn and year: ${m.text.slice(0, 80)}`,
       );
+    }
+  }
+});
+
+/** The stub factory: it records what the route gave it, and calls no model. */
+function recordingChatAgent(calls: AgentCall[]) {
+  return async (profile: ColonistProfile, memories: ColonistMemoryEntry[], opts: ChatAgentOptions) => {
+    calls.push({ profile, memories, opts });
+    return { session: { send: async () => ({ text: 'Stub reply.', usage: {} }) }, isNew: true };
+  };
+}
+
+interface WhileRunningAndAfter { running: AgentCall; ended: AgentCall }
+
+/**
+ * Bruno Morales asked under Aria Chen twice: once while the run is still
+ * going, both leaders on Turn 3 and neither through it (the Chat tab opens
+ * once the first turn is done), and once after the run has ended.
+ */
+async function agentsGivenWhileRunningAndAfter(): Promise<WhileRunningAndAfter> {
+  const leader = LEADERS[0];
+  const cut = pair.events.findIndex(e => e.type === 'specialist_done' && e.data.turn === 3);
+  assert.ok(cut > 0, 'the saved run has a department report of Turn 3');
+  const calls: AgentCall[] = [];
+  let release!: () => void;
+  const released = new Promise<void>(resolve => { release = resolve; });
+  let onTurn3 = false;
+  let result: WhileRunningAndAfter | undefined;
+  await withVisitors(async ({ cookied }) => {
+    try {
+      const v = cookied();
+      assert.equal((await v.post('/setup', settingsBody(mars))).status, 200);
+      await waitFor(() => onTurn3, 'the run to start Turn 3', 10_000);
+      const ask = async () => {
+        const res = await v.post('/chat', { agentId: PERSON, leader, message: QUESTION });
+        assert.equal(res.status, 200, `chat under ${leader}: ${res.status} ${await res.clone().text()}`);
+        return calls[calls.length - 1];
+      };
+      const running = await ask();
+      release();
+      await waitFor(async () => (await v.json<{ isComplete: boolean }>('/results')).isComplete, 'the run to finish', 10_000);
+      result = { running, ended: await ask() };
+    } finally {
+      release();
+    }
+  }, {
+    runner: async (_config, broadcast) => {
+      for (const e of pair.events.slice(0, cut)) broadcast('sim', e, e.leader);
+      onTurn3 = true;
+      await released;
+      for (const e of pair.events.slice(cut)) broadcast('sim', e, e.leader);
+      broadcast('complete', {});
+    },
+    extra: { chatAgent: recordingChatAgent(calls) },
+  });
+  return result!;
+}
+
+let askedTwice: Promise<WhileRunningAndAfter> | undefined;
+const givenWhileRunningAndAfter = () => (askedTwice ??= agentsGivenWhileRunningAndAfter());
+
+test('while the run is still going, his agent is not told the run ended', async () => {
+  const { running } = await givenWhileRunningAndAfter();
+  const told = buildChatAgentInstructions(running.profile, running.opts);
+  assert.match(told, /\bcommander\b[^.]*\bAria Chen\b/, 'he is told Aria Chen is his commander');
+  for (const claim of [/\bended\b/, /\bno others\b/]) {
+    const said = told.split(/(?<=[.!?)])\s+/).find(s => claim.test(s));
+    assert.equal(said, undefined, `on Turn 3 of a run still going, he is told: ${said}`);
+  }
+});
+
+test('the first chat after the run ends gets an agent made from the whole run', async () => {
+  const { running, ended } = await givenWhileRunningAndAfter();
+  assert.notEqual(
+    chatAgentPoolKey(ended.profile, ended.opts),
+    chatAgentPoolKey(running.profile, running.opts),
+    'after the run ended, his chat reaches the agent made on Turn 3, which was told nothing of Turns 4 to 6',
+  );
+  const years = yearsOfTurns(LEADERS[0]);
+  assert.ok(ended.memories.some(m => m.turn === 6), 'after the run, his memories reach Turn 6');
+  const told = buildChatAgentInstructions(ended.profile, ended.opts);
+  assert.ok(told.includes(`ended at Turn 6, Year ${years.get(6)}`), 'after the run, he is told it ended at Turn 6');
+});
+
+test('the rule for names he does not know spares his commander', async () => {
+  const { running } = await givenWhileRunningAndAfter();
+  const after = (await given()).get(LEADERS[0])!;
+  const cases: Array<[string, AgentCall]> = [
+    ['before the run has a roster', running],
+    ['with the run\'s roster', after],
+  ];
+  for (const [when, call] of cases) {
+    const told = buildChatAgentInstructions(call.profile, call.opts);
+    const rules = told.split(/(?<=[.!?)])\s+/).filter(s => /do not recognize/.test(s));
+    assert.ok(rules.length > 0, `${when}, he is told what to do with a name he does not know`);
+    for (const rule of rules) {
+      assert.match(rule, /\bcommander\b/, `${when}, he is told to disown names off the roster, his commander's among them: ${rule}`);
     }
   }
 });
