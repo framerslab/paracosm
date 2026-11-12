@@ -110,6 +110,9 @@ jobs:
       - name: Run per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/run-per-visitor.spec.ts --project=chromium-desktop
 
+      - name: Chat threads per run end-to-end test
+        run: npx playwright test tests-e2e/specs/chat-per-run.spec.ts --project=chromium-desktop
+
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
 
