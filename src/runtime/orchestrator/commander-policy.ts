@@ -7,7 +7,7 @@
  */
 import type { SimulationKernel } from '../../engine/core/kernel.js';
 import type { EffectRegistry, TurnOutcome } from '../../engine/registries/effects.js';
-import type { ScenarioHooks } from '../../engine/types.js';
+import type { ScenarioHooks, ScenarioPackage } from '../../engine/types.js';
 import type { CommanderDecision, DepartmentReport } from '../contracts.js';
 import { decisionToPolicy, oneLine, reportPatchesAsked, resolveSelectedEffects, selectedEffectTotals } from '../util/parsers.js';
 
@@ -45,6 +45,21 @@ export interface PolicyEffectTables {
 }
 
 const OUTCOMES: TurnOutcome[] = ['risky_success', 'conservative_success', 'conservative_failure', 'risky_failure'];
+
+/**
+ * The outcome tables a run of `sc` bounds its decisions by, as the turn
+ * loop builds them once for a run: the category tables of `registry`
+ * (`EffectRegistry.forScenario(sc)`), the politics hook, and the
+ * categories of the scenario's `knowledge.categoryMapping`, which the
+ * politics table is also read for.
+ */
+export function policyEffectTablesFor(sc: ScenarioPackage, registry: EffectRegistry): PolicyEffectTables {
+  return {
+    registry,
+    politicsHook: sc.hooks.politicsHook,
+    categories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
+  };
+}
 
 /** The limits read for each tables object: a run passes one for all its decisions. */
 const limitsByTables = new WeakMap<PolicyEffectTables, Readonly<Record<string, number>>>();
