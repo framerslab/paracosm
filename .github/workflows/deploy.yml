@@ -216,7 +216,23 @@ jobs:
 
       - name: Deploy to Linode
         run: |
-          SSH="ssh -i ~/.ssh/deploy_key root@${{ env.SERVER_IP }}"
+          # APP_DIR names the host directory rsync --delete copies into and the
+          # directory the remote script starts the server from. An unset secret
+          # reads as an empty string, and an empty, relative or dotted value
+          # would point the copy at the host's / or somewhere else, so the step
+          # stops before rsync unless it is an absolute path below /.
+          : "${SERVER_IP:?SERVER_IP is not set}"
+          app_dir="${APP_DIR%/}"
+          case "$app_dir" in
+            /*) ;;
+            *) echo "::error::APP_DIR must be an absolute path other than /"; exit 1 ;;
+          esac
+          if [[ ! "$app_dir" =~ ^(/[A-Za-z0-9._-]+)+$ ]] || [[ "$app_dir/" == */./* || "$app_dir/" == */../* ]]; then
+            echo "::error::APP_DIR must be an absolute path other than /, without . or .. parts"
+            exit 1
+          fi
+
+          SSH="ssh -i ~/.ssh/deploy_key root@${SERVER_IP}"
 
           # Sync build to server.
           #
@@ -280,12 +296,16 @@ jobs:
             --exclude='/.rate-limit.json.tmp' \
             --exclude='/.retry-stats.json' \
             -e "ssh -i ~/.ssh/deploy_key" \
-            build/ root@${{ env.SERVER_IP }}:${{ env.APP_DIR }}/
+            build/ "root@${SERVER_IP}:${app_dir}/"
 
-          # Install production deps and restart
-          $SSH << 'REMOTE'
+          # Install production deps and restart, in the directory rsync copied
+          # into: the first line the remote shell reads sets deploy_dir. The
+          # server reads APP_DIR from its environment, so the script leaves
+          # that name as the host has it.
+          { printf "deploy_dir='%s'\n" "$app_dir"
+          cat << 'REMOTE'
           set -e
-          cd /opt/paracosm
+          cd "$deploy_dir"
 
           # Install production dependencies
           npm ci --omit=dev 2>/dev/null || npm install --omit=dev
@@ -307,6 +327,7 @@ jobs:
 
           echo "Paracosm deployed and running"
           REMOTE
+          } | $SSH
 
   # Builds and packs the tarball publish ships, and checks those bytes, away
   # from the publish job's tokens. Building runs dependency code (install
