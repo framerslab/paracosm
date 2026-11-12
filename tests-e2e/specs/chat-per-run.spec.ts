@@ -219,4 +219,59 @@ test.describe('Chat threads per run @chat', () => {
     await expect(person(page)).toContainText('HOPEFUL');
     await expectFreshThread(page, chatRequests);
   });
+
+  test('a saved session the page switches to after a run restored from its history starts the same person\'s thread empty', async ({ page }) => {
+    // A Mars Genesis run restored from the RUN menu, then a saved session of
+    // Mars Genesis with the same leaders and person, which the page switches
+    // to without a reload, as the browser's Back and Forward buttons do.
+    const events = runEvents('anxious', 1);
+    const ring = [{
+      id: Date.now() - 60_000,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      events,
+      results: [],
+      verdict: null,
+      scenarioShortName: 'mars',
+      summary: { actorNames: leaders.map(l => l.name), turnCount: 1, eventCount: events.length },
+    }];
+    await page.addInitScript(value => {
+      window.localStorage.setItem('paracosm-local-history-v2', value);
+    }, JSON.stringify(ring));
+    let served = 0;
+    await page.route('**/events', route => {
+      served += 1;
+      return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: sse('connected', {}) + sse('replay_done', {}) });
+    });
+    const SESSION = 'chat-saved-session';
+    await page.route(url => url.pathname === `/sessions/${SESSION}`, route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    }));
+    await page.route(url => url.pathname === `/sessions/${SESSION}/replay`, route => route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+      body: runStream('chat-run-saved-session', 'hopeful'),
+    }));
+    page.on('dialog', dialog => dialog.accept());
+    const chatRequests = await answerChat(page);
+
+    await page.goto('/sim?tab=sim');
+    await expect.poll(() => served).toBeGreaterThan(1);
+    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+
+    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    await page.getByRole('menu', { name: 'Run actions' }).getByRole('button', { name: /· 1 turn/ }).first().click();
+    await expect(person(page)).toContainText('ANXIOUS');
+    await chatOnce(page, chatRequests);
+
+    await page.evaluate(session => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('replay', session);
+      window.history.pushState({}, '', url.toString());
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, SESSION);
+    await expect(person(page)).toContainText('HOPEFUL');
+    await expectFreshThread(page, chatRequests);
+  });
 });

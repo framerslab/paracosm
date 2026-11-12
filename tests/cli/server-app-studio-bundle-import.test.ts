@@ -384,3 +384,33 @@ test('a Studio bundle whose first part the server stored but whose reply was los
     await stop(served);
   }
 });
+
+test('a Studio bundle that fails part way, dropped again and promoted, adds the rest to the same bundle', async () => {
+  const bundle = await overLimitBundle('dropped-again');
+  const lastRun = bundle.at(-1)!.metadata.runId;
+  const failOnce = new Set([lastRun]);
+  const served = await serve(store => ({
+    ...store,
+    async insertRun(record) {
+      if (failOnce.delete(record.runId)) throw new Error('the disk is full');
+      return store.insertRun(record);
+    },
+  }));
+  try {
+    const promote = studioPromote();
+    const firstTry = await withPageFetch(served.base, [], () => promote.promoteBundle(bundle));
+    assert.equal(firstTry, null, 'the first promote stopped part way');
+    const madeBundle = (await recordOf(served.base, bundle[0].metadata.runId))?.bundleId;
+    assert.ok(madeBundle, 'the first promote made a bundle');
+    assert.equal(await recordOf(served.base, lastRun), null);
+
+    // The same file dropped again: the Studio reads it into new objects.
+    const droppedAgain = JSON.parse(JSON.stringify(bundle)) as RunArtifact[];
+    const secondTry = await withPageFetch(served.base, [], () => promote.promoteBundle(droppedAgain));
+    assert.ok(secondTry, 'the second promote imported the rest');
+    assert.equal(secondTry.bundleId, madeBundle, 'into the bundle the first promote made');
+    assert.equal(await memberCount(served.base, madeBundle), bundle.length, 'one bundle holds every run');
+  } finally {
+    await stop(served);
+  }
+});
