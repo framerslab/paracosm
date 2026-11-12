@@ -315,13 +315,15 @@ test('a replay whose reader left while the session loaded holds no stream slot',
     count: async () => 1,
     updateTitle: async () => {},
   } as unknown as SessionStore;
-  await withServer({ sessionStore: slowStore, env: { PARACOSM_MAX_STREAMS_PER_ADDRESS: '2' } }, async ({ base }) => {
+  await withServer({ sessionStore: slowStore, env: { PARACOSM_MAX_STREAMS_PER_ADDRESS: '2' } }, async ({ base, port }) => {
+    // Three readers ask for the replay and close their connections while
+    // the session is still loading.
     for (let i = 0; i < 3; i++) {
-      const controller = new AbortController();
-      const pending = fetch(`${base}/sessions/slow/replay`, { signal: controller.signal }).catch(() => null);
+      const socket = connect(port, '127.0.0.1');
+      await once(socket, 'connect');
+      socket.write('GET /sessions/slow/replay HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
       await sleep(50);
-      controller.abort();
-      await pending;
+      socket.destroy();
     }
     await sleep(700);
     const res = await fetch(`${base}/sessions/slow/replay`);
