@@ -2,10 +2,12 @@
  * Bounds on what one caller can make the server hold, write or log.
  *
  * - A session replay writes as fast as the reader reads, and one address
- *   holds a bounded number of open event streams.
+ *   holds a bounded number of open event streams; a reader that leaves
+ *   before its replay starts holds none.
  * - The run-history routes read a bounded body.
  * - A library import writes a compact copy, and one address imports a
- *   bounded number of new runs a day.
+ *   bounded number of new runs a day, told to retry at the next UTC
+ *   midnight past it.
  * - One address holds at most all but one of the server's run slots.
  * - /results answers a run whose buffer has not changed without reading
  *   the buffer again.
@@ -298,4 +300,49 @@ test('the hook cache answers a scenario only with hooks written for that scenari
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a replay whose reader left while the session loaded holds no stream slot', async () => {
+  const frame = `event: sim\ndata: ${JSON.stringify({ type: 'turn_done' })}\n\n`;
+  const meta = { id: 'slow', createdAt: 0, eventCount: 1 } as unknown;
+  const slowStore = {
+    saveSession: async () => ({ id: 'slow' }),
+    listSessions: async () => [meta] as never,
+    getSession: async (id: string) => {
+      await sleep(300);
+      return id === 'slow' ? { meta, events: [{ ts: 0, sse: frame }] } as never : null;
+    },
+    count: async () => 1,
+    updateTitle: async () => {},
+  } as unknown as SessionStore;
+  await withServer({ sessionStore: slowStore, env: { PARACOSM_MAX_STREAMS_PER_ADDRESS: '2' } }, async ({ base }) => {
+    for (let i = 0; i < 3; i++) {
+      const controller = new AbortController();
+      const pending = fetch(`${base}/sessions/slow/replay`, { signal: controller.signal }).catch(() => null);
+      await sleep(50);
+      controller.abort();
+      await pending;
+    }
+    await sleep(700);
+    const res = await fetch(`${base}/sessions/slow/replay`);
+    const text = await res.text();
+    assert.equal(res.status, 200, text.slice(0, 200));
+  });
+});
+
+test('an import past the daily limit is told to retry at the next UTC midnight', async () => {
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  await withServer({ runHistoryStore: store, env: { PARACOSM_IMPORTS_PER_DAY: '1' } }, async ({ base }) => {
+    const first = await post(base, '/api/v1/library/import', { artifact: freshArtifact() });
+    await first.text();
+    assert.equal(first.status, 201);
+    const second = await post(base, '/api/v1/library/import', { artifact: freshArtifact() });
+    await second.text();
+    assert.equal(second.status, 429);
+    const midnight = new Date();
+    midnight.setUTCHours(24, 0, 0, 0);
+    const untilMidnight = Math.ceil((midnight.getTime() - Date.now()) / 1000);
+    const retryAfter = Number(second.headers.get('retry-after'));
+    assert.ok(Math.abs(retryAfter - untilMidnight) <= 5, `Retry-After ${retryAfter}, ${untilMidnight} s to midnight`);
+  });
 });

@@ -16,6 +16,8 @@
  * - /compile on the hosted demo bounds the searches a compile runs.
  * - A hosted run on the caller's own model key searches only on the search
  *   keys the caller sends, and the addresses of one IPv6 /64 share a limit.
+ * - A hosted /compile with no seed charges no search allowance, and the
+ *   demo caps bound each leader's and key person's text.
  *
  * Each server test goes through createMarsServer over HTTP. Only the
  * engine, the compiler and the Digital Twin world are stubbed.
@@ -413,4 +415,57 @@ test('the hosted demo caps keep one custom event a turn, within the run\'s turns
   } as unknown as Parameters<typeof normalizeSimulationConfig>[0], marsScenario);
   const capped = applyDemoCaps(config);
   assert.deepEqual(capped.customEvents.map(event => [event.turn, event.title]), [[1, 'First'], [2, 'Turn two']]);
+});
+
+test('a hosted /compile with no seed to search for uses none of the caller\'s search allowance', async () => {
+  const captured: Array<Record<string, unknown>> = [];
+  let n = 0;
+  await withServer({
+    maxSimsPerDay: 1,
+    env: { PARACOSM_HOSTED_DEMO: 'true' },
+    compileScenario: async (_json, options) => {
+      captured.push(options);
+      n += 1;
+      return { ...marsScenario, id: `seedless-compiled-${n}` } as never;
+    },
+  }, async base => {
+    for (let i = 0; i < 6; i++) {
+      const res = await post(base, '/compile', { scenario: { id: `seedless-${i}`, departments: [] }, apiKey: 'sk-caller-own-key' });
+      await res.text();
+      assert.equal(res.status, 200);
+    }
+    const seeded = await post(base, '/compile', {
+      scenario: { id: 'seeded', departments: [] },
+      apiKey: 'sk-caller-own-key',
+      seedText: 'A brief worth a search.',
+    });
+    await seeded.text();
+    assert.equal(seeded.status, 200);
+  });
+  assert.equal(captured.length, 7);
+  assert.notEqual(captured[6].webSearch, false, 'six compiles with nothing to search for leave the seeded compile its search');
+});
+
+test('the hosted demo caps bound the text of each leader and key person a run keeps', () => {
+  const leader = mars.presets[0].leaders[0];
+  const long = 'z'.repeat(50_000);
+  const actors = [0, 1].map(i => ({ ...leader, name: `Leader ${i} ${long}`, archetype: long, unit: long }));
+  const keyPersonnel = Array.from({ length: 30 }, (_, i) => ({
+    name: `Person ${i} ${long}`, department: 'engineering', role: long, specialization: long, age: 30, featured: true,
+  }));
+  const config = normalizeSimulationConfig({
+    actors, turns: 3, keyPersonnel,
+  } as unknown as Parameters<typeof normalizeSimulationConfig>[0], marsScenario);
+  const capped = applyDemoCaps(config);
+  assert.equal(capped.keyPersonnel.length, 30);
+  for (const actor of capped.actors as unknown as Array<Record<string, unknown>>) {
+    for (const field of ['name', 'archetype', 'unit']) assert.ok(String(actor[field] ?? '').length <= 120, `leader ${field}: ${String(actor[field] ?? '').length}`);
+  }
+  for (const person of capped.keyPersonnel as unknown as Array<Record<string, unknown>>) {
+    for (const field of ['name', 'role', 'specialization']) assert.ok(String(person[field] ?? '').length <= 120, `key person ${field}: ${String(person[field] ?? '').length}`);
+  }
+});
+
+test('a page\'s entities are decoded once', () => {
+  assert.equal(htmlToText('<p>&amp;lt;b&amp;gt; and &amp;amp;</p>'), '&lt;b&gt; and &amp;');
 });
