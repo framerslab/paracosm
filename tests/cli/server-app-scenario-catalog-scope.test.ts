@@ -280,6 +280,45 @@ test('a Quickstart compile whose id is taken lands under an id of its own and re
   });
 });
 
+test('a Quickstart compile whose long id is taken lands under an id the Quickstart routes still take', async () => {
+  // A Quickstart compile takes a draft id of up to 64 characters, and the
+  // routes the page calls next with the id it landed under (generate-actors,
+  // ground-scenario) take a scenarioId of at most 64 characters as well.
+  const QUICKSTART_ID_MAX = 64;
+  const longId = `${'long-station-'.repeat(4)}abcdefghijkl`;
+  assert.equal(longId.length, QUICKSTART_ID_MAX);
+  const compiled: Record<string, string> = {
+    'scope-long-one': 'Long One',
+    'scope-long-two': 'Long Two',
+    'scope-long-three': 'Long Three',
+  };
+  await withCatalog(async ({ api }) => {
+    const a = api.cookied();
+    const b = api.cookied();
+    assert.equal(await quickstartCompile(a, seed('scope-long-one')), longId);
+
+    const landed: string[] = [];
+    for (const [v, marker] of [[b, 'scope-long-two'], [a, 'scope-long-three']] as const) {
+      const id = await quickstartCompile(v, seed(marker));
+      assert.ok(id.length <= QUICKSTART_ID_MAX, `${id} is ${id.length} characters`);
+      assert.match(id, /^[a-z0-9-]+$/);
+      assert.equal((await entry(v, id))?.name, compiled[marker]);
+      assert.equal((await v.json<{ name: string }>(`/scenarios/${id}`)).name, compiled[marker]);
+      landed.push(id);
+    }
+    assert.equal(new Set([longId, ...landed]).size, 3, 'each compile has an id of its own');
+    assert.equal((await entry(b, longId))?.name, 'Long One');
+  }, {
+    extra: {
+      compileFromSeed: async (input: { seedText: string }) => {
+        const marker = Object.keys(compiled).find(key => input.seedText.includes(key));
+        assert.ok(marker, 'a seed of this test');
+        return station(longId, compiled[marker]) as unknown as ScenarioPackage;
+      },
+    },
+  });
+});
+
 test("a compile under an id another visitor's compile or stored scenario already uses is refused, and what that visitor runs stays", async () => {
   await withCatalog(async ({ api, compiles }) => {
     const a = api.cookied();
