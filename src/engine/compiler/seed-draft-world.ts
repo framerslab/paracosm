@@ -7,7 +7,13 @@
  * draft into the JSON `compileScenario` takes: a `world` that holds every
  * declared score, `metrics` with a label and a source, category tables in
  * the object form, the knowledge bundle's categories keyed by the tables,
- * and the header's scores.
+ * the header's scores, and a `setup` that keeps one death die for each
+ * person's whole life.
+ *
+ * A draft may mark a metric as a supply that sustains its people
+ * (`sustains: true`). `sustainsVeto` holds the rules a mark must pass; the
+ * normalizer drops a mark the veto refuses, with the rule and the reason,
+ * and no metric is marked unless its draft marks it.
  *
  * It repairs and never rejects. A field the model left out takes a
  * default, a value outside its rule is moved inside it, and each default
@@ -19,6 +25,7 @@
  * @module paracosm/engine/compiler/seed-draft-world
  */
 import type { DraftScenario } from './compile-from-seed.js';
+import { unitsToYears, yearsPerTimeUnit } from '../core/time-unit.js';
 
 /** One default or repair the normalizer applied to a draft. */
 export interface DraftNote {
@@ -63,6 +70,22 @@ export const MAX_DRAFT_ENTRIES = 4;
 export const DEFAULT_CATEGORIES = ['infrastructure', 'resource', 'psychological'] as const;
 /** How many declared scores the header shows. */
 export const HEADER_METRICS = 4;
+/**
+ * A supply is marked as sustaining the people only in a scenario whose
+ * default run spans at least this many years: in a shorter one too few
+ * people die of age or accident for a supply to show in who lives.
+ */
+export const SUSTAINS_MIN_YEARS = 5;
+/** At most this many supplies are marked in one scenario, as many as Mars Genesis marks. */
+export const SUSTAINS_MAX_MARKS = 5;
+/**
+ * Where a run's turns start, in time units after its first, when its turn
+ * time is 0 or under: the accelerating schedule of `buildTimeSchedule`
+ * (src/runtime/util/runtime-helpers.ts), each turn past the twelfth five
+ * units after the one before it. The engine does not import the runtime,
+ * so the offsets are kept here, and a test holds the two to one span.
+ */
+const ACCELERATING_TURN_OFFSETS = [0, 2, 5, 8, 11, 14, 18, 23, 28, 33, 40, 50] as const;
 
 const LABEL_MAX = 48;
 const UNIT_MAX = 16;
@@ -82,6 +105,8 @@ export interface SeedWorldField {
   min?: number;
   max?: number;
   category: 'metric';
+  /** Present, and true, only on a supply the draft marks and the veto passes. */
+  sustains?: true;
 }
 
 /** A number the normalizer computed, held to six decimals. */
@@ -165,6 +190,171 @@ function categoryKey(category: string): string {
     .replace(/-+$/, '');
 }
 
+/** A `sustains` mark the veto refuses. */
+export interface SustainsFinding {
+  /** The world key that carries the mark. */
+  key: string;
+  /** The rule that refuses it, 1 to 7. A mark several rules refuse is reported under the first. */
+  rule: number;
+  /** Why, in one line a person can read. */
+  reason: string;
+}
+
+/**
+ * The rules a supply marked as sustaining the people must pass.
+ *
+ * A scenario marks a field of `world.metrics` or `world.capacities` with
+ * `sustains: true`, and the yearly age and accident rates then divide by
+ * the supply level: the geometric mean of the marked supplies, each
+ * against its amount on day one. A mark on the wrong value changes who
+ * dies in a run with nothing in the scenario to explain it. This reads a
+ * scenario JSON, with `effects` in the object form a draft carries or the
+ * array form of a compiled package, and returns the marks it refuses, in
+ * the order the world declares them. It changes nothing.
+ *
+ * A mark is refused when:
+ *
+ * 1. its key is `population` or `morale`: the engine's own two values;
+ * 2. it is not a plain quantity: its type is not `number`, a score that
+ *    reads it is a percent or a currency, or its unit is `%`, `frac` or
+ *    `score`, or names USD or EUR (alone, or with a k, M or b in front)
+ *    or `$`;
+ * 3. a score that reads it is better lower;
+ * 4. it does not start above 0, so the kernel keeps no amount on day one;
+ *    a key both `world.metrics` and `world.capacities` declare starts at
+ *    the capacity's number, the one the kernel holds;
+ * 5. no category table names it, so no outcome moves it;
+ * 6. the default run spans under {@link SUSTAINS_MIN_YEARS} years, from its
+ *    first turn's start to its last's as a run lays them out (the
+ *    accelerating schedule for a turn time of 0 or under), on the kernel's
+ *    own reading of the time unit;
+ * 7. {@link SUSTAINS_MAX_MARKS} marks before it already pass rules 1 to 6.
+ *
+ * The rules catch what a machine can see. A plain stock that passes all
+ * seven and yet is not something the people live on stays its author's
+ * mistake. The rules and their two numbers are the simulation's own
+ * choices, not measured rates.
+ */
+export function sustainsVeto(scenarioJson: Record<string, unknown>): SustainsFinding[] {
+  const json = scenarioJson as {
+    labels?: { timeUnitNoun?: string } | null;
+    setup?: { defaultTurns?: unknown; defaultTimePerTurn?: unknown; yearsPerTimeUnit?: number } | null;
+    world?: { metrics?: unknown; capacities?: unknown } | null;
+    metrics?: unknown;
+    effects?: unknown;
+  };
+  const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+  const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
+
+  // Every declared score that reads a world key, each found as the outcome
+  // step finds one: by the last part of its source, or by its id.
+  const scores = new Map<string, Array<Record<string, unknown>>>();
+  for (const metric of Array.isArray(json.metrics) ? json.metrics : []) {
+    if (!isObject(metric)) continue;
+    const key = (text(metric.source) ?? text(metric.id))?.split('.').pop();
+    if (key) scores.set(key, [...(scores.get(key) ?? []), metric]);
+  }
+
+  // What the kernel holds of a key on day one: it lays the capacities over
+  // the metrics, each field at its start, a number with no start at 0, and
+  // a start that is not a number left out (`seedNumericBag`, kernel.ts). A
+  // key both bags declare holds the capacity's number.
+  const worldMetrics = json.world?.metrics;
+  const worldCapacities = json.world?.capacities;
+  const metricFields: Record<string, unknown> = isObject(worldMetrics) ? worldMetrics : {};
+  const capacityFields: Record<string, unknown> = isObject(worldCapacities) ? worldCapacities : {};
+  const has = (fields: Record<string, unknown>, key: string): boolean => Object.prototype.hasOwnProperty.call(fields, key);
+  const startOf = (field: unknown): number | undefined => {
+    if (!isObject(field)) return undefined;
+    if (field.initial !== undefined) return typeof field.initial === 'number' ? field.initial : undefined;
+    return field.type === 'string' || field.type === 'boolean' ? undefined : 0;
+  };
+  const inBoth = (key: string): boolean => has(metricFields, key) && has(capacityFields, key);
+
+  // The category tables: the object form's values, or the tables of the
+  // array form's first element, the one a run applies.
+  const effects = json.effects;
+  const bag = Array.isArray(effects) ? (isObject(effects[0]) ? effects[0].categoryDefaults : undefined) : effects;
+  const tables = isObject(bag) ? Object.values(bag) : [];
+  const named = (key: string): boolean => tables.some(table => isObject(table) && Object.prototype.hasOwnProperty.call(table, key));
+
+  // The years the default run spans, from its first turn's start to its
+  // last's, as a run lays its turns out: each a turn's time long, one unit
+  // where the scenario gives no turn time, and on the accelerating schedule
+  // where it gives 0 or under. A run whose turns cannot be read spans none.
+  const turns = json.setup?.defaultTurns;
+  const timePerTurn = json.setup?.defaultTimePerTurn;
+  const perTurn = isNumber(timePerTurn) ? timePerTurn : 1;
+  const lastStart = (count: number): number => {
+    if (perTurn > 0) return (count - 1) * perTurn;
+    const index = Math.floor(count) - 1;
+    if (index <= 0) return 0;
+    const last = ACCELERATING_TURN_OFFSETS.length - 1;
+    return ACCELERATING_TURN_OFFSETS[index] ?? ACCELERATING_TURN_OFFSETS[last] + (index - last) * 5;
+  };
+  const years = isNumber(turns)
+    ? unitsToYears(lastStart(turns), yearsPerTimeUnit(json.labels, json.setup))
+    : undefined;
+
+  /** The first of rules 1 to 6 that refuses a marked field, or nothing. */
+  const refusal = (key: string, field: Record<string, unknown>): { rule: number; reason: string } | undefined => {
+    if (key === 'population') return { rule: 1, reason: 'the head count is the roster, not a supply: it would feed its own death rates' };
+    if (key === 'morale') return { rule: 1, reason: 'morale is a mood, not a supply' };
+    const readers = scores.get(key) ?? [];
+    const format = readers.find(score => score.format === 'percent' || score.format === 'currency')?.format;
+    const unit = typeof field.unit === 'string' ? field.unit.trim() : '';
+    if (field.type !== undefined && field.type !== 'number') {
+      return { rule: 2, reason: `it is not a plain quantity: its type is ${JSON.stringify(field.type)}, not a number` };
+    }
+    if (format === 'percent' || format === 'currency') {
+      return { rule: 2, reason: `it is not a plain quantity: its score is a ${format}` };
+    }
+    if (/^(%|frac|score)$/i.test(unit)) {
+      return { rule: 2, reason: `it is not a plain quantity: its unit, "${unit}", is a share's or a score's` };
+    }
+    // USD and EUR as words of their own, or with a k, M or b in front of
+    // them, so "kUSD" is money and a unit such as "heures" keeps its mark.
+    if (/\$|(^|[^a-z])[kmb]?(usd|eur)([^a-z]|$)/i.test(unit)) {
+      return { rule: 2, reason: `it is not a plain quantity: its unit, "${unit}", names money` };
+    }
+    if (readers.some(score => score.better === 'lower')) {
+      return { rule: 3, reason: 'its score is better lower, and a supply is something the people are better off with more of' };
+    }
+    if (inBoth(key)) {
+      const held = startOf(capacityFields[key]) ?? startOf(metricFields[key]);
+      if (!(typeof held === 'number' && held > 0)) {
+        const start = held === undefined ? 'nothing' : JSON.stringify(held);
+        return { rule: 4, reason: `it does not start above 0: world.metrics and world.capacities both declare it, and the kernel holds ${start} of it on day one, so there is no amount to hold it against` };
+      }
+    } else if (!(typeof field.initial === 'number' && field.initial > 0)) {
+      const start = field.initial === undefined ? 'nothing' : JSON.stringify(field.initial);
+      return { rule: 4, reason: `it does not start above 0 (it starts at ${start}), so there is no amount on day one to hold it against` };
+    }
+    if (!named(key)) return { rule: 5, reason: 'no category table names it, so no outcome moves it' };
+    if (years === undefined) {
+      return { rule: 6, reason: `the length of the default run cannot be read, and a supply needs a run of ${SUSTAINS_MIN_YEARS} years or more` };
+    }
+    if (!(years >= SUSTAINS_MIN_YEARS)) {
+      return { rule: 6, reason: `the default run spans ${round6(years)} years, under ${SUSTAINS_MIN_YEARS}: too short for a supply to show in who lives` };
+    }
+    return undefined;
+  };
+
+  const findings: SustainsFinding[] = [];
+  let passed = 0;
+  for (const fields of [json.world?.metrics, json.world?.capacities]) {
+    if (!isObject(fields)) continue;
+    for (const [key, field] of Object.entries(fields)) {
+      if (!isObject(field) || field.sustains !== true) continue;
+      const refused = refusal(key, field)
+        ?? (passed >= SUSTAINS_MAX_MARKS ? { rule: 7, reason: `${SUSTAINS_MAX_MARKS} supplies are marked before it, the most one scenario marks` } : undefined);
+      if (refused) findings.push({ key, rule: refused.rule, reason: refused.reason });
+      else passed++;
+    }
+  }
+  return findings;
+}
+
 /**
  * Turn a draft the draft schema accepted into the scenario JSON
  * `compileScenario` takes, with a note for each default and repair.
@@ -229,6 +419,10 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
   const fields: Record<string, SeedWorldField> = {};
   const definitions: Array<{ id: string; label: string; source: string; format: Format; better?: 'higher' | 'lower' }> = [];
   const lowerIsBetter = new Set<string>();
+  // The unit a draft gave a number or a currency where it says a share
+  // (`%`, `frac`). The field does not keep it; the veto on a marked supply
+  // still reads it, since a value its own draft calls a share is not one.
+  const shareUnits = new Map<string, string>();
 
   for (const { metric, id, index } of metrics) {
     const path = `metrics[${index}]`;
@@ -298,6 +492,7 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
       // header read, so a unit that says percent is dropped.
       if (unit === '%' || unit === 'frac') {
         note(`${path}.unit`, 'unit-dropped', `${id}: unit "${unit}" on a ${format} is dropped`);
+        shareUnits.set(id, unit);
         unit = '';
       }
       if (unit === '' && format === 'currency') unit = (draft.labels.currency ?? '').trim().slice(0, UNIT_MAX);
@@ -439,6 +634,40 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
     tables.push([key, table]);
   }
 
+  // ---- Supplies that sustain the people ----------------------------------------
+  // Only a metric the draft marks can be one, and only where the veto
+  // passes the mark. The veto reads the tables as they stand here, the
+  // draft's own: after this a table left with no entry takes the default
+  // table, which names every score, and a mark that no table of the
+  // draft's moves would then pass. It reads the first eight of them, the
+  // ones a compile keeps: a mark that only a later table names would be
+  // left to the default entries too. And it reads each field with the unit
+  // its draft wrote where that unit says a share, which the field itself
+  // does not keep.
+  const marked = metrics.filter(m => m.metric.sustains === true);
+  if (marked.length > 0) {
+    for (const { id } of marked) fields[id] = { ...fields[id], sustains: true };
+    const asDrafted: Record<string, SeedWorldField> = {};
+    for (const [id, field] of Object.entries(fields)) {
+      const shareUnit = shareUnits.get(id);
+      asDrafted[id] = shareUnit === undefined ? field : { ...field, unit: shareUnit };
+    }
+    const refused = sustainsVeto({
+      labels: draft.labels,
+      setup: draft.setup,
+      world: { metrics: asDrafted, capacities: {} },
+      metrics: definitions,
+      effects: Object.fromEntries(tables.slice(0, MAX_TABLES)),
+    });
+    for (const { key, rule, reason } of refused) {
+      const unmarked = { ...fields[key] };
+      delete unmarked.sustains;
+      fields[key] = unmarked;
+      const index = marked.find(m => m.id === key)?.index;
+      note(`metrics[${index}].sustains`, 'mark-refused', `${key}: its mark as a supply that sustains the people is dropped (rule ${rule}): ${reason}`);
+    }
+  }
+
   // 3. A table left with no entry takes the default table; the first eight tables stay.
   for (const pair of tables) {
     if (Object.keys(pair[1]).length > 0) continue;
@@ -499,7 +728,9 @@ export function seedDraftToScenarioJson(draft: DraftScenario): { scenario: Recor
     id: draft.id,
     labels: { ...draft.labels },
     ...(draft.theme !== undefined ? { theme: draft.theme } : {}),
-    setup: { ...draft.setup },
+    // One death die for each person's whole life, on every compile: the
+    // compiler's own choice, not a field the draft carries.
+    setup: { ...draft.setup, mortalityDice: 'life' },
     world: { metrics: worldMetrics, capacities: {}, statuses: {}, politics: {}, environment: {} },
     departments,
     metrics: definitions,

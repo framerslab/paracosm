@@ -1,12 +1,14 @@
 /**
- * Validation harness for generated scenario hooks, and the check a
- * scenario compiled from a seed draft is held to.
+ * Validation harness for generated scenario hooks, the check a scenario
+ * compiled from a seed draft is held to, and the lint for the supplies a
+ * scenario marks as sustaining its people.
  * Each hook validator tests a generated hook against synthetic fixtures
  * to verify it produces correct output shapes and does not throw.
  */
 
 import type { ProgressionHookContext, ScenarioHooks } from '../types.js';
-import { MAX_MAGNITUDE, MIN_TABLES, entryBounds } from './seed-draft-world.js';
+import { MAX_MAGNITUDE, MIN_TABLES, entryBounds, sustainsVeto } from './seed-draft-world.js';
+import type { SustainsFinding } from './seed-draft-world.js';
 
 /** Minimal synthetic colonist for validation. */
 function makeTestColonist(overrides: Record<string, any> = {}): any {
@@ -147,7 +149,11 @@ export function validateReactionContext(fn: ScenarioHooks['reactionContextHook']
  * (a milestone takes those two, so a run of two turns applies no other);
  * every entry is on a declared score or on `morale`, never on the head
  * count, is not 0, is no larger than 1e15 in size and lies inside its
- * score's bounds; and the header names declared scores.
+ * score's bounds; the header names declared scores; every supply marked as
+ * sustaining the people passes the veto (`sustainsVeto`); and
+ * `setup.mortalityDice` is `'life'`. In a finished scenario every declared
+ * score has a table entry, so the veto's rule on a mark no table names
+ * cannot fire here: the normalizer applies it to the draft's own tables.
  *
  * It reads `effects` in either form: the object form a draft JSON carries,
  * or the array form of a compiled package, whose first element is the one
@@ -258,5 +264,32 @@ export function validateSeedWorld(scenarioJson: Record<string, unknown>): { ok: 
     if (typeof id !== 'string' || !declared.includes(id)) errors.push(`ui.headerMetrics names "${String(id)}", which is not a declared score`);
   }
 
+  for (const { key, rule, reason } of sustainsVeto(scenarioJson)) {
+    errors.push(`${key}: its mark as a supply that sustains the people breaks rule ${rule} of the veto: ${reason}`);
+  }
+
+  const dice = (scenarioJson as { setup?: { mortalityDice?: unknown } | null }).setup?.mortalityDice;
+  if (dice !== 'life') {
+    errors.push(`setup.mortalityDice is ${dice === undefined ? 'absent' : JSON.stringify(dice)}, not "life"`);
+  }
+
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Hold the supplies a scenario marks as sustaining its people
+ * (`"sustains": true` on a field of `world.metrics` or `world.capacities`)
+ * to the rules a scenario compiled from a seed draft keeps its marks under
+ * (`sustainsVeto`): not the head count or morale; a plain quantity, not a
+ * share, a score or money; not better lower; a start above 0; named by a
+ * category table; a default run of five years or more; five marks at most.
+ *
+ * It returns each mark the rules refuse, with the rule and the reason, and
+ * an empty list when every mark passes. It reads `effects` in either form
+ * and changes nothing: a hand-written scenario keeps what its author
+ * wrote, and this says which of its marks a seed compile would have
+ * dropped.
+ */
+export function lintSustainsMarks(scenarioJson: Record<string, unknown>): SustainsFinding[] {
+  return sustainsVeto(scenarioJson);
 }

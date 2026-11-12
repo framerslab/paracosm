@@ -1,0 +1,68 @@
+{
+  "id": "reservoir-years",
+  "labels": {
+    "name": "Reservoir",
+    "populationNoun": "residents",
+    "settlementNoun": "town",
+    "timeUnitNoun": "year"
+  },
+  "setup": {
+    "defaultTurns": 12,
+    "defaultPopulation": 40,
+    "defaultStartTime": 2030
+  },
+  "departments": [
+    {
+      "id": "waterworks",
+      "label": "Waterworks",
+      "role": "Head of Waterworks",
+      "instructions": "Weigh the reserve against what the town draws."
+    },
+    {
+      "id": "services",
+      "label": "Services",
+      "role": "Services Lead",
+      "instructions": "Weigh coverage against the cost of the works."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "water-reserve",
+      "format": "number",
+      "label": "Water reserve",
+      "unit": "megalitres",
+      "initial": 500,
+      "min": 0,
+      "sustains": true
+    },
+    {
+      "id": "service-coverage",
+      "format": "percent",
+      "label": "Service coverage",
+      "initial": 70
+    }
+  ],
+  "effects": [
+    {
+      "category": "drought",
+      "entries": [
+        { "metric": "water-reserve", "change": -30 },
+        { "metric": "service-coverage", "change": -2 }
+      ]
+    },
+    {
+      "category": "works",
+      "entries": [
+        { "metric": "water-reserve", "change": 25 },
+        { "metric": "morale", "change": 0.03 }
+      ]
+    },
+    {
+      "category": "demand",
+      "entries": [
+        { "metric": "service-coverage", "change": 2 },
+        { "metric": "water-reserve", "change": -15 }
+      ]
+    }
+  ]
+}
