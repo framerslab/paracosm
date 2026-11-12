@@ -69,6 +69,34 @@ export interface ColonistRosterEntry {
   childrenIds?: string[];
 }
 
+/** What the agent factory takes beside the person and their memories. */
+export interface ChatAgentOptions {
+  provider?: LlmProvider;
+  apiKey?: string;
+  anthropicKey?: string;
+  settlementNoun?: string;
+  populationNoun?: string;
+  /** The scenario's labels: the leader and the time the character speaks of. */
+  labels?: Partial<ScenarioLabels>;
+  /** Full colony roster, used for name grounding. Optional for
+   *  backward compatibility; pass [] and the agent will reply "I don't
+   *  have my roster loaded" when asked about anyone other than itself,
+   *  which is strictly more truthful than the prior confabulate path. */
+  roster?: ColonistRosterEntry[];
+  /**
+   * The run the memories come from. Two runs hold the same colonist ids,
+   * so the pool keys an agent by its run: each visitor's characters keep
+   * their own memories and histories.
+   */
+  runKey?: string;
+  /**
+   * The leader under whom the character lived. A pair run holds one
+   * colony of the same people under each leader; an agent per leader
+   * keeps the two lives apart.
+   */
+  leader?: string;
+}
+
 /** Pool entry for a live chat agent. */
 interface PoolEntry {
   agent: ReturnType<typeof createAgent>;
@@ -118,32 +146,7 @@ const pool = new Map<string, PoolEntry>();
 export async function getOrCreateChatAgent(
   colonist: ColonistProfile,
   memories: ColonistMemoryEntry[],
-  opts: {
-    provider?: LlmProvider;
-    apiKey?: string;
-    anthropicKey?: string;
-    settlementNoun?: string;
-    populationNoun?: string;
-    /** The scenario's labels: the leader and the time the character speaks of. */
-    labels?: Partial<ScenarioLabels>;
-    /** Full colony roster, used for name grounding. Optional for
-     *  backward compatibility; pass [] and the agent will reply "I don't
-     *  have my roster loaded" when asked about anyone other than itself,
-     *  which is strictly more truthful than the prior confabulate path. */
-    roster?: ColonistRosterEntry[];
-    /**
-     * The run the memories come from. Two runs hold the same colonist ids,
-     * so the pool keys an agent by its run: each visitor's characters keep
-     * their own memories and histories.
-     */
-    runKey?: string;
-    /**
-     * The leader under whom the character lived. A pair run holds one
-     * colony of the same people under each leader; an agent per leader
-     * keeps the two lives apart.
-     */
-    leader?: string;
-  },
+  opts: ChatAgentOptions,
 ): Promise<{ session: PoolEntry['session']; isNew: boolean }> {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
   const providerApiKey = apiKeyForProvider(provider, opts);
@@ -214,7 +217,7 @@ export async function getOrCreateChatAgent(
     honesty: colonist.hexaco.HH ?? 0.5,
   } : undefined;
 
-  const instructions = buildInstructions(colonist, settlement, popNoun, roster, opts.labels);
+  const instructions = buildChatAgentInstructions(colonist, opts);
 
   const model = provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini';
 
@@ -276,6 +279,22 @@ function renderRosterLine(entry: ColonistRosterEntry, settlement?: string): stri
   }
   if (!entry.alive) parts.push(', DECEASED');
   return parts.join('');
+}
+
+/**
+ * The system prompt of the agent that speaks for one person, built from
+ * the options {@link getOrCreateChatAgent} receives, so what a route
+ * passes the factory is what the character is told.
+ *
+ * @param colonist The person the agent speaks for.
+ * @param opts The factory's options: the scenario's nouns and labels, the
+ *        roster, and the leader the person lived under.
+ */
+export function buildChatAgentInstructions(colonist: ColonistProfile, opts: ChatAgentOptions): string {
+  const settlement = opts.settlementNoun ?? 'colony';
+  const popNoun = opts.populationNoun ?? 'colonist';
+  const roster = (opts.roster ?? []).filter(e => e.agentId !== colonist.agentId);
+  return buildInstructions(colonist, settlement, popNoun, roster, opts.labels);
 }
 
 /**
