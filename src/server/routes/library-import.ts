@@ -23,8 +23,19 @@ import type { ParacosmServerMode } from '../server-mode.js';
 
 const MAX_BUNDLE_SIZE = 50;
 
+/** A bundle id as this route gives one: `bundle_` and a random UUID. */
+const BUNDLE_ID_PATTERN = /^bundle_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 const SingleBodySchema = z.object({ artifact: z.unknown() });
-const BundleBodySchema = z.object({ artifacts: z.array(z.unknown()).min(1).max(MAX_BUNDLE_SIZE) });
+/**
+ * `addToBundle` puts the runs in a bundle an earlier request made: the
+ * Studio sends a bundle over the request body limit in parts, and each
+ * part after the first names the bundle the first one got.
+ */
+const BundleBodySchema = z.object({
+  artifacts: z.array(z.unknown()).min(1).max(MAX_BUNDLE_SIZE),
+  addToBundle: z.string().regex(BUNDLE_ID_PATTERN).optional(),
+});
 
 export interface LibraryImportDeps {
   runHistoryStore: RunHistoryStore;
@@ -76,7 +87,7 @@ export async function handleLibraryImport(
       // pass. Zod strips by default; the schema acts only as a gate.
       artifacts.push(parsed.data.artifacts[i] as RunArtifact);
     }
-    const bundleId = `bundle_${randomUUID()}`;
+    const bundleId = parsed.data.addToBundle ?? `bundle_${randomUUID()}`;
     const result: { runIds: string[]; alreadyExisted: boolean[] } = { runIds: [], alreadyExisted: [] };
     for (let i = 0; i < artifacts.length; i += 1) {
       const artifact = artifacts[i];
