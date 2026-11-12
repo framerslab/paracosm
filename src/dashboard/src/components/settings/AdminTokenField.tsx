@@ -11,7 +11,7 @@ import styles from './AdminTokenField.module.scss';
 const STATUS: Record<AdminTokenState, string> = {
   none: 'No token is saved in this browser.',
   stored: 'A token is saved in this browser. It is not shown back.',
-  held: 'This browser blocks storage, so the token is kept only until this page reloads.',
+  held: 'This browser could not store the token, so it is kept only until this page reloads.',
 };
 
 /**

@@ -9,23 +9,26 @@
  * nowhere else: never in a URL, never in a log line, never on another
  * request.
  *
- * Every storage access is guarded. Where the browser blocks storage, the
- * token is held in memory for this page load, so the admin calls work until
- * a reload.
+ * Every storage access is guarded. Where the browser cannot store the
+ * token (storage blocked, or no room left), it is held in memory for this
+ * page load, so the admin calls work until a reload. A held token is the
+ * last one entered, so it is read before anything an earlier save stored.
  */
 
+/** The localStorage key the token is kept under. The admin calls reach it through this module only. */
 export const ADMIN_TOKEN_STORAGE_KEY = 'paracosm:adminToken';
+/** The request header the server compares with its ADMIN_TOKEN. */
 export const ADMIN_TOKEN_HEADER = 'X-Admin-Token';
 
 /** Where a person enters the token. Shown after the server refuses a call. */
 export const ADMIN_TOKEN_WHERE = 'Enter it in Settings, under Admin Token, and press Save.';
 
-/** `stored`: in this browser's storage. `held`: storage is blocked, in memory until a reload. */
+/** `stored`: in this browser's storage. `held`: the browser could not store it, in memory until a reload. */
 export type AdminTokenState = 'none' | 'stored' | 'held';
 
 const CHANGED_EVENT = 'paracosm:admin-token-changed';
 
-/** The token when the browser refused to store it; empty otherwise. */
+/** The token when the browser could not store it; empty otherwise. */
 let held = '';
 
 function announce(): void {
@@ -42,20 +45,24 @@ function readStored(): string {
   }
 }
 
-/** The token to send, or an empty string when none was entered. */
+/**
+ * The token to send, or an empty string when none was entered. A held
+ * token comes first: it was entered after whatever storage still has.
+ */
 export function readAdminToken(): string {
-  return readStored() || held;
+  return held || readStored();
 }
 
+/** Where the token {@link readAdminToken} returns is kept, or `none` when there is none. */
 export function adminTokenState(): AdminTokenState {
-  if (readStored()) return 'stored';
-  return held ? 'held' : 'none';
+  if (held) return 'held';
+  return readStored() ? 'stored' : 'none';
 }
 
 /**
  * Keeps `value`, trimmed, for the admin calls. Returns `stored` when the
- * browser stored it and `held` when storage is blocked and it lasts until
- * the page reloads. An empty value clears the token.
+ * browser stored it and `held` when the browser could not and it lasts
+ * until the page reloads. An empty value clears the token.
  */
 export function saveAdminToken(value: string): AdminTokenState {
   const token = value.trim();
@@ -68,15 +75,30 @@ export function saveAdminToken(value: string): AdminTokenState {
     window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
     stored = true;
   } catch {
-    // Storage blocked: hold it for this page load.
+    // Storage blocked or full: hold it for this page load, and drop an
+    // older token storage may still have, so a reload does not bring that
+    // one back in place of this one.
+    try {
+      window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    } catch {
+      // Storage blocked: there is nothing stored to remove.
+    }
   }
   held = stored ? '' : token;
   announce();
   return stored ? 'stored' : 'held';
 }
 
-/** Drops the token from this browser and from this page. */
-export function clearAdminToken(): void {
+/**
+ * Drops the token from this browser and from this page.
+ *
+ * A call the server refused passes `refused`, the token it was sent with
+ * (an empty string when it was sent with none). The token is then dropped
+ * only while it is still that one: a token entered after the call went out
+ * is not the one the server refused, and stays.
+ */
+export function clearAdminToken(refused?: string): void {
+  if (refused !== undefined && readAdminToken() !== refused) return;
   held = '';
   try {
     window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);

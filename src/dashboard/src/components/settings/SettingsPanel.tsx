@@ -852,8 +852,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         </fieldset>
       )}
 
-      {/* Scenario Editor: create, import, export, compile */}
-      <ScenarioEditor />
+      {/* Scenario Editor: create, import, export, compile. Its own
+          /admin-config answer also sets the Admin Token field's gate above. */}
+      <ScenarioEditor onAdminWrite={setAdminWrite} />
 
       {/* Launch */}
       <div className={`responsive-stack ${styles.launchRow}`}>

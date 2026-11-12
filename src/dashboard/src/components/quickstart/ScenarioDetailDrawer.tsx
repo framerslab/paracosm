@@ -372,7 +372,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
         headers: { [ADMIN_TOKEN_HEADER]: adminToken },
       });
       if (res.status === 401) {
-        clearAdminToken();
+        clearAdminToken(adminToken);
         setDeleteError(`Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`);
         setAdminToken(null);
         return;

@@ -427,17 +427,21 @@ function AppContent() {
     // prompt: enter the token once in Settings (the Admin Token field,
     // kept under the localStorage key `paracosm:adminToken`), and every
     // subsequent Wipe All click does both the local + server pass automatically.
+    //
+    // The token is read before the question, so the question says what
+    // this click does: with a token saved, the server wipe below runs too.
+    const adminToken = readAdminToken();
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
+      (adminToken
+        ? 'An admin token is saved in this browser, so this also asks the server to delete its stored runs, saved sessions and run output files, for every visitor.\n\n'
+        : 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n') +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
-
-    const adminToken = readAdminToken();
 
     if (!adminToken) {
       // No admin context. Tell the user what we did + did NOT do, and
@@ -466,8 +470,9 @@ function AppContent() {
         // Stored token no longer matches the server's ADMIN_TOKEN.
         // Drop it so the next entry isn't fighting a stale one, then
         // surface the failure as info (local already cleared) with
-        // where the token is entered.
-        clearAdminToken();
+        // where the token is entered. A token entered since the request
+        // went out is not the refused one, and stays.
+        clearAdminToken(adminToken);
         toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
       } else if (res.status === 403) {
         // Server has admin-write disabled. Local clear stands.
