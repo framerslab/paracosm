@@ -338,3 +338,49 @@ test('a Studio bundle that fails part way reports which runs were imported and w
     await stop(served);
   }
 });
+
+/**
+ * The page's `fetch` when the server stores the first import request but
+ * its reply never reaches the page: the connection drops after the server
+ * answered, and the page sees a network error.
+ */
+async function withFirstImportReplyLost<T>(base: string, body: () => Promise<T>): Promise<T> {
+  return withPageFetch(base, [], async () => {
+    const pageFetch = globalThis.fetch;
+    let lost = false;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const res = await pageFetch(input, init);
+      if (!lost && input === '/api/v1/library/import') {
+        lost = true;
+        await res.arrayBuffer();
+        throw new TypeError('Failed to fetch');
+      }
+      return res;
+    }) as typeof fetch;
+    try {
+      return await body();
+    } finally {
+      globalThis.fetch = pageFetch;
+    }
+  });
+}
+
+test('a Studio bundle whose first part the server stored but whose reply was lost goes in one bundle when promoted again', async () => {
+  const bundle = await overLimitBundle('reply-lost');
+  const served = await serve();
+  try {
+    const promote = studioPromote();
+    const firstTry = await withFirstImportReplyLost(served.base, () => promote.promoteBundle(bundle));
+    assert.equal(firstTry, null, 'the first promote saw no reply');
+    const madeBundle = (await recordOf(served.base, bundle[0].metadata.runId))?.bundleId;
+    assert.ok(madeBundle, 'the server stored the first part in a bundle');
+    assert.ok((await memberCount(served.base, madeBundle)) < bundle.length, 'the first promote stopped after its first part');
+
+    const secondTry = await withPageFetch(served.base, [], () => promote.promoteBundle(bundle));
+    assert.ok(secondTry, 'the second promote imported the rest');
+    assert.equal(secondTry.bundleId, madeBundle, 'into the bundle the first part went in');
+    assert.equal(await memberCount(served.base, madeBundle), bundle.length, 'one bundle holds every run');
+  } finally {
+    await stop(served);
+  }
+});
