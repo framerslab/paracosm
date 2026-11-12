@@ -54,11 +54,62 @@ export function parseResponse(text: string): PoliticsFn | null {
     runArrowSync<[string, string], Record<string, number> | null>(cleaned, [category, outcome]);
 }
 
-function smokeTest(fn: PoliticsFn): void {
-  const political = fn('political', 'risky_success');
-  if (political !== null && typeof political !== 'object') {
-    throw new Error('Political result must be null or object');
+const OUTCOMES = ['risky_success', 'risky_failure', 'conservative_success', 'conservative_failure'];
+
+const NO_POLITICS_KEYS_REASON = 'This scenario declares no politics keys; the hook must return null';
+
+/**
+ * The categories of the scenario's `effects`, in either form: the keys of
+ * the object form, or the `categoryDefaults` keys of each entry of the
+ * array form a saved compile has. This is how the director's prompt reads
+ * them (`generate-director.ts`), except that an array entry that is not an
+ * object gives no category here instead of throwing.
+ */
+function effectCategories(scenarioJson: Record<string, any>): string[] {
+  const effects = scenarioJson.effects ?? {};
+  return typeof effects === 'object' && !Array.isArray(effects)
+    ? Object.keys(effects)
+    : (effects as any[]).flatMap?.((e: any) => Object.keys(e?.categoryDefaults ?? {})) ?? [];
+}
+
+/**
+ * The check a generated politics hook must pass before it is kept.
+ *
+ * The turn loop bounds what one decision's adopted effects move by the
+ * largest number each key has in a category table or in what the politics
+ * hook returns for any category and outcome (`policyEffectLimits` in
+ * `src/runtime/orchestrator/commander-policy.ts`), whatever the key. In a
+ * scenario that declares politics keys, one call must give null or an
+ * object, as before. In a scenario that declares none, the kernel drops
+ * every number the hook returns at an outcome, so those numbers could act
+ * only by lifting a limit: the hook is called for `political` and for every
+ * category of `effects` with each of the four outcomes, and must return
+ * null or an object with no key every time.
+ */
+function buildSmokeTest(scenarioJson: Record<string, any>): (fn: PoliticsFn) => void {
+  const politicsKeys = Object.keys((scenarioJson.world?.politics ?? {}) as Record<string, unknown>);
+  if (politicsKeys.length > 0) {
+    return (fn) => {
+      const political = fn('political', 'risky_success');
+      if (political !== null && typeof political !== 'object') {
+        throw new Error('Political result must be null or object');
+      }
+    };
   }
+  const categories = [...new Set(['political', ...effectCategories(scenarioJson)])];
+  return (fn) => {
+    for (const category of categories) {
+      for (const outcome of OUTCOMES) {
+        const result = fn(category, outcome);
+        if (result !== null && typeof result !== 'object') {
+          throw new Error('Political result must be null or object');
+        }
+        if (result !== null && Object.keys(result).length > 0) {
+          throw new Error(NO_POLITICS_KEYS_REASON);
+        }
+      }
+    }
+  };
 }
 
 const fallback: PoliticsFn = () => null;
@@ -77,7 +128,7 @@ export async function generatePoliticsHook(
     systemCacheable: buildSystemBlock(scenarioJson),
     prompt: userPrompt,
     parse: parseResponse,
-    smokeTest,
+    smokeTest: buildSmokeTest(scenarioJson),
     fallback,
     // Valid arrow literal so the cached source survives a parse round-
     // trip. See source-validation.ts.
