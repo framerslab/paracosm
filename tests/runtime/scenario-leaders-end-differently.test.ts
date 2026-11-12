@@ -42,8 +42,13 @@
  * records differ: Mars Genesis at the hosted shape, with the dead as well,
  * and Lunar Outpost and the deep-ocean station at their own population and
  * turns. A scenario compiled from a seed draft holds none of the scores its
- * draft declares (#257), so its row counts the verdict's score block. Each
- * floor sits a margin under the count read in CI, which stands beside it.
+ * draft declares (#257), so its row counts the verdict's score block. That
+ * row's scenario comes from the real seed compile, `compileFromSeed`, on a
+ * stub model that answers with the draft, an extraction naming two crisis
+ * categories and no hook (tests/engine/compiler/helpers/stub-model-compile.ts).
+ * Neither category names a table, so its events move morale by the
+ * registry's fallback. Each floor sits a margin under the count read in CI,
+ * which stands beside it.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -58,11 +63,11 @@ import { EffectRegistry } from '../../src/engine/registries/effects.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { compileScenario } from '../../src/engine/compiler/index.js';
-import { DraftScenarioSchema } from '../../src/engine/compiler/compile-from-seed.js';
 import { applyOutcomeEffects } from '../../src/runtime/orchestrator/outcome-effects.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
 import { scenarioKeyPersonnel } from '../../src/cli/sim-config.js';
 import { differingStateRows, formatScoreValue, scenarioScoreRows } from '../../src/cli/verdict-scores.js';
+import { compileSeedOnStub, loadCompilerFixture } from '../engine/compiler/helpers/stub-model-compile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scenariosDir = resolve(here, '../../scenarios');
@@ -166,20 +171,12 @@ const fromDisk = (id: string) => {
 const noHook = async () => 'not a hook';
 /** The Digital Twin, compiled as the server compiles it before a run. */
 const twin = await compileScenario(JSON.parse(readFileSync(resolve(scenariosDir, 't2d-glp1-protocol.json'), 'utf-8')), { cache: false, generateText: noHook });
-/** A seed draft, compiled as compile-from-seed compiles one (the draft of tests/engine/progression-time-scale.test.ts). */
-const seedCompiled = await compileScenario(DraftScenarioSchema.parse({
-  id: 'orchard-seasons',
-  labels: { name: 'Orchard', populationNoun: 'growers', settlementNoun: 'orchard', timeUnitNoun: 'season' },
-  setup: { defaultTurns: 4, defaultPopulation: 20, defaultStartTime: 1, yearsPerTimeUnit: 0.25 },
-  departments: [
-    { id: 'growing', label: 'Growing', role: 'Head Grower', instructions: 'Weigh the harvest against the soil.' },
-    { id: 'market', label: 'Market', role: 'Market Lead', instructions: 'Weigh prices against the stock.' },
-  ],
-  metrics: [
-    { id: 'harvest', format: 'number' },
-    { id: 'soil-health', format: 'percent' },
-  ],
-}) as unknown as Record<string, unknown>, { cache: false, generateText: noHook });
+/**
+ * A seed draft (the draft of tests/engine/progression-time-scale.test.ts), compiled by the real
+ * `compileFromSeed` on a stub model that returns the draft, the extraction and no hook. No network
+ * is reached; the real `fetch` is back before the rows run.
+ */
+const seedCompiled = (await compileSeedOnStub({ draft: loadCompilerFixture('draft-orchard-bare.json'), hooks: 'none' })).scenario;
 
 /** The shape a hosted run has: at most 30 people and six turns. */
 const hosted = (sc: ScenarioPackage): Shape => ({ population: Math.min(sc.setup?.defaultPopulation ?? 30, 30), turns: Math.min(sc.setup?.defaultTurns ?? 6, 6) });

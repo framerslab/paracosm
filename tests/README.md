@@ -11,13 +11,20 @@ tests/
   cli/                  CLI option parsers, server endpoints, sim config
   engine/
     compiler/           Scenario compiler hook generation + integration
+      helpers/          The real seed compile, and a run of what it compiles,
+                        on a stub model (no network, no paid call)
     core/               Deterministic kernel, RNG, progression, golden runs
     lunar/              Lunar Outpost scenario integration
     mars/               Mars Genesis scenario hooks (politics, milestones,
                         names, prompts, reactions, fingerprint, etc.)
     *.test.ts           Engine surface: types, registries, taxonomy
   runtime/              Orchestrator helpers, agent memory, batch runner
+    helpers/            A stand-in for the OpenAI API at the wire, and a
+                        Mars Genesis run through the turn loop on it
     research/           Scenario research bundle lookup; each run's own research memory
+  fixtures/             Recorded runs, replies and scenarios the tests read
+    compiler/           Drafts, an extraction and a saved compiled scenario for
+                        the seed compile; its README says which are recordings
 ```
 
 Dashboard component tests stay colocated under
