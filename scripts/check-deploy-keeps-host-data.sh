@@ -23,7 +23,9 @@
 #     or holds a . or .. part: with --delete, a copy into the host's / removes
 #     everything the build does not hold;
 #   - for an accepted APP_DIR, the rsync destination or the directory the
-#     remote script changes into is not that APP_DIR.
+#     remote script changes into is not that APP_DIR;
+#   - the remote script changes APP_DIR in the host's environment: the server
+#     pm2 starts reads APP_DIR for where it keeps its state.
 #
 # Usage: bash scripts/check-deploy-keeps-host-data.sh [path/to/deploy.yml]
 set -euo pipefail
@@ -176,6 +178,7 @@ cat >"$STUB_LOG/ssh.stdin"
 STUB
 chmod +x "$stub_bin/rsync" "$stub_bin/ssh"
 server_ip=203.0.113.10
+host_app_dir=/srv/paracosm-host-state
 
 # Runs the step as GitHub runs a run block (bash -e) with APP_DIR set to $2,
 # or unset when $2 is the word UNSET; the stubs log into $1.
@@ -227,12 +230,20 @@ for app_dir in /srv/paracosm-check /srv/paracosm-check/; do
     continue
   fi
   # The remote script, run up to its first cd, which records its argument
-  # and stops the script there.
-  { printf 'cd() { printf "%%s\\n" "$1" >"%s"; exit 0; }\n' "$log/remote-cd"
-    cat "$log/ssh.stdin"; } | env -i PATH="$PATH" bash -s >"$log/remote-output" 2>&1 || true
+  # and the APP_DIR its children would get, and stops the script there. The
+  # host's shell starts with APP_DIR set to another directory, as a host
+  # that keeps the server's state elsewhere would have it.
+  { printf 'cd() { printf "%%s\\n" "$1" >"%s"; printenv APP_DIR >"%s" || :; exit 0; }\n' \
+      "$log/remote-cd" "$log/remote-app-dir"
+    cat "$log/ssh.stdin"; } | env -i PATH="$PATH" APP_DIR="$host_app_dir" bash -s >"$log/remote-output" 2>&1 || true
   remote_dir=$(cat "$log/remote-cd" 2>/dev/null || true)
   if [ "$remote_dir" != "$expected" ]; then
     echo "::error file=$workflow::With APP_DIR='$app_dir' rsync copies into $expected but the remote script changes into '$remote_dir'."
+    failed=1
+  fi
+  remote_app_dir=$(cat "$log/remote-app-dir" 2>/dev/null || true)
+  if [ "$remote_app_dir" != "$host_app_dir" ]; then
+    echo "::error file=$workflow::With APP_DIR='$app_dir' the remote script sets the host's APP_DIR to '$remote_app_dir' in place of '$host_app_dir', and the server it starts reads APP_DIR for its state."
     failed=1
   fi
 done
