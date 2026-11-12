@@ -581,7 +581,8 @@
 
 .deleteError {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  // 13px: a refused delete names where the admin token is entered.
+  font-size: var(--font-md);
   color: var(--rust);
   margin: 0;
   line-height: 1.4;

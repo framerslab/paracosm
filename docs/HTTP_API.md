@@ -352,6 +352,8 @@ The memory store holds a scenario of at most 256 KiB of JSON (`MEMORY_SCENARIO_M
 
 With `saveToDisk: true` the server writes the scenario to `<scenarios folder>/<id>.json`, where the boot loader reads it after a restart, and, when it is runnable, puts it in the catalog every visitor reads; it does not also hold it in memory. The disk write takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN` (compared in constant time). Its id must be 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit, and must name one file directly in the scenarios folder. A refused request stores nothing, in memory or on disk.
 
+The dashboard sends the header from the token an operator enters in Settings, in the Admin Token field. The field shows only when `GET /admin-config` answers `adminWrite: true`. It is a password field with Save and Clear; the token is kept in that browser's localStorage under `paracosm:adminToken` (in memory until the page reloads, where the browser cannot store it) and is sent as `X-Admin-Token` on this disk write, on `POST /admin/data/wipe` and on `DELETE /admin/scenarios/:id` only. A `401` from any of the three clears the token it refused and names the field in its message. With a token saved, the dashboard's Clear local data also sends `POST /admin/data/wipe`, and its question says so before anything is cleared.
+
 **Request body**
 
 ```json

@@ -1,0 +1,98 @@
+// The admin token row in Settings. Its controls repeat the panel's own:
+// the input is SettingsPanel's .input, the buttons are the scenario
+// editor's .actionBtn and its amber variant, the label is the settings
+// label. Text is 13px or more.
+
+.intro {
+  font-size: var(--font-md);
+  color: var(--text-2);
+  margin: 0 0 12px;
+  line-height: 1.7;
+
+  code {
+    font-family: var(--mono);
+    font-size: inherit;
+    color: var(--text-1);
+  }
+}
+
+.label {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--font-md);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 4px;
+}
+
+// One row at every width: the label sits above it, the input takes what
+// the two buttons leave, and nothing wraps.
+.row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.input {
+  // No width of its own, so the row never asks its panel for more room
+  // than the panel has; it grows into what the buttons leave.
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  background: var(--bg-card);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: var(--sans);
+  font-size: var(--font-lg);
+  box-sizing: border-box;
+}
+
+.btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: var(--font-md);
+  font-weight: 700;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: all 0.2s;
+  background: var(--bg-card);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  box-sizing: border-box;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn.amber {
+  color: var(--amber);
+  border: 1px solid var(--amber-dim, var(--border));
+}
+
+.status {
+  font-size: var(--font-md);
+  color: var(--text-3);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+// Phone: 44px targets, as the panel's Add button has.
+@media (max-width: 480px) {
+  .input,
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn {
+    padding: 8px 14px;
+  }
+}
