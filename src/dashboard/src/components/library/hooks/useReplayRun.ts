@@ -20,12 +20,22 @@ export type ReplayResult =
   | { kind: 'diverged'; divergence: string }
   | { kind: 'error'; error: string };
 
-export function useReplayRun(): {
+/**
+ * `onCounted` is called once for each replay the server answered with a
+ * match or a divergence: it counts those in the run's replay counters
+ * before it answers. The call comes from the request itself, so it still
+ * arrives when the panel that started the replay is gone by then (the
+ * drawer was closed while the server replayed).
+ */
+export function useReplayRun(onCounted?: () => void): {
   result: ReplayResult;
   replay: (artifact: RunArtifact) => Promise<void>;
   reset: () => void;
 } {
   const [result, setResult] = React.useState<ReplayResult>({ kind: 'idle' });
+  // The newest callback, read when a request answers.
+  const onCountedRef = React.useRef(onCounted);
+  onCountedRef.current = onCounted;
 
   const replay = React.useCallback(async (artifact: RunArtifact) => {
     setResult({ kind: 'inflight' });
@@ -60,6 +70,7 @@ export function useReplayRun(): {
         return;
       }
       const body = await res.json() as { matches: boolean; divergence?: string };
+      onCountedRef.current?.();
       if (body.matches) {
         setResult({ kind: 'match' });
       } else {

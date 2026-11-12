@@ -191,9 +191,9 @@ export interface MetricDefinition {
   id: string;
   label: string;
   /**
-   * Path into the world snapshot, e.g. `metrics.population`. A
-   * seed-compiled draft declares only id and format; readers fall back
-   * to `metrics.<id>`.
+   * Path into the world snapshot, e.g. `metrics.population`. A scenario
+   * compiled from a seed draft before the compiler wrote a world for it
+   * declares only id and format; readers fall back to `metrics.<id>`.
    */
   source: string;
   format: 'number' | 'percent' | 'currency' | 'duration';

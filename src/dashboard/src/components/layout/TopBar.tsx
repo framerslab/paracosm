@@ -293,36 +293,63 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
               />
             </div>
             {sse.validationFallbacks.length > 0 && (() => {
-              const total = sse.validationFallbacks.reduce((sum, b) => sum + b.count, 0);
+              // A fallback replaced a reply with the empty skeleton; a
+              // salvage kept the model's own reply without the effect keys
+              // the run does not hold. The pill counts both and names each.
+              const fallbacks = sse.validationFallbacks.filter(b => !b.salvaged);
+              const salvages = sse.validationFallbacks.filter(b => b.salvaged);
+              const fellBack = fallbacks.reduce((sum, b) => sum + b.count, 0);
+              const kept = salvages.reduce((sum, b) => sum + b.count, 0);
+              const total = fellBack + kept;
+              const fellBackLabel = `${fellBack} validation fallback${fellBack === 1 ? '' : 's'}`;
+              const keptLabel = `${kept} ${kept === 1 ? 'reply' : 'replies'} kept without the keys the run does not hold`;
+              const label = [fellBack > 0 ? fellBackLabel : '', kept > 0 ? keptLabel : ''].filter(Boolean).join(', ');
+              const rows = (buckets: typeof fallbacks) => (
+                <div className={styles.fallbackBlock}>
+                  {buckets.map(b => (
+                    <div key={b.schemaName} className={styles.fallbackRow}>
+                      <span>{b.schemaName}</span>
+                      <span className={styles.fallbackRowMeta}>
+                        {b.count}× {b.lastSite ? `(last: ${b.lastSite})` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
               return (
                 <Tooltip
                   content={
                     <div>
-                      <div className={styles.tooltipTitle}>
-                        ⚠ {total} validation fallback{total === 1 ? '' : 's'}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        An LLM call returned a JSON payload that failed zod
-                        schema validation. After retries were exhausted the
-                        orchestrator continued with an empty skeleton so the
-                        sim wouldn't abort mid-turn. Numbers here let you
-                        spot which schema is misbehaving.
-                      </div>
-                      <div className={styles.fallbackBlock}>
-                        {sse.validationFallbacks.map(b => (
-                          <div key={b.schemaName} className={styles.fallbackRow}>
-                            <span>{b.schemaName}</span>
-                            <span className={styles.fallbackRowMeta}>
-                              {b.count}× {b.lastSite ? `(last: ${b.lastSite})` : ''}
-                            </span>
+                      {fellBack > 0 && (
+                        <div style={{ marginBottom: kept > 0 ? 8 : 0 }}>
+                          <div className={styles.tooltipTitle}>⚠ {fellBackLabel}</div>
+                          <div style={{ marginBottom: 8 }}>
+                            An LLM call returned a JSON payload that failed zod
+                            schema validation. After retries were exhausted the
+                            orchestrator continued with an empty skeleton so the
+                            sim wouldn't abort mid-turn. Numbers here let you
+                            spot which schema is misbehaving.
                           </div>
-                        ))}
-                      </div>
+                          {rows(fallbacks)}
+                        </div>
+                      )}
+                      {kept > 0 && (
+                        <div>
+                          <div className={styles.tooltipTitle}>⚠ {keptLabel}</div>
+                          <div style={{ marginBottom: 8 }}>
+                            A reply failed schema validation only on effect keys
+                            the run does not hold. After retries the run kept the
+                            model's own reply with those keys dropped; nothing
+                            was replaced with a skeleton.
+                          </div>
+                          {rows(salvages)}
+                        </div>
+                      )}
                     </div>
                   }
                 >
                   <span
-                    aria-label={`${total} validation fallback${total === 1 ? '' : 's'}`}
+                    aria-label={label}
                     className={styles.fallbackPill}
                   >
                     <span aria-hidden="true">⚠</span>

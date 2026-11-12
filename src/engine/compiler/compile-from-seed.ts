@@ -2,25 +2,60 @@
  * Prompt/document/URL to paracosm scenario compiler (Quickstart).
  *
  * Given seed text (optionally with a domain hint), an LLM proposes a
- * scenario JSON draft against `DraftScenarioSchema`. The draft routes
- * into the existing `compileScenario` pipeline so the `seedText` research
- * grounding + hook generation still fire. JSON is the canonical contract;
- * this module only provides a convenience entry for callers that start
- * from unstructured source material.
+ * scenario draft against `DraftScenarioSchema`: the domain's nouns, its
+ * departments, its metrics with each one's start and range, and the
+ * category tables its events use. `seedDraftToScenarioJson` turns the
+ * draft into a scenario JSON whose world holds every declared score, and
+ * that JSON routes into the existing `compileScenario` pipeline so the
+ * `seedText` research grounding + hook generation still fire. JSON is the
+ * canonical contract; this module only provides a convenience entry for
+ * callers that start from unstructured source material.
  *
  * @module paracosm/compiler/compile-from-seed
  */
 import { z } from 'zod';
 import { compileScenario } from './index.js';
+import { seedDraftToScenarioJson } from './seed-draft-world.js';
+import { validateSeedWorld } from './validate.js';
 import type { CompileOptions } from './types.js';
 import type { ScenarioPackage } from '../types.js';
 import { apiKeyForProvider, resolveProviderFromCredentials } from '../provider/credentials.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 
 /**
+ * A field that never fails the draft: a value of the wrong type reads as
+ * absent, and the normalizer gives the field its default. Optional on the
+ * outside, so the provider's strict schema lets the model leave it out;
+ * `catch` on the inside, so a wrong type on a route with no provider-side
+ * schema does not cost a draft call.
+ */
+const lenientString = () => z.string().optional().catch(undefined).optional();
+/** As {@link lenientString}, for a number. */
+const lenientNumber = () => z.number().optional().catch(undefined).optional();
+
+/** One entry of a category table: the change an event of that kind brings to one metric. */
+const DraftEffectEntrySchema = z.object({
+  metric: z.string(),
+  change: z.number(),
+});
+
+/** One category table. An array of these, not a record: a record takes the schema out of strict mode. */
+const DraftEffectTableSchema = z.object({
+  category: z.string(),
+  // A malformed entry reads as undefined and the normalizer drops it; the
+  // table's other entries stay.
+  entries: z.array(DraftEffectEntrySchema.optional().catch(undefined)),
+});
+
+/**
  * The subset of a scenario JSON the LLM is asked to propose. Lean on
  * purpose: the compiler's existing pipeline fills in defaults, hooks,
  * and seed-ingested citations; we only need the domain-specific fields.
+ *
+ * The fields that say where a metric starts, what bounds it and what its
+ * events bring carry no size or range check here. Every rule on them
+ * lives in `seedDraftToScenarioJson`, which repairs and never rejects, so
+ * none of them can fail a draft.
  */
 export const DraftScenarioSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[a-z0-9-]+$/, 'kebab-case ids only'),
@@ -55,7 +90,15 @@ export const DraftScenarioSchema = z.object({
     id: z.string().min(2).max(32).regex(/^[a-z0-9-]+$/),
     format: z.enum(['number', 'percent', 'currency']).default('number'),
     better: z.enum(['higher', 'lower']).optional(),
+    label: lenientString(),
+    unit: lenientString(),
+    initial: lenientNumber(),
+    min: lenientNumber(),
+    max: lenientNumber(),
   })).min(2).max(12),
+  // Lenient as the metric fields are. A malformed table reads as undefined
+  // and the normalizer drops it; the other tables stay.
+  effects: z.array(DraftEffectTableSchema.optional().catch(undefined)).optional().catch(undefined).optional(),
   theme: z.string().min(10).max(400).optional(),
 });
 
@@ -99,10 +142,27 @@ DEPARTMENTS (2-8 entries)
 - role: 2-80 chars short title.
 - instructions: 10-400 chars MAX. Keep terse and action-oriented.
 
-METRICS (2-12 entries)
+METRICS (2-12 entries, the most important first: the first four show in the header)
 - format: one of "number", "percent", "currency".
 - better (optional): "lower" for a metric that improves as it falls (a churn rate, a defect count, a risk). Omit it for the rest.
+- label: 2-48 chars, the name a reader sees ("Soil health").
+- initial: where the metric stands on day one, a real figure for this domain.
+  - percent: the percentage itself, on a 0 to 100 scale. 65 means 65%. Do NOT write a fraction (0.65).
+  - number: the figure in its own unit (a stock of 500, an index of 40 out of 100). Start it at 1 or more, or at 0 for a count that starts empty; write a share or a rate as a percent metric.
+  - currency: the amount in the scenario's currency (2400000).
+- unit (optional, number and currency only): at most 16 chars ("tonnes", "kW", "points"). A percent needs none.
+- min, max (optional, number and currency only): a floor or a ceiling the metric cannot pass. Give max only where the metric truly has one (a score out of 100). Leave max out for a stock, a count or an amount that can keep growing.
+- The ids "population" (the head count) and "morale" (the mood, a percent) name values the engine keeps itself. Declare them only if the leader steers on them.
 - Pick the metrics the leader actually steers on, not every available stat.
+
+EFFECTS (3-8 entries): the kinds of event this world faces, and what each brings
+- category: kebab-case, 2-32 chars, a kind of event ("supply", "regulation", "market", "safety").
+- entries (1-4): what an event of this kind brings when the response is ordinary and competent.
+  - metric: the id of one of your metrics, or "morale". Not "population".
+  - change: the amount added to that metric, in the metric's own scale. Positive raises it, negative lowers it. For a percent metric write points (4 for four points).
+  - Keep each change modest: about a twentieth of where the metric starts, never more than a twelfth. A bold response that works brings about two and a half times as much. A failed response loses a gain, and makes a cost up to four times larger.
+  - Give each kind of event a trade-off where the domain has one: a gain on one metric and a cost on another. A cost is a change against the metric's better direction.
+- Every metric must appear in at least one category.
 
 LABELS
 - name: 2-80 chars, prose-y title for the scenario as a whole.
@@ -120,9 +180,13 @@ export interface CompileFromSeedOptions extends CompileOptions {
 
 /**
  * Compile a scenario from seed source material. Calls the LLM to
- * propose a `DraftScenario`, validates it via Zod, then routes into
- * the existing `compileScenario` pipeline with `seedText` threading
- * through for research grounding.
+ * propose a `DraftScenario`, validates it via Zod, turns it into a
+ * scenario JSON whose world holds every declared score
+ * (`seedDraftToScenarioJson`), then routes into the existing
+ * `compileScenario` pipeline with `seedText` threading through for
+ * research grounding. The categories the knowledge bundle maps are then
+ * the category tables' keys, so every event the director is offered has
+ * a table.
  *
  * Retries up to 3 times on Zod-validation failure. The first failure
  * usually surfaces as an off-bound numeric (defaultPopulation pasted
@@ -150,7 +214,7 @@ export async function compileFromSeed(
   const model = options.draftModel ?? options.model ?? 'claude-sonnet-4-6';
 
   const hint = input.domainHint ? `\n\nDomain hint: ${input.domainHint}` : '';
-  const prompt = `Seed source material:\n"""\n${input.seedText}\n"""${hint}\n\nRespond with a scenario JSON that matches DraftScenarioSchema. Remember: defaultPopulation must be 10-1000 (representative sample, NOT the real-world headcount from the seed). All ids must be kebab-case. Department instructions must be 10-400 chars.`;
+  const prompt = `Seed source material:\n"""\n${input.seedText}\n"""${hint}\n\nRespond with a scenario JSON that matches DraftScenarioSchema. Remember: defaultPopulation must be 10-1000 (representative sample, NOT the real-world headcount from the seed). All ids must be kebab-case. Department instructions must be 10-400 chars. Give every metric its starting value, and list the kinds of event with what each brings.`;
 
   let result: Awaited<ReturnType<typeof generateValidatedObject<typeof DraftScenarioSchema>>>;
   try {
@@ -173,12 +237,35 @@ export async function compileFromSeed(
     throw wrapped;
   }
 
-  // Route the validated draft into the existing compiler with
-  // seedText grounding so the research + hook-generation stages
-  // still pull citations and generate TypeScript.
-  return compileScenario(result.object as unknown as Record<string, unknown>, {
+  // The draft becomes a scenario JSON that declares a world. Each default
+  // and repair prints one line, as seed ingestion prints its own. The check
+  // holds that JSON to the seed path's rules; an error there is a fault in
+  // the normalizer, so it is printed and the compile goes on.
+  const { scenario, notes } = seedDraftToScenarioJson(result.object);
+  for (const note of notes) console.log(`  [draft] ${note.message}`);
+  for (const error of validateSeedWorld(scenario).errors) console.log(`  [draft] invariant: ${error}`);
+
+  // Route the scenario JSON into the existing compiler with seedText
+  // grounding so the research + hook-generation stages still pull
+  // citations and generate TypeScript.
+  const compiled = await compileScenario(scenario, {
     ...options,
     seedText: input.seedText,
     seedUrl: input.sourceUrl,
   });
+
+  // The director is told its category must be one the knowledge bundle
+  // maps, and an event reaches a table by exact key. The seed extraction
+  // adds categories in free text, which no table carries, so the mapping is
+  // rebuilt on the tables' keys: each keeps the topics it was left with, a
+  // key with none takes every topic (a milestone reads research by its
+  // category alone), and every other key goes. The topics are untouched.
+  const merged = compiled.knowledge?.categoryMapping ?? {};
+  const topics = Object.keys(compiled.knowledge?.topics ?? {});
+  const categoryMapping: Record<string, string[]> = {};
+  for (const key of Object.keys(scenario.effects as Record<string, unknown>)) {
+    const kept = Object.prototype.hasOwnProperty.call(merged, key) ? merged[key] : [];
+    categoryMapping[key] = kept.length > 0 ? [...kept] : [...topics];
+  }
+  return { ...compiled, knowledge: { ...compiled.knowledge, categoryMapping } };
 }

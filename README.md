@@ -158,7 +158,7 @@ Six turns is enough to surface the contrast. The fingerprint is a stable hash ov
 
 ## Quickstart: prompt or document to running simulation
 
-`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed.
+`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed. The compiled scenario declares each score's start and range and the category tables its events use, so a run holds every score the scenario declares.
 
 ```typescript
 import { WorldModel } from 'paracosm';
