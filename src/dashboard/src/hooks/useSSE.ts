@@ -157,12 +157,20 @@ interface SSEState {
    */
   heldOwnRun: OwnRun | null;
   /**
-   * The key of the run the live feed opened (active_scenario's runKey), null
-   * before one arrives, after a reset and while the page shows a run loaded
-   * from a file. A reconnect replays the same key; a new run, a fork
-   * included, brings a new one. The Chat tab's threads belong to this run.
+   * The key of the run the page shows from the live feed (active_scenario's
+   * runKey), null before one arrives, after a reset and while the page shows
+   * a run loaded from a file or from its history. A reconnect replays the
+   * same key; a new run, a fork included, brings a new one. A run the page
+   * skips (one in another scenario) leaves it on the key of the run it
+   * shows. The Chat tab's threads belong to this run.
    */
   runKey: string | null;
+  /**
+   * How many runs the page has loaded from a file or from its history. A
+   * loaded run has no key, so this count tells one loaded run from the next;
+   * with runKey it names the run the page shows.
+   */
+  loadedRuns: number;
 }
 
 /**
@@ -200,7 +208,7 @@ export interface UseSSEOptions {
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
@@ -229,6 +237,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     ownRunScenarioId: null,
     heldOwnRun: null,
     runKey: null,
+    loadedRuns: 0,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -328,6 +337,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       ownRunScenarioId: null,
       heldOwnRun: null,
       runKey: null,
+      loadedRuns: prev.loadedRuns,
     }));
   }, []);
 
@@ -409,7 +419,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     const restoredFallbacks = rollupValidationFallbacks(events);
     shownFromFileRef.current = true;
     ownRunKeyRef.current = null;
-    setState({
+    setState(prev => ({
       status: 'connected',
       events,
       results: (results || []) as SSEState['results'],
@@ -426,7 +436,9 @@ export function useSSE(options: UseSSEOptions = {}) {
       ownRunScenarioId: null,
       heldOwnRun: null,
       runKey: null,
-    });
+      // Each load is a run of its own, the same scenario loaded twice included.
+      loadedRuns: prev.loadedRuns + 1,
+    }));
   }, []);
 
 /**
@@ -634,7 +646,8 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         // skips it, and with it the last events of the run it shows, so it
         // ends that run here instead of showing it running for good. A run
         // the page already saw finish stays as it is.
-        if (skipped()) {
+        const skip = skipped();
+        if (skip) {
           setState(prev => (prev.events.length > 0 && !prev.isComplete
             ? {
                 ...prev,
@@ -662,9 +675,9 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           }));
         }
         // The run the page holds now, which the Chat tab keys its threads on.
-        // A run loaded from a file stays the page's until a new run replaces
-        // it, above.
-        if (!shownFromFileRef.current) {
+        // A run the page skips leaves it on the run it shows, and a run loaded
+        // from a file stays the page's until a new run replaces it, above.
+        if (!skip && !shownFromFileRef.current) {
           setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
         }
       });

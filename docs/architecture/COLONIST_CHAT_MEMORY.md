@@ -83,7 +83,7 @@ Pool stats are returned in the `/results` API:
 
 ### 6. Threads in the Dashboard
 
-The Chat tab keeps one thread per person under their leader, and sends that thread's turns as `history` with each message. The threads belong to one run: the panel is keyed on the run's key (the `runKey` of the `active_scenario` event that opens the run), so a new run, the same scenario with the same leaders and people included, opens every thread empty with its greeting and sends no turn of the last run. A dropped connection replays the same key and keeps the threads. They live in the page's memory only, so a reload of the page starts them empty.
+The Chat tab keeps one thread per person under their leader, and sends that thread's turns as `history` with each message. The threads belong to one run: the panel is keyed on the run's key (the `runKey` of the `active_scenario` event that opens the run), so a new run, the same scenario with the same leaders and people included, opens every thread empty with its greeting and sends no turn of the last run. A run loaded from a file or from the page's history has no key and is a run of its own too: each load opens the threads empty. A dropped connection replays the same key and keeps the threads. A run the visitor starts in another scenario, from another tab, leaves the page on the run it shows (one still running ends as interrupted), and the threads with that run's people stay. They live in the page's memory only, so a reload of the page starts them empty.
 
 ## Why This Prevents Contradictions
 
