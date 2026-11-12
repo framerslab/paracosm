@@ -21,14 +21,16 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileScenario } from '../../../src/engine/compiler/index.js';
+import { writeCache } from '../../../src/engine/compiler/cache.js';
 import { createCompilerTelemetry } from '../../../src/engine/compiler/telemetry.js';
 import type { GenerateTextFn } from '../../../src/engine/compiler/types.js';
 import { EffectRegistry } from '../../../src/engine/registries/effects.js';
-import { policyEffectLimits } from '../../../src/runtime/orchestrator/commander-policy.js';
+import { policyEffectLimits, policyEffectTablesFor } from '../../../src/runtime/orchestrator/commander-policy.js';
 import type { ScenarioPackage } from '../../../src/engine/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -94,13 +96,9 @@ async function compileWithPoliticsHook(scenarioJson: Record<string, unknown>, po
   };
 }
 
-/** The per-decision limits a run of `pkg` reads, built as the turn loop builds them. */
+/** The per-decision limits a run of `pkg` reads, from the tables the turn loop builds (`policyEffectTablesFor`). */
 function runLimits(pkg: ScenarioPackage): Readonly<Record<string, number>> {
-  return policyEffectLimits({
-    registry: EffectRegistry.forScenario(pkg),
-    politicsHook: pkg.hooks.politicsHook,
-    categories: Object.keys(pkg.knowledge?.categoryMapping ?? {}),
-  });
+  return policyEffectLimits(policyEffectTablesFor(pkg, EffectRegistry.forScenario(pkg)));
 }
 
 test('a politics hook that names a score is refused where the scenario declares no politics keys, and the score keeps its table limit', async () => {
@@ -188,4 +186,76 @@ test('a scenario that declares politics keys is checked as before: Mars Genesis 
     { earthDependencyPct: 2 },
     'the compiled hook must be the one the model wrote',
   );
+});
+
+/** The seed extraction a stand-in model returns: two crisis categories the farm's `effects` do not name. */
+const ORCHARD_EXTRACTION = JSON.parse(
+  readFileSync(resolve(__dirname, '../../fixtures/compiler/extraction-orchard.json'), 'utf-8'),
+) as { crisisCategories: string[] };
+
+test('a category the seed adds after the hooks are generated cannot raise a limit where the scenario declares no politics keys', async () => {
+  // The compiler generates the hooks from the draft, then merges the seed's
+  // knowledge, whose crisis categories become `knowledge.categoryMapping`
+  // keys. The turn loop reads the politics hook for those categories too,
+  // so a hook that names a key for `Late frost` alone passes the smoke test.
+  const [lateFrost] = ORCHARD_EXTRACTION.crisisCategories;
+  const hook = `(category, outcome) => (category === ${JSON.stringify(lateFrost)} ? { 'soil-health': 100, morale: 5 } : null)`;
+  const generateText = async (args: string | { system?: Array<{ text: string }>; prompt: string }): Promise<string> => {
+    if (typeof args === 'string') {
+      return args.includes('You are analyzing a document to extract domain knowledge') ? JSON.stringify(ORCHARD_EXTRACTION) : '{}';
+    }
+    const system = (args.system ?? []).map(block => block.text).join('\n');
+    return system.includes('You are generating a politics hook') ? hook : 'not a hook';
+  };
+  const pkg = await compileScenario(farmScenario('object'), {
+    cache: false,
+    generateText: generateText as unknown as GenerateTextFn,
+    seedText: 'A family orchard on a hillside grows apples through four seasons a year.',
+    webSearch: false,
+    telemetry: createCompilerTelemetry(),
+  }) as ScenarioPackage;
+
+  assert.ok(
+    Object.keys(pkg.knowledge.categoryMapping).includes(lateFrost),
+    `the compiled knowledge maps the categories ${JSON.stringify(Object.keys(pkg.knowledge.categoryMapping))}`,
+  );
+  const limits = runLimits(pkg);
+  assert.deepEqual(
+    { ...limits },
+    FARM_TABLE_LIMITS,
+    `a run's per-decision limits read ${JSON.stringify(limits)}: soil-health must stay at its table's 2.5 and morale at 0.05`,
+  );
+});
+
+test('a politics hook restored from the hook cache cannot raise a limit where the scenario declares no politics keys', async () => {
+  // A hook cached before the compiler checked politics hooks this way is
+  // restored without its smoke test (the cache key holds the scenario JSON
+  // and the compile schema version, neither of which changed).
+  const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-politics-cache-'));
+  try {
+    const scenarioJson = farmScenario('object');
+    const model = 'stand-in-model';
+    writeCache(scenarioJson, 'politics', "(category, outcome) => (outcome.startsWith('risky') ? { 'soil-health': 100, morale: 5 } : null)", model, cacheDir);
+    const pkg = await compileScenario(scenarioJson, {
+      cache: true,
+      cacheDir,
+      model,
+      generateText: standInModel('(category, outcome) => null'),
+      telemetry: createCompilerTelemetry(),
+    }) as ScenarioPackage;
+
+    assert.deepEqual(
+      pkg.hooks.politicsHook!('resource', 'risky_success'),
+      { 'soil-health': 100, morale: 5 },
+      'the compile must restore the cached politics hook',
+    );
+    const limits = runLimits(pkg);
+    assert.deepEqual(
+      { ...limits },
+      FARM_TABLE_LIMITS,
+      `a run's per-decision limits read ${JSON.stringify(limits)}: soil-health must stay at its table's 2.5 and morale at 0.05`,
+    );
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
 });
