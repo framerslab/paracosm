@@ -16,6 +16,12 @@ interface LoadFromHostModalProps {
   onCancel: () => void;
 }
 
+/**
+ * The dialog App mounts while `useLoadFromUrl` holds a `?load=` file on
+ * another site. It names `host`; Load calls `onLoad`, which starts the
+ * fetch. Cancel, Escape or a click on the backdrop calls `onCancel`, and
+ * nothing is fetched.
+ */
 export function LoadFromHostModal({ host, onLoad, onCancel }: LoadFromHostModalProps) {
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
 

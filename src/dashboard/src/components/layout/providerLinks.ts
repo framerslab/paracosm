@@ -15,10 +15,11 @@ const PROVIDER_HOSTS = new Set(['platform.openai.com', 'console.anthropic.com'])
 
 /**
  * The address as a link target when it is an http or https URL on a known
- * provider host with no credentials or port in it; otherwise null.
+ * provider host with no credentials or port in it; otherwise null. A run
+ * file's JSON can hold any value there, so anything but a string is null.
  */
-export function knownProviderLink(address: string | undefined): string | null {
-  if (!address) return null;
+export function knownProviderLink(address: unknown): string | null {
+  if (typeof address !== 'string' || !address) return null;
   let url: URL;
   try {
     url = new URL(address);

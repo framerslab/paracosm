@@ -99,7 +99,7 @@ export function ProviderErrorBanner({
         >
           {providerError.kind === 'quota' ? 'Add credits →' : 'Fix key →'}
         </a>
-      ) : providerError.actionUrl ? (
+      ) : typeof providerError.actionUrl === 'string' && providerError.actionUrl ? (
         <span className={styles.actionText}>{providerError.actionUrl}</span>
       ) : null}
       {onDismiss ? (

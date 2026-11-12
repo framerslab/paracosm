@@ -786,7 +786,7 @@ Query params:
 | ---------- | -------- | ----------- | --------- |
 | `load`     | yes      | URL         | Remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, GitHub gists, S3, and any static host work. A file on another site waits for the viewer to answer a question naming that site. |
 | `tab`      | no       | enum        | `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
-| `autoload` | no       | `1`/`true`  | Skips the F9 preview-confirm modal. Omit to keep the confirm step (useful when the recipient should see the run's metadata before committing). The question that names another site is asked either way. |
+| `autoload` | no       | `1`/`true`  | Skips the F9 preview-confirm modal for the link's own file. Omit to keep the confirm step (useful when the recipient should see the run's metadata before committing). The question that names another site is asked either way, and a file the viewer opens after cancelling the link keeps its preview. |
 
 ### Output
 
@@ -814,7 +814,7 @@ https://paracosm.agentos.sh/sim?load=https://example.com/runs/baseline.json
 
 ### What just happened
 
-`useLoadFromUrl` reads `?load=` on mount. A file on the dashboard's own origin is fetched at once. A file on another origin is not: the hook reports its host, `LoadFromHostModal` asks the viewer whether to load a run from that site, and the fetch starts only on Load (Cancel fetches nothing and strips the params). The hook then fetches the JSON with a 30s abort, wraps it as a `File`, and pipes it through the same `useLoadPreview.openFromFile` path the file picker and drag-and-drop use. The fetch streams to a `Blob`, `extractPreviewMetadata` runs against the parsed payload, and the dashboard transitions to its `preview` state.
+`useLoadFromUrl` reads `?load=` on mount. A file on the dashboard's own origin is fetched at once. A file on another origin is not: the hook reports its host, `LoadFromHostModal` asks the viewer whether to load a run from that site, and the fetch starts only on Load (Cancel fetches nothing and strips the params). The hook then fetches the JSON with a 30s abort, wraps it as a `File`, and pipes it through the same `useLoadPreview.openFromFile` path the file picker and drag-and-drop use. A response that a redirect brought from another origin than the link's is refused with an error toast, so the file shown always comes from the site the link names. The fetch streams to a `Blob`, `extractPreviewMetadata` runs against the parsed payload, and the dashboard transitions to its `preview` state.
 
 From there one of two things happens:
 

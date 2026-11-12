@@ -6,7 +6,9 @@
  *
  * A file on the page's own site is fetched on mount. A file on another
  * site is not: the hook reports its host as `pendingHost` and fetches it
- * only after `confirmPending`, so the page asks the visitor first.
+ * only after `confirmPending`, so the page asks the visitor first. A
+ * response that a redirect brought from another origin than the one
+ * fetched is not opened, since nobody named or agreed to that site.
  *
  * Designed to be passive: if no valid `?load=` param is present, the
  * hook does nothing. When present, it fetches with a timeout and
@@ -81,6 +83,21 @@ export function useLoadFromUrl(opts: UseLoadFromUrlOptions): LoadFromUrlState {
         const res = await fetchImpl(url.toString(), { signal: ctrl.signal });
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
+        }
+        // The page asked about, or allowed, this URL's origin only. A
+        // redirect to another origin would show a file from a site nobody
+        // named, so it is refused before the body is read.
+        if (res.url) {
+          let finalHost: string | null;
+          try {
+            const finalUrl = new URL(res.url);
+            finalHost = finalUrl.origin === url.origin ? null : finalUrl.host;
+          } catch {
+            finalHost = 'another address';
+          }
+          if (finalHost !== null) {
+            throw new Error(`The file redirects to ${finalHost}, so it was not loaded.`);
+          }
         }
         const blob = await res.blob();
         if (active.cancelled) return;
