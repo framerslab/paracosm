@@ -2541,7 +2541,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // whoever pays for the model. A compile there runs at most
         // HOSTED_COMPILE_MAX_SEARCHES searches, and a caller with their own
         // model key gets the host's search on the same daily compile limit:
-        // past it, the compile runs without web search.
+        // past it, the compile runs without web search. A seed URL is read
+        // through the host's scraping key (FIRECRAWL_API_KEY) whatever
+        // webSearch says, so an own-key compile from one counts too, and
+        // past the limit it is refused.
         let compileWebSearch = webSearch ?? true;
         let compileMaxSearches = maxSearches;
         if (isHostedDemoCompile) {
@@ -2549,10 +2552,30 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           compileMaxSearches = Math.max(0, Math.min(requested, HOSTED_COMPILE_MAX_SEARCHES));
           // A compile searches only for a seed (seedText or seedUrl), so one
           // with neither spends none of the allowance.
-          const hasSeed = (typeof seedText === 'string' && seedText.trim() !== '') || (typeof seedUrl === 'string' && seedUrl.trim() !== '');
-          if (userSuppliedKey && compileWebSearch !== false && hasSeed && rateLimiter) {
+          const hasSeedUrl = typeof seedUrl === 'string' && seedUrl.trim() !== '';
+          const hasSeed = hasSeedUrl || (typeof seedText === 'string' && seedText.trim() !== '');
+          const scrapesOnHostKey = hasSeedUrl && normalizeCredential(env.FIRECRAWL_API_KEY) !== undefined;
+          if (userSuppliedKey && hasSeed && (compileWebSearch !== false || scrapesOnHostKey) && rateLimiter) {
             const ip = IpRateLimiter.getIp(req, clientIpHeader);
-            if (!rateLimiter.consumeCompile(ip).allowed) {
+            const decision = rateLimiter.consumeCompile(ip);
+            if (!decision.allowed && scrapesOnHostKey) {
+              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; seed URL refused`);
+              res.writeHead(429, {
+                'Content-Type': 'application/json',
+                'Retry-After': String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))),
+                'X-RateLimit-Limit': String(decision.limit),
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': String(Math.floor(decision.resetAt / 1000)),
+              });
+              res.end(JSON.stringify({
+                error: `Compile rate limit exceeded. Maximum ${decision.limit} compiles a day read a seed URL through this server's keys; send the seed as seedText instead.`,
+                limit: decision.limit,
+                remaining: 0,
+                resetAt: decision.resetAt,
+              }));
+              return;
+            }
+            if (!decision.allowed) {
               compileWebSearch = false;
               console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; compiling without the host's web search`);
             }
