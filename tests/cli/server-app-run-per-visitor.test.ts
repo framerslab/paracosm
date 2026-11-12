@@ -140,7 +140,9 @@ test('above the run cap a visitor is told to wait, and the refusal costs them no
     assert.equal(again.status, 429);
     assert.equal(held.runs[1].signal?.aborted, false, "a refused Run leaves the visitor's own run alone");
     held.runs[1].release();
-  }, { runner: held.runner, maxRuns: 1, maxSimsPerDay: 1 });
+    // The two visitors' addresses come from the proxy header the server is
+    // told to trust; without the setting both are the connection's address.
+  }, { runner: held.runner, maxRuns: 1, maxSimsPerDay: 1, env: { PARACOSM_CLIENT_IP_HEADER: 'x-forwarded-for' } });
 });
 
 test("a visitor's own Run replaces their run, and the run it replaced is told why", async () => {

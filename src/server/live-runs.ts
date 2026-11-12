@@ -121,6 +121,8 @@ export interface LiveRun {
   readonly seedText: string | null;
   /** Null for a Digital Twin run and for a run read back after a restart. */
   readonly config: NormalizedSimulationConfig | null;
+  /** See {@link OpenRunInput.ownKeyAddress}. */
+  readonly ownKeyAddress: string | null;
   /** The run's SSE frames, with each one's wall-clock time and the actor it is tagged with. */
   readonly buffer: string[];
   readonly timestamps: number[];
@@ -197,6 +199,12 @@ export interface OpenRunInput {
   forkedFrom?: { parentRunId: string; atTurn: number } | null;
   /** The run's key; minted when absent. */
   runKey?: string;
+  /**
+   * The client address of a run on the caller's own key, which the day
+   * limit does not count; null or absent for any other run. One address
+   * holds at most all but one of the run slots with such runs.
+   */
+  ownKeyAddress?: string | null;
 }
 
 interface StreamInfo {
@@ -337,15 +345,21 @@ export class LiveRunRegistry {
    * flight clears it first). A Digital Twin run counts until its engine
    * returns: the engine takes no signal, so replacing it stops nothing.
    */
-  checkCapacity(visitorId: string): void {
+  checkCapacity(visitorId: string, ownKeyAddress: string | null = null): void {
     const current = this.current(visitorId);
     let count = 0;
+    let fromAddress = 0;
     for (const run of this.unsettled) {
       const stops = run.visitorId === visitorId && run.kind !== 'intervention';
       if (stops && (run === current || run.stoppedByVisitor)) continue;
       count++;
+      if (ownKeyAddress !== null && run.ownKeyAddress === ownKeyAddress) fromAddress++;
     }
     if (count >= this.options.maxRuns) throw new RunCapacityError(count, this.options.maxRuns);
+    // Runs on a caller's own key skip the day limit, so one address could
+    // otherwise hold every slot: it holds all but one of them.
+    const perAddress = Math.max(1, this.options.maxRuns - 1);
+    if (fromAddress >= perAddress) throw new RunCapacityError(fromAddress, perAddress);
   }
 
   /**
@@ -355,7 +369,7 @@ export class LiveRunRegistry {
    */
   open(input: OpenRunInput): LiveRun {
     if (this.closed) throw new Error('The server is closed.');
-    this.checkCapacity(input.visitorId);
+    this.checkCapacity(input.visitorId, input.ownKeyAddress ?? null);
     const key = input.runKey ?? randomUUID();
     const watchedBefore = this.watched(input.visitorId);
     // This admission counted the runs the visitor stopped as settled; from
@@ -378,6 +392,7 @@ export class LiveRunRegistry {
       scenario: input.scenario,
       seedText: input.seedText,
       config: input.config,
+      ownKeyAddress: input.ownKeyAddress ?? null,
       buffer: [],
       timestamps: [],
       actorIds: [],
@@ -894,6 +909,7 @@ export class LiveRunRegistry {
       scenario: null,
       seedText: typeof p.seedText === 'string' ? p.seedText : null,
       config: null,
+      ownKeyAddress: null,
       buffer: events,
       timestamps,
       actorIds,

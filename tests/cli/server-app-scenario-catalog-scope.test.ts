@@ -440,7 +440,7 @@ test('one address holds at most 20 stored scenarios, whatever visitor ids it sen
     const elsewhere = api.cookied({ 'x-forwarded-for': '203.0.113.7' });
     assert.equal((await store(elsewhere, station('elsewhere-s0'))).status, 200);
     assert.deepEqual(await storedIds(elsewhere), ['elsewhere-s0']);
-  });
+  }, { env: { PARACOSM_CLIENT_IP_HEADER: 'x-forwarded-for' } });
 });
 
 test('a stored scenario left unused for the idle time is dropped, and one in use is kept', async () => {
