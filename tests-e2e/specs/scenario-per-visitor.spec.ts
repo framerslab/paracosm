@@ -162,6 +162,18 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toHaveCount(0);
   });
 
+  test('the editor shows why the server refused a compile', async ({ page }) => {
+    // The editor opens holding the active scenario, Mars Genesis, a built-in.
+    // The server refuses a compile under a built-in's id before any model is
+    // called, and the editor shows the server's message.
+    await openSettings(page);
+    const compile = page.getByRole('button', { name: 'Compile scenario' });
+    await expect(compile).toBeEnabled();
+    await compile.click();
+    await expect(page.getByText('"mars-genesis" is taken on this server. Give your scenario an id of its own.')).toBeVisible();
+    await expect(compile).toBeEnabled();
+  });
+
   test('a page comes up without the run the server holds for another scenario', async ({ page }) => {
     // The visitor's finished Atlas Lab run (from before a switch, or the
     // anonymous run the page watches) is on the stream, opened by its
