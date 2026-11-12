@@ -466,3 +466,25 @@ test('the hosted demo caps bound the text of each leader and key person a run ke
 test('a page\'s entities are decoded once', () => {
   assert.equal(htmlToText('<p>&amp;lt;b&amp;gt; and &amp;amp;</p>'), '&lt;b&gt; and &amp;');
 });
+
+test('a hosted /compile from a seed URL on the caller\'s own model key counts against the compile limit, web search or not', async () => {
+  await withServer({
+    maxSimsPerDay: 1,
+    env: { PARACOSM_HOSTED_DEMO: 'true', FIRECRAWL_API_KEY: 'host-firecrawl-key' },
+    compileScenario: async json => ({ ...marsScenario, id: String(json.id) }) as never,
+  }, async base => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      const res = await post(base, '/compile', {
+        scenario: { id: `from-url-${i}`, departments: [] },
+        apiKey: 'sk-caller-own-key',
+        seedUrl: `https://example.com/brief-${i}`,
+        webSearch: false,
+      });
+      await res.text();
+      statuses.push(res.status);
+    }
+    // The host's scraping key reads each seed URL, so the sixth is refused.
+    assert.deepEqual(statuses, [200, 200, 200, 200, 200, 429]);
+  });
+});
