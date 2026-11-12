@@ -38,7 +38,7 @@ for (const archetype of ['x/../../escape', '/../../escape', '../escape', 'a\\..\
         outputDir: runsDir,
       });
       assert.equal(dirname(path), runsDir, `wrote ${path}`);
-      assert.match(basename(path), /^v3-[a-z0-9-]+\.json$/, `the name ${basename(path)} is a run output name`);
+      assert.match(basename(path), /^v3-[a-z0-9-]+-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z\.json$/, `the name ${basename(path)} is a run output name`);
       assert.deepEqual(readdirSync(root), ['runs'], 'nothing was written beside the runs directory');
       assert.deepEqual(readdirSync(runsDir), [basename(path)]);
     });
