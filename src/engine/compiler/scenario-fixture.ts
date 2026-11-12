@@ -159,23 +159,19 @@ function buildSyntheticAgent(startTime: number): Agent {
  * `world.politics`. Mars-heritage defaults (population, morale) are
  * overlaid so hooks that reference those still validate.
  *
- * Throws if `world.metrics` is missing — post-0.5.0 scenarios all
- * carry the declaration bag, so a missing one indicates malformed
- * input and should surface fast rather than falling back silently.
+ * A draft with no `world`, or a `world` with no `metrics`, reads as the
+ * empty bags `compileScenario` gives that draft: a run of it holds the
+ * head count and morale, so its fixture holds those two values (and
+ * any declared capacity) and the hooks are tried on that state.
  */
 export function buildScenarioFixture(scenarioJson: Record<string, unknown>): ScenarioFixture {
-  const world = scenarioJson.world as
-    | {
-        metrics?: Record<string, MetricDefinition>;
-        capacities?: Record<string, MetricDefinition>;
-        statuses?: Record<string, MetricDefinition>;
-        politics?: Record<string, MetricDefinition>;
-        environment?: Record<string, MetricDefinition>;
-      }
-    | undefined;
-  if (!world || !world.metrics) {
-    throw new Error('buildScenarioFixture: scenario missing world.metrics declaration');
-  }
+  const world = (scenarioJson.world ?? {}) as {
+    metrics?: Record<string, MetricDefinition>;
+    capacities?: Record<string, MetricDefinition>;
+    statuses?: Record<string, MetricDefinition>;
+    politics?: Record<string, MetricDefinition>;
+    environment?: Record<string, MetricDefinition>;
+  };
 
   const setup = (scenarioJson.setup ?? {}) as { defaultStartTime?: number };
   const startTime = typeof setup.defaultStartTime === 'number' ? setup.defaultStartTime : 0;
