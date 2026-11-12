@@ -202,12 +202,28 @@ export function generateInitialPopulation(
     colonists.push(createColonist(claimId(kp.name), kp.name, bornAt(kp.age), kp.department, kp.role, kp.specialization, false, kp.featured, randomHexaco(rng), startTime));
   }
 
+  // The name lists give a fixed number of first-and-last pairs. While one
+  // is free a person draws until they get a free one; once every pair is
+  // taken, a drawn pair takes the first number that makes it free
+  // ("Aria Chen 2"), so the draw always ends.
+  const pairs = new Set(FIRST_NAMES.flatMap(first => LAST_NAMES.map(last => `${first} ${last}`)));
+  let freePairs = pairs.size;
+  for (const name of usedNames) if (pairs.has(name)) freePairs -= 1;
+
   const remaining = Math.max(0, totalPopulation - keyPersonnel.length);
   for (let i = 0; i < remaining; i++) {
     let name: string;
-    do {
-      name = `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
-    } while (usedNames.has(name));
+    if (freePairs > 0) {
+      do {
+        name = `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
+      } while (usedNames.has(name));
+      freePairs -= 1;
+    } else {
+      const drawn = `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
+      let n = 2;
+      while (usedNames.has(`${drawn} ${n}`)) n += 1;
+      name = `${drawn} ${n}`;
+    }
     usedNames.add(name);
 
     const own = departments ? rng.pick(departments) : undefined;

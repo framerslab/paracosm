@@ -717,6 +717,30 @@ function withNeutralTraits(actor: ActorConfig): ActorConfig {
 }
 
 /**
+ * The most turns one run takes, whoever pays for it. A turn the provider
+ * refuses still runs the turn loop, so the bound holds with or without a
+ * caller key. The dashboard's Turns field stops at 20; a fork adds the
+ * scenario's turns to its fork turn.
+ */
+export const MAX_SIMULATION_TURNS = 100;
+
+/**
+ * The largest starting population one run takes, whoever pays for it. The
+ * name lists give 2500 distinct names; the largest scenario default is 480.
+ * It bounds the roster the run starts with: the population the body names,
+ * or the scenario's default, and every key person, from the body or the
+ * scenario's preset.
+ */
+export const MAX_SIMULATION_POPULATION = 2000;
+
+/** Throws unless `value` is a whole number from 1 to `max`. */
+function assertRunBound(value: number, max: number, what: string): void {
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`Simulation ${what} must be a whole number from 1 to ${max}, got ${JSON.stringify(value)}`);
+  }
+}
+
+/**
  * Turn a `/setup` payload into the config the runners take.
  *
  * Every setup value the payload omits comes from the scenario the run
@@ -801,21 +825,40 @@ export function normalizeSimulationConfig(
     batchConcurrency: input.economics?.batchConcurrency,
   });
 
+  const turns = input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns);
+  assertRunBound(turns, MAX_SIMULATION_TURNS, 'turns');
+  if (input.population !== undefined && input.population !== null) {
+    assertRunBound(input.population, MAX_SIMULATION_POPULATION, 'population');
+  }
+  // Each person heads at most one department, so a roster smaller than
+  // the department list leaves the rest without a report. A population
+  // the body names stays the person's own choice.
+  const initialPopulation = input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length);
+  const keyPersonnel = input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario);
+  // The roster holds every key person and at least the population, so the
+  // bound holds for it whichever value sets it: a scenario's default
+  // population, department list and preset personnel come from its JSON (a
+  // stored or compiled scenario included), and key personnel from the body.
+  const rosterSize = Math.max(initialPopulation, keyPersonnel.length);
+  if (!(rosterSize <= MAX_SIMULATION_POPULATION)) {
+    throw new Error(
+      `Simulation population must be at most ${MAX_SIMULATION_POPULATION} people, got ${String(rosterSize)} `
+      + `(population ${String(initialPopulation)}, ${keyPersonnel.length} key personnel)`,
+    );
+  }
+
   return {
     actors: input.actors.map(withNeutralTraits),
     provider: inferredProvider,
-    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    turns,
     seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
     timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
-    // Each person heads at most one department, so a roster smaller than
-    // the department list leaves the rest without a report. A population
-    // the body names stays the person's own choice.
-    initialPopulation: input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length),
+    initialPopulation,
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
     activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),
-    keyPersonnel: input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario),
+    keyPersonnel,
     startingResources: suppliedStartingResources(input.startingResources),
     startingPolitics: suppliedStartingPolitics(input.startingPolitics),
     execution: {

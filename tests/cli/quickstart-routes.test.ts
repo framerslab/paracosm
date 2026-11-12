@@ -173,6 +173,24 @@ test('compile-from-seed: dedupes pending compile by signature', async () => {
   assert.equal(callCount, 1, 'compile should run only once across duplicate submissions');
 });
 
+test('compile-from-seed: two seeds that differ only in the middle are two compiles', async () => {
+  _resetCompileJobsForTest();
+  let callCount = 0;
+  const compileFn = ((async () => {
+    callCount++;
+    return await new Promise(() => { /* never resolves */ });
+  }) as unknown) as QuickstartDeps['compileFn'];
+  const deps = fakeDeps({ compileFn });
+  const head = 'h'.repeat(256);
+  const tail = 't'.repeat(128);
+  const r1 = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, r1.res, { seedText: head + 'a'.repeat(400) + tail }, deps);
+  const r2 = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, r2.res, { seedText: head + 'b'.repeat(400) + tail }, deps);
+  assert.notEqual(r1.get().body.jobId, r2.get().body.jobId, 'a different seed is a job of its own');
+  assert.equal(callCount, 2);
+});
+
 test('compile-from-seed: status returns done with scenario after compile resolves', async () => {
   _resetCompileJobsForTest();
   const d = deferred<ScenarioPackage>();

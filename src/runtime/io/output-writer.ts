@@ -10,7 +10,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { RunArtifact } from '../../engine/schema/index.js';
 
 /**
@@ -47,15 +47,35 @@ export function resolveOutputDir(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 /**
+ * The file-name tag for a leader's archetype: lowercase letters, digits and
+ * single hyphens, at most 48 characters, `leader` when nothing is left. A
+ * leader's archetype is caller text, so no separator or dot segment of it
+ * reaches the file name.
+ */
+function runOutputTag(archetype: string): string {
+  // The runs of letters and digits joined by one hyphen each: no hyphen
+  // leads, trails or doubles, so cutting to 48 can leave one trailing.
+  let tag = String(archetype ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(word => word.length > 0)
+    .join('-')
+    .slice(0, 48);
+  if (tag.endsWith('-')) tag = tag.slice(0, -1);
+  return tag || 'leader';
+}
+
+/**
  * Write a simulation result payload to `<cwd>/output/v3-<tag>-<ts>.json`
  * (or `$PARACOSM_OUTPUT_DIR/...`, or `args.outputDir/...` when given) and
  * log a one-screen summary to stdout.
  * Ensures the output dir exists before writing. Returns the absolute
  * path of the written file.
  *
- * The tag slot comes from the leader's archetype so side-by-side runs
- * get distinguishable filenames even when they start in the same
- * millisecond (e.g. `v3-the-engineer-...` vs `v3-the-visionary-...`).
+ * The tag slot comes from the leader's archetype (see runOutputTag) so
+ * side-by-side runs get distinguishable filenames even when they start in
+ * the same millisecond (e.g. `v3-the-engineer-...` vs `v3-the-visionary-...`).
+ * The file is always written directly in the output directory.
  */
 export function writeRunOutput(
   output: RunArtifact,
@@ -71,8 +91,12 @@ export function writeRunOutput(
   const outDir = args.outputDir ? resolve(process.cwd(), args.outputDir) : resolveOutputDir();
   mkdirSync(outDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const tag = args.actorArchetype.toLowerCase().replace(/\s+/g, '-');
-  const path = resolve(outDir, `v3-${tag}-${ts}.json`);
+  const path = resolve(outDir, `v3-${runOutputTag(args.actorArchetype)}-${ts}.json`);
+  // The tag holds letters, digits and hyphens only, so the name is one
+  // file directly in outDir; refuse anything else rather than write it.
+  if (dirname(path) !== outDir) {
+    throw new Error(`Refusing to write a run file outside ${outDir}`);
+  }
   writeFileSync(path, JSON.stringify(output, null, 2));
 
   const citations = output.citations?.length ?? 0;

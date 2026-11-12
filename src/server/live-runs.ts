@@ -291,8 +291,14 @@ export class LiveRunRegistry {
     return n;
   }
 
-  /** The visitor's own current run. */
+  /**
+   * The visitor's own current run. On a server that shares no anonymous
+   * run (the hosted demo) the anonymous visitor is every caller that sent no
+   * cookie, so it holds no run there: such a caller's run opens under a
+   * visitor id of its own.
+   */
   current(visitorId: string): LiveRun | undefined {
+    if (visitorId === ANONYMOUS_VISITOR && this.options.shareAnonymousRun === false) return undefined;
     const key = this.currentByVisitor.get(visitorId);
     return key === undefined ? undefined : this.runs.get(key);
   }
@@ -453,8 +459,13 @@ export class LiveRunRegistry {
           this.streams.delete(res);
         }
       }
-      if (event === 'sim_aborted') run.aborted = true;
-      if (event === 'sim_error') run.errored = true;
+      // A run whose runner reported an abort or a provider error is not a
+      // finished run: the orchestrator sends both inside `sim` frames, and
+      // the pair runner ends such a run with `complete {aborted: true}`.
+      const simType = event === 'sim' && data && typeof data === 'object' ? (data as { type?: unknown }).type : undefined;
+      if (event === 'sim_aborted' || simType === 'sim_aborted') run.aborted = true;
+      if (event === 'complete' && data && typeof data === 'object' && (data as { aborted?: unknown }).aborted === true) run.aborted = true;
+      if (event === 'sim_error' || simType === 'provider_error') run.errored = true;
       if (event === 'complete') this.options.onComplete?.(run);
     };
     this.broadcasts.set(run, broadcast);
