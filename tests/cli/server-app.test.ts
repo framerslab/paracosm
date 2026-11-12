@@ -49,8 +49,10 @@ const leaderB = {
   instructions: 'Leader B',
 };
 
+// Its id is its own: scenarios/submarine.json ships as deep-ocean-station,
+// and a memory store never takes an id the shared catalog holds.
 const customScenario = {
-  id: 'deep-ocean-station',
+  id: 'stored-ocean-station',
   version: '1.0.0',
   engineArchetype: 'closed_turn_based_settlement',
   labels: {

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react';
 import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import { buildScenarioCompileRequest } from './scenarioCompileRequest';
+import { compileRefusal } from './compileRefusal';
 import { SETTINGS_LABEL_STYLE } from './shared/settingsStyles';
 import styles from './ScenarioEditor.module.scss';
 
@@ -214,6 +215,16 @@ export function ScenarioEditor() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+
+      // A refused compile is one JSON object, not the stream read below:
+      // an id that is taken, the day's compiles used up, a body the server
+      // cannot read. Its message shows where the compile result does.
+      const refusal = await compileRefusal(res);
+      if (refusal !== null) {
+        setResult({ success: false, message: refusal });
+        setCompiling(false);
+        return;
+      }
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error('No response stream');

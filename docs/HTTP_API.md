@@ -26,7 +26,8 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 | GET    | `/api/v1/bundles/:bundleId/aggregate` | Bundle-scoped rollup |
 | POST   | `/api/v1/library/import` | Import an externally-produced RunArtifact |
 | GET    | `/api/v1/demo/status` | Public-demo capability flags (always reachable) |
-| POST   | `/scenario/store` | Store a scenario in memory; with `saveToDisk`, also write it to the scenarios folder (admin credential) |
+| POST   | `/scenario/store` | Store a scenario in this visitor's memory; with `saveToDisk`, write it to the scenarios folder and the shared catalog instead (admin credential) |
+| POST   | `/compile` | Compile a scenario JSON into the shared catalog under an id that names nothing yet |
 
 ---
 
@@ -341,9 +342,18 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 
 ## `POST /scenario/store`
 
-The dashboard's scenario editor route. It stores a scenario JSON in the server's memory for this process, and lists it in the scenario catalog when the JSON is a runnable scenario package. Any visitor can store in memory.
+The dashboard's scenario editor route. Any visitor can store a scenario JSON in memory. The stored scenario is the visitor's own: the visitor is the `paracosm_visitor` cookie the dashboard gives a browser, and every caller that sends no such cookie is one visitor, the anonymous one. A `paracosm_visitor` cookie whose value is not a UUID counts as no cookie, so that caller is the anonymous visitor too. When the JSON is a runnable scenario package, that visitor's `GET /scenarios` lists it with `source: "memory"`, and their `GET /scenarios/:id`, `POST /scenario/switch`, `GET /scenario?id=`, `POST /setup` and the Quickstart routes take its id. No other visitor lists, reads or runs it, and `GET /admin-config` lists each visitor's own stored ids under `memoryScenarios`.
 
-With `saveToDisk: true` the server also writes the scenario to `<scenarios folder>/<id>.json`, where the boot loader reads it after a restart. The disk write takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN` (compared in constant time). Its id must be 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit, and must name one file directly in the scenarios folder. A refused disk write stores nothing, in memory or on disk.
+A memory store never takes an id the shared catalog holds (a built-in such as `mars-genesis`, a scenario from the scenarios folder, or a compiled one), nor the id of a saved compiled draft the server is still re-compiling after a restart: the server answers `409` and the visitor gives their copy an id of its own.
+
+The memory store holds a scenario of at most 256 KiB of JSON (`MEMORY_SCENARIO_MAX_BYTES`), at most 10 scenarios a visitor (`MEMORY_SCENARIOS_PER_VISITOR`), at most 20 for one address, every visitor id that address sends together (`MEMORY_SCENARIOS_PER_ADDRESS`; the address is the one the rate limiter keys on), and at most 100 in all (`MEMORY_SCENARIOS_CAP`). A visitor at any of those counts can still store over an id of their own. A stored scenario leaves the store:
+
+- when 24 hours pass in which it was not stored again, read by its id or run (`MEMORY_SCENARIO_IDLE_MS`), so a full store makes room by itself;
+- when its id enters the shared catalog, through an admin's disk save or its own visitor's [`POST /compile`](#post-compile) or Quickstart compile: from then on the id names the catalog's scenario;
+- when `DELETE /admin/scenarios/:id` names it, from every visitor's store;
+- when the server restarts.
+
+With `saveToDisk: true` the server writes the scenario to `<scenarios folder>/<id>.json`, where the boot loader reads it after a restart, and, when it is runnable, puts it in the catalog every visitor reads; it does not also hold it in memory. The disk write takes the admin credential the `/admin/*` routes take: the server started with `ADMIN_WRITE=true` and `ADMIN_TOKEN` set, and the request's `X-Admin-Token` header equal to `ADMIN_TOKEN` (compared in constant time). Its id must be 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit, and must name one file directly in the scenarios folder. A refused request stores nothing, in memory or on disk.
 
 **Request body**
 
@@ -363,13 +373,51 @@ With `saveToDisk: true` the server also writes the scenario to `<scenarios folde
 
 - `200` — stored (and written, when `savedToDisk` is `true`)
 - `400 scenario with id required` — no `scenario` or no `scenario.id`
+- `400 The scenario id must be a string.` — a memory store whose id is not a string
+- `409` — a memory store under an id the shared catalog holds, or the id of a saved compiled draft still re-compiling after a restart
 - `400 Invalid scenario id for a disk write` — `saveToDisk` with an id outside the pattern above (a path separator, a dot, a percent sign, a null byte, over 128 characters, or not a string)
 - `401 Invalid or missing X-Admin-Token header` — `saveToDisk` without the header or with a wrong token
 - `403 ADMIN_WRITE not enabled on this server` — `saveToDisk` on a server started without `ADMIN_WRITE=true`
 - `503` — `saveToDisk` on a server with `ADMIN_WRITE=true` and no `ADMIN_TOKEN` (fail closed)
-- `413` — the body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default)
+- `413` — the body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default), or a memory store's scenario is over 256 KiB of JSON
+- `507` — a memory store of a new id by a visitor who holds 10, from an address that holds 20, or when the store holds 100 in all
 
-At boot the server re-compiles the drafts the compile-from-seed flow saved under `<scenarios folder>/compiled/`, newest first, at most 50 (`COMPILED_SCENARIOS_CAP`); a draft whose id is outside the pattern above is skipped with a log line naming its file, and the drafts past the cap are left unread, in one log line.
+At boot the server re-compiles the drafts the compile-from-seed flow saved under `<scenarios folder>/compiled/`, newest first, at most 50 (`COMPILED_SCENARIOS_CAP`); a draft whose id is outside the pattern above is skipped with a log line naming its file, and the drafts past the cap are left unread, in one log line. A draft whose id the catalog already holds (a built-in or a scenario from the scenarios folder) is left out with a log line and is not compiled: the catalog's scenario stays.
+
+## `POST /compile`
+
+The scenario editor's compile route. It compiles the scenario JSON in `scenario` and puts the result in the shared catalog under the JSON's `id`, with `source: "compiled"`, where every visitor's `GET /scenarios` lists it. It becomes nobody's pick: the editor that compiled it posts `/scenario/switch` with the id.
+
+A compile never replaces a scenario. The server answers `409` when the id is taken, which is any of:
+
+- the shared catalog holds it: a built-in, a scenario from the scenarios folder, or a compiled scenario, whoever compiled it, the caller included;
+- it is the id of a saved compiled draft the server is still re-compiling after a restart;
+- another visitor holds it in memory (`POST /scenario/store`).
+
+The refusal comes before the stream starts, before the compiler runs and before the request counts toward the day's compiles. To change a compiled scenario, compile it under a new id. An id that only the caller stored in memory is free: the compiled scenario lands in the catalog and the stored copy leaves the memory store.
+
+The id is checked again when the compile finishes. If something took it while the compile ran, the stream ends with an `error` event that carries the same message, and the catalog is unchanged.
+
+The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under.
+
+**Request body**
+
+```json
+{ "scenario": { "id": "deep-ocean-station", "...": "..." }, "seedText": "optional grounding text", "webSearch": true }
+```
+
+Optional fields: `provider`, `model`, `seedText`, `seedUrl`, `webSearch` (default `true`), `maxSearches`, `apiKey`, `anthropicKey`.
+
+**200 response**
+
+A `text/event-stream`: `status`, one `progress` event per hook, a `compile_validation_fallback` event for each hook that fell back, `compile_metrics`, then `complete` (`{ "id", "version", "departments", "hooks" }`) or `error` (`{ "error" }`).
+
+**Status codes**
+
+- `200`: the stream above
+- `400 scenario JSON object required`: no `scenario` object in the body
+- `409 "<id>" is taken on this server. Give your scenario an id of its own.`: the id is taken, as above
+- `429`: on the hosted demo, the address is past its compiles for the day and the request carries no API key of its own
 
 ---
 

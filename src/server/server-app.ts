@@ -9,6 +9,7 @@ import { runPairSimulations, runForkSimulation, runBatchSimulations, type Broadc
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
+  QUICKSTART_SCENARIO_ID_MAX,
   type QuickstartDeps,
 } from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
@@ -24,6 +25,7 @@ import {
 } from '../engine/provider/credentials.js';
 import {
   describeCustomScenarioSource,
+  type CustomScenarioEntry,
   isRunnableScenarioPackage,
   loadDiskCustomScenarios,
 } from '../cli/custom-scenarios.js';
@@ -122,6 +124,34 @@ const SCENARIO_PICK_MAX_AGE_SECONDS = 2_592_000;
  * included; 1024 leaves them room.
  */
 const SCENARIO_PICK_MAX_BYTES = 1024;
+
+/**
+ * The largest scenario POST /scenario/store holds in memory, as JSON
+ * (256 KiB). The largest scenario under scenarios/ is about 33 KB.
+ */
+export const MEMORY_SCENARIO_MAX_BYTES = 256 * 1024;
+/** The most scenarios one visitor holds in memory. */
+export const MEMORY_SCENARIOS_PER_VISITOR = 10;
+/** The most scenarios the memory store holds, every visitor's together. */
+export const MEMORY_SCENARIOS_CAP = 100;
+/**
+ * The most scenarios the memory store holds for one address, every visitor
+ * id that address sends together. The address is the one the rate limiter
+ * keys on (IpRateLimiter.getIp), so one client that sends many visitor ids
+ * holds a fifth of the store at most.
+ */
+export const MEMORY_SCENARIOS_PER_ADDRESS = 20;
+/**
+ * How long the memory store holds a scenario after it was last stored, read
+ * by its id or run: 24 hours. A scenario idle for longer is dropped, so a
+ * full store empties by itself and never stays full until a restart.
+ */
+export const MEMORY_SCENARIO_IDLE_MS = 24 * 60 * 60 * 1000;
+
+/** What POST /compile answers for an id it may not take. */
+function scenarioIdTakenMessage(id: string): string {
+  return `"${id}" is taken on this server. Give your scenario an id of its own.`;
+}
 
 /**
  * The scenario id in the request's `paracosm_scenario` cookie: the first
@@ -320,6 +350,12 @@ export interface CreateMarsServerOptions {
   runForkSimulation?: typeof runForkSimulation;
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
+  /**
+   * The compile behind POST /api/quickstart/compile-from-seed; defaults to
+   * the engine's `compileFromSeed`. A test gives a stub that returns a
+   * fixture, so no model is called.
+   */
+  compileFromSeed?: QuickstartDeps['compileFn'];
   scenarioDir?: string;
   /** Max simulations per IP per day. 0 = unlimited. Overrides the RATE_LIMIT env var; with neither set the limit is 1. */
   maxSimsPerDay?: number;
@@ -340,6 +376,12 @@ export interface CreateMarsServerOptions {
    * without waiting half an hour.
    */
   staleBufferMs?: number;
+  /**
+   * Override how long the memory store holds a scenario nobody stored, read
+   * by its id or ran (MEMORY_SCENARIO_IDLE_MS, 24 hours). Tests give a small
+   * value.
+   */
+  memoryScenarioIdleMs?: number;
   /**
    * The most runs the server has in flight at once, every visitor's
    * together; a visitor above it is told to wait (503). Overrides the
@@ -908,8 +950,53 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     },
   });
 
-  // Raw custom scenario JSON payloads authored during this session.
-  const memoryScenarios = new Map<string, unknown>();
+  // The scenario JSON each visitor stored through POST /scenario/store
+  // without a disk write, by visitor (the paracosm_visitor cookie; every
+  // caller with no cookie is the one anonymous visitor), then by id. A
+  // visitor's stored scenarios are theirs alone: they never enter the
+  // catalog below, so no other visitor lists, reads or runs them. Held at
+  // most MEMORY_SCENARIOS_PER_VISITOR a visitor, MEMORY_SCENARIOS_PER_ADDRESS
+  // an address and MEMORY_SCENARIOS_CAP in all, each until it has gone
+  // unused for the idle time or its id enters the catalog (enterCatalog).
+  interface MemoryScenario {
+    scenario: unknown;
+    /** The address that first stored it (IpRateLimiter.getIp), for the per-address count. */
+    address: string;
+    /** When it was last stored, read by its id or run. */
+    usedAt: number;
+  }
+  const memoryScenarios = new Map<string, Map<string, MemoryScenario>>();
+  let memoryScenarioCount = 0;
+  const memoryScenarioIdleMs = options.memoryScenarioIdleMs ?? MEMORY_SCENARIO_IDLE_MS;
+  /** Drops `id` from one visitor's store. */
+  const dropMemoryScenario = (visitorId: string, id: string): boolean => {
+    const own = memoryScenarios.get(visitorId);
+    if (!own?.delete(id)) return false;
+    memoryScenarioCount -= 1;
+    if (own.size === 0) memoryScenarios.delete(visitorId);
+    return true;
+  };
+  /** Drops `id` from every visitor's store and returns how many held it. */
+  const dropFromEveryMemoryStore = (id: string): number => {
+    let dropped = 0;
+    for (const visitorId of [...memoryScenarios.keys()]) {
+      if (dropMemoryScenario(visitorId, id)) dropped += 1;
+    }
+    return dropped;
+  };
+  /** Drops every stored scenario past the idle time. The store holds 100 at most, so each read of it runs this. */
+  const dropIdleMemoryScenarios = (): void => {
+    const cutoff = Date.now() - memoryScenarioIdleMs;
+    for (const [visitorId, own] of [...memoryScenarios]) {
+      for (const [id, held] of [...own]) {
+        if (held.usedAt < cutoff) dropMemoryScenario(visitorId, id);
+      }
+    }
+  };
+  const ownMemoryScenarios = (req: IncomingMessage): Map<string, MemoryScenario> | undefined => {
+    dropIdleMemoryScenarios();
+    return memoryScenarios.get(readVisitorId(req));
+  };
   // Runnable scenarios that can appear in the catalog and be switched to.
   // Disk-loaded + builtins register into the SAME map so the switch /
   // list / active-derivation code is universal — no hardcoded branches
@@ -950,6 +1037,34 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // and the page would stop retrying and run Mars against a valid pick.
   const hydratingScenarioIds = new Set<string>();
 
+  /**
+   * Puts a scenario in the catalog every visitor reads. Its id leaves every
+   * visitor's memory store: from here on the id names the catalog's entry
+   * (lookupScenario reads the catalog first), so a stored copy would be
+   * hidden and would still count toward its visitor's and the store's caps.
+   */
+  const enterCatalog = (id: string, entry: CustomScenarioEntry): void => {
+    customScenarioCatalog.set(id, entry);
+    dropFromEveryMemoryStore(id);
+  };
+
+  /**
+   * Whether `id` already names a scenario for someone other than
+   * `visitorId` alone: the catalog holds it (a built-in, a curated or a
+   * compiled scenario, which any visitor may have picked), boot is still
+   * re-compiling it, or another visitor holds it in memory. A compile never
+   * lands under such an id, so it never changes what an id already names
+   * for another visitor.
+   */
+  const scenarioIdTaken = (visitorId: string, id: string): boolean => {
+    if (customScenarioCatalog.has(id) || hydratingScenarioIds.has(id)) return true;
+    dropIdleMemoryScenarios();
+    for (const [holder, own] of memoryScenarios) {
+      if (holder !== visitorId && own.has(id)) return true;
+    }
+    return false;
+  };
+
   // Boot-time hydration of persisted compile-from-seed scenarios.
   // Drafts on disk get lazy-compiled in the background — server boot
   // doesn't await this so a cold cache (50 drafts × 30s LLM each)
@@ -958,13 +1073,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // /scenarios responses; the picker is eventually-consistent within
   // a few seconds on warm cache, a few minutes on cold.
   void (async () => {
-    let drafts;
+    let saved;
     try {
-      drafts = loadPersistedCompiledDrafts(scenarioDir);
+      saved = loadPersistedCompiledDrafts(scenarioDir);
     } catch (err) {
       console.warn('[scenarios] loadPersistedCompiledDrafts failed:', err);
       return;
     }
+    // A saved draft never takes the place of a scenario the catalog already
+    // holds (a built-in or one from the scenarios folder): it is left out,
+    // uncompiled, and the catalog's scenario stays.
+    const drafts = saved.filter(({ id }) => {
+      if (!customScenarioCatalog.has(id)) return true;
+      console.warn(`[scenarios] left out the persisted compiled draft ${id}: the catalog already holds a scenario under that id`);
+      return false;
+    });
     if (drafts.length === 0) return;
     for (const { id } of drafts) hydratingScenarioIds.add(id);
     console.log(`[scenarios] re-compiling ${drafts.length} persisted compiled draft(s) from disk…`);
@@ -988,7 +1111,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // a warm cache this is ~10ms per draft; with a cold cache the
           // hooks regenerate via LLM at the going rate.
           const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
-          customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
+          // Checked again under the compiled id: an earlier draft of this
+          // loop, or a scenario saved while this one compiled, may hold it.
+          if (customScenarioCatalog.has(compiled.id)) {
+            console.warn(`[scenarios] left out the persisted compiled draft ${id}: the catalog already holds a scenario under that id`);
+            continue;
+          }
+          enterCatalog(compiled.id, { scenario: compiled, source: 'compiled' });
           compiledScenarioMeta.set(compiled.id, meta);
           console.log(`[scenarios] hydrated ${compiled.id} (${meta.compiledAt})`);
         } catch (err) {
@@ -1026,20 +1155,34 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const resolveRequestScenario = (req: IncomingMessage, explicitId?: unknown, parentId?: unknown): ScenarioResolution => {
     const named = typeof explicitId === 'string' ? explicitId : typeof parentId === 'string' ? parentId : null;
     if (named !== null) {
-      const entry = customScenarioCatalog.get(named);
-      if (entry) return { scenario: entry.scenario };
+      const scenario = lookupScenario(req, named);
+      if (scenario) return { scenario };
       if (hydratingScenarioIds.has(named)) return { loading: named };
-      if (memoryScenarios.has(named)) return { notRunnable: named };
+      if (ownMemoryScenarios(req)?.has(named)) return { notRunnable: named };
       return { unknown: named };
     }
     const picked = readVisitorScenarioId(req);
     if (picked !== null) {
-      const entry = customScenarioCatalog.get(picked);
-      if (entry) return { scenario: entry.scenario };
+      const scenario = lookupScenario(req, picked);
+      if (scenario) return { scenario };
       if (hydratingScenarioIds.has(picked)) return { loading: picked };
     }
     return { scenario: marsScenario };
   };
+
+  /**
+   * The runnable scenario `id` names for this request: the catalog's, which
+   * every visitor shares, else one this visitor stored in memory. A
+   * visitor's stored scenario never shadows a catalog entry.
+   */
+  function lookupScenario(req: IncomingMessage, id: string): ScenarioPackage | undefined {
+    const entry = customScenarioCatalog.get(id);
+    if (entry) return entry.scenario;
+    const held = ownMemoryScenarios(req)?.get(id);
+    if (!held || !isRunnableScenarioPackage(held.scenario)) return undefined;
+    held.usedAt = Date.now();
+    return held.scenario;
+  }
 
   /** Answers a request whose scenario did not resolve: 503 while it loads, 400 otherwise. */
   const writeScenarioRefusal = (
@@ -1606,7 +1749,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       corsHeaders,
       paracosmRoutesEnabled,
       runsDir,
-      scenarioLookup: (id) => customScenarioCatalog.get(id)?.scenario,
+      scenarioLookup: (id) => lookupScenario(req, id),
     })) {
       return;
     }
@@ -1700,11 +1843,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // List scenarios that can be switched to. Builtins, disk-loaded,
-    // in-memory runnable customs and compiled scenarios all live in the
-    // same catalog, and this endpoint is a uniform iteration over it. No
-    // hardcoded IDs. `active` is this visitor's pick (or the default),
-    // so the answer varies by cookie.
+    // List scenarios that can be switched to. Builtins, disk-loaded and
+    // compiled scenarios all live in the same catalog, and this endpoint is
+    // a uniform iteration over it, followed by the runnable scenarios this
+    // visitor stored in memory, which no other visitor sees. No hardcoded
+    // IDs. `active` is this visitor's pick (or the default), so the answer
+    // varies by cookie.
     //
     // Each entry now carries persistence metadata + a run-count from
     // the run-history store so the dashboard's scenario picker can
@@ -1735,6 +1879,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           source: entry.source,
           compiledAt: meta?.compiledAt,
           seedText: meta?.seedText,
+        });
+      }
+      // The runnable scenarios this visitor stored in memory, theirs alone.
+      for (const [id, { scenario: stored }] of ownMemoryScenarios(req) ?? new Map<string, MemoryScenario>()) {
+        if (customScenarioCatalog.has(id) || !isRunnableScenarioPackage(stored)) continue;
+        entries.push({
+          id,
+          name: stored.labels?.name || id,
+          description: describeCustomScenarioSource('memory'),
+          departments: stored.departments?.length || 0,
+          source: 'memory',
         });
       }
       // While the pick re-compiles after a restart, `active` is its id, so
@@ -1849,14 +2004,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       : null;
     if (scenarioDetailMatch && req.method === 'GET') {
       const id = decodeURIComponent(scenarioDetailMatch[1]);
+      // The catalog's scenario, else one this visitor stored in memory, as
+      // GET /scenarios lists them: the answer varies by visitor.
       const entry = customScenarioCatalog.get(id);
-      if (!entry) {
-        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      const sc = lookupScenario(req, id);
+      const detailHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS };
+      if (!sc) {
+        res.writeHead(404, detailHeaders);
         res.end(JSON.stringify({ error: 'scenario_not_found', id }));
         return;
       }
-      const sc = entry.scenario;
-      const meta = compiledScenarioMeta.get(id);
+      const source = entry?.source ?? 'memory';
+      const meta = entry ? compiledScenarioMeta.get(id) : undefined;
       const runCount = await (async () => {
         if (!runHistoryStore?.aggregateStats) return 0;
         try {
@@ -1900,13 +2059,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         role: d.role,
         icon: d.icon,
       }));
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, detailHeaders);
       res.end(JSON.stringify({
         id,
         name: sc.labels?.name ?? id,
         shortName: sc.labels?.shortName,
-        description: describeCustomScenarioSource(entry.source),
-        source: entry.source,
+        description: describeCustomScenarioSource(source),
+        source,
         compiledAt: meta?.compiledAt,
         seedText: meta?.seedText,
         runCount,
@@ -1931,7 +2090,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // in the client. Lets operators flip the env var + pm2 restart
       // and the UI updates on the next page load without a redeploy.
       const { DEMO_EXECUTION } = await import('../cli/sim-config.js');
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      // `memoryScenarios` is this visitor's own, so the answer varies by cookie.
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify({
         adminWrite,
         hostedDemo,
@@ -1941,7 +2101,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           maxPopulation: DEMO_EXECUTION.maxPopulation,
           maxActiveDepartments: DEMO_EXECUTION.maxActiveDepartments,
         },
-        memoryScenarios: [...memoryScenarios.keys()],
+        memoryScenarios: [...(ownMemoryScenarios(req)?.keys() ?? [])],
         keys: {
           openai: !!env.OPENAI_API_KEY,
           anthropic: !!env.ANTHROPIC_API_KEY,
@@ -1954,11 +2114,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    // Store a scenario in memory (any visitor) and, with saveToDisk, also
-    // write it to <scenarioDir>/<id>.json. The disk write takes the admin
-    // credential the /admin/* routes take (requireAdminToken) and an id
-    // that names one file directly in the scenarios folder
-    // (scenarioJsonPath). A refused disk write stores nothing.
+    // Store a scenario in this visitor's memory (any visitor) or, with
+    // saveToDisk, write it to <scenarioDir>/<id>.json and the catalog every
+    // visitor reads. The disk write takes the admin credential the /admin/*
+    // routes take (requireAdminToken) and an id that names one file directly
+    // in the scenarios folder (scenarioJsonPath). A memory store is the
+    // storing visitor's alone (memoryScenarios), so it never takes an id the
+    // catalog holds, and it is held to MEMORY_SCENARIO_MAX_BYTES,
+    // MEMORY_SCENARIOS_PER_VISITOR, MEMORY_SCENARIOS_PER_ADDRESS and
+    // MEMORY_SCENARIOS_CAP. A refused request stores nothing.
     if (req.url === '/scenario/store' && req.method === 'POST') {
       try {
         const { scenario: scenarioJson, saveToDisk } = JSON.parse(await readBody(req, maxRequestBodyBytes));
@@ -1967,41 +2131,83 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           res.end(JSON.stringify({ error: 'scenario with id required' }));
           return;
         }
-        let diskPath: string | null = null;
+        const refuse = (status: number, error: string, log: string): void => {
+          console.warn(`[scenarios] scenario store refused: ${log}`);
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error }));
+        };
+        const switchable = isRunnableScenarioPackage(scenarioJson);
+        let savedToDisk = false;
         if (saveToDisk) {
           if (!requireAdminToken(req, res)) {
             console.warn('[scenarios] scenario disk write refused: admin credential missing, wrong or not configured');
             return;
           }
-          diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
+          const diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
           if (!diskPath) {
             console.warn('[scenarios] scenario disk write refused: the id is not a plain scenario id');
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: `Invalid scenario id for a disk write: ${SCENARIO_ID_RULE}.` }));
             return;
           }
-        }
-        // Store raw JSON in memory for this authoring session.
-        memoryScenarios.set(scenarioJson.id, scenarioJson);
-        const switchable = isRunnableScenarioPackage(scenarioJson);
-        if (switchable) {
-          customScenarioCatalog.set(scenarioJson.id, {
-            scenario: scenarioJson,
-            source: diskPath ? 'disk' : 'memory',
-          });
-        }
-
-        let savedToDisk = false;
-        if (diskPath) {
           const { writeFileSync, mkdirSync } = await import('node:fs');
           mkdirSync(scenarioDir, { recursive: true });
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
           if (switchable) {
-            customScenarioCatalog.set(scenarioJson.id, {
+            enterCatalog(scenarioJson.id, {
               scenario: scenarioJson,
               source: 'disk',
             });
+          }
+        } else {
+          const id: unknown = scenarioJson.id;
+          if (typeof id !== 'string') {
+            refuse(400, 'The scenario id must be a string.', 'an id that is not a string');
+            return;
+          }
+          if (customScenarioCatalog.has(id) || hydratingScenarioIds.has(id)) {
+            refuse(409, `"${id}" is the id of a scenario every visitor sees. Give your copy an id of its own.`, 'an id the shared catalog holds');
+            return;
+          }
+          if (Buffer.byteLength(JSON.stringify(scenarioJson)) > MEMORY_SCENARIO_MAX_BYTES) {
+            refuse(413, `A scenario held in memory is at most ${MEMORY_SCENARIO_MAX_BYTES / 1024} KiB of JSON.`, 'over the size held in memory');
+            return;
+          }
+          // The counts below are of what is still held: a scenario past the idle time goes first.
+          dropIdleMemoryScenarios();
+          const visitorId = readVisitorId(req);
+          const own = memoryScenarios.get(visitorId) ?? new Map<string, MemoryScenario>();
+          const held = own.get(id);
+          if (held) {
+            held.scenario = scenarioJson;
+            held.usedAt = Date.now();
+          } else {
+            if (own.size >= MEMORY_SCENARIOS_PER_VISITOR) {
+              refuse(507, `This server holds at most ${MEMORY_SCENARIOS_PER_VISITOR} scenarios in memory for one visitor. Store over one of yours.`, 'the visitor holds the most scenarios in memory');
+              return;
+            }
+            const address = IpRateLimiter.getIp(req);
+            let atAddress = 0;
+            for (const stored of memoryScenarios.values()) {
+              for (const other of stored.values()) {
+                if (other.address === address) atAddress += 1;
+              }
+            }
+            if (atAddress >= MEMORY_SCENARIOS_PER_ADDRESS) {
+              refuse(507, `This server holds at most ${MEMORY_SCENARIOS_PER_ADDRESS} scenarios in memory for one address. Store over one of yours.`, 'the address holds the most scenarios in memory');
+              return;
+            }
+            if (memoryScenarioCount >= MEMORY_SCENARIOS_CAP) {
+              const idle = memoryScenarioIdleMs >= 3_600_000
+                ? `${Math.round(memoryScenarioIdleMs / 3_600_000)} hours`
+                : `${Math.round(memoryScenarioIdleMs / 1000)} seconds`;
+              refuse(507, `This server holds at most ${MEMORY_SCENARIOS_CAP} scenarios in memory, every visitor's together, and it is full. It drops a stored scenario that goes unused for ${idle}, so try again later.`, 'the memory store is full');
+              return;
+            }
+            memoryScenarios.set(visitorId, own);
+            memoryScenarioCount += 1;
+            own.set(id, { scenario: scenarioJson, address, usedAt: Date.now() });
           }
         }
 
@@ -2056,17 +2262,37 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (req.url?.startsWith('/api/quickstart/') && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
+        const quickstartVisitor = readVisitorId(req);
         const quickstartDeps: QuickstartDeps = {
-          installCompiledScenario: (sc, seedText) => {
+          installCompiledScenario: (compiledFromSeed, seedText) => {
             const seed = typeof seedText === 'string' && seedText.trim().length > 0
               ? seedText.slice(0, 1000)
               : null;
+            // The compile picks the id, and it never replaces a scenario
+            // that id already names (scenarioIdTaken): the compiled scenario
+            // lands under the next free id instead, `<id>-2`, `<id>-3`, with
+            // the id cut short where it must be so the whole stays within
+            // QUICKSTART_SCENARIO_ID_MAX, the longest id the page's next
+            // Quickstart calls take. The catalog's own entry for this very
+            // scenario (a second request for a compile that already landed)
+            // keeps its id.
+            let sc = compiledFromSeed;
+            if (customScenarioCatalog.get(sc.id)?.scenario !== sc && scenarioIdTaken(quickstartVisitor, sc.id)) {
+              const takenId = sc.id;
+              const withSuffix = (n: number): string => {
+                const tail = `-${n}`;
+                return `${takenId.slice(0, Math.max(0, QUICKSTART_SCENARIO_ID_MAX - tail.length))}${tail}`;
+              };
+              let suffix = 2;
+              while (scenarioIdTaken(quickstartVisitor, withSuffix(suffix))) suffix += 1;
+              sc = { ...sc, id: withSuffix(suffix) };
+            }
             // Quickstart-compiled scenarios reuse the 'compiled' source
             // tag; same post-compile semantics, no new source state
             // required. Nothing becomes active for anyone: the visitor who
             // compiled it gets it as their pick through pickHeaders on the
             // answers they receive.
-            customScenarioCatalog.set(sc.id, { scenario: sc, source: 'compiled' });
+            enterCatalog(sc.id, { scenario: sc, source: 'compiled' });
             // Auto-persist to disk so the catalog survives server
             // restarts. The hooks themselves are excluded (functions
             // don't serialize) but compileScenario regenerates them
@@ -2084,8 +2310,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // memory, so /setup carries the brief into the run either way.
             const persistResult = persistCompiledScenario(scenarioDir, sc, seed);
             compiledScenarioMeta.set(sc.id, persistResult?.meta ?? { compiledAt: new Date().toISOString(), seedText: seed });
+            return sc;
           },
-          getScenarioById: (id) => customScenarioCatalog.get(id)?.scenario,
+          getScenarioById: (id) => lookupScenario(req, id),
           pickHeaders: (id): Record<string, string> => {
             const cookie = pickCookie(id, pickCookieSecure);
             return cookie ? { 'Set-Cookie': cookie } : {};
@@ -2106,6 +2333,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
           getDigitalTwinWorld,
+          ...(options.compileFromSeed ? { compileFn: options.compileFromSeed } : {}),
           outputDir: runsDir,
           // A digital-twin run is its caller's run, as a /setup run is: it
           // replaces their current run and leaves every other visitor's
@@ -2252,6 +2480,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(anthropicKey),
         };
 
+        // A compile lands in the catalog every visitor reads, under the id
+        // its JSON carries, so it takes only an id that names nothing yet
+        // for anyone else (scenarioIdTaken). Refused here, before the stream
+        // opens, the compiler runs or the day's compile count moves.
+        const compileVisitor = readVisitorId(req);
+        const sourceId: unknown = (scenarioJson as { id?: unknown }).id;
+        if (typeof sourceId === 'string' && scenarioIdTaken(compileVisitor, sourceId)) {
+          console.warn('[scenarios] compile refused: its id is taken');
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: scenarioIdTakenMessage(sourceId) }));
+          return;
+        }
+
         // Rate-limit compile against its own daily bucket. Each compile
         // costs ~$0.10 against the host's API key, so even 10 uncontrolled
         // hits is a real line item. Bypassed when the caller is not
@@ -2351,12 +2592,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
         });
 
-        // Into the catalog only. The response is a stream whose headers went
+        // Checked again under the compiled id: the compile took a while, and
+        // another compile or a store may have taken the id since.
+        if (scenarioIdTaken(compileVisitor, compiled.id)) {
+          console.warn('[scenarios] compile not kept: its id was taken while it ran');
+          res.write(`event: error\ndata: ${JSON.stringify({ error: scenarioIdTakenMessage(compiled.id) })}\n\n`);
+          res.end();
+          return;
+        }
+
+        // Into the catalog only, where it leaves its visitor's memory store
+        // if they had stored it. The response is a stream whose headers went
         // out before the compile, so it cannot carry a cookie; the editor
         // that compiled it posts /scenario/switch with the id from
         // `complete`, which makes it that visitor's pick.
-        memoryScenarios.set(compiled.id, compiled);
-        customScenarioCatalog.set(compiled.id, { scenario: compiled, source: 'compiled' });
+        enterCatalog(compiled.id, { scenario: compiled, source: 'compiled' });
 
         // Snapshot compile telemetry into the ring buffer so /retry-stats
         // aggregates compile:* schemas alongside runtime schemas, and emit
@@ -2823,7 +3073,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (!requireAdminToken(req, res)) return;
       const id = decodeURIComponent(adminScenarioMatch[1]);
       const entry = customScenarioCatalog.get(id);
+      // A scenario visitors stored in memory under this id goes from every
+      // visitor's store; the catalog's entry, if any, is handled below.
+      const dropFromMemory = (): number => dropFromEveryMemoryStore(id);
       if (!entry) {
+        const memoryDeleted = dropFromMemory();
+        if (memoryDeleted > 0) {
+          console.log(`[scenarios] admin deleted ${id} from ${memoryDeleted} visitor memory store(s)`);
+          res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ deleted: true, id, fileDeleted: false, catalogDeleted: false, metaDeleted: false, memoryDeleted }));
+          return;
+        }
         res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'scenario_not_found', id }));
         return;
@@ -2852,7 +3112,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const fileDeleted = deletePersistedCompiledScenario(scenarioDir, id);
       const catalogDeleted = customScenarioCatalog.delete(id);
       const metaDeleted = compiledScenarioMeta.delete(id);
-      console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted})`);
+      const memoryDeleted = dropFromMemory();
+      console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted} memory=${memoryDeleted})`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({
         deleted: true,
@@ -2860,6 +3121,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         fileDeleted,
         catalogDeleted,
         metaDeleted,
+        memoryDeleted,
       }));
       return;
     }
