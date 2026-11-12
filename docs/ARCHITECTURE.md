@@ -131,6 +131,20 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 
 Before it keeps a generated `fingerprintHook` or `departmentPromptHook`, the compiler calls it on a state built from the draft's own `world` declarations, and a draft that declares no `world` is tried on the head count and morale, the two values a run of it holds.
 
+#### Where generated code runs
+
+A code hook is text a model wrote, and the compiler and every run call it. Each call evaluates the text in a `node:vm` context of its own ([`own-context.ts`](../src/engine/compiler/own-context.ts), used by [`sandbox-runner.ts`](../src/engine/compiler/sandbox-runner.ts)); code a department forges at run time runs the same way (see Emergent Tool Forging).
+
+Node's documentation says "The `node:vm` module is not a security mechanism. Do not use it to run untrusted code." ([vm](https://nodejs.org/api/vm.html)). The runner does not change that: the code runs in the server's process and on its heap. What the runner does:
+
+- **Nothing of the host goes in.** The context is made from an object with no prototype and no properties. Arguments go in as JSON text that the context parses with its own `JSON.parse`. Every value the code sees, and every constructor it can reach from one, was made by the context, and the context refuses text compiled through them (`codeGeneration: { strings: false, wasm: false }`).
+- **Only a string comes out.** The result is encoded inside the context, under the time limit, and decoded by the host: a primitive as it is, an object through JSON. A function or a symbol is refused. The host reads no property of a value the context made, a thrown value included, and Node is told not to either (`displayErrors: false`).
+- **Globals are an allow-list.** `Object`, `Array`, `String`, `Number`, `Boolean`, `Symbol`, `BigInt`, `Date`, `RegExp`, `Math`, `JSON`, `Intl`, `Map`, `Set`, `WeakMap`, `WeakSet`, the error constructors, the number and URI functions and a `console` that does nothing. Every other global is deleted before the code runs, `Promise`, `Proxy`, `Reflect`, `WebAssembly`, `SharedArrayBuffer`, `Atomics`, `WeakRef`, `FinalizationRegistry`, `ArrayBuffer`, the typed arrays, `globalThis` and `eval` among them, with `Array.fromAsync`, `Symbol.for` and `Symbol.keyFor`.
+- **Synchronous only.** A text holding the word `async` or `import` is refused before it runs (in a string or a comment too), and with no `Promise` the code cannot make one, so nothing is left queued when a call returns.
+- **No stack traces** for errors made in the context, and a **time limit**: 1 second for a hook, at most 10 seconds for forged code.
+
+What stays open: memory is not limited, so code that fills the heap ends the process; a long-running built-in is not interrupted until it returns; and a defect in V8 or in Node's context code is not contained. A boundary that holds against those is a separate process or an isolate.
+
 Compilation costs ~$0.10 and is cached to disk. The compiler accepts `--seed-text` and `--seed-url` for domain research, and `--no-web-search` to skip web enrichment. A future prompt-only wrapper should first generate this same JSON contract, then validate and compile it.
 
 ### Deterministic Kernel
@@ -290,13 +304,14 @@ Department agents forge computational tools at runtime using AgentOS's `Emergent
 
 1. The department agent calls `forge_tool` with a name, description, input/output schema, implementation code, and test cases.
 2. A pre-judge validator (`validateForgeShape`) checks the request is well-formed. When the LLM emits concrete test cases but forgets to declare `inputSchema.properties` / `outputSchema.properties`, a companion helper `inferSchemaFromTestCases` synthesizes the missing properties from the test data so the forge doesn't get rejected on a formality the test cases already witnessed.
-3. The `SandboxedToolForge` delegates to AgentOS's `CodeSandbox`, an in-process node:vm context, which applies these limits:
-   - **Wall-clock timeout** enforced via `vm.runInContext` (default 10 seconds; configurable via `sandboxTimeoutMs`).
+3. The `SandboxedToolForge` hands the code to paracosm's own executor ([`forged-code-executor.ts`](../src/runtime/orchestrator/forged-code-executor.ts)), which runs it in a `node:vm` context of its own, as a compiled hook runs (see Where generated code runs), not in AgentOS's default executor, whose context is built from the host's built-ins:
+   - **Wall-clock timeout** enforced via `vm.runInContext`: 10 seconds. A run may ask for less through `sandboxTimeoutMs`; a higher value, or one that is not a positive number, is read as 10 seconds. A call is synchronous, so this is the longest forged code holds the event loop.
+   - **Synchronous code only.** The tool defines a plain `function execute(input)` (or `run(input)`) that returns its result. A source holding the word `async` or `import` is refused, with a message the department reads, and the context has no `Promise`.
    - **Memory observed** via `process.memoryUsage().heapUsed` delta after each invocation. The default `sandboxMemoryMB: 128` is a soft monitoring target, not a hard cap; the sandbox does not preempt on overrun.
-   - **`codeGeneration: { strings: false, wasm: false }`** at context construction blocks runtime `eval` and `Function()` reflection.
-   - **Frozen `console`** plus explicit-undefined for `process`, `globalThis`, `require`, `setTimeout`, `setInterval`, `fetch`.
-   - **Realm intrinsics blocked** at context construction: `Reflect`, `Proxy`, `WebAssembly`, `SharedArrayBuffer`, `Atomics`. These otherwise resolve via the V8 default realm even with `codeGeneration.strings: false`.
-   - **No capabilities.** paracosm's engine runs forged code under a ceiling that grants none (`capabilities: {}` in `src/runtime/orchestrator/emergent-setup.ts`), so forged code gets no `fetch`, file reads or `crypto`; a forge that asks for one is refused before the judge sees it.
+   - **`codeGeneration: { strings: false, wasm: false }`** at context construction refuses `eval` and `Function()` on the context's own constructors, which are the only ones the code can reach.
+   - **An allow-list of globals**, with a `console` that does nothing; `process`, `globalThis`, `require`, `setTimeout`, `setInterval`, `fetch`, `Reflect`, `Proxy`, `WebAssembly`, `SharedArrayBuffer` and `Atomics` are not in the context.
+   - **No capabilities.** paracosm's engine runs forged code under a ceiling that grants none (`capabilities: {}` in `src/runtime/orchestrator/emergent-setup.ts`), so forged code gets no `fetch`, file reads or `crypto`; a forge that asks for one is refused before the judge sees it, and the executor refuses a call that carries a host function.
+   - The executor declares `isolates: false`: `node:vm` is not a security mechanism, and what stays open is listed under Where generated code runs.
 4. The `EmergentJudge` (LLM-as-judge) reviews the tool for safety, correctness, determinism, and schema compliance.
 5. If approved, the tool is registered at session scope and available for future turns via the `call_forged_tool` meta-tool (no re-forge required).
 
@@ -768,7 +783,7 @@ Paracosm uses AgentOS for all agent orchestration, LLM calls, tool forging, and 
 | `ObjectGenerationError` | Typed error surfaced on exhausted retries; wrappers fall back to empty skeleton + emit `validation_fallback` SSE |
 | `extractJson` | Multi-strategy JSON extraction (code fence, thinking-tag strip, greedy brace match) used by `sendAndValidate` |
 | `SystemContentBlock` w/ `cacheBreakpoint` | Stable system prefixes cached at 0.1× cost across turns (director instructions, dept system prompt). The reaction batch prompt is not marked: what its batches share is far below the provider's cache minimum (4,096 tokens on Claude Haiku 4.5) |
-| `EmergentCapabilityEngine` | Runtime tool forging in an in-process node:vm context |
+| `EmergentCapabilityEngine` | Runtime tool forging in a node:vm context of its own, in process |
 | `EmergentJudge` | LLM-as-judge safety review of forged tools |
 | `AgentMemory.sqlite()` | Colonist chat memory with episodic storage and RAG; each run's research memory |
 | HEXACO personality | Trait-modulated decision making, memory retrieval, mood adaptation |

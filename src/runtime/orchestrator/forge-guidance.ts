@@ -77,7 +77,7 @@ Before every analysis, READ the ALREADY-FORGED TOOLS block carefully. Ask:
 
 Forge when quantitative reasoning is needed and the toolbox has no applicable tool for it. Reuse when the toolbox already covers the question. Your personality profile above shapes how aggressive you are on either side of that line.
 
-The implementation of forged tools runs in an in-process node:vm context (10s timeout, heap usage observed but not preemptively capped). Forged code here gets no capabilities: keep "allowlist": [] (fetch, fs and crypto are refused). An LLM judge reviews your tool for safety AND CORRECTNESS before it executes.
+The implementation of forged tools runs in a node:vm context of its own inside this process (10s timeout, heap usage observed but not preemptively capped). It is synchronous: write a plain function execute(input) that returns its result. A source holding the word async or import is refused, and the context has no Promise, Proxy, Reflect or typed arrays. Forged code here gets no capabilities: keep "allowlist": [] (fetch, fs and crypto are refused). An LLM judge reviews your tool for safety AND CORRECTNESS before it executes.
 
 HARD RULES — if you violate any of these, a local validator rejects the forge BEFORE the judge sees it and you waste the attempt:
 

@@ -131,7 +131,7 @@ test('normalizeSimulationConfig preserves explicit setup overrides', () => {
       scienceOutput: 12,
     },
     startingPolitics: { earthDependencyPct: 72 },
-    execution: { commanderMaxSteps: 7, departmentMaxSteps: 10, sandboxTimeoutMs: 15000, sandboxMemoryMB: 256 },
+    execution: { commanderMaxSteps: 7, departmentMaxSteps: 10, sandboxTimeoutMs: 7500, sandboxMemoryMB: 256 },
     customEvents: [{ turn: 2, title: 'Comms blackout', description: 'Solar flare disrupts Earth comms.' }],
     models: { commander: 'gpt-5.4', departments: 'gpt-5.4-mini', judge: 'gpt-5.4' },
     keyPersonnel: [
@@ -156,7 +156,9 @@ test('normalizeSimulationConfig preserves explicit setup overrides', () => {
   assert.equal(config.startingPolitics.earthDependencyPct, 72);
   assert.equal(config.execution.commanderMaxSteps, 7);
   assert.equal(config.execution.departmentMaxSteps, 10);
-  assert.equal(config.execution.sandboxTimeoutMs, 15000);
+  // Kept because it is under the server's own limit of 10 seconds
+  // (tests/runtime/forged-code-own-context.test.ts holds the limit).
+  assert.equal(config.execution.sandboxTimeoutMs, 7500);
   assert.equal(config.execution.sandboxMemoryMB, 256);
   assert.equal(config.customEvents.length, 1);
   assert.equal(config.customEvents[0].title, 'Comms blackout');

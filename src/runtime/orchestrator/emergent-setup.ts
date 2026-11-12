@@ -40,6 +40,7 @@ import {
 } from '../../engine/provider/credentials.js';
 import { createResearchSearch } from '../../engine/provider/web-search.js';
 import type { LlmProvider } from '../../engine/types.js';
+import { clampForgedCodeTimeoutMs, OwnContextExecutor } from './forged-code-executor.js';
 
 // ---------------------------------------------------------------------------
 // Web search tool
@@ -219,8 +220,14 @@ export function createEmergentEngine(
       enabled: true,
       maxSessionTools: SESSION_TOOL_LIMIT,
       maxAgentTools: AGENT_TOOL_LIMIT,
-      sandboxTimeoutMs: execution.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs,
+      // At most the server's own limit, whatever the run asked for: a call
+      // of forged code is synchronous and holds the event loop that long.
+      sandboxTimeoutMs: clampForgedCodeTimeoutMs(execution.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs),
       sandboxMemoryMB: execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
+      // Forged code runs in a node:vm context that holds nothing of the
+      // host's (forged-code-executor.ts), not in AgentOS's default
+      // executor, whose context is built from the host's own built-ins.
+      executor: new OwnContextExecutor(),
       promotionThreshold: { uses: 5, confidence: 0.8 },
       allowSandboxTools: true, persistSandboxSource: true,
       // Forged code here computes; it reaches nothing. The ceiling grants no
