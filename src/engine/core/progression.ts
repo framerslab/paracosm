@@ -787,7 +787,12 @@ function progressStep(input: StepInput): number {
   // A run that carries no food store (its scenario declares none) is not
   // short of food.
   const fedEnough = typeof metrics.foodMonthsReserve !== 'number' || metrics.foodMonthsReserve > 6;
-  const baseBirthRate = metrics.morale > 0.4 && fedEnough ? 0.08 : 0.02;
+  // MEASUREMENT ONLY, not for merge: how the base birth rate reads morale.
+  // The measurement test sets `__birthLift`; without it the rate takes a
+  // quarter more at morale 1, in proportion to morale above 0.9.
+  const birthLift = (globalThis as unknown as { __birthLift?: (morale: number) => number }).__birthLift
+    ?? ((morale: number) => 1 + 0.25 * Math.max(0, morale - MORALE_OF_A_CONTENT_COLONY) / (1 - MORALE_OF_A_CONTENT_COLONY));
+  const baseBirthRate = (metrics.morale > 0.4 && fedEnough ? 0.08 : 0.02) * birthLift(metrics.morale);
   // Partnered couples: 3x the base rate (stable relationships, higher
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
   const partneredBirthProb = per(baseBirthRate * 3);
