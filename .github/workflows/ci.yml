@@ -138,3 +138,18 @@ jobs:
 
       - name: Install production dependencies from the lockfile, as the server does
         run: npm ci --omit=dev --no-audit --no-fund
+
+  # deploy.yml copies the build to the host with rsync --delete. This runs that
+  # command's filter options against a stand-in host tree and fails when a
+  # deploy would delete data the server writes there, or keep a stale build file.
+  deploy-keeps-host-data:
+    name: Deploy keeps host data
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run the deploy's rsync filter against a stand-in host
+        run: bash scripts/check-deploy-keeps-host-data.sh
