@@ -1,6 +1,6 @@
 # Compiler fixtures
 
-What the stub model of `tests/engine/compiler/helpers/stub-model-compile.ts` answers the seed compile with, and a compiled scenario as the server saves one. Four files are recordings of what a model drafted; the other three are written by hand.
+What the stub model of `tests/engine/compiler/helpers/stub-model-compile.ts` answers the seed compile with, and a compiled scenario as the server saves one. Four files are recordings of what a model drafted; the other four are written by hand.
 
 ## Recordings
 
@@ -20,5 +20,6 @@ Each is a byte for byte copy of a file the cookbook runners captured (`docs/COOK
 | Fixture | What it is |
 |---|---|
 | `draft-orchard-bare.json` | The `orchard-seasons` draft of `tests/engine/progression-time-scale.test.ts`: two departments, two metrics, a season of a quarter of a year. |
+| `draft-orchard-with-tables.json` | The bare orchard draft with what a draft can say about its scores: `harvest` with a label, a unit, a start of 420 and a floor of 0; `soil-health` with a label and a start of 62; and three category tables, `weather`, `market` and `labour`, each entry inside its score's bounds, with both scores in the first table and in the last. It is not a recording: no reply to the draft call that carries these fields has been recorded. |
 | `extraction-orchard.json` | A reply to the seed extraction, in the shape its prompt asks for (`src/engine/compiler/seed-ingestion.ts`): three topics with a fact or more each, no search query, and two crisis categories in plain words. Neither category names a topic or appears in a fact, so each maps to the first two topics. No reply to the extraction was ever recorded. |
 | `persisted/compiled/orchard-seasons.json` | A compiled scenario in the folder layout the server reads at boot (`src/cli/persisted-compiled-scenarios.ts`): the bare orchard draft compiled with no seed text and saved with no seed text. `tests/engine/compiler/compiled-before-world.test.ts` shows it is what the compiler and the server's writer produce for that draft, but for `_persistMeta.compiledAt`. |
