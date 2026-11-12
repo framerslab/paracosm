@@ -1,8 +1,10 @@
 /**
  * The seed compile, `compileFromSeed`, end to end on a stub model, for the
- * drafts a model returned to the cookbook runs and for the two orchard
- * drafts written by hand: the bare one, and the one that gives each metric
- * its start and range and lists three category tables.
+ * drafts a model returned to the cookbook runs and for three drafts written
+ * by hand: the bare orchard draft, the orchard draft that gives each metric
+ * its start and range and lists three category tables, and the reservoir
+ * draft, which also marks its water reserve as a supply that sustains its
+ * people.
  *
  * The stub (tests/engine/compiler/helpers/stub-model-compile.ts) answers
  * the draft call with a draft from tests/fixtures/compiler/, the seed
@@ -19,9 +21,12 @@
  * tables or more, with the knowledge bundle's categories the tables' keys
  * and every topic under each; the first four declared scores in the
  * header; the fingerprint and department prompt hooks kept on their first
- * attempt; and nothing for `validateSeedWorld` to report. The death dice
- * and the supply marks are left to the tests of the change that makes
- * them.
+ * attempt; nothing for `validateSeedWorld` to report; and one death die
+ * for each person's whole life, so a kernel built from the scenario
+ * records `mortalityDice: 'life'`. A supply is marked as sustaining the
+ * people only where the draft marks one: the reservoir's water reserve,
+ * whose amount on day one the kernel keeps, and no field of any other
+ * draft.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,6 +40,7 @@ import {
   isDraftRequest,
   isExtractionRequest,
   loadCompilerFixture,
+  type SeedCompileOnStub,
 } from './helpers/stub-model-compile.js';
 import { describeExchanges, isServedPath } from '../../runtime/helpers/stub-openai-transport.js';
 
@@ -43,7 +49,7 @@ interface Draft {
   labels: { name: string };
   setup: { defaultTurns: number; defaultPopulation: number; defaultStartTime: number };
   departments: Array<{ id: string }>;
-  metrics: Array<{ id: string; format?: string; initial?: number }>;
+  metrics: Array<{ id: string; format?: string; initial?: number; sustains?: boolean }>;
   effects?: Array<{ category: string; entries: Array<{ metric: string; change: number }> }>;
 }
 
@@ -60,13 +66,44 @@ const HOOKS = [
 const DRAFTS: Array<[file: string, label: string]> = [
   ['draft-orchard-bare.json', 'the bare orchard draft (written by hand)'],
   ['draft-orchard-with-tables.json', 'the orchard draft with starts and tables (written by hand)'],
+  ['draft-reservoir-with-mark.json', 'the reservoir draft with a marked supply (written by hand)'],
   ['recorded-draft-ai-lab.json', 'the AI lab draft a model returned to the cookbook'],
   ['recorded-draft-generation-ship.json', 'the generation ship draft a model returned to the cookbook'],
   ['recorded-draft-pandemic-governor.json', 'the pandemic governor draft a model returned to the cookbook'],
   ['recorded-draft-game-studio.json', 'the game studio draft a model returned to the cookbook'],
 ];
 
+/** The one draft that marks a supply as sustaining its people. */
+const RESERVOIR = 'draft-reservoir-with-mark.json';
+
 const extraction = loadCompilerFixture('extraction-orchard.json') as { topics: string[] };
+
+/** Each draft is compiled once; the tests below read the same compile. */
+const compiles = new Map<string, Promise<SeedCompileOnStub>>();
+function compiledOnce(file: string): Promise<SeedCompileOnStub> {
+  let compile = compiles.get(file);
+  if (!compile) {
+    compile = compileSeedOnStub({ draft: loadCompilerFixture(file), hooks: 'working' });
+    compiles.set(file, compile);
+  }
+  return compile;
+}
+
+/** A kernel of a compiled scenario at the hosted size: 30 people at most. */
+function kernelOf(scenario: SeedCompileOnStub['scenario']): SimulationKernel {
+  return new SimulationKernel(950, 'Leader', scenarioKeyPersonnel(scenario), {
+    startTime: scenario.setup?.defaultStartTime ?? 1,
+    initialPopulation: Math.min(scenario.setup?.defaultPopulation ?? 30, 30),
+    scenario,
+  });
+}
+
+/** Every world field that carries a `sustains` key, as `<bag>.<key>`. */
+function marksOf(scenario: SeedCompileOnStub['scenario']): string[] {
+  const world = (scenario.world ?? {}) as unknown as Record<string, Record<string, { sustains?: unknown }> | undefined>;
+  return Object.entries(world).flatMap(([bag, fields]) =>
+    Object.entries(fields ?? {}).filter(([, field]) => field?.sustains !== undefined).map(([key]) => `${bag}.${key}`));
+}
 
 /** A leader with every trait at one half, for the fingerprint hook's third argument. */
 const LEADER = {
@@ -80,7 +117,7 @@ const LEADER = {
 for (const [file, label] of DRAFTS) {
   test(`${label} compiles through compileFromSeed on a stub model, keeping its ids and the extraction's research and holding the scores it declares`, async (t) => {
     const draft = loadCompilerFixture(file) as Draft;
-    const { scenario, telemetry, seen } = await compileSeedOnStub({ draft, hooks: 'working' });
+    const { scenario, telemetry, seen } = await compiledOnce(file);
     const requests = `\nThe stub model's requests:\n${describeExchanges(seen)}`;
 
     assert.equal(scenario.id, draft.id, `the scenario's id is the draft's (read ${scenario.id})`);
@@ -136,11 +173,7 @@ for (const [file, label] of DRAFTS) {
     );
 
     // A run of the scenario holds every score its draft declares.
-    const kernel = new SimulationKernel(950, 'Leader', scenarioKeyPersonnel(scenario), {
-      startTime: scenario.setup?.defaultStartTime ?? 1,
-      initialPopulation: Math.min(scenario.setup?.defaultPopulation ?? 30, 30),
-      scenario,
-    });
+    const kernel = kernelOf(scenario);
     const state = kernel.getState();
     const held = state.metrics as unknown as Record<string, unknown>;
     assert.deepEqual(
@@ -232,5 +265,41 @@ for (const [file, label] of DRAFTS) {
         `the compiled tables are the draft's as written (read ${JSON.stringify(scenario.effects?.[0]?.categoryDefaults)})`,
       );
     }
+
+    // Every compile keeps one death die for each person's whole life.
+    assert.equal(
+      state.metadata.mortalityDice,
+      'life',
+      `a kernel built from the compiled scenario keeps one death die for a life: metadata.mortalityDice is "life" (read ${JSON.stringify(state.metadata.mortalityDice)})`,
+    );
   });
 }
+
+test('the reservoir draft marks its water reserve as a supply that sustains its people, and a kernel keeps what the reserve holds on day one', async () => {
+  const { scenario } = await compiledOnce(RESERVOIR);
+  const landing = kernelOf(scenario).getState().metadata.landingSupplies;
+  assert.deepEqual(
+    landing,
+    { 'water-reserve': 500 },
+    `the kernel keeps the water reserve's amount on day one as its one landing supply (read ${JSON.stringify(landing)})`,
+  );
+  assert.deepEqual(
+    marksOf(scenario),
+    ['metrics.water-reserve'],
+    `the water reserve is the one world field that carries the mark (read ${JSON.stringify(marksOf(scenario))})`,
+  );
+  assert.equal(
+    (scenario.world?.metrics as unknown as Record<string, { sustains?: unknown }>)['water-reserve']?.sustains,
+    true,
+    'the mark is true',
+  );
+});
+
+test('no draft but the reservoir\'s compiles to a scenario that marks a supply', async () => {
+  for (const [file, label] of DRAFTS.filter(([name]) => name !== RESERVOIR)) {
+    const { scenario } = await compiledOnce(file);
+    assert.deepEqual(marksOf(scenario), [], `${label}: no world field carries a sustains mark (read ${JSON.stringify(marksOf(scenario))})`);
+    const landing = kernelOf(scenario).getState().metadata.landingSupplies;
+    assert.equal(landing, undefined, `${label}: a kernel keeps no landing supply (read ${JSON.stringify(landing)})`);
+  }
+});
