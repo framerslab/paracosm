@@ -217,4 +217,45 @@ test.describe('A run on the Sim tab @sim', () => {
     await expect(page.getByText("Bar 82: the bold option's chance 80 is under it, so the bold option was refused", { exact: true })).toBeVisible();
     await expect(page.getByText("Bar 36: the bold option's chance 80 clears it, yet the bold option was refused, with no fact named for it", { exact: true })).toBeVisible();
   });
+
+  /**
+   * A `validation_fallback` event as the orchestrator emits it: no turn,
+   * event or department of its own, only the call site that names them.
+   */
+  const schemaEvent = (leader: string, data: Record<string, unknown>) => sse('sim', { type: 'validation_fallback', leader, data });
+
+  test('each schema event of one leader is counted once, a kept report apart from a fallback', async ({ page }) => {
+    const salvage = schemaEvent(ARIA.name, {
+      site: 'dept:engineering:turn1:event1',
+      schemaName: 'DepartmentReport',
+      rawTextPreview: '{"summary":"engineering report"}',
+      error: 'Validation failed after 3 attempts; the report was kept without the effect keys the run does not hold',
+      salvaged: true,
+      droppedKeys: ['habitatShielding'],
+    });
+    const fallback = schemaEvent(ARIA.name, {
+      site: 'commander:turn1:event1',
+      schemaName: 'CommanderDecision',
+      rawTextPreview: '{}',
+      error: 'Validation failed after 3 attempts',
+    });
+    const oneLeader = [
+      sse('connected', {}),
+      sse('active_scenario', { id: 'mars-genesis', name: 'Mars Genesis', runKey: 'a-finished-run-of-one-leader', forkedFrom: null }),
+      sse('status', { phase: 'starting', maxTurns: 1, customEvents: [] }),
+      sse('status', { phase: 'parallel', actors: [ARIA] }),
+      // Aria Chen's engineering report was kept without a key the run does
+      // not hold, and her decision reply failed its schema every time.
+      ...leaderTurn(ARIA.name, 'Select Arcadia Planitia for the first settlement.', 'conservative_success', [salvage, fallback]),
+      // The server's buffer sends the same frames again after a reconnect.
+      salvage,
+      fallback,
+      sse('complete', { timestamp: '2026-11-12T00:01:00.000Z' }),
+      sse('replay_done', {}),
+    ].join('');
+    await page.route('**/events', route => route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body: oneLeader }));
+    await page.goto('/sim?tab=sim');
+
+    await expect(page.getByLabel('1 validation fallback, 1 reply kept without the keys the run does not hold', { exact: true })).toBeVisible();
+  });
 });
