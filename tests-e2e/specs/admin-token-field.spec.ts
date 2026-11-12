@@ -16,7 +16,8 @@
  * default server, which runs with admin writes off.
  */
 import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -69,8 +70,23 @@ function recordRequests(page: Page): Request[] {
 
 const isDiskWrite = (request: Request) => request.method() === 'POST' && new URL(request.url()).pathname === '/scenario/store';
 
+/**
+ * The scenario files the admin-write server wrote at or after `since`. Its
+ * scenarios folder is a temporary one of its own
+ * (tests-e2e/support/admin-write-server.ts), and a draft saved to disk is
+ * listed by no route, so the file is where the write is read back.
+ */
+function scenarioFilesWrittenSince(since: number): string[] {
+  return readdirSync(tmpdir())
+    .filter(name => name.startsWith('paracosm-e2e-admin-write-'))
+    .map(name => path.join(tmpdir(), name, 'scenarios', `${SCENARIO_ID}.json`))
+    .filter(file => existsSync(file) && statSync(file).mtimeMs >= since);
+}
+
 test.describe('Admin token field @admin', () => {
   test('Save to Disk says where to enter the token, works once it is entered, and is refused again once it is cleared', async ({ page }) => {
+    // Two seconds of slack for a file system that keeps coarse write times.
+    const startedAt = Date.now() - 2000;
     const requests = recordRequests(page);
     await openSettings(page, ADMIN_BASE);
     await fillEditor(page);
@@ -99,8 +115,13 @@ test.describe('Admin token field @admin', () => {
     await saveToDisk(page).click();
     await expect(page.getByText(SAVED)).toBeVisible();
     await expect(page.getByText(REFUSED)).toHaveCount(0);
-    const config = await (await page.request.get(`${ADMIN_BASE}/admin-config`)).json() as { memoryScenarios: string[] };
-    expect(config.memoryScenarios).toContain(SCENARIO_ID);
+    // The server wrote the scenario into its own scenarios folder, whole. Read
+    // again on a miss: another test may be saving the same file at this moment.
+    await expect(() => {
+      const written = scenarioFilesWrittenSince(startedAt);
+      expect(written.length, 'scenario files the server wrote during this test').toBeGreaterThanOrEqual(1);
+      expect(JSON.parse(readFileSync(written[0], 'utf-8'))).toEqual(JSON.parse(submarine));
+    }).toPass({ timeout: 5000 });
 
     // The token went out as the header of the disk write and nowhere else.
     const carrying = requests.filter(request => request.headers()['x-admin-token'] !== undefined);
