@@ -10,8 +10,10 @@
  * The stream is served from here, as a pair run of Mars Genesis, and ends
  * after each replay, so the page reconnects and is handed the run again, as a
  * dropped connection is. The second run is the same scenario, the same
- * leaders and the same person under a new run key. /chat is answered here
- * too, so no model is called.
+ * leaders and the same person under a new run key. A run restored from the
+ * page's history, and a saved session's replay the page switches to without
+ * a reload, are runs of their own too. /chat is answered here too, so no
+ * model is called.
  */
 import { test, expect, type Page, type Request } from '@playwright/test';
 

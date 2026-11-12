@@ -158,15 +158,17 @@ interface SSEState {
   heldOwnRun: OwnRun | null;
   /**
    * The key of the run the page shows from the live feed (active_scenario's
-   * runKey), null before one arrives, after a reset and while the page shows
-   * a run loaded from a file or from its history. A reconnect replays the
+   * runKey), null before one arrives, after a reset, when the page takes a
+   * new source until its run arrives, and while the page shows a run loaded
+   * from a file or from its history. A reconnect replays the
    * same key; a new run, a fork included, brings a new one. A run the page
    * skips (one in another scenario) leaves it on the key of the run it
    * shows. The Chat tab's threads belong to this run.
    */
   runKey: string | null;
   /**
-   * How many runs the page has loaded from a file or from its history. A
+   * How many runs the page has loaded from a file or from its history, or
+   * taken from a new source (the live feed or a saved session's replay). A
    * loaded run has no key, so this count tells one loaded run from the next;
    * with runKey it names the run the page shows.
    */
@@ -280,6 +282,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   // True while the page shows a run loaded from a file (loadEvents), the
   // visitor's own pick, rather than the run the live feed delivered.
   const shownFromFileRef = useRef(false);
+  // The source (a saved session's id, or null for the live feed) of the
+  // subscription that last connected; undefined before the first.
+  const connectedSourceRef = useRef<string | null | undefined>(undefined);
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
@@ -585,9 +590,24 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         // trailing `replay_done` SSE event once the buffer flush is
         // complete; the listener below flips the flag true again so
         // subsequent truly-live events can toast.
+        //
+        // A first connect from another source than the last (a switch
+        // between the live feed and a saved session's replay without a
+        // reload), or after a run loaded from a file or from the page's
+        // history, drops the run the page held: the Chat tab's threads start
+        // empty with the run this source delivers.
         if (connectCount === 1) {
+          const newSource = connectedSourceRef.current !== replaySessionId || shownFromFileRef.current;
+          connectedSourceRef.current = replaySessionId;
           seenEventKeys.clear();
-          setState(prev => ({ ...prev, status: 'connected', events: [], replayDone: false }));
+          shownFromFileRef.current = false;
+          setState(prev => ({
+            ...prev,
+            status: 'connected',
+            events: [],
+            replayDone: false,
+            ...(newSource ? { runKey: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+          }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
         }
