@@ -374,6 +374,7 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: number;
   maxPopulation: number;
   maxActiveDepartments: number;
+  maxActors: number;
 } = {
   commanderMaxSteps: 2,
   // Three steps gives the dept loop enough room to: forge attempt #1,
@@ -391,7 +392,32 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: resolveDemoMaxTurns(),
   maxPopulation: 30,
   maxActiveDepartments: 3,
+  // A hosted run on the host's keys is a pair: the day limit charges one
+  // run, and each leader is a run's worth of model calls.
+  maxActors: 2,
 };
+
+/** The hosted demo's bounds on what a run's body may add to every prompt. */
+const DEMO_MAX_INSTRUCTIONS_CHARS = 400;
+const DEMO_MAX_EVENT_TITLE_CHARS = 120;
+const DEMO_MAX_EVENT_DESCRIPTION_CHARS = 600;
+/** A leader's name, archetype and unit, and a key person's name, role and specialization. */
+const DEMO_MAX_LABEL_CHARS = 120;
+
+/** `value` cut to the demo's label length; a value that is not a string passes as it is. */
+function demoLabel<T>(value: T): T {
+  return (typeof value === 'string' ? value.slice(0, DEMO_MAX_LABEL_CHARS) : value) as T;
+}
+
+/** The first custom event of each turn up to `turns`, in turn order. */
+function firstEventPerTurn<T extends { turn: number }>(events: readonly T[], turns: number): T[] {
+  const seen = new Set<number>();
+  return events.filter(event => {
+    if (event.turn > turns || seen.has(event.turn)) return false;
+    seen.add(event.turn);
+    return true;
+  });
+}
 
 export function inferProviderFromModel(model?: string): LlmProvider | undefined {
   if (!model) return undefined;
@@ -534,10 +560,13 @@ function normalizeActiveDepartments(
  *
  * Called server-side when a request arrives without a user-supplied API
  * key, so the run bills against the host's provider key. Replaces models
- * with DEMO_MODELS, clamps turn/population/department counts, and tightens
- * tool-loop step caps. Leaders, seed, scenario content, and scenario-level
- * starting state pass through unchanged so the run still feels like a
- * real sim rather than a canned preview.
+ * with DEMO_MODELS, clamps turn/population/department counts, keeps the
+ * first two leaders with their instructions and labels trimmed, trims key
+ * personnel to the population (their labels trimmed) and custom events to
+ * the first one of each turn within the run's turns, turns live search off,
+ * and tightens tool-loop step caps. Seed, scenario content, and
+ * scenario-level starting state pass through unchanged so the run still
+ * feels like a real sim rather than a canned preview.
  *
  * The client cannot bypass by posting its own `models` or `turns` values.
  * Whatever the normalizer produced is overwritten here.
@@ -574,10 +603,36 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
         overrides: { commander: demoCommander, director: economy.models.director },
       })
     : economy;
+  const turns = Math.min(config.turns, DEMO_EXECUTION.maxTurns);
+  const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {
     ...config,
-    turns: Math.min(config.turns, DEMO_EXECUTION.maxTurns),
-    initialPopulation: Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation),
+    // The first leaders, each with instructions of at most 400 characters
+    // and a name, archetype and unit of at most 120; key personnel within
+    // the population, each name, role and specialization at most 120; one
+    // custom event a turn at most, each with a short title and description;
+    // no live search.
+    actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => ({
+      ...actor,
+      name: demoLabel(actor.name),
+      archetype: demoLabel(actor.archetype),
+      unit: demoLabel(actor.unit),
+      instructions: (actor.instructions ?? '').slice(0, DEMO_MAX_INSTRUCTIONS_CHARS),
+    })),
+    keyPersonnel: config.keyPersonnel.slice(0, initialPopulation).map(person => ({
+      ...person,
+      name: demoLabel(person.name),
+      role: demoLabel(person.role),
+      specialization: demoLabel(person.specialization),
+    })),
+    customEvents: firstEventPerTurn(config.customEvents, turns).map(event => ({
+      turn: event.turn,
+      title: event.title.slice(0, DEMO_MAX_EVENT_TITLE_CHARS),
+      description: event.description.slice(0, DEMO_MAX_EVENT_DESCRIPTION_CHARS),
+    })),
+    liveSearch: false,
+    turns,
+    initialPopulation,
     activeDepartments: activeClamped,
     execution: {
       commanderMaxSteps: DEMO_EXECUTION.commanderMaxSteps,
@@ -717,6 +772,30 @@ function withNeutralTraits(actor: ActorConfig): ActorConfig {
 }
 
 /**
+ * The most turns one run takes, whoever pays for it. A turn the provider
+ * refuses still runs the turn loop, so the bound holds with or without a
+ * caller key. The dashboard's Turns field stops at 20; a fork adds the
+ * scenario's turns to its fork turn.
+ */
+export const MAX_SIMULATION_TURNS = 100;
+
+/**
+ * The largest starting population one run takes, whoever pays for it. The
+ * name lists give 2500 distinct names; the largest scenario default is 480.
+ * It bounds the roster the run starts with: the population the body names,
+ * or the scenario's default, and every key person, from the body or the
+ * scenario's preset.
+ */
+export const MAX_SIMULATION_POPULATION = 2000;
+
+/** Throws unless `value` is a whole number from 1 to `max`. */
+function assertRunBound(value: number, max: number, what: string): void {
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`Simulation ${what} must be a whole number from 1 to ${max}, got ${JSON.stringify(value)}`);
+  }
+}
+
+/**
  * Turn a `/setup` payload into the config the runners take.
  *
  * Every setup value the payload omits comes from the scenario the run
@@ -801,21 +880,40 @@ export function normalizeSimulationConfig(
     batchConcurrency: input.economics?.batchConcurrency,
   });
 
+  const turns = input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns);
+  assertRunBound(turns, MAX_SIMULATION_TURNS, 'turns');
+  if (input.population !== undefined && input.population !== null) {
+    assertRunBound(input.population, MAX_SIMULATION_POPULATION, 'population');
+  }
+  // Each person heads at most one department, so a roster smaller than
+  // the department list leaves the rest without a report. A population
+  // the body names stays the person's own choice.
+  const initialPopulation = input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length);
+  const keyPersonnel = input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario);
+  // The roster holds every key person and at least the population, so the
+  // bound holds for it whichever value sets it: a scenario's default
+  // population, department list and preset personnel come from its JSON (a
+  // stored or compiled scenario included), and key personnel from the body.
+  const rosterSize = Math.max(initialPopulation, keyPersonnel.length);
+  if (!(rosterSize <= MAX_SIMULATION_POPULATION)) {
+    throw new Error(
+      `Simulation population must be at most ${MAX_SIMULATION_POPULATION} people, got ${String(rosterSize)} `
+      + `(population ${String(initialPopulation)}, ${keyPersonnel.length} key personnel)`,
+    );
+  }
+
   return {
     actors: input.actors.map(withNeutralTraits),
     provider: inferredProvider,
-    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    turns,
     seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
     timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
-    // Each person heads at most one department, so a roster smaller than
-    // the department list leaves the rest without a report. A population
-    // the body names stays the person's own choice.
-    initialPopulation: input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length),
+    initialPopulation,
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
     activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),
-    keyPersonnel: input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario),
+    keyPersonnel,
     startingResources: suppliedStartingResources(input.startingResources),
     startingPolitics: suppliedStartingPolitics(input.startingPolitics),
     execution: {

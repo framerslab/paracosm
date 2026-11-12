@@ -402,12 +402,14 @@ export function useSSE(options: UseSSEOptions = {}) {
     // a reload after a failed run restores the banner state, not just
     // the viz/reports tabs.
     const errEvent = events.find(e => e.type === 'provider_error');
+    // A file's JSON can hold any value here; the banner shows a string only.
+    const errActionUrl = errEvent?.data?.actionUrl;
     const restoredProviderError: ProviderErrorState | null = errEvent
       ? {
           kind: (errEvent.data?.kind as ProviderErrorState['kind']) ?? 'unknown',
           provider: errEvent.data?.provider as string | undefined,
           message: String(errEvent.data?.message ?? 'Provider error'),
-          actionUrl: errEvent.data?.actionUrl as string | undefined,
+          actionUrl: typeof errActionUrl === 'string' ? errActionUrl : undefined,
           leader: errEvent.leader,
         }
       : null;
@@ -774,6 +776,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
           // them in `events` for audit / reload-restoration purposes.
           if (data.type === 'provider_error' && data.data) {
             const d = data.data as Record<string, unknown>;
+            const actionUrl = d.actionUrl;
             setState(prev => ({
               ...prev,
               events: [...prev.events, data],
@@ -784,7 +787,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
                 kind: (d.kind as ProviderErrorState['kind']) ?? 'unknown',
                 provider: d.provider as string | undefined,
                 message: String(d.message ?? 'Provider error'),
-                actionUrl: d.actionUrl as string | undefined,
+                actionUrl: typeof actionUrl === 'string' ? actionUrl : undefined,
                 leader: data.leader,
               },
             }));

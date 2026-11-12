@@ -9,6 +9,16 @@
  *
  * @module paracosm/cli/fetch-seed-url
  */
+import {
+  DEFAULT_FETCH_TIMEOUT_MS,
+  UrlRefusedError,
+  fetchPublicUrl,
+  htmlTitle,
+  htmlToText,
+  isPublicAddress,
+  readResponseTextCapped,
+} from '../engine/compiler/public-url-fetch.js';
+import { isIP } from 'node:net';
 
 export interface FetchedSeedUrl {
   text: string;
@@ -103,51 +113,30 @@ async function fetchViaAgentOSSearch(
   };
 }
 
-function decodeBasicHtmlEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'");
-}
-
-function extractTitleFromHtml(html: string): string {
-  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return match ? decodeBasicHtmlEntities(match[1].replace(/\s+/g, ' ').trim()) : '';
-}
-
-function stripHtmlToText(html: string): string {
-  return decodeBasicHtmlEntities(
-    html
-      .replace(/<head[\s\S]*?<\/head>/gi, ' ')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim(),
-  );
-}
-
 async function fetchDirectly(
   url: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl?: typeof fetch,
 ): Promise<FetchedSeedUrl> {
-  const res = await fetchImpl(url, {
-    headers: { Accept: 'text/html,text/plain,application/xhtml+xml;q=0.9,*/*;q=0.1' },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+  const accept = 'text/html,text/plain,application/xhtml+xml;q=0.9,*/*;q=0.1';
+  let contentType: string;
+  let raw: string;
+  if (fetchImpl) {
+    // An injected fetch (tests) is read under the same byte limit.
+    const res = await fetchImpl(url, { headers: { Accept: accept }, signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    contentType = res.headers.get('content-type') || '';
+    raw = (await readResponseTextCapped(res)).text;
+  } else {
+    // Public addresses only, 15 s and 2 MiB (public-url-fetch).
+    const res = await fetchPublicUrl(url, { accept });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    contentType = res.contentType;
+    raw = res.text;
   }
-  const contentType = res.headers.get('content-type') || '';
-  const raw = await res.text();
   const isHtml = /\bhtml\b/i.test(contentType) || /<html[\s>]/i.test(raw);
   return {
-    text: isHtml ? stripHtmlToText(raw) : raw.trim(),
-    title: isHtml ? extractTitleFromHtml(raw) : '',
+    text: isHtml ? htmlToText(raw) : raw.trim(),
+    title: isHtml ? htmlTitle(raw) : '',
     sourceUrl: url,
   };
 }
@@ -156,6 +145,16 @@ export async function fetchSeedFromUrl(
   url: string,
   options: FetchSeedFromUrlOptions = {},
 ): Promise<FetchedSeedUrl> {
+  // A URL the server would not fetch itself is refused before any search
+  // provider is asked for it, so the answer is the same with or without
+  // search keys and no search credit is spent on it.
+  if (!options.fetchImpl) {
+    const host = (() => { try { return new URL(url).hostname.replace(/^\[|\]$/g, ''); } catch { return ''; } })();
+    if (!host) throw new UrlRefusedError('Invalid URL');
+    if (/^localhost$/i.test(host) || /\.localhost$/i.test(host) || (isIP(host) && !isPublicAddress(host))) {
+      throw new UrlRefusedError(`${host} is an address the server does not fetch`);
+    }
+  }
   try {
     const viaSearch = await fetchViaAgentOSSearch(url, options);
     if (viaSearch) return viaSearch;

@@ -4,7 +4,7 @@ import { resolve, dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeSimulationConfig, applyDemoCaps, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { normalizeSimulationConfig, applyDemoCaps, DEMO_EXECUTION, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
@@ -37,7 +37,8 @@ import {
   SCENARIO_ID_RULE,
   type PersistedCompiledMeta,
 } from '../cli/persisted-compiled-scenarios.js';
-import { IpRateLimiter, readLimitFromEnv } from './rate-limiter.js';
+import { IpRateLimiter, readLimitFromEnv, readClientIpHeader } from './rate-limiter.js';
+import type { QuickstartRefusal } from './routes/quickstart.js';
 import {
   aggregateSchemaRetries,
   aggregateForgeStats,
@@ -201,6 +202,30 @@ export function pickCookie(id: string, secure = false): string | null {
  */
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
 
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+/**
+ * Whether a local server answers this request: true when it carries no
+ * Origin (a same-origin GET, curl, a script), or its Origin is a loopback
+ * address on any port (the dashboard itself, the Vite dev server), or its
+ * Origin is the host the request was sent to (the dashboard served under
+ * another name). `Origin: null` and any other site are refused.
+ */
+export function localOriginAllowed(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (LOOPBACK_HOSTNAMES.has(parsed.hostname)) return true;
+  const host = req.headers.host;
+  return typeof host === 'string' && host.length > 0 && parsed.host === host.toLowerCase();
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** The path's stats when it names a regular file; undefined for a folder, nothing, or an unreadable path. */
@@ -277,12 +302,58 @@ function adminTokenMatches(presented: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+/**
+ * Whether every percent escape in the request's path decodes to text. A `%`
+ * not followed by two hex digits, or escapes whose bytes are not UTF-8,
+ * make decodeURIComponent throw, so the routes that read an id from the
+ * path decode it only once this holds.
+ */
+function pathDecodes(url: string | undefined): boolean {
+  const path = (url ?? '/').split('?')[0];
+  try {
+    decodeURIComponent(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a request target names an `/api/v1/` route, read as the routes
+ * read it: the target as written (the bundle and Library import routes match
+ * it) or the path the URL parser gives it (handlePlatformApiRoute's), which
+ * resolves dot segments and reduces an absolute-form target to its path, so
+ * `/./api/v1/runs` and `http://host/api/v1/runs` name `/api/v1/runs` too.
+ */
+function namesPlatformApiRoute(url: string | undefined): boolean {
+  if (url === undefined) return false;
+  if (url.startsWith('/api/v1/')) return true;
+  try {
+    return new URL(url, 'http://localhost').pathname.startsWith('/api/v1/');
+  } catch {
+    return false;
+  }
+}
+
 function writeJsonError(res: ServerResponse, error: unknown, fallbackStatus = 400): void {
   const status = error instanceof RequestBodyTooLargeError
     ? error.statusCode
     : fallbackStatus;
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: String(error) }));
+}
+
+/** Resolves when the response can take more, or when it has closed. */
+function waitForDrain(res: ServerResponse): Promise<void> {
+  return new Promise(resolveDrain => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolveDrain();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
 }
 
 function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
@@ -329,7 +400,11 @@ export interface CreateMarsServerOptions {
       artifact: import('../engine/schema/index.js').RunArtifact,
       leader: import('../runtime/orchestrator/index.js').ActorConfig,
     ) => void | Promise<void>,
-    /** The server's runs directory, which each leader's output file is written to. */
+    /**
+     * The server's runs directory, which each leader's output file is
+     * written to, and on the hosted demo the empty environment the run's
+     * web search reads its keys from.
+     */
     runnerOptions?: RunnerOptions,
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
@@ -435,6 +510,17 @@ export interface StartConfigHooks {
    * cookie reads (the CLI's own run is one).
    */
   visitorId?: string;
+  /**
+   * The client address of a run on the caller's own key; such runs from
+   * one address hold at most all but one of the run slots.
+   */
+  ownKeyAddress?: string | null;
+  /**
+   * The environment the run's web search reads a search key from when the
+   * run's config names none. Omitted, `process.env`; the hosted demo passes
+   * `{}`, so its runs search on the request's own search keys alone.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
   /** The run's key, which its `active_scenario` event carries; minted when absent. */
   runKey?: string;
   /**
@@ -579,6 +665,40 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // copy run from the package or a clone sends its pages without them.
   const siteAnalytics = serverMode === 'hosted_demo';
   const pickCookieSecure = serverMode === 'hosted_demo';
+  /** The visitor whose compile installed each compiled scenario's brief. */
+  const compiledBriefOwners = new Map<string, string>();
+  /**
+   * The brief a compiled scenario came from, for this request: on the hosted
+   * demo only the visitor whose compile installed it reads it (a caller with
+   * no cookie, or a brief loaded from disk at boot, is read by no one); a
+   * local server shows it to its operator.
+   */
+  const briefFor = (id: string, req: IncomingMessage, seedText: string | null | undefined): string | undefined => {
+    if (seedText === null || seedText === undefined) return undefined;
+    if (serverMode !== 'hosted_demo') return seedText;
+    const visitorId = readVisitorId(req);
+    return visitorId !== ANONYMOUS_VISITOR && compiledBriefOwners.get(id) === visitorId ? seedText : undefined;
+  };
+  /**
+   * The key a visitor's saved sessions are stored under: a SHA-256 of their
+   * visitor id, so the session store holds no cookie value. The anonymous
+   * visitor (every caller that sent no cookie) owns none.
+   */
+  const sessionOwner = (visitorId: string): string | null => visitorId === ANONYMOUS_VISITOR
+    ? null
+    : createHash('sha256').update(`paracosm-session-owner:${visitorId}`).digest('hex');
+  /**
+   * The visitor a run a request opens belongs to: the request's own
+   * visitor, except that on the hosted demo a caller that sent no cookie
+   * gets a fresh visitor id (and the Set-Cookie that gives it to them),
+   * since the anonymous visitor holds no run there.
+   */
+  const runVisitorFor = (req: IncomingMessage): { visitorId: string; setCookie: string | null } => {
+    const visitorId = readVisitorId(req);
+    if (visitorId !== ANONYMOUS_VISITOR || serverMode !== 'hosted_demo') return { visitorId, setCookie: null };
+    const fresh = randomUUID();
+    return { visitorId: fresh, setCookie: visitorCookie(fresh, pickCookieSecure) };
+  };
   // Rate limit default: 1 simulation per IP per day for the public-demo
   // path. Even on DEMO_MODELS + DEMO_EXECUTION a run costs ~$0.40 against
   // the host's keys, so 1/day caps worst-case monthly spend at roughly
@@ -645,6 +765,67 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const rateLimiter = maxSims > 0
     ? new IpRateLimiter(maxSims, 5, chatPerHour, rateLimitStatePath, chatGlobalPerHour)
     : null;
+  // The header the proxy in front of the server sets to the client's
+  // address (PARACOSM_CLIENT_IP_HEADER). Unset: the connection's address.
+  const clientIpHeader = readClientIpHeader(env);
+
+  /**
+   * The Quickstart routes' limits on the hosted demo, where every
+   * Quickstart call bills the host's keys (the routes take no caller key):
+   * a compile counts against the caller's daily compile limit, as /compile
+   * does, with at most MAX_PENDING_QUICKSTART_COMPILES pending server-wide;
+   * the grounding, actor and URL routes against a daily Quickstart limit of
+   * their own; a Digital Twin run against the day's run limit, as /setup
+   * does, on the demo's turn cap and the economy tier. Elsewhere the
+   * operator's keys pay, and the routes run as asked.
+   */
+  const MAX_PENDING_QUICKSTART_COMPILES = 4;
+  /** The most web searches one /compile runs on the hosted demo. */
+  const HOSTED_COMPILE_MAX_SEARCHES = 5;
+  const quickstartHostLimits = (req: IncomingMessage): QuickstartDeps['hostLimits'] => {
+    const limiter = rateLimiter;
+    if (serverMode !== 'hosted_demo' || !limiter) return undefined;
+    const ip = IpRateLimiter.getIp(req, clientIpHeader);
+    const refusal = (decision: { limit: number; resetAt: number }, what: string, retryAfter: string): QuickstartRefusal => ({
+      status: 429,
+      headers: {
+        'Retry-After': retryAfter,
+        'X-RateLimit-Limit': String(decision.limit),
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': String(Math.floor(decision.resetAt / 1000)),
+      },
+      body: { error: `Rate limit exceeded. Maximum ${decision.limit} ${what} per day.`, limit: decision.limit, remaining: 0, resetAt: decision.resetAt },
+    });
+    return {
+      admitCompile: () => {
+        const decision = limiter.consumeCompile(ip);
+        if (decision.allowed) return null;
+        console.log(`  [rate-limit] Quickstart compile blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        return refusal(decision, 'compiles', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
+      },
+      maxPendingCompiles: MAX_PENDING_QUICKSTART_COMPILES,
+      admitCall: () => {
+        const decision = limiter.consumeQuickstart(ip);
+        if (decision.allowed) return null;
+        console.log(`  [rate-limit] Quickstart call blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        return refusal(decision, 'Quickstart grounding, actor and URL requests', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
+      },
+      run: {
+        admit: () => {
+          const decision = limiter.check(ip);
+          if (!decision.allowed) {
+            console.log(`  [rate-limit] Digital Twin run blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+            return refusal(decision, 'simulations', '86400');
+          }
+          limiter.record(ip);
+          return null;
+        },
+        refund: () => limiter.unrecord(ip),
+      },
+      maxTurns: DEMO_EXECUTION.maxTurns,
+      maxActors: DEMO_EXECUTION.maxActors,
+    };
+  };
 
   // Concurrent-/chat limiter: hard cap on in-flight LLM calls. Stops
   // a burst of N parallel POSTs from spawning N parallel LLM calls
@@ -653,6 +834,84 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // because long queues hide the back-pressure from clients.
   const chatConcurrencyCap = readLimitFromEnv(env, 'CHAT_CONCURRENCY', 4);
   let chatInflight = 0;
+
+  // What /results and /chat read from a run's buffer, kept per run until
+  // the buffer changes, so a reader polling a finished run does not parse
+  // every frame again on each request. A buffer only grows, or is trimmed
+  // as a frame is added, so its length, size and last frame say whether it
+  // changed.
+  interface BufferRead<T> { length: number; bytes: number; last: string | undefined; value: T }
+  const resultsByRun = new WeakMap<LiveRun, BufferRead<ReturnType<typeof buildResultsPayloadFromEventBuffer>>>();
+  const simEventsByRun = new WeakMap<LiveRun, BufferRead<any[]>>();
+  const readBuffer = <T>(cache: WeakMap<LiveRun, BufferRead<T>>, run: LiveRun, build: (buffer: readonly string[]) => T): T => {
+    const last = run.buffer[run.buffer.length - 1];
+    const held = cache.get(run);
+    if (held && held.length === run.buffer.length && held.bytes === run.bytes && held.last === last) return held.value;
+    const value = build(run.buffer);
+    cache.set(run, { length: run.buffer.length, bytes: run.bytes, last, value });
+    return value;
+  };
+  const resultsOf = (run: LiveRun) => readBuffer(resultsByRun, run, buildResultsPayloadFromEventBuffer);
+  const simEventsOf = (run: LiveRun) => readBuffer(simEventsByRun, run, buffer => buffer
+    .filter(msg => msg.startsWith('event: sim\n'))
+    .map(msg => { try { return JSON.parse(msg.split('data: ')[1]); } catch { return null; } })
+    .filter(Boolean));
+
+  // New runs one client address may import a day (UTC):
+  // PARACOSM_IMPORTS_PER_DAY, 500 by default. A run id the store already
+  // holds is not counted.
+  const maxImportsPerDay = readLimitFromEnv(env, 'PARACOSM_IMPORTS_PER_DAY', 500);
+  const importsByAddress = new Map<string, { count: number; resetAt: number }>();
+  const admitImport = (address: string): boolean => {
+    const now = Date.now();
+    let entry = importsByAddress.get(address);
+    if (!entry || now >= entry.resetAt) {
+      if (importsByAddress.size >= 10_000) {
+        for (const [key, held] of importsByAddress) if (now >= held.resetAt) importsByAddress.delete(key);
+      }
+      const resetAt = new Date(now);
+      resetAt.setUTCHours(24, 0, 0, 0);
+      entry = { count: 0, resetAt: resetAt.getTime() };
+      importsByAddress.set(address, entry);
+    }
+    if (entry.count >= maxImportsPerDay) return false;
+    entry.count += 1;
+    return true;
+  };
+
+  // Open event streams (/events and session replays): at most
+  // PARACOSM_MAX_STREAMS_PER_ADDRESS from one client address (32) and
+  // PARACOSM_MAX_STREAMS in all (2000). A stream over either answers 429;
+  // a stream's slot is given back when its response closes.
+  const maxStreamsPerAddress = readLimitFromEnv(env, 'PARACOSM_MAX_STREAMS_PER_ADDRESS', 32);
+  const maxStreams = readLimitFromEnv(env, 'PARACOSM_MAX_STREAMS', 2000);
+  const openStreamsByAddress = new Map<string, number>();
+  let openStreams = 0;
+  const admitStream = (req: IncomingMessage, res: ServerResponse, headers: Record<string, string>): boolean => {
+    // A reader that left before its stream starts (a replay waits for its
+    // session to load) has nothing to hold, and its response's 'close'
+    // has already fired, so a slot taken now would never be given back.
+    if (res.destroyed || res.closed || req.destroyed) return false;
+    const address = IpRateLimiter.getIp(req, clientIpHeader);
+    const held = openStreamsByAddress.get(address) ?? 0;
+    if (held >= maxStreamsPerAddress || openStreams >= maxStreams) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '10', ...headers });
+      res.end(JSON.stringify({
+        error: 'Too many open streams. Close another tab or try again shortly.',
+        limit: held >= maxStreamsPerAddress ? maxStreamsPerAddress : maxStreams,
+      }));
+      return false;
+    }
+    openStreamsByAddress.set(address, held + 1);
+    openStreams += 1;
+    res.once('close', () => {
+      const left = (openStreamsByAddress.get(address) ?? 1) - 1;
+      if (left > 0) openStreamsByAddress.set(address, left);
+      else openStreamsByAddress.delete(address);
+      openStreams -= 1;
+    });
+    return true;
+  };
 
   // Output retention: sweep run output (v3-*.json, imported copies
   // included) older than OUTPUT_RETENTION_DAYS from the runs directory
@@ -1415,7 +1674,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         ts: run.timestamps[i] || now,
         sse,
       }));
-      const result = await sessionStore.saveSession(events);
+      const result = await sessionStore.saveSession(events, undefined, { owner: sessionOwner(run.visitorId) });
       const storeCount = await sessionStore.count();
       console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} turns (store count: ${storeCount})`);
       // Backfill session_id onto every RunRecord that onArtifactPersist
@@ -1450,7 +1709,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (!title) return;
         try {
           await store.updateTitle(result.id, title);
-          console.log(`[sessions] titled run ${result.id}: "${title}"`);
+          console.log(`[sessions] titled run ${result.id}: ${JSON.stringify(title)}`);
           try {
             broadcast('sim_saved', {
               status: 'titled',
@@ -1511,7 +1770,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end(JSON.stringify({ error: `Unknown run: ${key}` }));
   };
 
-  const server = createServer(async (req, res) => {
+  const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // CORS preflight for browser-based requests across the public API.
     // DELETE is in the allow-list because /admin/scenarios/:id is a
     // cross-origin candidate for the embedded landing-page demos;
@@ -1529,7 +1788,31 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    if (handlePublicDemoRoute(serverMode, req, res, corsHeaders)) {
+    // A local server answers its own pages and other local ports alone: a
+    // request a browser sends from a page on another site carries that
+    // site's Origin, and is refused before any route reads or spends.
+    if (serverMode === 'local_demo' && !localOriginAllowed(req)) {
+      console.warn('[origin] refused a request from another site on a local server');
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'cross_site_refused', message: 'This local server answers requests from its own pages and from localhost only.' }));
+      return;
+    }
+
+    // A path whose percent escapes do not decode names no route.
+    if (!pathDecodes(req.url)) {
+      res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
+      res.end(JSON.stringify({ error: 'invalid_path', message: 'The path holds a percent escape that does not decode.' }));
+      return;
+    }
+
+    if (handlePublicDemoRoute(serverMode, req, res, corsHeaders, adminWrite && adminToken.length > 0)) {
+      return;
+    }
+    // The platform API mode serves /api/v1 to holders of the admin
+    // credential alone (requireAdminToken: 403 without ADMIN_WRITE, 503
+    // without ADMIN_TOKEN, 401 without a matching X-Admin-Token), in every
+    // form of request target that reaches one (namesPlatformApiRoute).
+    if (serverMode === 'platform_api' && namesPlatformApiRoute(req.url) && !requireAdminToken(req, res)) {
       return;
     }
     const runHistoryRoutesDefault = serverMode !== 'hosted_demo';
@@ -1555,7 +1838,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
-        await handleLibraryImport(req, res, body, { runHistoryStore, sourceMode: serverMode, runsDir });
+        const address = IpRateLimiter.getIp(req, clientIpHeader);
+        await handleLibraryImport(req, res, body, {
+          runHistoryStore,
+          sourceMode: serverMode,
+          runsDir,
+          admitNewRun: () => admitImport(address),
+        });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1628,6 +1917,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       const run = runKey !== null ? liveRuns.get(runKey) : liveRuns.watched(visitorId);
+      if (!admitStream(req, res, { 'Access-Control-Allow-Origin': '*' })) return;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1717,7 +2007,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           departments: sc.departments?.length || 0,
           source: entry.source,
           compiledAt: meta?.compiledAt,
-          seedText: meta?.seedText,
+          seedText: briefFor(id, req, meta?.seedText),
         });
       }
       // The runnable scenarios this visitor stored in memory, theirs alone.
@@ -1762,11 +2052,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // filename) never change — only the display label flips, so
     // every existing run record + URL keeps resolving. Restricted
     // to `compiled` source: builtins and curated disk drafts are
-    // tracked outside the dashboard and shouldn't drift via API.
+    // tracked outside the dashboard and shouldn't drift via API. The
+    // name is every visitor's and the rename writes the scenario's file,
+    // so it takes the admin credential DELETE /admin/scenarios/:id takes.
     const scenarioRenameMatch = req.url
       ? req.url.match(/^\/scenarios\/([^/?#]+)\/rename$/)
       : null;
     if (scenarioRenameMatch && req.method === 'POST') {
+      if (!requireAdminToken(req, res)) {
+        console.warn('[scenarios] rename refused: admin credential missing, wrong or not configured');
+        return;
+      }
       const id = decodeURIComponent(scenarioRenameMatch[1]);
       const entry = customScenarioCatalog.get(id);
       if (!entry) {
@@ -1826,7 +2122,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (persistResult) {
         compiledScenarioMeta.set(id, persistResult.meta);
       }
-      console.log(`[scenarios] renamed ${id} → "${sanitized}"`);
+      console.log(`[scenarios] renamed ${JSON.stringify(id)} → ${JSON.stringify(sanitized)}`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({ id, name: sanitized }));
       return;
@@ -1906,7 +2202,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         description: describeCustomScenarioSource(source),
         source,
         compiledAt: meta?.compiledAt,
-        seedText: meta?.seedText,
+        seedText: briefFor(id, req, meta?.seedText),
         runCount,
         presets,
         departments,
@@ -2026,7 +2322,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               refuse(507, `This server holds at most ${MEMORY_SCENARIOS_PER_VISITOR} scenarios in memory for one visitor. Store over one of yours.`, 'the visitor holds the most scenarios in memory');
               return;
             }
-            const address = IpRateLimiter.getIp(req);
+            const address = IpRateLimiter.getIp(req, clientIpHeader);
             let atAddress = 0;
             for (const stored of memoryScenarios.values()) {
               for (const other of stored.values()) {
@@ -2181,10 +2477,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // visitor has since replaced is discarded.
           openRun: (scenario, runKey) => {
             const run = liveRuns.open({
-              visitorId: readVisitorId(req),
+              visitorId: runVisitorFor(req).visitorId,
               kind: 'intervention',
               scenario,
-              seedText: compiledScenarioMeta.get(scenario.id)?.seedText ?? null,
+              seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
               runKey,
             });
@@ -2196,6 +2492,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             };
           },
           isRunKeyUsed: (runKey) => liveRuns.isKeyUsed(runKey),
+          hostLimits: quickstartHostLimits(req),
         };
         // compile-from-seed is the first call in a new Quickstart launch
         // flow. Dropping the caller's finished run here means their streams
@@ -2206,6 +2503,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // simulating). A run of theirs in flight is left alone, and so is
         // every other visitor's run. Status polls are NOT a fresh-launch
         // event: they fire every 2s while a compile is in flight.
+        // The brief a compile installs is its visitor's (briefFor).
+        const installCompiled = quickstartDeps.installCompiledScenario;
+        quickstartDeps.installCompiledScenario = (scenario, seedText) => {
+          const installed: unknown = installCompiled(scenario, seedText);
+          const installedId = installed && typeof installed === 'object' && typeof (installed as { id?: unknown }).id === 'string'
+            ? (installed as { id: string }).id
+            : scenario.id;
+          compiledBriefOwners.set(installedId, readVisitorId(req));
+          return installed as ReturnType<typeof installCompiled>;
+        };
         if (req.url === '/api/quickstart/compile-from-seed') {
           const own = liveRuns.current(readVisitorId(req));
           if (own && !own.inFlight) liveRuns.clear(own, 'a new compile');
@@ -2263,7 +2570,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // Rate limit with BYO-key bypass, matching the /setup pattern.
         // `.check()` alone is advisory; `.record()` consumes the slot.
         if (rateLimiter && !hasUserKeys) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, limit } = rateLimiter.check(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2341,7 +2648,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const isHostedDemoCompile = serverMode === 'hosted_demo';
         const hostBilled = !userSuppliedKey && isHostedDemoCompile;
         if (rateLimiter && hostBilled) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, resetAt, limit } = rateLimiter.consumeCompile(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2359,6 +2666,51 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           console.log(`  [rate-limit] /compile ${ip}: ${remaining} remaining of ${limit}`);
+        }
+
+        // Web search on the hosted demo runs on the host's search keys,
+        // whoever pays for the model. A compile there runs at most
+        // HOSTED_COMPILE_MAX_SEARCHES searches, and a caller with their own
+        // model key gets the host's search on the same daily compile limit:
+        // past it, the compile runs without web search. A seed URL is read
+        // through the host's scraping key (FIRECRAWL_API_KEY) whatever
+        // webSearch says, so an own-key compile from one counts too, and
+        // past the limit it is refused.
+        let compileWebSearch = webSearch ?? true;
+        let compileMaxSearches = maxSearches;
+        if (isHostedDemoCompile) {
+          const requested = typeof maxSearches === 'number' && Number.isFinite(maxSearches) ? Math.floor(maxSearches) : HOSTED_COMPILE_MAX_SEARCHES;
+          compileMaxSearches = Math.max(0, Math.min(requested, HOSTED_COMPILE_MAX_SEARCHES));
+          // A compile searches only for a seed (seedText or seedUrl), so one
+          // with neither spends none of the allowance.
+          const hasSeedUrl = typeof seedUrl === 'string' && seedUrl.trim() !== '';
+          const hasSeed = hasSeedUrl || (typeof seedText === 'string' && seedText.trim() !== '');
+          const scrapesOnHostKey = hasSeedUrl && normalizeCredential(env.FIRECRAWL_API_KEY) !== undefined;
+          if (userSuppliedKey && hasSeed && (compileWebSearch !== false || scrapesOnHostKey) && rateLimiter) {
+            const ip = IpRateLimiter.getIp(req, clientIpHeader);
+            const decision = rateLimiter.consumeCompile(ip);
+            if (!decision.allowed && scrapesOnHostKey) {
+              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; seed URL refused`);
+              res.writeHead(429, {
+                'Content-Type': 'application/json',
+                'Retry-After': String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))),
+                'X-RateLimit-Limit': String(decision.limit),
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': String(Math.floor(decision.resetAt / 1000)),
+              });
+              res.end(JSON.stringify({
+                error: `Compile rate limit exceeded. Maximum ${decision.limit} compiles a day read a seed URL through this server's keys; send the seed as seedText instead.`,
+                limit: decision.limit,
+                remaining: 0,
+                resetAt: decision.resetAt,
+              }));
+              return;
+            }
+            if (!decision.allowed) {
+              compileWebSearch = false;
+              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; compiling without the host's web search`);
+            }
+          }
         }
 
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
@@ -2401,8 +2753,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           cache: true,
           seedText,
           seedUrl,
-          webSearch: webSearch ?? true,
-          maxSearches,
+          webSearch: compileWebSearch,
+          maxSearches: compileMaxSearches,
           apiKey: compileCredentials.apiKey,
           anthropicKey: compileCredentials.anthropicKey,
           telemetry: compileTelemetry,
@@ -2602,7 +2954,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         if (rateLimiter && !chatUserKey) {
-          const ip = IpRateLimiter.getIp(req);
+          const ip = IpRateLimiter.getIp(req, clientIpHeader);
           const { allowed, remaining, resetAt, limit } = rateLimiter.consumeChat(ip);
           if (!allowed) {
             res.writeHead(429, {
@@ -2640,14 +2992,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
         // Import chat agent system (lazy to avoid startup cost)
         const chatAgents = await import('../runtime/agents/chat-agents.js');
-        const { extractColonistMemories, extractColonistRoster } = chatAgents;
+        const { extractColonistMemories, extractColonistRoster, extractRunTurns } = chatAgents;
         const getOrCreateChatAgent = options.chatAgent ?? chatAgents.getOrCreateChatAgent;
 
         // Extract sim events and find colonist profile
-        const runSimEvents = chatRun.buffer
-          .filter(msg => msg.startsWith('event: sim\n'))
-          .map(msg => { try { return JSON.parse(msg.split('data: ')[1]); } catch { return null; } })
-          .filter(Boolean);
+        const runSimEvents = simEventsOf(chatRun);
         const reactsAs = (r: any) =>
           r.agentId === agentId || String(r.name || '').toLowerCase().includes(String(agentId).toLowerCase());
 
@@ -2703,11 +3052,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // the chat agent knows who else exists. Without this, the agent
         // confabulates fake bios for any name the user invents.
         const roster = extractColonistRoster(simEvents);
+        // The turns this life ran through, each with its year: the character
+        // is told these and the leader, which no memory or roster line names.
+        const turns = extractRunTurns(simEvents);
+        // The Chat tab opens once the first turn is done, so the run may
+        // still be going: its turns so far are then not the run's. The
+        // run has ended once its buffer holds the `complete` frame, as
+        // /results reads it.
+        const runEnded = chatRun.buffer.some(msg => msg.startsWith('event: complete\n'));
 
         // Get or create the agent (lazy init with memory seeding). The pool
         // keys it by run and leader, so two visitors talking to one
         // colonist id in two runs, or one visitor talking to the same
-        // person under each leader, get agents with their own memories.
+        // person under each leader, get agents with their own memories;
+        // and by whether the run had ended, so the first chat after the
+        // end gets an agent made from the whole run.
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
         const provider = resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
         const { session, isNew } = await getOrCreateChatAgent(profile, memories, {
@@ -2720,6 +3079,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           roster,
           runKey: chatRun.key,
           leader: leaderName,
+          turns,
+          runEnded,
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)
@@ -2774,13 +3135,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       if (run) liveRuns.touch(run);
       res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify(run
-        ? { ...buildResultsPayloadFromEventBuffer(run.buffer), runKey: run.key, scenarioId: run.scenarioId, inFlight: run.inFlight }
+        ? { ...resultsOf(run), runKey: run.key, scenarioId: run.scenarioId, inFlight: run.inFlight }
         : { ...buildResultsPayloadFromEventBuffer([]), runKey: null }));
       return;
     }
 
     if (req.url === '/rate-limit' && req.method === 'GET') {
-      const clientIp = IpRateLimiter.getIp(req);
+      const clientIp = IpRateLimiter.getIp(req, clientIpHeader);
       if (!rateLimiter) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ unlimited: true, ip: clientIp }));
@@ -2865,7 +3226,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           ts: run.timestamps[i] || now,
           sse,
         }));
-        const result = await sessionStore.saveSession(events);
+        // An admin save is pinned: listed to every visitor, never evicted.
+        const result = await sessionStore.saveSession(events, undefined, { pinned: true });
         const totalStored = await sessionStore.count();
         res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({
@@ -3017,8 +3379,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       try {
-        const sessions = await sessionStore.listSessions();
-        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
+        // On the hosted demo a visitor's list holds their own saved runs and
+        // the sessions an admin saved; a local server lists every session.
+        const sessions = await sessionStore.listSessions(
+          serverMode === 'hosted_demo' ? { owner: sessionOwner(readVisitorId(req)) } : undefined,
+        );
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
         res.end(JSON.stringify({ sessions }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
@@ -3050,8 +3416,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end(JSON.stringify({ error: 'session not found', id }));
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });
-      res.end(JSON.stringify({ meta: session.meta }));
+      // The brief a run started from goes only to the visitor whose run it
+      // was, or with an admin-saved session, on the hosted demo.
+      const meta = serverMode === 'hosted_demo' && !session.meta.pinned
+        && (session.owner === null || session.owner !== sessionOwner(readVisitorId(req)))
+        ? { ...session.meta, seedText: undefined }
+        : session.meta;
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
+      res.end(JSON.stringify({ meta }));
       return;
     }
 
@@ -3084,6 +3456,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // visualization populates immediately. Pass `?speed=1` (or any
       // positive number) to fall back to the original wall-clock pacing
       // scaled by that factor (1 = real-time, 4 = 4x faster, 0.5 = half).
+      if (!admitStream(req, res, corsHeaders)) return;
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, no-transform',
@@ -3093,17 +3466,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       });
       let cancelled = false;
       req.on('close', () => { cancelled = true; });
+      res.on('close', () => { cancelled = true; });
       void (async () => {
         let prevTs = session.events[0]?.ts ?? 0;
         for (const ev of session.events) {
-          if (cancelled) return;
+          if (cancelled || res.destroyed) return;
           if (!isInstant) {
             const delay = Math.max(0, (ev.ts - prevTs) / speed);
             if (delay > 0) await new Promise(r => setTimeout(r, delay));
             prevTs = ev.ts;
           }
           try {
-            res.write(ev.sse);
+            // A frame the reader has not taken yet waits for 'drain', so
+            // a reader that does not read holds a buffer's worth of the
+            // session, never the whole of it.
+            if (!res.write(ev.sse)) await waitForDrain(res);
           } catch {
             return;
           }
@@ -3179,7 +3556,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           return;
         }
         const runScenario = resolvedScenario.scenario;
-        const runScenarioSeedText = compiledScenarioMeta.get(runScenario.id)?.seedText ?? null;
+        const runScenarioSeedText = briefFor(runScenario.id, req, compiledScenarioMeta.get(runScenario.id)?.seedText) ?? null;
 
         // The per-IP day limit is bypassed when the request brings its own
         // provider keys. It is checked here and charged only once the run
@@ -3189,7 +3566,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(config.anthropicKey),
         };
         const hasUserKeys = hasProviderCredentials(requestCredentials);
-        const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req) : null;
+        const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null;
         /** Answers 429 and returns true when the caller's IP has used its runs of the day. */
         const overTheDay = (): boolean => {
           if (!rateLimiter || rateIp === null) return false;
@@ -3226,8 +3603,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         // The visitor whose run this is: the paracosm_visitor cookie the
-        // dashboard's HTML gave the browser, else the anonymous visitor.
-        const visitorId = readVisitorId(req);
+        // dashboard's HTML gave the browser, else the anonymous visitor. On
+        // the hosted demo every caller that sends no cookie is a different
+        // person, so such a caller's run gets a visitor id of its own, sent
+        // back as its cookie and in the answer (runVisitorFor).
+        const { visitorId, setCookie: visitorSetCookie } = runVisitorFor(req);
         let simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
@@ -3270,6 +3650,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             `  [demo-mode] Capped run: turns=${simConfig.turns} pop=${simConfig.initialPopulation} ` +
             `depts=${simConfig.activeDepartments.length} models=${simConfig.models.commander}`,
           );
+        }
+        // A run's web search on the hosted demo uses only the search keys
+        // the request names: the day's run limit does not count a run on
+        // the caller's own model key, so the host's search keys would have
+        // no bound there. Such a run with no search key of its own runs
+        // without live search.
+        const hasOwnSearchKey = [simConfig.serperKey, simConfig.firecrawlKey, simConfig.tavilyKey]
+          .some(key => normalizeCredential(key) !== undefined);
+        if (isHostedDemo && simConfig.liveSearch && !hasOwnSearchKey) {
+          simConfig = { ...simConfig, liveSearch: false };
         }
 
         // `turns` is the absolute final turn, after the demo cap. A fork
@@ -3373,6 +3763,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               onArtifact: onArtifactPersist,
               visitorId,
               runKey: launchRunKey,
+              ownKeyAddress: hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+              searchEnv: isHostedDemo ? {} : undefined,
             });
           } catch (err) {
             if (err instanceof RunCapacityError) return err;
@@ -3384,7 +3776,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeRunCapacityRefusal(res, launched);
           return;
         }
-        console.log(`  Running scenario: "${runScenario.labels?.name ?? runScenario.id}" (${runScenario.id})`);
+        console.log(`  Running scenario: ${JSON.stringify(runScenario.labels?.name ?? runScenario.id)} (${JSON.stringify(runScenario.id)})`);
         launched.catch((error) => {
           console.warn('[setup] simulation failed:', error);
         });
@@ -3405,7 +3797,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const runPickCookie = 'scenario' in currentPick && currentPick.scenario.id === runScenario.id
           ? null
           : pickCookie(runScenario.id, pickCookieSecure);
-        res.writeHead(200, { 'Content-Type': 'application/json', ...(runPickCookie ? { 'Set-Cookie': runPickCookie } : {}) });
+        const setupCookies = [runPickCookie, visitorSetCookie].filter((c): c is string => typeof c === 'string');
+        res.writeHead(200, { 'Content-Type': 'application/json', ...(setupCookies.length > 0 ? { 'Set-Cookie': setupCookies } : {}) });
         res.end(JSON.stringify({
           redirect: '/sim',
           scenarioId: runScenario.id,
@@ -3955,6 +4348,22 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
     res.writeHead(404);
     res.end('Not found');
+  };
+
+  // Every request's handler is awaited here, so an error a route did not
+  // catch answers 500 (or ends a response already under way) instead of
+  // rejecting the listener's promise, which Node's default unhandled
+  // rejection mode turns into the process's exit.
+  const server = createServer((req, res) => {
+    handleRequest(req, res).catch((err: unknown) => {
+      console.error('[server] request failed:', req.method, req.url?.slice(0, 200), err);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'internal_error' }));
+      } else if (!res.writableEnded) {
+        res.destroy();
+      }
+    });
   }) as MarsServer;
 
   // Clean up on server close: the rate limiter's timers, and the live runs'
@@ -3979,6 +4388,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const run = liveRuns.open({
         visitorId,
         runKey: hooks?.runKey,
+        ownKeyAddress: hooks?.ownKeyAddress ?? null,
         kind: config.forkFrom ? 'fork' : config.actors.length >= 3 ? 'batch' : 'pair',
         scenario: runScenario,
         seedText: hooks?.seedText ?? null,
@@ -4011,13 +4421,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // runForkSimulation instead of the pair runner when the
           // config carries a forkFrom reference.
           if (config.forkFrom) {
-            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
+            await startFork(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir });
+            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else {
-            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir });
+            await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           }
         } finally {
           // The run's capacity slot is free once its runner has settled,

@@ -69,3 +69,12 @@
   cursor: pointer;
   font-family: var(--mono);
 }
+
+// An address the event named on a host that is not a provider page:
+// shown as text so the visitor sees it, never as a link.
+.actionText {
+  color: var(--text-3);
+  font-size: var(--font-sm);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

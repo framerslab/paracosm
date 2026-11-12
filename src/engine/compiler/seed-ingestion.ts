@@ -14,6 +14,7 @@
  * the seed content, not hardcoded queries.
  */
 
+import { fetchPublicUrl, htmlToText } from './public-url-fetch.js';
 import type { KnowledgeBundle, KnowledgeCitation, KnowledgeTopic } from '../types.js';
 import type { GenerateTextFn } from './types.js';
 import {
@@ -274,11 +275,10 @@ export async function ingestFromUrl(
     }
   } catch {}
 
-  // Fallback to plain fetch
-  const res = await fetch(url);
-  content = await res.text();
-  // Strip HTML tags for plain text extraction
-  content = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  // Fallback to a direct fetch: public addresses only, 15 s and 2 MiB,
+  // with the HTML stripped in linear time (public-url-fetch).
+  const res = await fetchPublicUrl(url);
+  content = htmlToText(res.text);
   console.log(`  [seed] Fetched ${content.length} chars from ${url} via plain fetch`);
 
   return ingestSeed(content, options);

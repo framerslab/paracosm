@@ -15,7 +15,7 @@
  * @module paracosm/cli/quickstart-routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
 import { generateQuickstartActors } from '../../runtime/world-model/index.js';
@@ -25,6 +25,7 @@ import type { SubjectConfig, InterventionConfig, RunArtifact } from '../../engin
 import { groundScenario, type GroundingResult } from '../services/deep-research.js';
 import type { BroadcastFn } from '../../cli/pair-runner.js';
 import { RunCapacityError, RUN_CAPACITY_RETRY_AFTER_SECONDS } from '../live-runs.js';
+import { UrlRefusedError } from '../../engine/compiler/public-url-fetch.js';
 
 /** A run the server opened for a digital-twin request. */
 export interface OpenedRun {
@@ -36,6 +37,21 @@ export interface OpenedRun {
   broadcast: BroadcastFn;
   /** Releases the run's capacity slot; called once the engine has returned or thrown. */
   finish: () => void;
+}
+
+/** The most JSON a Digital Twin subject's free-form profile may hold. */
+const MAX_SUBJECT_PROFILE_CHARS = 8000;
+
+/** The answer a route writes when a limit refuses the request. */
+export interface QuickstartRefusal {
+  status: number;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+function writeRefusal(res: ServerResponse, refusal: QuickstartRefusal): void {
+  res.writeHead(refusal.status, { 'Content-Type': 'application/json', ...refusal.headers });
+  res.end(JSON.stringify(refusal.body));
 }
 
 const FetchSeedSchema = z.object({
@@ -94,7 +110,11 @@ const SubjectMarkerSchema = z.object({
 const SubjectSchema = z.object({
   id: z.string().min(1).max(80),
   name: z.string().min(1).max(120),
-  profile: z.record(z.string(), z.unknown()).optional(),
+  profile: z.record(z.string(), z.unknown())
+    .refine(profile => JSON.stringify(profile).length <= MAX_SUBJECT_PROFILE_CHARS, {
+      message: `profile is over ${MAX_SUBJECT_PROFILE_CHARS} characters of JSON`,
+    })
+    .optional(),
   signals: z.array(SubjectSignalSchema).max(40).optional(),
   markers: z.array(SubjectMarkerSchema).max(40).optional(),
 });
@@ -125,7 +145,7 @@ const LeaderSchema = z.object({
     emotionality: z.number().min(0).max(1),
     honestyHumility: z.number().min(0).max(1),
   }),
-  instructions: z.string().default(''),
+  instructions: z.string().max(400).default(''),
 });
 
 const SimulateInterventionSchema = z.object({
@@ -235,6 +255,24 @@ export interface QuickstartDeps {
    * fake to exercise the async-job state machine without LLM calls.
    */
   compileFn?: typeof compileFromSeed;
+  /**
+   * Limits for a server that bills the host's keys (the hosted demo).
+   * Absent, every route runs as asked. Each refusal function returns the
+   * answer to write, or null to go on.
+   */
+  hostLimits?: {
+    /** Charges a new compile-from-seed against the caller's compile limit. */
+    admitCompile: () => QuickstartRefusal | null;
+    /** The most compile-from-seed jobs pending at once, server-wide. */
+    maxPendingCompiles: number;
+    /** Charges a grounding, actor or URL request against the caller's Quickstart limit. */
+    admitCall: () => QuickstartRefusal | null;
+    /** Charges the caller's run of the day; `refund` gives it back when the run cannot open. */
+    run: { admit: () => QuickstartRefusal | null; refund: () => void };
+    /** The hosted demo's caps on a run: its turns and its leaders. */
+    maxTurns: number;
+    maxActors: number;
+  };
 }
 
 export async function handleFetchSeed(
@@ -263,6 +301,11 @@ export async function handleFetchSeed(
     res.end(JSON.stringify({ error: `Unsupported URL scheme: ${scheme}. Use http or https.` }));
     return;
   }
+  const refused = deps.hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
+    return;
+  }
   try {
     const { text, title, sourceUrl } = await deps.fetchSeedFromUrl(url);
     const truncated = text.length > 50_000;
@@ -270,7 +313,10 @@ export async function handleFetchSeed(
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ text: finalText, title, sourceUrl, truncated }));
   } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json' });
+    // A URL that names an address the server does not fetch is the
+    // caller's to change, as an invalid one is.
+    const status = err instanceof UrlRefusedError || (err as Error | null)?.name === 'UrlRefusedError' ? 400 : 502;
+    res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Failed to fetch URL: ${String(err)}` }));
   }
 }
@@ -325,19 +371,15 @@ function compileSignature(input: {
   sourceUrl?: string;
   domainHint?: string;
 }): string {
-  // Normalize whitespace + lowercase optional fields so trivially
-  // different submissions share a slot. The seed text is fingerprinted
-  // by length + head + tail; collisions across two 50KB payloads with
-  // the same length are extraordinarily unlikely and the worst case is
-  // one client receives a different scenario than they typed once.
+  // Trim the seed and lowercase the optional fields so trivially
+  // different submissions share a slot. The key is a SHA-256 of the whole
+  // seed, so only the same text shares another submission's compile.
   const text = input.seedText.trim();
-  return JSON.stringify({
-    len: text.length,
-    head: text.slice(0, 256),
-    tail: text.slice(-128),
+  return createHash('sha256').update(JSON.stringify({
+    text,
     url: (input.sourceUrl ?? '').toLowerCase(),
     hint: (input.domainHint ?? '').toLowerCase(),
-  });
+  })).digest('hex');
 }
 
 function sweepStaleJobs(): void {
@@ -415,6 +457,23 @@ export async function handleCompileFromSeed(
     if (existing && existing.status === 'error') {
       compileJobs.delete(existing.jobId);
       jobBySignature.delete(signature);
+    }
+  }
+
+  if (deps.hostLimits) {
+    let pending = 0;
+    for (const job of compileJobs.values()) if (job.status === 'pending') pending += 1;
+    if (pending >= deps.hostLimits.maxPendingCompiles) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+      res.end(JSON.stringify({
+        error: `The server is compiling ${pending} scenarios right now, the most it compiles at once. Try again in a minute.`,
+      }));
+      return;
+    }
+    const refused = deps.hostLimits.admitCompile();
+    if (refused) {
+      writeRefusal(res, refused);
+      return;
     }
   }
 
@@ -512,8 +571,15 @@ export async function handleGenerateActors(
     res.end(JSON.stringify({ error: `Scenario '${parsed.data.scenarioId}' not found. Compile it via /api/quickstart/compile-from-seed first.` }));
     return;
   }
+  const refused = deps.hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
+    return;
+  }
+  // A hosted run takes at most maxActors leaders, so no more are generated.
+  const count = deps.hostLimits ? Math.min(parsed.data.count, deps.hostLimits.maxActors) : parsed.data.count;
   try {
-    const actors = await generateQuickstartActors(scenario, parsed.data.count, {
+    const actors = await generateQuickstartActors(scenario, count, {
       provider: deps.defaultProvider,
       model: deps.defaultModel,
     });
@@ -553,6 +619,11 @@ export async function handleGroundScenario(
   if (!scenario) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Scenario '${parsed.data.scenarioId}' not found. Compile it via /api/quickstart/compile-from-seed first.` }));
+    return;
+  }
+  const refused = deps.hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
     return;
   }
   try {
@@ -663,12 +734,22 @@ export async function handleSimulateIntervention(
     res.end(JSON.stringify({ error: 'That run key has already opened a run.' }));
     return;
   }
+  // On the hosted demo a twin run is the caller's run of the day, as a
+  // /setup run is. It is charged before the run opens, in the same step as
+  // the check, so concurrent requests cannot all pass the check; a run
+  // refused for capacity gives the charge back.
+  const runRefused = deps.hostLimits?.run.admit() ?? null;
+  if (runRefused) {
+    writeRefusal(res, runRefused);
+    return;
+  }
   // The caller's run, with its own buffer and viewers, so the dashboard's
   // gameState does not interleave it with whatever run came before.
   let run: OpenedRun | null = null;
   try {
     run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey) : null;
   } catch (err) {
+    deps.hostLimits?.run.refund();
     if (err instanceof RunCapacityError) {
       res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': String(RUN_CAPACITY_RETRY_AFTER_SECONDS) });
       res.end(JSON.stringify(err.body()));
@@ -692,7 +773,9 @@ export async function handleSimulateIntervention(
   // frame, which is what marks the run running on the page. The handler still
   // returns the full artifact synchronously at the end, which the Digital
   // Twin card renders.
-  const maxTurns = options.maxTurns ?? 2;
+  // The hosted demo's caps: its turn cap and the economy tier.
+  const maxTurns = Math.min(options.maxTurns ?? 2, deps.hostLimits?.maxTurns ?? Number.POSITIVE_INFINITY);
+  const costPreset = deps.hostLimits ? 'economy' : options.costPreset ?? 'economy';
   send('status', {
     phase: 'parallel',
     maxTurns,
@@ -717,7 +800,7 @@ export async function handleSimulateIntervention(
         actor: effectiveLeader,
         maxTurns,
         seed: options.seed ?? 11,
-        costPreset: options.costPreset ?? 'economy',
+        costPreset,
         captureSnapshots: false,
         onEvent,
         outputDir: deps.outputDir,
