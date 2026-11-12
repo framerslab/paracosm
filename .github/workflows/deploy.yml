@@ -299,11 +299,13 @@ jobs:
             build/ "root@${SERVER_IP}:${app_dir}/"
 
           # Install production deps and restart, in the directory rsync copied
-          # into: the first line the remote shell reads sets APP_DIR.
-          { printf "APP_DIR='%s'\n" "$app_dir"
+          # into: the first line the remote shell reads sets deploy_dir. The
+          # server reads APP_DIR from its environment, so the script leaves
+          # that name as the host has it.
+          { printf "deploy_dir='%s'\n" "$app_dir"
           cat << 'REMOTE'
           set -e
-          cd "$APP_DIR"
+          cd "$deploy_dir"
 
           # Install production dependencies
           npm ci --omit=dev 2>/dev/null || npm install --omit=dev
