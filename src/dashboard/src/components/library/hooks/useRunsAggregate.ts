@@ -11,7 +11,9 @@ export interface RunsAggregate {
 /**
  * The Library's run totals and replay counters from GET /api/v1/runs/aggregate,
  * read again when the filters change and when `refreshKey` changes (the
- * Library moves it after each replay the server counts).
+ * Library moves it after each replay the server counts). A refresh keeps
+ * the figures it has until the new ones arrive; a new filter set drops
+ * them, since they are another set's.
  */
 export function useRunsAggregate(filters: { mode?: string; scenario?: string; leader?: string } = {}, refreshKey = 0): {
   stats: RunsAggregate | null;
@@ -22,10 +24,16 @@ export function useRunsAggregate(filters: { mode?: string; scenario?: string; le
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const queryKey = JSON.stringify(filters);
+  // The filter set the figures in `stats` were read for.
+  const statsKey = React.useRef(queryKey);
 
   React.useEffect(() => {
     if (typeof fetch === 'undefined') return;
     const ctrl = new AbortController();
+    if (statsKey.current !== queryKey) {
+      statsKey.current = queryKey;
+      setStats(null);
+    }
     setLoading(true);
     setError(null);
     const qs = new URLSearchParams();

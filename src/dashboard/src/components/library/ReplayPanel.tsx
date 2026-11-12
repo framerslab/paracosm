@@ -8,23 +8,15 @@ export interface ReplayPanelProps {
   /**
    * Called once a replay the server answered with a match or a divergence
    * has been counted in the run's replay counters, so a page that shows
-   * them can read them again.
+   * them can read them again. It is called when the server answers, also
+   * when this panel is gone by then.
    */
   onReplayed?: () => void;
 }
 
 export function ReplayPanel(props: ReplayPanelProps): JSX.Element {
   const { artifact, onReplayed } = props;
-  const { result, replay } = useReplayRun();
-
-  // Each answered replay is reported once, whatever re-renders follow it.
-  const reported = React.useRef<ReplayResult | null>(null);
-  React.useEffect(() => {
-    if (result.kind !== 'match' && result.kind !== 'diverged') return;
-    if (reported.current === result) return;
-    reported.current = result;
-    onReplayed?.();
-  }, [result, onReplayed]);
+  const { result, replay } = useReplayRun(onReplayed);
 
   return (
     <div className={styles.panel}>

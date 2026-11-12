@@ -224,11 +224,6 @@ function emptyCost(): CostBreakdown {
 }
 
 /**
- * Pure reducer: turn an SSE event list into the full GameState. Wrapped
- * in useMemo by the hook below; exported here for direct unit testing
- * without a React render context (matches the useRetryStats pattern).
- */
-/**
  * A commander decision checked against the bar its prompt stated: the
  * `barCheck` the run keeps for each decision in its artifact
  * (`scenarioExtensions.paracosmInternal.commanderDecisions`), out of 100.
@@ -252,8 +247,25 @@ export interface DecisionBarCheck {
 
 /** What the game state reads from a leader's `result` event. */
 export interface RunResultForState {
+  /**
+   * The runner's tag for the leader (its archetype in kebab case, such as
+   * "visionary"), not the name the run's `sim` events carry.
+   */
   leader: string;
   artifact?: unknown;
+}
+
+/**
+ * The name a result's leader goes by in the stream. A `result` event names
+ * its leader by the runner's tag, while the run's `sim` events carry the
+ * leader's name ("Aria Chen"), which the artifact keeps under
+ * `scenarioExtensions.paracosmInternal.leader.name`. A result whose artifact
+ * names no leader is read by the event's own `leader`.
+ */
+function leaderNameOf(result: RunResultForState): string {
+  const name = (result.artifact as { scenarioExtensions?: { paracosmInternal?: { leader?: { name?: unknown } } } } | undefined)
+    ?.scenarioExtensions?.paracosmInternal?.leader?.name;
+  return typeof name === 'string' && name.length > 0 ? name : result.leader;
 }
 
 /** The bar checks a result's artifact keeps, by `turn:eventIndex`. */
@@ -281,11 +293,14 @@ function barChecksOf(artifact: unknown): Map<string, DecisionBarCheck> {
 }
 
 /**
- * Fold a run's stream into the dashboard's state. `results` are the run's
- * `result` events: a leader's artifact keeps each decision's check against
+ * Pure reducer: fold a run's stream into the dashboard's state. Wrapped in
+ * useMemo by the hook below; exported for direct unit testing without a
+ * React render context. `results` are the run's `result` events: a
+ * leader's artifact keeps each decision's check against
  * the bar its prompt stated, which the stream's decision events do not
  * carry, so it is joined onto the outcome event of the same turn and event
- * (`_barCheck`) once the leader's result has arrived.
+ * (`_barCheck`) once the leader's result has arrived. A result names its
+ * leader by the runner's tag; the join goes by the name its artifact keeps.
  */
 export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, results?: ReadonlyArray<RunResultForState>): GameState {
   const state: GameState = {
@@ -630,15 +645,20 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
     }
   }
 
-  // Each leader's bar checks from its result, onto its outcome events. A
-  // later result for the same leader (a fork's) replaces an earlier one's.
+  // Each leader's bar checks from its result, onto its outcome events, by
+  // the name the events carry. The first result that checked a turn's event
+  // keeps its card: a fork picks its leader from the scenario's presets, so
+  // its result can come under a name the page already holds, and the page
+  // keeps the first outcome event it saw for a leader, turn and event (the
+  // forked-from run's), which a fork's check does not describe.
   for (const result of results ?? []) {
-    const side = result.leader ? state.actors[result.leader] : undefined;
+    const name = leaderNameOf(result);
+    const side = name ? state.actors[name] : undefined;
     if (!side) continue;
     const checks = barChecksOf(result.artifact);
     if (checks.size === 0) continue;
     side.events = side.events.map(e => {
-      if (e.type !== 'outcome') return e;
+      if (e.type !== 'outcome' || e.data._barCheck !== undefined) return e;
       const check = checks.get(`${e.turn ?? e.data.turn}:${Number(e.data.eventIndex ?? 0)}`);
       return check ? { ...e, data: { ...e.data, _barCheck: check } } : e;
     });
