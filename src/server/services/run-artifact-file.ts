@@ -174,7 +174,9 @@ export async function writeImportedRunArtifact(
   const path = resolve(root, `v3-imported-${digest}-${suffix}.json`);
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW, 0o644);
   try {
-    await handle.writeFile(JSON.stringify(artifact, null, 2));
+    // Compact: indenting deeply nested arrays writes many times the bytes
+    // the request sent.
+    await handle.writeFile(JSON.stringify(artifact));
   } catch (err) {
     await handle.close().catch(() => {});
     await removeImportedRunArtifact(path);

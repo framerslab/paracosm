@@ -24,9 +24,29 @@ function clampOffset(raw: string | null): number {
   return Math.floor(n);
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+/** The most a replay-result body ({"matches": boolean}) may hold. */
+const MAX_REPLAY_RESULT_BODY_BYTES = 16 * 1024;
+
+class BodyTooLargeError extends Error {}
+
+/**
+ * Reads a request body of at most `maxBytes`. The bytes past the limit
+ * are read and dropped, never kept, so the connection stays open for the
+ * 413; a longer body then rejects with {@link BodyTooLargeError}.
+ */
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buffer.length;
+    if (size > maxBytes) {
+      chunks.length = 0;
+      continue;
+    }
+    chunks.push(buffer);
+  }
+  if (size > maxBytes) throw new BodyTooLargeError(`Request body exceeds ${maxBytes} bytes`);
   return Buffer.concat(chunks).toString('utf-8');
 }
 
@@ -180,8 +200,13 @@ export async function handlePlatformApiRoute(
       const runId = decodeURIComponent(replayMatch[1]);
       let body: { matches?: unknown };
       try {
-        body = JSON.parse(await readBody(req)) as { matches?: unknown };
-      } catch {
+        body = JSON.parse(await readBody(req, MAX_REPLAY_RESULT_BODY_BYTES)) as { matches?: unknown };
+      } catch (err) {
+        if (err instanceof BodyTooLargeError) {
+          res.writeHead(413, { 'Content-Type': 'application/json', ...options.corsHeaders });
+          res.end(JSON.stringify({ error: 'body_too_large', limit: MAX_REPLAY_RESULT_BODY_BYTES }));
+          return true;
+        }
         res.writeHead(400, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'invalid_json' }));
         return true;

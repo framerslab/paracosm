@@ -179,5 +179,5 @@ test('the memory store refuses a scenario over its size and a store past its cou
     const pastAll = await store(cookied({ 'x-forwarded-for': '198.51.100.200' }), station('one-past-all'));
     assert.equal(pastAll.status, 507);
     assert.match(((await pastAll.json()) as { error: string }).error, new RegExp(`at most ${IN_ALL} scenarios`));
-  });
+  }, { env: { PARACOSM_CLIENT_IP_HEADER: 'x-forwarded-for' } });
 });
