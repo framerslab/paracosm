@@ -79,6 +79,9 @@ test.describe('Admin token field @admin', () => {
     await saveToDisk(page).click();
     await expect(page.getByText(REFUSED)).toBeVisible();
     expect(requests.filter(isDiskWrite).map(request => request.headers()['x-admin-token'])).toEqual([undefined]);
+    // The refusal is what a person acts on, so it reads at 13 px or more like the field it names.
+    const refusalPx = await page.getByText(REFUSED).evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize));
+    expect(refusalPx, 'the refusal text size').toBeGreaterThanOrEqual(13);
 
     // The field is a password field with a name, and it does not autofill.
     await expect(tokenInput(page)).toHaveAttribute('type', 'password');
@@ -208,6 +211,108 @@ test.describe('Admin token field @admin', () => {
     await expect(page.getByText(`Server-side wipe skipped: the admin token was refused and has been cleared. ${WHERE}`).first()).toBeVisible();
     await expect(tokenStatus(page)).toHaveText(/No token is saved in this browser/);
     expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBeNull();
+  });
+
+  test('Clear local data asks in words that match what the click does, with and without a token', async ({ page }) => {
+    // Every question is declined, so nothing is cleared here or on the server.
+    const questions: string[] = [];
+    page.on('dialog', dialog => { questions.push(dialog.message()); void dialog.dismiss(); });
+    const askToClear = async () => {
+      await page.getByRole('button', { name: 'Open run actions menu' }).click();
+      await page.getByRole('menuitem', { name: 'Clear local data' }).click();
+    };
+    await openSettings(page, ADMIN_BASE);
+
+    // No token: the click clears this browser only, and the question says the server's data is kept.
+    await askToClear();
+    await expect.poll(() => questions.length).toBe(1);
+    expect(questions[0]).toContain('Server-stored runs, sessions, and on-disk artifact files are kept.');
+
+    // A token saved: the same click also sends the server wipe, so the question says that instead.
+    await tokenInput(page).fill(TOKEN);
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+    await askToClear();
+    await expect.poll(() => questions.length).toBe(2);
+    expect(questions[1]).toContain('asks the server to delete its stored runs, saved sessions and run output files');
+    expect(questions[1]).not.toContain('are kept');
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+  });
+
+  test('a token entered where an older one is stored and the new one cannot be is the one sent', async ({ page }) => {
+    // This browser already holds an older token and has no room to store another:
+    // writes of the key fail, reads and removals of it work.
+    await page.addInitScript(({ key, older }) => {
+      const proto = Storage.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const setItem = proto.setItem;
+      try { setItem.call(window.localStorage, key, older); } catch { /* a document without storage */ }
+      proto.setItem = function (this: Storage, ...args: unknown[]) {
+        if (args[0] === key) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+        return setItem.apply(this, args);
+      };
+    }, { key: TOKEN_KEY, older: 'an-older-token' });
+    const requests = recordRequests(page);
+    await openSettings(page, ADMIN_BASE);
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+
+    await tokenInput(page).fill(TOKEN);
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/kept only until this page reloads/);
+
+    // The disk write carries the token just entered, not the older one.
+    await fillEditor(page);
+    await saveToDisk(page).click();
+    await expect.poll(() => requests.filter(isDiskWrite).map(request => request.headers()['x-admin-token'])).toEqual([TOKEN]);
+    await expect(page.getByText(SAVED)).toBeVisible();
+    // The older token is gone from storage, so a reload does not bring it back.
+    expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBeNull();
+  });
+
+  test('a refusal that arrives after a new token was saved leaves the new token in place', async ({ page }) => {
+    // The first disk write is held on its way out, as a slow connection holds it.
+    let letGo!: () => void;
+    const heldBack = new Promise<void>(resolve => { letGo = resolve; });
+    let diskWrites = 0;
+    await page.route(`${ADMIN_BASE}/scenario/store`, async route => {
+      if (route.request().method() === 'POST' && ++diskWrites === 1) await heldBack;
+      await route.continue();
+    });
+    await openSettings(page, ADMIN_BASE);
+    await fillEditor(page);
+
+    // Sent with no token, and still on its way.
+    await saveToDisk(page).click();
+    await expect.poll(() => diskWrites).toBe(1);
+
+    // The token is entered while that request is out.
+    await tokenInput(page).fill(TOKEN);
+    await saveToken(page).click();
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+
+    // The server refuses the first request. The token entered since is not the one it refused.
+    letGo();
+    await expect(page.getByText(REFUSED)).toBeVisible();
+    await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
+    expect(await page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY)).toBe(TOKEN);
+
+    await saveToDisk(page).click();
+    await expect(page.getByText(SAVED)).toBeVisible();
+  });
+
+  test('the field shows when either of the two admin-config requests fails', async ({ page }) => {
+    // Settings and its scenario editor each ask GET /admin-config on load. One
+    // of the two is failed on each load, so on one load Save to Disk shows from
+    // the editor's answer alone; the field it needs has to show there too.
+    let asked = 0;
+    let failed = 0;
+    await page.route(`${ADMIN_BASE}/admin-config`, route => (++asked === failed ? route.abort() : route.continue()));
+    for (const nth of [1, 2]) {
+      asked = 0;
+      failed = nth;
+      await openSettings(page, ADMIN_BASE);
+      await expect.poll(() => asked, `load ${nth}: both requests went out`).toBeGreaterThanOrEqual(2);
+      await expect(tokenInput(page), `load ${nth}: request ${nth} failed`).toBeVisible();
+    }
   });
 
   test('a server with admin writes off shows no token field', async ({ page }) => {
