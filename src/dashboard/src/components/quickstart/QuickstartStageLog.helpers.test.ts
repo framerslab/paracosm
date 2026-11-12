@@ -205,6 +205,17 @@ test('buildRunningLog: events with no useful summary still render type', () => {
   assert.match(lines[0].body, /bulletin fired/);
 });
 
+test('buildRunningLog: a report kept without unheld keys is tagged a salvage, not a fallback', () => {
+  // The two kinds of validation_fallback event the run writes: a salvage
+  // keeps the model's own report, a fallback replaces it with the skeleton.
+  const events: SimEvent[] = [
+    { type: 'validation_fallback', leader: 'A', data: { site: 'dept:engineering:turn1:event1', schemaName: 'DepartmentReport', salvaged: true, droppedKeys: ['habitatShielding'], summary: 'schema salvage: DepartmentReport kept without habitatShielding' } },
+    { type: 'validation_fallback', leader: 'A', data: { site: 'commander:turn1:event1', schemaName: 'CommanderDecision', summary: 'schema fallback: CommanderDecision' } },
+  ];
+  const lines = buildRunningLog(ctx({ events }));
+  assert.deepEqual(lines.map(l => l.tag), ['SALVAGE', 'FALLBACK']);
+});
+
 test('buildLogForStage: routes to correct builder', () => {
   const c = ctx({ stage: 'compile' });
   assert.deepEqual(buildLogForStage('compile', c), buildCompileLog(c));
