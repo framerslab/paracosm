@@ -160,8 +160,13 @@ export interface QuickstartDeps {
    *  `seedText` is the user's original natural-language prompt; the server
    *  keeps it with the scenario so a run's active_scenario event can carry
    *  it through to the session store, which surfaces it on the replay
-   *  banner and Replay-Last-Run CTA. */
-  installCompiledScenario: (scenario: ScenarioPackage, seedText?: string) => void;
+   *  banner and Replay-Last-Run CTA.
+   *
+   *  Returns the scenario as installed. The server never replaces a
+   *  scenario the compiled id already names, so the installed one can carry
+   *  another id (`<id>-2`); the answers report the returned scenario. An
+   *  implementation that returns nothing installed the one it was given. */
+  installCompiledScenario: (scenario: ScenarioPackage, seedText?: string) => ScenarioPackage | void;
   /** Resolves a scenario id against the server catalog. */
   getScenarioById: (id: string) => ScenarioPackage | undefined;
   /** The headers that make a scenario the requesting visitor's pick (the
@@ -389,7 +394,7 @@ export async function handleCompileFromSeed(
       // An admin can have deleted the scenario from the catalog since it
       // compiled, so install it again; the answer makes it this visitor's
       // pick, as the status answer does for the visitor who waited.
-      deps.installCompiledScenario(existing.scenario, parsed.data.seedText);
+      existing.scenario = deps.installCompiledScenario(existing.scenario, parsed.data.seedText) ?? existing.scenario;
       res.writeHead(200, { 'Content-Type': 'application/json', ...deps.pickHeaders?.(existing.scenario.id) });
       res.end(JSON.stringify({
         jobId: existing.jobId,
@@ -426,10 +431,11 @@ export async function handleCompileFromSeed(
   }).then((scenario) => {
     const stored = compileJobs.get(jobId);
     if (!stored) return; // Swept out by TTL while still pending — exotic.
-    stored.scenario = scenario;
+    // The job reports the scenario as installed, whose id the server may
+    // have changed to a free one.
+    stored.scenario = deps.installCompiledScenario(scenario, parsed.data.seedText) ?? scenario;
     stored.status = 'done';
     stored.resolvedAt = Date.now();
-    deps.installCompiledScenario(scenario, parsed.data.seedText);
   }).catch((err: unknown) => {
     const stored = compileJobs.get(jobId);
     if (!stored) return;
