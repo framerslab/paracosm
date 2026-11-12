@@ -129,6 +129,8 @@ The compiler turns a scenario JSON draft plus optional prompt/document/URL groun
 | `getMilestoneEvent` | Fixed narrative events (Turn 1 founding, final assessment) | Turn 1 and final turn |
 | `reactionsHook` | Colonist personality-aware reactions | After each commander decision |
 
+Before it keeps a generated `fingerprintHook` or `departmentPromptHook`, the compiler calls it on a state built from the draft's own `world` declarations, and a draft that declares no `world` is tried on the head count and morale, the two values a run of it holds.
+
 Compilation costs ~$0.10 and is cached to disk. The compiler accepts `--seed-text` and `--seed-url` for domain research, and `--no-web-search` to skip web enrichment. A future prompt-only wrapper should first generate this same JSON contract, then validate and compile it.
 
 ### Deterministic Kernel
