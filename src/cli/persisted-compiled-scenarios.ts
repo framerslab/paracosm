@@ -26,7 +26,7 @@ import {
   unlinkSync,
   statSync,
 } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import type { ScenarioPackage } from '../engine/types.js';
 
 /**
@@ -89,14 +89,36 @@ function stripHooks(scenario: ScenarioPackage): Record<string, unknown> {
 }
 
 /**
- * Strict id validator. Scenario ids in this codebase are kebab-case
- * slugs produced by the compile-from-seed pipeline; values containing
- * path separators or `..` segments are not legitimate ids and would
- * let a caller write/read outside the compiled/ directory. The
- * persist + delete paths run this gate before touching the filesystem.
+ * The one pattern a scenario id must match to name a file: a letter or
+ * digit, then up to 127 letters, digits, hyphens or underscores. An id
+ * with a path separator, a dot, a percent sign, a null byte or anything
+ * else outside that set never names a file.
  */
-function isSafeScenarioId(id: string): boolean {
-  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(id);
+export const SCENARIO_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
+
+/** {@link SCENARIO_ID_PATTERN} in words, for refusals. */
+export const SCENARIO_ID_RULE =
+  'a scenario id that names a file is 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit';
+
+/**
+ * Whether a value is a scenario id that may name a file. The persist and
+ * delete paths here, the boot loader and the scenario store's disk write
+ * all run this gate before touching the file system.
+ */
+export function isSafeScenarioId(id: unknown): id is string {
+  return typeof id === 'string' && SCENARIO_ID_PATTERN.test(id);
+}
+
+/**
+ * The path of `<id>.json` directly inside `dir`, or `null` when the id
+ * fails {@link isSafeScenarioId} or the resolved path is anything other
+ * than that one file name inside `dir`.
+ */
+export function scenarioJsonPath(dir: string, id: unknown): string | null {
+  if (!isSafeScenarioId(id)) return null;
+  const root = resolve(dir);
+  const filePath = resolve(root, `${id}.json`);
+  return relative(root, filePath) === `${id}.json` ? filePath : null;
 }
 
 /**
@@ -154,29 +176,53 @@ export function persistCompiledScenario(
 }
 
 /**
- * Read every compiled-draft JSON from the persistence dir. Malformed
- * files are skipped silently — one corrupted entry never blocks the
- * rest of the catalog from loading.
+ * Read the compiled-draft JSON files in the persistence dir, newest
+ * first by mtime, and return at most `cap` of them
+ * ({@link COMPILED_SCENARIOS_CAP} by default, the number
+ * {@link persistCompiledScenario} keeps), since the server compiles
+ * every draft returned. Once `cap` drafts are read the rest are left
+ * unread, in one log line. Malformed files and files whose id fails
+ * {@link isSafeScenarioId} are skipped with a line naming the file;
+ * one bad entry never blocks the rest of the catalog from loading.
  */
-export function loadPersistedCompiledDrafts(scenarioDir: string): PersistedCompiledDraft[] {
+export function loadPersistedCompiledDrafts(
+  scenarioDir: string,
+  cap: number = COMPILED_SCENARIOS_CAP,
+): PersistedCompiledDraft[] {
   const dir = compiledDir(scenarioDir);
   if (!existsSync(dir)) return [];
+  const files = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => {
+      const filePath = resolve(dir, entry.name);
+      let mtimeMs = 0;
+      try { mtimeMs = statSync(filePath).mtimeMs; } catch { /* sorts last; the read below reports it */ }
+      return { name: entry.name, filePath, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
   const out: PersistedCompiledDraft[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-    const filePath = resolve(dir, entry.name);
+  for (let index = 0; index < files.length; index += 1) {
+    const { name, filePath, mtimeMs } = files[index];
+    if (out.length >= cap) {
+      console.warn(
+        `[scenarios] stopped loading persisted compiled drafts at the cap of ${cap}; ` +
+        `${files.length - index} older draft file(s) left unread`,
+      );
+      break;
+    }
     try {
       const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
-      const id = typeof raw.id === 'string' ? raw.id : null;
-      if (!id) continue;
+      const id: unknown = raw.id;
+      if (id === undefined || id === null || id === '') continue;
+      if (!isSafeScenarioId(id)) {
+        console.warn(`[scenarios] skipping persisted draft ${JSON.stringify(name)}: its id is not a plain scenario id`);
+        continue;
+      }
       const persistMeta = (raw._persistMeta ?? {}) as Partial<PersistedCompiledMeta>;
       // Fall back to file mtime when the on-disk metadata predates the
       // _persistMeta field (e.g. user manually dropped a JSON in this
       // dir without going through persistCompiledScenario).
-      const fallbackCompiledAt = (() => {
-        try { return new Date(statSync(filePath).mtimeMs).toISOString(); }
-        catch { return new Date(0).toISOString(); }
-      })();
+      const fallbackCompiledAt = new Date(mtimeMs).toISOString();
       const meta: PersistedCompiledMeta = {
         compiledAt: typeof persistMeta.compiledAt === 'string' ? persistMeta.compiledAt : fallbackCompiledAt,
         seedText: typeof persistMeta.seedText === 'string' ? persistMeta.seedText : null,
@@ -186,7 +232,7 @@ export function loadPersistedCompiledDrafts(scenarioDir: string): PersistedCompi
       const { _persistMeta: _meta, ...draft } = raw;
       out.push({ id, draft, meta });
     } catch (err) {
-      console.warn(`[scenarios] skipping unreadable draft ${entry.name}:`, err);
+      console.warn(`[scenarios] skipping unreadable draft ${name}:`, err);
     }
   }
   return out;
