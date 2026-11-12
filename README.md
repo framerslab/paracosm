@@ -303,7 +303,7 @@ The dashboard ships two ways to produce a shareable run link, both landing the v
 
 All three routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly.
 
-**By URL construction** — any remote `.json` save can be turned into a deep link that auto-fetches, parses, and lands on the tab you choose. No upload step, no preview modal.
+**By URL construction** — any remote `.json` save can be turned into a deep link that fetches, parses, and lands on the tab you choose. No upload step, no preview modal. A file on another site than the dashboard's is fetched after the viewer answers one question that names that site.
 
 ```
 https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
@@ -313,7 +313,7 @@ https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
 | ---------- | -------- | --------- |
 | `load`     | yes      | URL of the remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, gists, S3, GitHub raw all work. |
 | `tab`      | no       | Tab to open after the run loads. `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
-| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. |
+| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. A file on another site still asks the question naming that site first. |
 
 Concrete share links:
 

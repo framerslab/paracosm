@@ -21,6 +21,7 @@ import {
 } from './hooks/shareUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
+import { LoadFromHostModal } from './components/layout/LoadFromHostModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
@@ -377,8 +378,9 @@ function AppContent() {
   const handleLoad = loadPreview.openPicker;
 
   // ?load=<url> query-param auto-fetch. Runs once on mount; if the
-  // param isn't present, the hook is a no-op.
-  useLoadFromUrl({
+  // param isn't present, the hook is a no-op. A file on another site
+  // waits for the visitor's answer to LoadFromHostModal.
+  const loadFromUrl = useLoadFromUrl({
     openFromFile: (file) => loadPreview.openFromFile(file),
     onInfo: (title, body) => toast('info', title, body),
     onError: (title, body) => toast('error', title, body),
@@ -1231,6 +1233,13 @@ function AppContent() {
             <VerdictModal
               verdict={sse.verdict as Record<string, unknown>}
               onClose={() => setVerdictModalOpen(false)}
+            />
+          )}
+          {loadFromUrl.pendingHost && (
+            <LoadFromHostModal
+              host={loadFromUrl.pendingHost}
+              onLoad={loadFromUrl.confirmPending}
+              onCancel={loadFromUrl.cancelPending}
             />
           )}
           {loadPreview.metadata && (

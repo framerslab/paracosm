@@ -90,7 +90,6 @@ jobs:
             node /scripts/smoke-packed-package.mjs --tarball "/package/$tarball" --reinstall-from-lockfile
 
       - name: Install Playwright Chromium
-        if: ${{ !cancelled() }}
         run: npx playwright install --with-deps chromium
 
       - name: PDF upload end-to-end test
@@ -115,7 +114,6 @@ jobs:
         run: npx playwright test tests-e2e/specs/chat-per-run.spec.ts --project=chromium-desktop
 
       - name: Load link end-to-end test
-        if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/load-link.spec.ts --project=chromium-desktop
 
       - name: Check doc examples compile against package

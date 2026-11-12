@@ -1,6 +1,10 @@
+import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { ProviderErrorState } from '../../hooks/useSSE';
+import { knownProviderLink } from './providerLinks';
 import styles from './ProviderErrorBanner.module.scss';
+
+void React; // dashboard SSR tests run without the automatic JSX runtime
 
 /**
  * Persistent banner shown at the top of the dashboard when a simulation
@@ -61,6 +65,11 @@ export function ProviderErrorBanner({
           ? `Network error contacting ${providerLabel(providerError.provider)}`
           : 'Provider error';
 
+  // The address comes with the event, and a run loaded from a file or a
+  // ?load= link carries whatever its author wrote there. Only the provider
+  // pages the server sends become a link; any other address shows as text.
+  const actionHref = knownProviderLink(providerError.actionUrl);
+
   const bannerVars = {
     '--banner-bg': colors.bg,
     '--banner-border': colors.border,
@@ -81,15 +90,17 @@ export function ProviderErrorBanner({
           ) : null}
         </div>
       </div>
-      {providerError.actionUrl ? (
+      {actionHref ? (
         <a
-          href={providerError.actionUrl}
+          href={actionHref}
           target="_blank"
           rel="noreferrer noopener"
           className={styles.actionLink}
         >
           {providerError.kind === 'quota' ? 'Add credits →' : 'Fix key →'}
         </a>
+      ) : providerError.actionUrl ? (
+        <span className={styles.actionText}>{providerError.actionUrl}</span>
       ) : null}
       {onDismiss ? (
         <button onClick={onDismiss} aria-label="Dismiss banner" className={styles.dismissBtn}>
