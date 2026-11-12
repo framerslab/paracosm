@@ -543,7 +543,14 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
       // the same turn. Forge attempts carry `name`; agent reactions
       // roll up into a single per-turn event so the turn suffices.
       const forgeName = (e.data?.name ?? '');
-      return `${e.type}|${e.leader || ''}|${turnId}|${eventIndex}|${department}|${title}|${forgeName}`;
+      // A `validation_fallback` event carries no turn, event or department
+      // of its own: its call site names them (`dept:engineering:turn1:event1`),
+      // and a salvage is told apart from a fallback. Without them every such
+      // event of a leader after the first was taken for a repeat and dropped.
+      const schemaCall = e.type === 'validation_fallback'
+        ? `|${String(e.data?.site ?? '')}|${String(e.data?.schemaName ?? '')}|${e.data?.salvaged === true ? 'salvaged' : ''}`
+        : '';
+      return `${e.type}|${e.leader || ''}|${turnId}|${eventIndex}|${department}|${title}|${forgeName}${schemaCall}`;
     };
 
     const open = async () => {
