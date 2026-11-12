@@ -167,7 +167,8 @@
 
 .result {
   padding: 10px 16px;
-  font-size: var(--font-sm);
+  // 13px: a refused disk write names where the admin token is entered.
+  font-size: var(--font-md);
   border-bottom: 1px solid var(--border);
   // --result-color, --result-bg set inline.
   color: var(--result-color, var(--text-2));

@@ -488,7 +488,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
                     type="button"
                     onClick={() => { setOverflowOpen(false); onClear(); }}
                     className={styles.overflowItemDanger}
-                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept."
+                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept, unless an admin token is saved in Settings."
                   >
                     Clear local data
                   </button>
