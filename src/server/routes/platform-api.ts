@@ -30,38 +30,24 @@ const MAX_REPLAY_RESULT_BODY_BYTES = 16 * 1024;
 class BodyTooLargeError extends Error {}
 
 /**
- * Reads a request body of at most `maxBytes`. A longer body rejects with
- * {@link BodyTooLargeError} at the chunk that passes the limit; the rest
- * is read and dropped, so the connection stays open for the 413.
+ * Reads a request body of at most `maxBytes`. The bytes past the limit
+ * are read and dropped, never kept, so the connection stays open for the
+ * 413; a longer body then rejects with {@link BodyTooLargeError}.
  */
-function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
-  return new Promise((resolveBody, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let settled = false;
-    req.on('data', (chunk: Buffer | string) => {
-      if (settled) return;
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      size += buffer.length;
-      if (size > maxBytes) {
-        settled = true;
-        chunks.length = 0;
-        reject(new BodyTooLargeError(`Request body exceeds ${maxBytes} bytes`));
-        return;
-      }
-      chunks.push(buffer);
-    });
-    req.on('end', () => {
-      if (settled) return;
-      settled = true;
-      resolveBody(Buffer.concat(chunks).toString('utf-8'));
-    });
-    req.on('error', err => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    });
-  });
+async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buffer.length;
+    if (size > maxBytes) {
+      chunks.length = 0;
+      continue;
+    }
+    chunks.push(buffer);
+  }
+  if (size > maxBytes) throw new BodyTooLargeError(`Request body exceeds ${maxBytes} bytes`);
+  return Buffer.concat(chunks).toString('utf-8');
 }
 
 function publicRunRecord(record: RunRecord): Omit<RunRecord, 'artifactPath'> {
