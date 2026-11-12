@@ -317,7 +317,7 @@ The Studio tab sends a bundle in one request when its JSON fits the limit, and o
 - `201 Created` — single or full bundle inserted
 - `400 Invalid artifact body` / `400 Bundle item N is not a valid RunArtifact` — Zod validation failed (shape or content)
 - `400 Invalid bundle` — bundle missing `artifacts` array, exceeds the 50-artifact cap (`MAX_BUNDLE_SIZE`), or has an `addToBundle` that is not `bundle_` and a lowercase UUID
-- `413` — the request body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default); the error states the limit
+- `413`: the request body is over `MAX_REQUEST_BODY_BYTES` (5 MiB by default); the error states the limit
 - `500` — store insert raised; the response includes `failedRunId` and (for bundles) `bundleId` and `insertedSoFar` so the client can show partial-success state and retry the broken artifact
 
 ## `GET /api/v1/demo/status`
