@@ -247,6 +247,25 @@ jobs:
           #                       that survived in runs.db across the
           #                       deploy. The server's run-artifact
           #                       writer owns the file lifecycle.
+          # The rules below start with / so each matches one path at the
+          # top of APP_DIR and nothing of the same name deeper in the build:
+          #   /scenarios/compiled/: scenarios people compiled from a brief
+          #                       (src/cli/persisted-compiled-scenarios.ts).
+          #                       Only this subfolder: the bundled
+          #                       scenarios/*.json beside it belong to the
+          #                       build, and one the build drops is deleted.
+          #   /.paracosm/: the compiler's hook cache
+          #                       (.paracosm/cache/), which rebuilds each
+          #                       compiled scenario at boot without an LLM
+          #                       call.
+          #   /.live-runs/: finished runs held for their visitors
+          #                       across a restart (src/server/live-runs.ts).
+          #   /.rate-limit.json, /.rate-limit.json.tmp: per-IP limits,
+          #                       kept so a deploy is no fresh quota.
+          #   /.retry-stats.json: the retry, forge and cache stats ring.
+          # scripts/check-deploy-keeps-host-data.sh runs these options
+          # against a stand-in host in CI. Never add --delete-excluded:
+          # it deletes the excluded paths too.
           rsync -azP --delete \
             --exclude='.env' \
             --exclude='node_modules' \
@@ -254,6 +273,12 @@ jobs:
             --exclude='.event-buffer.json' \
             --exclude='logs/' \
             --exclude='output/' \
+            --exclude='/scenarios/compiled/' \
+            --exclude='/.paracosm/' \
+            --exclude='/.live-runs/' \
+            --exclude='/.rate-limit.json' \
+            --exclude='/.rate-limit.json.tmp' \
+            --exclude='/.retry-stats.json' \
             -e "ssh -i ~/.ssh/deploy_key" \
             build/ root@${{ env.SERVER_IP }}:${{ env.APP_DIR }}/
 
