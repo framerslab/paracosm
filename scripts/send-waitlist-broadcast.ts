@@ -1,36 +1,44 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S npx tsx
 /**
  * Broadcast a "you're in" email to every row in the waitlist DB.
  *
- * Usage (run from the paracosm working directory or with APP_DIR set):
+ * Usage (run from the paracosm working directory or with APP_DIR set; a
+ * deploy leaves no script executable, so name tsx):
  *
- *   ./scripts/send-waitlist-broadcast.ts                 # send to everyone
- *   ./scripts/send-waitlist-broadcast.ts --dry-run       # list recipients, send nothing
- *   ./scripts/send-waitlist-broadcast.ts --only=a@x.co   # restrict to one or more emails (comma-separated)
+ *   npx tsx scripts/send-waitlist-broadcast.ts                 # send to everyone
+ *   npx tsx scripts/send-waitlist-broadcast.ts --dry-run       # list recipients, send nothing
+ *   npx tsx scripts/send-waitlist-broadcast.ts --only=a@x.co   # restrict to one or more emails (comma-separated)
  *
  * Env requirements:
  *   - RESEND_API_KEY (required for actual sends; dry-run skips this)
+ *   - MAIL_POSTAL_ADDRESS (required for actual sends): the sender's postal
+ *     address, printed in every email's footer as commercial email must
+ *     carry it (15 U.S.C. 7704(a)(5)). Without it the script sends nothing.
  *   - WAITLIST_FROM (optional, defaults to "Paracosm <team@frame.dev>")
- *   - APP_DIR (optional, defaults to cwd; controls where data/waitlist.db lives)
+ *   - MAIL_LINK_BASE (optional, defaults to https://paracosm.agentos.sh): the
+ *     site whose /unsubscribe page the links open; an https origin with no
+ *     path, or the script sends nothing
+ *   - APP_DIR (optional, defaults to cwd; controls where data/waitlist.db and
+ *     data/mail.db live)
+ *
+ * Every email goes through sendOptionalEmail: an address on the suppression
+ * list (data/mail.db: people who used an unsubscribe link, and addresses
+ * added with scripts/mail-suppress.ts) gets nothing, and every email that
+ * goes carries its own Unsubscribe link and the List-Unsubscribe and
+ * List-Unsubscribe-Post headers. The list is read again before each send.
+ * Suppressed addresses are counted, never printed.
  *
  * The script intentionally has no built-in tracking of "already sent" — run
  * it once per cohort. There's a 200ms sleep between sends to stay polite to
  * Resend's rate limit.
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createWaitlistStore } from '../src/server/stores/waitlist.js';
-import { sendEmail } from '../src/server/services/email.js';
 import { renderYoureIn } from '../src/server/services/email-templates.js';
-
-function loadEnv(): void {
-  const envPath = resolve(process.cwd(), '.env');
-  if (!existsSync(envPath)) return;
-  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
-    const m = line.match(/^\s*([^#=\s]+)\s*=\s*(.+?)\s*$/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
-  }
-}
+import { sendOptionalEmail, DEFAULT_MAIL_LINK_BASE, mailLinkOrigin } from '../src/server/services/optional-mail.js';
+import { mailDbPath, openMailStore } from '../src/server/stores/mail-suppression.js';
+import { loadDotEnvFromCwd } from '../src/cli/dotenv.js';
 
 function parseArgs(): { dryRun: boolean; only: string[] | null } {
   const argv = process.argv.slice(2);
@@ -57,19 +65,40 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  loadEnv();
+  loadDotEnvFromCwd();
   const { dryRun, only } = parseArgs();
 
-  const dbPath = resolve(process.env.APP_DIR || '.', 'data', 'waitlist.db');
+  const appDir = process.env.APP_DIR || '.';
+  const dbPath = resolve(appDir, 'data', 'waitlist.db');
   if (!existsSync(dbPath)) {
     process.stderr.write(`waitlist.db not found at ${dbPath}\n`);
     process.exit(1);
   }
+  const mailDb = mailDbPath(appDir);
   const from = process.env.WAITLIST_FROM || 'Paracosm <team@frame.dev>';
+  const postalAddress = (process.env.MAIL_POSTAL_ADDRESS ?? '').trim();
+  const linkBaseSetting = process.env.MAIL_LINK_BASE || DEFAULT_MAIL_LINK_BASE;
 
   if (!dryRun && !process.env.RESEND_API_KEY) {
     process.stderr.write('RESEND_API_KEY missing — refusing to send. Use --dry-run to preview.\n');
     process.exit(1);
+  }
+  if (!dryRun && !postalAddress) {
+    process.stderr.write(
+      'MAIL_POSTAL_ADDRESS missing: every email must carry the sender\'s postal address. Refusing to send. Use --dry-run to preview.\n',
+    );
+    process.exit(1);
+  }
+  let linkBase = DEFAULT_MAIL_LINK_BASE;
+  try {
+    linkBase = mailLinkOrigin(linkBaseSetting);
+  } catch {
+    if (!dryRun) {
+      process.stderr.write(
+        `MAIL_LINK_BASE must be an https origin such as ${DEFAULT_MAIL_LINK_BASE} (no path, query or quotes): every unsubscribe link would be broken. Refusing to send.\n`,
+      );
+      process.exit(1);
+    }
   }
 
   const store = createWaitlistStore({ dbPath });
@@ -88,22 +117,32 @@ async function main(): Promise<void> {
 
   let sent = 0;
   let failed = 0;
+  let suppressed = 0;
   for (const entry of targets) {
-    const rendered = renderYoureIn({ email: entry.email, name: entry.name });
     if (dryRun) {
+      // A dry run writes nothing: it reads the suppression list only if one exists.
+      if (await isSuppressedReadOnly(mailDb, entry.email)) {
+        suppressed += 1;
+        continue;
+      }
       process.stdout.write(`[dry-run] would send to ${entry.email} (${entry.userType})\n`);
       sent += 1;
       continue;
     }
-    const ok = await sendEmail({
+    const result = await sendOptionalEmail({
+      mailDbPath: mailDb,
       from,
       to: entry.email,
-      subject: rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
       replyTo: 'team@frame.dev',
+      postalAddress,
+      linkBase,
+      render: (footer) => renderYoureIn({ email: entry.email, name: entry.name, ...footer }),
     });
-    if (ok) {
+    if (result === 'suppressed') {
+      suppressed += 1;
+      continue;
+    }
+    if (result === 'sent') {
       sent += 1;
       process.stdout.write(`[ok] ${entry.email}\n`);
     } else {
@@ -113,8 +152,19 @@ async function main(): Promise<void> {
     await sleep(200);
   }
 
-  process.stdout.write(`[broadcast] done: sent=${sent} failed=${failed}\n`);
+  process.stdout.write(`[broadcast] done: sent=${sent} failed=${failed} suppressed=${suppressed}\n`);
   if (failed > 0) process.exit(1);
+}
+
+/** The dry run's lookup: reads the list if a store exists, and writes nothing. */
+async function isSuppressedReadOnly(mailDb: string, address: string): Promise<boolean> {
+  if (!existsSync(mailDb)) return false;
+  const store = openMailStore({ dbPath: mailDb, readOnly: true });
+  try {
+    return await store.isSuppressed(address);
+  } finally {
+    await store.close();
+  }
 }
 
 main().catch((err: unknown) => {

@@ -14,6 +14,12 @@ export interface SendEmailParams {
   html: string;
   text: string;
   replyTo?: string;
+  /**
+   * Extra headers, passed on Resend's send call (`headers`,
+   * https://resend.com/docs/api-reference/emails/send-email). The
+   * unsubscribe headers go here.
+   */
+  headers?: Record<string, string>;
 }
 
 interface MinimalResendClient {
@@ -25,6 +31,7 @@ interface MinimalResendClient {
       html: string;
       text: string;
       replyTo?: string;
+      headers?: Record<string, string>;
     }) => Promise<{ data: { id: string } | null; error: { name?: string; message?: string } | null }>;
   };
 }
@@ -60,6 +67,7 @@ export async function sendEmail(params: SendEmailParams): Promise<boolean> {
       html: params.html,
       text: params.text,
       replyTo: params.replyTo,
+      headers: params.headers,
     });
     if (result.error) {
       console.warn('[email] Resend rejected:', result.error.name, result.error.message);

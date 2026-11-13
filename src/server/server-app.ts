@@ -60,6 +60,8 @@ import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-hi
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
 import { handleWaitlistClosed } from './routes/waitlist.js';
+import { handleUnsubscribeRoute } from './routes/unsubscribe.js';
+import { mailDbPath } from './stores/mail-suppression.js';
 import { handlePublicDemoRoute } from './routes/public-demo.js';
 import { handlePlatformApiRoute } from './routes/platform-api.js';
 import { validateForkSetupPreconditions } from './fork-preconditions.js';
@@ -2094,6 +2096,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // touching the stored signups.
     if (req.url === '/api/waitlist' && req.method === 'POST') {
       handleWaitlistClosed(res);
+      return;
+    }
+
+    // The unsubscribe link in every email (routes/unsubscribe.ts): a GET
+    // asks, a POST stops the mail at once. It reads the mail store the
+    // broadcast script writes, `${APP_DIR}/data/mail.db`.
+    if (await handleUnsubscribeRoute(req, res, { mailDbPath: mailDbPath(env.APP_DIR || '.') })) {
       return;
     }
 
