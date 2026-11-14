@@ -266,3 +266,41 @@ test("a run whose buffer lost its first turns is not told those turns were the r
     assert.equal(said, undefined, `with Turns ${kept.join(', ')} left of 6, he is told: ${said}`);
   }
 });
+
+/**
+ * A run stopped inside Turn 4 (the visitor cancelled it, or a provider
+ * failed) still ends its stream with a `complete` frame, one that says
+ * `aborted`. Bruno Morales asked after that is told the run was stopped at
+ * Turn 4, never that the run had 4 turns and no others or that it ended
+ * there as a whole run does.
+ */
+test('after a run stopped during Turn 4, his agent is told it was stopped there, not that it had 4 turns', async () => {
+  const lastStart = pair.events.map((e, i) => (e.type === 'turn_start' && Number(e.data.turn) === 4 ? i : -1)).filter(i => i >= 0).pop()!;
+  assert.ok(lastStart > 0, 'the saved run has a Turn 4');
+  const calls: AgentCall[] = [];
+  const given = new Map<string, AgentCall>();
+  await withVisitors(async ({ cookied }) => {
+    const v = cookied();
+    assert.equal((await v.post('/setup', settingsBody(mars))).status, 200);
+    await waitFor(async () => (await v.json<{ isComplete: boolean }>('/results')).isComplete, 'the run to stop', 10_000);
+    for (const leader of LEADERS) {
+      const res = await v.post('/chat', { agentId: PERSON, leader, message: QUESTION });
+      assert.equal(res.status, 200, `chat under ${leader}: ${res.status} ${await res.clone().text()}`);
+      given.set(leader, calls[calls.length - 1]);
+    }
+  }, {
+    runner: async (_config, broadcast) => {
+      for (const e of pair.events.slice(0, lastStart + 1)) broadcast('sim', e, e.leader);
+      broadcast('complete', { timestamp: new Date().toISOString(), aborted: true });
+    },
+    extra: { chatAgent: recordingChatAgent(calls) },
+  });
+  for (const leader of LEADERS) {
+    const year = yearsOfTurns(leader).get(4);
+    const told = buildChatAgentInstructions(given.get(leader)!.profile, given.get(leader)!.opts);
+    assert.ok(told.includes(`stopped early, at Turn 4, Year ${year}`), `under ${leader}, he is told the run was stopped at Turn 4`);
+    assert.ok(!/\bno others\b/.test(told), `under ${leader}, he is not told the turns so far were the whole run`);
+    assert.ok(!/\bended at Turn\b/.test(told), `under ${leader}, he is not told the run ended as a whole run does`);
+    assert.ok(!/\bstill going\b/.test(told), `under ${leader}, he is not told the run is still going`);
+  }
+});

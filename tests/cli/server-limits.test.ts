@@ -34,7 +34,7 @@ import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.j
 import { IpRateLimiter } from '../../src/server/rate-limiter.js';
 import { applyDemoCaps, normalizeSimulationConfig } from '../../src/cli/sim-config.js';
 import { fetchSeedFromUrl, type WebSearchModule } from '../../src/cli/fetch-seed-url.js';
-import { fetchPublicUrl, htmlToText } from '../../src/engine/compiler/public-url-fetch.js';
+import { fetchPublicUrl, htmlTitle, htmlToText } from '../../src/engine/compiler/public-url-fetch.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
 
@@ -461,6 +461,13 @@ test('the hosted demo caps bound the text of each leader and key person a run ke
   for (const person of capped.keyPersonnel as unknown as Array<Record<string, unknown>>) {
     for (const field of ['name', 'role', 'specialization']) assert.ok(String(person[field] ?? '').length <= 120, `key person ${field}: ${String(person[field] ?? '').length}`);
   }
+});
+
+test('a page whose text holds a letter that lowercases to two is read at the right places', () => {
+  // 'İ' lowercases to 'i' and a combining dot: two code units for one.
+  assert.equal(htmlToText('<html><head><title>İ</title></head><body>Facts</body></html>'), 'Facts');
+  assert.equal(htmlTitle('<title>İ</title>'), 'İ');
+  assert.equal(htmlTitle('<TITLE>İstanbul İzmir</TITLE>'), 'İstanbul İzmir');
 });
 
 test('a page\'s entities are decoded once', () => {

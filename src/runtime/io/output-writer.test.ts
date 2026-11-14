@@ -3,9 +3,9 @@
  * the leader's archetype holds. The archetype gives the file name its tag,
  * so it is reduced to letters, digits and hyphens before it names a file.
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import type { RunArtifact } from '../../engine/schema/index.js';
@@ -55,5 +55,28 @@ test('an ordinary archetype keeps its words in the file name', () => {
       outputDir: runsDir,
     });
     assert.match(basename(path), /^v3-the-engineer-\d{4}-/);
+  });
+});
+
+test('two runs written in one millisecond, whose archetypes differ only past the tag\'s 48 characters, keep a file each', () => {
+  withRunsDir((_root, runsDir) => {
+    mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 14, 12, 0, 0) });
+    try {
+      const write = (archetype: string, run: number) => writeRunOutput({ run } as unknown as RunArtifact, {
+        actorName: 'A',
+        actorArchetype: archetype,
+        turns: 1,
+        toolRegs: {},
+        outputDir: runsDir,
+      });
+      const first = write(`${'a'.repeat(48)} one`, 1);
+      const second = write(`${'a'.repeat(48)} two`, 2);
+      assert.notEqual(first, second);
+      assert.equal(readdirSync(runsDir).length, 2, readdirSync(runsDir).join(', '));
+      assert.deepEqual(JSON.parse(readFileSync(first, 'utf-8')), { run: 1 });
+      assert.deepEqual(JSON.parse(readFileSync(second, 'utf-8')), { run: 2 });
+    } finally {
+      mock.timers.reset();
+    }
   });
 });

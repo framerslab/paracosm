@@ -1,7 +1,8 @@
 /**
  * generateInitialPopulation gives every person a name of their own and
  * returns, however many people it is asked for. Its first and last name
- * lists hold 50 names each, 2500 pairs; past them a name takes a number.
+ * lists hold 50 names each, 2500 pairs; past them a name takes a number
+ * before the surname, which stays the name's last word.
  *
  * The call runs in a child process with a deadline, so a call that never
  * returns fails the test instead of holding the test run.
@@ -17,7 +18,7 @@ function countNames(population: number): { status: number | null; signal: NodeJS
   const code = `
     const { generateInitialPopulation } = await import(${JSON.stringify(generator)});
     const people = generateInitialPopulation(1, 0, [], ${population});
-    process.stdout.write(JSON.stringify({ count: people.length, distinct: new Set(people.map(p => p.core.name)).size }));
+    process.stdout.write(JSON.stringify({ count: people.length, distinct: new Set(people.map(p => p.core.name)).size, numberLast: people.filter(p => /\\d$/.test(p.core.name.split(' ').pop())).map(p => p.core.name).slice(0, 3) }));
   `;
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], {
     encoding: 'utf-8',
@@ -30,5 +31,7 @@ test('generateInitialPopulation(1, 0, [], 3000) returns 3000 people with distinc
   const run = countNames(3000);
   assert.equal(run.signal, null, `the call returned within 30 s (signal ${run.signal}; stderr ${run.stderr.slice(0, 500)})`);
   assert.equal(run.status, 0, run.stderr.slice(0, 500));
-  assert.deepEqual(JSON.parse(run.stdout), { count: 3000, distinct: 3000 });
+  // A child takes the last word of a parent's name as its surname, so a
+  // name with a number keeps the surname last ("Aria 2 Chen").
+  assert.deepEqual(JSON.parse(run.stdout), { count: 3000, distinct: 3000, numberLast: [] });
 });
