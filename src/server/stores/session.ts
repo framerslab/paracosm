@@ -204,11 +204,18 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_createdAt ON sessions(createdAt);`);
 
-  // Idempotent schema migration for SQLite: add columns introduced
-  // after the original schema landed, without dropping the DB.
-  // Postgres tenants spin up with the latest schema directly; SQLite
-  // boxes need ADD COLUMN statements to catch up on existing data.
-  if (isSqliteAdapter(adapter)) {
+  // Idempotent schema migration: add columns introduced after the
+  // original schema landed, without dropping the DB. CREATE TABLE IF NOT
+  // EXISTS adds no column to a table made before, so a Postgres table
+  // takes ADD COLUMN IF NOT EXISTS, and SQLite, which has no IF NOT
+  // EXISTS there, reads its columns first.
+  if (adapter.kind === 'postgres' || adapter.kind === 'supabase-postgres') {
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS title TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS seedText TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS leaders TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0');
+  } else if (isSqliteAdapter(adapter)) {
     const columns = await adapter.all<{ name: string }>('PRAGMA table_info(sessions)');
     const addColumnIfMissing = async (name: string, ddl: string) => {
       if (columns.some((c) => c.name === name)) return;

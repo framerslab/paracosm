@@ -29,6 +29,9 @@ import {
   VISITOR_COOKIE, heldRun, mars, quickstartBody, readReplay, settingsBody, startServer, waitFor, withVisitors,
   type Frame, type HeldLaunch, type RunServer, type Runner,
 } from './helpers/run-server.js';
+
+/** A finished run is titled by a model call; this stands in for it, so the tests call no model whatever keys the shell holds. */
+const NO_MODEL = { generateText: async () => ({ text: 'A saved run' }) };
 import type { Visitor } from './helpers/visitor.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -88,7 +91,7 @@ test('on the hosted demo two callers that send no cookie each get a visitor of t
     assert.equal(held.runs[0].signal?.aborted, false, "B's run does not replace A's");
     held.runs[0].release();
     held.runs[1].release();
-  }, { runner: held.runner, env: HOSTED });
+  }, { runner: held.runner, env: HOSTED, extra: { ...NO_MODEL } });
 });
 
 test("on the hosted demo a visitor's saved run is listed to them and to no other visitor", async () => {
@@ -103,7 +106,7 @@ test("on the hosted demo a visitor's saved run is listed to them and to no other
     const b = cookied();
     assert.deepEqual(await listSessions(b), [], "B's list holds none of A's runs");
     assert.equal((await listSessions(a)).length, 1, 'A sees their own saved run');
-  }, { runner: held.runner, env: HOSTED, extra: { sessionStore: memoryStore() } });
+  }, { runner: held.runner, env: HOSTED, extra: { ...NO_MODEL, sessionStore: memoryStore() } });
 });
 
 test('a session the admin saved stays when visitors fill the ring', async () => {
@@ -127,7 +130,7 @@ test('a session the admin saved stays when visitors fill the ring', async () => 
   }, {
     runner: held.runner,
     env: { ...HOSTED, ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN },
-    extra: { sessionStore: memoryStore(2) },
+    extra: { ...NO_MODEL, sessionStore: memoryStore(2) },
   });
 });
 
@@ -148,7 +151,7 @@ test('a run that ended on a provider error is not saved as a finished run', asyn
     const saved = await waitFor(async () => savedFrame(await readReplay(a)), 'the save decision');
     assert.equal(saved.data.status, 'skipped', JSON.stringify(saved.data));
     assert.equal(await store.count(), 0);
-  }, { runner, extra: { sessionStore: store } });
+  }, { runner, extra: { ...NO_MODEL, sessionStore: store } });
 });
 
 const BRIEF = `Patient cohort notes, do not share. ${'Cohort detail line. '.repeat(12)}`;
@@ -172,6 +175,7 @@ async function withCompiledBrief(body: (api: RunServer) => Promise<void>): Promi
     scenarioDir,
     runner: held.runner,
     compileScenario: async (json) => ({ ...(json as object), hooks: {} }) as unknown as ScenarioPackage,
+    extra: { ...NO_MODEL },
   });
   try {
     await waitFor(async () => {
@@ -224,7 +228,7 @@ test('a local server refuses a request a page on another site sends', async () =
     assert.equal(own.status, 200);
     const dev = await fetch(`${base}/clear`, { method: 'POST', headers: { Origin: 'http://localhost:5173' } });
     assert.equal(dev.status, 200);
-  });
+  }, { extra: { ...NO_MODEL } });
 });
 
 test('the platform API mode answers /api/v1 only with the admin credential', async () => {
@@ -237,7 +241,7 @@ test('the platform API mode answers /api/v1 only with the admin credential', asy
     assert.equal(withToken.status, 200);
     const status = await (await fetch(`${base}/api/v1/demo/status`)).json() as { authenticatedApiAvailable: boolean };
     assert.equal(status.authenticatedApiAvailable, true);
-  }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN } });
+  }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN }, extra: { ...NO_MODEL } });
 });
 
 /**
@@ -262,7 +266,7 @@ test('the platform API mode asks for the admin credential on every request targe
     for (const target of ['/./api/v1/runs', '/x/../api/v1/runs', `http://${new URL(base).host}/api/v1/runs`, '/api/v1/../api/v1/runs']) {
       assert.equal(await rawGet(base, target), 401, `GET ${target} without the credential`);
     }
-  }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN } });
+  }, { env: { PARACOSM_PLATFORM_API: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN }, extra: { ...NO_MODEL } });
 });
 
 test('the platform API mode with no admin credential configured reports no authenticated API', async () => {
@@ -270,5 +274,5 @@ test('the platform API mode with no admin credential configured reports no authe
     const status = await (await fetch(`${base}/api/v1/demo/status`)).json() as { authenticatedApiAvailable: boolean };
     assert.equal(status.authenticatedApiAvailable, false);
     assert.notEqual((await fetch(`${base}/api/v1/runs`)).status, 200);
-  }, { env: { PARACOSM_PLATFORM_API: 'true' } });
+  }, { env: { PARACOSM_PLATFORM_API: 'true' }, extra: { ...NO_MODEL } });
 });

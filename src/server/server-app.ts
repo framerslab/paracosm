@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { isIP } from 'node:net';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, type Stats } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
@@ -204,14 +205,37 @@ const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
+/** The hostname of a `Host` header value (`name:port`, `[v6]:port`), lowercased; '' when it has none. */
+function hostHeaderName(value: string | undefined): string {
+  if (typeof value !== 'string' || value.length === 0) return '';
+  try {
+    return new URL(`http://${value}`).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 /**
- * Whether a local server answers this request: true when it carries no
- * Origin (a same-origin GET, curl, a script), or its Origin is a loopback
- * address on any port (the dashboard itself, the Vite dev server), or its
- * Origin is the host the request was sent to (the dashboard served under
- * another name). `Origin: null` and any other site are refused.
+ * Whether a local server answers this request.
+ *
+ * The name the request was sent to (its `Host`) must be one the server is
+ * served under: a loopback name, an address literal, or the name `HOST`
+ * gives. A site that points a name of its own at this machine (DNS
+ * rebinding) sends that name in `Host`, and in `Origin` when it sends one,
+ * so a name is never taken because the two agree. An address literal names
+ * this machine itself, and no other site's page can be served from it.
+ *
+ * Then the request carries no Origin (a same-origin GET, curl, a script),
+ * or its Origin is a loopback address on any port (the dashboard itself,
+ * the Vite dev server), or its Origin is the host the request was sent to
+ * (the dashboard served under its address or its `HOST` name).
+ * `Origin: null` and any other site are refused.
  */
-export function localOriginAllowed(req: IncomingMessage): boolean {
+export function localOriginAllowed(req: IncomingMessage, servedHost = ''): boolean {
+  const name = hostHeaderName(req.headers.host);
+  const served = hostHeaderName(servedHost.trim());
+  const knownName = LOOPBACK_HOSTNAMES.has(name) || isIP(name.replace(/^\[|\]$/g, '')) !== 0 || (served.length > 0 && name === served);
+  if (!knownName) return false;
   const origin = req.headers.origin;
   if (origin === undefined) return true;
   let parsed: URL;
@@ -1754,6 +1778,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end(JSON.stringify(err.body()));
   };
 
+  /** Whether a buffered `complete` frame says the run was stopped before its end. */
+  const completeFrameAborted = (frame: string): boolean => {
+    const data = frame.split('\n').find(line => line.startsWith('data: '));
+    if (!data) return false;
+    try {
+      return (JSON.parse(data.slice('data: '.length)) as { aborted?: unknown })?.aborted === true;
+    } catch {
+      return false;
+    }
+  };
+
   /** The run a request names with `?run=<key>`, or null when it names none. */
   const namedRunKey = (url: string | undefined): string | null => {
     if (!url || !url.includes('?')) return null;
@@ -1791,10 +1826,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // A local server answers its own pages and other local ports alone: a
     // request a browser sends from a page on another site carries that
     // site's Origin, and is refused before any route reads or spends.
-    if (serverMode === 'local_demo' && !localOriginAllowed(req)) {
+    if (serverMode === 'local_demo' && !localOriginAllowed(req, env.HOST ?? '')) {
       console.warn('[origin] refused a request from another site on a local server');
       res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'cross_site_refused', message: 'This local server answers requests from its own pages and from localhost only.' }));
+      res.end(JSON.stringify({ error: 'cross_site_refused', message: 'This local server answers requests from its own pages and from localhost only, sent to a loopback name, its address or the name HOST gives.' }));
       return;
     }
 
@@ -3060,6 +3095,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // run has ended once its buffer holds the `complete` frame, as
         // /results reads it.
         const runEnded = chatRun.buffer.some(msg => msg.startsWith('event: complete\n'));
+        // A run cancelled or cut by a provider error ends with a `complete`
+        // frame too, one that says `aborted`: its last turn may not have
+        // finished, so its turns are not told as the whole run.
+        const runStopped = chatRun.buffer.some(msg => msg.startsWith('event: complete\n') && completeFrameAborted(msg));
 
         // Get or create the agent (lazy init with memory seeding). The pool
         // keys it by run and leader, so two visitors talking to one
@@ -3081,6 +3120,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           leader: leaderName,
           turns,
           runEnded,
+          runStopped,
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)

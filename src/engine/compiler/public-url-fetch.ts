@@ -247,6 +247,16 @@ function decodeBasicHtmlEntities(text: string): string {
 }
 
 /**
+ * The text with its ASCII capitals lowercased and nothing else changed, so
+ * every index in it is an index in the text. `toLowerCase` can lengthen a
+ * text ('İ' becomes 'i' and a combining dot), which would move every later
+ * index; the tag names searched for are ASCII.
+ */
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]+/g, run => run.toLowerCase());
+}
+
+/**
  * The index of the first `marker` (`<head`, `</head`) at or after `from`
  * whose tag name ends there: the next character is whitespace, `>`, `/` or
  * the end of the text, so `<head` does not match `<header`. -1 when none.
@@ -268,7 +278,7 @@ function indexOfTag(lower: string, marker: string, from: number): number {
  * of the page.
  */
 function dropBlocks(html: string, tags: readonly string[]): string {
-  const lower = html.toLowerCase();
+  const lower = asciiLower(html);
   // Each marker's next position, searched again only once the scan has
   // passed it: every marker is searched from a position that only grows,
   // so each one's searches cover the page once in all.
@@ -326,7 +336,7 @@ export function htmlToText(html: string): string {
 
 /** The page's first <title>, or ''. */
 export function htmlTitle(html: string): string {
-  const lower = html.toLowerCase();
+  const lower = asciiLower(html);
   const open = lower.indexOf('<title');
   if (open === -1) return '';
   const start = lower.indexOf('>', open);

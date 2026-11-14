@@ -10,6 +10,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import type { RunArtifact } from '../../engine/schema/index.js';
 
@@ -66,7 +67,7 @@ function runOutputTag(archetype: string): string {
 }
 
 /**
- * Write a simulation result payload to `<cwd>/output/v3-<tag>-<ts>.json`
+ * Write a simulation result payload to `<cwd>/output/v3-<tag>-<ts>-<random>.json`
  * (or `$PARACOSM_OUTPUT_DIR/...`, or `args.outputDir/...` when given) and
  * log a one-screen summary to stdout.
  * Ensures the output dir exists before writing. Returns the absolute
@@ -91,13 +92,16 @@ export function writeRunOutput(
   const outDir = args.outputDir ? resolve(process.cwd(), args.outputDir) : resolveOutputDir();
   mkdirSync(outDir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
-  const path = resolve(outDir, `v3-${runOutputTag(args.actorArchetype)}-${ts}.json`);
+  // The tag is cut to 48 characters and the time is to the millisecond, so
+  // two runs can share both: a random part keeps their names apart, and
+  // the exclusive write fails rather than replace a file if they still meet.
+  const path = resolve(outDir, `v3-${runOutputTag(args.actorArchetype)}-${ts}-${randomBytes(4).toString('hex')}.json`);
   // The tag holds letters, digits and hyphens only, so the name is one
   // file directly in outDir; refuse anything else rather than write it.
   if (dirname(path) !== outDir) {
     throw new Error(`Refusing to write a run file outside ${outDir}`);
   }
-  writeFileSync(path, JSON.stringify(output, null, 2));
+  writeFileSync(path, JSON.stringify(output, null, 2), { flag: 'wx' });
 
   const citations = output.citations?.length ?? 0;
   const tools = output.forgedTools?.length ?? 0;

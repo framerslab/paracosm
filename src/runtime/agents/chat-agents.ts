@@ -118,6 +118,14 @@ export interface ChatAgentOptions {
    * from all of it, and the one made while it ran is not used again.
    */
   runEnded?: boolean;
+  /**
+   * Whether the run that ended was stopped before its end (cancelled, or a
+   * provider failed): its stream still ends with a `complete` frame, one
+   * that says `aborted`. Its last turn may not have finished, so the
+   * character is told where it was stopped, and nothing of its turns as
+   * the whole run.
+   */
+  runStopped?: boolean;
 }
 
 /** Pool entry for a live chat agent. */
@@ -163,7 +171,7 @@ export function chatAgentPoolKey(colonist: ColonistProfile, opts: ChatAgentOptio
     credentialFingerprint(apiKeyForProvider(provider, opts)),
     opts.runKey ?? '',
     opts.leader ?? '',
-    opts.runEnded ? 'ended' : 'running',
+    opts.runEnded ? (opts.runStopped ? 'stopped' : 'ended') : 'running',
   ].join(':');
 }
 
@@ -336,6 +344,7 @@ export function buildChatAgentInstructions(colonist: ColonistProfile, opts: Chat
     leader: opts.leader,
     turns: opts.turns,
     ended: opts.runEnded,
+    stopped: opts.runStopped,
   });
 }
 
@@ -358,7 +367,8 @@ export function buildChatAgentInstructions(colonist: ColonistProfile, opts: Chat
  * @param labels The scenario's labels: the leader's word and the time unit.
  * @param run What the run says about this life: the leader the character
  *        lived under, the turns the run played with their times, and
- *        whether the run had ended. The leader is no person of the
+ *        whether the run had ended, and whether it was stopped before
+ *        its end. The leader is no person of the
  *        roster, and the memories name no leader ("The commander
  *        decided") and no turn count, so without these the character has
  *        no way to know either. The turns are stated as the whole run
@@ -370,7 +380,7 @@ export function buildInstructions(
   popNoun: string,
   roster: ColonistRosterEntry[],
   labels?: Partial<ScenarioLabels>,
-  run?: { leader?: string; turns?: ChatRunTurn[]; ended?: boolean },
+  run?: { leader?: string; turns?: ChatRunTurn[]; ended?: boolean; stopped?: boolean },
 ): string {
   const words = scenarioWords(labels);
   const leader = run?.leader?.trim() || undefined;
@@ -400,7 +410,12 @@ export function buildInstructions(
   // can say where it ended.
   if (leader) lines.push(`Your ${words.actor} for the whole run was ${leader}.`);
   if (turns.length > 0 && !run?.ended) lines.push('The run is still going.');
-  if (turns.length > 0 && run?.ended) {
+  if (turns.length > 0 && run?.ended && run.stopped) {
+    // A stopped run's last turn may not have finished, and the run did not
+    // reach its end: the character is told where it was stopped alone.
+    const last = turns[turns.length - 1];
+    lines.push(`The run was stopped early, at Turn ${last.turn}, ${words.TimeUnit} ${last.time}.`);
+  } else if (turns.length > 0 && run?.ended) {
     const last = turns[turns.length - 1];
     const ended = `It ended at Turn ${last.turn}, ${words.TimeUnit} ${last.time}.`;
     if (turns.every((t, i) => t.turn === i + 1)) {

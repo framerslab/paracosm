@@ -87,7 +87,9 @@ const post = (base: string, path: string, payload: unknown, headers: Record<stri
 const brief = (n: number) => `${'A coastal town weighs a seawall against managed retreat as storms worsen, with fishing, tourism and insurance at stake for every household. '.repeat(2)} Variant ${n}.`;
 
 test('compile-from-seed on the hosted demo counts against the daily compile limit', async () => {
-  await withServer({ maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
+  // A compile that never settles stands in for the model, so no model is called whatever keys the shell holds.
+  const compileFromSeed = (() => new Promise(() => {})) as unknown as NonNullable<CreateMarsServerOptions['compileFromSeed']>;
+  await withServer({ maxSimsPerDay: 1, compileFromSeed, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
     const statuses: number[] = [];
     for (let i = 0; i < 6; i++) {
       const res = await post(base, '/api/quickstart/compile-from-seed', { seedText: brief(i) });
@@ -101,15 +103,26 @@ test('compile-from-seed on the hosted demo counts against the daily compile limi
 });
 
 test('ground-scenario on the hosted demo has a daily limit per caller', async () => {
-  await withServer({ maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
-    const statuses: number[] = [];
-    for (let i = 0; i < 25; i++) {
-      const res = await post(base, '/api/quickstart/ground-scenario', { scenarioId: 'mars-genesis' });
-      await res.text();
-      statuses.push(res.status);
+  // The route's search reads its keys from process.env: with none there, no live search provider is called.
+  const searchKeys = ['SERPER_API_KEY', 'TAVILY_API_KEY', 'FIRECRAWL_API_KEY'] as const;
+  const saved = searchKeys.map(key => [key, process.env[key]] as const);
+  for (const key of searchKeys) delete process.env[key];
+  try {
+    await withServer({ maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
+      const statuses: number[] = [];
+      for (let i = 0; i < 25; i++) {
+        const res = await post(base, '/api/quickstart/ground-scenario', { scenarioId: 'mars-genesis' });
+        await res.text();
+        statuses.push(res.status);
+      }
+      assert.ok(statuses.includes(429), `expected a 429 among ${statuses.join(', ')}`);
+    });
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
-    assert.ok(statuses.includes(429), `expected a 429 among ${statuses.join(', ')}`);
-  });
+  }
 });
 
 const twinBody = (extra: Record<string, unknown> = {}) => ({

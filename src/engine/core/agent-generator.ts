@@ -204,8 +204,9 @@ export function generateInitialPopulation(
 
   // The name lists give a fixed number of first-and-last pairs. While one
   // is free a person draws until they get a free one; once every pair is
-  // taken, a drawn pair takes the first number that makes it free
-  // ("Aria Chen 2"), so the draw always ends.
+  // taken, a drawn pair takes the first number that makes it free, put
+  // before the surname ("Aria 2 Chen"), so the draw always ends and the
+  // surname a child takes, the name's last word, stays a surname.
   const pairs = new Set(FIRST_NAMES.flatMap(first => LAST_NAMES.map(last => `${first} ${last}`)));
   let freePairs = pairs.size;
   for (const name of usedNames) if (pairs.has(name)) freePairs -= 1;
@@ -219,10 +220,11 @@ export function generateInitialPopulation(
       } while (usedNames.has(name));
       freePairs -= 1;
     } else {
-      const drawn = `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
+      const first = rng.pick(FIRST_NAMES);
+      const last = rng.pick(LAST_NAMES);
       let n = 2;
-      while (usedNames.has(`${drawn} ${n}`)) n += 1;
-      name = `${drawn} ${n}`;
+      while (usedNames.has(`${first} ${n} ${last}`)) n += 1;
+      name = `${first} ${n} ${last}`;
     }
     usedNames.add(name);
 

@@ -43,7 +43,7 @@ const RUN_HELP = `paracosm run [options]
 
 Run a simulation against actors.json (or --actors <path>) and print
 turn-by-turn narrative to stdout. Saves the full RunArtifact JSON to
-./output/v3-<archetype>-<timestamp>.json (override with PARACOSM_OUTPUT_DIR).
+./output/v3-<archetype>-<timestamp>-<random>.json (override with PARACOSM_OUTPUT_DIR).
 
 Options:
   --actor <n>             Actor index in actors.json (default: 0)
