@@ -12,6 +12,8 @@
  * answers with Access-Control-Allow-Origin: * as a public file host does.
  * The page talks to the real server for everything else.
  */
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
 
 const OTHER_HOST = 'runs.example.test';
@@ -118,15 +120,34 @@ test.describe('a load link to another site', () => {
 });
 
 /**
- * The test server under its other name (localhost against 127.0.0.1, or the
- * reverse): another origin that answers for real. Playwright routes only
- * the first URL of a redirect, so the redirect's target must be a real
- * server. Its /health answers JSON with Access-Control-Allow-Origin: *.
+ * Another site that answers for real: a server of the test's own on its own
+ * port, so another origin than the page's. Playwright routes only the first
+ * URL of a redirect, so the redirect's target must be a real server. It
+ * answers every request with a JSON body and Access-Control-Allow-Origin: *,
+ * whatever Origin the request carries, as a public file host does: after a
+ * redirect from another site the browser sends `Origin: null`, which the
+ * dashboard's own server refuses when it runs locally, so that server
+ * cannot stand in for the other site. The fetch then succeeds, and only the
+ * page's check of the final address keeps the file from being read.
  */
-function otherOrigin(baseURL: string | undefined): URL {
-  const other = new URL(baseURL ?? 'http://127.0.0.1:3456');
-  other.hostname = other.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
-  return other;
+let otherSite: Server;
+let otherSiteUrl: URL;
+
+test.beforeAll(async () => {
+  otherSite = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(hostileRun));
+  });
+  await new Promise<void>(resolve => otherSite.listen(0, '127.0.0.1', resolve));
+  otherSiteUrl = new URL(`http://127.0.0.1:${(otherSite.address() as AddressInfo).port}`);
+});
+
+test.afterAll(async () => {
+  await new Promise<void>(resolve => otherSite.close(() => resolve()));
+});
+
+function otherOrigin(): URL {
+  return otherSiteUrl;
 }
 
 /** Answers `pattern` with a redirect to `target`. */
@@ -142,8 +163,8 @@ const parsedToast = (page: Page) => page.getByText('No valid game data found in 
 
 test.describe('a load link whose file is sent on to another site', () => {
   test("a link to the page's own site that redirects elsewhere is not read", async ({ page, baseURL }) => {
-    const other = otherOrigin(baseURL);
-    await redirectTo(page, '**/own-runs/moved.json', `${other.origin}/health`);
+    const other = otherOrigin();
+    await redirectTo(page, '**/own-runs/moved.json', `${other.origin}/run.json`);
     await page.goto(linkTo(`${baseURL}/own-runs/moved.json`));
 
     // Without the check the page parses whatever the other origin sent.
@@ -152,9 +173,9 @@ test.describe('a load link whose file is sent on to another site', () => {
     await expect(page.getByRole('dialog', { name: 'Load simulation' })).toHaveCount(0);
   });
 
-  test('a site the visitor agreed to that redirects elsewhere is not read', async ({ page, baseURL }) => {
-    const other = otherOrigin(baseURL);
-    await redirectTo(page, `https://${OTHER_HOST}/moved.json`, `${other.origin}/health`);
+  test('a site the visitor agreed to that redirects elsewhere is not read', async ({ page }) => {
+    const other = otherOrigin();
+    await redirectTo(page, `https://${OTHER_HOST}/moved.json`, `${other.origin}/run.json`);
     await page.goto(linkTo(`https://${OTHER_HOST}/moved.json`));
     const dialog = askDialog(page);
     await expect(dialog).toContainText(OTHER_HOST);
