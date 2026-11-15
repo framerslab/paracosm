@@ -3,7 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
-import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from './admin-token';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -433,46 +433,59 @@ function AppContent() {
     },
   });
 
-  const handleClear = useCallback(async () => {
-    // End-user wipe path: clears every browser-side cache the dashboard
-    // owns (localStorage event cache, SSE in-memory state, the
-    // user-triggered-run gate). The server-side /admin/data/wipe call is
-    // ONLY attempted when the operator has previously stored an admin
-    // token in this browser — because /admin/data/wipe requires
-    // X-Admin-Token, prompting an end user for a value they cannot
-    // possibly have was both confusing and a security smell (it surfaced
-    // the exact env-var name + .env path inside a window.prompt).
-    //
-    // Token-bearing operators still get the full server wipe with no
-    // prompt: enter the token once in Settings (the Admin Token field,
-    // kept under the localStorage key `paracosm:adminToken`), and every
-    // subsequent Wipe All click does both the local + server pass automatically.
-    //
-    // The token is read before the question, so the question says what
-    // this click does: with a token saved, the server wipe below runs too.
-    const adminToken = readAdminToken();
+  const handleClear = useCallback(() => {
+    // Clears every browser-side cache the dashboard owns (localStorage
+    // event cache, SSE in-memory state, the user-triggered-run gate) and
+    // nothing on the server, with an admin token saved or not. The
+    // server's stored data is Delete server data's, a separate item in the
+    // same menu (handleWipeServer below).
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      (adminToken
-        ? 'An admin token is saved in this browser, so this also asks the server to delete its stored runs, saved sessions and run output files, for every visitor.\n\n'
-        : 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n') +
+      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
+    toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+    setActiveTab('settings');
+  }, [persistence, sse, toast, leaveDigitalTwin]);
 
-    if (!adminToken) {
-      // No admin context. Tell the user what we did + did NOT do, and
-      // route them to Settings where the rest of the cleanup options
-      // live (per-scenario reset, key-only wipe, etc.).
-      toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+  // Delete server data shows only where the server takes admin writes and
+  // this browser holds an admin token. The token is watched (Settings saves
+  // and clears it, a refused call clears it); /admin-config is asked once a
+  // token is there, so a browser without one sends no extra request.
+  const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
+  useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
+  const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!adminTokenSaved || serverAdminWrite !== null) return;
+    let live = true;
+    fetch('/admin-config')
+      .then(res => (res.ok ? res.json() : null))
+      .then((config: { adminWrite?: unknown } | null) => { if (live && config) setServerAdminWrite(config.adminWrite === true); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [adminTokenSaved, serverAdminWrite]);
+
+  const handleWipeServer = useCallback(async () => {
+    // The server wipe, POST /admin/data/wipe with the admin token: the
+    // server's stored runs, saved sessions and run output files, for every
+    // visitor. This browser's data is Clear local data's and is kept.
+    const adminToken = readAdminToken();
+    if (!adminToken) return;
+    if (!confirm(
+      'Delete server data? This asks the server to delete its stored runs, saved sessions and run output files, for every visitor of this server, not only this browser.\n\n' +
+      'The data in this browser is kept; Clear local data clears it.\n\n' +
+      'Cannot be undone.',
+    )) return;
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      toast('info', 'Server data kept', unsendable);
       setActiveTab('settings');
       return;
     }
-
-    // Operator path: token already stored, attempt the full server wipe.
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
@@ -483,31 +496,28 @@ function AppContent() {
         const body = await res.json() as { wiped: { runs: number; sessions: number; outputFiles: number } };
         toast(
           'info',
-          'Wiped',
-          `Local + ${body.wiped.runs} runs + ${body.wiped.sessions} sessions + ${body.wiped.outputFiles} files cleared.`,
+          'Server data deleted',
+          `${body.wiped.runs} runs, ${body.wiped.sessions} sessions and ${body.wiped.outputFiles} files deleted on the server.`,
         );
       } else if (res.status === 401) {
-        // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so the next entry isn't fighting a stale one, then
-        // surface the failure as info (local already cleared) with
-        // where the token is entered. A token entered since the request
-        // went out is not the refused one, and stays.
+        // The token no longer matches the server's ADMIN_TOKEN: drop it and
+        // say where it is entered. A token entered since the request went
+        // out is not the refused one, and stays.
         clearAdminToken(adminToken);
-        toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
+        toast('info', 'Server data kept', `Server data not deleted: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
       } else if (res.status === 403) {
-        // Server has admin-write disabled. Local clear stands.
-        toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
+        toast('info', 'Server data kept', 'Admin writes are off on this server.');
       } else if (res.status === 503) {
-        toast('info', 'Local data cleared', 'Server-side wipe configured but no ADMIN_TOKEN set on the server.');
+        toast('info', 'Server data kept', 'Admin writes are on but no ADMIN_TOKEN is set on the server.');
       } else {
         const err = await res.json().catch(() => ({} as { error?: string }));
-        toast('info', 'Local data cleared', `Server-side wipe failed: ${err.error ?? `HTTP ${res.status}`}`);
+        toast('info', 'Server data kept', `Server data not deleted: ${err.error ?? `HTTP ${res.status}`}`);
       }
     } catch (err) {
-      toast('info', 'Local data cleared', `Server-side wipe failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast('info', 'Server data kept', `Server data not deleted: ${err instanceof Error ? err.message : String(err)}`);
     }
     setActiveTab('settings');
-  }, [persistence, sse, toast, leaveDigitalTwin]);
+  }, [toast]);
 
   // Local dismiss flag for the provider-error banner. Lives outside useSSE
   // so dismissing hides the current banner without clearing the underlying
@@ -984,6 +994,7 @@ function AppContent() {
             onSave={handleSave}
             onLoad={handleLoad}
             onClear={handleClear}
+            onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
             onRun={handleRun}
             onTour={handleTourStart}
             onCopy={handleCopySummary}
@@ -996,7 +1007,7 @@ function AppContent() {
               // ring, the localStorage event-cache, the in-memory SSE
               // state (which feeds Sim/Constellation/EventLog), and
               // the userTriggeredRun toast gate. Doesn't touch server
-              // data; that's what Wipe All is for.
+              // data; that is Delete server data's, in the run actions menu.
               history.clear();
               persistence.clearCache();
               leaveDigitalTwin();

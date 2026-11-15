@@ -328,7 +328,7 @@ export function RunMenu({
                     <button
                       type="button"
                       className={historyStyles.historyClearAll}
-                      title="Wipe everything in this browser: saved-runs ring, event cache, current sim state. Server data untouched — use Wipe All in the ⋯ menu for that."
+                      title="Wipe everything in this browser: saved-runs ring, event cache, current sim state. Server data untouched: Delete server data in the ⋯ menu deletes that, where admin writes are on and an admin token is saved."
                       onClick={() => {
                         if (
                           window.confirm(
@@ -336,7 +336,7 @@ export function RunMenu({
                             '  • Saved-runs ring (this dropdown)\n' +
                             '  • Event cache (Sim / Constellation / Log)\n' +
                             '  • Current SSE state\n\n' +
-                            'Server-stored runs are NOT affected (use Wipe All in the ⋯ menu for that).\n\nCannot be undone.',
+                            'Server-stored runs are NOT affected (Delete server data in the ⋯ menu deletes those, where it shows).\n\nCannot be undone.',
                           )
                         ) {
                           onClearHistory();

@@ -1,13 +1,18 @@
 /**
  * The operator's admin token in this browser.
  *
- * A server started with ADMIN_WRITE=true takes its admin writes (Save to
- * Disk, the server wipe, the scenario delete) only with its ADMIN_TOKEN in
- * the X-Admin-Token header. The operator enters that token in Settings
- * (AdminTokenField); it is kept under one localStorage key and read here by
- * the calls that send it. It goes out as that header on those calls and
- * nowhere else: never in a URL, never in a log line, never on another
- * request.
+ * A server started with ADMIN_WRITE=true takes its admin writes only with
+ * its ADMIN_TOKEN in the X-Admin-Token header. The dashboard sends it on
+ * four calls: Save to Disk in the scenario editor, Delete server data in the
+ * run actions menu, and Rename and Delete in a scenario's details. The
+ * operator enters that token in Settings (AdminTokenField); it is kept under
+ * one localStorage key and read here by the calls that send it. It goes out
+ * as that header on those calls and nowhere else: never in a URL, never in
+ * a log line, never on another request.
+ *
+ * A request header carries characters up to U+00FF only, and fetch throws
+ * on any other. Save refuses such a token, and a call finds one stored
+ * earlier, drops it and says why, before any request goes out.
  *
  * Every storage access is guarded. Where the browser cannot store the
  * token (storage blocked, or no room left), it is held in memory for this
@@ -22,6 +27,24 @@ export const ADMIN_TOKEN_HEADER = 'X-Admin-Token';
 
 /** Where a person enters the token. Shown after the server refuses a call. */
 export const ADMIN_TOKEN_WHERE = 'Enter it in Settings, under Admin Token, and press Save.';
+
+/**
+ * Why a token was refused before any request went out, and which
+ * characters a token may hold. Shown at Save, and by a call that found such
+ * a token stored.
+ */
+export const ADMIN_TOKEN_UNSENDABLE =
+  'This token holds a character a request header cannot carry, so it is not kept. '
+  + 'A token may hold only printable ASCII and Latin-1 characters: U+0020 to U+007E and U+00A0 to U+00FF.';
+
+/**
+ * Whether `token` can go out as a request header: printable ASCII
+ * (U+0020 to U+007E) and printable Latin-1 (U+00A0 to U+00FF) only. Control
+ * characters and anything above U+00FF are refused.
+ */
+export function isSendableAdminToken(token: string): boolean {
+  return /^[\x20-\x7E\xA0-\xFF]*$/.test(token);
+}
 
 /** `stored`: in this browser's storage. `held`: the browser could not store it, in memory until a reload. */
 export type AdminTokenState = 'none' | 'stored' | 'held';
@@ -62,14 +85,17 @@ export function adminTokenState(): AdminTokenState {
 /**
  * Keeps `value`, trimmed, for the admin calls. Returns `stored` when the
  * browser stored it and `held` when the browser could not and it lasts
- * until the page reloads. An empty value clears the token.
+ * until the page reloads. An empty value clears the token. A value
+ * {@link isSendableAdminToken} refuses is not kept, and returns
+ * `unsendable`; whatever token was kept before stays.
  */
-export function saveAdminToken(value: string): AdminTokenState {
+export function saveAdminToken(value: string): AdminTokenState | 'unsendable' {
   const token = value.trim();
   if (!token) {
     clearAdminToken();
     return 'none';
   }
+  if (!isSendableAdminToken(token)) return 'unsendable';
   let stored = false;
   try {
     window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
@@ -108,10 +134,16 @@ export function clearAdminToken(refused?: string): void {
   announce();
 }
 
-/** The credential header for an admin call; no header when no token was entered. */
-export function adminTokenHeader(): Record<string, string> {
-  const token = readAdminToken();
-  return token ? { [ADMIN_TOKEN_HEADER]: token } : {};
+/**
+ * For a call about to send `token`: when the token cannot go out as a
+ * header, drops it (while it is still the one kept) and returns the message
+ * to show, which ends by saying where to enter a token. Returns null when
+ * the token can be sent.
+ */
+export function dropUnsendableAdminToken(token: string): string | null {
+  if (isSendableAdminToken(token)) return null;
+  clearAdminToken(token);
+  return `${ADMIN_TOKEN_UNSENDABLE} ${ADMIN_TOKEN_WHERE}`;
 }
 
 /**

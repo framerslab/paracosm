@@ -4,7 +4,7 @@ import { buildScenarioCompileRequest } from './scenarioCompileRequest';
 import { compileRefusal } from './compileRefusal';
 import { SETTINGS_LABEL_STYLE } from './shared/settingsStyles';
 import styles from './ScenarioEditor.module.scss';
-import { ADMIN_TOKEN_WHERE, adminTokenHeader, clearAdminToken, readAdminToken } from '../../admin-token';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, dropUnsendableAdminToken, readAdminToken } from '../../admin-token';
 
 interface AdminConfig {
   adminWrite: boolean;
@@ -179,11 +179,17 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     if (!jsonText.trim() || parseError || !adminConfig.adminWrite) return;
     try {
       const scenario = JSON.parse(jsonText);
-      // The disk write takes the operator's admin token, the one the server
-      // wipe and the scenario delete send, entered in Settings (admin-token.ts).
+      // The disk write takes the operator's admin token, entered in Settings
+      // (admin-token.ts). A stored token a header cannot carry is dropped
+      // here, before fetch would throw on it.
       const sent = readAdminToken();
+      const unsendable = dropUnsendableAdminToken(sent);
+      if (unsendable) {
+        setResult({ success: false, message: unsendable });
+        return;
+      }
       const res = await fetch('/scenario/store', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...adminTokenHeader() },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(sent ? { [ADMIN_TOKEN_HEADER]: sent } : {}) },
         body: JSON.stringify({ scenario, saveToDisk: true }),
       });
       const data = await res.json();

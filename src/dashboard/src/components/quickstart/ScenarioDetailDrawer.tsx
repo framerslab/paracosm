@@ -16,7 +16,10 @@ import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { CatalogScenario } from './ScenarioCatalogGrid';
 import styles from './ScenarioDetailDrawer.module.scss';
-import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from '../../admin-token';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, dropUnsendableAdminToken, readAdminToken } from '../../admin-token';
+
+/** A Rename or a Delete the server refused for its token. */
+const ADMIN_TOKEN_REFUSED = `Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`;
 
 void React;
 
@@ -329,14 +332,28 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
       setIsEditingName(false);
       return;
     }
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      setRenameError(unsendable);
+      setAdminToken(null);
+      return;
+    }
     setRenaming(true);
     setRenameError(null);
     try {
       const res = await fetch(`/scenarios/${encodeURIComponent(scenario.id)}/rename`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ name: trimmed }),
       });
+      if (res.status === 401) {
+        // As the delete below: drop the token the server refused (a token
+        // entered since this request went out stays) and say where it goes.
+        clearAdminToken(adminToken);
+        setRenameError(ADMIN_TOKEN_REFUSED);
+        setAdminToken(null);
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { error?: string; message?: string }));
         setRenameError(body.message ?? body.error ?? `Rename failed: HTTP ${res.status}`);
@@ -365,6 +382,12 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
         )
       : false;
     if (!confirmed) return;
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      setDeleteError(unsendable);
+      setAdminToken(null);
+      return;
+    }
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -374,7 +397,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
       });
       if (res.status === 401) {
         clearAdminToken(adminToken);
-        setDeleteError(`Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`);
+        setDeleteError(ADMIN_TOKEN_REFUSED);
         setAdminToken(null);
         return;
       }

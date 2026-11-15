@@ -23,6 +23,13 @@ interface TopBarProps {
   onSave?: () => void;
   onLoad?: () => void;
   onClear?: () => void;
+  /**
+   * Asks the server to delete its stored runs, saved sessions and run
+   * output files, for every visitor. Passed only where the server takes
+   * admin writes and this browser holds an admin token; the menu shows
+   * Delete server data only then.
+   */
+  onWipeServer?: () => void;
   onRun?: () => void;
   onTour?: () => void;
   onCopy?: () => void;
@@ -66,7 +73,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -425,8 +432,8 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
             GITHUB / TOUR / status / theme. Visible only when a run
             has emitted events (same gating the 3 separate buttons
             had before). */}
-        {/* Clear always opens the menu so the user can wipe server-
-            stored runs + sessions + output files even with an empty
+        {/* Clear always opens the menu, so Clear local data and, where
+            it shows, Delete server data are there even with an empty
             local buffer. Save/Copy still require an active run; their
             individual buttons inside the menu are gated separately. */}
         {((hasEvents && (onSave || onCopy || onShareViz)) || onClear) && (
@@ -488,9 +495,20 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
                     type="button"
                     onClick={() => { setOverflowOpen(false); onClear(); }}
                     className={styles.overflowItemDanger}
-                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept, unless an admin token is saved in Settings."
+                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept."
                   >
                     Clear local data
+                  </button>
+                )}
+                {onWipeServer && (
+                  <button
+                    role="menuitem"
+                    type="button"
+                    onClick={() => { setOverflowOpen(false); onWipeServer(); }}
+                    className={styles.overflowItemDanger}
+                    title="Delete the server's stored runs, saved sessions and run output files, for every visitor. This browser's data is kept."
+                  >
+                    Delete server data
                   </button>
                 )}
               </div>
