@@ -109,13 +109,14 @@ function replyTo(prompt: string, log: StubModelLog): string {
  * stub answered. `onEvent` is handed each event the run emits, as a server
  * that streams the run is.
  */
-export async function runMarsWithStubModel(options: { onEvent?: (event: unknown) => void } = {}): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
+export async function runMarsWithStubModel(options: { onEvent?: (event: unknown) => void; outputDir?: string; writeOutputFile?: boolean } = {}): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
   const log: StubModelLog = { urls: [], decisions: [], reactions: 0 };
   // The reply reads the last user message alone: every prompt of the turn loop sits there.
   const artifact = await withStubOpenAi(request => replyTo(request.lastUser, log), async (seen) => {
     try {
       const leader = marsScenario.presets[0].leaders[0];
       return await runSimulation({ ...leader, unit: 'Colony Alpha' } as never, [], {
+        ...options,
         scenario: marsScenario,
         maxTurns: 2,
         seed: 950,

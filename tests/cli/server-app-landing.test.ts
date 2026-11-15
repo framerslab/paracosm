@@ -366,3 +366,17 @@ test("the dashboard page's one static h1 sits inside #root, which React clears w
   assert.equal(h1s.length, 1, 'the page must carry one static h1');
   assert.ok(h1s[0] > page.indexOf('<div id="root">'), 'the static h1 must sit inside #root');
 });
+
+
+test('the privacy section names the address record and when it ends', () => {
+  const privacy = section('privacy');
+  assert.match(privacy, /server keeps your IP address with a count of (?:those|these) requests/);
+  assert.match(privacy, /runs, compiles and chat messages/);
+  assert.match(privacy, /site.s own model keys/);
+  assert.match(privacy, /next UTC midnight/);
+  assert.match(privacy, /next UTC hour for chat/);
+  assert.match(privacy, /deletes? (?:the|that) record/);
+  assert.match(privacy, /hourly cleanup/);
+  assert.match(privacy, /500 milliseconds/);
+  assert.match(privacy, /only to apply (?:these|the) limits/);
+});

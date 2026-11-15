@@ -627,3 +627,30 @@ test('a batch stopped after some actors finished ends as aborted, and no verdict
     if (saved.anthropic !== undefined) process.env.ANTHROPIC_API_KEY = saved.anthropic;
   }
 });
+
+
+test('a broadcast result artifact omits outputPath while the recording callback keeps it', async () => {
+  const { runBatchSimulations } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const config = normalizeSimulationConfig({
+    actors: marsScenario.presets[0].leaders, turns: 1, captureSnapshots: true,
+    economics: { batchConcurrency: 1 },
+  } as any, marsScenario);
+  const artifact = {
+    finalState: { metrics: {} }, citations: [], fingerprint: null,
+    scenarioExtensions: { outputPath: '/tmp/batch-output.json', kernelSnapshotsPerTurn: [{ turn: 1 }] },
+  } as any;
+  const controller = new AbortController();
+  const recorded: unknown[] = [];
+  const { events, broadcast } = captureBroadcast();
+  await runBatchSimulations(config, broadcast, controller.signal, marsScenario, value => {
+    recorded.push(value);
+    controller.abort();
+  }, (async () => artifact) as any);
+  assert.deepEqual(recorded, [artifact]);
+  assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/batch-output.json');
+  const results = events.filter(e => e.event === 'result');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].data.artifact.scenarioExtensions.outputPath, undefined);
+  assert.deepEqual(results[0].data.artifact.scenarioExtensions.kernelSnapshotsPerTurn, [{ turn: 1 }]);
+});
