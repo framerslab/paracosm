@@ -14,6 +14,26 @@ import { isParseableArrowSource } from './source-validation.js';
 
 type ProgressionFn = (ctx: ProgressionHookContext) => void;
 
+/**
+ * The system block. It names nothing on `ctx` that the hook cannot use.
+ *
+ * The runner hands the hook its `ctx` as JSON text
+ * (`runProgressionSync`), so no function arrives: the kernel's `rng` is
+ * there as data only, and a hook that calls `ctx.rng.chance(p)` throws.
+ * The prompt asks for a deterministic hook and gives no generator, for
+ * two reasons read from the kernel (../core/progression.ts):
+ *
+ * - Every roll about one person draws from a stream of its own, keyed by
+ *   the seed, the turn, the step, the person and what is rolled for
+ *   (`SeededRng.forDraw`), so one person's dice never move another's. One
+ *   stream shared by a hook's loop over the roster would break that.
+ * - The turn's own generator names the children born in the turn and
+ *   draws their traits. A hook that drew from it, or from a copy of it,
+ *   would change those draws or repeat them.
+ *
+ * So runs draw their random numbers exactly as before, and a hook writes
+ * a chance as its expected value.
+ */
 function buildSystemBlock(scenarioJson: Record<string, any>): string {
   const labels = scenarioJson.labels ?? {};
   const env = scenarioJson.world?.environment ?? {};
@@ -32,7 +52,7 @@ ctx shape:
 - ctx.timeDelta: number (this step's length, in the scenario's time unit; a turn runs the hook once for each whole year it spans and once for a part of a year left over)
 - ctx.yearsDelta: number (the same step in years; may be absent, then use ctx.timeDelta)
 - ctx.time, ctx.turn, ctx.startTime: number (in the scenario's time unit)
-- ctx.rng: { chance(p): bool, next(): number, pick<T>(arr): T, int(min, max): number }
+ctx is data: it carries no function, and no random number generator.
 
 Rules:
 1. Only modify health on ALIVE agents (check c.health.alive)
@@ -40,7 +60,7 @@ Rules:
 3. Multiply every yearly effect by (ctx.yearsDelta ?? ctx.timeDelta), and scale any probability by it too: an effect left unscaled applies once for each year a long turn spans
 4. Use Math.max/Math.min to keep: boneDensityPct in [0,100], psychScore in [0,1], cumulativeRadiationMsv >= 0
 5. NO external imports, NO require
-6. Use ctx.rng.chance(p) for probabilistic effects, not Math.random`;
+6. No random numbers: the hook is deterministic. Write an effect that has a chance as its expected value (the yearly chance times the size of the effect, scaled as in rule 3). Never call Math.random: two runs on one seed would stop matching`;
 }
 
 const userPrompt = `Return ONLY the complete arrow function. No markdown fences. Example:

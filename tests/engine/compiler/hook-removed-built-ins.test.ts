@@ -199,3 +199,47 @@ test('a fresh hook that names such a built-in on a path its smoke test does not 
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that holds such a name in a string or a comment only is restored with no model call', async () => {
+  // The words are text the hook returns, and a note: the hook reaches no built-in.
+  const prompts = [
+    '(ctx) => [',
+    '  // no WeakRef and no Proxy here',
+    "  'Reflect the hull readings in every report.',",
+    '  `Promise nothing the station cannot hold: ${Object.keys(ctx.state.metrics).length} scores.`, /* nor a DataView */',
+    ']',
+  ].join('\n');
+  const { cacheDir, json } = cacheWith({ prompts });
+  try {
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({}, asked),
+    }) as ScenarioPackage;
+    assert.deepEqual(asked, [], 'every hook came from the cache');
+    const lines = scenario.hooks.departmentPromptHook?.({ state: kernelFor(scenario).getState() } as never) ?? [];
+    assert.equal(lines[0], 'Reflect the hull readings in every report.', 'the restored hook answers with its own text');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a cached hook that reads a removed member of a kept built-in is generated again at restore', async () => {
+  const { cacheDir, json } = cacheWith({
+    reactions: "(colonist, ctx) => String(Symbol.for(colonist.core.name).description) + ' keeps watch.'",
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ reactions: () => "(colonist, ctx) => colonist.core.name + ' keeps watch.'" }, asked),
+    });
+    assert.deepEqual(asked, ['reactions'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});

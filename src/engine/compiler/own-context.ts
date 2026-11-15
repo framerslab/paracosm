@@ -52,6 +52,10 @@
  * returns, and the two word checks refuse any text that holds `import` or
  * `async` as a word, in a string or a comment too.
  *
+ * Code that reaches a deleted built-in throws where it reaches it.
+ * {@link removedBuiltInNamedIn} says, before anything runs, whether a text
+ * names one; the compiler asks it before it keeps or restores a hook.
+ *
  * @module paracosm/engine/compiler/own-context
  */
 import * as vm from 'node:vm';
@@ -229,6 +233,179 @@ function reviveNumbers(_key: string, value: unknown): unknown {
   }
 }
 
+/** The options every context here is made with. */
+const CONTEXT_OPTIONS = { codeGeneration: { strings: false, wasm: false }, microtaskMode: 'afterEvaluate' } as const;
+
+/**
+ * Source that lists, as JSON text, every own name of the global object
+ * with the own names of what it holds (none for a primitive). Run before
+ * and after the prelude, it shows what the prelude took out.
+ */
+const LISTING_SOURCE = `(function (g) {
+  var O = g.Object, names = O.getOwnPropertyNames(g), out = [], i, v;
+  for (i = 0; i < names.length; i++) {
+    v = g[names[i]];
+    out.push([names[i], (typeof v === 'function' || (typeof v === 'object' && v !== null)) ? O.getOwnPropertyNames(v) : []]);
+  }
+  return g.JSON.stringify(out);
+})(this)`;
+
+/** A pattern that finds `name` where code names it: as a word of its own, not as a property after a dot. */
+function namedAsCode(name: string): RegExp {
+  const words = name.split('.').map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  // `a.Proxy` is a property of `a`; `...Proxy` spreads the global.
+  return new RegExp(`(?<![\\w$])(?<!(?<!\\.\\.)\\.)${words.join('\\s*\\??\\.\\s*')}(?![\\w$])`);
+}
+
+let removedPatterns: ReadonlyArray<readonly [RegExp, string]> | null = null;
+
+/**
+ * What the prelude takes out of a context, each with the pattern that
+ * finds it in code: every global a new context holds and a prepared one
+ * does not (`Promise`, `Float64Array`), and every member one of the kept
+ * globals loses (`Symbol.for`, `Array.fromAsync`, `console.table`).
+ *
+ * Read from a context, not written down a second time: the names are
+ * listed in a new context, the prelude runs there, and they are listed
+ * again. So the answer is the prelude's own, on the Node that runs it.
+ * No model's text is in that context, and what comes out is two strings.
+ */
+function removedBuiltIns(): ReadonlyArray<readonly [RegExp, string]> {
+  if (removedPatterns !== null) return removedPatterns;
+  const context = vm.createContext(Object.create(null), { name: 'paracosm-own-context-listing', ...CONTEXT_OPTIONS });
+  const run = (source: string): unknown => vm.runInContext(source, context, { timeout: 1000, displayErrors: false });
+  const list = (): Map<string, Set<string>> => {
+    const pairs = JSON.parse(String(run(LISTING_SOURCE))) as Array<[string, string[]]>;
+    return new Map(pairs.map(([name, members]): [string, Set<string>] => [name, new Set(members)]));
+  };
+  const before = list();
+  run(`${preludeSource('json', false)};`);
+  const after = list();
+  const removed: string[] = [];
+  for (const [name, members] of before) {
+    const kept = after.get(name);
+    if (kept === undefined) {
+      removed.push(name);
+      continue;
+    }
+    for (const member of members) {
+      if (!kept.has(member)) removed.push(`${name}.${member}`);
+    }
+  }
+  const patterns = removed.map((name): readonly [RegExp, string] => [namedAsCode(name), name]);
+  removedPatterns = patterns;
+  return patterns;
+}
+
+/** True where a `/` after `before` starts a regular expression and not a division. */
+function startsRegex(before: string): boolean {
+  const text = before.trimEnd();
+  if (text === '') return true;
+  if (/[(,=:[!&|?{};+\-*%<>~^]$/.test(text)) return true;
+  return /(?:^|[^\w$.])(?:return|typeof|case|in|of|delete|void|throw|new|else|do|instanceof)$/.test(text.slice(-12));
+}
+
+/**
+ * `code` with the text of its comments, string literals, template
+ * literals and regular expression literals replaced by spaces, so a check
+ * for a name reads code only. The code inside a template's `${ }` stays.
+ * A scanner and not a parser: it tells a regular expression from a
+ * division by what stands before the slash.
+ */
+function codeOnly(code: string): string {
+  let out = '';
+  let i = 0;
+  // One entry for each open template literal: the braces open inside its current `${ }`.
+  const templates: number[] = [];
+  const blank = (to: number): void => {
+    const end = Math.min(code.length, to);
+    out += code.slice(i, end).replace(/[^\n]/g, ' ');
+    i = end;
+  };
+  /** Blank a template's text from `i` to its closing backtick, or to the `${` that opens code. */
+  const templateText = (): void => {
+    let j = i;
+    while (j < code.length) {
+      if (code[j] === '\\') { j += 2; continue; }
+      if (code[j] === '`') { templates.pop(); j += 1; break; }
+      if (code[j] === '$' && code[j + 1] === '{') { templates[templates.length - 1] = 0; j += 2; break; }
+      j += 1;
+    }
+    blank(j);
+  };
+  while (i < code.length) {
+    const ch = code[i];
+    const next = code[i + 1];
+    if (ch === '/' && next === '/') {
+      const end = code.indexOf('\n', i);
+      blank(end === -1 ? code.length : end);
+    } else if (ch === '/' && next === '*') {
+      const end = code.indexOf('*/', i + 2);
+      blank(end === -1 ? code.length : end + 2);
+    } else if (ch === '\'' || ch === '"') {
+      let j = i + 1;
+      while (j < code.length && code[j] !== ch && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
+      blank(j + 1);
+    } else if (ch === '`') {
+      templates.push(0);
+      out += ' ';
+      i += 1;
+      templateText();
+    } else if (ch === '/' && startsRegex(out)) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < code.length && code[j] !== '\n' && (inClass || code[j] !== '/')) {
+        if (code[j] === '\\') { j += 2; continue; }
+        if (code[j] === '[') inClass = true;
+        else if (code[j] === ']') inClass = false;
+        j += 1;
+      }
+      j += 1;
+      while (j < code.length && /[a-z]/i.test(code[j])) j += 1;
+      blank(j);
+    } else if (templates.length > 0 && ch === '{') {
+      templates[templates.length - 1] += 1;
+      out += ch;
+      i += 1;
+    } else if (templates.length > 0 && ch === '}') {
+      if (templates[templates.length - 1] === 0) {
+        out += ' ';
+        i += 1;
+        templateText();
+      } else {
+        templates[templates.length - 1] -= 1;
+        out += ch;
+        i += 1;
+      }
+    } else {
+      out += ch;
+      i += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * The first built-in `code` names that the context does not hold, such as
+ * `Float64Array` or `Symbol.for`, or null.
+ *
+ * Code that reaches one throws at that point, at whatever call first
+ * takes that path, so a text that names one is not kept. A name in a
+ * string, a template's text, a regular expression or a comment is not
+ * read. What is read is the name, not whether a call reaches it: a text
+ * that names one as a variable of its own, as an object key, or on a path
+ * no call takes is answered the same way.
+ */
+export function removedBuiltInNamedIn(code: string): string | null {
+  // A model's answer may come wrapped in a Markdown code fence, and the
+  // hook cache keeps it that way; the fence is not part of the code.
+  const text = codeOnly(code.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, ''));
+  for (const [pattern, name] of removedBuiltIns()) {
+    if (pattern.test(text)) return name;
+  }
+  return null;
+}
+
 /** The message of a value `vm.runInContext` threw, read without running any code the context made. */
 function endingOfThrown(thrown: unknown): OwnContextEnding {
   if (thrown === null || (typeof thrown !== 'object' && typeof thrown !== 'function')) {
@@ -282,11 +459,7 @@ export function evaluateInOwnContext(request: OwnContextRequest): OwnContextEndi
   const refused = refusedWordIn(request.modelText);
   if (refused !== null) return { ended: 'refused', message: refused };
 
-  const context = vm.createContext(Object.create(null), {
-    name: request.name,
-    codeGeneration: { strings: false, wasm: false },
-    microtaskMode: 'afterEvaluate',
-  });
+  const context = vm.createContext(Object.create(null), { name: request.name, ...CONTEXT_OPTIONS });
 
   const source = `const { p: __parse, e: __encode, d: __describe } = ${preludeSource(request.result, request.result === 'typed' && request.exactNumbers === true)};
 const __input = __parse(${JSON.stringify(request.inputJson)});
