@@ -243,3 +243,76 @@ test('a cached hook that reads a removed member of a kept built-in is generated 
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that holds such a name in a pattern it tests after an if is restored with no model call', async () => {
+  // The name is the text of a pattern the hook tests the department's
+  // name against. After the parenthesis of an `if`, a slash opens a
+  // pattern and is not a division: the hook reaches no built-in.
+  const prompts = [
+    '(ctx) => {',
+    '  const lines = [];',
+    "  if (ctx.department) /Promise/.test(ctx.department) && lines.push('matched');",
+    "  lines.push(Object.keys(ctx.state.metrics).length + ' scores held');",
+    '  return lines;',
+    '}',
+  ].join('\n');
+  const { cacheDir, json } = cacheWith({ prompts });
+  try {
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({}, asked),
+    }) as ScenarioPackage;
+    assert.deepEqual(asked, [], 'every hook came from the cache');
+    const lines = scenario.hooks.departmentPromptHook?.({
+      department: 'Promise keepers',
+      state: kernelFor(scenario).getState(),
+    } as never) ?? [];
+    assert.equal(lines[0], 'matched', 'the restored hook tests the department against its own pattern');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a cached hook that divides after a parenthesis and makes a typed array on the same line is generated again at restore', async () => {
+  // After the parenthesis of an expression a slash divides. Read as the
+  // start of a pattern, it would hide the rest of the line up to the
+  // next slash, and the typed array with it.
+  const { cacheDir, json } = cacheWith({
+    fingerprint: '(finalState) => ({ summary: String((Object.keys(finalState.metrics).length) / 2 '
+      + '+ new Float64Array([1]).length / 1) })',
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ fingerprint: () => "(finalState) => ({ summary: 'steady' })" }, asked),
+    });
+    assert.deepEqual(asked, ['fingerprint'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a cached hook that reads a removed member written in brackets is generated again at restore', async () => {
+  // `Symbol['for']` is the member `Symbol.for` is.
+  const { cacheDir, json } = cacheWith({
+    reactions: "(colonist, ctx) => String(Symbol['for'](colonist.core.name).description) + ' keeps watch.'",
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ reactions: () => "(colonist, ctx) => colonist.core.name + ' keeps watch.'" }, asked),
+    });
+    assert.deepEqual(asked, ['reactions'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
