@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     # FRAMERS_BUMP_TOKEN reaches past this repository, and a step can change
     # what a later step of its job runs, so no install script runs in this job
-    # and its third-party actions are pinned to a commit, with the release that
+    # and its actions are pinned to a commit, with the release that
     # commit carries named beside it.
     steps:
       # First, before anything is installed: without the secret,
@@ -66,7 +66,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # master, whichever branch a manual run names: the pull request goes
           # into master, and a lockfile refreshed from another branch's
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
 
@@ -90,7 +90,7 @@ jobs:
           version: 10
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
 
