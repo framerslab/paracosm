@@ -384,3 +384,56 @@ test('a cached hook that yields a pattern from a generator is restored with no m
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that divides a variable named of in the head of a for is generated again at restore', async () => {
+  // In the head of a for, `of` is the keyword only where it follows the
+  // name the loop binds. In a condition it is a name, and the slash
+  // after it divides: the typed array on the same line is read.
+  const { cacheDir, json } = cacheWith({
+    fingerprint: '(finalState) => { const of = 2; '
+      + 'for (; of / 2 + new Float64Array([1]).length / 1; ) { break; } '
+      + "return { summary: 'steady' }; }",
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ fingerprint: () => "(finalState) => ({ summary: 'steady' })" }, asked),
+    });
+    assert.deepEqual(asked, ['fingerprint'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a cached hook that loops over the matches of a pattern written after of is restored with no model call', async () => {
+  // After the `of` of a for-of a slash opens a pattern. The name is the
+  // pattern's text: the hook reaches no built-in.
+  const prompts = [
+    '(ctx) => {',
+    '  const lines = [];',
+    "  for (const found of /Promise/.exec(String(ctx.department)) ?? []) lines.push(found);",
+    '  return lines;',
+    '}',
+  ].join('\n');
+  const { cacheDir, json } = cacheWith({ prompts });
+  try {
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({}, asked),
+    }) as ScenarioPackage;
+    assert.deepEqual(asked, [], 'every hook came from the cache');
+    const lines = scenario.hooks.departmentPromptHook?.({
+      department: 'Promise keepers',
+      state: kernelFor(scenario).getState(),
+    } as never) ?? [];
+    assert.deepEqual(lines, ['Promise'], 'the restored hook lists what its own pattern found');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
