@@ -10,7 +10,7 @@ import { runPairSimulations, runForkSimulation, runBatchSimulations, type Broadc
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
-  QUICKSTART_SCENARIO_ID_MAX,
+  QUICKSTART_SCENARIO_ID_MAX, endFinishedJobsOf,
   type QuickstartDeps,
 } from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
@@ -31,6 +31,7 @@ import {
   loadDiskCustomScenarios,
 } from '../cli/custom-scenarios.js';
 import {
+  COMPILED_SCENARIOS_CAP,
   deletePersistedCompiledScenario,
   loadPersistedCompiledDrafts,
   persistCompiledScenario,
@@ -120,6 +121,9 @@ function projectScenarioForClient(sc: ScenarioPackage) {
 export const SCENARIO_PICK_COOKIE = 'paracosm_scenario';
 /** Thirty days, in seconds: a returning visitor finds the scenario they picked. */
 const SCENARIO_PICK_MAX_AGE_SECONDS = 2_592_000;
+// A pick cookie lives 30 days. The extra day covers a cookie set by a
+// request that resolved the scenario before it left the catalog.
+const RETIRED_SCENARIO_ID_MS = (SCENARIO_PICK_MAX_AGE_SECONDS + 86_400) * 1000;
 /**
  * The longest cookie value held as a pick. RFC 6265 section 6.1 asks a
  * browser for at least 4096 bytes per cookie, name and attributes
@@ -1193,6 +1197,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // than a CustomScenarioEntry extension so the existing entry shape
   // and every consumer of `customScenarioCatalog` stays unchanged.
   const compiledScenarioMeta = new Map<string, PersistedCompiledMeta>();
+  const compiledEntryInfo = new Map<string, { enteredAt: number; address: string | null }>();
+  // Digests keep each retired id the same size, regardless of its length.
+  const retiredScenarioIds = new Map<string, number>();
+  const pruneRetiredScenarioIds = (): void => {
+    const now = Date.now();
+    for (const [digest, retiredAt] of retiredScenarioIds) {
+      if (now - retiredAt < RETIRED_SCENARIO_ID_MS) break;
+      retiredScenarioIds.delete(digest);
+    }
+  };
 
   // Ids of the persisted compiled drafts boot is still re-compiling. Filled
   // before the first compile starts and emptied one id at a time as each
@@ -1213,16 +1227,76 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     dropFromEveryMemoryStore(id);
   };
 
+  /** The saved drafts that folder clean-up must keep. */
+  const keep = (id: string): boolean =>
+    customScenarioCatalog.get(id)?.source === 'compiled' || hydratingScenarioIds.has(id);
+
+  /** Removes one compiled entry or waiting draft and retires its id. */
+  const evictCompiled = (id: string): void => {
+    const entry = customScenarioCatalog.get(id);
+    if (entry?.source === 'compiled') customScenarioCatalog.delete(id);
+    hydratingScenarioIds.delete(id);
+    compiledScenarioMeta.delete(id);
+    compiledBriefOwners.delete(id);
+    groundingCitationsByScenarioId.delete(id);
+    compiledEntryInfo.delete(id);
+    deletePersistedCompiledScenario(scenarioDir, id);
+    pruneRetiredScenarioIds();
+    const digest = createHash('sha256').update(id).digest('hex');
+    retiredScenarioIds.delete(digest);
+    retiredScenarioIds.set(digest, Date.now());
+    if (entry?.source === 'compiled') endFinishedJobsOf(entry.scenario);
+    console.log(`[scenarios] ${JSON.stringify(id)} left the catalog to keep it at ${COMPILED_SCENARIOS_CAP} compiled scenarios`);
+  };
+
+  /** Makes room after a compile, preserving the new entry and every run's scenario. */
+  const makeRoomAfter = (enteredId: string): void => {
+    const compiledIds = new Set([
+      ...[...customScenarioCatalog].filter(([, entry]) => entry.source === 'compiled').map(([id]) => id),
+      ...[...hydratingScenarioIds].filter(id => !customScenarioCatalog.has(id)),
+    ]);
+    const protectedIds = liveRuns.scenarioIdsInRuns();
+    while (compiledIds.size > COMPILED_SCENARIOS_CAP) {
+      const addressCounts = new Map<string, number>();
+      if (serverMode === 'hosted_demo') {
+        for (const id of compiledIds) {
+          const address = compiledEntryInfo.get(id)?.address;
+          if (address != null) addressCounts.set(address, (addressCounts.get(address) ?? 0) + 1);
+        }
+      }
+      // Map order breaks equal timestamps. Null addresses each hold one.
+      let oldest: { id: string; enteredAt: number; count: number } | undefined;
+      for (const [id, info] of compiledEntryInfo) {
+        if (!compiledIds.has(id) || id === enteredId || protectedIds.has(id)) continue;
+        const count = serverMode === 'hosted_demo' && info.address !== null
+          ? addressCounts.get(info.address) ?? 1 : 1;
+        if (!oldest || count > oldest.count || (count === oldest.count && info.enteredAt < oldest.enteredAt)) {
+          oldest = { id, enteredAt: info.enteredAt, count };
+        }
+      }
+      if (!oldest) {
+        console.log(`[scenarios] kept ${compiledIds.size} compiled scenarios, over the cap of ${COMPILED_SCENARIOS_CAP}: every other one is in a run the server holds`);
+        break;
+      }
+      evictCompiled(oldest.id);
+      compiledIds.delete(oldest.id);
+    }
+  };
+
   /**
    * Whether `id` already names a scenario for someone other than
    * `visitorId` alone: the catalog holds it (a built-in, a curated or a
    * compiled scenario, which any visitor may have picked), boot is still
-   * re-compiling it, or another visitor holds it in memory. A compile never
+   * re-compiling it, its retired digest is held for a recent eviction, or
+   * another visitor holds it in memory. A compile never
    * lands under such an id, so it never changes what an id already names
    * for another visitor.
    */
   const scenarioIdTaken = (visitorId: string, id: string): boolean => {
     if (customScenarioCatalog.has(id) || hydratingScenarioIds.has(id)) return true;
+    pruneRetiredScenarioIds();
+    const retiredAt = retiredScenarioIds.get(createHash('sha256').update(id).digest('hex'));
+    if (retiredAt !== undefined && Date.now() - retiredAt < RETIRED_SCENARIO_ID_MS) return true;
     dropIdleMemoryScenarios();
     for (const [holder, own] of memoryScenarios) {
       if (holder !== visitorId && own.has(id)) return true;
@@ -1254,7 +1328,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return false;
     });
     if (drafts.length === 0) return;
-    for (const { id } of drafts) hydratingScenarioIds.add(id);
+    for (const { id, meta } of drafts) {
+      hydratingScenarioIds.add(id);
+      compiledEntryInfo.set(id, { enteredAt: Date.parse(meta.compiledAt) || 0, address: null });
+    }
     console.log(`[scenarios] re-compiling ${drafts.length} persisted compiled draft(s) from disk…`);
     // Wrap the dynamic import + per-draft loop in its own try-catch
     // so a module-resolution failure (deploy with broken compiler
@@ -1272,10 +1349,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         ?? (await import('../engine/compiler/index.js')).compileScenario;
       for (const { id, draft, meta } of drafts) {
         try {
+          if (!hydratingScenarioIds.has(id)) {
+            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog to make room while boot re-compiled it`);
+            continue;
+          }
           // Cache: true means we hit the local hook-source cache. With
           // a warm cache this is ~10ms per draft; with a cold cache the
           // hooks regenerate via LLM at the going rate.
           const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
+          if (!hydratingScenarioIds.has(id)) {
+            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog to make room while boot re-compiled it`);
+            continue;
+          }
           // Checked again under the compiled id: an earlier draft of this
           // loop, or a scenario saved while this one compiled, may hold it.
           if (customScenarioCatalog.has(compiled.id)) {
@@ -1283,12 +1368,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             continue;
           }
           enterCatalog(compiled.id, { scenario: compiled, source: 'compiled' });
+          if (compiled.id !== id) {
+            compiledEntryInfo.set(compiled.id, compiledEntryInfo.get(id)!);
+            hydratingScenarioIds.delete(id);
+          }
           compiledScenarioMeta.set(compiled.id, meta);
+          makeRoomAfter(compiled.id);
           console.log(`[scenarios] hydrated ${compiled.id} (${meta.compiledAt})`);
         } catch (err) {
           console.warn(`[scenarios] failed to re-compile persisted draft ${id}:`, err);
         } finally {
           hydratingScenarioIds.delete(id);
+          if (customScenarioCatalog.get(id)?.source !== 'compiled') compiledEntryInfo.delete(id);
         }
       }
     } catch (err) {
@@ -1296,6 +1387,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     } finally {
       // Nothing is loading any more: a pick that never landed reads as
       // unknown, so its visitor gets the default.
+      for (const id of hydratingScenarioIds) {
+        if (customScenarioCatalog.get(id)?.source !== 'compiled') compiledEntryInfo.delete(id);
+      }
       hydratingScenarioIds.clear();
     }
   })();
@@ -2113,9 +2207,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const active = 'scenario' in pick ? pick.scenario.id : 'loading' in pick ? pick.loading : marsScenario.id;
       // Best-effort run-count enrichment. Aggregate one query per
       // scenario id rather than one bulk because aggregateStats
-      // already accepts a scenarioId filter; the cost is bounded by
-      // catalog size (≤50 + a couple builtins) so the fan-out stays
-      // reasonable.
+      // already accepts a scenarioId filter. The catalog holds at most 50
+      // compiled entries, or one more than the compiled scenarios the
+      // server's runs have held, beside the built-ins, the scenarios folder
+      // and this visitor's own memory scenarios.
       if (runHistoryStore?.aggregateStats) {
         await Promise.all(entries.map(async (entry) => {
           try {
@@ -2175,6 +2270,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end(JSON.stringify({ error: 'invalid_json_body' }));
         return;
       }
+      if (customScenarioCatalog.get(id) !== entry) {
+        res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
+        res.end(JSON.stringify({ error: 'scenario_not_found', id }));
+        return;
+      }
       const rawName = typeof body.name === 'string' ? body.name : '';
       // Sanitize: strip control chars (0x00-0x1F + DEL) + HTML
       // angle-brackets so a crafted name never sneaks markup into
@@ -2204,7 +2304,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // we re-read the meta map so the on-disk file never loses the
       // original seed prompt the user submitted.
       const existingMeta = compiledScenarioMeta.get(id);
-      const persistResult = persistCompiledScenario(scenarioDir, sc, existingMeta?.seedText ?? null);
+      const persistResult = persistCompiledScenario(scenarioDir, sc, existingMeta?.seedText ?? null, keep);
       if (persistResult) {
         compiledScenarioMeta.set(id, persistResult.meta);
       }
@@ -2376,6 +2476,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
           if (switchable) {
+            if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled') {
+              deletePersistedCompiledScenario(scenarioDir, scenarioJson.id);
+              compiledScenarioMeta.delete(scenarioJson.id);
+              compiledBriefOwners.delete(scenarioJson.id);
+              compiledEntryInfo.delete(scenarioJson.id);
+            }
             enterCatalog(scenarioJson.id, {
               scenario: scenarioJson,
               source: 'disk',
@@ -2498,7 +2604,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // scenario (a second request for a compile that already landed)
             // keeps its id.
             let sc = compiledFromSeed;
-            if (customScenarioCatalog.get(sc.id)?.scenario !== sc && scenarioIdTaken(quickstartVisitor, sc.id)) {
+            if (customScenarioCatalog.get(sc.id)?.scenario === sc) return sc;
+            if (scenarioIdTaken(quickstartVisitor, sc.id)) {
               const takenId = sc.id;
               const withSuffix = (n: number): string => {
                 const tail = `-${n}`;
@@ -2514,6 +2621,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // compiled it gets it as their pick through pickHeaders on the
             // answers they receive.
             enterCatalog(sc.id, { scenario: sc, source: 'compiled' });
+            compiledEntryInfo.set(sc.id, {
+              enteredAt: Date.now(),
+              address: serverMode === 'hosted_demo' ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+            });
+            makeRoomAfter(sc.id);
             // Auto-persist to disk so the catalog survives server
             // restarts. The hooks themselves are excluded (functions
             // don't serialize) but compileScenario regenerates them
@@ -2529,7 +2641,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // timestamp here would drift by however long writeFileSync
             // took to flush. A failed write still records the meta in
             // memory, so /setup carries the brief into the run either way.
-            const persistResult = persistCompiledScenario(scenarioDir, sc, seed);
+            const persistResult = persistCompiledScenario(scenarioDir, sc, seed, keep);
             compiledScenarioMeta.set(sc.id, persistResult?.meta ?? { compiledAt: new Date().toISOString(), seedText: seed });
             return sc;
           },
@@ -2706,6 +2818,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           res.end(JSON.stringify({ error: 'scenario JSON object required' }));
           return;
         }
+        if (Buffer.byteLength(JSON.stringify(scenarioJson)) > MEMORY_SCENARIO_MAX_BYTES) {
+          console.warn('[scenarios] compile refused: over the size a compile takes');
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `A scenario sent to /compile is at most ${MEMORY_SCENARIO_MAX_BYTES / 1024} KiB of JSON.` }));
+          return;
+        }
         const compileCredentials = {
           apiKey: normalizeCredential(apiKey),
           anthropicKey: normalizeCredential(anthropicKey),
@@ -2864,6 +2982,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // that compiled it posts /scenario/switch with the id from
         // `complete`, which makes it that visitor's pick.
         enterCatalog(compiled.id, { scenario: compiled, source: 'compiled' });
+        compiledEntryInfo.set(compiled.id, {
+          enteredAt: Date.now(),
+          address: serverMode === 'hosted_demo' ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+        });
+        makeRoomAfter(compiled.id);
 
         // Snapshot compile telemetry into the ring buffer so /retry-stats
         // aggregates compile:* schemas alongside runtime schemas, and emit
@@ -3387,6 +3510,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const fileDeleted = deletePersistedCompiledScenario(scenarioDir, id);
       const catalogDeleted = customScenarioCatalog.delete(id);
       const metaDeleted = compiledScenarioMeta.delete(id);
+      compiledEntryInfo.delete(id);
+      compiledBriefOwners.delete(id);
+      groundingCitationsByScenarioId.delete(id);
       const memoryDeleted = dropFromMemory();
       console.log(`[scenarios] admin deleted ${id} (file=${fileDeleted} catalog=${catalogDeleted} meta=${metaDeleted} memory=${memoryDeleted})`);
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders });

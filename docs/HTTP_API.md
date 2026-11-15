@@ -405,21 +405,24 @@ The dashboard sends the header from the token an operator enters in Settings, in
 
 At boot the server re-compiles the drafts the compile-from-seed flow saved under `<scenarios folder>/compiled/`, newest first, at most 50 (`COMPILED_SCENARIOS_CAP`); a draft whose id is outside the pattern above is skipped with a log line naming its file, and the drafts past the cap are left unread, in one log line. A draft whose id the catalog already holds (a built-in or a scenario from the scenarios folder) is left out with a log line and is not compiled: the catalog's scenario stays.
 
+The shared catalog holds at most 50 compiled scenarios (`COMPILED_SCENARIOS_CAP`), whatever compiled them: Quickstart compiles, `POST /compile`, and the saved drafts boot re-compiles, which count from the start of boot. When a compile takes the catalog past 50, one compiled scenario leaves: on the hosted demo the oldest of the client address that holds the most (each draft loaded at boot counts as an address of its own), elsewhere the oldest. A scenario that a run the server holds is in never leaves; when such runs hold every other compiled scenario, none leaves, so the catalog passes 50 only when `PARACOSM_MAX_RUNS` and `PARACOSM_MAX_HELD_RUNS` together reach 50. A scenario that leaves goes as `DELETE /admin/scenarios/:id` takes it, its file included: a pick of it reads as no pick and gets the default, a request that names it answers as one that names an unknown id, and its id is taken for 31 days or until the server restarts. The folder `<scenarios folder>/compiled/` holds the files of the compiled scenarios in the catalog. Its clean-up, which runs while the folder holds more than 50, deletes the oldest `<id>.json` files whose JSON holds that same id and whose scenario is neither a compiled scenario in the catalog nor a draft boot is re-compiling. A disk save (`saveToDisk`) under the id of a compiled scenario deletes that scenario's file in `compiled/`.
+
 ## `POST /compile`
 
-The scenario editor's compile route. It compiles the scenario JSON in `scenario` and puts the result in the shared catalog under the JSON's `id`, with `source: "compiled"`, where every visitor's `GET /scenarios` lists it. It becomes nobody's pick: the editor that compiled it posts `/scenario/switch` with the id.
+The scenario editor's compile route. It compiles the scenario JSON in `scenario` and puts the result in the shared catalog under the JSON's `id`, with `source: "compiled"`, where every visitor's `GET /scenarios` lists it. It becomes nobody's pick: the editor that compiled it posts `/scenario/switch` with the id. The catalog holds at most 50 compiled scenarios; past that one leaves, as the boot paragraph under [`POST /scenario/store`](#post-scenariostore) says.
 
 A compile never replaces a scenario. The server answers `409` when the id is taken, which is any of:
 
 - the shared catalog holds it: a built-in, a scenario from the scenarios folder, or a compiled scenario, whoever compiled it, the caller included;
 - it is the id of a saved compiled draft the server is still re-compiling after a restart;
+- it is the id of a compiled scenario that left the catalog to make room, for 31 days after it left or until the server restarts;
 - another visitor holds it in memory (`POST /scenario/store`).
 
 The refusal comes before the stream starts, before the compiler runs and before the request counts toward the day's compiles. To change a compiled scenario, compile it under a new id. An id that only the caller stored in memory is free: the compiled scenario lands in the catalog and the stored copy leaves the memory store.
 
 The id is checked again when the compile finishes. If something took it while the compile ran, the stream ends with an `error` event that carries the same message, and the catalog is unchanged.
 
-The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under.
+The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under. A finished compile whose scenario left the catalog to make room answers its status with `status: "error"` and no scenario, and the same seed sent again starts a new compile.
 
 **Request body**
 
@@ -437,6 +440,7 @@ A `text/event-stream`: `status`, one `progress` event per hook, a `compile_valid
 
 - `200`: the stream above
 - `400 scenario JSON object required`: no `scenario` object in the body
+- `413 A scenario sent to /compile is at most 256 KiB of JSON.`: the `scenario` is over 256 KiB (262,144 bytes) of JSON; refused before the 409 check, the stream and the day's compiles
 - `409 "<id>" is taken on this server. Give your scenario an id of its own.`: the id is taken, as above
 - `429`: on the hosted demo, the address is past its compiles for the day and the request carries no API key of its own
 
@@ -468,7 +472,7 @@ The name loses control characters and `<` `>`, its runs of whitespace become one
 - `400 invalid_json_body` or `400 name_required` — no JSON body, or a name that is empty once cleaned
 - `401 Invalid or missing X-Admin-Token header` — no header or a wrong token
 - `403 ADMIN_WRITE not enabled on this server` — a server started without `ADMIN_WRITE=true`
-- `404 scenario_not_found` — no scenario has that id
+- `404 scenario_not_found` — no scenario has that id, or the scenario left the catalog before the request's body arrived
 - `503` — a server with `ADMIN_WRITE=true` and no `ADMIN_TOKEN` (fail closed)
 
 ---
