@@ -654,3 +654,47 @@ test('a broadcast result artifact omits outputPath while the recording callback 
   assert.equal(results[0].data.artifact.scenarioExtensions.outputPath, undefined);
   assert.deepEqual(results[0].data.artifact.scenarioExtensions.kernelSnapshotsPerTurn, [{ turn: 1 }]);
 });
+
+
+for (const kind of ['pair', 'fork'] as const) {
+  test(`a ${kind} broadcast result omits outputPath while the recording callback keeps it`, async () => {
+    const { runPairSimulations, runForkSimulation } = await import('../../src/cli/pair-runner.js');
+    const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+    const runner = kind === 'pair' ? runPairSimulations : runForkSimulation;
+    // Require the injection seam before invoking a runner that could otherwise call a provider.
+    assert.match(runner.toString(), /runSimulationImpl/);
+    const snapshot = { snapshotVersion: 1, scenarioId: marsScenario.id, turn: 1, state: {}, rngState: 1, seed: 950, startTime: 2035, time: 2036 };
+    const parent = { metadata: { runId: 'parent' }, scenarioExtensions: { kernelSnapshotsPerTurn: [snapshot] } };
+    const config = normalizeSimulationConfig({
+      actors: kind === 'pair' ? marsScenario.presets[0].leaders.slice(0, 2) : marsScenario.presets[0].leaders.slice(0, 1),
+      turns: 2, captureSnapshots: true,
+      ...(kind === 'fork' ? { forkFrom: { parentArtifact: parent, atTurn: 1 } } : {}),
+    } as any, marsScenario);
+    const artifact = {
+      metadata: { runId: 'child', forkedFrom: { parentRunId: 'parent', atTurn: 1 } },
+      finalState: { metrics: {} }, citations: [], fingerprint: null, aborted: true,
+      scenarioExtensions: { outputPath: `/tmp/${kind}-output.json`, kernelSnapshotsPerTurn: [snapshot] },
+    } as any;
+    const recorded: unknown[] = [];
+    const options: any[] = [];
+    const { events, broadcast } = captureBroadcast();
+    await (runner as (...args: any[]) => Promise<void>)(
+      config, broadcast, undefined, marsScenario, (value: unknown) => { recorded.push(value); }, {},
+      async (_actor: unknown, _personnel: unknown, opts: unknown) => { options.push(opts); return artifact; },
+    );
+    const expected = kind === 'pair' ? 2 : 1;
+    assert.equal(recorded.length, expected);
+    for (const value of recorded) assert.equal(value, artifact);
+    assert.equal(artifact.scenarioExtensions.outputPath, `/tmp/${kind}-output.json`);
+    const results = events.filter(e => e.event === 'result');
+    assert.equal(results.length, expected);
+    for (const result of results) {
+      assert.equal(result.data.artifact.scenarioExtensions.outputPath, undefined);
+      assert.deepEqual(result.data.artifact.scenarioExtensions.kernelSnapshotsPerTurn, [snapshot]);
+    }
+    if (kind === 'fork') {
+      assert.deepEqual(options[0]._resumeFrom, snapshot);
+      assert.deepEqual(options[0]._forkedFrom, { parentRunId: 'parent', atTurn: 1 });
+    }
+  });
+}

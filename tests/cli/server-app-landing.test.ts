@@ -370,13 +370,15 @@ test("the dashboard page's one static h1 sits inside #root, which React clears w
 
 test('the privacy section names the address record and when it ends', () => {
   const privacy = section('privacy');
-  assert.match(privacy, /server keeps your IP address with a count of (?:those|these) requests/);
-  assert.match(privacy, /runs, compiles and chat messages/);
-  assert.match(privacy, /site.s own model keys/);
+  assert.match(privacy, /[Tt]o apply (?:its|the) usage limits/);
+  assert.match(privacy, /server keeps your IP address with a count of your requests/);
+  for (const kind of ['runs', 'Digital Twin runs', 'compiles', 'chat messages', 'run imports', 'Quickstart requests', 'generating leaders', 'grounding a scenario', 'reading a page']) {
+    assert.ok(privacy.includes(kind), `names ${kind}`);
+  }
+  assert.match(privacy, /compile on your own model key.*site.s web search.*reads a page through it/);
   assert.match(privacy, /next UTC midnight/);
   assert.match(privacy, /next UTC hour for chat/);
-  assert.match(privacy, /deletes? (?:the|that) record/);
-  assert.match(privacy, /hourly cleanup/);
-  assert.match(privacy, /500 milliseconds/);
-  assert.match(privacy, /only to apply (?:these|the) limits/);
+  assert.match(privacy, /deletes ended counts within the hour, from memory and from its saved copy/);
+  assert.match(privacy, /runs or live views.*open.*holds your address.*how many.*at once/);
+  assert.doesNotMatch(privacy, /milliseconds/);
 });

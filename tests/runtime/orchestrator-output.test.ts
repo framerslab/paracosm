@@ -28,3 +28,24 @@ test('a run writes its output file by default', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('WorldModel.intervene with file output disabled leaves the directory empty', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-intervene-output-'));
+  const events: unknown[] = [];
+  try {
+    const { artifact, log } = await runMarsWithStubModel({
+      outputDir: dir, writeOutputFile: false, intervene: true, onEvent: event => events.push(event),
+    });
+    assert.ok(artifact.metadata.runId);
+    assert.equal(artifact.subject?.id, 'sample-subject');
+    assert.equal(artifact.intervention?.id, 'sample-change');
+    assert.ok(log.decisions.length > 0, 'the real turn loop calls the stub model');
+    assert.equal(artifact.scenarioExtensions?.outputPath, undefined);
+    assert.deepEqual(readdirSync(dir), []);
+    assert.ok(events.length > 0);
+    assert.doesNotMatch(JSON.stringify(events), /sample-subject|Sample subject|sample-change|Sample change/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -8,7 +8,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
@@ -131,3 +131,17 @@ for (const kind of ['run', 'compile'] as const) {
     }
   });
 }
+
+
+test('limit log lines name no client address', () => {
+  const source = readFileSync(new URL('../../src/server/server-app.ts', import.meta.url), 'utf8');
+  const logs = [...source.matchAll(/`(?:\\[\s\S]|[^`\\])*`/g)]
+    .map(match => match[0]).filter(literal => literal.includes('[rate-limit]'));
+  assert.ok(logs.length >= 10, 'covers the limit log statements');
+  for (const literal of logs) {
+    const expressions = [...literal.matchAll(/\$\{([^}]*)\}/g)].map(match => match[1]);
+    for (const expression of expressions) {
+      assert.doesNotMatch(expression, /\b(?:ip|rateIp|clientIp|\w*address\w*)\b/i);
+    }
+  }
+});

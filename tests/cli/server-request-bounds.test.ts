@@ -391,3 +391,31 @@ test('the results answer omits outputPath from buffered result artifacts', async
   assert.deepEqual(answer.results[0].artifact.scenarioExtensions, { label: 'kept' });
   assert.equal(JSON.parse(frame.split('\n')[1].slice(6)).artifact.scenarioExtensions.outputPath, '/tmp/buffered-output.json');
 });
+
+
+test('ended import counts are removed by the hourly sweep', async (t) => {
+  const address = '198.51.100.71';
+  let counts: Map<string, { count: number; resetAt: number }> | undefined;
+  const originalSet = Map.prototype.set;
+  t.mock.method(Map.prototype, 'set', function (key: unknown, value: any) {
+    if (key === address && value?.count === 0 && typeof value.resetAt === 'number') counts = this;
+    return originalSet.call(this, key, value);
+  });
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  try {
+    await withServer({ runHistoryStore: store, env: { PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' } }, async ({ base }) => {
+      const res = await post(base, '/api/v1/library/import', { artifact: freshArtifact() }, { 'cf-connecting-ip': address });
+      assert.equal(res.status, 201, await res.text());
+      assert.ok(counts, 'the import holds its address count');
+      counts.get(address)!.resetAt = Date.now() - 1;
+      const active = '198.51.100.72';
+      counts.set(active, { count: 1, resetAt: Date.now() + 2 * 60 * 60 * 1000 });
+      t.mock.timers.tick(60 * 60 * 1000);
+      assert.equal(counts.has(address), false);
+      assert.equal(counts.get(active)?.count, 1);
+    });
+  } finally {
+    t.mock.timers.reset();
+  }
+});

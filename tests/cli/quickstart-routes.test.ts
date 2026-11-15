@@ -460,7 +460,7 @@ test('a digital-twin run asks the engine to write no output file', async () => {
     scenario: ASYNC_TEST_SCENARIO,
     intervene: async (opts: Record<string, unknown>) => {
       options = opts;
-      return { metadata: { runId: 'twin-output' } };
+      return { metadata: { runId: 'twin-output' }, scenarioExtensions: { outputPath: '/tmp/twin-output.json' } };
     },
   } as unknown as WorldModel;
   const { res, get } = fakeRes();

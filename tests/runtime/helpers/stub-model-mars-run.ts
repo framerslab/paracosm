@@ -24,6 +24,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { runSimulation } from '../../../src/runtime/orchestrator/index.js';
+import { WorldModel } from '../../../src/runtime/world-model/index.js';
 import { marsScenario } from '../../../src/engine/scenarios/index.js';
 import type { RunArtifact } from '../../../src/engine/schema/index.js';
 import { withStubOpenAi } from './stub-openai-transport.js';
@@ -109,14 +110,16 @@ function replyTo(prompt: string, log: StubModelLog): string {
  * stub answered. `onEvent` is handed each event the run emits, as a server
  * that streams the run is.
  */
-export async function runMarsWithStubModel(options: { onEvent?: (event: unknown) => void; outputDir?: string; writeOutputFile?: boolean } = {}): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
+export async function runMarsWithStubModel(options: { onEvent?: (event: unknown) => void; outputDir?: string; writeOutputFile?: boolean; intervene?: boolean } = {}): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
   const log: StubModelLog = { urls: [], decisions: [], reactions: 0 };
   // The reply reads the last user message alone: every prompt of the turn loop sits there.
   const artifact = await withStubOpenAi(request => replyTo(request.lastUser, log), async (seen) => {
     try {
       const leader = marsScenario.presets[0].leaders[0];
-      return await runSimulation({ ...leader, unit: 'Colony Alpha' } as never, [], {
-        ...options,
+      const { intervene, ...runOptions } = options;
+      const actor = { ...leader, unit: 'Colony Alpha' } as never;
+      const opts = {
+        ...runOptions,
         scenario: marsScenario,
         maxTurns: 2,
         seed: 950,
@@ -124,10 +127,17 @@ export async function runMarsWithStubModel(options: { onEvent?: (event: unknown)
         activeDepartments: ['medical', 'engineering', 'agriculture'] as never,
         captureSnapshots: true,
         onEvent: options.onEvent,
-        provider: 'openai',
+        provider: 'openai' as const,
         apiKey: 'placeholder-key-for-a-test',
         models: { commander: 'gpt-4o', departments: 'gpt-4o', judge: 'gpt-4o', director: 'gpt-4o', agentReactions: 'gpt-4o' },
-      });
+      };
+      return intervene
+        ? await WorldModel.fromScenario(marsScenario).intervene({
+          ...opts, actor,
+          subject: { id: 'sample-subject', name: 'Sample subject' },
+          intervention: { id: 'sample-change', name: 'Sample change', description: 'Compare the next step.' },
+        })
+        : await runSimulation(actor, [], opts);
     } finally {
       log.urls.push(...seen.map(e => e.url));
     }
