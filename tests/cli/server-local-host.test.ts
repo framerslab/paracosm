@@ -69,13 +69,13 @@ test("a local server behind a proxy that passes the browser's host and port answ
 
 test('a CORS preflight sent to a name the server does not answer is refused', async () => {
   await withServer(async (api, port) => {
-    localRefusal(await send(api, 'OPTIONS', '/setup', { Host: `rebind.example:${port}`, Origin: `http://rebind.example:${port}`, 'Access-Control-Request-Method': 'POST' }));
+    localRefusal(await send(api, 'OPTIONS', '/setup', { Host: `other.example:${port}`, Origin: `http://other.example:${port}`, 'Access-Control-Request-Method': 'POST' }));
   });
 });
 
 test('a request sent to a name the server does not answer is refused, with or without an Origin', async () => {
   await withServer(async (api, port, calls) => {
-    const Host = `rebind.example:${port}`;
+    const Host = `other.example:${port}`;
     localRefusal(await send(api, 'GET', '/scenarios', { Host }));
     localRefusal(await send(api, 'POST', '/compile', { Host, Origin: `http://${Host}`, 'Content-Type': 'application/json' }, { scenario: { id: 'unknown-name', departments: [] } }));
     assert.equal(calls.compile, 0);

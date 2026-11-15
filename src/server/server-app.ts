@@ -257,10 +257,15 @@ function readAllowedHosts(env: NodeJS.ProcessEnv): ReadonlySet<string> {
   return hosts;
 }
 
-/** Listed origins take precedence over fetch metadata, with Origin as the fallback. */
+/**
+ * Listed origins take precedence over fetch metadata, with Origin as the fallback.
+ * With origins listed, a request whose Origin is any other origin (not `null`)
+ * is another site's, whatever Sec-Fetch-Site says.
+ */
 function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<string>): boolean {
   const origin = req.headers.origin;
   if (origin !== undefined && allowedOrigins.has(origin.toLowerCase())) return false;
+  if (origin !== undefined && allowedOrigins.size > 0 && origin.trim().toLowerCase() !== 'null') return true;
   const site = req.headers['sec-fetch-site'];
   switch (typeof site === 'string' ? site.trim().toLowerCase() : '') {
     case 'cross-site':
@@ -1885,7 +1890,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.writeHead(403, { 'Content-Type': 'application/json', ...corsHeaders });
     res.end(JSON.stringify({
       error: 'cross_site_refused',
-      message: "This request came from a page on another site. The hosted demo takes it from its own pages, or on /setup, /compile, /chat and /simulate with the caller's own provider key (on /compile, and no seed the host's search or scraping keys would read).",
+      message: "This request came from a page on another site. The hosted demo takes it from its own pages, or on /setup, /compile and /chat with the caller's own provider key (on /compile, and no seed the host's search or scraping keys would read).",
     }));
   };
 
