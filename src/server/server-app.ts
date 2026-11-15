@@ -221,15 +221,92 @@ function hostHeaderName(value: string | undefined): string {
   }
 }
 
+/** The additional origins whose pages the hosted demo answers on its own keys. */
+function readAllowedOrigins(env: NodeJS.ProcessEnv): ReadonlySet<string> {
+  const origins = new Set<string>();
+  let dropped = 0;
+  for (const entry of (env.PARACOSM_ALLOWED_ORIGINS ?? '').split(',')) {
+    const piece = entry.trim();
+    if (!piece) continue;
+    try {
+      const parsed = new URL(piece);
+      if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.origin === piece.toLowerCase()) {
+        origins.add(piece.toLowerCase());
+        continue;
+      }
+    } catch {
+      // Count an entry that does not parse with the other invalid entries.
+    }
+    dropped++;
+  }
+  if (dropped > 0) console.warn(`[origin] PARACOSM_ALLOWED_ORIGINS: dropped ${dropped} entries that are not origins (https://host or https://host:port)`);
+  return origins;
+}
+
+/** The additional host names a local server answers, on any port. */
+function readAllowedHosts(env: NodeJS.ProcessEnv): ReadonlySet<string> {
+  const hosts = new Set<string>();
+  let dropped = 0;
+  for (const entry of (env.PARACOSM_ALLOWED_HOSTS ?? '').split(',')) {
+    const piece = entry.trim();
+    if (!piece) continue;
+    if (hostHeaderName(piece) === piece.toLowerCase()) hosts.add(piece.toLowerCase());
+    else dropped++;
+  }
+  if (dropped > 0) console.warn(`[host] PARACOSM_ALLOWED_HOSTS: dropped ${dropped} entries that are not host names (a name with no port)`);
+  return hosts;
+}
+
+/** Listed origins take precedence over fetch metadata, with Origin as the fallback. */
+function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<string>): boolean {
+  const origin = req.headers.origin;
+  if (origin !== undefined && allowedOrigins.has(origin.toLowerCase())) return false;
+  const site = req.headers['sec-fetch-site'];
+  switch (typeof site === 'string' ? site.trim().toLowerCase() : '') {
+    case 'cross-site':
+    case 'same-site':
+      return true;
+    case 'same-origin':
+    case 'none':
+      return false;
+  }
+  if (origin === undefined) return false;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      parsed.host !== (req.headers.host ?? '').toLowerCase();
+  } catch {
+    return true;
+  }
+}
+
+/** Uses the compiler's seed test, including truthy values that are not strings. */
+function compileUsesHostSearch(body: Record<string, unknown>, env: NodeJS.ProcessEnv): boolean {
+  const seeded = Boolean(body.seedText || body.seedUrl);
+  const scrapes = Boolean(body.seedUrl) && normalizeCredential(env.FIRECRAWL_API_KEY) !== undefined;
+  return seeded && ((body.webSearch ?? true) !== false || scrapes);
+}
+
 /**
- * Whether a local server answers this request.
+ * Whether a local server answers the name this request was sent to.
  *
  * The name the request was sent to (its `Host`) must be one the server is
- * served under: a loopback name, an address literal, or the name `HOST`
+ * served under: a loopback name, an address literal, a listed name, or the name `HOST`
  * gives. A site that points a name of its own at this machine (DNS
  * rebinding) sends that name in `Host`, and in `Origin` when it sends one,
  * so a name is never taken because the two agree. An address literal names
  * this machine itself, and no other site's page can be served from it.
+ */
+function localHostKnown(hostHeader: string | undefined, servedHost: string, allowedHosts: ReadonlySet<string>): boolean {
+  const name = hostHeaderName(hostHeader);
+  if (!name) return false;
+  const served = hostHeaderName(servedHost.trim());
+  return LOOPBACK_HOSTNAMES.has(name) || isIP(name.replace(/^\[|\]$/g, '')) !== 0 ||
+    (served.length > 0 && name === served) || allowedHosts.has(name);
+}
+
+/**
+ * Whether a local server answers this request: first its Host is known.
  *
  * Then the request carries no Origin (a same-origin GET, curl, a script),
  * or its Origin is a loopback address on any port (the dashboard itself,
@@ -237,11 +314,8 @@ function hostHeaderName(value: string | undefined): string {
  * (the dashboard served under its address or its `HOST` name).
  * `Origin: null` and any other site are refused.
  */
-export function localOriginAllowed(req: IncomingMessage, servedHost = ''): boolean {
-  const name = hostHeaderName(req.headers.host);
-  const served = hostHeaderName(servedHost.trim());
-  const knownName = LOOPBACK_HOSTNAMES.has(name) || isIP(name.replace(/^\[|\]$/g, '')) !== 0 || (served.length > 0 && name === served);
-  if (!knownName) return false;
+export function localOriginAllowed(req: IncomingMessage, servedHost = '', allowedHosts: ReadonlySet<string> = new Set()): boolean {
+  if (!localHostKnown(req.headers.host, servedHost, allowedHosts)) return false;
   const origin = req.headers.origin;
   if (origin === undefined) return true;
   let parsed: URL;
@@ -688,6 +762,8 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
 export function createMarsServer(options: CreateMarsServerOptions = {}): MarsServer {
   const env = options.env ?? process.env;
   const serverMode = resolveServerMode(env);
+  const allowedOrigins = serverMode === 'hosted_demo' ? readAllowedOrigins(env) : new Set<string>();
+  const allowedHosts = serverMode === 'local_demo' ? readAllowedHosts(env) : new Set<string>();
   // The one directory run output, imported artifacts, run reads, the
   // retention sweep and the output wipe all use.
   const runsDir = resolveRunsDir(env);
@@ -1804,6 +1880,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     'Access-Control-Allow-Origin': '*',
   };
 
+  const writeCrossSiteRefusal = (res: ServerResponse): void => {
+    console.warn("[origin] refused a request from another site on the host's keys");
+    res.writeHead(403, { 'Content-Type': 'application/json', ...corsHeaders });
+    res.end(JSON.stringify({
+      error: 'cross_site_refused',
+      message: "This request came from a page on another site. The hosted demo takes it from its own pages, or on /setup, /compile, /chat and /simulate with the caller's own provider key (on /compile, and no seed the host's search or scraping keys would read).",
+    }));
+  };
+
+  const writeLocalRefusal = (res: ServerResponse, logLine: string): void => {
+    console.warn(logLine);
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'cross_site_refused',
+      message: 'This local server answers requests from its own pages and from localhost only, sent to a loopback name, its address, the name HOST gives or a name PARACOSM_ALLOWED_HOSTS lists.',
+    }));
+  };
+
   /** Answers a run the server has no room for: 503 with the run cap. Nothing has been charged to the caller. */
   const writeRunCapacityRefusal = (res: ServerResponse, err: RunCapacityError): void => {
     res.writeHead(503, {
@@ -1842,6 +1936,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (serverMode === 'local_demo' && !localHostKnown(req.headers.host, env.HOST ?? '', allowedHosts)) {
+      writeLocalRefusal(res, '[host] refused a request sent to a name this local server does not answer');
+      return;
+    }
+
     // CORS preflight for browser-based requests across the public API.
     // DELETE is in the allow-list because /admin/scenarios/:id is a
     // cross-origin candidate for the embedded landing-page demos;
@@ -1862,10 +1961,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // A local server answers its own pages and other local ports alone: a
     // request a browser sends from a page on another site carries that
     // site's Origin, and is refused before any route reads or spends.
-    if (serverMode === 'local_demo' && !localOriginAllowed(req, env.HOST ?? '')) {
-      console.warn('[origin] refused a request from another site on a local server');
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'cross_site_refused', message: 'This local server answers requests from its own pages and from localhost only, sent to a loopback name, its address or the name HOST gives.' }));
+    if (serverMode === 'local_demo' && !localOriginAllowed(req, env.HOST ?? '', allowedHosts)) {
+      writeLocalRefusal(res, '[origin] refused a request from another site on a local server');
+      return;
+    }
+
+    if (serverMode === 'hosted_demo' && req.method === 'POST' &&
+        (req.url?.startsWith('/api/quickstart/') || req.url === '/scenario/switch') &&
+        fromAnotherSite(req, allowedOrigins)) {
+      writeCrossSiteRefusal(res);
       return;
     }
 
@@ -2653,6 +2757,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(userAnthropicKey),
         };
         const hasUserKeys = hasProviderCredentials(simulateCredentials);
+        if (serverMode === 'hosted_demo' && !hasUserKeys && fromAnotherSite(req, allowedOrigins)) {
+          writeCrossSiteRefusal(res);
+          return;
+        }
         // Rate limit with BYO-key bypass, matching the /setup pattern.
         // `.check()` alone is advisory; `.record()` consumes the slot.
         if (rateLimiter && !hasUserKeys) {
@@ -2710,6 +2818,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           apiKey: normalizeCredential(apiKey),
           anthropicKey: normalizeCredential(anthropicKey),
         };
+        if (serverMode === 'hosted_demo' &&
+            (!hasProviderCredentials(compileCredentials) || compileUsesHostSearch(body, env)) &&
+            fromAnotherSite(req, allowedOrigins)) {
+          writeCrossSiteRefusal(res);
+          return;
+        }
 
         // A compile lands in the catalog every visitor reads, under the id
         // its JSON carries, so it takes only an id that names nothing yet
@@ -3019,6 +3133,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(anthropicKey),
         };
         const chatUserKey = hasProviderCredentials(chatCredentials);
+        if (serverMode === 'hosted_demo' && !chatUserKey && fromAnotherSite(req, allowedOrigins)) {
+          writeCrossSiteRefusal(res);
+          return;
+        }
 
         // Rate-limit chat per IP per hour. Runs against the host's
         // key unless a session key was provided in the request body,
@@ -3657,6 +3775,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           anthropicKey: normalizeCredential(config.anthropicKey),
         };
         const hasUserKeys = hasProviderCredentials(requestCredentials);
+        if (serverMode === 'hosted_demo' && !hasUserKeys && fromAnotherSite(req, allowedOrigins)) {
+          writeCrossSiteRefusal(res);
+          return;
+        }
         const rateIp = rateLimiter && !hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null;
         /** Answers 429 and returns true when the caller's IP has used its runs of the day. */
         const overTheDay = (): boolean => {

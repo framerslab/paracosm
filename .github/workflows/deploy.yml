@@ -317,7 +317,7 @@ jobs:
           # passes this shell's environment to the app, and pm2 save keeps
           # it for a restart after a reboot.
           pm2 delete paracosm 2>/dev/null || true
-          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip pm2 start "npx tsx src/cli/serve.ts" \
+          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip PARACOSM_ALLOWED_ORIGINS=https://paracosm.agentos.sh pm2 start "npx tsx src/cli/serve.ts" \
             --name paracosm \
             --max-memory-restart 3G \
             --env production
