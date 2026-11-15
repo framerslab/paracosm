@@ -15,6 +15,22 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 - `paracosm dashboard` listens on `127.0.0.1` on a local server; set `HOST` (for example `HOST=0.0.0.0` in a container or for a LAN demo) to listen elsewhere. The hosted demo and the platform API mode listen on every interface unless `HOST` is set.
 - In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential, however the request target that names it is written: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
 
+## Run history in `hosted_demo` mode
+
+In `hosted_demo` mode the run-history routes are off unless `PARACOSM_ENABLE_RUN_HISTORY_ROUTES=true` turns them on. With them on, each visitor reaches their own runs:
+
+- A run is recorded for the visitor who started or imported it. The visitor is the one the `paracosm_visitor` cookie names, the same visitor `GET /sessions` lists saved sessions for. The store keeps a SHA-256 of the visitor id with the run, never the cookie value, and no answer holds it.
+- `GET /api/v1/runs` and `GET /api/v1/runs/aggregate` hold the caller's runs alone; `total`, `hasMore` and every filter work inside them.
+- `GET`, `HEAD`, `/swarm`, `/replay` and `/replay-result` for a run another visitor holds answer exactly as they do for a run id no run has (`404`).
+- `GET /api/v1/bundles/:bundleId` and its `/aggregate` answer with the caller's members of the bundle. A bundle with none of them answers `404`, as a bundle no run is in does.
+- `POST /api/v1/library/import` stores a run as the caller's. A caller that sent no cookie gets a `paracosm_visitor` cookie with the answer. Each import is stored under a run id of the caller's own, made from the caller and the artifact's `metadata.runId`, and the stored copy carries that id in its `metadata.runId`; the response's `runId` is the id to read it by. The same artifact imported twice by one visitor is one run (`alreadyExisted: true` the second time). An artifact whose run id is one of the caller's own runs answers `alreadyExisted: true` with that id. An artifact whose run id another visitor's run holds is imported as any other is. `addToBundle` puts the caller's runs under that bundle id; each visitor reads their own runs in it.
+- A caller that sent no cookie lists no run and reads none.
+- A request that carries the admin credential (`ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header) reaches every run, and its imports keep the run id their artifact carries.
+- A run recorded with no visitor, which is every run recorded before runs had owners, is reached with the admin credential alone.
+- Every answer of these routes carries `Cache-Control: no-store` and `Vary: Cookie`.
+
+A local server and `platform_api` mode answer every caller that reaches the routes with every run.
+
 ## Endpoint index
 
 | Method | Path | Purpose |

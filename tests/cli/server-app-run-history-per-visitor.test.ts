@@ -223,6 +223,14 @@ test('on the hosted demo the run list, the aggregate and a filtered list hold th
     assert.equal(aList.total, aRuns.length, 'A\'s total counts A\'s runs');
     assert.equal(aList.hasMore, false);
 
+    // The answer is its caller's own, so no shared cache keeps it.
+    for (const path of ['/api/v1/runs', '/api/v1/runs/aggregate', `/api/v1/runs/${aRuns[0]}`, `/api/v1/bundles/${aList.runs[0].bundleId}`]) {
+      const res = await a.get(path);
+      assert.equal(res.status, 200, path);
+      assert.equal(res.headers.get('cache-control'), 'no-store', `${path}: not stored by a cache`);
+      assert.equal(res.headers.get('vary'), 'Cookie', `${path}: varies by cookie`);
+    }
+
     const bList = await listRuns(b);
     assert.deepEqual(idsOf(bList), sorted(bRuns), 'B\'s list holds none of A\'s runs and none without an owner');
     assert.equal(bList.total, bRuns.length);
@@ -378,6 +386,7 @@ test('on the hosted demo a run a visitor imports is theirs, also under a run id 
     assert.equal(first.status, 201);
     const firstAnswer = await first.json() as { runId: string };
     assert.ok(newcomer.cookies.get(VISITOR_COOKIE), 'the answer gives the caller a visitor cookie');
+    assert.equal(first.headers.get('cache-control'), 'no-store', 'and is not stored by a cache');
     assert.deepEqual(idsOf(await listRuns(newcomer)), [firstAnswer.runId], 'and the import is listed to them');
     assert.deepEqual(idsOf(await listRuns(api.visitor())), [], 'and to no other caller with no cookie');
 
@@ -425,6 +434,7 @@ test('a local server answers every caller with every run, as before', async () =
       assert.equal((await ask(v, 'HEAD', `/api/v1/runs/${aRun}`)).status, 200);
       assert.equal((await ask(v, 'GET', `/api/v1/runs/${noOwner}`)).status, 200);
     }
+    assert.equal((await a.get('/api/v1/runs')).headers.get('cache-control'), null, 'the list carries no cache header of the hosted demo');
     const aBundle = (await listRuns(a)).runs.find(run => run.runId === aRun)?.bundleId;
     assert.ok(aBundle);
     const bundle = await (await b.get(`/api/v1/bundles/${aBundle}`)).json() as BundleAnswer;

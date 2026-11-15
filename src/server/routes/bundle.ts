@@ -19,6 +19,12 @@ import type { RunRecord } from '../services/run-record.js';
 
 export interface BundleRoutesDeps {
   runHistoryStore: RunHistoryStore;
+  /**
+   * Whose runs the bundle answers with. Absent, every member. Given, the
+   * members that scope reaches; a bundle with none of them answers as a
+   * bundle no run is in.
+   */
+  runScope?: import('../stores/run-history.js').RunScope;
 }
 
 export async function handleListBundle(
@@ -31,7 +37,7 @@ export async function handleListBundle(
     res.end(JSON.stringify({ error: 'bundle queries not supported by this store' }));
     return;
   }
-  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId);
+  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId, deps.runScope);
   if (members.length === 0) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Bundle ${bundleId} has no members` }));
@@ -67,7 +73,7 @@ export async function handleBundleAggregate(
     res.end(JSON.stringify({ error: 'bundle queries not supported' }));
     return;
   }
-  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId);
+  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId, deps.runScope);
   if (members.length === 0) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Bundle ${bundleId} has no members` }));
