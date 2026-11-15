@@ -886,12 +886,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // holds is not counted.
   const maxImportsPerDay = readLimitFromEnv(env, 'PARACOSM_IMPORTS_PER_DAY', 500);
   const importsByAddress = new Map<string, { count: number; resetAt: number }>();
+  const sweepImports = (): void => {
+    const now = Date.now();
+    for (const [address, entry] of importsByAddress) {
+      if (now >= entry.resetAt) importsByAddress.delete(address);
+    }
+  };
+  const importCleanupTimer = setInterval(sweepImports, 60 * 60 * 1000);
+  importCleanupTimer.unref?.();
   const admitImport = (address: string): boolean => {
     const now = Date.now();
     let entry = importsByAddress.get(address);
     if (!entry || now >= entry.resetAt) {
       if (importsByAddress.size >= 10_000) {
-        for (const [key, held] of importsByAddress) if (now >= held.resetAt) importsByAddress.delete(key);
+        sweepImports();
       }
       const resetAt = new Date(now);
       resetAt.setUTCHours(24, 0, 0, 0);
@@ -3822,7 +3830,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         });
         if (rateLimiter && rateIp !== null) {
           rateLimiter.record(rateIp);
-          console.log(`  [rate-limit] /setup: ${rateLimiter.check(rateIp).remaining} remaining of ${maxSims}`);
+          const { remaining } = rateLimiter.check(rateIp);
+          console.log(`  [rate-limit] /setup: ${remaining} remaining of ${maxSims}`);
         } else if (hasUserKeys) {
           console.log(`  [rate-limit] Bypassed — user provided API keys`);
         }
@@ -4409,6 +4418,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // Clean up on server close: the rate limiter's timers, and the live runs'
   // pending writes (flushed, so a restart reads every run back) and timers.
   (server as Server).on('close', () => {
+    clearInterval(importCleanupTimer);
     if (rateLimiter) rateLimiter.destroy();
     liveRuns.close();
   });

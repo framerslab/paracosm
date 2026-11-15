@@ -376,6 +376,8 @@ export class WorldModel {
    */
   async simulate(
     opts: SimulateOptions,
+    /** Optional engine implementation; fork runners retain the same resume handling. */
+    runSimulationImpl: typeof runSimulation = runSimulation,
   ): Promise<RunArtifact> {
     const { actor, keyPersonnel = [], ...options } = opts;
     const resumeFrom = this._pendingResumeFrom;
@@ -402,7 +404,7 @@ export class WorldModel {
     this._pendingForkedFrom = undefined;
     this._pendingResumeFrom = undefined;
 
-    const artifact = await runSimulation(actor, keyPersonnel, mergedOpts as RunOptions);
+    const artifact = await runSimulationImpl(actor, keyPersonnel, mergedOpts as RunOptions);
     this._lastRunId = artifact.metadata.runId;
 
     // Pull the terminal kernel snapshot from the artifact's embedded

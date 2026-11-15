@@ -261,11 +261,13 @@ export async function runPairSimulations(
    */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
   runnerOptions: RunnerOptions = {},
+  /** Optional engine implementation; defaults to the runtime orchestrator. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
 
-  const { runSimulation } = await import('../runtime/orchestrator/index.js');
+  const runSimulation = runSimulationImpl ?? (await import('../runtime/orchestrator/index.js')).runSimulation;
   // Per-actor SSE channels: pull leader from each event so subscribers
   // on /events?actor=<leaderName> can filter the stream server-side.
   // Orchestrator emits events with `{ type, leader: leader.name, data }`
@@ -405,6 +407,8 @@ export async function runForkSimulation(
   /** Optional callback fired after the forked artifact completes. */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
   runnerOptions: RunnerOptions = {},
+  /** Optional engine implementation; defaults to the runtime orchestrator. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
 ): Promise<void> {
   if (!simConfig.forkFrom) {
     throw new Error('runForkSimulation called without simConfig.forkFrom set');
@@ -477,7 +481,7 @@ export async function runForkSimulation(
       cohereKey: simConfig.cohereKey,
       outputDir: runnerOptions.outputDir,
       searchEnv: runnerOptions.searchEnv,
-    });
+    }, runSimulationImpl);
     broadcast('result', {
       leader: leaderTag(leader, 0),
       summary: {

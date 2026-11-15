@@ -378,7 +378,9 @@ test('the privacy section names the address record and when it ends', () => {
   assert.match(privacy, /compile on your own model key.*site.s web search.*reads a page through it/);
   assert.match(privacy, /next UTC midnight/);
   assert.match(privacy, /next UTC hour for chat/);
-  assert.match(privacy, /deletes ended counts within the hour, from memory and from its saved copy/);
-  assert.match(privacy, /runs or live views.*open.*holds your address.*how many.*at once/);
+  assert.match(privacy, /deletes ended counts from memory at its hourly cleanup.*updates its saved copy/);
+  assert.match(privacy, /clears ended counts from the saved copy when it starts/);
+  assert.match(privacy, /holds your address.*simultaneous runs on your own model key and open live views/);
+  assert.match(privacy, /until the run is dropped or the view closes/);
   assert.doesNotMatch(privacy, /milliseconds/);
 });
