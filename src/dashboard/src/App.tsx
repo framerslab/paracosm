@@ -3,7 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
-import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from './admin-token';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -192,7 +192,11 @@ function AppContent() {
   const replaySessionId = useReplaySessionId();
   // The live feed shows a run only in the page's scenario: the server holds
   // one run for every visitor, whichever scenario each one picked.
-  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null });
+  // What the page does when the server says it let go of the run the page
+  // shows (run_cleared). Set below, where the Digital Twin's state is.
+  const runClearedRef = useRef<(runKey: string) => void>(() => {});
+  const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
+  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
   const [tourActive, setTourActive] = useState(false);
 
   // Global verdict banner. Closable by the user; dismissal is keyed
@@ -350,6 +354,18 @@ function AppContent() {
   // dropped: the server goes on with the twin and still answers, and that
   // late answer would put the panel back over what the page shows since.
   const twinRunKeyRef = useRef<string | null>(null);
+  // The key of the run whose result the panel shows, null when it shows
+  // none. The result is a view of that run. When the server says it let go
+  // of the run (run_cleared: Delete server data, the visitor's Clear local
+  // data in another tab, the server's held-run caps), the result leaves the
+  // page with the feed's other views of the run: the server holds nothing
+  // of it to show again.
+  const twinResultKeyRef = useRef<string | null>(null);
+  runClearedRef.current = (runKey: string) => {
+    if (runKey !== twinResultKeyRef.current) return;
+    twinResultKeyRef.current = null;
+    setInterventionArtifact(null);
+  };
   // Leaves the Digital Twin views on the SIM tab for what replaces them: a
   // run the server took from one of the page's Run controls, a Quickstart
   // launch, a run loaded from a file or from history, or a clear of the
@@ -358,6 +374,7 @@ function AppContent() {
   const { leaveOwnRun } = sse;
   const leaveDigitalTwin = useCallback(() => {
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
     leaveOwnRun();
@@ -433,46 +450,84 @@ function AppContent() {
     },
   });
 
-  const handleClear = useCallback(async () => {
-    // End-user wipe path: clears every browser-side cache the dashboard
-    // owns (localStorage event cache, SSE in-memory state, the
-    // user-triggered-run gate). The server-side /admin/data/wipe call is
-    // ONLY attempted when the operator has previously stored an admin
-    // token in this browser — because /admin/data/wipe requires
-    // X-Admin-Token, prompting an end user for a value they cannot
-    // possibly have was both confusing and a security smell (it surfaced
-    // the exact env-var name + .env path inside a window.prompt).
-    //
-    // Token-bearing operators still get the full server wipe with no
-    // prompt: enter the token once in Settings (the Admin Token field,
-    // kept under the localStorage key `paracosm:adminToken`), and every
-    // subsequent Wipe All click does both the local + server pass automatically.
-    //
-    // The token is read before the question, so the question says what
-    // this click does: with a token saved, the server wipe below runs too.
-    const adminToken = readAdminToken();
+  const handleClear = useCallback(() => {
+    // Clears every browser-side cache the dashboard owns (localStorage
+    // event cache, SSE in-memory state, the user-triggered-run gate), with
+    // an admin token saved or not. On the server it touches only this
+    // browser's own run: POST /clear lets go of it, and stops it when it
+    // is running, so a reload does not replay the events just
+    // cleared. The question says so. Run history, saved sessions and
+    // output files are Delete server data's, a separate item in the same
+    // menu (handleWipeServer below).
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      (adminToken
-        ? 'An admin token is saved in this browser, so this also asks the server to delete its stored runs, saved sessions and run output files, for every visitor.\n\n'
-        : 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n') +
+      "It also lets go of this browser's run on the server, and stops it if it is running.\n\n" +
+      'Run history, saved sessions, and on-disk artifact files are kept.\n\n' +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
+    toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+    setActiveTab('settings');
+  }, [persistence, sse, toast, leaveDigitalTwin]);
 
-    if (!adminToken) {
-      // No admin context. Tell the user what we did + did NOT do, and
-      // route them to Settings where the rest of the cleanup options
-      // live (per-scenario reset, key-only wipe, etc.).
-      toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+  // Delete server data shows only where the server takes admin writes and
+  // this browser holds an admin token. The token is watched (Settings saves
+  // and clears it, a refused call clears it); /admin-config is asked once a
+  // token is there, so a browser without one sends no extra request.
+  const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
+  useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
+  // A request that fails, or is answered with an error, is asked again the
+  // next time the run actions menu opens, so one failed request does not
+  // hide the item for the rest of the page load.
+  const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
+  const [adminConfigAsk, setAdminConfigAsk] = useState(0);
+  const adminConfigFailedRef = useRef(false);
+  useEffect(() => {
+    if (!adminTokenSaved || serverAdminWrite !== null) return;
+    let live = true;
+    adminConfigFailedRef.current = false;
+    fetch('/admin-config')
+      .then(res => (res.ok ? res.json() : null))
+      .then((config: { adminWrite?: unknown } | null) => {
+        if (!live) return;
+        if (config) setServerAdminWrite(config.adminWrite === true);
+        else adminConfigFailedRef.current = true;
+      })
+      .catch(() => { if (live) adminConfigFailedRef.current = true; });
+    return () => { live = false; };
+  }, [adminTokenSaved, serverAdminWrite, adminConfigAsk]);
+  const handleRunActionsOpen = useCallback(() => {
+    if (!adminConfigFailedRef.current) return;
+    adminConfigFailedRef.current = false;
+    setAdminConfigAsk(n => n + 1);
+  }, []);
+
+  const handleWipeServer = useCallback(async () => {
+    // The server wipe, POST /admin/data/wipe with the admin token: the
+    // server's stored runs, saved sessions and run output files, for every
+    // visitor. It also drops every finished run the server holds for the
+    // live feed, and tells each page showing one (run_cleared), this page
+    // included, so those views empty: a page left showing a run the server
+    // has deleted would show data the wipe was asked to remove, and could
+    // not reload it. The question says so. Runs in progress are kept.
+    // This browser's cached data is Clear local data's.
+    const adminToken = readAdminToken();
+    if (!adminToken) return;
+    if (!confirm(
+      'Delete server data? This asks the server to delete its stored runs, saved sessions and run output files, for every visitor of this server, not only this browser.\n\n' +
+      'Pages showing a finished run this server holds, this one included, empty their view of it. A run in progress keeps running.\n\n' +
+      "Clear local data, a separate item, clears this browser's cached data.\n\n" +
+      'Cannot be undone.',
+    )) return;
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      toast('info', 'Server data kept', unsendable);
       setActiveTab('settings');
       return;
     }
-
-    // Operator path: token already stored, attempt the full server wipe.
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
@@ -483,31 +538,53 @@ function AppContent() {
         const body = await res.json() as { wiped: { runs: number; sessions: number; outputFiles: number } };
         toast(
           'info',
-          'Wiped',
-          `Local + ${body.wiped.runs} runs + ${body.wiped.sessions} sessions + ${body.wiped.outputFiles} files cleared.`,
+          'Server data deleted',
+          `${body.wiped.runs} runs, ${body.wiped.sessions} sessions and ${body.wiped.outputFiles} files deleted on the server.`,
         );
       } else if (res.status === 401) {
-        // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so the next entry isn't fighting a stale one, then
-        // surface the failure as info (local already cleared) with
-        // where the token is entered. A token entered since the request
-        // went out is not the refused one, and stays.
+        // The token no longer matches the server's ADMIN_TOKEN: drop it and
+        // say where it is entered. A token entered since the request went
+        // out is not the refused one, and stays; the words say which.
         clearAdminToken(adminToken);
-        toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
+        toast(
+          'info',
+          'Server data kept',
+          readAdminToken()
+            ? 'Server data not deleted: the server refused the admin token this request was sent with. A newer token is saved in this browser; choose Delete server data again to try with it.'
+            : `Server data not deleted: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`,
+        );
       } else if (res.status === 403) {
-        // Server has admin-write disabled. Local clear stands.
-        toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
+        toast('info', 'Server data kept', 'Admin writes are off on this server.');
       } else if (res.status === 503) {
-        toast('info', 'Local data cleared', 'Server-side wipe configured but no ADMIN_TOKEN set on the server.');
+        toast('info', 'Server data kept', 'Admin writes are on but no ADMIN_TOKEN is set on the server.');
       } else {
         const err = await res.json().catch(() => ({} as { error?: string }));
-        toast('info', 'Local data cleared', `Server-side wipe failed: ${err.error ?? `HTTP ${res.status}`}`);
+        const detail = err.error ?? `HTTP ${res.status}`;
+        if (res.status >= 500) {
+          // An error of the server's own. The wipe deletes store by store
+          // and restores nothing, so what it deleted before the error
+          // stays deleted: the data is not reported as kept.
+          toast(
+            'error',
+            'Server error while deleting',
+            `The server reported an error while deleting (${detail}). It may have deleted some of its data before the error.`,
+          );
+        } else {
+          toast('info', 'Server data kept', `Server data not deleted: ${detail}`);
+        }
       }
     } catch (err) {
-      toast('info', 'Local data cleared', `Server-side wipe failed: ${err instanceof Error ? err.message : String(err)}`);
+      // The request did not complete, or its answer could not be read. The
+      // server may have deleted its data all the same, so neither outcome
+      // is claimed.
+      toast(
+        'info',
+        'Deletion not confirmed',
+        `Whether the server's data was deleted is not known: its answer did not arrive or could not be read (${err instanceof Error ? err.message : String(err)}).`,
+      );
     }
     setActiveTab('settings');
-  }, [persistence, sse, toast, leaveDigitalTwin]);
+  }, [toast]);
 
   // Local dismiss flag for the provider-error banner. Lives outside useSSE
   // so dismissing hides the current banner without clearing the underlying
@@ -808,6 +885,7 @@ function AppContent() {
     const cleared = sse.reset();
     sse.followRun(payload.runKey);
     twinRunKeyRef.current = payload.runKey;
+    twinResultKeyRef.current = null;
     setInterventionArtifact(null);
     setInterventionRunning(payload);
     setUserTriggeredRun(true);
@@ -817,6 +895,7 @@ function AppContent() {
   const handleInterventionResult = useCallback((artifact: RunArtifact, runKey: string) => {
     if (runKey !== twinRunKeyRef.current) return;
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = runKey;
     setInterventionRunning(null);
     setInterventionArtifact(artifact);
     setUserTriggeredRun(true);
@@ -824,6 +903,7 @@ function AppContent() {
   }, [setActiveTab]);
   const handleInterventionDismiss = useCallback(() => {
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
     sse.leaveOwnRun();
@@ -984,6 +1064,8 @@ function AppContent() {
             onSave={handleSave}
             onLoad={handleLoad}
             onClear={handleClear}
+            onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
+            onRunActionsOpen={handleRunActionsOpen}
             onRun={handleRun}
             onTour={handleTourStart}
             onCopy={handleCopySummary}
@@ -995,8 +1077,11 @@ function AppContent() {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
               // state (which feeds Sim/Constellation/EventLog), and
-              // the userTriggeredRun toast gate. Doesn't touch server
-              // data; that's what Wipe All is for.
+              // the userTriggeredRun toast gate. On the server, as Clear
+              // local data in the run actions menu, POST /clear lets go of
+              // this browser's run and stops it while it runs. Run
+              // history, saved sessions and output files are Delete server
+              // data's, in the run actions menu.
               history.clear();
               persistence.clearCache();
               leaveDigitalTwin();
