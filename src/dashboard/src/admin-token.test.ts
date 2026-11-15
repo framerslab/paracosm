@@ -10,8 +10,8 @@ import {
 // A request header carries U+0020 to U+007E and U+00A0 to U+00FF; fetch
 // throws on anything else. The edges of both ranges, and the characters
 // just outside them, decide what Save keeps.
-const SENDABLE_EDGES = [' ', '~', ' ', 'ÿ'];
-const UNSENDABLE_EDGES = ['\u001F', '\u007F', '\u0080', '\u009F', 'Ā', '€', '😀'];
+const SENDABLE_EDGES = ['\u0020', '\u007E', '\u00A0', '\u00FF'];
+const UNSENDABLE_EDGES = ['\u001F', '\u007F', '\u0080', '\u009F', '\u0100', '\u20AC', '\u{1F600}'];
 
 test('a token may hold the edge characters of both header ranges', () => {
   for (const ch of SENDABLE_EDGES) {

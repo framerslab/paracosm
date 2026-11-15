@@ -15,7 +15,7 @@
  * run. The last test reads the default server, which runs with admin writes
  * off.
  */
-import { test, expect, type Locator, type Page, type Request } from '@playwright/test';
+import { test, expect, type Browser, type Locator, type Page, type Request } from '@playwright/test';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -54,6 +54,18 @@ const CLEAR_QUESTION = 'Clear local data? This wipes the in-browser simulation b
 /** What a scenario's details say when the server refused an older token and a newer one is saved. */
 const refusedWithNewerToken = (call: string, button: string) =>
   `The server refused the admin token this ${call} was sent with. A newer token is saved in this browser; press ${button} to try again with it.`;
+/**
+ * The question Delete server data asks. The wipe drops every finished run
+ * the server holds, and the pages showing one are told, so the question
+ * says what happens to this page's view and to every other page's.
+ */
+const WIPE_QUESTION = 'Delete server data? This asks the server to delete its stored runs, saved sessions and run output files, for every visitor of this server, not only this browser.\n\n'
+  + 'Pages showing a finished run this server holds, this one included, empty their view of it. A run in progress keeps running.\n\n'
+  + "Clear local data, a separate item, clears this browser's cached data.\n\n"
+  + 'Cannot be undone.';
+/** Delete server data refused for an older token while a newer one is saved. */
+const WIPE_REFUSED_WITH_NEWER_TOKEN = 'Server data not deleted: the server refused the admin token this request was sent with. '
+  + 'A newer token is saved in this browser; choose Delete server data again to try with it.';
 /** Delete server data, when the server's answer did not arrive or could not be read. */
 const WIPE_NOT_KNOWN = /Whether the server's data was deleted is not known/;
 /** The compiled scenario tests-e2e/support/admin-write-server.ts plants. */
@@ -100,6 +112,8 @@ function recordRequests(page: Page): Request[] {
 
 const isDiskWrite = (request: Request) => request.method() === 'POST' && new URL(request.url()).pathname === '/scenario/store';
 const isServerWipe = (request: Request) => new URL(request.url()).pathname === '/admin/data/wipe';
+const isRename = (request: Request) => request.method() === 'POST' && new URL(request.url()).pathname === `/scenarios/${COMPILED_ID}/rename`;
+const isScenarioDelete = (request: Request) => request.method() === 'DELETE' && new URL(request.url()).pathname === `/admin/scenarios/${COMPILED_ID}`;
 
 /** Saves `token` through the field in Settings. */
 async function saveTokenInSettings(page: Page, token: string): Promise<void> {
@@ -123,6 +137,34 @@ async function openCompiledDetails(page: Page): Promise<Locator> {
   const details = page.getByRole('dialog', { name: `Scenario detail: ${COMPILED_NAME}` });
   await expect(details).toBeVisible();
   return details;
+}
+
+/** Runs `body` on a page of a new touch-screen context of `viewport`, closed after. */
+async function withTouchPage(browser: Browser, viewport: { width: number; height: number }, body: (page: Page) => Promise<void>): Promise<void> {
+  const context = await browser.newContext({ viewport, hasTouch: true });
+  try {
+    await body(await context.newPage());
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * The open run actions menu, with a token saved and no run: Clear local data
+ * then Delete server data, in one column, each with text of 14 px or more
+ * and at least `minTargetPx` tall.
+ */
+async function expectRunActionsMenu(page: Page, { minTargetPx }: { minTargetPx: number }): Promise<void> {
+  const items = page.getByRole('menuitem');
+  await expect(items).toHaveText(['Clear local data', 'Delete server data']);
+  const first = (await items.first().boundingBox())!;
+  for (const item of await items.all()) {
+    const name = (await item.textContent()) ?? '';
+    const found = (await item.boundingBox())!;
+    expect(Math.abs(found.x - first.x), `${name}: one column`).toBeLessThanOrEqual(1);
+    expect(await item.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize)), `${name}: text size`).toBeGreaterThanOrEqual(14);
+    expect(found.height, `${name}: target height`).toBeGreaterThanOrEqual(minTargetPx);
+  }
 }
 
 /**
@@ -330,11 +372,10 @@ test.describe('Admin token field @admin', () => {
     expect(deleteBox.y, 'below Clear local data').toBeGreaterThanOrEqual(clearBox.y + clearBox.height);
     expect(Math.abs(deleteBox.height - clearBox.height), 'one line, as Clear local data').toBeLessThanOrEqual(1);
 
-    // Declined: its question names what it deletes and for whom, and nothing is sent.
+    // Declined: its question names what it deletes, for whom, and what happens to the pages showing a finished run, and nothing is sent.
     await deleteServerData(page).click();
     await expect.poll(() => questions.length).toBe(1);
-    expect(questions[0]).toContain('asks the server to delete its stored runs, saved sessions and run output files, for every visitor');
-    expect(questions[0]).not.toContain('are kept.\n');
+    expect(questions[0]).toBe(WIPE_QUESTION);
     expect(requests.filter(isServerWipe)).toEqual([]);
     expect(await storedToken(page)).toBe(WRONG);
 
@@ -349,6 +390,7 @@ test.describe('Admin token field @admin', () => {
   });
 
   test('a rename refused for its token drops that token, says where to enter it, and keeps the name', async ({ page }) => {
+    const requests = recordRequests(page);
     await saveTokenInSettings(page, WRONG);
     const details = await openCompiledDetails(page);
 
@@ -357,8 +399,12 @@ test.describe('Admin token field @admin', () => {
     await details.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect(details.getByRole('alert')).toHaveText(REFUSED_IN_DRAWER);
-    // With no token left the open form's Save cannot send anything, so it is off.
-    await expect(details.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    // The one rename carried the token the server refused.
+    expect(requests.filter(isRename).map(request => request.headers()['x-admin-token'])).toEqual([WRONG]);
+    // With no token left the open form's Save cannot send anything, so it is off, and says why.
+    const save = details.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveAccessibleDescription(REFUSED_IN_DRAWER);
     expect(await storedToken(page)).toBeNull();
     expect(await compiledName(page)).toBe(COMPILED_NAME);
   });
@@ -423,12 +469,15 @@ test.describe('Admin token field @admin', () => {
 
   test('a delete refused for its token drops that token, says where to enter it, and keeps the scenario', async ({ page }) => {
     page.on('dialog', dialog => void dialog.accept());
+    const requests = recordRequests(page);
     await saveTokenInSettings(page, WRONG);
     const details = await openCompiledDetails(page);
 
     await details.getByRole('button', { name: `Delete scenario ${COMPILED_NAME}` }).click();
 
     await expect(details.getByRole('alert')).toHaveText(REFUSED_IN_DRAWER);
+    // The one delete carried the token the server refused.
+    expect(requests.filter(isScenarioDelete).map(request => request.headers()['x-admin-token'])).toEqual([WRONG]);
     await expect(details.getByRole('button', { name: `Delete scenario ${COMPILED_NAME}` })).toHaveCount(0);
     expect(await storedToken(page)).toBeNull();
     expect(await compiledName(page)).toBe(COMPILED_NAME);
@@ -446,7 +495,58 @@ test.describe('Admin token field @admin', () => {
     await expect(page.getByText(/Server data not deleted/)).toHaveCount(0);
   });
 
-  test('Delete server data shows once a failed admin-config request is asked again', async ({ page }) => {
+  test('Delete server data refused after a newer token was saved keeps that token and says so', async ({ page }) => {
+    page.on('dialog', dialog => void dialog.accept());
+    // The wipe is held on its way out, then reaches the server, which refuses its token.
+    let letGo!: () => void;
+    const heldBack = new Promise<void>(resolve => { letGo = resolve; });
+    const sent: Array<string | undefined> = [];
+    await page.route(`${ADMIN_BASE}/admin/data/wipe`, async route => {
+      sent.push(route.request().headers()['x-admin-token']);
+      await heldBack;
+      await route.continue();
+    });
+    await saveTokenInSettings(page, WRONG);
+    await runActions(page).click();
+    await deleteServerData(page).click();
+    await expect.poll(() => sent).toEqual([WRONG]);
+
+    // A newer token is saved while the wipe is out, as another tab of this browser saves one.
+    await page.evaluate(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, TOKEN] as const);
+    letGo();
+    await expect(page.getByText(WIPE_REFUSED_WITH_NEWER_TOKEN).first()).toBeVisible();
+    await expect(page.getByText(/has been cleared/)).toHaveCount(0);
+    expect(await storedToken(page)).toBe(TOKEN);
+  });
+
+  test('the run actions menu has text of 14 px or more, and on a touch screen held sideways it and the token field have 44 px targets', async ({ page, browser }) => {
+    // With a mouse, at the desktop width: the menu's items keep their order and column, with 14 px text.
+    await saveTokenInSettings(page, WRONG);
+    await runActions(page).click();
+    await expect(deleteServerData(page)).toBeVisible();
+    await expectRunActionsMenu(page, { minTargetPx: 0 });
+
+    // A phone held sideways, 852 by 393: wider than 768 px, with a coarse pointer.
+    await withTouchPage(browser, { width: 852, height: 393 }, async touch => {
+      await touch.addInitScript(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, WRONG] as const);
+      await openSettings(touch, ADMIN_BASE);
+      expect(await touch.evaluate(() => window.matchMedia('(pointer: coarse)').matches), 'the page sees a coarse pointer').toBe(true);
+
+      await tokenInput(touch).scrollIntoViewIfNeeded();
+      const input = (await tokenInput(touch).boundingBox())!;
+      for (const [name, control] of [['the token input', tokenInput(touch)], ['Save', saveToken(touch)], ['Clear', clearToken(touch)]] as const) {
+        const found = (await control.boundingBox())!;
+        expect(found.height, `852px touch: ${name} is a 44 px target`).toBeGreaterThanOrEqual(44);
+        expect(Math.abs(found.y - input.y), `852px touch: ${name} on the input's row`).toBeLessThanOrEqual(1);
+      }
+
+      await runActions(touch).click();
+      await expect(deleteServerData(touch)).toBeVisible();
+      await expectRunActionsMenu(touch, { minTargetPx: 44 });
+    });
+  });
+
+  test('Delete server data shows once a failed admin-config request is asked again when the menu opens', async ({ page }) => {
     // A token is saved before the page loads, and every admin-config request of that load fails.
     await page.addInitScript(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, WRONG] as const);
     let failing = true;
@@ -463,12 +563,11 @@ test.describe('Admin token field @admin', () => {
     await expect(deleteServerData(page)).toHaveCount(0);
     await closeRunActions(page).click();
 
-    // The server answers again, and the page asks again when its window has focus.
+    // The server answers again, and the page asks again the next time the menu opens.
     failing = false;
     const before = asked;
-    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect.poll(() => asked).toBeGreaterThan(before);
     await runActions(page).click();
+    await expect.poll(() => asked).toBeGreaterThan(before);
     await expect(deleteServerData(page)).toBeVisible();
   });
 
