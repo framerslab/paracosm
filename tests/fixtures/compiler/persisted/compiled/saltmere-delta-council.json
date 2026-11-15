@@ -1,0 +1,379 @@
+{
+  "id": "saltmere-delta-council",
+  "version": "1.0.0",
+  "engineArchetype": "closed_turn_based_settlement",
+  "labels": {
+    "name": "Saltmere: Council on the Rising Tide",
+    "shortName": "saltmere-delta-council",
+    "populationNoun": "residents",
+    "settlementNoun": "town",
+    "currency": "credits",
+    "actorNoun": "councilor",
+    "actorNounPlural": "councilors",
+    "timeUnitNoun": "year"
+  },
+  "theme": "A river-delta town survives on rationed water, fragile sea defenses, and cooperative eel farming while old and new families compete for a future on the rising coast.",
+  "setup": {
+    "defaultTurns": 6,
+    "defaultPopulation": 140,
+    "defaultStartTime": 0,
+    "mortalityDice": "life"
+  },
+  "world": {
+    "metrics": {
+      "fresh-water": {
+        "id": "fresh-water",
+        "label": "Fresh water",
+        "unit": "m3",
+        "type": "number",
+        "initial": 120,
+        "min": 0,
+        "max": 300,
+        "category": "metric",
+        "sustains": true
+      },
+      "seawall-integrity": {
+        "id": "seawall-integrity",
+        "label": "Seawall integrity",
+        "unit": "%",
+        "type": "number",
+        "initial": 78,
+        "min": 0,
+        "max": 100,
+        "category": "metric"
+      },
+      "eel-harvest": {
+        "id": "eel-harvest",
+        "label": "Eel harvest",
+        "unit": "tonnes",
+        "type": "number",
+        "initial": 18,
+        "min": 0,
+        "max": 60,
+        "category": "metric"
+      },
+      "trust": {
+        "id": "trust",
+        "label": "Trust in the council",
+        "unit": "%",
+        "type": "number",
+        "initial": 54,
+        "min": 0,
+        "max": 100,
+        "category": "metric"
+      }
+    },
+    "capacities": {},
+    "statuses": {},
+    "politics": {},
+    "environment": {}
+  },
+  "departments": [
+    {
+      "id": "water-works",
+      "label": "Water Works",
+      "role": "Water rationing",
+      "instructions": "Protect cistern levels, schedule desalination, and cut waste before shortages bite."
+    },
+    {
+      "id": "seawall-crew",
+      "label": "Seawall Crew",
+      "role": "Defenses and repairs",
+      "instructions": "Inspect stilts, patch the seawall, and reinforce weak points before storm season."
+    },
+    {
+      "id": "harvest-office",
+      "label": "Harvest Office",
+      "role": "Food production",
+      "instructions": "Run eel farms efficiently, balance feed and labor, and keep harvests steady."
+    },
+    {
+      "id": "civic-assembly",
+      "label": "Civic Assembly",
+      "role": "Public trust and disputes",
+      "instructions": "Broker compromises between families, explain hard choices, and keep trust from fraying."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "fresh-water",
+      "label": "Fresh water",
+      "source": "metrics.fresh-water",
+      "format": "number",
+      "better": "higher"
+    },
+    {
+      "id": "seawall-integrity",
+      "label": "Seawall integrity",
+      "source": "metrics.seawall-integrity",
+      "format": "percent",
+      "better": "higher"
+    },
+    {
+      "id": "eel-harvest",
+      "label": "Eel harvest",
+      "source": "metrics.eel-harvest",
+      "format": "number",
+      "better": "higher"
+    },
+    {
+      "id": "trust",
+      "label": "Trust in the council",
+      "source": "metrics.trust",
+      "format": "percent",
+      "better": "higher"
+    }
+  ],
+  "events": [],
+  "effects": [
+    {
+      "id": "category_effects",
+      "type": "category_outcome",
+      "label": "Category Outcome Effects",
+      "categoryDefaults": {
+        "water-rationing": {
+          "fresh-water": 10,
+          "trust": -3.833333
+        },
+        "storm-repair": {
+          "seawall-integrity": 1.833333,
+          "fresh-water": -6
+        },
+        "harvest-boost": {
+          "eel-harvest": 1.5,
+          "trust": -2
+        },
+        "community-reconciliation": {
+          "trust": 3.833333,
+          "eel-harvest": -1,
+          "fresh-water": -2
+        },
+        "desalination-effort": {
+          "fresh-water": 8,
+          "seawall-integrity": -1.833333
+        },
+        "storm-season": {
+          "seawall-integrity": -1.833333,
+          "fresh-water": -5,
+          "trust": -3,
+          "eel-harvest": 0.9
+        }
+      }
+    }
+  ],
+  "ui": {
+    "headerMetrics": [
+      {
+        "id": "fresh-water",
+        "format": "number"
+      },
+      {
+        "id": "seawall-integrity",
+        "format": "percent"
+      },
+      {
+        "id": "eel-harvest",
+        "format": "number"
+      },
+      {
+        "id": "trust",
+        "format": "percent"
+      }
+    ],
+    "tooltipFields": [],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome"
+    ],
+    "departmentIcons": {},
+    "setupSections": [
+      "actors",
+      "departments",
+      "models"
+    ],
+    "eventRenderers": {}
+  },
+  "knowledge": {
+    "topics": {
+      "coastal adaptation and sea-level rise": {
+        "canonicalFacts": [
+          {
+            "claim": "Saltmere is a river-delta town that was rebuilt on stilts after the sea rose.",
+            "source": "Seed document",
+            "url": ""
+          },
+          {
+            "claim": "The Saltmere Tide Plan is written for the people who decide where the town builds: the council's four offices, the pile wrights, the cistern keepers and the two wardens who walk the seawall. Householders, the eel farmers and the school on the east walkway may also find it useful for its planning steps, its list of possible measures and its list of the town's own records. The plan is meant to guide choices about decks, walkways, moorings and stores, so that the town can go on living where it stands as the water rises. It is the council's attempt to stay ahead of the tides with one clear method and with tables that are corrected after every storm season. It does not change or replace any standing rule of the assembly, such as the water ration or the rule on who may moor at the barge quay.\n\nPart five of the plan lists the measures the town can choose from, and the principles for sharing their cost fairly between the old fishing families and the newcomers. A stretch of walkway, a group of households or a store that the tide can reach may need more than one measure, one for the next few years and one for the longer run. Which ones depends on how hard the water strikes there, how much risk the households will accept, what they can afford and how many years ahead the council is planning. The council may write an action plan for a single reach of the town that names the measures chosen and who will carry them out. Such a plan is to be drawn up in open meetings on that reach, held at low water so that the fishing crews can attend.\n\nThe plan lists the town's records it draws on. The tide board readings, kept daily since the first year after the rebuilding. The pile survey of year 4, which measured every one of the town's 612 piles. The assembly's resolution of year 6 on shared decks. The seawall wardens' storm log, begun in year 2. The cistern ledger, which records each of the four cisterns by the week. The harvest office's tally of eel pens lost to surge, begun in year 5.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "In Saltmere, adapting means adjusting the town, year by year, to the water as it is and as it is expected to be, so that a storm season costs fewer decks, fewer stores and less fresh water than the one before. The council counts three pressures under that word: higher spring tides, heavier rain in the storm season, and longer dry spells between. All three are already measured on the tide board and in the cistern ledger, and the council expects each to grow. For the town this mostly means managing flood water and fresh water as one system instead of two.\n\nThe ground under Saltmere is soft and it moves. In the delta as it was, each river flood laid down silt that built up the banks and the mudflats. Since the upstream channels were closed and the town's piles and walkways slowed the flow, far less silt settles under the town, and the mud that carries the piles compacts under their weight. The pile survey found that the deck line had dropped by an average of 9 millimetres a year against the tide board's fixed mark, and by as much as 14 millimetres a year along the oldest row. Drawing brackish water from the shallow wells made this worse while it lasted: the mud dried and shrank, and two walkways cracked at their joints. The sinking of the ground adds to the rise of the sea, so the rise the town must plan for is the sum of the two. The tide board shows the sea itself rising by about 6 millimetres a year, which gives Saltmere a combined rise of about 15 millimetres a year at the deck line. As the salt water pushes further in, it also reaches the shallow wells, which is why the town now drinks only what the barge makes and what the cisterns catch.\n\nThe council's plan names seven practices for a town in this position. Treat the decks, the channels and the water stores as one system. Bring the households of each reach into the planning of that reach. Catch rain from every roof and lead it to a cistern. Stop pumping the shallow wells and watch the deck line each spring. Keep a yearly balance of fresh water made, caught, used and lost. Plan for a storm and a dry spell falling in the same year. Set aside a fixed share of each harvest for the works that pay back only after many years. For each practice the plan describes one reach of the town where it has been tried, with what it cost and what it saved.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "A survey of the stilt houses of Saltmere, made by the pile wrights for the council, set out to describe how the houses are built to live with flood water. It covered all 41 dwellings and the 9 shared stores. The survey found that the houses raised by the old fishing families before the rebuilding had been shaped to the tides by long practice, and that their features had since been copied in the houses built for the newcomers. From the survey the wrights drew a list of features that a new house in the town should have.\n\nEarlier counts of the town's buildings had recorded only sizes and materials, without asking how well each kind of house came through a flood. The wrights sorted the dwellings into four kinds: the boat house, which is a hull moored between four posts; the floating house, built on sealed casks and tied to a pile so that it rises with the water; the full stilt house, which stands on piles over the channel; and the half house, with its landward side on the old levee and its seaward side on piles. Of the 41 dwellings, 3 are boat houses, 6 are floating houses, 27 are full stilt houses and 5 are half houses.\n\nThe full stilt house is the town's own pattern. Its living deck stands 2.8 metres above the mean spring tide, which is 0.6 metres above the highest surge marked on the tide board. Below it hangs a slatted work deck, 1.2 metres lower, which is meant to flood: nets, pots and eel traps are kept there and lifted when the storm flag goes up. The piles are driven in pairs and braced with a cross tie above the high water line, so that a floating log strikes the tie and not the pile. The walls of the lower store are loose boards that lift out, so that a surge passes through instead of pushing against them. There is little furniture, and what there is hangs from the roof beams or folds against the wall. Each roof drains to a barrel of 400 litres, and the overflow runs by a covered gutter to the nearest cistern.\n\nThe survey judged that the half houses came through floods worst, because the levee side settles more slowly than the piled side and the frame twists. It advised that no more be built, and that the five standing be watched each spring. It also found that the houses built in a hurry for the first newcomers stood on single piles without ties, and that 11 of them had since been braced. The wrights used the list of features to draw a sample house for the town, which the council adopted as the pattern for any new dwelling.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "This count records how far the residents of Saltmere backed a new winter mooring for the desalination barge, in a vote of the assembly in year 7.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "Key features of the barge include:\n\n• Two membrane racks that can be run singly or together, so that output follows what the town needs.\n\n• A test tap that is sampled at every watch, with the salt reading chalked on the board by the gangway.\n\n• A holding tank of 12 cubic metres on board, and a hose line that delivers straight to any of the four cisterns.\n\nSaltmere has neither the ground nor the means to build a fixed plant on shore.\n\nBecause the barge floats, it can be moved to:\n\n• The north quay, when the storm season closes the river mouth\n\n• The east walkway, when a cistern there is being scoured\n\n• The lee of the seawall, when a surge is expected\n\n• The eel pens, when the channels turn too salt for the young stock\n\nThe barge has been moved 23 times since it was launched, and it has never been out of use for more than 9 days together.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "The desalination barge has changed what Saltmere can count on. Before it was launched the town lived on rain and on water carried down the river by boat, and both failed in the same dry months. The barge suits the town for reasons that are easy to list: a small population of 140, no spring or sound well, fuel that is dear because it comes by sea, and a harvest that depends on clean water for washing and packing the eels. The long clear days between storm seasons are what make it work, since the barge runs mostly on the sun.\n\nWater brought by boat cost the town between 14 and 22 credits a cubic metre, more in a dry year when every settlement on the coast was buying. The barge makes water from the channel beneath it for about 3 credits a cubic metre, most of that for new membranes and for the keeper's time. The panels on its roof give enough power to run one membrane rack through the daylight hours. The second rack is run from the store of charged cells, or from the fuel engine when the cisterns are low.\n\nThe barge is built in sections so that each can be lifted out and mended without stopping the rest. The pumps, the filters, the two racks and the cells sit in one sealed deckhouse that keeps out spray and salt air. Because everything is on one hull, the barge needs no ground of its own: it ties up wherever there is a pile to hold it and a cistern within reach of its hose.\n\nFor a sense of its size, the barge makes 2,400 litres on an ordinary day with one rack running, and 4,300 litres with both. The council's ration is 15 litres a person a day for drinking and cooking, which comes to 2,100 litres a day for the whole town. The deckhouse is 9 metres long and 3 metres wide. A town that had to find that much level ground on shore would have none to spare, and Saltmere has no level ground at all.",
+            "source": "Invented for this fixture",
+            "url": ""
+          }
+        ],
+        "counterpoints": [],
+        "departmentNotes": {}
+      },
+      "water scarcity and desalination": {
+        "canonicalFacts": [],
+        "counterpoints": [],
+        "departmentNotes": {}
+      },
+      "flood protection and seawall maintenance": {
+        "canonicalFacts": [
+          {
+            "claim": "Rules for keeping the seawall\n\nSet down by the seawall crew in year 5 and read to the assembly each spring.\n\nThe seawall holds the outer edge of Saltmere in place and shelters the decks and channels behind it. It was built to stop the mud bank washing out from under the outer rows and to keep the highest ordinary tides off the lower decks. It was also built to take the surge of a storm season. Beyond the storms, the slow rise of the water against the wall has to be allowed for, so that the wall gives the same shelter ten years from now as it does today. This matters most along the low south reach, where the decks stand closest to the water.\n\nInspection\n\nA regular walk of the wall is the cheapest tool the crew has. It lets the wardens record wear and mend a weak place before a whole length has to be rebuilt. Mending adds years to the wall and costs far less than rebuilding: by the crew's tally, a length mended in time costs about a sixth of a length replaced. The rule is that the two wardens walk the full 1,150 metres after every storm, and that the crew sounds every crib and tie at least once in two years. Between walks, any resident who sees one of four signs is to tell the crew: a crack in the facing stones, rust or rot at a tie, a crib that has leaned seaward, or a hollow where the fill behind the wall has sunk or washed out. Any of these may mean the wall has lost strength at that place. It is to be looked at by the crew before the next spring tide, not after it.\n\nCrest height\n\nThe assembly has written a least height for the wall into its standing rules, to keep pace with the water. The rule may change what a repair involves, depending on how long a length is opened. Anyone planning work on the wall is to ask the crew to mark the required height first. By the resolution passed on the first day of year 6, any length that is new or rebuilt by more than half must stand at least 3.4 metres above the mean spring tide. Work that the assembly agreed before the first day of year 12 may be finished at 3.1 metres, provided the cribs are built wide enough to take another course of stone later.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "Along the thinly settled outer banks of the delta, the first part of any plan to keep Saltmere safe is to keep the reed beds and mudflats that stand between the town and the open water, and to mend those already worn away. A healthy reed bed breaks a wave before it reaches the wall, and where the river is left free to drop its silt the flats rise by themselves. The crew measured this on the north flats, where a reed bed 80 metres deep cut the height of storm waves at the wall by about a third. The council has therefore forbidden the digging of mud for fill anywhere seaward of the wall. A hard wall brings its own costs. It can throw the water sideways and scour the bank at its ends, as happened at the south return in the storm season of year 3, and it can starve the flats behind it of silt, so that the reed beds die back and their shelter is lost. The flats also stay healthier when nothing else blocks the silt, which is why the old weir on the east channel was opened. A hard wall remains the right choice where a great deal stands behind a short length, as at the barge quay and the cistern row.\n\nIt is hard to say at what point the wall can be raised no further. The crew's reckoning is that the present cribs can carry two more courses of stone, which would add 0.8 metres to the crest. At the combined rise the tide board shows, that buys the town about fifty years. Beyond that the cribs themselves would have to be widened, and the mud beneath them may not bear the load. The difficulty is not only how high the water finally stands but how fast it rises: a wall can be raised a course in a summer, but the reed beds can only climb with the silt, a few millimetres a year.\n\nThe bank is already wearing on both sides of the river mouth, by as much as 2 metres a year at the south point. Salt is also pushing inland. The shallow wells turned brackish in year 2, and in the driest summers salt water now runs 4 kilometres up the main channel, far enough to reach the upper eel pens. Most years the salt stays near the coast, but in an extreme year it reaches the whole delta and adds to every other risk the town carries. Saltmere is guarded on the river side by a low bank and two sluice gates that are shut against a river flood, and on the sea side by the wall, which keeps out both the surge and the salt.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "A wall like Saltmere's is used where the shore is too narrow or too steep for an outer breakwater, or where a breakwater would cost more than the town could ever pay. It suits a place where any further loss of the bank would bring down walkways and houses, and it gives strong shelter from flooding as well as from waves. For the wall to go on doing that over many years, the rise the tide board shows has to be written into the heights the crew builds to. Higher waves and rougher storm seasons have to be allowed for in the same way, so that the wall holds under worse weather than it has yet met.\n\nThe wall is a heavy structure, built to stand against a surge. It is at least as high as the step between the mudflat and the deck line, and along most of its length it has been built higher, to stop waves breaking over the top. It also holds the crumbling edge of the old levee and shelters the south walkway. The crest is paved with flat stones for 420 metres, and that length serves as the town's only dry road, used for carts, for drying nets and for the autumn market. The shape of the seaward face decides whether the wall throws a wave back or wears it out. A smooth upright face throws most of a wave's force back to seaward. In doing so it churns the water at its foot and lifts the mud, which deepens the scour and can undercut the wall.\n\nSaltmere's wall is made of timber cribs filled with quarried stone around a core of packed clay, with driven sheet timbers at the barge quay. It runs along the line where the mudflat meets the town, to keep waves off everything behind it and to stop the bank washing away. At the river mouth it is joined to two short jetties, which hold the sides of the boat channel and keep it from silting up.\n\nIn short, the wall is a mass of stone and timber built to resist the surge. Its height covers the step from flat to deck and is raised further against overtopping. It shelters the walkways and the houses. Where its face is smooth and upright, as at the quay, it throws waves back and digs scour holes at its foot. Where its face slopes at 1 in 2 and is laid with rough stone, as along the open reaches, it breaks the waves and spends their force.",
+            "source": "Invented for this fixture",
+            "url": ""
+          }
+        ],
+        "counterpoints": [],
+        "departmentNotes": {}
+      },
+      "aquaculture and food security": {
+        "canonicalFacts": [
+          {
+            "claim": "Harvest office record 31\n\nHousehold survey       Read to the assembly      Entered in the ledger\n\nThe part the eel farms play in feeding Saltmere and keeping its tables supplied\n\nDrawn up by the harvest office with the help of the school's oldest class.\n\nHarvest office, the pen sheds, north quay, Saltmere\n\nAbout this record\n\nQuestions about the survey go to the keeper of the harvest ledger, at the pen sheds on any market day.\n\nBegun: the first week of spring, year 8 | Agreed by the assembly: the sixth week of spring, year 8 | Entered in the ledger: two days later\n\nSubjects: eel farming; fish; food supply; the brackish channels; households\n\nHow to refer to it\n\nHarvest office record 31, year 8, pages 16 to 19 of the harvest ledger.\n\nUse of this record\n\nAny resident may copy this record, read it aloud or use its figures in any setting, provided the harvest office is named as where it came from.\n\nSummary\n\nMethod: The part the eel farms play in the supply of fish and in keeping households fed was studied in all 41 households of Saltmere, using a fixed list of questions put to one adult in each. The answers showed that most of those who answered (56 percent) were men, that the largest age group was 36 to 50 (37 percent), and that the commonest household size was 3 or 4 people (49 percent). Most of those who answered (54 percent) had finished the town school. The first occupations named most often, by about a fifth of households each, were work at the eel pens, fishing in the channels, and smoking and packing the catch.\n\nFindings: In 33 of the 41 households, eel from the farms was eaten on four days or more in an ordinary week. In a season when the harvest fell below 12 tonnes, 17 households said they had gone short of fish for a fortnight or longer, and 14 of those were households of newcomers, who own no boats and cannot make up the difference by fishing. The office concluded that the farms are what stands between the town and hunger in a bad season, and that a household's share in the pens matters more to its table than its income does.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "The eel farms in the brackish channels add greatly to the fish on hand, and so keep Saltmere's households fed through lean seasons.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "Two quite different ways of rearing eels are used in Saltmere: 1) the tank sheds and 2) the channel pens. A third way also exists, used by a few of the oldest fishing families, in which young eels are simply let into a banked lagoon and left to grow on what the tide brings. Few practise it today, and it is not described further here.\n\nThe tank sheds. This method was worked out to save on fresh water and on the labour of carrying waste, and it is used on the north quay. The eels are kept very thickly, at up to 60 kilograms of eel in each cubic metre of water, in covered timber tanks. A strong flow of channel water is driven through each tank to bring the air the eels need and to carry off their waste, the uneaten feed and the fouled water. The four sheds hold 16 tanks of 5 cubic metres each. A tank brought on well yields about 250 kilograms of eel in a season.\n\nThe channel pens. In the pens the eels are kept thinly, at 3 to 5 kilograms in each cubic metre, behind netted frames set across the quieter side channels. They feed partly on what the tide carries in and partly on fish scraps from the smokehouse. The growing cycle is slower and the stock is at the mercy of the water: a surge that tops the frames can empty a pen in a night. The 24 pens together give the larger share of the harvest, about 14 of the 18 tonnes in an ordinary season.\n\nTaking the young eels. Eels are taken at every stage of their growth and in every kind of water the delta has, salt, brackish and fresh. How hard each stage is fished varies from channel to channel. The take of glass eels ranges from nothing, in the three channels the assembly has closed to netting, to as much as half of the run in the main river mouth. In year 6 the harvest office counted the run and advised that no more than a third be taken in any spring, a limit the assembly adopted the same year.\n\nWhere the eels are found. Eels spread through the whole delta, from the open mudflats to the head of the tide. They live in the shallow water inside the seawall and can thrive in salt water for most or all of their growing years. They are also found in the freshwater pools behind the old levee. They settle in the mouths of the channels, in the reed swamps and in the salt marsh on the seaward side. In each of these places a different stage is caught with a different gear. Glass eels are dipped with fine nets at the river mouth and in the lower channels on the spring floods.",
+            "source": "Invented for this fixture",
+            "url": ""
+          }
+        ],
+        "counterpoints": [],
+        "departmentNotes": {}
+      },
+      "community governance and social cohesion": {
+        "canonicalFacts": [
+          {
+            "claim": "In some reaches of the town the coming of the newcomers has brought quarrels, while in others it has ended old ones, brought more hands to the pens and improved the upkeep of the walkways. There is therefore a real need to understand what the arrival of 54 people from the drowned inland villages has done to trust in Saltmere, so that the council can ease the hardship of those who lost their homes, widen the chances of work for the families who were already here, and avoid stoking the quarrels it means to settle. This record is about trust between the newcomers and the old fishing families. By trust the council means a sense of shared purpose and a readiness to work together, among the members of one group, between the two groups, and between the residents and the council itself.\n\nIn the years since the rebuilding, floods and dry spells have moved more people about the delta than any dispute between settlements has. Being driven from home can change how people stand with one another in the place they leave, in the place that takes them in and in the place they go back to. This record keeps to the second of these. The move may weaken trust or strengthen it, and it does so in several ways. One is the mark the loss itself leaves: households that lost everything together tend to hold together, and can seem closed to their new neighbours. Another is what the move does to ties and to work: a newcomer has no kin on the council, no berth at the quay and no share in a pen, and each of those is a thing an old family has held for generations. A third is the strain on what is shared, above all the fresh water, where one more household on the ration is felt by every other.\n\nTrust always belongs to a particular place. The history of that place matters most of all, since it shapes what each group believes about the other long before anyone counts hands at an assembly. For Saltmere the setting includes the single reach, the town as a whole and the delta around it. It includes the stories each side tells about the rebuilding, what the council is able to do and how it is made up, the way disputes are heard, and how fairly water, berths and repairs are handed out. So before the council judges any measure meant to build trust, it looks first at who holds what in the town, how the two groups are spread across the reaches, and which quarrels were already running before the newcomers came.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "Record of the civic assembly, year 9, 46 pages. Keeping neighbours on good terms through strong reach meetings is what settles quarrels, builds trust and holds the town together when the water rises.",
+            "source": "Invented for this fixture",
+            "url": ""
+          },
+          {
+            "claim": "The council wants to understand how households find ways of coping that also bind the town together, and how those ways can be backed by the council or turned toward something that will last.\n\nNewcomers and the shortage of water. The need for clean water, for washing places and for covered drains has grown in Saltmere as the walkways built in haste for the newcomers have worn out, and the dry summer of year 8 made it worse. Nearly one newcomer in five (19 percent) said they could not always get enough clean drinking water, which lowers the health of the whole reach they live on. Rules meant to help have had mixed results. The assembly's rule of year 5, which barred boats from carrying water for sale between reaches, was meant to stop the ration being traded. It also moved the trade to the outer moorings at night, where the water is less clean and the price is higher.\n\nThe civic assembly has joined with the water works and the harvest office to study how the arrival of new households, the rising water, the wearing of the mudflats, the shortage of fresh water and quarrels between families act on one another, and how together they shape the town's power to come through a storm season or a dry spell. What is found will give the council and the four offices the knowledge to plan measures that back what the households are already doing for themselves. The study is to deliver two things. The first is a full account, reach by reach, of how the changing water, the supply in the cisterns, the movement of households and trust between neighbours bear on one another. The second is a short set of rules of thumb for the council to use when it sets the ration.\n\nThe town's earlier attempts stand as warnings. They show the limits of any rule about who may settle where that takes no account of what lies beneath: lost livelihoods, short water and old grudges. It would be useful to learn what the newcomers themselves see as their choices other than crowding onto the east walkway, and to measure what the water rule and the night watch on the moorings have really done to the way water moves through the town. That would give the council firmer ground for its rules, while the assembly goes on arguing for one ration that binds every reach alike. Most of what has been written down in the town so far treats the newcomers and the water as two separate matters, and they are not.",
+            "source": "Invented for this fixture",
+            "url": ""
+          }
+        ],
+        "counterpoints": [],
+        "departmentNotes": {}
+      }
+    },
+    "categoryMapping": {
+      "water-rationing": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ],
+      "storm-repair": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ],
+      "harvest-boost": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ],
+      "community-reconciliation": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ],
+      "desalination-effort": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ],
+      "storm-season": [
+        "coastal adaptation and sea-level rise",
+        "water scarcity and desalination",
+        "flood protection and seawall maintenance",
+        "aquaculture and food security",
+        "community governance and social cohesion"
+      ]
+    }
+  },
+  "policies": {
+    "toolForging": {
+      "enabled": true
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
+  },
+  "presets": [],
+  "_persistMeta": {
+    "compiledAt": "2026-11-12T14:50:11.219Z",
+    "seedText": "Saltmere is an invented river-delta town rebuilt on stilts after the sea rose, home to 140 residents who share one desalination barge. Over twelve years its council must decide how to ration fresh water, keep the seawall standing through the storm seasons, run the eel farms that feed everyone, and settle quarrels between the old fishing families and the newcomers from the drowned inland villages. Track the fresh water held in the cisterns in cubic metres, the seawall's integrity, the eel harvest in tonnes a season, and how far the residents trust the council."
+  }
+}
