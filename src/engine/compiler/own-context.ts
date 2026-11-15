@@ -304,6 +304,12 @@ const STATEMENT_HEAD = /(?:^|[^\w$.])(?:if|while|for|with)$/;
 const FOR_HEAD = /(?:^|[^\w$.])for$/;
 
 /**
+ * What stands in the head of a for-of before its `of`: the name or the
+ * pattern the loop binds, after `const`, `let` or `var` if one is there.
+ */
+const FOR_OF_BINDING = /^\s*(?:(?:const|let|var)\s+)?(?:[A-Za-z_$][\w$]*|[[{][\s\S]*[\]}])\s*$/;
+
+/**
  * The place in `text` of the `(` that is open at `end`, the innermost
  * one, or -1. `text` is scanned code, with its strings, comments and
  * patterns blank, so every parenthesis in it is code.
@@ -338,8 +344,10 @@ function wordBefore(text: string, at: number, word: RegExp): boolean {
  * - After a `)`: a statement follows the head of an `if`, a `while`, a
  *   `for` or a `with`, so a slash there opens a pattern; after any other
  *   `)` it divides.
- * - After `of`: a keyword inside the head of a `for`, where a pattern
- *   may follow it, and a name anywhere else, which a slash divides.
+ * - After `of`: a keyword in the head of a `for` where it follows what
+ *   the loop binds (`for (const m of /a/.exec(s))`), and a pattern may
+ *   follow it there. Anywhere else it is a name, which a slash divides:
+ *   outside a `for`, and in the condition of one (`for (; of / 2; )`).
  *
  * `yield` is a word here and never a name: a hook is parsed as strict
  * code (source-validation.ts), where no variable has that name.
@@ -354,7 +362,7 @@ function startsRegex(before: string): boolean {
   if (/[(,=:[!&|?{};+\-*%<>~^]$/.test(text)) return true;
   if (/(?:^|[^\w$.])of$/.test(text.slice(-3))) {
     const open = openParenthesis(text, text.length);
-    return open !== -1 && wordBefore(text, open, FOR_HEAD);
+    return open !== -1 && wordBefore(text, open, FOR_HEAD) && FOR_OF_BINDING.test(text.slice(open + 1, text.length - 2));
   }
   return /(?:^|[^\w$.])(?:return|typeof|case|in|delete|void|throw|new|else|do|instanceof|yield)$/.test(text.slice(-12));
 }
