@@ -17,16 +17,29 @@
  * The calls whose outcome is "the calling process goes on" run in a
  * process of their own (tests/engine/compiler/helpers/hook-probe.ts), so a
  * failure is one failed test and never a held or stopped test run. The
- * last test compiles a scenario with the real `compileFromSeed` on the
- * stub model (tests/runtime/helpers/stub-openai-transport.ts), as the
- * compile routes do.
+ * compile tests at the end compile a scenario with the real
+ * `compileFromSeed` on the stub model
+ * (tests/runtime/helpers/stub-openai-transport.ts), as the compile routes
+ * do, or the deep-ocean station (scenarios/submarine.json) with the real
+ * `compileScenario` on a stand-in model, and run what they compiled
+ * through the kernel and the reaction prompt.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runArrowSync, SandboxRunnerError } from '../../../src/engine/compiler/sandbox-runner.js';
 import { compileFromSeed } from '../../../src/engine/compiler/compile-from-seed.js';
+import { compileScenario } from '../../../src/engine/compiler/index.js';
+import { writeCache } from '../../../src/engine/compiler/cache.js';
+import type { GenerateTextFn } from '../../../src/engine/compiler/types.js';
+import { SimulationKernel } from '../../../src/engine/core/kernel.js';
+import type { ScenarioPackage } from '../../../src/engine/types.js';
+import { scenarioKeyPersonnel } from '../../../src/cli/sim-config.js';
+import { buildBatchAgentBlock } from '../../../src/runtime/agents/agent-reactions.js';
 import { stubFailure, withStubOpenAi, type StubReply } from '../../runtime/helpers/stub-openai-transport.js';
 import { isDraftRequest, isExtractionRequest, loadCompilerFixture, ORCHARD_SEED_TEXT } from './helpers/stub-model-compile.js';
 
@@ -322,5 +335,127 @@ test('a compile runs a generated hook\'s statements in the hook\'s context only'
     assert.equal(scenario.hooks?.politicsHook?.('political', 'risky_success') ?? null, null);
   } finally {
     delete holder[MARK];
+  }
+});
+
+/** The deep-ocean station's scenario JSON, read afresh for each compile. */
+function submarineJson(): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(ROOT, 'scenarios/submarine.json'), 'utf-8'));
+}
+
+/** The first line of each hook's system block, by the compiler's name for the hook. */
+const HOOK_MARKS: ReadonlyArray<readonly [hook: string, mark: string]> = [
+  ['progression', 'You are generating a between-turn progression hook'],
+  ['prompts', 'You are generating a department prompt hook'],
+  ['fingerprint', 'You are generating a timeline fingerprint hook'],
+  ['politics', 'You are generating a politics hook'],
+  ['reactions', 'You are generating a reaction context hook'],
+];
+
+/**
+ * A stand-in model that answers a hook's prompt with `sources[hook]` and
+ * any other prompt with text that is not a hook; `asked` records the hook
+ * of every prompt it was sent ('other' for a prompt that names none).
+ */
+function standInModel(sources: Readonly<Record<string, string>>, asked: string[] = []): GenerateTextFn {
+  const generateText = async (args: { system?: Array<{ text: string }>; prompt: string }): Promise<string> => {
+    const system = (args.system ?? []).map(block => block.text).join('\n');
+    const hook = HOOK_MARKS.find(([, mark]) => system.includes(mark))?.[0] ?? 'other';
+    asked.push(hook);
+    return sources[hook] ?? 'not a hook';
+  };
+  return generateText as unknown as GenerateTextFn;
+}
+
+/** A kernel on the compiled scenario, with the station's 50 people. */
+function kernelFor(scenario: ScenarioPackage): SimulationKernel {
+  return new SimulationKernel(200, 'Leader', scenarioKeyPersonnel(scenario), {
+    startTime: scenario.setup?.defaultStartTime ?? 1,
+    initialPopulation: 50,
+    scenario,
+  });
+}
+
+test('a number a compiled progression hook writes reaches the run as that number, NaN included', async () => {
+  // A model that misnames a field (`radiationMsv` for
+  // `cumulativeRadiationMsv`) writes NaN: undefined / 10000 is NaN, and
+  // Math.max and Math.min keep it. Read as JSON writes it, the run would
+  // hold null, which the despair rule reads as a psych score of 0.
+  const progression = '(ctx) => { for (const c of ctx.agents) { if (!c.health.alive) continue; '
+    + 'c.health.psychScore = Math.max(0, Math.min(1, c.health.psychScore - c.health.radiationMsv / 10000)); } }';
+  const scenario = await compileScenario(submarineJson(), {
+    cache: false,
+    generateText: standInModel({ progression }),
+  }) as ScenarioPackage;
+  const kernel = kernelFor(scenario);
+  const present = kernel.getState().agents.filter(a => a.health.alive).map(a => a.core.id);
+  const start = scenario.setup?.defaultStartTime ?? 1;
+  kernel.advanceTurn(1, start + (scenario.setup?.defaultTimePerTurn ?? 1), scenario.hooks.progressionHook);
+
+  const after = kernel.getState();
+  for (const id of present) {
+    const person = after.agents.find(a => a.core.id === id);
+    assert.ok(person, `${id} is still on the roster`);
+    if (!person.health.alive) {
+      assert.notEqual(person.health.deathCause, 'despair', `${person.core.name} died of despair, from a psych score the hook never wrote`);
+      continue;
+    }
+    assert.ok(
+      Number.isNaN(person.health.psychScore),
+      `${person.core.name} holds a psych score of ${String(person.health.psychScore)}, not the NaN the hook wrote`,
+    );
+  }
+});
+
+/** A working cached source for each hook a compile restores, as an earlier build wrote them. */
+const CACHED_SOURCES: ReadonlyArray<readonly [hook: string, source: string]> = [
+  ['progression', '(ctx) => {}'],
+  ['director', 'Write one event a turn about the station: its hull, its crew, its air and the sea outside.'],
+  ['prompts', "(ctx) => ['Scores held: ' + Object.keys(ctx.state.metrics).join(', ')]"],
+  ['milestones', JSON.stringify({ founding: { title: 'First dive' }, legacy: { title: 'Last dive' } })],
+  ['fingerprint', "(finalState) => ({ summary: Object.keys(finalState.metrics).length + ' scores held' })"],
+  ['politics', '(category, outcome) => null'],
+  // Passed the earlier runner, which refused `import` only when a space
+  // followed it; this runner refuses the word wherever it stands.
+  ['reactions', "(colonist, ctx) => colonist.core.name + ' waits for the next supply import.'"],
+];
+
+test('a cached hook the runner refuses is generated again at restore, and only that hook', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-hook-restore-'));
+  try {
+    const json = submarineJson();
+    const model = 'stand-in-model';
+    for (const [hook, source] of CACHED_SOURCES) writeCache(json, hook, source, model, cacheDir);
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model,
+      generateText: standInModel({ reactions: "(colonist, ctx) => colonist.core.name + ' keeps watch.'" }, asked),
+    }) as ScenarioPackage;
+
+    // The reaction prompt calls the hook for each person (agent-reactions.ts).
+    const person = kernelFor(scenario).getState().agents.find(a => a.health.alive);
+    assert.ok(person, 'the station has a living person');
+    let block = '';
+    assert.doesNotThrow(() => {
+      block = buildBatchAgentBlock(person, {
+        eventTitle: 'Hull alarm',
+        eventCategory: 'infrastructure',
+        outcome: null,
+        decision: 'Seal the aft section.',
+        time: scenario.setup?.defaultStartTime ?? 1,
+        turn: 1,
+        colonyMorale: 0.8,
+        colonyPopulation: 50,
+        labels: scenario.labels,
+        timeUnitNoun: 'year',
+        yearsPerUnit: 1,
+      }, scenario.hooks.reactionContextHook);
+    }, 'the reaction prompt is built with the compiled reactions hook');
+    assert.ok(block.includes(`${person.core.name} keeps watch.`), `the block holds the new hook's line (read ${block})`);
+    assert.deepEqual(asked, ['reactions'], 'the model was asked for the refused hook only; the other six came from the cache');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
   }
 });

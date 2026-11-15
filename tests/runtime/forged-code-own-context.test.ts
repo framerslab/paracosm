@@ -194,3 +194,31 @@ test('a run\'s forged-code time limit is at most the server\'s, whatever the req
   const lower = normalizeSimulationConfig({ actors, execution: { sandboxTimeoutMs: 2_500 } } as never);
   assert.equal(lower.execution.sandboxTimeoutMs, 2_500, 'a lower limit is kept');
 });
+
+test('a forged tool\'s result over 1 MB as JSON is refused before the judge reads it', async () => {
+  const judgeRead = await withStubOpenAi(() => '{}', async (seen) => {
+    const { engine } = createEmergentEngine(
+      new Map(), 'openai', 'gpt-4o', {}, undefined, undefined, undefined, 'placeholder-key-for-a-test',
+    );
+    await engine.forge(
+      {
+        name: 'padded_report',
+        description: 'Writes a report of the given number of characters.',
+        inputSchema: { type: 'object', properties: { chars: { type: 'number' } }, required: ['chars'] },
+        outputSchema: { type: 'object', properties: { report: { type: 'string' } } },
+        implementation: {
+          mode: 'sandbox',
+          code: "function execute(input) { return { report: 'x'.repeat(input.chars) }; }",
+          allowlist: [],
+        },
+        // 2 MB of report, then 12 characters.
+        testCases: [{ input: { chars: 2 * 1024 * 1024 } }, { input: { chars: 12 } }],
+      },
+      { agentId: 'dept-test', sessionId: 'sess-test' },
+    );
+    return seen.map(exchange => exchange.text).join('\n');
+  });
+  assert.ok(judgeRead.length < 1024 * 1024, `the judge's request holds ${judgeRead.length} characters, not the 2 MB result`);
+  assert.match(judgeRead, /Test 1: [^\n]*success=false error=Execution error: [^\n]*1 MB/, 'the judge reads why the first test case failed');
+  assert.match(judgeRead, /output=\{"report":"x{12}"\} success=true/, 'a result under the limit reaches the judge as before');
+});
