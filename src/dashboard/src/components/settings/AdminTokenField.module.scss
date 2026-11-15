@@ -94,9 +94,10 @@
   line-height: 1.4;
 }
 
-// Phone, held either way, and small tablet: 44px targets, as the panel's
-// Add button has. A phone held sideways is 667px wide or more.
-@media (max-width: 768px) {
+// 44px targets, as the panel's Add button has, in a window 768px wide or
+// less and on a touch screen at any width: a phone held sideways can be
+// wider than 768px, so the width alone misses it.
+@media (max-width: 768px), (pointer: coarse) {
   .input,
   .btn {
     min-height: 44px;

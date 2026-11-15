@@ -30,6 +30,12 @@ interface TopBarProps {
    * Delete server data only then.
    */
   onWipeServer?: () => void;
+  /**
+   * Called each time the run actions menu opens, so the page can ask again
+   * for what decides the menu's items (GET /admin-config) after a failed
+   * request.
+   */
+  onRunActionsOpen?: () => void;
   onRun?: () => void;
   onTour?: () => void;
   onCopy?: () => void;
@@ -73,7 +79,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -84,6 +90,9 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRootRef = useRef<HTMLDivElement | null>(null);
   const overflowMenuRef = useFocusTrap<HTMLDivElement>(overflowOpen);
+  useEffect(() => {
+    if (overflowOpen) onRunActionsOpen?.();
+  }, [overflowOpen, onRunActionsOpen]);
   useEffect(() => {
     if (!overflowOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -495,7 +504,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
                     type="button"
                     onClick={() => { setOverflowOpen(false); onClear(); }}
                     className={styles.overflowItemDanger}
-                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept."
+                    title="Clear in-browser simulation buffer + cached events, and let go of this browser's run on the server, stopping it if it is running. Run history, saved sessions and output files are kept."
                   >
                     Clear local data
                   </button>
@@ -506,7 +515,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
                     type="button"
                     onClick={() => { setOverflowOpen(false); onWipeServer(); }}
                     className={styles.overflowItemDanger}
-                    title="Delete the server's stored runs, saved sessions and run output files, for every visitor. This browser's data is kept."
+                    title="Delete the server's stored runs, saved sessions and run output files, for every visitor. Pages showing a finished run this server holds, this one included, empty their view of it."
                   >
                     Delete server data
                   </button>

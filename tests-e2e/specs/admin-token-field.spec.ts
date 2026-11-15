@@ -45,10 +45,10 @@ const UNSENDABLE = 'This token holds a character a request header cannot carry, 
 /**
  * The question Clear local data asks, with a token saved or not. Its POST
  * /clear lets go of this browser's own run on the server and stops it when
- * it is still running, so the question says so.
+ * it is running, so the question says so.
  */
 const CLEAR_QUESTION = 'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n'
-  + "It also lets go of this browser's run on the server, and stops it if it is still running.\n\n"
+  + "It also lets go of this browser's run on the server, and stops it if it is running.\n\n"
   + 'Run history, saved sessions, and on-disk artifact files are kept.\n\n'
   + 'Cannot be undone.';
 /** What a scenario's details say when the server refused an older token and a newer one is saved. */

@@ -435,13 +435,17 @@ function AppContent() {
 
   const handleClear = useCallback(() => {
     // Clears every browser-side cache the dashboard owns (localStorage
-    // event cache, SSE in-memory state, the user-triggered-run gate) and
-    // nothing on the server, with an admin token saved or not. The
-    // server's stored data is Delete server data's, a separate item in the
-    // same menu (handleWipeServer below).
+    // event cache, SSE in-memory state, the user-triggered-run gate), with
+    // an admin token saved or not. On the server it touches only this
+    // browser's own run: POST /clear lets go of it, and stops it when it
+    // is running, so a reload does not replay the events just
+    // cleared. The question says so. Run history, saved sessions and
+    // output files are Delete server data's, a separate item in the same
+    // menu (handleWipeServer below).
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
+      "It also lets go of this browser's run on the server, and stops it if it is running.\n\n" +
+      'Run history, saved sessions, and on-disk artifact files are kept.\n\n' +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
@@ -458,26 +462,47 @@ function AppContent() {
   // token is there, so a browser without one sends no extra request.
   const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
   useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
+  // A request that fails, or is answered with an error, is asked again the
+  // next time the run actions menu opens, so one failed request does not
+  // hide the item for the rest of the page load.
   const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
+  const [adminConfigAsk, setAdminConfigAsk] = useState(0);
+  const adminConfigFailedRef = useRef(false);
   useEffect(() => {
     if (!adminTokenSaved || serverAdminWrite !== null) return;
     let live = true;
+    adminConfigFailedRef.current = false;
     fetch('/admin-config')
       .then(res => (res.ok ? res.json() : null))
-      .then((config: { adminWrite?: unknown } | null) => { if (live && config) setServerAdminWrite(config.adminWrite === true); })
-      .catch(() => {});
+      .then((config: { adminWrite?: unknown } | null) => {
+        if (!live) return;
+        if (config) setServerAdminWrite(config.adminWrite === true);
+        else adminConfigFailedRef.current = true;
+      })
+      .catch(() => { if (live) adminConfigFailedRef.current = true; });
     return () => { live = false; };
-  }, [adminTokenSaved, serverAdminWrite]);
+  }, [adminTokenSaved, serverAdminWrite, adminConfigAsk]);
+  const handleRunActionsOpen = useCallback(() => {
+    if (!adminConfigFailedRef.current) return;
+    adminConfigFailedRef.current = false;
+    setAdminConfigAsk(n => n + 1);
+  }, []);
 
   const handleWipeServer = useCallback(async () => {
     // The server wipe, POST /admin/data/wipe with the admin token: the
     // server's stored runs, saved sessions and run output files, for every
-    // visitor. This browser's data is Clear local data's and is kept.
+    // visitor. It also drops every finished run the server holds for the
+    // live feed, and tells each page showing one (run_cleared), this page
+    // included, so those views empty: a page left showing a run the server
+    // has deleted would show data the wipe was asked to remove, and could
+    // not reload it. The question says so. Runs in progress are kept.
+    // This browser's cached data is Clear local data's.
     const adminToken = readAdminToken();
     if (!adminToken) return;
     if (!confirm(
       'Delete server data? This asks the server to delete its stored runs, saved sessions and run output files, for every visitor of this server, not only this browser.\n\n' +
-      'The data in this browser is kept; Clear local data clears it.\n\n' +
+      'Pages showing a finished run this server holds, this one included, empty their view of it. A run in progress keeps running.\n\n' +
+      "Clear local data, a separate item, clears this browser's cached data.\n\n" +
       'Cannot be undone.',
     )) return;
     const unsendable = dropUnsendableAdminToken(adminToken);
@@ -502,9 +527,15 @@ function AppContent() {
       } else if (res.status === 401) {
         // The token no longer matches the server's ADMIN_TOKEN: drop it and
         // say where it is entered. A token entered since the request went
-        // out is not the refused one, and stays.
+        // out is not the refused one, and stays; the words say which.
         clearAdminToken(adminToken);
-        toast('info', 'Server data kept', `Server data not deleted: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
+        toast(
+          'info',
+          'Server data kept',
+          readAdminToken()
+            ? 'Server data not deleted: the server refused the admin token this request was sent with. A newer token is saved in this browser; choose Delete server data again to try with it.'
+            : `Server data not deleted: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`,
+        );
       } else if (res.status === 403) {
         toast('info', 'Server data kept', 'Admin writes are off on this server.');
       } else if (res.status === 503) {
@@ -514,7 +545,14 @@ function AppContent() {
         toast('info', 'Server data kept', `Server data not deleted: ${err.error ?? `HTTP ${res.status}`}`);
       }
     } catch (err) {
-      toast('info', 'Server data kept', `Server data not deleted: ${err instanceof Error ? err.message : String(err)}`);
+      // The request did not complete, or its answer could not be read. The
+      // server may have deleted its data all the same, so neither outcome
+      // is claimed.
+      toast(
+        'info',
+        'Deletion not confirmed',
+        `Whether the server's data was deleted is not known: its answer did not arrive or could not be read (${err instanceof Error ? err.message : String(err)}).`,
+      );
     }
     setActiveTab('settings');
   }, [toast]);
@@ -995,6 +1033,7 @@ function AppContent() {
             onLoad={handleLoad}
             onClear={handleClear}
             onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
+            onRunActionsOpen={handleRunActionsOpen}
             onRun={handleRun}
             onTour={handleTourStart}
             onCopy={handleCopySummary}
