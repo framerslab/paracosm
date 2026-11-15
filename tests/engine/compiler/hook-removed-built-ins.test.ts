@@ -316,3 +316,28 @@ test('a cached hook that reads a removed member written in brackets is generated
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that tests a pattern in the second ${ } of a template is restored with no model call', async () => {
+  // Each `${ }` of a template holds an expression of its own, so a slash
+  // that opens the second one opens a pattern, whatever the first one
+  // ended with. The name is the pattern's text: the hook reaches no built-in.
+  const prompts = '(ctx) => [`${ctx.department} ${/Promise/.test(ctx.department)}`]';
+  const { cacheDir, json } = cacheWith({ prompts });
+  try {
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({}, asked),
+    }) as ScenarioPackage;
+    assert.deepEqual(asked, [], 'every hook came from the cache');
+    const lines = scenario.hooks.departmentPromptHook?.({
+      department: 'Promise keepers',
+      state: kernelFor(scenario).getState(),
+    } as never) ?? [];
+    assert.equal(lines[0], 'Promise keepers true', 'the restored hook tests the department against its own pattern');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
