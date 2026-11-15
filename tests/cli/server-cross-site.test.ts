@@ -99,7 +99,16 @@ test('keyless /compile, compile-from-seed, /chat and /scenario/switch from a pag
       assert.deepEqual({ ...refusal(answer), compileCalls: calls.compile - before.compile, seedCalls: calls.seed - before.seed },
         { ...hostedRefusal, compileCalls: 0, seedCalls: 0 });
     });
-  }, { maxSimsPerDay: 1 });
+    await t.test('the hourly chat and daily compile limits count none of them', async () => {
+      const refused: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        refused.push((await send(api, '/compile', { scenario: { id: `cross-site-limit-${i}`, departments: [] } }, crossSiteHeaders)).status);
+      }
+      const compile = await send(api, '/compile', { scenario: { id: 'no-origin-compile', departments: [] } });
+      const chat = await send(api, '/chat', { agentId: 'a', message: 'hello' });
+      assert.deepEqual({ refused, compile: compile.status, chat: chat.status }, { refused: [403, 403, 403, 403, 403], compile: 200, chat: 400 });
+    });
+  }, { maxSimsPerDay: 1, env: { CHAT_RATE_LIMIT: '1' } });
 });
 
 test('an own-key /compile with a seed from a page on another site is refused on the hosted demo', async t => {
@@ -149,6 +158,37 @@ test("a listed origin counts as the demo's own", async () => {
   await withServer(async api => {
     assert.equal((await send(api, '/setup', settingsBody(mars), { Origin: 'https://embed.example', 'Sec-Fetch-Site': 'cross-site' })).status, 200);
   }, { env: { PARACOSM_ALLOWED_ORIGINS: 'https://embed.example' } });
+});
+
+test('with origins listed, a keyless /setup from any other origin is refused whatever Sec-Fetch-Site says', async t => {
+  const forms: Array<[string, (port: string) => Record<string, string>]> = [
+    ['Origin equal to Host', port => ({ Host: `other.example:${port}`, Origin: `http://other.example:${port}` })],
+    ['same-origin site header', () => ({ Origin: 'https://other.example', 'Sec-Fetch-Site': 'same-origin' })],
+  ];
+  for (const [name, headersFor] of forms) await t.test(name, async () => {
+    await withServer(async api => {
+      const headers = { 'Content-Type': 'text/plain;charset=UTF-8', ...headersFor(new URL(api.base).port) };
+      const answer = await send(api, '/setup', settingsBody(mars), headers);
+      const quota = JSON.parse((await send(api, '/rate-limit')).text);
+      assert.deepEqual({ ...refusal(answer), launches: api.launches.length, remaining: quota.remaining },
+        { ...hostedRefusal, launches: 0, remaining: 1 });
+    }, { maxSimsPerDay: 1, env: { PARACOSM_ALLOWED_ORIGINS: 'https://paracosm.example' } });
+  });
+});
+
+test("with origins listed, the listed origin, a null Origin from the demo's own page and a request with neither header run", async () => {
+  await withServer(async api => {
+    const statuses: number[] = [];
+    for (const headers of [
+      { Origin: 'https://paracosm.example', 'Sec-Fetch-Site': 'same-origin' },
+      { Origin: 'null', 'Sec-Fetch-Site': 'same-origin' },
+      {},
+      { 'Sec-Fetch-Site': 'cross-site' },
+    ] as Array<Record<string, string>>) {
+      statuses.push((await send(api, '/setup', settingsBody(mars), headers)).status);
+    }
+    assert.deepEqual(statuses, [200, 200, 200, 403]);
+  }, { env: { PARACOSM_ALLOWED_ORIGINS: 'https://paracosm.example' } });
 });
 
 test("an own-key /compile from a page on another site compiles when it uses none of the host's keys", async () => {
