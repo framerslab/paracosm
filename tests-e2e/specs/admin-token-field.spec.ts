@@ -42,10 +42,20 @@ const REFUSED_IN_DRAWER = `Admin token refused and cleared. ${WHERE}`;
 const UNSENDABLE_TOKEN = 'tok\u20ACen';
 const UNSENDABLE = 'This token holds a character a request header cannot carry, so it is not kept. '
   + 'A token may hold only printable ASCII and Latin-1 characters: U+0020 to U+007E and U+00A0 to U+00FF.';
-/** The question Clear local data asks, with a token saved or not. */
+/**
+ * The question Clear local data asks, with a token saved or not. Its POST
+ * /clear lets go of this browser's own run on the server and stops it when
+ * it is still running, so the question says so.
+ */
 const CLEAR_QUESTION = 'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n'
-  + 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n'
+  + "It also lets go of this browser's run on the server, and stops it if it is still running.\n\n"
+  + 'Run history, saved sessions, and on-disk artifact files are kept.\n\n'
   + 'Cannot be undone.';
+/** What a scenario's details say when the server refused an older token and a newer one is saved. */
+const refusedWithNewerToken = (call: string, button: string) =>
+  `The server refused the admin token this ${call} was sent with. A newer token is saved in this browser; press ${button} to try again with it.`;
+/** Delete server data, when the server's answer did not arrive or could not be read. */
+const WIPE_NOT_KNOWN = /Whether the server's data was deleted is not known/;
 /** The compiled scenario tests-e2e/support/admin-write-server.ts plants. */
 const COMPILED_ID = 'e2e-compiled-scenario';
 const COMPILED_NAME = 'E2E Compiled Scenario';
@@ -265,7 +275,7 @@ test.describe('Admin token field @admin', () => {
     await expect(page.getByText(SAVED)).toBeVisible();
   });
 
-  test('Clear local data clears this browser only, with a token saved or not, and asks what it always asked', async ({ page }) => {
+  test('Clear local data sends no server wipe, with a token saved or not, and its question says it lets go of this browser\'s run on the server', async ({ page }) => {
     const questions: string[] = [];
     page.on('dialog', dialog => { questions.push(dialog.message()); void dialog.accept(); });
     const requests = recordRequests(page);
@@ -347,7 +357,67 @@ test.describe('Admin token field @admin', () => {
     await details.getByRole('button', { name: 'Save', exact: true }).click();
 
     await expect(details.getByRole('alert')).toHaveText(REFUSED_IN_DRAWER);
+    // With no token left the open form's Save cannot send anything, so it is off.
+    await expect(details.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     expect(await storedToken(page)).toBeNull();
+    expect(await compiledName(page)).toBe(COMPILED_NAME);
+  });
+
+  test('a rename refused after a newer token was saved keeps that token in the details, and Save sends it', async ({ page }) => {
+    // The first rename is held on its way out, then reaches the server, which refuses its token.
+    let letGo!: () => void;
+    const heldBack = new Promise<void>(resolve => { letGo = resolve; });
+    const sent: Array<string | undefined> = [];
+    await page.route(`${ADMIN_BASE}/scenarios/${COMPILED_ID}/rename`, async route => {
+      sent.push(route.request().headers()['x-admin-token']);
+      if (sent.length === 1) {
+        await heldBack;
+        await route.continue();
+        return;
+      }
+      // The second is answered here, so the shared scenario keeps its name for the other tests.
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: COMPILED_ID, name: 'A new name' }) });
+    });
+    await saveTokenInSettings(page, WRONG);
+    const details = await openCompiledDetails(page);
+
+    await details.getByRole('button', { name: `Rename ${COMPILED_NAME}` }).click();
+    await details.getByRole('textbox', { name: 'New scenario name' }).fill('A new name');
+    await details.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => sent.length).toBe(1);
+
+    // A newer token is saved while the rename is out, as another tab of this browser saves one.
+    await page.evaluate(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, TOKEN] as const);
+    letGo();
+    await expect(details.getByRole('alert')).toHaveText(refusedWithNewerToken('rename', 'Save'));
+    expect(await storedToken(page)).toBe(TOKEN);
+
+    await details.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => sent).toEqual([WRONG, TOKEN]);
+    await expect(page.getByRole('heading', { name: 'A new name' })).toBeVisible();
+    expect(await compiledName(page)).toBe(COMPILED_NAME);
+  });
+
+  test('a delete refused after a newer token was saved keeps that token and the Delete button', async ({ page }) => {
+    page.on('dialog', dialog => void dialog.accept());
+    let letGo!: () => void;
+    const heldBack = new Promise<void>(resolve => { letGo = resolve; });
+    let deletes = 0;
+    await page.route(`${ADMIN_BASE}/admin/scenarios/${COMPILED_ID}`, async route => {
+      if (route.request().method() === 'DELETE' && ++deletes === 1) await heldBack;
+      await route.continue();
+    });
+    await saveTokenInSettings(page, WRONG);
+    const details = await openCompiledDetails(page);
+
+    await details.getByRole('button', { name: `Delete scenario ${COMPILED_NAME}` }).click();
+    await expect.poll(() => deletes).toBe(1);
+    await page.evaluate(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, TOKEN] as const);
+    letGo();
+
+    await expect(details.getByRole('alert')).toHaveText(refusedWithNewerToken('delete', 'Delete'));
+    await expect(details.getByRole('button', { name: `Delete scenario ${COMPILED_NAME}` })).toBeVisible();
+    expect(await storedToken(page)).toBe(TOKEN);
     expect(await compiledName(page)).toBe(COMPILED_NAME);
   });
 
@@ -362,6 +432,44 @@ test.describe('Admin token field @admin', () => {
     await expect(details.getByRole('button', { name: `Delete scenario ${COMPILED_NAME}` })).toHaveCount(0);
     expect(await storedToken(page)).toBeNull();
     expect(await compiledName(page)).toBe(COMPILED_NAME);
+  });
+
+  test('Delete server data whose answer cannot be read says the outcome is not known', async ({ page }) => {
+    page.on('dialog', dialog => void dialog.accept());
+    // A 200 whose body is not JSON: the server may have deleted its data, and nothing here says otherwise.
+    await page.route(`${ADMIN_BASE}/admin/data/wipe`, route => route.fulfill({ status: 200, contentType: 'application/json', body: 'not json' }));
+    await saveTokenInSettings(page, WRONG);
+    await runActions(page).click();
+    await deleteServerData(page).click();
+
+    await expect(page.getByText(WIPE_NOT_KNOWN).first()).toBeVisible();
+    await expect(page.getByText(/Server data not deleted/)).toHaveCount(0);
+  });
+
+  test('Delete server data shows once a failed admin-config request is asked again', async ({ page }) => {
+    // A token is saved before the page loads, and every admin-config request of that load fails.
+    await page.addInitScript(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, WRONG] as const);
+    let failing = true;
+    let asked = 0;
+    await page.route(`${ADMIN_BASE}/admin-config`, route => {
+      asked += 1;
+      return failing ? route.abort() : route.continue();
+    });
+    await page.goto(`${ADMIN_BASE}/sim?tab=settings`);
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect.poll(() => asked, 'the page, Settings and the editor each asked').toBeGreaterThanOrEqual(3);
+    await runActions(page).click();
+    await expect(clearLocal(page)).toBeVisible();
+    await expect(deleteServerData(page)).toHaveCount(0);
+    await closeRunActions(page).click();
+
+    // The server answers again, and the page asks again when its window has focus.
+    failing = false;
+    const before = asked;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => asked).toBeGreaterThan(before);
+    await runActions(page).click();
+    await expect(deleteServerData(page)).toBeVisible();
   });
 
   test('a token holding a character a request header cannot carry is refused at Save, with the characters a token may hold', async ({ page }) => {
