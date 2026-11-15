@@ -179,16 +179,19 @@ export class IpRateLimiter {
         quickstart?: Record<string, RateLimitEntry>;
       };
       const now = Date.now();
+      let skipped = false;
       const hydrate = (store: Map<string, RateLimitEntry>, src: Record<string, RateLimitEntry> | undefined) => {
         if (!src) return;
         for (const [ip, entry] of Object.entries(src)) {
           if (entry?.resetAt && entry.resetAt > now) store.set(ip, entry);
+          else skipped = true;
         }
       };
       hydrate(this.simStore, data.sim);
       hydrate(this.compileStore, data.compile);
       hydrate(this.chatStore, data.chat);
       hydrate(this.quickstartStore, data.quickstart);
+      if (skipped) this.persist();
     } catch {
       // Missing file, permission denied, corrupt JSON — start fresh.
     }
