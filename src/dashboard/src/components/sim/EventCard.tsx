@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { ProcessedEvent } from '../../hooks/useGameState';
+import type { DecisionBarCheck, ProcessedEvent } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
 import { useScenarioContext } from '../../App';
 import { useToolContext } from '../../hooks/useToolRegistry';
@@ -448,6 +448,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const rationale = String(dd._rationale || '');
       const reasoning = String(dd._reasoning || '');
       const policies = (dd._policies as string[]) || [];
+      const barCheck = dd._barCheck as DecisionBarCheck | undefined;
       const systemDeltas = {
         ...(dd.systemDeltas as Record<string, number> | undefined),
         ...(dd.politicsDeltas as Record<string, number> | undefined),
@@ -476,6 +477,12 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
           </div>
           {/* Decision text */}
           <div className={styles.outcomeText}>{decision}</div>
+          {/* The decision against the leader's bar, from the leader's result. */}
+          {barCheck && (
+            <div className={barCheck.departs ? `${styles.outcomeBar} ${styles.outcomeBarDeparts}` : styles.outcomeBar}>
+              {describeBarCheck(barCheck)}
+            </div>
+          )}
           {/* System deltas in teal mono */}
           {Object.keys(systemDeltas).length > 0 && (
             <div className={styles.outcomeDeltas}>
@@ -703,6 +710,19 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
 }
 
 import type { ToolEntry } from '../../hooks/useToolRegistry';
+
+/**
+ * One line for a decision against the bar its prompt stated: the bar, the
+ * bold option's chance against it, the choice, and for a choice against the
+ * bar the fact the reply named for it, or that it named none.
+ */
+export function describeBarCheck(c: DecisionBarCheck): string {
+  const stands = c.clearsBar ? 'clears it' : 'is under it';
+  const choice = c.choseBold ? 'the bold option was taken' : 'the bold option was refused';
+  if (!c.departs) return `Bar ${c.bar}: the bold option's chance ${c.boldChance} ${stands}, so ${choice}`;
+  const why = c.departureFact ? `, for: ${c.departureFact}` : ', with no fact named for it';
+  return `Bar ${c.bar}: the bold option's chance ${c.boldChance} ${stands}, yet ${choice}${why}`;
+}
 
 /**
  * Modal that surfaces the full toolbox entry for a forged tool — schemas,

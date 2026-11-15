@@ -3,6 +3,7 @@ import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -21,6 +22,7 @@ import {
 } from './hooks/shareUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
+import { LoadFromHostModal } from './components/layout/LoadFromHostModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
@@ -236,7 +238,8 @@ function AppContent() {
   const useDemoData = tourActive && sse.events.length === 0;
   const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
   const effectiveComplete = useDemoData ? true : sse.isComplete;
-  const gameState = useGameState(effectiveEvents, effectiveComplete);
+  // The results carry each decision's bar check, which the outcome cards show.
+  const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
   // What the Digital Twin views read: the run this page started when the
   // page's own state is not it, and the page's state otherwise.
   const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
@@ -317,6 +320,11 @@ function AppContent() {
       autoload: parseAutoloadParam(window.location.href),
     };
   });
+  // True from the moment the link's own file goes to the preview until a
+  // file the visitor picks or drops takes its place. The link's autoload
+  // and tab apply to that file alone: after the visitor cancels the link,
+  // or its file fails to load, their own file still gets the preview.
+  const linkFileRef = useRef(false);
 
   // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
   // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
@@ -356,7 +364,11 @@ function AppContent() {
   }, [leaveOwnRun]);
 
   const loadPreview = useLoadPreview({
-    pickFile: persistence.pickFile,
+    pickFile: async () => {
+      const file = await persistence.pickFile();
+      if (file) linkFileRef.current = false;
+      return file;
+    },
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
     onConfirm: ({ events, results, verdict }) => {
@@ -367,7 +379,8 @@ function AppContent() {
       // `?load=` — falls back to 'sim' for picker / DnD loads and for
       // share links that didn't pin a tab. 'about' is excluded because
       // landing on / would discard the just-loaded sim state.
-      const target = deepLinkIntent.destinationTab;
+      const target = linkFileRef.current ? deepLinkIntent.destinationTab : null;
+      linkFileRef.current = false;
       setActiveTab(target && target !== 'about' ? target : 'sim');
     },
     onError: (reason) => {
@@ -377,9 +390,13 @@ function AppContent() {
   const handleLoad = loadPreview.openPicker;
 
   // ?load=<url> query-param auto-fetch. Runs once on mount; if the
-  // param isn't present, the hook is a no-op.
-  useLoadFromUrl({
-    openFromFile: (file) => loadPreview.openFromFile(file),
+  // param isn't present, the hook is a no-op. A file on another site
+  // waits for the visitor's answer to LoadFromHostModal.
+  const loadFromUrl = useLoadFromUrl({
+    openFromFile: (file) => {
+      linkFileRef.current = true;
+      return loadPreview.openFromFile(file);
+    },
     onInfo: (title, body) => toast('info', title, body),
     onError: (title, body) => toast('error', title, body),
   });
@@ -389,12 +406,14 @@ function AppContent() {
   // flag. Without this, social-share viewers would see a "Load run?"
   // modal asking them to click before the viz appears — defeats the
   // one-click share. `consumed` guards against re-firing if state ever
-  // cycles back through 'preview' for a subsequent picker / DnD load.
+  // cycles back through 'preview' for a subsequent picker / DnD load,
+  // and `linkFileRef` confirms only the file the link fetched.
   const autoloadConsumedRef = useRef(false);
   useEffect(() => {
     if (autoloadConsumedRef.current) return;
     if (!deepLinkIntent.autoload) return;
     if (loadPreview.state.kind !== 'preview') return;
+    if (!linkFileRef.current) return;
     autoloadConsumedRef.current = true;
     loadPreview.confirm();
   }, [deepLinkIntent.autoload, loadPreview.state.kind, loadPreview]);
@@ -402,7 +421,10 @@ function AppContent() {
   // Drag-and-drop a .json save file anywhere on the dashboard. Uses the
   // same preview + parse pipeline as the file-picker flow.
   const dropZone = useDashboardDropZone({
-    onFile: (file) => loadPreview.openFromFile(file),
+    onFile: (file) => {
+      linkFileRef.current = false;
+      return loadPreview.openFromFile(file);
+    },
     onError: () => {
       toast('error', 'Unsupported file', 'Only .json simulation files supported.');
     },
@@ -422,25 +444,24 @@ function AppContent() {
     // the exact env-var name + .env path inside a window.prompt).
     //
     // Token-bearing operators still get the full server wipe with no
-    // prompt: paste the token once into Settings (or via the dev-tools
-    // localStorage key `paracosm:adminToken`), and every subsequent
-    // Wipe All click does both the local + server pass automatically.
+    // prompt: enter the token once in Settings (the Admin Token field,
+    // kept under the localStorage key `paracosm:adminToken`), and every
+    // subsequent Wipe All click does both the local + server pass automatically.
+    //
+    // The token is read before the question, so the question says what
+    // this click does: with a token saved, the server wipe below runs too.
+    const adminToken = readAdminToken();
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
+      (adminToken
+        ? 'An admin token is saved in this browser, so this also asks the server to delete its stored runs, saved sessions and run output files, for every visitor.\n\n'
+        : 'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n') +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
-
-    let adminToken = '';
-    try {
-      adminToken = localStorage.getItem('paracosm:adminToken') ?? '';
-    } catch {
-      /* localStorage may be disabled (SSR / private window); treat as missing. */
-    }
 
     if (!adminToken) {
       // No admin context. Tell the user what we did + did NOT do, and
@@ -455,7 +476,7 @@ function AppContent() {
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ wipeRuns: true, wipeSessions: true, wipeOutput: true }),
       });
       if (res.ok) {
@@ -467,10 +488,12 @@ function AppContent() {
         );
       } else if (res.status === 401) {
         // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so a future operator paste isn't fighting a stale
-        // entry, then surface the failure as info (local already cleared).
-        try { localStorage.removeItem('paracosm:adminToken'); } catch { /* silent */ }
-        toast('info', 'Local data cleared', 'Server-side wipe skipped: stored admin token rejected. Re-paste it via dev-tools localStorage if needed.');
+        // Drop it so the next entry isn't fighting a stale one, then
+        // surface the failure as info (local already cleared) with
+        // where the token is entered. A token entered since the request
+        // went out is not the refused one, and stays.
+        clearAdminToken(adminToken);
+        toast('info', 'Local data cleared', `Server-side wipe skipped: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`);
       } else if (res.status === 403) {
         // Server has admin-write disabled. Local clear stands.
         toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
@@ -1231,6 +1254,13 @@ function AppContent() {
             <VerdictModal
               verdict={sse.verdict as Record<string, unknown>}
               onClose={() => setVerdictModalOpen(false)}
+            />
+          )}
+          {loadFromUrl.pendingHost && (
+            <LoadFromHostModal
+              host={loadFromUrl.pendingHost}
+              onLoad={loadFromUrl.confirmPending}
+              onCancel={loadFromUrl.cancelPending}
             />
           )}
           {loadPreview.metadata && (

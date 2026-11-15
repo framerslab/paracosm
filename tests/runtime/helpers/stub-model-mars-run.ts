@@ -106,9 +106,10 @@ function replyTo(prompt: string, log: StubModelLog): string {
 /**
  * Run Mars Genesis for two turns with Aria Chen, the turn loop's snapshots
  * on, and the stub model. Returns the artifact the run saved and what the
- * stub answered.
+ * stub answered. `onEvent` is handed each event the run emits, as a server
+ * that streams the run is.
  */
-export async function runMarsWithStubModel(): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
+export async function runMarsWithStubModel(options: { onEvent?: (event: unknown) => void } = {}): Promise<{ artifact: RunArtifact; log: StubModelLog }> {
   const log: StubModelLog = { urls: [], decisions: [], reactions: 0 };
   // The reply reads the last user message alone: every prompt of the turn loop sits there.
   const artifact = await withStubOpenAi(request => replyTo(request.lastUser, log), async (seen) => {
@@ -121,6 +122,7 @@ export async function runMarsWithStubModel(): Promise<{ artifact: RunArtifact; l
         initialPopulation: 30,
         activeDepartments: ['medical', 'engineering', 'agriculture'] as never,
         captureSnapshots: true,
+        onEvent: options.onEvent,
         provider: 'openai',
         apiKey: 'placeholder-key-for-a-test',
         models: { commander: 'gpt-4o', departments: 'gpt-4o', judge: 'gpt-4o', director: 'gpt-4o', agentReactions: 'gpt-4o' },

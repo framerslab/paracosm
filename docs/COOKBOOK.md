@@ -36,7 +36,7 @@ Cost ceiling is enforced at $1 per artifact and $5 total. The runner aborts if e
 
 ## 1. `WorldModel.fromPrompt`
 
-Compile a paracosm scenario from a free-text brief plus an optional domain hint. The LLM proposes a draft against `DraftScenarioSchema`, the draft is validated by Zod, then routed into the existing `compileScenario` pipeline so the seed-grounding and hook-generation stages still fire. JSON is the canonical contract; `fromPrompt` makes unstructured text a first-class authoring input.
+Compile a paracosm scenario from a free-text brief plus an optional domain hint. The LLM proposes a draft against `DraftScenarioSchema`, the draft is validated by Zod, then routed into the existing `compileScenario` pipeline so the seed-grounding and hook-generation stages still fire. JSON is the canonical contract; `fromPrompt` makes unstructured text a first-class authoring input. The draft carries each metric's label, start and range and the category tables the scenario's events use, so the compiled scenario's world holds every score it declares.
 
 ### Input
 
@@ -107,6 +107,35 @@ Full output: [`output/cookbook/01-output-scenario-package.json`](../output/cookb
 ### What just happened
 
 The brief named six decision-relevant departments, eight quantifiable metrics, a quarterly cadence, and an `enterprise-arr-at-risk` metric expressed in `currency`. None of these were hard-coded. The LLM read the seed and chose `populationNoun: 'employees'`, `settlementNoun: 'lab'`, and `timeUnitNoun: 'quarter'` from inference; the dashboard's turn header would render `"Quarter 1"`, `"Quarter 2"`, etc. without any code change. The compiler then generated TypeScript hooks (progression, director, prompts, milestones, fingerprint, politics, reactions) and attached the seed-extracted topics + facts as a `KnowledgeBundle` for downstream RESEARCH grounding.
+
+The excerpt above was recorded on 25 April 2026, when a draft named its metrics and said nothing more about them. A draft now also gives each metric a label, a start and a range, and lists the category tables its events use, and the compiled package carries a `world` and `effects` built from them. For the orchard draft the tests compile ([`draft-orchard-with-tables.json`](https://github.com/framerslab/paracosm/blob/302c33811427d96024625c3b94d1c67c7c3ef451/tests/fixtures/compiler/draft-orchard-with-tables.json)), whose `harvest` starts at 420 tonnes and whose `soil-health` starts at 62 percent, the compiled package holds:
+
+```json
+"world": {
+  "metrics": {
+    "harvest": { "id": "harvest", "label": "Harvest", "unit": "tonnes", "type": "number", "initial": 420, "min": 0, "category": "metric" },
+    "soil-health": { "id": "soil-health", "label": "Soil health", "unit": "%", "type": "number", "initial": 62, "min": 0, "max": 100, "category": "metric" }
+  },
+  "capacities": {},
+  "statuses": {},
+  "politics": {},
+  "environment": {}
+},
+"effects": [
+  {
+    "id": "category_effects",
+    "type": "category_outcome",
+    "label": "Category Outcome Effects",
+    "categoryDefaults": {
+      "weather": { "harvest": -20, "soil-health": 2 },
+      "market": { "harvest": 25, "morale": 0.04 },
+      "labour": { "soil-health": -3, "harvest": 15 }
+    }
+  }
+]
+```
+
+A percent is held in points, 0 to 100. A metric whose draft gives no start takes a default (50 for a percent, 100 for a number, 1,000,000 for a currency), and a draft that lists no table gets three default ones, each moving every declared score a twentieth of its scale. [ARCHITECTURE.md](ARCHITECTURE.md#what-a-scenario-compiled-from-a-prompt-declares) has every rule.
 
 ---
 
@@ -784,9 +813,9 @@ Query params:
 
 | Param      | Required | Type        | Behaviour |
 | ---------- | -------- | ----------- | --------- |
-| `load`     | yes      | URL         | Remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, GitHub gists, S3, and any static host work. |
+| `load`     | yes      | URL         | Remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, GitHub gists, S3, and any static host work. A file on another site waits for the viewer to answer a question naming that site. |
 | `tab`      | no       | enum        | `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
-| `autoload` | no       | `1`/`true`  | Skips the F9 preview-confirm modal. Omit to keep the confirm step (useful when the recipient should see the run's metadata before committing). |
+| `autoload` | no       | `1`/`true`  | Skips the F9 preview-confirm modal for the link's own file. Omit to keep the confirm step (useful when the recipient should see the run's metadata before committing). The question that names another site is asked either way, and a file the viewer opens after cancelling the link keeps its preview. |
 
 ### Output
 
@@ -814,7 +843,7 @@ https://paracosm.agentos.sh/sim?load=https://example.com/runs/baseline.json
 
 ### What just happened
 
-`useLoadFromUrl` reads `?load=` on mount, fetches the JSON with a 30s abort, wraps it as a `File`, and pipes it through the same `useLoadPreview.openFromFile` path the file picker and drag-and-drop use. The fetch streams to a `Blob`, `extractPreviewMetadata` runs against the parsed payload, and the dashboard transitions to its `preview` state.
+`useLoadFromUrl` reads `?load=` on mount. A file on the dashboard's own origin is fetched at once. A file on another origin is not: the hook reports its host, `LoadFromHostModal` asks the viewer whether to load a run from that site, and the fetch starts only on Load (Cancel fetches nothing and strips the params). The hook then fetches the JSON with a 30s abort, wraps it as a `File`, and pipes it through the same `useLoadPreview.openFromFile` path the file picker and drag-and-drop use. A response that a redirect brought from another origin than the link's is refused with an error toast, so the file shown always comes from the site the link names. The fetch streams to a `Blob`, `extractPreviewMetadata` runs against the parsed payload, and the dashboard transitions to its `preview` state.
 
 From there one of two things happens:
 
@@ -822,6 +851,8 @@ From there one of two things happens:
 - `autoload` absent — the `LoadPreviewModal` renders so the viewer can confirm or cancel; on confirm the same `?tab=` routing applies.
 
 Schemes are whitelisted to `http:` and `https:` in [`useLoadFromUrl.helpers.ts`](../src/dashboard/src/hooks/useLoadFromUrl.helpers.ts) (`parseLoadUrlParam`); `javascript:`, `file:`, and `data:` are rejected with a console warning and the param is stripped. Cross-origin URLs require the host to send `Access-Control-Allow-Origin` headers permissive enough for the dashboard origin — public Gists and most CDN buckets do; locked-down internal blob stores typically don't.
+
+A run file can carry a `provider_error` event, which restores the provider error banner on load. The banner links only to the provider pages the server sends (`platform.openai.com`, `console.anthropic.com`, see [`providerLinks.ts`](../src/dashboard/src/components/layout/providerLinks.ts)); any other address in the event is shown as text.
 
 ---
 

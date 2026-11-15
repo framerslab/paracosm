@@ -158,7 +158,7 @@ Six turns is enough to surface the contrast. The fingerprint is a stable hash ov
 
 ## Quickstart: prompt or document to running simulation
 
-`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed.
+`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed. The compiled scenario declares each score's start and range and the category tables its events use, so a run holds every score the scenario declares.
 
 ```typescript
 import { WorldModel } from 'paracosm';
@@ -303,7 +303,7 @@ The dashboard ships two ways to produce a shareable run link, both landing the v
 
 All three routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly.
 
-**By URL construction** — any remote `.json` save can be turned into a deep link that auto-fetches, parses, and lands on the tab you choose. No upload step, no preview modal.
+**By URL construction** — any remote `.json` save can be turned into a deep link that fetches, parses, and lands on the tab you choose. No upload step, no preview modal. A file on another site than the dashboard's is fetched after the viewer answers one question that names that site.
 
 ```
 https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
@@ -313,7 +313,7 @@ https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
 | ---------- | -------- | --------- |
 | `load`     | yes      | URL of the remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, gists, S3, GitHub raw all work. |
 | `tab`      | no       | Tab to open after the run loads. `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
-| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. |
+| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. A file on another site still asks the question naming that site first. |
 
 Concrete share links:
 
@@ -461,7 +461,7 @@ Programmatic surfaces: `paracosm` root (`run`, `runMany`, `WorldModel`, `compile
 
 For non-SSE consumers there's `POST /simulate` (gated on `PARACOSM_ENABLE_SIMULATE_ENDPOINT=true`) and nine read-and-replay routes under `/api/v1/*`. Wire-level details: [`docs/HTTP_API.md`](docs/HTTP_API.md).
 
-Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`, `DELETE /admin/scenarios/:id`) and the disk write of `POST /scenario/store` (`saveToDisk: true`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer in the `X-Admin-Token` header; off by default.
+Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`, `DELETE /admin/scenarios/:id`) and the disk write of `POST /scenario/store` (`saveToDisk: true`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer in the `X-Admin-Token` header; off by default. With `ADMIN_WRITE=true` the dashboard's Settings tab shows an Admin Token field, where an operator enters the token once for that browser.
 
 ---
 
@@ -533,7 +533,7 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 |---|---|---|
 | Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. |
 | Model keys | The host's keys, or your own OpenAI or Anthropic key entered in Settings. | Your own keys, from the environment or a `.env` file. |
-| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | No hosted quotas: the SDK and `paracosm run` cap no turns, population, departments or daily runs. The API has its own bounds: `runMany()` and `WorldModel.quickstart()` take 2 to 6 actors and throw outside that range, `run()` runs two and returns the first, and a dashboard run takes 2 to 300 actors (a fork takes 1). The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
+| Limits | Runs on the host's keys are capped in turns, population, departments and leaders (two), and each IP address has a daily run limit, which a Digital Twin run also counts against. Quickstart compiles count against a daily compile limit, and its grounding, actor and URL requests against a daily limit of their own. Your own key lifts the run caps and the run limit for a run you start (a Digital Twin run takes no key, so it always counts); live search there runs only on search keys you bring. | No hosted quotas: the SDK and `paracosm run` cap no turns, population, departments or daily runs. The API has its own bounds: `runMany()` and `WorldModel.quickstart()` take 2 to 6 actors and throw outside that range, `run()` runs two and returns the first, and a dashboard run takes 2 to 300 actors (a fork takes 1). The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
 | Cost | Free to try. | Free. You pay your model provider for the runs you make. |
 | Support | Community via Discord and GitHub. | Community via Discord and GitHub. |
 

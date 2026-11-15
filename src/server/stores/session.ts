@@ -80,12 +80,33 @@ export interface SessionMeta {
    * Empty / absent on pair runs (the legacy fields cover them).
    */
   leaders?: string[];
+  /** True for a session an admin saved: listed to every visitor and never evicted. */
+  pinned?: boolean;
 }
 
 /** A full session record, including the event payload for replay. */
 export interface StoredSession {
   meta: SessionMeta;
   events: TimestampedEvent[];
+  /** The owner key it was saved under (see {@link SaveSessionOptions.owner}), or null. */
+  owner: string | null;
+}
+
+/** Who a saved session belongs to. */
+export interface SaveSessionOptions {
+  /**
+   * An opaque key naming the visitor whose run it is (the server stores a
+   * SHA-256 of the visitor id). Null or absent for a run with no visitor.
+   */
+  owner?: string | null;
+  /** An admin save: listed to every visitor and never evicted by the ring. */
+  pinned?: boolean;
+}
+
+/** Which saved sessions a listing returns. */
+export interface ListSessionsScope {
+  /** Rows saved under this owner key, besides the pinned rows; null lists the pinned rows alone. */
+  owner: string | null;
 }
 
 /** Optional metadata override accepted by `saveSession`. */
@@ -117,12 +138,15 @@ export interface SessionStore {
    * Returns the new session's id and (when applicable) the id of the
    * row evicted to make room. Caller can log or surface the eviction.
    */
-  saveSession(events: TimestampedEvent[], override?: SessionMetaOverride): Promise<{
+  saveSession(events: TimestampedEvent[], override?: SessionMetaOverride, options?: SaveSessionOptions): Promise<{
     id: string;
     evictedId?: string;
   }>;
-  /** Returns metadata for every stored session, newest first. */
-  listSessions(): Promise<SessionMeta[]>;
+  /**
+   * Returns metadata for the stored sessions, newest first: every one, or
+   * with `scope` the pinned ones and the ones saved under `scope.owner`.
+   */
+  listSessions(scope?: ListSessionsScope): Promise<SessionMeta[]>;
   /** Loads one session in full. Returns `null` when the id is unknown. */
   getSession(id: string): Promise<StoredSession | null>;
   /** Number of currently stored sessions. Useful for tests + smoke checks. */
@@ -173,16 +197,25 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       events TEXT NOT NULL,
       title TEXT,
       seedText TEXT,
-      leaders TEXT
+      leaders TEXT,
+      owner TEXT,
+      pinned INTEGER NOT NULL DEFAULT 0
     );
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_createdAt ON sessions(createdAt);`);
 
-  // Idempotent schema migration for SQLite: add columns introduced
-  // after the original schema landed, without dropping the DB.
-  // Postgres tenants spin up with the latest schema directly; SQLite
-  // boxes need ADD COLUMN statements to catch up on existing data.
-  if (isSqliteAdapter(adapter)) {
+  // Idempotent schema migration: add columns introduced after the
+  // original schema landed, without dropping the DB. CREATE TABLE IF NOT
+  // EXISTS adds no column to a table made before, so a Postgres table
+  // takes ADD COLUMN IF NOT EXISTS, and SQLite, which has no IF NOT
+  // EXISTS there, reads its columns first.
+  if (adapter.kind === 'postgres' || adapter.kind === 'supabase-postgres') {
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS title TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS seedText TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS leaders TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0');
+  } else if (isSqliteAdapter(adapter)) {
     const columns = await adapter.all<{ name: string }>('PRAGMA table_info(sessions)');
     const addColumnIfMissing = async (name: string, ddl: string) => {
       if (columns.some((c) => c.name === name)) return;
@@ -196,6 +229,8 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
     await addColumnIfMissing('title', 'ALTER TABLE sessions ADD COLUMN title TEXT');
     await addColumnIfMissing('seedText', 'ALTER TABLE sessions ADD COLUMN seedText TEXT');
     await addColumnIfMissing('leaders', 'ALTER TABLE sessions ADD COLUMN leaders TEXT');
+    await addColumnIfMissing('owner', 'ALTER TABLE sessions ADD COLUMN owner TEXT');
+    await addColumnIfMissing('pinned', 'ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -243,7 +278,7 @@ export function openSessionStore(
   }
 
   return {
-    async saveSession(events, override) {
+    async saveSession(events, override, options) {
       const adapter = await getAdapter();
       const id = randomUUID();
       const createdAt = Date.now();
@@ -264,9 +299,9 @@ export function openSessionStore(
 
       await adapter.run(
         `INSERT INTO sessions
-           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders)
+           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned)
          VALUES
-           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders)`,
+           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned)`,
         {
           id,
           createdAt,
@@ -281,15 +316,19 @@ export function openSessionStore(
           events: JSON.stringify(events),
           seedText: override?.seedText ?? derived.seedText ?? null,
           leaders: leadersJSON,
+          owner: options?.owner ?? null,
+          pinned: options?.pinned ? 1 : 0,
         },
       );
 
+      // The ring holds `maxSessions` unpinned rows; an admin-saved (pinned)
+      // row is neither counted nor evicted.
       let evictedId: string | undefined;
-      const totalRowsRow = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions');
+      const totalRowsRow = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0');
       const totalRows = totalRowsRow?.c ?? 0;
       if (totalRows > maxSessions) {
         const oldest = await adapter.get<{ id: string }>(
-          'SELECT id FROM sessions ORDER BY createdAt ASC LIMIT 1',
+          'SELECT id FROM sessions WHERE pinned = 0 ORDER BY createdAt ASC LIMIT 1',
         );
         if (oldest) {
           await adapter.run('DELETE FROM sessions WHERE id = ?', [oldest.id]);
@@ -300,12 +339,17 @@ export function openSessionStore(
       return evictedId === undefined ? { id } : { id, evictedId };
     },
 
-    async listSessions() {
+    async listSessions(scope) {
       const adapter = await getAdapter();
-      const rows = await adapter.all<SessionMetaRow>(
-        `SELECT id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, title, seedText, leaders
-         FROM sessions ORDER BY createdAt DESC`,
-      );
+      const columns = 'id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, title, seedText, leaders, pinned';
+      const rows = scope === undefined
+        ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions ORDER BY createdAt DESC`)
+        : scope.owner === null
+          ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions WHERE pinned = 1 ORDER BY createdAt DESC`)
+          : await adapter.all<SessionMetaRow>(
+            `SELECT ${columns} FROM sessions WHERE pinned = 1 OR owner = ? ORDER BY createdAt DESC`,
+            [scope.owner],
+          );
       return rows.map(rowToMeta);
     },
 
@@ -314,7 +358,7 @@ export function openSessionStore(
       const row = await adapter.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', [id]);
       if (!row) return null;
       const events = JSON.parse(row.events) as TimestampedEvent[];
-      return { meta: rowToMeta(row), events };
+      return { meta: rowToMeta(row), events, owner: row.owner ?? null };
     },
 
     async count() {
@@ -366,10 +410,12 @@ interface SessionMetaRow {
   seedText: string | null;
   /** JSON-encoded `string[]` (or null on legacy rows / pair runs). */
   leaders: string | null;
+  pinned?: number | null;
 }
 
 interface SessionRow extends SessionMetaRow {
   events: string;
+  owner: string | null;
 }
 
 function rowToMeta(row: SessionMetaRow): SessionMeta {
@@ -387,6 +433,7 @@ function rowToMeta(row: SessionMetaRow): SessionMeta {
   if (row.totalCostUSD != null) meta.totalCostUSD = row.totalCostUSD;
   if (row.title) meta.title = row.title;
   if (row.seedText) meta.seedText = row.seedText;
+  if (row.pinned) meta.pinned = true;
   if (row.leaders) {
     // Defensive: a corrupted row (manual edit, partial migration) should
     // not blow up the whole listing. Drop the field instead and let the

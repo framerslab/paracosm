@@ -21,9 +21,13 @@ import { join } from 'node:path';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { atlasLab, mars, quickstartBody, readReplay, settingsBody, waitFor, withVisitors } from './helpers/run-server.js';
 
-/** A runnable scenario stored through /scenario/store (tests/cli/server-app.test.ts uses the same one). */
+/**
+ * A runnable scenario stored through /scenario/store (tests/cli/server-app.test.ts
+ * uses the same one), under an id of its own: scenarios/submarine.json ships
+ * as deep-ocean-station, and a memory store never takes a shared id.
+ */
 const oceanStation = {
-  id: 'deep-ocean-station',
+  id: 'stored-ocean-station',
   version: '1.0.0',
   engineArchetype: 'closed_turn_based_settlement',
   labels: { name: 'Deep Ocean Station', shortName: 'ocean', populationNoun: 'crew members', settlementNoun: 'station', currency: 'credits' },
@@ -259,14 +263,14 @@ test('an admin delete of the picked scenario leaves its visitor on the default',
     const v = visitor();
     assert.equal((await v.post('/scenario/store', { scenario: oceanStation, saveToDisk: false })).status, 200);
     assert.equal((await v.post('/scenario/switch', { id: oceanStation.id })).status, 200);
-    assert.equal((await v.json<{ id: string }>('/scenario')).id, 'deep-ocean-station');
+    assert.equal((await v.json<{ id: string }>('/scenario')).id, oceanStation.id);
 
     const deleted = await fetch(`${base}/admin/scenarios/${oceanStation.id}`, {
       method: 'DELETE',
       headers: { 'X-Admin-Token': 'admin-test-token' },
     });
     assert.equal(deleted.status, 200);
-    assert.equal(v.cookies.get('paracosm_scenario'), 'deep-ocean-station', 'the stale cookie stays');
+    assert.equal(v.cookies.get('paracosm_scenario'), oceanStation.id, 'the stale cookie stays');
     assert.equal((await v.json<{ id: string }>('/scenario')).id, 'mars-genesis');
     assert.equal((await v.json<{ active: string }>('/scenarios')).active, 'mars-genesis');
   }, { env: { ADMIN_WRITE: 'true', ADMIN_TOKEN: 'admin-test-token' } });

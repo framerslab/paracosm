@@ -570,6 +570,17 @@
 
 .outcomeDeltaSpan { margin-right: 4px; }
 
+// The decision against the leader's bar; a choice against the bar in amber.
+.outcomeBar {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.outcomeBarDeparts { color: var(--amber); }
+
 .outcomeReasoningSummary {
   font-size: var(--font-sm);
   color: var(--side-color, var(--amber));

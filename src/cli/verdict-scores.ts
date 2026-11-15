@@ -128,7 +128,8 @@ function rowsWithValues(scenario: ScenarioPackage, defs: ScoreDef[], states: unk
 /**
  * Every score the scenario declares, header scores first in their
  * header order, then the rest of `scenario.metrics`. A metric with no
- * `source` (a seed-compiled draft declares only id and format) reads
+ * `source` (a scenario compiled from a seed draft before the compiler
+ * wrote a world for it declares only id and format) reads
  * `metrics.<id>`. A fraction (unit `frac`) reads as a percentage, and
  * a percent score on a 0 to 100 scale is brought down to a fraction, so
  * every percent value in a row is on one scale. Scores no run holds a

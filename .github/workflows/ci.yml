@@ -33,9 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # The version deploy.yml builds with; its env block says why.
           node-version: '24'
@@ -98,11 +98,17 @@ jobs:
       - name: Run control end-to-end test
         run: npx playwright test tests-e2e/specs/run-control.spec.ts --project=chromium-desktop
 
+      - name: Admin token field end-to-end test
+        run: npx playwright test tests-e2e/specs/admin-token-field.spec.ts --project=chromium-desktop
+
       - name: Scenario per visitor end-to-end test
         run: npx playwright test tests-e2e/specs/scenario-per-visitor.spec.ts --project=chromium-desktop
 
       - name: Digital Twin events end-to-end test
         run: npx playwright test tests-e2e/specs/digital-twin-events.spec.ts --project=chromium-desktop
+
+      - name: Dashboard display end-to-end test
+        run: npx playwright test tests-e2e/specs/dashboard-display.spec.ts --project=chromium-desktop
 
       - name: Run status events end-to-end test
         run: npx playwright test tests-e2e/specs/run-status-events.spec.ts --project=chromium-desktop
@@ -112,6 +118,9 @@ jobs:
 
       - name: Chat threads per run end-to-end test
         run: npx playwright test tests-e2e/specs/chat-per-run.spec.ts --project=chromium-desktop
+
+      - name: Load link end-to-end test
+        run: npx playwright test tests-e2e/specs/load-link.spec.ts --project=chromium-desktop
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
@@ -132,7 +141,7 @@ jobs:
     container: node:22-bookworm-slim
     steps:
       # The image has no git; checkout downloads the commit through the API.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -142,12 +151,16 @@ jobs:
   # deploy.yml copies the build to the host with rsync --delete. This runs that
   # command's filter options against a stand-in host tree and fails when a
   # deploy would delete data the server writes there, or keep a stale build file.
+  # It then runs the deploy step with stand-in rsync and ssh and fails when the
+  # step copies while APP_DIR is empty, / or relative, when the copy and the
+  # remote script use different directories, or when the remote script changes
+  # the host's APP_DIR.
   deploy-keeps-host-data:
     name: Deploy keeps host data
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 

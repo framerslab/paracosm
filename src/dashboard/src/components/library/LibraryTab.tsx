@@ -26,6 +26,10 @@ export function LibraryTab(): JSX.Element {
   const searchRef = React.useRef<HTMLInputElement>(null);
   const { filters, setFilters, runs, total, hasMore, loading, error } = useRunsList();
   const { records: recentRecords, push: pushRecent, remove: removeRecent } = useRecentlyViewed();
+  // Each replay the drawer runs is counted on the server; the stats strip
+  // reads the counters again when this moves.
+  const [replayCount, setReplayCount] = React.useState(0);
+  const onReplayed = React.useCallback(() => setReplayCount(n => n + 1), []);
 
   const [view, setView] = React.useState<'gallery' | 'table'>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -117,6 +121,7 @@ export function LibraryTab(): JSX.Element {
 
       <HeroStatsStrip
         filters={{ mode: filters.mode, scenario: filters.scenarioId, leader: filters.actorConfigHash }}
+        refreshKey={replayCount}
       />
 
       <SearchBar
@@ -170,6 +175,7 @@ export function LibraryTab(): JSX.Element {
         // Drop it from the recently-viewed cache so the ghost card stops
         // surfacing on the next load.
         onRunMissing={removeRecent}
+        onReplayed={onReplayed}
       />
 
       {/* CompareModal mounts above the LibraryTab when a bundle is

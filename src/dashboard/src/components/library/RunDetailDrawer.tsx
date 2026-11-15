@@ -18,10 +18,13 @@ export interface RunDetailDrawerProps {
    *  parent prune the id from the recently-viewed strip / any other
    *  cached id list so the ghost card doesn't show up again on reload. */
   onRunMissing?: (runId: string) => void;
+  /** Fires when a replay from the drawer has been counted in the server's
+   *  replay counters, so the Library can read them again. */
+  onReplayed?: () => void;
 }
 
 export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
-  const { runId, open, onClose, onArtifactLoaded, onRunMissing } = props;
+  const { runId, open, onClose, onArtifactLoaded, onRunMissing, onReplayed } = props;
   const { record, artifact, loading, error, status } = useRunArtifact(open ? runId : null);
   const drawerRef = React.useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = React.useRef<HTMLElement | null>(null);
@@ -112,7 +115,7 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
       >
         <header className={styles.head}>
           <button onClick={onClose} className={styles.closeBtn} aria-label="Close detail">×</button>
-          {artifact && <ReplayPanel artifact={artifact} />}
+          {artifact && <ReplayPanel artifact={artifact} onReplayed={onReplayed} />}
           {record?.sessionId && <ShareVizButton sessionId={record.sessionId} />}
         </header>
 

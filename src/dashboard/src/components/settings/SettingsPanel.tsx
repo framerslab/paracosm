@@ -5,6 +5,7 @@ import { leaderUnit, type ScenarioLabelsInput } from '../../hooks/useScenarioLab
 import { getActorColorVar } from '../../hooks/useGameState';
 import { ActorConfig, type ActorFormData } from './ActorConfig';
 import { ScenarioEditor } from './ScenarioEditor';
+import { AdminTokenField } from './AdminTokenField';
 import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
 import { EventLogPanel } from '../log/EventLogPanel';
 import { SubTabNav } from '../shared/SubTabNav';
@@ -307,6 +308,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // API key state: env flags tell us what's configured server-side; overrides are user-entered values
   const [envKeys, setEnvKeys] = useState<Record<string, boolean>>({});
   const [hostedDemo, setHostedDemo] = useState(false);
+  // The server's ADMIN_WRITE setting, from /admin-config: the Admin Token
+  // field shows only where admin writes are on.
+  const [adminWrite, setAdminWrite] = useState(false);
   const [serverMode, setServerMode] = useState<DashboardServerMode>('local_demo');
   // Demo caps fetched from the server so lock labels read the current
   // effective numbers (driven by PARACOSM_DEMO_MAX_TURNS env var on
@@ -389,6 +393,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       .then(data => {
         if (data.keys) setEnvKeys(data.keys);
         if (typeof data.hostedDemo === 'boolean') setHostedDemo(data.hostedDemo);
+        if (typeof data.adminWrite === 'boolean') setAdminWrite(data.adminWrite);
         if (typeof data.serverMode === 'string') setServerMode(data.serverMode as DashboardServerMode);
         if (data.demoCaps && typeof data.demoCaps.maxTurns === 'number') {
           setDemoCaps({
@@ -836,8 +841,20 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         </div>
       )}
 
-      {/* Scenario Editor: create, import, export, compile */}
-      <ScenarioEditor />
+      {/* Admin token: the credential Save to Disk, the server wipe and the
+          scenario delete send. Shown only where the server takes admin writes. */}
+      {adminWrite && (
+        <fieldset className={styles.fieldset}>
+          <legend style={SETTINGS_SECTION_HEADER_STYLE} className={styles.legend}>
+            Admin Token
+          </legend>
+          <AdminTokenField />
+        </fieldset>
+      )}
+
+      {/* Scenario Editor: create, import, export, compile. Its own
+          /admin-config answer also sets the Admin Token field's gate above. */}
+      <ScenarioEditor onAdminWrite={setAdminWrite} />
 
       {/* Launch */}
       <div className={`responsive-stack ${styles.launchRow}`}>

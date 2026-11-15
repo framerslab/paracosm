@@ -41,14 +41,16 @@
  * people and keep one death die for a life, the seeds on which the death
  * records differ: Mars Genesis at the hosted shape, with the dead as well,
  * and Lunar Outpost and the deep-ocean station at their own population and
- * turns. A scenario compiled from a seed draft holds none of the scores its
- * draft declares (#257), so its row counts the verdict's score block. That
- * row's scenario comes from the real seed compile, `compileFromSeed`, on a
- * stub model that answers with the draft, an extraction naming two crisis
- * categories and no hook (tests/engine/compiler/helpers/stub-model-compile.ts).
- * Neither category names a table, so its events move morale by the
- * registry's fallback. Each floor sits a margin under the count read in CI,
- * which stands beside it.
+ * turns. A scenario compiled from a seed draft holds the scores its draft
+ * declares, with category tables over them (#257), so its rows count a
+ * declared score like the rest. Their scenarios come from the real seed
+ * compile, `compileFromSeed`, on a stub model that answers with the draft,
+ * an extraction naming two crisis categories and no hook
+ * (tests/engine/compiler/helpers/stub-model-compile.ts): a draft that
+ * declares two scores and nothing else, the same draft with each score's
+ * start and three tables of its own, and a draft a model returned to the
+ * cookbook. Each floor sits a margin under the count read in CI, which
+ * stands beside it.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -172,11 +174,16 @@ const noHook = async () => 'not a hook';
 /** The Digital Twin, compiled as the server compiles it before a run. */
 const twin = await compileScenario(JSON.parse(readFileSync(resolve(scenariosDir, 't2d-glp1-protocol.json'), 'utf-8')), { cache: false, generateText: noHook });
 /**
- * A seed draft (the draft of tests/engine/progression-time-scale.test.ts), compiled by the real
- * `compileFromSeed` on a stub model that returns the draft, the extraction and no hook. No network
- * is reached; the real `fetch` is back before the rows run.
+ * A seed draft, compiled by the real `compileFromSeed` on a stub model that returns the draft, the
+ * extraction and no hook. No network is reached; the real `fetch` is back before the rows run.
  */
-const seedCompiled = (await compileSeedOnStub({ draft: loadCompilerFixture('draft-orchard-bare.json'), hooks: 'none' })).scenario;
+const seedCompiledFrom = async (fixture: string) => (await compileSeedOnStub({ draft: loadCompilerFixture(fixture), hooks: 'none' })).scenario;
+/** The draft of tests/engine/progression-time-scale.test.ts: two scores, no start, no table. */
+const seedCompiled = await seedCompiledFrom('draft-orchard-bare.json');
+/** The same draft with a start for each score and three category tables. */
+const seedCompiledWithTables = await seedCompiledFrom('draft-orchard-with-tables.json');
+/** The AI lab draft a model returned to the cookbook: seven scores, no start, no table. */
+const seedCompiledAiLab = await seedCompiledFrom('recorded-draft-ai-lab.json');
 
 /** The shape a hosted run has: at most 30 people and six turns. */
 const hosted = (sc: ScenarioPackage): Shape => ({ population: Math.min(sc.setup?.defaultPopulation ?? 30, 30), turns: Math.min(sc.setup?.defaultTurns ?? 6, 6) });
@@ -218,10 +225,17 @@ const ROWS: Row[] = [
   // (CI run 43061258861, job 130664143877, and run 43060543910).
   { id: 'lunar-outpost', label: 'Lunar Outpost at its own size', scenario: lunarScenario, shape: own(lunarScenario), floors: { records: 15 } },
   { id: 'deep-ocean-station', label: 'the deep-ocean station at its own size', scenario: station, shape: own(station), floors: { records: 18 } },
-  // A scenario compiled from a seed draft holds the head count and morale
-  // alone, so its score block is those two rows, neither a score its draft
-  // declares: the score block 56 of 61 (morale), a declared score 0.
-  { id: 'orchard-seasons', label: 'a scenario compiled from a seed draft', scenario: seedCompiled, shape: hosted(seedCompiled), floors: { scores: 50 } },
+  // A scenario compiled from a seed draft holds every score its draft
+  // declares. A draft that gives no start and no table gets the compiler's
+  // default starts and three default tables; one that writes its own keeps
+  // them. A declared score differs on 61 of 61 seeds for the bare orchard
+  // draft, on 61 for the same draft with its own starts and tables, and on
+  // 59 for the AI lab draft (CI run 43148058211, job 130950466431, on
+  // commit 302c3381). The floor of 55 is the bar issue #257 sets for a
+  // compiled scenario.
+  { id: 'orchard-seasons', label: 'a scenario compiled from a seed draft', scenario: seedCompiled, shape: hosted(seedCompiled), floors: { declared: 55 } },
+  { id: 'orchard-seasons', label: 'a scenario compiled from a seed draft with its own starts and tables', scenario: seedCompiledWithTables, shape: hosted(seedCompiledWithTables), floors: { declared: 55 } },
+  { id: seedCompiledAiLab.id, label: 'a scenario compiled from the AI lab draft a model returned', scenario: seedCompiledAiLab, shape: hosted(seedCompiledAiLab), floors: { declared: 55 } },
 ];
 
 for (const row of ROWS) {
