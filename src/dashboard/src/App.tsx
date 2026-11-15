@@ -192,7 +192,11 @@ function AppContent() {
   const replaySessionId = useReplaySessionId();
   // The live feed shows a run only in the page's scenario: the server holds
   // one run for every visitor, whichever scenario each one picked.
-  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null });
+  // What the page does when the server says it let go of the run the page
+  // shows (run_cleared). Set below, where the Digital Twin's state is.
+  const runClearedRef = useRef<(runKey: string) => void>(() => {});
+  const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
+  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
   const [tourActive, setTourActive] = useState(false);
 
   // Global verdict banner. Closable by the user; dismissal is keyed
@@ -350,6 +354,18 @@ function AppContent() {
   // dropped: the server goes on with the twin and still answers, and that
   // late answer would put the panel back over what the page shows since.
   const twinRunKeyRef = useRef<string | null>(null);
+  // The key of the run whose result the panel shows, null when it shows
+  // none. The result is a view of that run. When the server says it let go
+  // of the run (run_cleared: Delete server data, the visitor's Clear local
+  // data in another tab, the server's held-run caps), the result leaves the
+  // page with the feed's other views of the run: the server holds nothing
+  // of it to show again.
+  const twinResultKeyRef = useRef<string | null>(null);
+  runClearedRef.current = (runKey: string) => {
+    if (runKey !== twinResultKeyRef.current) return;
+    twinResultKeyRef.current = null;
+    setInterventionArtifact(null);
+  };
   // Leaves the Digital Twin views on the SIM tab for what replaces them: a
   // run the server took from one of the page's Run controls, a Quickstart
   // launch, a run loaded from a file or from history, or a clear of the
@@ -358,6 +374,7 @@ function AppContent() {
   const { leaveOwnRun } = sse;
   const leaveDigitalTwin = useCallback(() => {
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
     leaveOwnRun();
@@ -868,6 +885,7 @@ function AppContent() {
     const cleared = sse.reset();
     sse.followRun(payload.runKey);
     twinRunKeyRef.current = payload.runKey;
+    twinResultKeyRef.current = null;
     setInterventionArtifact(null);
     setInterventionRunning(payload);
     setUserTriggeredRun(true);
@@ -877,6 +895,7 @@ function AppContent() {
   const handleInterventionResult = useCallback((artifact: RunArtifact, runKey: string) => {
     if (runKey !== twinRunKeyRef.current) return;
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = runKey;
     setInterventionRunning(null);
     setInterventionArtifact(artifact);
     setUserTriggeredRun(true);
@@ -884,6 +903,7 @@ function AppContent() {
   }, [setActiveTab]);
   const handleInterventionDismiss = useCallback(() => {
     twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
     sse.leaveOwnRun();
