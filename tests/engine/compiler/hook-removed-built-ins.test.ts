@@ -341,3 +341,25 @@ test('a cached hook that tests a pattern in the second ${ } of a template is res
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that divides a variable named of and makes a typed array on the same line is generated again at restore', async () => {
+  // `of` is a keyword in the head of a for and a name anywhere else. Read
+  // as the keyword, it would make the slash after it open a pattern,
+  // which hides the rest of the line up to the next slash.
+  const { cacheDir, json } = cacheWith({
+    fingerprint: '(finalState) => { const of = 2; '
+      + 'return { summary: String(of / 2 + new Float64Array([1]).length / 1) }; }',
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ fingerprint: () => "(finalState) => ({ summary: 'steady' })" }, asked),
+    });
+    assert.deepEqual(asked, ['fingerprint'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
