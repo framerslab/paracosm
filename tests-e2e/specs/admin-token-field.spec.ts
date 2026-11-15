@@ -165,16 +165,19 @@ async function withTouchPage(browser: Browser, viewport: { width: number; height
 
 /**
  * The open run actions menu, with a token saved and no run: Clear local data
- * then Delete server data, in one column inside the window, each on one line
- * with text of 14 px or more and at least `minTargetPx` tall.
+ * then Delete server data, in one column that starts inside the window, each
+ * on one line with text of 14 px or more and at least `minTargetPx` tall.
  */
 async function expectRunActionsMenu(page: Page, { minTargetPx }: { minTargetPx: number }): Promise<void> {
   const width = page.viewportSize()!.width;
   const items = page.getByRole('menuitem');
   await expect(items).toHaveText(['Clear local data', 'Delete server data']);
+  // The menu hangs from its trigger's right edge and widens to the left, so
+  // its longest item must not push its left edge out of the window.
   const menu = (await page.getByRole('menu').filter({ has: clearLocal(page) }).boundingBox())!;
+  const trigger = (await closeRunActions(page).boundingBox())!;
+  expect(Math.abs(menu.x + menu.width - (trigger.x + trigger.width)), `${width}px: the menu ends at its trigger's right edge`).toBeLessThanOrEqual(1);
   expect(menu.x, `${width}px: the menu starts inside the window`).toBeGreaterThanOrEqual(0);
-  expect(menu.x + menu.width, `${width}px: the menu ends inside the window`).toBeLessThanOrEqual(width);
   const first = (await items.first().boundingBox())!;
   for (const item of await items.all()) {
     const name = `${width}px ${(await item.textContent()) ?? ''}`;
