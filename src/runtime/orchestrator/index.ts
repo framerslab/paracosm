@@ -491,6 +491,11 @@ export interface RunOptions extends RuntimeCredentialOptions {
    */
   outputDir?: string;
   /**
+   * Whether to write the run's output file. Defaults to true. False returns
+   * the artifact without writing a file and leaves scenarioExtensions.outputPath unset.
+   */
+  writeOutputFile?: boolean;
+  /**
    * The environment the run's web search reads a search key from
    * (`SERPER_API_KEY`, `FIRECRAWL_API_KEY`, `TAVILY_API_KEY`,
    * `BRAVE_API_KEY`, `COHERE_API_KEY`) when these options name none.
@@ -2143,19 +2148,21 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     forkedFrom: opts._forkedFrom,
   });
 
-  const writtenPath = writeRunOutput(output, {
-    actorName: leader.name,
-    actorArchetype: leader.archetype,
-    turns: artifacts.length,
-    toolRegs,
-    outputDir: opts.outputDir,
-  });
-  // Stash the on-disk path on scenarioExtensions so server-app can
-  // enrich the SQLite RunRecord at run-end. /api/v1/runs/:runId reads
-  // record.artifactPath to load the full artifact via the Library tab.
-  const extObj = (output.scenarioExtensions ?? {}) as Record<string, unknown>;
-  extObj.outputPath = writtenPath;
-  output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
+  if (opts.writeOutputFile !== false) {
+    const writtenPath = writeRunOutput(output, {
+      actorName: leader.name,
+      actorArchetype: leader.archetype,
+      turns: artifacts.length,
+      toolRegs,
+      outputDir: opts.outputDir,
+    });
+    // Stash the on-disk path on scenarioExtensions so server-app can
+    // enrich the SQLite RunRecord at run-end. /api/v1/runs/:runId reads
+    // record.artifactPath to load the full artifact via the Library tab.
+    const extObj = (output.scenarioExtensions ?? {}) as Record<string, unknown>;
+    extObj.outputPath = writtenPath;
+    output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
+  }
 
   engine.cleanupSession(sid);
   await commander.close();

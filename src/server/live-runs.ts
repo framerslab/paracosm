@@ -25,6 +25,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { publicResultFrame } from './services/run-record.js';
 import type { BroadcastFn } from '../cli/pair-runner.js';
 import type { NormalizedSimulationConfig } from '../cli/sim-config.js';
 import type { ScenarioPackage } from '../engine/types.js';
@@ -493,7 +494,7 @@ export class LiveRunRegistry {
       const tag = run.actorIds[i] ?? null;
       if (actorFilter !== null && tag !== null && tag !== actorFilter) continue;
       try {
-        res.write(run.buffer[i]);
+        res.write(publicResultFrame(run.buffer[i]));
       } catch {
         break;
       }

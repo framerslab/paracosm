@@ -88,3 +88,28 @@ test('computeAggregate handles missing cost + duration gracefully', () => {
   assert.equal(out.costTotalUSD, 0.20);
   assert.equal(out.meanDurationMs, 0); // no durations -> 0
 });
+
+
+test('bundle members omit the server artifact path', async () => {
+  const { createSqliteRunHistoryStore } = await import('../stores/sqlite-run-history.js');
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:' });
+  const records = ['r1', 'r2'].map(runId => baseRecord({
+    runId, bundleId: 'b1', artifactPath: `/tmp/bundle-output-${runId}.json`, costUSD: 0.25,
+  }));
+  try {
+    for (const record of records) await store.insertRun(record);
+    const { res, chunks, status } = makeRes();
+    await handleListBundle('b1', res, { runHistoryStore: store });
+    assert.equal(status(), 200);
+    const body = JSON.parse(chunks.join(''));
+    assert.equal(body.members.length, 2);
+    for (const member of body.members) {
+      assert.equal(member.artifactPath, undefined);
+      assert.equal(member.costUSD, 0.25);
+    }
+    assert.doesNotMatch(chunks.join(''), /bundle-output-/);
+    assert.equal((await store.getRun('r1'))?.artifactPath, records[0].artifactPath);
+  } finally {
+    await store.close?.();
+  }
+});

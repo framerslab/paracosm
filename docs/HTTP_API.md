@@ -95,7 +95,7 @@ List runs newest-first with optional filters.
 }
 ```
 
-Note: `artifactPath` is stripped from the public projection of every record. Use `GET /api/v1/runs/:runId` to load the artifact JSON.
+Note: `artifactPath` is stripped from the public projection of every record, including bundle members. Artifacts in run answers, `/simulate`, `/api/quickstart/simulate-intervention`, `/results` and SSE `result` frames (including saved-session and held-run replay) omit `scenarioExtensions.outputPath`. Use `GET /api/v1/runs/:runId` to load the artifact JSON.
 
 ## `GET /api/v1/runs/aggregate`
 
@@ -141,7 +141,7 @@ Single run record plus the full RunArtifact loaded from disk.
 - `410 artifact_unreadable` — file was preserved but is missing or unreadable on disk
 - `410 artifact_outside_runs_dir` — the record's artifact path resolves outside the server's runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`, links resolved); the file is not read. A record imported before imports wrote their own copy can carry such a path.
 
-The runs directory is resolved from the environment the server was started with. The server's own runs (`/setup`, `/simulate` and digital-twin runs) write their output files there, as imports do, so every record the server stores points into it.
+The runs directory is resolved from the environment the server was started with. The server's own runs (`/setup` and `/simulate`) write their output files there, as imports do, so every record the server stores points into it. A digital-twin run through `/api/quickstart/simulate-intervention` returns its artifact without writing an output file. Like any run, its stream frames are held in `<APP_DIR>/.live-runs/<key>.json` until the run is dropped. Those frames do not include the subject.
 
 The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. On Linux it also reads the path the kernel holds for the open file (`/proc/self/fd/<n>`) and refuses the file when that path is outside the runs directory, so a parent directory swapped between the checks cannot point the read elsewhere. An entry that changes between the check and the read answers `410 artifact_unreadable`, or `410 artifact_outside_runs_dir` when it then resolves outside the runs directory.
 
