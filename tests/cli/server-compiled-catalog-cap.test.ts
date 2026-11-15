@@ -382,3 +382,28 @@ test('ground-scenario records nothing for a scenario that left while it searched
     keys.forEach((key, i) => { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; });
   }
 });
+
+test("an admin's disk save during boot removes the waiting compiled draft", async () => {
+  let release!: () => void;
+  const bootGate = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await withCatalog(async ({ api, scenarioDir, compiles }) => {
+      const v = api.cookied({ 'X-Admin-Token': TOKEN });
+      await waitFor(() => compiles.includes('a-49'), 'boot to start its newest draft');
+      const res = await v.post('/scenario/store', {
+        scenario: station('a-49', 'Saved during boot'), saveToDisk: true,
+      });
+      assert.equal(res.status, 200);
+      assert.equal((await res.json() as { savedToDisk: boolean }).savedToDisk, true);
+      const draftRemains = existsSync(join(scenarioDir, 'compiled', 'a-49.json'));
+      release();
+      await waitFor(async () => (await compiledIds(v)).includes('a-00'), 'boot to finish its remaining drafts', 5000);
+      assert.equal((await catalog(v)).find(e => e.id === 'a-49')?.source, 'disk');
+      const scenario = await v.json<{ labels: { name: string } }>('/scenario?id=a-49');
+      assert.equal(scenario.labels.name, 'Saved during boot');
+      assert.equal(draftRemains, false, 'the disk save removes the waiting compiled draft');
+      assert.equal((await compiledIds(v)).length, 49);
+      assert.ok(!savedIds(scenarioDir).includes('a-49'));
+    }, { drafts: true, bootGate, env: ADMIN_ENV });
+  } finally { release(); }
+});
