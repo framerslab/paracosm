@@ -338,8 +338,8 @@ function wordBefore(text: string, at: number, word: RegExp): boolean {
  * True where a `/` after `before` starts a regular expression and not a
  * division. It starts one after a sign that a value follows, and after a
  * word that a value follows (`return`, `typeof`, `yield` and the like);
- * after a name or a number it divides. Two cases need more than the sign
- * or the word before the slash:
+ * after a name or a number it divides. Three cases need more than the
+ * sign or the word before the slash:
  *
  * - After a `)`: a statement follows the head of an `if`, a `while`, a
  *   `for` or a `with`, so a slash there opens a pattern; after any other
@@ -348,9 +348,17 @@ function wordBefore(text: string, at: number, word: RegExp): boolean {
  *   the loop binds (`for (const m of /a/.exec(s))`), and a pattern may
  *   follow it there. Anywhere else it is a name, which a slash divides:
  *   outside a `for`, and in the condition of one (`for (; of / 2; )`).
+ * - After `++` or `--`: the sign stands after the value it changes
+ *   (`n++ / 2`), so a slash there divides.
  *
  * `yield` is a word here and never a name: a hook is parsed as strict
  * code (source-validation.ts), where no variable has that name.
+ *
+ * What it does not tell apart: a slash after the `}` that ends an object
+ * or a function written as a value, and a slash after a string, a
+ * template or a pattern, are read as the start of a pattern, by the sign
+ * that stands before them. Code that divides one of those is then read
+ * without the rest of its line up to the next slash.
  */
 function startsRegex(before: string): boolean {
   const text = before.trimEnd();
@@ -359,6 +367,9 @@ function startsRegex(before: string): boolean {
     const open = openParenthesis(text, text.length - 1);
     return open !== -1 && wordBefore(text, open, STATEMENT_HEAD);
   }
+  // `n++` and `n--` end a value. A run of three is that and a sign of its own: `n++ +`.
+  const signs = /(?:\++|-+)$/.exec(text);
+  if (signs !== null && signs[0].length % 2 === 0) return false;
   if (/[(,=:[!&|?{};+\-*%<>~^]$/.test(text)) return true;
   if (/(?:^|[^\w$.])of$/.test(text.slice(-3))) {
     const open = openParenthesis(text, text.length);
