@@ -51,6 +51,20 @@ const CLEAR_QUESTION = 'Clear local data? This wipes the in-browser simulation b
   + "It also lets go of this browser's run on the server, and stops it if it is running.\n\n"
   + 'Run history, saved sessions, and on-disk artifact files are kept.\n\n'
   + 'Cannot be undone.';
+/**
+ * Clear local data in the RUN menu's local history: its tooltip and its
+ * question. It posts the same POST /clear, so both say so.
+ */
+const HISTORY_CLEAR_TITLE = 'Wipe everything in this browser: saved-runs ring, event cache, current sim state. '
+  + "It also lets go of this browser's run on the server, stopping it if it is running. "
+  + 'Run history, saved sessions and output files are kept: Delete server data in the ⋯ menu deletes those, where admin writes are on and an admin token is saved.';
+const HISTORY_CLEAR_QUESTION = 'Clear all local browser state?\n\n'
+  + '  • Saved-runs ring (this dropdown)\n'
+  + '  • Event cache (Sim / Constellation / Log)\n'
+  + '  • Current SSE state\n\n'
+  + "It also lets go of this browser's run on the server, and stops it if it is running.\n\n"
+  + 'Run history, saved sessions, and on-disk artifact files are kept (Delete server data in the ⋯ menu deletes those, where it shows).\n\n'
+  + 'Cannot be undone.';
 /** What a scenario's details say when the server refused an older token and a newer one is saved. */
 const refusedWithNewerToken = (call: string, button: string) =>
   `The server refused the admin token this ${call} was sent with. A newer token is saved in this browser; press ${button} to try again with it.`;
@@ -151,19 +165,30 @@ async function withTouchPage(browser: Browser, viewport: { width: number; height
 
 /**
  * The open run actions menu, with a token saved and no run: Clear local data
- * then Delete server data, in one column, each with text of 14 px or more
- * and at least `minTargetPx` tall.
+ * then Delete server data, in one column inside the window, each on one line
+ * with text of 14 px or more and at least `minTargetPx` tall.
  */
 async function expectRunActionsMenu(page: Page, { minTargetPx }: { minTargetPx: number }): Promise<void> {
+  const width = page.viewportSize()!.width;
   const items = page.getByRole('menuitem');
   await expect(items).toHaveText(['Clear local data', 'Delete server data']);
+  const menu = (await page.getByRole('menu').filter({ has: clearLocal(page) }).boundingBox())!;
+  expect(menu.x, `${width}px: the menu starts inside the window`).toBeGreaterThanOrEqual(0);
+  expect(menu.x + menu.width, `${width}px: the menu ends inside the window`).toBeLessThanOrEqual(width);
   const first = (await items.first().boundingBox())!;
   for (const item of await items.all()) {
-    const name = (await item.textContent()) ?? '';
+    const name = `${width}px ${(await item.textContent()) ?? ''}`;
     const found = (await item.boundingBox())!;
     expect(Math.abs(found.x - first.x), `${name}: one column`).toBeLessThanOrEqual(1);
     expect(await item.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize)), `${name}: text size`).toBeGreaterThanOrEqual(14);
     expect(found.height, `${name}: target height`).toBeGreaterThanOrEqual(minTargetPx);
+    // The line boxes of the item's text: one top edge is one line.
+    const lines = await item.evaluate(element => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      return new Set(Array.from(range.getClientRects(), rect => Math.round(rect.top))).size;
+    });
+    expect(lines, `${name}: one line`).toBe(1);
   }
 }
 
@@ -342,6 +367,36 @@ test.describe('Admin token field @admin', () => {
     await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
   });
 
+  test('Clear local data in the RUN menu\'s local history says it lets go of this browser\'s run on the server, and sends nothing when declined', async ({ page }) => {
+    // One run kept in this browser's local history, so the RUN menu shows the section and its Clear local data.
+    const createdAt = Date.now() - 60_000;
+    const ring = [{
+      id: createdAt,
+      createdAt: new Date(createdAt).toISOString(),
+      events: [],
+      results: [],
+      verdict: null,
+      scenarioShortName: 'mars',
+      summary: { actorNames: [], turnCount: 1, eventCount: 0 },
+    }];
+    await page.addInitScript(value => { window.localStorage.setItem('paracosm-local-history-v2', value); }, JSON.stringify(ring));
+    const questions: string[] = [];
+    page.on('dialog', dialog => { questions.push(dialog.message()); void dialog.dismiss(); });
+    const requests = recordRequests(page);
+    await openSettings(page, ADMIN_BASE);
+
+    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    const runMenu = page.getByRole('menu', { name: 'Run actions' });
+    await runMenu.getByRole('menuitem', { name: /Local history/ }).click();
+    const clear = runMenu.getByRole('button', { name: 'Clear local data', exact: true });
+    await expect(clear).toHaveAttribute('title', HISTORY_CLEAR_TITLE);
+    await clear.click();
+    await expect.poll(() => questions.length).toBe(1);
+    expect(questions[0]).toBe(HISTORY_CLEAR_QUESTION);
+    // Declined: nothing went to the server.
+    expect(requests.filter(request => request.method() === 'POST' && new URL(request.url()).pathname === '/clear')).toEqual([]);
+  });
+
   test('Delete server data shows only with a token saved, looks as Clear local data does, asks in its own words, and a refused token is dropped', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     const questions: string[] = [];
@@ -440,7 +495,8 @@ test.describe('Admin token field @admin', () => {
 
     await details.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => sent).toEqual([WRONG, TOKEN]);
-    await expect(page.getByRole('heading', { name: 'A new name' })).toBeVisible();
+    // The details take the new name, as their heading and their dialog's name.
+    await expect(page.getByRole('dialog', { name: 'Scenario detail: A new name' }).getByRole('heading', { name: 'A new name' })).toBeVisible();
     expect(await compiledName(page)).toBe(COMPILED_NAME);
   });
 
@@ -519,12 +575,18 @@ test.describe('Admin token field @admin', () => {
     expect(await storedToken(page)).toBe(TOKEN);
   });
 
-  test('the run actions menu has text of 14 px or more, and on a touch screen held sideways it and the token field have 44 px targets', async ({ page, browser }) => {
-    // With a mouse, at the desktop width: the menu's items keep their order and column, with 14 px text.
+  test('the run actions menu has text of 14 px or more on one line per item, 44 px targets at 768 px and under, and on a touch screen held sideways it and the token field have 44 px targets', async ({ page, browser }) => {
+    // With a mouse: the menu's items keep their order and column, one line
+    // each, with 14 px text at every width, and are 44 px targets in a
+    // window 768 px wide or less.
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
-    await expect(deleteServerData(page)).toBeVisible();
-    await expectRunActionsMenu(page, { minTargetPx: 0 });
+    for (const [width, minTargetPx] of [[1280, 0], [768, 44], [667, 44], [390, 44], [320, 44]] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await runActions(page).click();
+      await expect(deleteServerData(page)).toBeVisible();
+      await expectRunActionsMenu(page, { minTargetPx });
+      await closeRunActions(page).click();
+    }
 
     // A phone held sideways, 852 by 393: wider than 768 px, with a coarse pointer.
     await withTouchPage(browser, { width: 852, height: 393 }, async touch => {
