@@ -2476,7 +2476,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
           if (switchable) {
-            if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled') {
+            if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled' || hydratingScenarioIds.has(scenarioJson.id)) {
               deletePersistedCompiledScenario(scenarioDir, scenarioJson.id);
               compiledScenarioMeta.delete(scenarioJson.id);
               compiledBriefOwners.delete(scenarioJson.id);
