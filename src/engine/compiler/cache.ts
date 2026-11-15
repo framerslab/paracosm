@@ -63,6 +63,11 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  *   generated under the earlier prompt and leaving an effect unscaled
  *   would apply it once a year of a long turn, so every cached hook
  *   regenerates (one-time ~$0.10 per previously-compiled scenario).
+ *
+ * A change to the hook runner's own rules (sandbox-runner.ts) needs no
+ * bump: a compile checks each cached code hook under the runner's rules
+ * as it restores it, and generates again only a hook the runner refuses
+ * (`cachedHookRefusal` in ./index.ts).
  */
 export const COMPILE_SCHEMA_VERSION = 8;
 
