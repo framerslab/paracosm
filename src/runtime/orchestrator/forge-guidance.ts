@@ -86,6 +86,7 @@ HARD RULES — if you violate any of these, a local validator rejects the forge 
 3. additionalProperties on both schemas SHOULD be false so the declared shape is authoritative.
 4. testCases MUST have at least 2 entries. Each testCase.input must be a non-empty object whose keys match your declared inputSchema fields. Tests with input:{} are rejected.
 5. Every testCase.expectedOutput must name at least one field from your outputSchema — empty expectedOutput defeats the judge's correctness check.
+6. implementation.code MUST be synchronous: a plain function execute(input) { ... } that returns its result directly. No async, no await, no Promise, no .then, no import. forge_tool refuses a source that holds the word async or import before any test case runs.
 
 ⚠️ #1 FORGE REJECTION REASON IN PRODUCTION — READ THIS CAREFULLY:
 The judge rejects most failed forges for "violates declared output schema by returning additional properties not allowed by additionalProperties:false." This happens when your implementation's return statement includes extra "helpful" fields (intermediate calculations, debug info, recommendations) that aren't declared in outputSchema.properties.

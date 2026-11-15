@@ -13,6 +13,7 @@
  */
 import type { GenerateTextFn } from '../types.js';
 import type { CompilerTelemetry } from '../telemetry.js';
+import { removedBuiltInNamedIn } from '../own-context.js';
 
 const MAX_PRIOR_OUTPUT_CHARS = 2000;
 
@@ -80,6 +81,15 @@ export async function generateValidatedCode<Fn>(
     const fn = opts.parse(text);
     if (!fn) {
       lastReason = 'Could not parse response into a callable function (markdown wrapper, syntax error, or non-function export)';
+      continue;
+    }
+    // The smoke test takes one path through the hook. A built-in the
+    // hook's context does not hold throws on whichever path names it, so
+    // a text that names one is asked for again, and the cache never holds
+    // a hook its restore check would refuse (cachedHookRefusal, ../index.ts).
+    const removed = removedBuiltInNamedIn(text);
+    if (removed !== null) {
+      lastReason = `The function names ${removed}, which does not exist where it runs. Write it with plain arrays, objects, numbers and strings`;
       continue;
     }
     try {
