@@ -60,6 +60,7 @@ import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
+import type { RunScope } from './stores/run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
 import { handleWaitlistClosed } from './routes/waitlist.js';
 import { handlePublicDemoRoute } from './routes/public-demo.js';
@@ -202,6 +203,11 @@ export function pickCookie(id: string, secure = false): string | null {
  * another.
  */
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
+
+/** Puts {@link PER_VISITOR_HEADERS} on an answer a route handler writes itself. */
+function sendPerVisitor(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(PER_VISITOR_HEADERS)) res.setHeader(name, value);
+}
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
@@ -741,6 +747,29 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // ADMIN_TOKEN once in /opt/paracosm/.env; the dashboard pastes it
   // once into Settings. Drive-by visitors get 401.
   const adminToken = (env.ADMIN_TOKEN || '').trim();
+  /**
+   * Whether the request carries the admin credential: ADMIN_WRITE on, an
+   * ADMIN_TOKEN set, and an X-Admin-Token header that matches it. Writes
+   * no answer; requireAdminToken answers a request that does not.
+   */
+  const holdsAdminToken = (req: IncomingMessage): boolean => {
+    if (!adminWrite || !adminToken) return false;
+    const headerToken = String(req.headers['x-admin-token'] ?? '').trim();
+    return headerToken.length > 0 && adminTokenMatches(headerToken, adminToken);
+  };
+  /**
+   * Whose runs a run-history request reaches. On the hosted demo a visitor
+   * reaches the runs recorded under their own owner key, the key their
+   * saved sessions are stored under (sessionOwner), so the run list and
+   * the saved-session list agree on who a visitor is; a caller that sent
+   * no cookie reaches none, and the admin credential reaches every run. A
+   * local server and the platform API reach every run.
+   */
+  const runScopeFor = (req: IncomingMessage): RunScope | undefined => (
+    serverMode !== 'hosted_demo' || holdsAdminToken(req)
+      ? undefined
+      : { owner: sessionOwner(readVisitorId(req)) }
+  );
   const requireAdminToken = (req: IncomingMessage, res: ServerResponse): boolean => {
     if (!adminWrite) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -755,8 +784,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }));
       return false;
     }
-    const headerToken = String(req.headers['x-admin-token'] ?? '').trim();
-    if (!headerToken || !adminTokenMatches(headerToken, adminToken)) {
+    if (!holdsAdminToken(req)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid or missing X-Admin-Token header' }));
       return false;
@@ -1856,6 +1884,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runHistoryEnvFlag === 'true' ? true :
       runHistoryEnvFlag === 'false' ? false :
       runHistoryRoutesDefault;
+    // On the hosted demo a run-history answer is its caller's own, so no
+    // shared cache in front of the server may keep one.
+    const perVisitorRunHistory = serverMode === 'hosted_demo' && paracosmRoutesEnabled;
 
     // Bundle + Library-import handlers run BEFORE handlePlatformApiRoute
     // because that handler's "unknown_platform_route" 404 fires for any
@@ -1865,6 +1896,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // bundle fetch, even though a perfectly good bundle handler lived
     // 30 lines further down.
     if (paracosmRoutesEnabled && req.url === '/api/v1/library/import' && req.method === 'POST') {
+      if (perVisitorRunHistory) sendPerVisitor(res);
       if (!runHistoryStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'Run-history store disabled' }));
@@ -1874,11 +1906,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
         const address = IpRateLimiter.getIp(req, clientIpHeader);
+        // An imported run belongs to the visitor who imports it, as a run
+        // they start does: on the hosted demo a caller that sent no cookie
+        // gets a visitor id of its own with the answer (runVisitorFor).
+        const { visitorId: importVisitorId, setCookie: importSetCookie } = runVisitorFor(req);
+        const importOwner = sessionOwner(importVisitorId);
+        if (importSetCookie) res.setHeader('Set-Cookie', importSetCookie);
         await handleLibraryImport(req, res, body, {
           runHistoryStore,
           sourceMode: serverMode,
           runsDir,
           admitNewRun: () => admitImport(address),
+          owner: importOwner,
+          runScope: runScopeFor(req) ? { owner: importOwner } : undefined,
         });
       } catch (err) {
         writeJsonError(res, err);
@@ -1890,6 +1930,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // /api/v1/bundles/:id/aggregate are read-only views over the
     // RunHistoryStore. Same gating as platform-api routes below.
     if (paracosmRoutesEnabled && req.url?.startsWith('/api/v1/bundles/') && req.method === 'GET') {
+      if (perVisitorRunHistory) sendPerVisitor(res);
       const match = req.url.match(/^\/api\/v1\/bundles\/([^/?]+)(\/aggregate)?(\?.*)?$/);
       if (!match) {
         res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
@@ -1899,9 +1940,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const bundleId = decodeURIComponent(match[1]);
       const isAggregate = !!match[2];
       const { handleListBundle, handleBundleAggregate } = await import('./routes/bundle.js');
+      const runScope = runScopeFor(req);
       try {
-        if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore });
-        else await handleListBundle(bundleId, res, { runHistoryStore });
+        if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore, runScope });
+        else await handleListBundle(bundleId, res, { runHistoryStore, runScope });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1910,10 +1952,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
     if (await handlePlatformApiRoute(req, res, {
       runHistoryStore,
-      corsHeaders,
+      corsHeaders: perVisitorRunHistory ? { ...corsHeaders, ...PER_VISITOR_HEADERS } : corsHeaders,
       paracosmRoutesEnabled,
       runsDir,
       scenarioLookup: (id) => lookupScenario(req, id),
+      runScope: runScopeFor(req),
     })) {
       return;
     }
@@ -3770,7 +3813,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               }),
             };
             const enriched = enrichRunRecordFromArtifact(perArtifactBase, artifact);
-            await runHistoryStore.insertRun(enriched);
+            // The run is its visitor's: recorded under the key their saved
+            // sessions are stored under.
+            await runHistoryStore.insertRun(enriched, { owner: sessionOwner(visitorId) });
             // Remember the runId so autoSaveOnComplete can backfill
             // session_id once the broadcast's sessionStore.saveSession
             // returns. The push happens AFTER insertRun resolves so a
