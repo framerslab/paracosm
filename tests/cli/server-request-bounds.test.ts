@@ -380,3 +380,14 @@ test('a replayed result frame omits outputPath and keeps the saved frame unchang
   });
   assert.equal(events[0].sse, result);
 });
+
+
+test('the results answer omits outputPath from buffered result artifacts', async () => {
+  const { buildResultsPayloadFromEventBuffer } = await import('../../src/server/server-app.js');
+  const artifact = { scenarioExtensions: { outputPath: '/tmp/buffered-output.json', label: 'kept' } };
+  const frame = `event: result\ndata: ${JSON.stringify({ leader: 'a', artifact })}\n\n`;
+  const answer = buildResultsPayloadFromEventBuffer([frame]);
+  assert.equal(answer.results.length, 1);
+  assert.deepEqual(answer.results[0].artifact.scenarioExtensions, { label: 'kept' });
+  assert.equal(JSON.parse(frame.split('\n')[1].slice(6)).artifact.scenarioExtensions.outputPath, '/tmp/buffered-output.json');
+});
