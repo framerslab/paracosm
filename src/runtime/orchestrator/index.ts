@@ -490,6 +490,15 @@ export interface RunOptions extends RuntimeCredentialOptions {
    * sweeps and wipes its runs in one directory.
    */
   outputDir?: string;
+  /**
+   * The environment the run's web search reads a search key from
+   * (`SERPER_API_KEY`, `FIRECRAWL_API_KEY`, `TAVILY_API_KEY`,
+   * `BRAVE_API_KEY`, `COHERE_API_KEY`) when these options name none.
+   * Omitted, `process.env`. `{}` searches on the keys named here alone; the
+   * hosted demo passes it, so a run there never spends the host's search
+   * keys.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
 }
 
 export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
@@ -717,7 +726,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // serializable view of every agent's role, mood, family edges, memory.
   let latestSwarmSnapshot: import('../../engine/schema/index.js').SwarmSnapshot | undefined;
 
-  const webSearchTool = createWebSearchTool(opts);
+  const webSearchTool = createWebSearchTool(opts, opts.searchEnv);
   const toolMap = new Map<string, ITool>();
   toolMap.set('web_search', webSearchTool);
   // Shared map of approved forged-tool executables. Populated by the

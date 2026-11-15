@@ -175,10 +175,6 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
     setIsEditingName(false);
     setRenameError(null);
   }, [scenario?.id]);
-  // Rename is only allowed for compile-from-seed scenarios server-
-  // side; reflect that in the UI so users don't see a broken pencil
-  // affordance on builtins / curated drafts.
-  const canRename = scenario?.source === 'compiled';
   // Admin delete affordance. Visible only when the operator has an
   // admin token in localStorage AND the scenario is a 'compiled'
   // source (auto-persisted from compile-from-seed). Builtins + disk-
@@ -193,6 +189,11 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
     setAdminToken(readAdminToken() || null);
   }, [open]);
   const canDelete = !!adminToken && scenario?.source === 'compiled';
+  // Rename is only allowed for compile-from-seed scenarios server-
+  // side, and like delete it takes the admin token (the name is every
+  // visitor's); reflect both in the UI so nobody sees a pencil that
+  // cannot work.
+  const canRename = !!adminToken && scenario?.source === 'compiled';
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = useRef<HTMLElement | null>(null);
 
@@ -317,7 +318,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
   };
 
   const handleSaveRename = async () => {
-    if (!scenario || renaming) return;
+    if (!scenario || !adminToken || renaming) return;
     const trimmed = editingName.trim();
     if (trimmed.length === 0) {
       setRenameError('Name cannot be empty.');
@@ -333,7 +334,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
     try {
       const res = await fetch(`/scenarios/${encodeURIComponent(scenario.id)}/rename`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
         body: JSON.stringify({ name: trimmed }),
       });
       if (!res.ok) {

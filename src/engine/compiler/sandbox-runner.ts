@@ -278,11 +278,16 @@ export function runProgressionSync(
 
   // Field-level merge back into the host agents. Preserves the host's
   // array + object identities so other runtime references stay stable.
+  // A hook can give an agent or a field an own `__proto__` key (through
+  // Object.defineProperty or JSON.parse); copied by assignment, it would
+  // reach the host's Object.prototype or swap a host object's prototype,
+  // so such keys are never copied.
   for (let i = 0; i < ctx.agents.length; i++) {
     const original = ctx.agents[i];
     const updated = mutatedAgents[i];
     if (!original || !updated) continue;
     for (const key of Object.keys(updated)) {
+      if (UNMERGED_KEYS.has(key)) continue;
       const updatedField = updated[key];
       const originalField = original[key];
       if (
@@ -292,10 +297,17 @@ export function runProgressionSync(
         typeof updatedField === 'object' &&
         !Array.isArray(originalField)
       ) {
-        Object.assign(originalField as object, updatedField as object);
+        const target = originalField as Record<string, unknown>;
+        const source = updatedField as Record<string, unknown>;
+        for (const field of Object.keys(source)) {
+          if (!UNMERGED_KEYS.has(field)) target[field] = source[field];
+        }
       } else {
         original[key] = updatedField;
       }
     }
   }
 }
+
+/** Keys the progression merge never copies onto a host object. */
+const UNMERGED_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);

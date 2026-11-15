@@ -223,6 +223,12 @@ export interface RunnerOptions {
    * else `<cwd>/output`. The server passes its runs directory.
    */
   outputDir?: string;
+  /**
+   * The environment each leader's web search reads a search key from when
+   * the run's config names none; see the orchestrator's `searchEnv`.
+   * Omitted, `process.env`.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
 }
 
 export async function runPairSimulations(
@@ -308,6 +314,7 @@ export async function runPairSimulations(
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
       outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
     }).then(async result => {
       broadcast('result', {
         leader: tag,
@@ -468,6 +475,7 @@ export async function runForkSimulation(
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
       outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
     });
     broadcast('result', {
       leader: leaderTag(leader, 0),
@@ -593,6 +601,7 @@ export async function runBatchSimulations(
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
       outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
     }).then(async result => {
       broadcast('result', {
         leader: tag,

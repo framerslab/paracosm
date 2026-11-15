@@ -26,7 +26,7 @@ npm test
 
 To run one test file: `node --import tsx --import ./scripts/test-css-stub.mjs --test <path>`.
 
-To run a simulation or the dashboard, copy `.env.example` to `.env` and set at least one model provider key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`); the search keys there are optional. Build the dashboard with `npm run dashboard:build`, then `npm run dashboard` serves it at http://localhost:3456 (`PORT` changes the port).
+To run a simulation or the dashboard, copy `.env.example` to `.env` and set at least one model provider key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`); the search keys there are optional. Build the dashboard with `npm run dashboard:build`, then `npm run dashboard` serves it at http://localhost:3456 (`PORT` changes the port; it listens on `127.0.0.1` unless `HOST` names another address).
 
 | Command | What it does |
 |---|---|

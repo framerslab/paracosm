@@ -209,10 +209,19 @@ export function writeCache(
     };
   }
 
+  // The manifest records one scenario hash and model for all its hooks, so
+  // a hook written for another scenario JSON with this id and version, or
+  // for another model, leaves the manifest: a read for this JSON never
+  // answers with it.
+  const scenarioHash = hashScenario(scenarioJson);
+  if (manifest.scenarioHash !== scenarioHash || manifest.model !== model || !manifest.hooks) {
+    manifest.hooks = {};
+  }
+
   const fileName = `${hookName}.ts`;
   writeFileSync(join(dir, fileName), content, 'utf-8');
   manifest.hooks[hookName] = fileName;
-  manifest.scenarioHash = hashScenario(scenarioJson);
+  manifest.scenarioHash = scenarioHash;
   manifest.model = model;
   manifest.timestamp = new Date().toISOString();
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
