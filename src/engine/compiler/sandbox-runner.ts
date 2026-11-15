@@ -126,9 +126,11 @@ export function runArrowSync<TArgs extends unknown[], TReturn>(
  * expected to mutate `ctx.agents` in place. The context parses a JSON
  * copy of `ctx` (so mutations land on the context's own copy), the user
  * fn is invoked for its side effects, then the mutated agents array
- * comes back through JSON as host data. Host-side, this function merges
- * each returned agent's fields back onto the original agent object so
- * external references stay stable.
+ * comes back through JSON as host data, with every number as the hook
+ * left it: a `NaN` or an `Infinity` stays that number, where JSON would
+ * write `null`, which the kernel's rules read as 0. Host-side, this
+ * function merges each returned agent's fields back onto the original
+ * agent object so external references stay stable.
  */
 export function runProgressionSync(
   userArrowCode: string,
@@ -145,6 +147,7 @@ export function runProgressionSync(
   __userFn(__input);
   __result = __input.agents;`,
     result: 'typed',
+    exactNumbers: true,
   });
   const mutatedAgents = valueOrThrow(ending) as Array<Record<string, unknown>>;
 

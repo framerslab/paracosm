@@ -9,7 +9,10 @@
  * reach no function the host made. It is synchronous: the context holds
  * no `Promise`, and a source with the word `async` or `import` is refused
  * with a message that says so, so `execute(input)` returns its value
- * directly.
+ * directly. A result larger than 1 MB as JSON
+ * ({@link MAX_FORGED_RESULT_BYTES}) is refused before the host decodes
+ * it, as AgentOS's own executor refuses one, so it reaches neither the
+ * judge's prompt nor the department.
  *
  * It declares `isolates: false`. Node's documentation says the node:vm
  * module is not a security mechanism (https://nodejs.org/api/vm.html):
@@ -30,6 +33,13 @@ import { evaluateInOwnContext } from '../../engine/compiler/own-context.js';
  * so this is also the longest forged code can hold the event loop.
  */
 export const MAX_FORGED_CODE_TIMEOUT_MS = 10_000;
+
+/**
+ * The largest result one call of forged code may return, in bytes of
+ * UTF-8 as JSON: 1 MB, the output limit of the AgentOS executor this one
+ * replaces. The judge's prompt holds every test case's result in full.
+ */
+export const MAX_FORGED_RESULT_BYTES = 1024 * 1024;
 
 /**
  * A forged-code time limit the server accepts: `asked` when it is a
@@ -79,6 +89,7 @@ ${request.code}
     return __entry(__input.input);
   })();`,
       result: 'json',
+      maxResultBytes: MAX_FORGED_RESULT_BYTES,
     });
     const memoryUsedBytes = Math.max(0, process.memoryUsage().heapUsed - heapBefore);
 
@@ -95,6 +106,12 @@ ${request.code}
         };
       case 'threw':
         return { status: 'error', error: `Execution error: ${ending.message}`, memoryUsedBytes };
+      case 'too_large':
+        return {
+          status: 'error',
+          error: `Execution error: the result is ${ending.bytes} bytes as JSON, over the 1 MB (${MAX_FORGED_RESULT_BYTES} bytes) a forged tool may return`,
+          memoryUsedBytes,
+        };
     }
   }
 }

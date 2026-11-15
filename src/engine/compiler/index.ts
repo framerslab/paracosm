@@ -39,6 +39,7 @@ import { generatePoliticsHook, parseResponse as parsePolitics } from './generate
 import { generateReactionContextHook, parseResponse as parseReactions } from './generate-reactions.js';
 import { ingestSeed, ingestFromUrl } from './seed-ingestion.js';
 import { generateDepartmentPromptHook, parseResponse as parsePrompts } from './generate-prompts.js';
+import { validateHookCode } from './sandbox-runner.js';
 import type { MilestoneEventDef } from '../types.js';
 
 export type { CompileOptions, GenerateTextFn };
@@ -105,8 +106,38 @@ function deriveShortName(rawId: unknown, override: string | undefined): string {
   return slug.slice(0, 24);
 }
 
+/** The hooks whose cached text is code the hook runner evaluates. */
+const CODE_HOOKS: ReadonlySet<string> = new Set(['progression', 'prompts', 'fingerprint', 'politics', 'reactions']);
+
+/**
+ * Why the hook runner refuses a cached code hook before it runs, or null.
+ *
+ * The runner applies these checks (`validateHookCode`) at every call, so a
+ * hook it refuses fails every call of every run. The disk cache keeps the
+ * text an earlier build accepted, under a key that holds the scenario JSON
+ * and `COMPILE_SCHEMA_VERSION` only, so a change to the runner's rules
+ * does not empty it. Checking each cached hook here, and generating again
+ * only the ones refused, keeps a compiled scenario's other hooks with no
+ * model call; raising the schema version would generate every hook of
+ * every compiled scenario again, at the next compile or the server's boot.
+ */
+function cachedHookRefusal(hookName: string, source: string): string | null {
+  if (!CODE_HOOKS.has(hookName)) return null;
+  try {
+    validateHookCode(source.trim());
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 /** Restore a hook from cached source text. Returns the hook assignment or null if parse fails. */
 function restoreHookFromCache(hookName: string, source: string): Partial<ScenarioHooks> | null {
+  const refusal = cachedHookRefusal(hookName, source);
+  if (refusal !== null) {
+    console.warn(`[compile] the cached ${hookName} hook is not restored, the hook runner refuses it (${refusal}); generating it again`);
+    return null;
+  }
   try {
     switch (hookName) {
       case 'progression': {
@@ -231,7 +262,9 @@ export async function compileScenario(
     // `parseResponse` used after a fresh LLM call, so a corrupted cache
     // entry (older builds wrote comment-only fallbacks) returns null
     // and falls through to regeneration instead of returning a closure
-    // that fails at simulate-time.
+    // that fails at simulate-time. It also refuses a code hook the hook
+    // runner refuses (`cachedHookRefusal`), so only that hook is generated
+    // again and the scenario's other cached hooks are kept.
     if (cache) {
       const cached = readCache(json, hookName, model, cacheDir);
       if (cached !== null) {

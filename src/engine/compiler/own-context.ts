@@ -19,7 +19,9 @@
  *   under the time limit, and leaves as one primitive string. The host
  *   reads no property of a value the context made: not of a result, and
  *   not of a thrown value, which it describes with `node:util`'s type
- *   checks only. A function is never returned and never called.
+ *   checks only. A function is never returned and never called. A caller
+ *   may set a limit on that string's size (`maxResultBytes`), checked
+ *   before the host decodes it.
  * - **Globals are an allow-list.** Every other global is deleted from the
  *   context before the code runs: `Promise`, `Proxy`, `Reflect`,
  *   `WebAssembly`, `SharedArrayBuffer`, `Atomics`, `WeakRef`,
@@ -53,6 +55,7 @@
  * @module paracosm/engine/compiler/own-context
  */
 import * as vm from 'node:vm';
+import { Buffer } from 'node:buffer';
 import { types } from 'node:util';
 
 /** How one evaluation ended. */
@@ -64,7 +67,9 @@ export type OwnContextEnding =
   /** The time limit ended the code. */
   | { ended: 'timeout'; message: string }
   /** The text was refused before it ran, or its result cannot leave the context. */
-  | { ended: 'refused'; message: string };
+  | { ended: 'refused'; message: string }
+  /** The result, as the context encoded it, is larger than `maxResultBytes`. */
+  | { ended: 'too_large'; bytes: number; message: string };
 
 /** What {@link evaluateInOwnContext} is asked to run. */
 export interface OwnContextRequest {
@@ -88,6 +93,17 @@ export interface OwnContextRequest {
    * `undefined`.
    */
   result: 'typed' | 'json';
+  /**
+   * With `result: 'typed'`, a number inside an object leaves as it is
+   * too: `NaN`, `Infinity`, `-Infinity` and `-0` come back as those
+   * numbers, where JSON would write `null` or `0`.
+   */
+  exactNumbers?: boolean;
+  /**
+   * The most the encoded result may be, in bytes of UTF-8. A larger one
+   * ends as `too_large` and is not decoded. No limit when absent.
+   */
+  maxResultBytes?: number;
 }
 
 /** Words the text may not hold, each with the reason given to the caller. */
@@ -113,11 +129,17 @@ const MAX_MESSAGE_CHARS = 2000;
  * each closed over the context's own untouched built-ins: `p` parses the
  * input, `e` encodes a result and `d` describes a thrown value.
  *
+ * With `exact`, an object is encoded with the numbers JSON cannot write
+ * tagged as strings that begin with U+0000 (`\u0000NaN`, `\u0000Infinity`,
+ * `\u0000-Infinity`, `\u0000-0`), and a string of the result that begins
+ * with U+0000 gets a second one, so a tag is never a string the code
+ * wrote. {@link reviveNumbers} reads the tags back.
+ *
  * Kept to syntax every supported Node parses and to built-ins read before
  * the model's text can change them.
  */
-function preludeSource(result: 'typed' | 'json'): string {
-  return `(function (g, typed) {
+function preludeSource(result: 'typed' | 'json', exactNumbers: boolean): string {
+  return `(function (g, typed, exact) {
   'use strict';
   var O = g.Object, E = g.Error, S = g.String;
   var stringify = g.JSON.stringify, parse = g.JSON.parse, same = O.is;
@@ -149,6 +171,17 @@ function preludeSource(result: 'typed' | 'json'): string {
   O.defineProperty(E.prototype, 'code', { value: undefined, writable: true, enumerable: false, configurable: false });
   var nothing = function () {};
   g.console = O.freeze({ log: nothing, warn: nothing, error: nothing, info: nothing, debug: nothing });
+  function tagNumbers(key, x) {
+    if (typeof x === 'number') {
+      if (x !== x) { return '\\u0000NaN'; }
+      if (x === 1 / 0) { return '\\u0000Infinity'; }
+      if (x === -1 / 0) { return '\\u0000-Infinity'; }
+      if (x === 0 && same(x, -0)) { return '\\u0000-0'; }
+      return x;
+    }
+    if (typeof x === 'string' && x.length > 0 && x[0] === '\\u0000') { return '\\u0000' + x; }
+    return x;
+  }
   function encode(v) {
     var t = typeof v, j;
     if (!typed) {
@@ -162,6 +195,10 @@ function preludeSource(result: 'typed' | 'json'): string {
     if (t === 'bigint') { return 'b' + S(v); }
     if (t === 'function') { return 'xa function'; }
     if (t === 'symbol') { return 'xa symbol'; }
+    if (exact) {
+      j = stringify(v, tagNumbers);
+      return typeof j === 'string' ? 'k' + j : 'xa value JSON cannot carry';
+    }
     j = stringify(v);
     return typeof j === 'string' ? 'j' + j : 'xa value JSON cannot carry';
   }
@@ -171,7 +208,25 @@ function preludeSource(result: 'typed' | 'json'): string {
     return 'e' + (typeof text === 'string' ? text : 'a value that could not be read was thrown');
   }
   return { p: parse, e: encode, d: describe };
-})(this, ${result === 'typed' ? 'true' : 'false'})`;
+})(this, ${result === 'typed' ? 'true' : 'false'}, ${exactNumbers ? 'true' : 'false'})`;
+}
+
+/**
+ * A `JSON.parse` reviver for the text an `exact` encoder wrote: a tagged
+ * string reads as the number it stands for, and a string with a second
+ * U+0000 as the string the code wrote. Host code, run on host data.
+ */
+function reviveNumbers(_key: string, value: unknown): unknown {
+  if (typeof value !== 'string' || value.charCodeAt(0) !== 0) return value;
+  const rest = value.slice(1);
+  if (rest.charCodeAt(0) === 0) return rest;
+  switch (rest) {
+    case 'NaN': return Number.NaN;
+    case 'Infinity': return Number.POSITIVE_INFINITY;
+    case '-Infinity': return Number.NEGATIVE_INFINITY;
+    case '-0': return -0;
+    default: throw new Error('a tag the encoder does not write');
+  }
 }
 
 /** The message of a value `vm.runInContext` threw, read without running any code the context made. */
@@ -208,6 +263,7 @@ function decode(out: string): OwnContextEnding {
       case 'f': return { ended: 'value', value: false };
       case 'b': return { ended: 'value', value: BigInt(rest) };
       case 'j': return { ended: 'value', value: JSON.parse(rest) };
+      case 'k': return { ended: 'value', value: JSON.parse(rest, reviveNumbers) };
       case 'x': return { ended: 'refused', message: `the code returned ${rest.slice(0, MAX_MESSAGE_CHARS)}` };
       case 'e': return { ended: 'threw', message: rest.slice(0, MAX_MESSAGE_CHARS) };
       default: return { ended: 'refused', message: 'the code left no result the runner can read' };
@@ -232,7 +288,7 @@ export function evaluateInOwnContext(request: OwnContextRequest): OwnContextEndi
     microtaskMode: 'afterEvaluate',
   });
 
-  const source = `const { p: __parse, e: __encode, d: __describe } = ${preludeSource(request.result)};
+  const source = `const { p: __parse, e: __encode, d: __describe } = ${preludeSource(request.result, request.result === 'typed' && request.exactNumbers === true)};
 const __input = __parse(${JSON.stringify(request.inputJson)});
 let __out;
 try {
@@ -259,6 +315,18 @@ __out`;
   // Anything but a primitive string is a value the context made: not read.
   if (typeof out !== 'string') {
     return { ended: 'refused', message: 'the code left no result the runner can read' };
+  }
+  // A returned value is measured before the host decodes it; the first
+  // character is the encoder's tag.
+  if (request.maxResultBytes !== undefined && out[0] !== 'e' && out[0] !== 'x') {
+    const bytes = Buffer.byteLength(out, 'utf8') - 1;
+    if (bytes > request.maxResultBytes) {
+      return {
+        ended: 'too_large',
+        bytes,
+        message: `the result is ${bytes} bytes, over the limit of ${request.maxResultBytes}`,
+      };
+    }
   }
   return decode(out);
 }
