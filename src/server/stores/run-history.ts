@@ -1,6 +1,27 @@
 import type { RunRecord } from '../services/run-record.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 
+/**
+ * Whose runs a read reaches. Absent, every run. With an owner key, the
+ * runs recorded under that key alone. With `owner: null` (a caller the
+ * server knows no visitor for), no run. A run recorded with no owner is
+ * reached only by a read with no scope.
+ */
+export interface RunScope {
+  owner: string | null;
+}
+
+/** What a run is recorded with besides its record. */
+export interface InsertRunOptions {
+  /**
+   * The key of the visitor the run belongs to: the hash the server stores
+   * a visitor's saved sessions under, never the cookie value. Absent or
+   * null, no visitor owns the run. It is a column of the store and no
+   * field of {@link RunRecord}, so no answer built from a record holds it.
+   */
+  owner?: string | null;
+}
+
 export interface ListRunsFilters {
   /** Filter by simulation mode (artifact.metadata.mode). For server-mode
    *  filtering use {@link sourceMode} instead. */
@@ -15,6 +36,8 @@ export interface ListRunsFilters {
   q?: string;
   /** Filter to runs sharing a bundle (one Quickstart submission). */
   bundleId?: string;
+  /** Whose runs the list, the count and the aggregate hold; absent, every run. */
+  scope?: RunScope;
   limit?: number;
   offset?: number;
 }
@@ -28,15 +51,17 @@ export interface RunsAggregate {
 }
 
 export interface RunHistoryStore {
-  insertRun(run: RunRecord): Promise<void>;
+  insertRun(run: RunRecord, options?: InsertRunOptions): Promise<void>;
   listRuns(filters?: ListRunsFilters): Promise<RunRecord[]>;
-  getRun(runId: string): Promise<RunRecord | null>;
+  /** The run under `runId`, or null when there is none or `scope` does not reach it. */
+  getRun(runId: string, scope?: RunScope): Promise<RunRecord | null>;
   /** Optional: list all runs sharing a bundleId. Used by the Compare
    *  view to fetch a Quickstart bundle's members in one query. Returns
-   *  members ordered by `created_at ASC` so the first leader is first. */
-  listRunsByBundleId?(bundleId: string): Promise<RunRecord[]>;
-  countRuns?(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'q'>): Promise<number>;
-  aggregateStats?(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash'>): Promise<RunsAggregate>;
+   *  members ordered by `created_at ASC` so the first leader is first.
+   *  With `scope`, the members that scope reaches. */
+  listRunsByBundleId?(bundleId: string, scope?: RunScope): Promise<RunRecord[]>;
+  countRuns?(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'q' | 'scope'>): Promise<number>;
+  aggregateStats?(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'scope'>): Promise<RunsAggregate>;
   recordReplayResult?(runId: string, matches: boolean): Promise<void>;
   /**
    * Backfill the session-store id onto a set of already-inserted runs.
