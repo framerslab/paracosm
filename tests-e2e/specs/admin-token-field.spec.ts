@@ -387,7 +387,8 @@ test.describe('Admin token field @admin', () => {
 
     await page.getByRole('button', { name: 'RUN', exact: true }).click();
     const runMenu = page.getByRole('menu', { name: 'Run actions' });
-    await runMenu.getByRole('menuitem', { name: /Local history/ }).click();
+    // The section opens expanded.
+    await expect(runMenu.getByRole('menuitem', { name: /Local history/ })).toHaveAttribute('aria-expanded', 'true');
     const clear = runMenu.getByRole('button', { name: 'Clear local data', exact: true });
     await expect(clear).toHaveAttribute('title', HISTORY_CLEAR_TITLE);
     await clear.click();
