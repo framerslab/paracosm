@@ -1,26 +1,145 @@
 name: Bump @framers/* deps
 
-# Temporary branch-only lockfile resolution; restored before review.
+# Weekly cron + manual trigger. Bumps every @framers/* explicit version pin
+# in package.json files to the latest npm-published version, refreshes the
+# pnpm lockfile when present, bumps git submodule pointers when present,
+# and opens a single Pull Request with the diff. The same workflow drops
+# into every repo that depends on the agentos family.
+#
+# The branch is pushed and the pull request opened with FRAMERS_BUMP_TOKEN, a
+# personal access token held as a framerslab organization secret, never with
+# GITHUB_TOKEN. An event that GITHUB_TOKEN causes starts no ordinary workflow
+# run: a pull request that a workflow opens or pushes to with it gets its
+# pull_request runs in an approval-required state, with no job until someone
+# with write access approves them, while one opened with a personal access
+# token or a GitHub App token runs its workflows as any pull request does.
+# GitHub, "Triggering a workflow from a workflow":
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
+# So the pull request's own events start CI and Links, and their check runs
+# land on its head commit, as on any other pull request. A run that fails is
+# re-run the same way (gh run rerun <run id> --failed). A bump run that leaves
+# the branch as it was starts no new run; one that moves it (a new release, or
+# a change on master) starts CI and Links again.
+#
+# Those runs get the token permissions their workflow declares and can read any
+# repository secret a step references, as the runs of any pull request from a
+# branch of this repository can, while the branch carries dependency updates
+# nobody has read yet, whose install scripts ci.yml's npm ci runs. ci.yml and
+# links.yml declare `permissions: contents: read` and reference no repository
+# secret; keep it that way.
+
 on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC weekly
   workflow_dispatch: {}
+
+# A second bump run waits for the first, so two runs never push the branch at
+# the same time.
+concurrency:
+  group: bump-framers-deps
+  cancel-in-progress: false
+
+# The push and the pull request go through FRAMERS_BUMP_TOKEN, so the job's own
+# GITHUB_TOKEN only reads: nothing in this workflow can push or open a pull
+# request with it.
 permissions:
   contents: read
+
 jobs:
-  lockfile:
-    if: github.ref == 'refs/heads/chore/agentos-0.19.0'
+  bump:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # FRAMERS_BUMP_TOKEN reaches past this repository, and a step can change
+    # what a later step of its job runs, so no install script runs in this job
+    # and its actions are pinned to a commit, with the release that
+    # commit carries named beside it.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # First, before anything is installed: without the secret,
+      # create-pull-request stops with "Input 'token' not supplied", but only
+      # after the bump and the lockfile refresh have run.
+      - name: FRAMERS_BUMP_TOKEN is available
+        env:
+          FRAMERS_BUMP_TOKEN: ${{ secrets.FRAMERS_BUMP_TOKEN }}
+        run: |
+          if [ -z "$FRAMERS_BUMP_TOKEN" ]; then
+            echo "::error::FRAMERS_BUMP_TOKEN is not available to this repository; a pull request opened with GITHUB_TOKEN gets no CI job."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # master, whichever branch a manual run names: the pull request goes
+          # into master, and a lockfile refreshed from another branch's
+          # manifests is not master's.
+          ref: master
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # create-pull-request sets up its own authentication to push, so this
+          # token is not left in .git/config for the steps that follow.
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          node-version: '24'
-      - name: Resolve the updated manifest without install scripts
-        run: npm install --package-lock-only --no-audit --no-fund --ignore-scripts
-      - uses: actions/upload-artifact@v4
+          python-version: '3.11'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          name: agentos-lockfile
-          path: package-lock.json
-          retention-days: 7
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: Update submodules to latest (when present)
+        run: |
+          if [ -f .gitmodules ]; then
+            git submodule update --remote --recursive
+          fi
+
+      - name: Bump @framers/* deps to latest published versions
+        run: python3 .github/scripts/bump-framers-deps.py
+
+      - name: Refresh pnpm lockfile (when present)
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            # Refreshing the lockfile needs no package's install script.
+            pnpm install --no-frozen-lockfile --ignore-scripts
+          fi
+
+      - name: Refresh npm lockfile (when present)
+        run: |
+          if [ -f package-lock.json ]; then
+            npm install --package-lock-only --no-audit --no-fund --ignore-scripts
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          # The personal access token, so the pull request's own events start CI
+          # and Links (see the top of this file). branch-token defaults to it,
+          # so the branch is pushed with it as well.
+          token: ${{ secrets.FRAMERS_BUMP_TOKEN }}
+          commit-message: 'chore(deps): bump @framers/* deps to latest published versions'
+          title: 'chore(deps): bump @framers/* deps to latest published versions'
+          body: |
+            Automated weekly bump of all `@framers/*` dependencies to their
+            latest npm-published versions.
+
+            Includes (when applicable):
+            - `package.json` explicit-pin updates (caret semver of latest)
+            - `pnpm-lock.yaml` refresh
+            - Git submodule pointer updates (where the parent repo has submodules)
+
+            Workspace `workspace:*` pins are not touched. Review the diff
+            for any unexpected major-version jumps before merging.
+          branch: chore/bump-framers-deps
+          base: master
+          delete-branch: true
+          # No add-paths: a pathspec naming a file a repo doesn't commit
+          # (pnpm-lock.yaml, .gitmodules) makes the action's `git add` fatal,
+          # staging NOTHING - and `**/package.json` misses the root manifest.
+          # Default collection stages every bump change.
