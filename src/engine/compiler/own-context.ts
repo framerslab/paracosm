@@ -297,38 +297,62 @@ function removedBuiltIns(): ReadonlyArray<readonly [RegExp, string]> {
   return patterns;
 }
 
+/** The words whose parenthesis is the head of a statement. `a.if(b)` calls a member named `if`. */
+const STATEMENT_HEAD = /(?:^|[^\w$.])(?:if|while|for|with)$/;
+
+/** The word whose parenthesis is the head of a `for`. */
+const FOR_HEAD = /(?:^|[^\w$.])for$/;
+
 /**
- * True where the `)` that ends `text` closes the head of an `if`, a
- * `while`, a `for` or a `with`. A statement follows such a head, so a `/`
- * there starts a regular expression; after any other `)` it divides.
- * `text` is scanned code, with its strings, comments and patterns blank,
- * so every parenthesis in it is code.
+ * The place in `text` of the `(` that is open at `end`, the innermost
+ * one, or -1. `text` is scanned code, with its strings, comments and
+ * patterns blank, so every parenthesis in it is code.
  */
-function closesStatementHead(text: string): boolean {
+function openParenthesis(text: string, end: number): number {
   let depth = 0;
-  for (let k = text.length - 1; k >= 0; k -= 1) {
+  for (let k = end - 1; k >= 0; k -= 1) {
     if (text[k] === ')') {
       depth += 1;
     } else if (text[k] === '(') {
+      if (depth === 0) return k;
       depth -= 1;
-      if (depth === 0) {
-        let end = k;
-        while (end > 0 && /\s/.test(text[end - 1])) end -= 1;
-        // `a.if(b) / 2` calls a member named `if`, and divides.
-        return /(?:^|[^\w$.])(?:if|while|for|with)$/.test(text.slice(Math.max(0, end - 6), end));
-      }
     }
   }
-  return false;
+  return -1;
 }
 
-/** True where a `/` after `before` starts a regular expression and not a division. */
+/** True where the word `word` finds stands right before the place `at` of `text`. */
+function wordBefore(text: string, at: number, word: RegExp): boolean {
+  let end = at;
+  while (end > 0 && /\s/.test(text[end - 1])) end -= 1;
+  return word.test(text.slice(Math.max(0, end - 6), end));
+}
+
+/**
+ * True where a `/` after `before` starts a regular expression and not a
+ * division. Three cases need more than the sign or the word before the
+ * slash:
+ *
+ * - After a `)`: a statement follows the head of an `if`, a `while`, a
+ *   `for` or a `with`, so a slash there opens a pattern; after any other
+ *   `)` it divides.
+ * - After `of`: a keyword inside the head of a `for`, where a pattern
+ *   may follow it, and a name anywhere else, which a slash divides.
+ * - After any other name or number, it divides.
+ */
 function startsRegex(before: string): boolean {
   const text = before.trimEnd();
   if (text === '') return true;
-  if (text.endsWith(')')) return closesStatementHead(text);
+  if (text.endsWith(')')) {
+    const open = openParenthesis(text, text.length - 1);
+    return open !== -1 && wordBefore(text, open, STATEMENT_HEAD);
+  }
   if (/[(,=:[!&|?{};+\-*%<>~^]$/.test(text)) return true;
-  return /(?:^|[^\w$.])(?:return|typeof|case|in|of|delete|void|throw|new|else|do|instanceof)$/.test(text.slice(-12));
+  if (/(?:^|[^\w$.])of$/.test(text.slice(-3))) {
+    const open = openParenthesis(text, text.length);
+    return open !== -1 && wordBefore(text, open, FOR_HEAD);
+  }
+  return /(?:^|[^\w$.])(?:return|typeof|case|in|delete|void|throw|new|else|do|instanceof)$/.test(text.slice(-12));
 }
 
 /**
@@ -374,16 +398,24 @@ function codeOnly(code: string): string {
     out += code.slice(i, end).replace(/[^\n]/g, ' ');
     i = end;
   };
-  /** Blank a template's text from `i` to its closing backtick, or to the `${` that opens code. */
+  /**
+   * Blank a template's text from `i` to its closing backtick, or to the
+   * `${` that opens code. The code of a `${ }` is an expression of its
+   * own, so it is written here in parentheses: what stands before the
+   * `${`, the code of the `${ }` before it for one, is then not read as
+   * the start of that expression.
+   */
   const templateText = (): void => {
     let j = i;
+    let opensCode = false;
     while (j < code.length) {
       if (code[j] === '\\') { j += 2; continue; }
       if (code[j] === '`') { templates.pop(); j += 1; break; }
-      if (code[j] === '$' && code[j + 1] === '{') { templates[templates.length - 1] = 0; j += 2; break; }
+      if (code[j] === '$' && code[j + 1] === '{') { templates[templates.length - 1] = 0; j += 2; opensCode = true; break; }
       j += 1;
     }
     blank(j);
+    if (opensCode) out = `${out.slice(0, -1)}(`;
   };
   while (i < code.length) {
     const ch = code[i];
@@ -427,7 +459,7 @@ function codeOnly(code: string): string {
       i += 1;
     } else if (templates.length > 0 && ch === '}') {
       if (templates[templates.length - 1] === 0) {
-        out += ' ';
+        out += ')';
         i += 1;
         templateText();
       } else {
