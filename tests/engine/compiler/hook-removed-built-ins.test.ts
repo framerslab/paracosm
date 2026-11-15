@@ -437,3 +437,24 @@ test('a cached hook that loops over the matches of a pattern written after of is
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that divides a counter it has just raised and makes a typed array on the same line is generated again at restore', async () => {
+  // After `n++` a slash divides. Read as the start of a pattern, it
+  // would hide the rest of the line up to the next slash.
+  const { cacheDir, json } = cacheWith({
+    fingerprint: '(finalState) => { let n = 1; '
+      + 'return { summary: String(n++ / 2 + new Float64Array([1]).length / 1) }; }',
+  });
+  try {
+    const asked: string[] = [];
+    await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({ fingerprint: () => "(finalState) => ({ summary: 'steady' })" }, asked),
+    });
+    assert.deepEqual(asked, ['fingerprint'], 'the model was asked for that hook only');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
