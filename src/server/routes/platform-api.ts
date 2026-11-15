@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ListRunsFilters, RunHistoryStore } from '../stores/run-history.js';
-import type { RunRecord } from '../services/run-record.js';
+import { publicRunRecord, withoutOutputPath, type RunRecord } from '../services/run-record.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 import type { ScenarioPackage } from '../../engine/types.js';
 import { WorldModel, WorldModelReplayError } from '../../runtime/world-model/index.js';
@@ -48,12 +48,6 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<string>
   }
   if (size > maxBytes) throw new BodyTooLargeError(`Request body exceeds ${maxBytes} bytes`);
   return Buffer.concat(chunks).toString('utf-8');
-}
-
-function publicRunRecord(record: RunRecord): Omit<RunRecord, 'artifactPath'> {
-  const { artifactPath, ...publicRecord } = record;
-  void artifactPath;
-  return publicRecord;
 }
 
 export interface HandlePlatformApiOptions {
@@ -350,7 +344,11 @@ export async function handlePlatformApiRoute(
         return true;
       }
       res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
-      res.end(JSON.stringify({ record: publicRunRecord(record), artifact: loaded.artifact }));
+      res.end(JSON.stringify({
+        record: publicRunRecord(record),
+        artifact: loaded.artifact && typeof loaded.artifact === 'object'
+          ? withoutOutputPath(loaded.artifact as RunArtifact) : loaded.artifact,
+      }));
       return true;
     }
   } catch (error) {

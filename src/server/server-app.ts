@@ -55,7 +55,7 @@ import { openSessionStore, type SessionStore, type TimestampedEvent } from './st
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
 import { withSiteAnalytics } from './site-analytics.js';
-import { createRunRecord, hashActorConfig } from './services/run-record.js';
+import { createRunRecord, hashActorConfig, publicResultFrame } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -587,7 +587,7 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
   const simEvents = eventBuffer
     .filter(msg => msg.startsWith('event: sim\n') || msg.startsWith('event: result\n') || msg.startsWith('event: verdict\n') || msg.startsWith('event: complete\n'))
     .map(msg => {
-      const lines = msg.split('\n');
+      const lines = publicResultFrame(msg).split('\n');
       const eventType = lines[0]?.replace('event: ', '') || '';
       try { return { event: eventType, data: JSON.parse(lines[1]?.replace('data: ', '') || '{}') }; }
       catch { return { event: eventType, data: {} }; }
@@ -824,21 +824,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       admitCompile: () => {
         const decision = limiter.consumeCompile(ip);
         if (decision.allowed) return null;
-        console.log(`  [rate-limit] Quickstart compile blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        console.log(`  [rate-limit] Quickstart compile blocked (${decision.limit}/${decision.limit} used)`);
         return refusal(decision, 'compiles', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
       },
       maxPendingCompiles: MAX_PENDING_QUICKSTART_COMPILES,
       admitCall: () => {
         const decision = limiter.consumeQuickstart(ip);
         if (decision.allowed) return null;
-        console.log(`  [rate-limit] Quickstart call blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        console.log(`  [rate-limit] Quickstart call blocked (${decision.limit}/${decision.limit} used)`);
         return refusal(decision, 'Quickstart grounding, actor and URL requests', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
       },
       run: {
         admit: () => {
           const decision = limiter.check(ip);
           if (!decision.allowed) {
-            console.log(`  [rate-limit] Digital Twin run blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+            console.log(`  [rate-limit] Digital Twin run blocked (${decision.limit}/${decision.limit} used)`);
             return refusal(decision, 'simulations', '86400');
           }
           limiter.record(ip);
@@ -2623,7 +2623,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           rateLimiter.record(ip);
-          console.log(`  [rate-limit] /simulate ${ip}: ${remaining - 1} remaining of ${limit}`);
+          console.log(`  [rate-limit] /simulate: ${remaining - 1} remaining of ${limit}`);
         } else if (hasUserKeys) {
           console.log(`  [rate-limit] /simulate bypassed. BYO key present.`);
         }
@@ -2700,7 +2700,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             }));
             return;
           }
-          console.log(`  [rate-limit] /compile ${ip}: ${remaining} remaining of ${limit}`);
+          console.log(`  [rate-limit] /compile: ${remaining} remaining of ${limit}`);
         }
 
         // Web search on the hosted demo runs on the host's search keys,
@@ -2725,7 +2725,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             const ip = IpRateLimiter.getIp(req, clientIpHeader);
             const decision = rateLimiter.consumeCompile(ip);
             if (!decision.allowed && scrapesOnHostKey) {
-              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; seed URL refused`);
+              console.log(`  [rate-limit] /compile: own model key past the compile limit; seed URL refused`);
               res.writeHead(429, {
                 'Content-Type': 'application/json',
                 'Retry-After': String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))),
@@ -2743,7 +2743,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             }
             if (!decision.allowed) {
               compileWebSearch = false;
-              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; compiling without the host's web search`);
+              console.log(`  [rate-limit] /compile: own model key past the compile limit; compiling without the host's web search`);
             }
           }
         }
@@ -3007,7 +3007,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           if (remaining < 5) {
-            console.log(`  [rate-limit] /chat ${ip}: ${remaining} remaining of ${limit}`);
+            console.log(`  [rate-limit] /chat: ${remaining} remaining of ${limit}`);
           }
         }
         chatInflight++;
@@ -3520,7 +3520,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // A frame the reader has not taken yet waits for 'drain', so
             // a reader that does not read holds a buffer's worth of the
             // session, never the whole of it.
-            if (!res.write(ev.sse)) await waitForDrain(res);
+            if (!res.write(publicResultFrame(ev.sse))) await waitForDrain(res);
           } catch {
             return;
           }
@@ -3612,7 +3612,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           if (!rateLimiter || rateIp === null) return false;
           const { allowed, limit } = rateLimiter.check(rateIp);
           if (allowed) return false;
-          console.log(`  [rate-limit] Blocked ${rateIp} (${limit}/${limit} used)`);
+          console.log(`  [rate-limit] /setup blocked (${limit}/${limit} used)`);
           res.writeHead(429, {
             'Content-Type': 'application/json',
             'Retry-After': '86400',
@@ -3822,7 +3822,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         });
         if (rateLimiter && rateIp !== null) {
           rateLimiter.record(rateIp);
-          console.log(`  [rate-limit] ${rateIp}: ${rateLimiter.check(rateIp).remaining} remaining of ${maxSims}`);
+          console.log(`  [rate-limit] /setup: ${rateLimiter.check(rateIp).remaining} remaining of ${maxSims}`);
         } else if (hasUserKeys) {
           console.log(`  [rate-limit] Bypassed — user provided API keys`);
         }

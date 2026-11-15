@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../server/services/run-record.js';
 import { DEFAULT_KEY_PERSONNEL, type NormalizedSimulationConfig } from './sim-config.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { apiKeyForProvider } from '../engine/provider/credentials.js';
@@ -330,7 +331,7 @@ export async function runPairSimulations(
         // without reconstructing from the event stream. Skipped when
         // captureSnapshots is off to keep the SSE payload lean on
         // hosted-demo runs that don't need fork capability.
-        artifact: simConfig.captureSnapshots ? result : undefined,
+        artifact: simConfig.captureSnapshots ? withoutOutputPath(result) : undefined,
       });
       if (onArtifact) {
         try { await onArtifact(result, leader); } catch (err) {
@@ -491,7 +492,7 @@ export async function runForkSimulation(
       // simulate call above); emit the full artifact so the dashboard
       // can keep forking recursively without the event-stream
       // reconstruction the spec originally assumed.
-      artifact: result,
+      artifact: withoutOutputPath(result),
     });
     if (onArtifact) {
       try { await onArtifact(result, leader); } catch (err) {
@@ -613,7 +614,7 @@ export async function runBatchSimulations(
           citations: result.citations?.length ?? 0,
         },
         fingerprint: result.fingerprint ?? null,
-        artifact: simConfig.captureSnapshots ? result : undefined,
+        artifact: simConfig.captureSnapshots ? withoutOutputPath(result) : undefined,
       });
       if (onArtifact) {
         try { await onArtifact(result, leader); } catch (err) {

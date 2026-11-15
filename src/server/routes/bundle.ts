@@ -15,7 +15,7 @@
  */
 import type { ServerResponse } from 'node:http';
 import type { RunHistoryStore } from '../stores/run-history.js';
-import type { RunRecord } from '../services/run-record.js';
+import { publicRunRecord, type RunRecord } from '../services/run-record.js';
 
 export interface BundleRoutesDeps {
   runHistoryStore: RunHistoryStore;
@@ -45,7 +45,7 @@ export async function handleListBundle(
     scenarioId,
     createdAt,
     memberCount: members.length,
-    members,
+    members: members.map(publicRunRecord),
   }));
 }
 
