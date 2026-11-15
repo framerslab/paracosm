@@ -19,6 +19,10 @@
  * twin's answer that came back after it brought the panel back. A run the
  * server refuses replaces nothing, and a run loaded from a file or a clear of
  * the page's local data replaces the views as a new run does.
+ *
+ * Delete server data drops every finished run the server holds and tells the
+ * pages showing one. A finished twin's result is such a view, so it empties
+ * too: the server holds nothing of that run to show again.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
@@ -28,6 +32,9 @@ test.use({ baseURL: 'http://127.0.0.1:3457' });
 test.describe.configure({ mode: 'default' });
 
 const TWIN_ROUTE = '**/api/quickstart/simulate-intervention';
+/** The token tests-e2e/support/digital-twin-server.ts starts with; it guards temporary folders only. */
+const ADMIN_TOKEN = 'e2e-twin-admin-token';
+const ADMIN_TOKEN_KEY = 'paracosm:adminToken';
 const LEADER = 'Cautious Methodical Evaluator';
 const ROWS = twinRows(twinEvents(LEADER));
 
@@ -274,6 +281,22 @@ test.describe('Digital Twin events @twin', () => {
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Clear local data/ }).click();
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+
+    await expect(result(page)).toHaveCount(0);
+    await expect(emptyStateRun(page)).toBeVisible();
+  });
+
+  test('Delete server data clears the result of a finished twin, whose run the server drops', async ({ page }) => {
+    // The admin token is saved in this browser before the page loads, as an operator's is.
+    await page.addInitScript(([key, token]) => window.localStorage.setItem(key, token), [ADMIN_TOKEN_KEY, ADMIN_TOKEN] as const);
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+
+    page.once('dialog', dialog => void dialog.accept());
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: 'Delete server data' }).click();
+    await expect(page.getByText(/ files deleted on the server\./).first()).toBeVisible();
     await page.getByRole('tab', { name: 'SIM', exact: true }).click();
 
     await expect(result(page)).toHaveCount(0);

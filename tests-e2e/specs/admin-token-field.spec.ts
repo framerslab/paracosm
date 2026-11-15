@@ -82,6 +82,12 @@ const WIPE_REFUSED_WITH_NEWER_TOKEN = 'Server data not deleted: the server refus
   + 'A newer token is saved in this browser; choose Delete server data again to try with it.';
 /** Delete server data, when the server's answer did not arrive or could not be read. */
 const WIPE_NOT_KNOWN = /Whether the server's data was deleted is not known/;
+/**
+ * Delete server data, when the server answers with an error of its own: it
+ * deletes store by store and restores nothing, so some data may be gone.
+ */
+const wipeStoppedOnError = (error: string) =>
+  `The server reported an error while deleting (${error}). It may have deleted some of its data before the error.`;
 /** The compiled scenario tests-e2e/support/admin-write-server.ts plants. */
 const COMPILED_ID = 'e2e-compiled-scenario';
 const COMPILED_NAME = 'E2E Compiled Scenario';
@@ -552,6 +558,21 @@ test.describe('Admin token field @admin', () => {
     await deleteServerData(page).click();
 
     await expect(page.getByText(WIPE_NOT_KNOWN).first()).toBeVisible();
+    await expect(page.getByText(/Server data not deleted/)).toHaveCount(0);
+  });
+
+  test('Delete server data answered with a server error says some data may be deleted, and does not say it was kept', async ({ page }) => {
+    page.on('dialog', dialog => void dialog.accept());
+    // The answer the server gives when one of its stores fails part-way:
+    // a 500 naming the error. What it deleted before the failure stays deleted.
+    const error = 'Error: session store unavailable';
+    await page.route(`${ADMIN_BASE}/admin/data/wipe`, route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error }) }));
+    await saveTokenInSettings(page, WRONG);
+    await runActions(page).click();
+    await deleteServerData(page).click();
+
+    await expect(page.getByText(wipeStoppedOnError(error)).first()).toBeVisible();
+    await expect(page.getByText(/Server data kept/)).toHaveCount(0);
     await expect(page.getByText(/Server data not deleted/)).toHaveCount(0);
   });
 
