@@ -211,6 +211,14 @@ export interface UseSSEOptions {
    * Digital Twin run).
    */
   scenarioId?: string | null;
+  /**
+   * Called with the run's key when the server says it let go of the run the
+   * page shows from the feed (`run_cleared`), after the feed's views of it
+   * emptied. The page holds views of that run outside the feed's state (a
+   * finished Digital Twin's result), and empties them here. Not called for
+   * a run the page does not show, nor for the page's own reset().
+   */
+  onRunCleared?: (runKey: string) => void;
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
@@ -228,6 +236,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   const replaySessionId = options.replaySessionId ?? null;
   const replaySpeed = options.replaySpeed;
   const scenarioId = options.scenarioId ?? null;
+  // Read when run_cleared arrives, so the stream is not reopened for a new callback.
+  const onRunClearedRef = useRef(options.onRunCleared);
+  onRunClearedRef.current = options.onRunCleared;
   const [state, setState] = useState<SSEState>({
     status: 'connecting',
     events: [],
@@ -660,6 +671,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // A run loaded from a file is not the feed's: it stays.
         if (shownFromFileRef.current) return;
         clearLocalRun();
+        onRunClearedRef.current?.(runKey);
       });
 
       // Every run opens with active_scenario, which names its scenario; the

@@ -9,8 +9,14 @@
  * Run controls opens on the stream and holds until the server aborts it, as a
  * new run does. A run here replaces this server's event buffer and nobody
  * else's, so the other specs' server is left alone.
+ *
+ * Admin writes are on (ADMIN_WRITE=true and an ADMIN_TOKEN), for the test
+ * that deletes the server's data while a finished twin's result is on the
+ * page. The token guards nothing but this server's temporary folders: its
+ * saved sessions and its runs folder are temporary ones, so a wipe sent with
+ * the token removes nothing from output/.
  */
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -19,6 +25,15 @@ import type { WorldModel } from '../../src/runtime/world-model/index.js';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, type TwinEvent } from './digital-twin-run.js';
 
 const scenario = JSON.parse(readFileSync(new URL('../../scenarios/t2d-glp1-protocol.json', import.meta.url), 'utf-8')) as unknown;
+
+/** The same value tests-e2e/specs/digital-twin-events.spec.ts saves in its page. */
+const ADMIN_TOKEN = 'e2e-twin-admin-token';
+
+const root = mkdtempSync(join(tmpdir(), 'paracosm-e2e-digital-twin-'));
+const appDir = join(root, 'app');
+const runsDir = join(root, 'output');
+mkdirSync(appDir);
+mkdirSync(runsDir);
 
 interface StubInterveneOptions {
   subject: { id: string };
@@ -46,7 +61,14 @@ const world = {
 } as unknown as WorldModel;
 
 const server = createMarsServer({
-  env: { ...process.env, APP_DIR: mkdtempSync(join(tmpdir(), 'paracosm-e2e-digital-twin-')), PARACOSM_HOSTED_DEMO: '' },
+  env: {
+    ...process.env,
+    APP_DIR: appDir,
+    PARACOSM_OUTPUT_DIR: runsDir,
+    PARACOSM_HOSTED_DEMO: '',
+    ADMIN_WRITE: 'true',
+    ADMIN_TOKEN,
+  },
   runHistoryStore: createNoopRunHistoryStore(),
   getDigitalTwinWorld: async () => world,
   maxSimsPerDay: 0,
