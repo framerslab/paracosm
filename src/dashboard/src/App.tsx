@@ -542,7 +542,19 @@ function AppContent() {
         toast('info', 'Server data kept', 'Admin writes are on but no ADMIN_TOKEN is set on the server.');
       } else {
         const err = await res.json().catch(() => ({} as { error?: string }));
-        toast('info', 'Server data kept', `Server data not deleted: ${err.error ?? `HTTP ${res.status}`}`);
+        const detail = err.error ?? `HTTP ${res.status}`;
+        if (res.status >= 500) {
+          // An error of the server's own. The wipe deletes store by store
+          // and restores nothing, so what it deleted before the error
+          // stays deleted: the data is not reported as kept.
+          toast(
+            'error',
+            'Server error while deleting',
+            `The server reported an error while deleting (${detail}). It may have deleted some of its data before the error.`,
+          );
+        } else {
+          toast('info', 'Server data kept', `Server data not deleted: ${detail}`);
+        }
       }
     } catch (err) {
       // The request did not complete, or its answer could not be read. The
