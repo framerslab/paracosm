@@ -16,7 +16,7 @@ import { RunArtifactSchema } from '../../engine/schema/artifact.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import type { RunHistoryStore } from '../stores/run-history.js';
 import type { RunRecord } from '../services/run-record.js';
-import { createRunRecord, hashActorConfig } from '../services/run-record.js';
+import { createRunRecord, hashActorConfig, withoutOutputPath } from '../services/run-record.js';
 import { enrichRunRecordFromArtifact } from '../services/enrich-run-record.js';
 import { removeImportedRunArtifact, writeImportedRunArtifact } from '../services/run-artifact-file.js';
 import type { ParacosmServerMode } from '../server-mode.js';
@@ -278,12 +278,4 @@ async function insertOne(
     return { runId: importedRunId, alreadyExisted: true };
   }
   return { runId: importedRunId, alreadyExisted: false };
-}
-
-function withoutOutputPath(artifact: RunArtifact): RunArtifact {
-  const ext = artifact.scenarioExtensions as Record<string, unknown> | undefined;
-  if (!ext || typeof ext !== 'object' || !('outputPath' in ext)) return artifact;
-  const { outputPath, ...rest } = ext;
-  void outputPath;
-  return { ...artifact, scenarioExtensions: rest as RunArtifact['scenarioExtensions'] };
 }

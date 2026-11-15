@@ -366,3 +366,21 @@ test("the dashboard page's one static h1 sits inside #root, which React clears w
   assert.equal(h1s.length, 1, 'the page must carry one static h1');
   assert.ok(h1s[0] > page.indexOf('<div id="root">'), 'the static h1 must sit inside #root');
 });
+
+
+test('the privacy section names the address record and when it ends', () => {
+  const privacy = section('privacy');
+  assert.match(privacy, /[Tt]o apply (?:its|the) usage limits/);
+  assert.match(privacy, /server keeps your IP address with a count of your requests/);
+  for (const kind of ['runs', 'Digital Twin runs', 'compiles', 'chat messages', 'run imports', 'Quickstart requests', 'generating leaders', 'grounding a scenario', 'reading a page']) {
+    assert.ok(privacy.includes(kind), `names ${kind}`);
+  }
+  assert.match(privacy, /compile on your own model key.*site.s web search.*reads a page through it/);
+  assert.match(privacy, /next UTC midnight/);
+  assert.match(privacy, /next UTC hour for chat/);
+  assert.match(privacy, /deletes ended counts from memory at its hourly cleanup.*updates its saved copy/);
+  assert.match(privacy, /clears ended counts from the saved copy when it starts/);
+  assert.match(privacy, /holds your address.*simultaneous runs on your own model key and open live views/);
+  assert.match(privacy, /until the run is dropped or the view closes/);
+  assert.doesNotMatch(privacy, /milliseconds/);
+});

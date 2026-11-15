@@ -611,3 +611,28 @@ test('POST /api/v1/runs/:runId/replay answers 422 with the reason for a run save
   assert.match(String(answer.body.message), /cannot verify this run/);
   assert.deepEqual(answer.recorded, [], 'neither a match nor a mismatch is recorded');
 });
+
+
+test('a stored artifact answer omits outputPath and keeps the stored file unchanged', async () => {
+  const { rmSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-public-artifact-'));
+  const artifactPath = join(dir, 'artifact.json');
+  const artifact = { metadata: { runId: 'public-artifact' }, scenarioExtensions: { outputPath: artifactPath, label: 'kept' } };
+  writeFileSync(artifactPath, JSON.stringify(artifact));
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:' });
+  try {
+    await store.insertRun(makeRun({ runId: 'public-artifact', artifactPath }));
+    const captured: CapturedResponse = { statusCode: 0, body: '', headers: {} };
+    await handlePlatformApiRoute(makeReq('/api/v1/runs/public-artifact'), makeRes(captured), {
+      runHistoryStore: store, corsHeaders: {}, ...ENABLED, runsDir: dir,
+    });
+    assert.equal(captured.statusCode, 200);
+    const answer = JSON.parse(captured.body);
+    assert.equal(answer.record.artifactPath, undefined);
+    assert.deepEqual(answer.artifact.scenarioExtensions, { label: 'kept' });
+    assert.deepEqual(JSON.parse(readFileSync(artifactPath, 'utf-8')), artifact);
+  } finally {
+    await store.close?.();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

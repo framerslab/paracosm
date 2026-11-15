@@ -234,3 +234,15 @@ test('simulate: empty scenario.id rejects with 400', async () => {
   );
   assert.equal(get().status, 400);
 });
+
+
+test('a simulate answer omits outputPath without changing the engine artifact', async () => {
+  const artifact = fakeArtifact();
+  artifact.scenarioExtensions = { outputPath: '/tmp/simulate-output.json', label: 'kept' };
+  const { res, get } = fakeRes();
+  await handleSimulate({} as IncomingMessage, res, { scenario: marsScenario, leader: fakeLeader() },
+    fakeDeps({ runSimulation: async () => artifact }));
+  assert.equal(get().status, 200);
+  assert.deepEqual(get().body.artifact.scenarioExtensions, { label: 'kept' });
+  assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/simulate-output.json');
+});

@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../services/run-record.js';
 /**
  * HTTP `POST /simulate` one-shot endpoint (Tier 4 T4.2). Accepts
  * `{ scenario, leader, options }`, returns a full `RunArtifact` JSON.
@@ -185,6 +186,6 @@ export async function handleSimulate(
   }
   const durationMs = Date.now() - startedAt;
 
-  const response: SimulateResponse = { artifact, scenario: scenarioPkg, durationMs };
+  const response: SimulateResponse = { artifact: withoutOutputPath(artifact), scenario: scenarioPkg, durationMs };
   writeJson(res, 200, response);
 }
