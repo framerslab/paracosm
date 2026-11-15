@@ -1045,8 +1045,11 @@ function AppContent() {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
               // state (which feeds Sim/Constellation/EventLog), and
-              // the userTriggeredRun toast gate. Doesn't touch server
-              // data; that is Delete server data's, in the run actions menu.
+              // the userTriggeredRun toast gate. On the server, as Clear
+              // local data in the run actions menu, POST /clear lets go of
+              // this browser's run and stops it while it runs. Run
+              // history, saved sessions and output files are Delete server
+              // data's, in the run actions menu.
               history.clear();
               persistence.clearCache();
               leaveDigitalTwin();
