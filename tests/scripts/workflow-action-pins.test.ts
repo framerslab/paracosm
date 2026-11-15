@@ -9,7 +9,7 @@ function unpinnedActionLines(source: string): string[] {
   const unpinned: string[] = [];
 
   for (const [index, line] of source.split(/\r?\n/).entries()) {
-    const match = /^\s*(?:-\s+)?uses:\s*(\S*)(.*)$/.exec(line);
+    const match = /^\s*(?:-\s+)?(?:uses|'uses'|"uses")\s*:\s*(\S*)(.*)$/.exec(line);
     if (!match) continue;
     const value = match[1].replace(/^(['"])(.*)\1$/, '$2');
     const comment = match[2];
