@@ -1,6 +1,6 @@
 # Compiler fixtures
 
-What the stub model of `tests/engine/compiler/helpers/stub-model-compile.ts` answers the seed compile with, and a compiled scenario as the server saves one. Four files are recordings of what a model drafted; the other five are written by hand.
+What the stub model of `tests/engine/compiler/helpers/stub-model-compile.ts` answers the seed compile with, and two compiled scenarios as the server saves them. Four files are recordings of what a model drafted, one is a recording of a scenario a seed compile answered with, and the other five are written by hand.
 
 ## Recordings
 
@@ -14,6 +14,18 @@ Each is a byte for byte copy of a file the cookbook runners captured (`docs/COOK
 | `recorded-draft-game-studio.json` | `output/cookbook/creative/game-studio-director-output.json` | 26 April 2026, `scripts/cookbook-creative.ts`, draft model `gpt-5.4-mini` |
 
 `git ls-tree HEAD <path>` gives each fixture the blob id of the file it was copied from.
+
+## A recorded compiled scenario
+
+`persisted/compiled/saltmere-delta-council.json` is a recording, not a file written by hand: the scenario a Quickstart seed compile (`POST /api/quickstart/compile-from-seed`) answered with on 12 November 2026, in the folder layout the server reads at boot (`src/cli/persisted-compiled-scenarios.ts`). The server gives that route `gpt-5.4-mini` as its draft model (`defaultModel`, `src/server/server-app.ts`). The compile was given this prompt:
+
+> Saltmere is an invented river-delta town rebuilt on stilts after the sea rose, home to 140 residents who share one desalination barge. Over twelve years its council must decide how to ration fresh water, keep the seawall standing through the storm seasons, run the eel farms that feed everyone, and settle quarrels between the old fishing families and the newcomers from the drowned inland villages. Track the fresh water held in the cisterns in cubic metres, the seawall's integrity, the eel harvest in tonnes a season, and how far the residents trust the council.
+
+The file is the scenario as the compile's status answer carried it, less `hooks` (functions, which that answer carries as an empty object and the server's writer leaves out), with the `_persistMeta` block the writer adds: the time the server gave for the compile and the prompt. It is written as the writer writes one, with `JSON.stringify(payload, null, 2)`.
+
+One part of the recording was replaced. The compile's research step (`src/engine/compiler/seed-ingestion.ts`) had put what it fetched from the web into `knowledge.topics[*].canonicalFacts`: 15 facts, each with a page's text as its `claim`, the page's title as its `source` and the page's address as its `url`. This repository carries no third-party text, so each of the 15 holds an invented fact about Saltmere, about as long as the one it replaces and of its kind (a rule with its dates, a survey with its figures, a list, a way of building or farming), with `Invented for this fixture` as its `source` and an empty `url`. What is as recorded: the five topics, the number of facts under each (7, 0, 3, 3 and 3), the one fact the compile drew from the prompt itself (its `source` is `Seed document`), and everything outside `knowledge.topics`. No other value in the file is computed from the facts' text: `knowledge.categoryMapping` lists the topics' names under each category table's key (`src/engine/compiler/compile-from-seed.ts`), and a saved scenario carries no hash.
+
+`tests/engine/compiler/compiled-before-world.test.ts` reads the file as the server does at boot and compiles it again with no seed text, so its knowledge passes through as data: the package less its hooks is the file less its `_persistMeta`, a kernel built from it holds every score it declares at its start, and `validateSeedWorld` reports nothing for it.
 
 ## Written by hand
 
