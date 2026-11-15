@@ -8,9 +8,11 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { marsScenario } from '../../src/engine/scenarios/index.js';
+import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 
 interface RateLimitStatus {
@@ -77,4 +79,69 @@ test('a chat limit that is not a whole number logs a warning that names it', asy
   assert.ok(warnings.some((line) => line.includes('CHAT_RATE_LIMIT=') && line.includes('"many"')));
   assert.ok(warnings.some((line) => line.includes('CHAT_RATE_LIMIT_GLOBAL=') && line.includes('"lots"')));
   assert.ok(warnings.some((line) => line.includes('CHAT_CONCURRENCY=') && line.includes('"four"')));
+});
+
+
+for (const kind of ['run', 'compile'] as const) {
+  test(`a host-billed ${kind} logs no client address`, async () => {
+    const appDir = mkdtempSync(join(tmpdir(), 'paracosm-limit-logs-'));
+    const log = mock.method(console, 'log', () => {});
+    const server = createMarsServer({
+      env: {
+        ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: join(appDir, 'runs'),
+        PARACOSM_HOSTED_DEMO: 'true', PARACOSM_CLIENT_IP_HEADER: '',
+        OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '',
+      },
+      maxSimsPerDay: 1,
+      runHistoryStore: createNoopRunHistoryStore(),
+      runPairSimulations: async () => {},
+      compileScenario: async json => ({ ...marsScenario, id: String(json.id) }) as never,
+    });
+    try {
+      server.listen(0);
+      await once(server, 'listening');
+      const { port } = server.address() as { port: number };
+      const base = `http://127.0.0.1:${port}`;
+      const status = await (await fetch(`${base}/rate-limit`)).json() as { ip: string };
+      assert.ok(status.ip);
+      const count = kind === 'run' ? 2 : 6;
+      for (let i = 0; i < count; i++) {
+        const res = await fetch(`${base}/${kind === 'run' ? 'setup' : 'compile'}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(kind === 'run'
+            ? { actors: marsScenario.presets[0].leaders, turns: 1, scenarioId: marsScenario.id }
+            : { scenario: { id: `log-compile-${i}`, departments: [] }, webSearch: false }),
+        });
+        await res.text();
+        assert.equal(res.status, i === count - 1 ? 429 : 200);
+      }
+      const lines = log.mock.calls.map(call => call.arguments.map(String).join(' '))
+        .filter(line => line.includes('[rate-limit]'));
+      assert.ok(lines.length > 0, 'the requests produce limit log lines');
+      assert.ok(lines.some(line => /0 remaining of/.test(line)), 'the remaining count is kept');
+      for (const line of lines) assert.equal(line.includes(status.ip), false, line);
+    } finally {
+      log.mock.restore();
+      if (server.listening) {
+        server.closeAllConnections();
+        server.close();
+        await once(server, 'close');
+      }
+      rmSync(appDir, { recursive: true, force: true });
+    }
+  });
+}
+
+
+test('limit log lines name no client address', () => {
+  const source = readFileSync(new URL('../../src/server/server-app.ts', import.meta.url), 'utf8');
+  const logs = [...source.matchAll(/`(?:\\[\s\S]|[^`\\])*`/g)]
+    .map(match => match[0]).filter(literal => literal.includes('[rate-limit]'));
+  assert.ok(logs.length >= 10, 'covers the limit log statements');
+  for (const literal of logs) {
+    const expressions = [...literal.matchAll(/\$\{([^}]*)\}/g)].map(match => match[1]);
+    for (const expression of expressions) {
+      assert.doesNotMatch(expression, /\b(?:ip|rateIp|clientIp|\w*address\w*)\b/i);
+    }
+  }
 });

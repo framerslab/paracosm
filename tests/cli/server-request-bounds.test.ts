@@ -352,3 +352,70 @@ test('an import past the daily limit is told to retry at the next UTC midnight',
     assert.ok(Math.abs(retryAfter - untilMidnight) <= 5, `Retry-After ${retryAfter}, ${untilMidnight} s to midnight`);
   });
 });
+
+
+test('a replayed result frame omits outputPath and keeps the saved frame unchanged', async () => {
+  const artifact = {
+    metadata: { runId: 'saved-output' },
+    scenarioExtensions: { outputPath: '/tmp/saved-output.json', kernelSnapshotsPerTurn: [{ turn: 1 }] },
+  };
+  const result = `event: result\ndata: ${JSON.stringify({ leader: 'a', artifact })}\n\n`;
+  const other = 'event: complete\ndata: {"aborted":false}\n\n';
+  const events = [{ ts: 1, sse: result }, { ts: 2, sse: other }];
+  const store = {
+    saveSession: async () => ({ id: 'saved' }), listSessions: async () => [],
+    getSession: async () => ({ meta: { id: 'saved', createdAt: 0, eventCount: 2 }, events }),
+    count: async () => 1, updateTitle: async () => {},
+  } as unknown as SessionStore;
+  await withServer({ sessionStore: store }, async ({ base }) => {
+    const res = await fetch(`${base}/sessions/saved/replay`);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    const data = JSON.parse(text.split('\n').find(line => line.startsWith('data: '))!.slice(6));
+    assert.equal(data.artifact.scenarioExtensions.outputPath, undefined);
+    assert.deepEqual(data.artifact.scenarioExtensions.kernelSnapshotsPerTurn, [{ turn: 1 }]);
+    assert.equal(data.leader, 'a');
+    assert.ok(text.endsWith(other));
+    assert.doesNotMatch(text, /saved-output\.json/);
+  });
+  assert.equal(events[0].sse, result);
+});
+
+
+test('the results answer omits outputPath from buffered result artifacts', async () => {
+  const { buildResultsPayloadFromEventBuffer } = await import('../../src/server/server-app.js');
+  const artifact = { scenarioExtensions: { outputPath: '/tmp/buffered-output.json', label: 'kept' } };
+  const frame = `event: result\ndata: ${JSON.stringify({ leader: 'a', artifact })}\n\n`;
+  const answer = buildResultsPayloadFromEventBuffer([frame]);
+  assert.equal(answer.results.length, 1);
+  assert.deepEqual(answer.results[0].artifact.scenarioExtensions, { label: 'kept' });
+  assert.equal(JSON.parse(frame.split('\n')[1].slice(6)).artifact.scenarioExtensions.outputPath, '/tmp/buffered-output.json');
+});
+
+
+test('ended import counts are removed by the hourly sweep', async (t) => {
+  const address = '198.51.100.71';
+  let counts: Map<string, { count: number; resetAt: number }> | undefined;
+  const originalSet = Map.prototype.set;
+  t.mock.method(Map.prototype, 'set', function (key: unknown, value: any) {
+    if (key === address && value?.count === 0 && typeof value.resetAt === 'number') counts = this;
+    return originalSet.call(this, key, value);
+  });
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  try {
+    await withServer({ runHistoryStore: store, env: { PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' } }, async ({ base }) => {
+      const res = await post(base, '/api/v1/library/import', { artifact: freshArtifact() }, { 'cf-connecting-ip': address });
+      assert.equal(res.status, 201, await res.text());
+      assert.ok(counts, 'the import holds its address count');
+      counts.get(address)!.resetAt = Date.now() - 1;
+      const active = '198.51.100.72';
+      counts.set(active, { count: 1, resetAt: Date.now() + 2 * 60 * 60 * 1000 });
+      t.mock.timers.tick(60 * 60 * 1000);
+      assert.equal(counts.has(address), false);
+      assert.equal(counts.get(active)?.count, 1);
+    });
+  } finally {
+    t.mock.timers.reset();
+  }
+});

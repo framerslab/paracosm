@@ -15,6 +15,22 @@ For the SDK (`WorldModel.simulate()`, `WorldModel.batch()`, `WorldModel.interven
 - `paracosm dashboard` listens on `127.0.0.1` on a local server; set `HOST` (for example `HOST=0.0.0.0` in a container or for a LAN demo) to listen elsewhere. The hosted demo and the platform API mode listen on every interface unless `HOST` is set.
 - In `platform_api` mode every `/api/v1/*` route except `GET /api/v1/demo/status` takes the admin credential, however the request target that names it is written: `ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header (403 without `ADMIN_WRITE`, 503 without `ADMIN_TOKEN`, 401 without a matching header).
 
+## Run history in `hosted_demo` mode
+
+In `hosted_demo` mode the run-history routes are off unless `PARACOSM_ENABLE_RUN_HISTORY_ROUTES=true` turns them on. With them on, each visitor reaches their own runs:
+
+- A run is recorded for the visitor who started or imported it. The visitor is the one the `paracosm_visitor` cookie names, the same visitor `GET /sessions` lists saved sessions for. The store keeps a SHA-256 of the visitor id with the run, never the cookie value, and no answer holds it.
+- `GET /api/v1/runs` and `GET /api/v1/runs/aggregate` hold the caller's runs alone; `total`, `hasMore` and every filter work inside them.
+- `GET`, `HEAD`, `/swarm`, `/replay` and `/replay-result` for a run another visitor holds answer exactly as they do for a run id no run has (`404`).
+- `GET /api/v1/bundles/:bundleId` and its `/aggregate` answer with the caller's members of the bundle. A bundle with none of them answers `404`, as a bundle no run is in does.
+- `POST /api/v1/library/import` stores a run as the caller's. A caller that sent no cookie gets a `paracosm_visitor` cookie with the answer. Each import is stored under a run id of the caller's own, made from the caller and the artifact's `metadata.runId`, and the stored copy carries that id in its `metadata.runId`; the response's `runId` is the id to read it by. The same artifact imported twice by one visitor is one run (`alreadyExisted: true` the second time). An artifact whose run id is one of the caller's own runs answers `alreadyExisted: true` with that id. An artifact whose run id another visitor's run holds is imported as any other is. `addToBundle` puts the caller's runs under that bundle id; each visitor reads their own runs in it.
+- A caller that sent no cookie lists no run and reads none.
+- A request that carries the admin credential (`ADMIN_WRITE=true`, `ADMIN_TOKEN` set, and a matching `X-Admin-Token` header) reaches every run, and its imports keep the run id their artifact carries.
+- A run recorded with no visitor, which is every run recorded before runs had owners, is reached with the admin credential alone.
+- Every answer of these routes carries `Cache-Control: no-store` and `Vary: Cookie`.
+
+A local server and `platform_api` mode answer every caller that reaches the routes with every run.
+
 ## Endpoint index
 
 | Method | Path | Purpose |
@@ -79,7 +95,7 @@ List runs newest-first with optional filters.
 }
 ```
 
-Note: `artifactPath` is stripped from the public projection of every record. Use `GET /api/v1/runs/:runId` to load the artifact JSON.
+Note: `artifactPath` is stripped from the public projection of every record, including bundle members. Artifacts in run answers, `/simulate`, `/api/quickstart/simulate-intervention`, `/results` and SSE `result` frames (including saved-session and held-run replay) omit `scenarioExtensions.outputPath`. Use `GET /api/v1/runs/:runId` to load the artifact JSON.
 
 ## `GET /api/v1/runs/aggregate`
 
@@ -125,7 +141,7 @@ Single run record plus the full RunArtifact loaded from disk.
 - `410 artifact_unreadable` — file was preserved but is missing or unreadable on disk
 - `410 artifact_outside_runs_dir` — the record's artifact path resolves outside the server's runs directory (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`, links resolved); the file is not read. A record imported before imports wrote their own copy can carry such a path.
 
-The runs directory is resolved from the environment the server was started with. The server's own runs (`/setup`, `/simulate` and digital-twin runs) write their output files there, as imports do, so every record the server stores points into it.
+The runs directory is resolved from the environment the server was started with. The server's own runs (`/setup` and `/simulate`) write their output files there, as imports do, so every record the server stores points into it. A digital-twin run through `/api/quickstart/simulate-intervention` returns its artifact without writing an output file. Like any run, its stream frames are held in `<APP_DIR>/.live-runs/<key>.json` until the run is dropped. Those frames do not include the subject.
 
 The server resolves the path, opens the resolved file once without following a link at its last component, checks that the path still resolves inside the runs directory to that same open file, and reads from it. On Linux it also reads the path the kernel holds for the open file (`/proc/self/fd/<n>`) and refuses the file when that path is outside the runs directory, so a parent directory swapped between the checks cannot point the read elsewhere. An entry that changes between the check and the read answers `410 artifact_unreadable`, or `410 artifact_outside_runs_dir` when it then resolves outside the runs directory.
 

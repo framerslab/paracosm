@@ -9,17 +9,18 @@
  *
  * @module paracosm/cli/server/library-import-route
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { RunArtifactSchema } from '../../engine/schema/artifact.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import type { RunHistoryStore } from '../stores/run-history.js';
 import type { RunRecord } from '../services/run-record.js';
-import { createRunRecord, hashActorConfig } from '../services/run-record.js';
+import { createRunRecord, hashActorConfig, withoutOutputPath } from '../services/run-record.js';
 import { enrichRunRecordFromArtifact } from '../services/enrich-run-record.js';
 import { removeImportedRunArtifact, writeImportedRunArtifact } from '../services/run-artifact-file.js';
 import type { ParacosmServerMode } from '../server-mode.js';
+import type { RunScope } from '../stores/run-history.js';
 
 const MAX_BUNDLE_SIZE = 50;
 
@@ -52,6 +53,31 @@ export interface LibraryImportDeps {
    * Absent, imports are not counted.
    */
   admitNewRun?: () => boolean;
+  /**
+   * The key of the visitor an imported run belongs to (the store's
+   * `InsertRunOptions.owner`). Absent or null, no visitor owns it.
+   */
+  owner?: string | null;
+  /**
+   * Given, the import is one visitor's own: it finds the runs that scope
+   * reaches alone, and it stores a run under an id of that visitor's
+   * ({@link visitorRunId}), so a run id another visitor holds is imported
+   * as an id no run holds is. Absent, the import keeps the run id its
+   * artifact carries and reports an id the store holds as already there.
+   */
+  runScope?: RunScope;
+}
+
+/**
+ * The id a visitor's import of the run `runId` is stored under: one id
+ * for each visitor and run id, so the same file dropped twice is one run
+ * of theirs, and nothing in it depends on the runs other visitors hold.
+ * A caller with no owner key gets a new id with each import.
+ */
+function visitorRunId(owner: string | null, runId: string): string {
+  if (owner === null) return `run_${randomUUID()}`;
+  const hex = createHash('sha256').update(`paracosm-imported-run:${owner}:${runId}`).digest('hex');
+  return `run_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 /** Thrown by an import past the caller's daily limit of new runs. */
@@ -182,9 +208,17 @@ async function insertOne(
   // The artifact's metadata.runId is the source of truth — preserves
   // identity across re-imports so duplicate drops collapse to a single
   // Library row.
-  const importedRunId = artifact.metadata.runId;
+  const scope = deps.runScope;
+  let importedRunId = artifact.metadata.runId;
 
-  const existing = await deps.runHistoryStore.getRun(importedRunId);
+  let existing = await deps.runHistoryStore.getRun(importedRunId, scope);
+  if (!existing && scope) {
+    // One visitor's import: a run of theirs under the artifact's id was
+    // found above. Otherwise the run goes under their own id for it,
+    // whether or not another visitor's run holds the artifact's id.
+    importedRunId = visitorRunId(scope.owner, importedRunId);
+    existing = await deps.runHistoryStore.getRun(importedRunId, scope);
+  }
   if (existing) {
     return { runId: importedRunId, alreadyExisted: true };
   }
@@ -213,10 +247,15 @@ async function insertOne(
   // artifact (`scenarioExtensions.outputPath`) is dropped, the artifact
   // is written under the runs directory, and the record points there.
   const stored = withoutOutputPath(artifact);
-  const artifactPath = await writeImportedRunArtifact(importedRunId, stored, deps.runsDir);
-  const enriched: RunRecord = { ...enrichRunRecordFromArtifact(base, stored), artifactPath };
+  // A run stored under a visitor's own id carries that id in its file
+  // too, so the file and its record name the same run.
+  const kept: RunArtifact = importedRunId === artifact.metadata.runId
+    ? stored
+    : { ...stored, metadata: { ...stored.metadata, runId: importedRunId } };
+  const artifactPath = await writeImportedRunArtifact(importedRunId, kept, deps.runsDir);
+  const enriched: RunRecord = { ...enrichRunRecordFromArtifact(base, kept), artifactPath };
   try {
-    await deps.runHistoryStore.insertRun(enriched);
+    await deps.runHistoryStore.insertRun(enriched, { owner: scope ? scope.owner : deps.owner ?? null });
   } catch (err) {
     await removeImportedRunArtifact(artifactPath);
     throw err;
@@ -239,12 +278,4 @@ async function insertOne(
     return { runId: importedRunId, alreadyExisted: true };
   }
   return { runId: importedRunId, alreadyExisted: false };
-}
-
-function withoutOutputPath(artifact: RunArtifact): RunArtifact {
-  const ext = artifact.scenarioExtensions as Record<string, unknown> | undefined;
-  if (!ext || typeof ext !== 'object' || !('outputPath' in ext)) return artifact;
-  const { outputPath, ...rest } = ext;
-  void outputPath;
-  return { ...artifact, scenarioExtensions: rest as RunArtifact['scenarioExtensions'] };
 }

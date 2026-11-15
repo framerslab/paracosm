@@ -1,11 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ListRunsFilters, RunHistoryStore } from '../stores/run-history.js';
-import type { RunRecord } from '../services/run-record.js';
+import { publicRunRecord, withoutOutputPath, type RunRecord } from '../services/run-record.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 import type { ScenarioPackage } from '../../engine/types.js';
 import { WorldModel, WorldModelReplayError } from '../../runtime/world-model/index.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import { artifactPathInsideRunsDir, readRunArtifactFile } from '../services/run-artifact-file.js';
+import type { RunScope } from '../stores/run-history.js';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 500;
@@ -50,12 +51,6 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<string>
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-function publicRunRecord(record: RunRecord): Omit<RunRecord, 'artifactPath'> {
-  const { artifactPath, ...publicRecord } = record;
-  void artifactPath;
-  return publicRecord;
-}
-
 export interface HandlePlatformApiOptions {
   runHistoryStore: RunHistoryStore;
   corsHeaders: Record<string, string>;
@@ -80,6 +75,13 @@ export interface HandlePlatformApiOptions {
    * (`PARACOSM_OUTPUT_DIR`, else `<cwd>/output`).
    */
   runsDir?: string;
+  /**
+   * Whose runs this request reaches. Absent, every run (a local server,
+   * the platform API, the admin credential). Given, the list and the
+   * aggregate hold the runs that scope reaches, and a route that names a
+   * run the scope does not reach answers as it does for an id no run has.
+   */
+  runScope?: RunScope;
 }
 
 const OUTSIDE_RUNS_DIR_MESSAGE = 'The run\'s artifact file is outside the server\'s runs directory and is not read.';
@@ -155,6 +157,7 @@ export async function handlePlatformApiRoute(
         // /api/v1/bundles/:id directly; this filter is for Library tab
         // breadcrumbs and ad-hoc URLs that scope a list to one bundle.
         bundleId: url.searchParams.get('bundleId') ?? undefined,
+        scope: options.runScope,
         limit: clampLimit(url.searchParams.get('limit')),
         offset: clampOffset(url.searchParams.get('offset')),
       };
@@ -165,6 +168,7 @@ export async function handlePlatformApiRoute(
         scenarioId: filters.scenarioId,
         actorConfigHash: filters.actorConfigHash,
         q: filters.q,
+        scope: filters.scope,
       };
       const total = options.runHistoryStore.countRuns
         ? await options.runHistoryStore.countRuns(countFilters)
@@ -189,6 +193,7 @@ export async function handlePlatformApiRoute(
         sourceMode: sourceModeParam ? (sourceModeParam as ParacosmServerMode) : undefined,
         scenarioId: url.searchParams.get('scenario') ?? undefined,
         actorConfigHash: url.searchParams.get('leader') ?? undefined,
+        scope: options.runScope,
       };
       const stats = options.runHistoryStore.aggregateStats
         ? await options.runHistoryStore.aggregateStats(aggFilters)
@@ -223,7 +228,7 @@ export async function handlePlatformApiRoute(
         res.end(JSON.stringify({ error: 'matches must be a boolean' }));
         return true;
       }
-      const record = await options.runHistoryStore.getRun(runId);
+      const record = await options.runHistoryStore.getRun(runId, options.runScope);
       if (!record) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'not_found', runId }));
@@ -242,7 +247,7 @@ export async function handlePlatformApiRoute(
     const replayRunMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)\/replay$/);
     if (replayRunMatch && req.method === 'POST') {
       const runId = decodeURIComponent(replayRunMatch[1]);
-      const record = await options.runHistoryStore.getRun(runId);
+      const record = await options.runHistoryStore.getRun(runId, options.runScope);
       if (!record) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'not_found', runId }));
@@ -288,7 +293,7 @@ export async function handlePlatformApiRoute(
     const swarmMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)\/swarm$/);
     if (swarmMatch && req.method === 'GET') {
       const runId = decodeURIComponent(swarmMatch[1]);
-      const record = await options.runHistoryStore.getRun(runId);
+      const record = await options.runHistoryStore.getRun(runId, options.runScope);
       if (!record) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'not_found', runId }));
@@ -319,7 +324,7 @@ export async function handlePlatformApiRoute(
     const detailMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)$/);
     if (detailMatch && req.method === 'HEAD') {
       const runId = decodeURIComponent(detailMatch[1]);
-      const record = await options.runHistoryStore.getRun(runId);
+      const record = await options.runHistoryStore.getRun(runId, options.runScope);
       if (!record) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end();
@@ -337,7 +342,7 @@ export async function handlePlatformApiRoute(
     // GET /api/v1/runs/:runId — load full RunArtifact via record.artifactPath
     if (detailMatch && req.method === 'GET') {
       const runId = decodeURIComponent(detailMatch[1]);
-      const record = await options.runHistoryStore.getRun(runId);
+      const record = await options.runHistoryStore.getRun(runId, options.runScope);
       if (!record) {
         res.writeHead(404, { 'Content-Type': 'application/json', ...options.corsHeaders });
         res.end(JSON.stringify({ error: 'not_found', runId }));
@@ -350,7 +355,11 @@ export async function handlePlatformApiRoute(
         return true;
       }
       res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
-      res.end(JSON.stringify({ record: publicRunRecord(record), artifact: loaded.artifact }));
+      res.end(JSON.stringify({
+        record: publicRunRecord(record),
+        artifact: loaded.artifact && typeof loaded.artifact === 'object'
+          ? withoutOutputPath(loaded.artifact as RunArtifact) : loaded.artifact,
+      }));
       return true;
     }
   } catch (error) {

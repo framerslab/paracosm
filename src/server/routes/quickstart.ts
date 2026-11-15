@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../services/run-record.js';
 /**
  * Quickstart HTTP routes (Tier 5 onboarding). Three endpoints:
  *
@@ -804,6 +805,7 @@ export async function handleSimulateIntervention(
         captureSnapshots: false,
         onEvent,
         outputDir: deps.outputDir,
+        writeOutputFile: false,
       });
     } catch (err) {
       console.error('[simulate-intervention] intervene failed:', err);
@@ -830,7 +832,7 @@ export async function handleSimulateIntervention(
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
-    artifact,
+    artifact: artifact && withoutOutputPath(artifact),
     durationMs,
     runKey,
     ...(opened ? { visitorId: opened.visitorId } : {}),

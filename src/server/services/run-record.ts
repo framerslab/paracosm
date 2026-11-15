@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { RunArtifact } from '../../engine/schema/index.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 
 export interface RunRecord {
@@ -58,4 +59,35 @@ export function createRunRecord(input: Omit<RunRecord, 'runId' | 'createdAt'>): 
 
 export function hashActorConfig(input: unknown): string {
   return `leaders:${createHash('sha256').update(JSON.stringify(input)).digest('hex').slice(0, 12)}`;
+}
+
+/** Returns a public copy of a run record without its server file path. */
+export function publicRunRecord(record: RunRecord): Omit<RunRecord, 'artifactPath'> {
+  const { artifactPath, ...publicRecord } = record;
+  void artifactPath;
+  return publicRecord;
+}
+
+/** Returns an artifact copy without its output path, preserving the original for recording. */
+export function withoutOutputPath(artifact: RunArtifact): RunArtifact {
+  const ext = artifact.scenarioExtensions as Record<string, unknown> | undefined;
+  if (!ext || typeof ext !== 'object') return { ...artifact };
+  const { outputPath, ...rest } = ext;
+  void outputPath;
+  return { ...artifact, scenarioExtensions: rest as RunArtifact['scenarioExtensions'] };
+}
+
+/** Projects the artifact in a stored result frame before it is sent to a caller. */
+export function publicResultFrame(frame: string): string {
+  if (!frame.startsWith('event: result\n')) return frame;
+  return frame.split('\n').map(line => {
+    if (!line.startsWith('data: ')) return line;
+    try {
+      const data = JSON.parse(line.slice(6));
+      if (!data?.artifact || typeof data.artifact !== 'object') return line;
+      return `data: ${JSON.stringify({ ...data, artifact: withoutOutputPath(data.artifact) })}`;
+    } catch {
+      return line;
+    }
+  }).join('\n');
 }

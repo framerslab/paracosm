@@ -452,3 +452,37 @@ test('simulate-intervention answers 503 with the run cap when the server is runn
   });
   assert.equal(intervened, false);
 });
+
+
+test('a digital-twin run asks the engine to write no output file', async () => {
+  let options: Record<string, unknown> | undefined;
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async (opts: Record<string, unknown>) => {
+      options = opts;
+      return { metadata: { runId: 'twin-output' }, scenarioExtensions: { outputPath: '/tmp/twin-output.json' } };
+    },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+  }));
+  assert.equal(get().status, 200);
+  assert.equal(options?.writeOutputFile, false);
+  assert.equal(get().body.artifact.scenarioExtensions?.outputPath, undefined);
+});
+
+test('a digital-twin answer omits outputPath without changing the engine artifact', async () => {
+  const artifact = {
+    metadata: { runId: 'twin-answer' },
+    scenarioExtensions: { outputPath: '/tmp/twin-answer.json', label: 'kept' },
+  };
+  const world = { scenario: ASYNC_TEST_SCENARIO, intervene: async () => artifact } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+  }));
+  assert.equal(get().status, 200);
+  assert.deepEqual(get().body.artifact.scenarioExtensions, { label: 'kept' });
+  assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/twin-answer.json');
+});

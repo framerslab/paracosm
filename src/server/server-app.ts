@@ -55,11 +55,12 @@ import { openSessionStore, type SessionStore, type TimestampedEvent } from './st
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
 import { withSiteAnalytics } from './site-analytics.js';
-import { createRunRecord, hashActorConfig } from './services/run-record.js';
+import { createRunRecord, hashActorConfig, publicResultFrame } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
 import { createSqliteRunHistoryStore } from './stores/sqlite-run-history.js';
+import type { RunScope } from './stores/run-history.js';
 import { createWaitlistStore } from './stores/waitlist.js';
 import { handleWaitlistClosed } from './routes/waitlist.js';
 import { handlePublicDemoRoute } from './routes/public-demo.js';
@@ -202,6 +203,11 @@ export function pickCookie(id: string, secure = false): string | null {
  * another.
  */
 const PER_VISITOR_HEADERS: Record<string, string> = { 'Cache-Control': 'no-store', Vary: 'Cookie' };
+
+/** Puts {@link PER_VISITOR_HEADERS} on an answer a route handler writes itself. */
+function sendPerVisitor(res: ServerResponse): void {
+  for (const [name, value] of Object.entries(PER_VISITOR_HEADERS)) res.setHeader(name, value);
+}
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
@@ -587,7 +593,7 @@ export function buildResultsPayloadFromEventBuffer(eventBuffer: readonly string[
   const simEvents = eventBuffer
     .filter(msg => msg.startsWith('event: sim\n') || msg.startsWith('event: result\n') || msg.startsWith('event: verdict\n') || msg.startsWith('event: complete\n'))
     .map(msg => {
-      const lines = msg.split('\n');
+      const lines = publicResultFrame(msg).split('\n');
       const eventType = lines[0]?.replace('event: ', '') || '';
       try { return { event: eventType, data: JSON.parse(lines[1]?.replace('data: ', '') || '{}') }; }
       catch { return { event: eventType, data: {} }; }
@@ -741,6 +747,29 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // ADMIN_TOKEN once in /opt/paracosm/.env; the dashboard pastes it
   // once into Settings. Drive-by visitors get 401.
   const adminToken = (env.ADMIN_TOKEN || '').trim();
+  /**
+   * Whether the request carries the admin credential: ADMIN_WRITE on, an
+   * ADMIN_TOKEN set, and an X-Admin-Token header that matches it. Writes
+   * no answer; requireAdminToken answers a request that does not.
+   */
+  const holdsAdminToken = (req: IncomingMessage): boolean => {
+    if (!adminWrite || !adminToken) return false;
+    const headerToken = String(req.headers['x-admin-token'] ?? '').trim();
+    return headerToken.length > 0 && adminTokenMatches(headerToken, adminToken);
+  };
+  /**
+   * Whose runs a run-history request reaches. On the hosted demo a visitor
+   * reaches the runs recorded under their own owner key, the key their
+   * saved sessions are stored under (sessionOwner), so the run list and
+   * the saved-session list agree on who a visitor is; a caller that sent
+   * no cookie reaches none, and the admin credential reaches every run. A
+   * local server and the platform API reach every run.
+   */
+  const runScopeFor = (req: IncomingMessage): RunScope | undefined => (
+    serverMode !== 'hosted_demo' || holdsAdminToken(req)
+      ? undefined
+      : { owner: sessionOwner(readVisitorId(req)) }
+  );
   const requireAdminToken = (req: IncomingMessage, res: ServerResponse): boolean => {
     if (!adminWrite) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -755,8 +784,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }));
       return false;
     }
-    const headerToken = String(req.headers['x-admin-token'] ?? '').trim();
-    if (!headerToken || !adminTokenMatches(headerToken, adminToken)) {
+    if (!holdsAdminToken(req)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid or missing X-Admin-Token header' }));
       return false;
@@ -824,21 +852,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       admitCompile: () => {
         const decision = limiter.consumeCompile(ip);
         if (decision.allowed) return null;
-        console.log(`  [rate-limit] Quickstart compile blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        console.log(`  [rate-limit] Quickstart compile blocked (${decision.limit}/${decision.limit} used)`);
         return refusal(decision, 'compiles', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
       },
       maxPendingCompiles: MAX_PENDING_QUICKSTART_COMPILES,
       admitCall: () => {
         const decision = limiter.consumeQuickstart(ip);
         if (decision.allowed) return null;
-        console.log(`  [rate-limit] Quickstart call blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+        console.log(`  [rate-limit] Quickstart call blocked (${decision.limit}/${decision.limit} used)`);
         return refusal(decision, 'Quickstart grounding, actor and URL requests', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
       },
       run: {
         admit: () => {
           const decision = limiter.check(ip);
           if (!decision.allowed) {
-            console.log(`  [rate-limit] Digital Twin run blocked ${ip} (${decision.limit}/${decision.limit} used)`);
+            console.log(`  [rate-limit] Digital Twin run blocked (${decision.limit}/${decision.limit} used)`);
             return refusal(decision, 'simulations', '86400');
           }
           limiter.record(ip);
@@ -886,12 +914,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // holds is not counted.
   const maxImportsPerDay = readLimitFromEnv(env, 'PARACOSM_IMPORTS_PER_DAY', 500);
   const importsByAddress = new Map<string, { count: number; resetAt: number }>();
+  const sweepImports = (): void => {
+    const now = Date.now();
+    for (const [address, entry] of importsByAddress) {
+      if (now >= entry.resetAt) importsByAddress.delete(address);
+    }
+  };
+  const importCleanupTimer = setInterval(sweepImports, 60 * 60 * 1000);
+  importCleanupTimer.unref?.();
   const admitImport = (address: string): boolean => {
     const now = Date.now();
     let entry = importsByAddress.get(address);
     if (!entry || now >= entry.resetAt) {
       if (importsByAddress.size >= 10_000) {
-        for (const [key, held] of importsByAddress) if (now >= held.resetAt) importsByAddress.delete(key);
+        sweepImports();
       }
       const resetAt = new Date(now);
       resetAt.setUTCHours(24, 0, 0, 0);
@@ -1856,6 +1892,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runHistoryEnvFlag === 'true' ? true :
       runHistoryEnvFlag === 'false' ? false :
       runHistoryRoutesDefault;
+    // On the hosted demo a run-history answer is its caller's own, so no
+    // shared cache in front of the server may keep one.
+    const perVisitorRunHistory = serverMode === 'hosted_demo' && paracosmRoutesEnabled;
 
     // Bundle + Library-import handlers run BEFORE handlePlatformApiRoute
     // because that handler's "unknown_platform_route" 404 fires for any
@@ -1865,6 +1904,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // bundle fetch, even though a perfectly good bundle handler lived
     // 30 lines further down.
     if (paracosmRoutesEnabled && req.url === '/api/v1/library/import' && req.method === 'POST') {
+      if (perVisitorRunHistory) sendPerVisitor(res);
       if (!runHistoryStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'Run-history store disabled' }));
@@ -1874,11 +1914,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { handleLibraryImport } = await import('./routes/library-import.js');
         const address = IpRateLimiter.getIp(req, clientIpHeader);
+        // An imported run belongs to the visitor who imports it, as a run
+        // they start does: on the hosted demo a caller that sent no cookie
+        // gets a visitor id of its own with the answer (runVisitorFor).
+        const { visitorId: importVisitorId, setCookie: importSetCookie } = runVisitorFor(req);
+        const importOwner = sessionOwner(importVisitorId);
+        if (importSetCookie) res.setHeader('Set-Cookie', importSetCookie);
         await handleLibraryImport(req, res, body, {
           runHistoryStore,
           sourceMode: serverMode,
           runsDir,
           admitNewRun: () => admitImport(address),
+          owner: importOwner,
+          runScope: runScopeFor(req) ? { owner: importOwner } : undefined,
         });
       } catch (err) {
         writeJsonError(res, err);
@@ -1890,6 +1938,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // /api/v1/bundles/:id/aggregate are read-only views over the
     // RunHistoryStore. Same gating as platform-api routes below.
     if (paracosmRoutesEnabled && req.url?.startsWith('/api/v1/bundles/') && req.method === 'GET') {
+      if (perVisitorRunHistory) sendPerVisitor(res);
       const match = req.url.match(/^\/api\/v1\/bundles\/([^/?]+)(\/aggregate)?(\?.*)?$/);
       if (!match) {
         res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
@@ -1899,9 +1948,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const bundleId = decodeURIComponent(match[1]);
       const isAggregate = !!match[2];
       const { handleListBundle, handleBundleAggregate } = await import('./routes/bundle.js');
+      const runScope = runScopeFor(req);
       try {
-        if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore });
-        else await handleListBundle(bundleId, res, { runHistoryStore });
+        if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore, runScope });
+        else await handleListBundle(bundleId, res, { runHistoryStore, runScope });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -1910,10 +1960,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
     if (await handlePlatformApiRoute(req, res, {
       runHistoryStore,
-      corsHeaders,
+      corsHeaders: perVisitorRunHistory ? { ...corsHeaders, ...PER_VISITOR_HEADERS } : corsHeaders,
       paracosmRoutesEnabled,
       runsDir,
       scenarioLookup: (id) => lookupScenario(req, id),
+      runScope: runScopeFor(req),
     })) {
       return;
     }
@@ -2623,7 +2674,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           rateLimiter.record(ip);
-          console.log(`  [rate-limit] /simulate ${ip}: ${remaining - 1} remaining of ${limit}`);
+          console.log(`  [rate-limit] /simulate: ${remaining - 1} remaining of ${limit}`);
         } else if (hasUserKeys) {
           console.log(`  [rate-limit] /simulate bypassed. BYO key present.`);
         }
@@ -2700,7 +2751,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             }));
             return;
           }
-          console.log(`  [rate-limit] /compile ${ip}: ${remaining} remaining of ${limit}`);
+          console.log(`  [rate-limit] /compile: ${remaining} remaining of ${limit}`);
         }
 
         // Web search on the hosted demo runs on the host's search keys,
@@ -2725,7 +2776,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             const ip = IpRateLimiter.getIp(req, clientIpHeader);
             const decision = rateLimiter.consumeCompile(ip);
             if (!decision.allowed && scrapesOnHostKey) {
-              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; seed URL refused`);
+              console.log(`  [rate-limit] /compile: own model key past the compile limit; seed URL refused`);
               res.writeHead(429, {
                 'Content-Type': 'application/json',
                 'Retry-After': String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))),
@@ -2743,7 +2794,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             }
             if (!decision.allowed) {
               compileWebSearch = false;
-              console.log(`  [rate-limit] /compile ${ip}: own model key past the compile limit; compiling without the host's web search`);
+              console.log(`  [rate-limit] /compile: own model key past the compile limit; compiling without the host's web search`);
             }
           }
         }
@@ -3007,7 +3058,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           if (remaining < 5) {
-            console.log(`  [rate-limit] /chat ${ip}: ${remaining} remaining of ${limit}`);
+            console.log(`  [rate-limit] /chat: ${remaining} remaining of ${limit}`);
           }
         }
         chatInflight++;
@@ -3520,7 +3571,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // A frame the reader has not taken yet waits for 'drain', so
             // a reader that does not read holds a buffer's worth of the
             // session, never the whole of it.
-            if (!res.write(ev.sse)) await waitForDrain(res);
+            if (!res.write(publicResultFrame(ev.sse))) await waitForDrain(res);
           } catch {
             return;
           }
@@ -3612,7 +3663,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           if (!rateLimiter || rateIp === null) return false;
           const { allowed, limit } = rateLimiter.check(rateIp);
           if (allowed) return false;
-          console.log(`  [rate-limit] Blocked ${rateIp} (${limit}/${limit} used)`);
+          console.log(`  [rate-limit] /setup blocked (${limit}/${limit} used)`);
           res.writeHead(429, {
             'Content-Type': 'application/json',
             'Retry-After': '86400',
@@ -3770,7 +3821,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               }),
             };
             const enriched = enrichRunRecordFromArtifact(perArtifactBase, artifact);
-            await runHistoryStore.insertRun(enriched);
+            // The run is its visitor's: recorded under the key their saved
+            // sessions are stored under.
+            await runHistoryStore.insertRun(enriched, { owner: sessionOwner(visitorId) });
             // Remember the runId so autoSaveOnComplete can backfill
             // session_id once the broadcast's sessionStore.saveSession
             // returns. The push happens AFTER insertRun resolves so a
@@ -3822,7 +3875,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         });
         if (rateLimiter && rateIp !== null) {
           rateLimiter.record(rateIp);
-          console.log(`  [rate-limit] ${rateIp}: ${rateLimiter.check(rateIp).remaining} remaining of ${maxSims}`);
+          const { remaining } = rateLimiter.check(rateIp);
+          console.log(`  [rate-limit] /setup: ${remaining} remaining of ${maxSims}`);
         } else if (hasUserKeys) {
           console.log(`  [rate-limit] Bypassed — user provided API keys`);
         }
@@ -4409,6 +4463,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // Clean up on server close: the rate limiter's timers, and the live runs'
   // pending writes (flushed, so a restart reads every run back) and timers.
   (server as Server).on('close', () => {
+    clearInterval(importCleanupTimer);
     if (rateLimiter) rateLimiter.destroy();
     liveRuns.close();
   });
