@@ -297,20 +297,72 @@ function removedBuiltIns(): ReadonlyArray<readonly [RegExp, string]> {
   return patterns;
 }
 
+/**
+ * True where the `)` that ends `text` closes the head of an `if`, a
+ * `while`, a `for` or a `with`. A statement follows such a head, so a `/`
+ * there starts a regular expression; after any other `)` it divides.
+ * `text` is scanned code, with its strings, comments and patterns blank,
+ * so every parenthesis in it is code.
+ */
+function closesStatementHead(text: string): boolean {
+  let depth = 0;
+  for (let k = text.length - 1; k >= 0; k -= 1) {
+    if (text[k] === ')') {
+      depth += 1;
+    } else if (text[k] === '(') {
+      depth -= 1;
+      if (depth === 0) {
+        let end = k;
+        while (end > 0 && /\s/.test(text[end - 1])) end -= 1;
+        // `a.if(b) / 2` calls a member named `if`, and divides.
+        return /(?:^|[^\w$.])(?:if|while|for|with)$/.test(text.slice(Math.max(0, end - 6), end));
+      }
+    }
+  }
+  return false;
+}
+
 /** True where a `/` after `before` starts a regular expression and not a division. */
 function startsRegex(before: string): boolean {
   const text = before.trimEnd();
   if (text === '') return true;
+  if (text.endsWith(')')) return closesStatementHead(text);
   if (/[(,=:[!&|?{};+\-*%<>~^]$/.test(text)) return true;
   return /(?:^|[^\w$.])(?:return|typeof|case|in|of|delete|void|throw|new|else|do|instanceof)$/.test(text.slice(-12));
 }
 
 /**
+ * A member written in brackets with its name as a string, `Symbol['for']`,
+ * is the member written after a dot, `Symbol.for`. Where the string that
+ * runs from `start` to `end` in `code` is such a name, this gives the
+ * scanned text `out` with the member written the second way and the place
+ * the scan goes on from; else null.
+ */
+function memberInBrackets(out: string, code: string, start: number, end: number): { out: string; next: number } | null {
+  if (code[end] !== code[start]) return null;
+  const name = code.slice(start + 1, end);
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) return null;
+  let close = end + 1;
+  while (close < code.length && /\s/.test(code[close])) close += 1;
+  if (code[close] !== ']') return null;
+  const open = out.trimEnd();
+  if (!open.endsWith('[')) return null;
+  const object = open.slice(0, -1).trimEnd();
+  if (object.endsWith('?.')) return { out: `${object}${name}`, next: close + 1 };
+  // A bracket after a name, a call or another member reads a member of it; any other bracket opens an array.
+  if (!/[\w$)\]]$/.test(object)) return null;
+  return { out: `${object}.${name}`, next: close + 1 };
+}
+
+/**
  * `code` with the text of its comments, string literals, template
  * literals and regular expression literals replaced by spaces, so a check
- * for a name reads code only. The code inside a template's `${ }` stays.
+ * for a name reads code only. The code inside a template's `${ }` stays,
+ * and a member written in brackets with its name as a string is written
+ * after a dot ({@link memberInBrackets}).
  * A scanner and not a parser: it tells a regular expression from a
- * division by what stands before the slash.
+ * division by what stands before the slash, and after a `)` by what that
+ * parenthesis closes.
  */
 function codeOnly(code: string): string {
   let out = '';
@@ -345,7 +397,13 @@ function codeOnly(code: string): string {
     } else if (ch === '\'' || ch === '"') {
       let j = i + 1;
       while (j < code.length && code[j] !== ch && code[j] !== '\n') j += code[j] === '\\' ? 2 : 1;
-      blank(j + 1);
+      const member = memberInBrackets(out, code, i, j);
+      if (member === null) {
+        blank(j + 1);
+      } else {
+        out = member.out;
+        i = member.next;
+      }
     } else if (ch === '`') {
       templates.push(0);
       out += ' ';
@@ -395,6 +453,11 @@ function codeOnly(code: string): string {
  * read. What is read is the name, not whether a call reaches it: a text
  * that names one as a variable of its own, as an object key, or on a path
  * no call takes is answered the same way.
+ *
+ * A member is read where its name is written: after a dot, or in brackets
+ * as a string (`Symbol['for']`). A built-in the code reaches without
+ * writing its name, through a key it computes for example, is not found.
+ * That text is kept, and it throws at the call that reaches the built-in.
  */
 export function removedBuiltInNamedIn(code: string): string | null {
   // A model's answer may come wrapped in a Markdown code fence, and the
