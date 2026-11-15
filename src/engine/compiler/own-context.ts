@@ -330,15 +330,19 @@ function wordBefore(text: string, at: number, word: RegExp): boolean {
 
 /**
  * True where a `/` after `before` starts a regular expression and not a
- * division. Three cases need more than the sign or the word before the
- * slash:
+ * division. It starts one after a sign that a value follows, and after a
+ * word that a value follows (`return`, `typeof`, `yield` and the like);
+ * after a name or a number it divides. Two cases need more than the sign
+ * or the word before the slash:
  *
  * - After a `)`: a statement follows the head of an `if`, a `while`, a
  *   `for` or a `with`, so a slash there opens a pattern; after any other
  *   `)` it divides.
  * - After `of`: a keyword inside the head of a `for`, where a pattern
  *   may follow it, and a name anywhere else, which a slash divides.
- * - After any other name or number, it divides.
+ *
+ * `yield` is a word here and never a name: a hook is parsed as strict
+ * code (source-validation.ts), where no variable has that name.
  */
 function startsRegex(before: string): boolean {
   const text = before.trimEnd();
@@ -352,7 +356,7 @@ function startsRegex(before: string): boolean {
     const open = openParenthesis(text, text.length);
     return open !== -1 && wordBefore(text, open, FOR_HEAD);
   }
-  return /(?:^|[^\w$.])(?:return|typeof|case|in|delete|void|throw|new|else|do|instanceof)$/.test(text.slice(-12));
+  return /(?:^|[^\w$.])(?:return|typeof|case|in|delete|void|throw|new|else|do|instanceof|yield)$/.test(text.slice(-12));
 }
 
 /**
