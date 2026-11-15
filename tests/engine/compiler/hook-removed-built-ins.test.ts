@@ -363,3 +363,24 @@ test('a cached hook that divides a variable named of and makes a typed array on 
     rmSync(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('a cached hook that yields a pattern from a generator is restored with no model call', async () => {
+  // After `yield` a slash opens a pattern. The name is the pattern's
+  // text: the hook reaches no built-in.
+  const prompts = '(ctx) => [...(function* () { yield /Promise/; })()].map(String)';
+  const { cacheDir, json } = cacheWith({ prompts });
+  try {
+    const asked: string[] = [];
+    const scenario = await compileScenario(json, {
+      cache: true,
+      cacheDir,
+      model: MODEL,
+      generateText: standInModel({}, asked),
+    }) as ScenarioPackage;
+    assert.deepEqual(asked, [], 'every hook came from the cache');
+    const lines = scenario.hooks.departmentPromptHook?.({ state: kernelFor(scenario).getState() } as never) ?? [];
+    assert.equal(lines[0], '/Promise/', 'the restored hook answers with the pattern it yields');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
