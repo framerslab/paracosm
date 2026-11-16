@@ -114,3 +114,22 @@ test('a forged tool that allocates past the memory cap fails its forge, whatever
   assert.equal(lines.includes('settled'), true, `the process goes on after both forges (read ${read})`);
   assert.equal(out.status, 0, `the process exits cleanly (read ${read})`);
 });
+
+test('the executor refuses a call that carries a host function, before any code runs', async () => {
+  const config = normalizeSimulationConfig(SETUP as never);
+  const { engine } = createEmergentEngine(
+    new Map(), 'openai', 'gpt-4o', config.execution, undefined, undefined, undefined, 'placeholder-key-for-a-test',
+  );
+  const executor = engineExecutor(engine);
+  // paracosm's ceiling grants no capability, so the engine never hands the
+  // executor a function; a call made with one directly is refused.
+  const answer = await executor.run({
+    code: 'function execute(input) { return { ok: true }; }',
+    input: {},
+    globals: { fetch: () => undefined },
+    timeoutMs: 1_000,
+    memoryMB: 16,
+  });
+  assert.equal(answer.status, 'error', `the call is refused (read ${JSON.stringify(answer)})`);
+  assert.equal(answer.memoryUsedBytes, 0, `no instance was made for it (read ${JSON.stringify(answer)})`);
+});
