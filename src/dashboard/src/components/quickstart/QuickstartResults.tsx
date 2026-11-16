@@ -110,7 +110,7 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
           <span className={styles.summaryNum}>{summary.totalCitations}</span>
           <span className={styles.summaryLabel}>citations · web research</span>
         </div>
-        <div className={styles.summaryStat} title="AgentOS tool forging: when a department needed a calculation the codebase didn't provide, it wrote one in a sandboxed node:vm at runtime. The judge reviewed each for safety + correctness before letting it enter the decision pipeline.">
+        <div className={styles.summaryStat} title="AgentOS tool forging: when a department needed a calculation the codebase didn't provide, it wrote one at runtime, run in a QuickJS WebAssembly sandbox. The judge reviewed each for safety + correctness before letting it enter the decision pipeline.">
           <span className={styles.summaryNum}>{summary.totalTools}</span>
           <span className={styles.summaryLabel}>tools forged · AgentOS sandbox</span>
         </div>
