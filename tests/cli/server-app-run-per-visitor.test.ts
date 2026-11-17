@@ -858,7 +858,7 @@ test('boot removes legacy buffer data through its state-directory link', async (
   writeFileSync(target, '[]');
   symlinkSync(target, alias);
   const getDigitalTwinWorld = t.mock.fn(async () => null);
-  const api = await startServer({ appDir });
+  const api = await startServer({ appDir, extra: { getDigitalTwinWorld } });
   try {
     assert.ok(getDigitalTwinWorld.mock.callCount() > 0, 'boot uses the fixture digital twin');
     assert.equal(existsSync(target), false, 'legacy data is removed from the writable directory');
