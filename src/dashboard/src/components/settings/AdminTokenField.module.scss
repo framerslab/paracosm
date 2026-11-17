@@ -85,8 +85,19 @@
   line-height: 1.4;
 }
 
-// Phone: 44px targets, as the panel's Add button has.
-@media (max-width: 480px) {
+// A token Save refused: the reason, in the danger colour the dashboard's
+// destructive actions use.
+.refusal {
+  font-size: var(--font-md);
+  color: var(--rust);
+  margin: 6px 0 0;
+  line-height: 1.4;
+}
+
+// 44px targets, as the panel's Add button has, in a window 768px wide or
+// less and on a touch screen at any width: a phone held sideways can be
+// wider than 768px, so the width alone misses it.
+@media (max-width: 768px), (pointer: coarse) {
   .input,
   .btn {
     min-height: 44px;

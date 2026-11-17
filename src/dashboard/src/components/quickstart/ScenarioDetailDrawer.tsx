@@ -16,7 +16,19 @@ import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type { CatalogScenario } from './ScenarioCatalogGrid';
 import styles from './ScenarioDetailDrawer.module.scss';
-import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, readAdminToken } from '../../admin-token';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from '../../admin-token';
+
+/** A Rename or a Delete the server refused for its token. */
+const ADMIN_TOKEN_REFUSED = `Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`;
+/**
+ * A refusal for a token that is no longer the one saved: a newer token was
+ * saved while the call was out, and is kept.
+ */
+const refusedWithNewerToken = (call: 'rename' | 'delete', button: 'Save' | 'Delete') =>
+  `The server refused the admin token this ${call} was sent with. A newer token is saved in this browser; press ${button} to try again with it.`;
+
+/** The rename form's error, which describes its Save button. One drawer is open at a time. */
+const RENAME_ERROR_ID = 'scenario-rename-error';
 
 void React;
 
@@ -187,6 +199,9 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
     // A fresh open starts without the last open's refusal.
     setDeleteError(null);
     setAdminToken(readAdminToken() || null);
+    // A token saved or cleared while the drawer is open (in Settings, in
+    // another tab, or by a refused call) is the one Rename and Delete use.
+    return subscribeAdminToken(() => setAdminToken(readAdminToken() || null));
   }, [open]);
   const canDelete = !!adminToken && scenario?.source === 'compiled';
   // Rename is only allowed for compile-from-seed scenarios server-
@@ -329,14 +344,30 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
       setIsEditingName(false);
       return;
     }
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      setRenameError(unsendable);
+      setAdminToken(readAdminToken() || null);
+      return;
+    }
     setRenaming(true);
     setRenameError(null);
     try {
       const res = await fetch(`/scenarios/${encodeURIComponent(scenario.id)}/rename`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ name: trimmed }),
       });
+      if (res.status === 401) {
+        // As the delete below: drop the token the server refused (a token
+        // entered since this request went out stays) and say where it goes.
+        // The drawer then holds whatever token is saved now.
+        clearAdminToken(adminToken);
+        const now = readAdminToken() || null;
+        setAdminToken(now);
+        setRenameError(now ? refusedWithNewerToken('rename', 'Save') : ADMIN_TOKEN_REFUSED);
+        return;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { error?: string; message?: string }));
         setRenameError(body.message ?? body.error ?? `Rename failed: HTTP ${res.status}`);
@@ -365,6 +396,12 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
         )
       : false;
     if (!confirmed) return;
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      setDeleteError(unsendable);
+      setAdminToken(readAdminToken() || null);
+      return;
+    }
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -374,8 +411,9 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
       });
       if (res.status === 401) {
         clearAdminToken(adminToken);
-        setDeleteError(`Admin token refused and cleared. ${ADMIN_TOKEN_WHERE}`);
-        setAdminToken(null);
+        const now = readAdminToken() || null;
+        setAdminToken(now);
+        setDeleteError(now ? refusedWithNewerToken('delete', 'Delete') : ADMIN_TOKEN_REFUSED);
         return;
       }
       if (!res.ok) {
@@ -447,10 +485,13 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
                 aria-label="New scenario name"
               />
               <div className={styles.nameEditActions}>
+                {/* After a refusal that left no token, Save is off; the
+                    refusal below says why and where the token goes. */}
                 <button
                   type="submit"
                   className={styles.nameEditSave}
-                  disabled={renaming || editingName.trim().length === 0}
+                  disabled={renaming || !adminToken || editingName.trim().length === 0}
+                  aria-describedby={renameError ? RENAME_ERROR_ID : undefined}
                 >
                   {renaming ? 'Saving…' : 'Save'}
                 </button>
@@ -464,7 +505,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
                 </button>
               </div>
               {renameError && (
-                <p className={styles.nameEditError} role="alert">{renameError}</p>
+                <p id={RENAME_ERROR_ID} className={styles.nameEditError} role="alert">{renameError}</p>
               )}
             </form>
           ) : (

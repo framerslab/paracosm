@@ -147,7 +147,7 @@ jobs:
         run: npm run check:sitemap
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build
           path: |
@@ -316,8 +316,9 @@ jobs:
           # key on the connection's address, the local proxy's. pm2 start
           # passes this shell's environment to the app, and pm2 save keeps
           # it for a restart after a reboot.
+          # PARACOSM_ALLOWED_ORIGINS lists the demo's own pages, so a browser that sends no Sec-Fetch-Site is not judged by the Host the proxy passes.
           pm2 delete paracosm 2>/dev/null || true
-          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip pm2 start "npx tsx src/cli/serve.ts" \
+          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip PARACOSM_ALLOWED_ORIGINS=https://paracosm.agentos.sh pm2 start "npx tsx src/cli/serve.ts" \
             --name paracosm \
             --max-memory-restart 3G \
             --env production
@@ -420,7 +421,7 @@ jobs:
 
       - name: Upload the tarball
         if: steps.changes.outputs.library_changed == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: package
           path: ${{ runner.temp }}/package/${{ steps.pack.outputs.tarball }}

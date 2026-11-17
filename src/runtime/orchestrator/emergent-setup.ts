@@ -17,7 +17,7 @@
  * @module paracosm/runtime/emergent-setup
  */
 
-import type { ITool } from '@framers/agentos';
+import type { ITool, JSONSchemaObject } from '@framers/agentos';
 import {
   EmergentCapabilityEngine, EmergentJudge, EmergentToolRegistry,
   ComposableToolBuilder, ForgeToolMetaTool, generateText,
@@ -34,6 +34,7 @@ import {
 // sites continue to import from this module without churn.
 export { validateForgeShape, inferSchemaFromTestCases };
 import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
+import { refusedWordIn } from '../../engine/compiler/own-context.js';
 import {
   searchCredential,
   type SearchCredentialOptions,
@@ -253,7 +254,82 @@ export function createEmergentEngine(
         }
       : undefined,
   });
-  return { engine, forgeTool: new ForgeToolMetaTool(engine) };
+  return { engine, forgeTool: new SynchronousForgeTool(engine) };
+}
+
+// ---------------------------------------------------------------------------
+// forge_tool, with this server's rule for forged code
+// ---------------------------------------------------------------------------
+
+/**
+ * The rule forged code is held to on this server, in the words the
+ * forging model reads: in forge_tool's own schema, in the forge guidance
+ * (forge-guidance.ts) and in the refusal of a source that breaks it.
+ */
+export const SYNCHRONOUS_CODE_RULE =
+  'Forged code here is synchronous: define a plain `function execute(input) { ... }` that returns its result directly. '
+  + 'A source holding the word `async` or `import` is refused before it runs, and the code has no Promise, '
+  + 'so write no `await`, no `.then` and no timer.';
+
+/**
+ * forge_tool's input schema with the description of sandbox code saying
+ * what this server runs. AgentOS's own text allows "an async equivalent"
+ * of `function execute(input)`, which its default executor awaits; the
+ * executor here does not (forged-code-executor.ts).
+ */
+function withSynchronousCodeRule(schema: JSONSchemaObject): JSONSchemaObject {
+  const copy = structuredClone(schema) as JSONSchemaObject;
+  const variants: unknown = copy.properties?.implementation?.oneOf;
+  for (const variant of Array.isArray(variants) ? variants : []) {
+    const code = variant?.properties?.code;
+    if (variant?.properties?.mode?.const === 'sandbox' && code && typeof code.description === 'string') {
+      code.description = `${SYNCHRONOUS_CODE_RULE} ${code.description.replace(/\s*\(or an async equivalent\)/, '')}`;
+    }
+  }
+  return copy;
+}
+
+/**
+ * AgentOS's forge_tool as a department is handed it here.
+ *
+ * AgentOS allows a forged tool to be an async function, and its default
+ * executor awaits one. The executor here cannot: it runs the code in a
+ * context that holds no Promise and reads the result when the call
+ * returns (forged-code-executor.ts). A promise made in the context could
+ * settle, or be left rejected, after the call and its time limit have
+ * ended, which is what that context is built to rule out. So an async
+ * source is not accepted, and the forging model is told so in three
+ * places instead:
+ *
+ * - the schema's description of the code, which is what the model reads
+ *   when it writes the call, offers no async form;
+ * - the forge guidance lists the rule among those that cost an attempt;
+ * - a source that holds the word `async` or `import` is refused here,
+ *   with the rule as the error, before the engine runs a test case or
+ *   asks the judge. Left to the engine, every test case fails in the
+ *   executor and the judge is still asked to review the failures.
+ *
+ * The word check is the executor's own (`refusedWordIn`), so the two
+ * cannot differ.
+ */
+export class SynchronousForgeTool extends ForgeToolMetaTool {
+  constructor(engine: EmergentCapabilityEngine) {
+    super(engine);
+    (this as { inputSchema: JSONSchemaObject }).inputSchema = withSynchronousCodeRule(this.inputSchema);
+  }
+
+  /** Refuse sandbox code the executor would refuse at every test case; forge anything else as AgentOS does. */
+  execute(...call: Parameters<ForgeToolMetaTool['execute']>): ReturnType<ForgeToolMetaTool['execute']> {
+    const implementation = call[0]?.implementation as { mode?: unknown; code?: unknown } | undefined;
+    if (implementation?.mode === 'sandbox' && typeof implementation.code === 'string') {
+      const word = refusedWordIn(implementation.code);
+      if (word !== null) {
+        const error = `${SYNCHRONOUS_CODE_RULE} This source was not run and no judge read it (${word}). Write it as a plain function and call forge_tool again.`;
+        return Promise.resolve({ success: false, error, output: { success: false, error } });
+      }
+    }
+    return super.execute(...call);
+  }
 }
 
 // ---------------------------------------------------------------------------
