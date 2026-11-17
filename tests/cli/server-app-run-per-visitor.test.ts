@@ -19,7 +19,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -847,4 +847,23 @@ test('the dashboard HTML gives a browser its visitor id once; per-visitor answer
     assert.equal(results.headers.get('cache-control'), 'no-store');
     assert.equal(results.headers.get('vary'), 'Cookie');
   });
+});
+
+test('boot removes legacy buffer data through its state-directory link', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-legacy-state-'));
+  const stateDir = join(appDir, '.paracosm');
+  mkdirSync(stateDir);
+  const target = join(stateDir, '.event-buffer.json');
+  const alias = join(appDir, '.event-buffer.json');
+  writeFileSync(target, '[]');
+  symlinkSync(target, alias);
+  const api = await startServer({ appDir });
+  try {
+    assert.equal(existsSync(target), false, 'legacy data is removed from the writable directory');
+    assert.equal(existsSync(alias), false, 'the legacy buffer is no longer readable');
+    assert.equal(lstatSync(alias).isSymbolicLink(), true, 'cleanup does not change the application directory');
+  } finally {
+    await api.close();
+    rmSync(appDir, { recursive: true, force: true });
+  }
 });

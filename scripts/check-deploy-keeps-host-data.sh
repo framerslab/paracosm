@@ -269,6 +269,7 @@ cat >"$remote_bin/pm2" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$REMOTE_DIR/pm2.calls"
 if [ "$1" = start ]; then
+  printf '%s\n' "${PARACOSM_SCENARIO_STORE_DIR:-}" >"$REMOTE_DIR/pm2.store-dir"
   printf '%s\n' "${PARACOSM_CLIENT_IP_HEADER:-}" "${PARACOSM_ALLOWED_ORIGINS:-}" >"$REMOTE_DIR/pm2.env"
 fi
 STUB
@@ -337,7 +338,7 @@ for install_case in always-fails retry success; do
           test "$(stat -c '%U:%G' "$remote_dir/$path/saved")" = paracosm:paracosm
       done
     fi
-    for path in . src node_modules dist; do
+    for path in . src node_modules dist scenarios; do
       check_remote "the service user does not own $path" \
         test "$(stat -c '%U' "$remote_dir/$path")" = root
       check_remote "the service user cannot write $path" \
@@ -348,6 +349,12 @@ for install_case in always-fails retry success; do
         target=$(readlink -f "$1/.rate-limit.json")
         printf "{}\n" >"$target.tmp" && mv "$target.tmp" "$target"
       ' bash "$remote_dir"
+    check_remote 'admin saves use the writable data directory' \
+      test "$(cat "$remote_dir/pm2.store-dir")" = "$remote_dir/data/scenarios"
+    check_remote 'the service user can save admin scenarios' \
+      runuser -u paracosm -- bash -c 'mkdir -p "$1/data/scenarios" && echo saved >"$1/data/scenarios/admin.json"' bash "$remote_dir"
+    check_remote 'the service user can remove legacy buffer data through its state link' \
+      runuser -u paracosm -- bash -c 'target=$(readlink -f "$1/.event-buffer.json"); rm "$target"' bash "$remote_dir"
     check_remote 'the service user reads the existing .env keys' \
       runuser -u paracosm -- grep -q '^PRIVATE_SETTING=test-value$' "$remote_dir/.env"
     check_remote '.env stays private to root and the service group' \
@@ -359,6 +366,34 @@ for install_case in always-fails retry success; do
   check_remote 'the remote script installs only from the lockfile: at most one retry' \
     test "$(grep -c '^ci ' "$remote_dir/npm.calls")" -eq "$expected_calls"
 done
+# Each preparation failure must leave the current process in place.
+for command in id useradd chown; do
+  cat >"$remote_bin/$command" <<'STUB'
+#!/usr/bin/env bash
+command="${0##*/}"
+if [ "${HOST_CASE:-}" = user-setup ] && { [ "$command" = id ] || [ "$command" = useradd ]; }; then exit 1; fi
+if [ "${HOST_CASE:-}" = ownership ] && [ "$command" = chown ]; then exit 1; fi
+exec "/usr/bin/$command" "$@"
+STUB
+  chmod +x "$remote_bin/$command"
+done
+for host_case in user-setup ownership linked-target other-link; do
+  remote_dir="$work/preflight-$host_case"
+  mkdir -p "$remote_dir/.paracosm"
+  echo private >"$remote_dir/.env"
+  case "$host_case" in
+    linked-target) ln -s other "$remote_dir/.paracosm/.rate-limit.json" ;;
+    other-link) ln -s .paracosm/other "$remote_dir/.rate-limit.json" ;;
+  esac
+  { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
+  status=0
+  env PATH="$remote_bin:$PATH" REMOTE_DIR="$remote_dir" INSTALL_CASE=success HOST_CASE="$host_case" \
+    bash -e "$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
+  check_remote "the deploy refuses $host_case before stopping the current process" test "$status" -ne 0
+  check_remote "the deploy keeps the current process during $host_case" \
+    test ! -s "$remote_dir/pm2.calls"
+done
+
 check_remote 'the remote script has no unlocked install command' \
   test -z "$(grep -E '\bnpm (install|i)( |$)' "$remote_script" || true)"
 
