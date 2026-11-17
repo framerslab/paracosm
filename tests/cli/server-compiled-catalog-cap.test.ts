@@ -407,3 +407,47 @@ test("an admin's disk save during boot removes the waiting compiled draft", asyn
     }, { drafts: true, bootGate, env: ADMIN_ENV });
   } finally { release(); }
 });
+
+/** The station as a draft that is not a runnable package: no hooks. */
+function draftStation(id: string, name = `Draft ${id}`) {
+  const { hooks: _hooks, ...draft } = station(id, name);
+  return draft;
+}
+
+test("an admin's disk save of a draft that is not runnable takes the compiled scenario and its saved draft", async () => {
+  await withCatalog(async ({ api, scenarioDir }) => {
+    const v = api.cookied({ 'X-Admin-Token': TOKEN });
+    await hydrated(v);
+    const res = await v.post('/scenario/store', { scenario: draftStation('a-49'), saveToDisk: true });
+    assert.equal(res.status, 200);
+    const body = await res.json() as { savedToDisk: boolean; switchable: boolean };
+    assert.equal(body.savedToDisk, true);
+    assert.equal(body.switchable, false);
+    assert.ok(existsSync(join(scenarioDir, 'a-49.json')), 'the disk save wrote scenarios/a-49.json');
+    assert.ok(!savedIds(scenarioDir).includes('a-49'), 'the disk save removed compiled/a-49.json');
+    assert.equal((await catalog(v)).find(e => e.id === 'a-49'), undefined);
+    assert.equal((await compiledIds(v)).length, 49);
+  }, { drafts: true, env: ADMIN_ENV });
+});
+
+test("an admin's disk save of a draft that is not runnable during boot ends the waiting compiled draft", async () => {
+  let release!: () => void;
+  const bootGate = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await withCatalog(async ({ api, scenarioDir, compiles }) => {
+      const v = api.cookied({ 'X-Admin-Token': TOKEN });
+      await waitFor(() => compiles.includes('a-49'), 'boot to start its newest draft');
+      const res = await v.post('/scenario/store', { scenario: draftStation('a-49'), saveToDisk: true });
+      assert.equal(res.status, 200);
+      assert.equal((await res.json() as { switchable: boolean }).switchable, false);
+      const draftRemains = existsSync(join(scenarioDir, 'compiled', 'a-49.json'));
+      release();
+      await waitFor(async () => (await compiledIds(v)).includes('a-00'), 'boot to finish its remaining drafts', 5000);
+      await delay(100);
+      assert.equal(draftRemains, false, 'the disk save removes the waiting compiled draft');
+      assert.equal((await catalog(v)).find(e => e.id === 'a-49'), undefined, 'boot does not put the old draft in the catalog');
+      assert.equal((await compiledIds(v)).length, 49);
+      assert.ok(!savedIds(scenarioDir).includes('a-49'));
+    }, { drafts: true, bootGate, env: ADMIN_ENV });
+  } finally { release(); }
+});
