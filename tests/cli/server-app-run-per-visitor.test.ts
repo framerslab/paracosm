@@ -849,7 +849,7 @@ test('the dashboard HTML gives a browser its visitor id once; per-visitor answer
   });
 });
 
-test('boot removes legacy buffer data through its state-directory link', async () => {
+test('boot removes legacy buffer data through its state-directory link', async (t) => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-legacy-state-'));
   const stateDir = join(appDir, '.paracosm');
   mkdirSync(stateDir);
@@ -857,8 +857,10 @@ test('boot removes legacy buffer data through its state-directory link', async (
   const alias = join(appDir, '.event-buffer.json');
   writeFileSync(target, '[]');
   symlinkSync(target, alias);
+  const getDigitalTwinWorld = t.mock.fn(async () => null);
   const api = await startServer({ appDir });
   try {
+    assert.ok(getDigitalTwinWorld.mock.callCount() > 0, 'boot uses the fixture digital twin');
     assert.equal(existsSync(target), false, 'legacy data is removed from the writable directory');
     assert.equal(existsSync(alias), false, 'the legacy buffer is no longer readable');
     assert.equal(lstatSync(alias).isSymbolicLink(), true, 'cleanup does not change the application directory');
