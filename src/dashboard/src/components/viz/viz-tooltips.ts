@@ -12,7 +12,7 @@
 export const VIZ_TOOLTIPS = {
   'tab.living': "Who's alive this turn — agents on the scenario grid.",
   'tab.mood': 'Aggregate mood mix per leader: hopeful / neutral / anxious / negative.',
-  'tab.forge': 'Computational tools the agents forged in the V8 sandbox this turn.',
+  'tab.forge': 'Computational tools the agents forged in the QuickJS WebAssembly sandbox this turn.',
   'tab.ecology': 'Resource and environment metrics: power, food, water, radiation.',
   'tab.divergence': 'Per-metric A-vs-B deltas across all turns.',
   'badge.forge': 'Forge attempts on this turn — click FORGE for details.',

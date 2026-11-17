@@ -265,10 +265,10 @@ export const DEFAULT_EXECUTION: SimulationExecutionConfig = {
  * The forged-code time limit a run holds: what the request names when
  * that is a positive number no greater than the default, and the default
  * (which is also the most the server allows) for anything else. A call of
- * forged code is synchronous, so a longer limit would let one run hold
- * the event loop for every other request. The engine applies the same
- * bound again where it builds the executor
- * (src/runtime/orchestrator/forged-code-executor.ts).
+ * forged code that computes holds the event loop until it returns or its
+ * deadline, so a longer limit would let one run hold it for every other
+ * request. The executor applies the same bound again, and caps a call's
+ * memory (src/runtime/orchestrator/forged-code-executor.ts).
  */
 export function boundedSandboxTimeoutMs(asked: unknown): number {
   const most = DEFAULT_EXECUTION.sandboxTimeoutMs;

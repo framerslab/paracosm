@@ -56,7 +56,7 @@ When a department agent needs a calculation the codebase doesn't provide, it wri
 
 - Specialist proposes a tool with Zod-validated input/output schema
 - LLM authors a JavaScript body
-- Code runs in an in-process `node:vm` context: 10-second wall-clock limit, heap use reported against a nominal 128 MB budget
+- Code runs in QuickJS compiled to WebAssembly, a fresh instance for each call: 10-second wall-clock limit, 128 MB memory limit, a result of at most 1 MB
 - The forge always rejects code that uses: `eval`, `Function`, `require`, dynamic `import`, `process`, `child_process`, destructive `fs.*`
 - Forged code gets no network, file or `crypto` access: paracosm's ceiling grants none
 - LLM judge reviews output against specialist's stated intent

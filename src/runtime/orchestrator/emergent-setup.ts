@@ -41,7 +41,11 @@ import {
 } from '../../engine/provider/credentials.js';
 import { createResearchSearch } from '../../engine/provider/web-search.js';
 import type { LlmProvider } from '../../engine/types.js';
-import { clampForgedCodeTimeoutMs, OwnContextExecutor } from './forged-code-executor.js';
+import {
+  clampForgedCodeMemoryMB,
+  clampForgedCodeTimeoutMs,
+  QuickJSForgedCodeExecutor,
+} from './forged-code-executor.js';
 
 // ---------------------------------------------------------------------------
 // Web search tool
@@ -221,14 +225,16 @@ export function createEmergentEngine(
       enabled: true,
       maxSessionTools: SESSION_TOOL_LIMIT,
       maxAgentTools: AGENT_TOOL_LIMIT,
-      // At most the server's own limit, whatever the run asked for: a call
-      // of forged code is synchronous and holds the event loop that long.
+      // At most the server's own limits, whatever the run asked for: code
+      // that computes holds the event loop until it returns or its deadline,
+      // and a call's memory is its own WebAssembly memory, capped here.
       sandboxTimeoutMs: clampForgedCodeTimeoutMs(execution.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs),
-      sandboxMemoryMB: execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
-      // Forged code runs in a node:vm context that holds nothing of the
-      // host's (forged-code-executor.ts), not in AgentOS's default
-      // executor, whose context is built from the host's own built-ins.
-      executor: new OwnContextExecutor(),
+      sandboxMemoryMB: clampForgedCodeMemoryMB(execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB),
+      // Forged code runs in AgentOS's QuickJS executor, a WebAssembly
+      // instance of its own for each call, behind paracosm's refusals
+      // (forged-code-executor.ts). It loads QuickJS once for the process;
+      // the engine awaits that before a forge's first test case.
+      executor: new QuickJSForgedCodeExecutor(),
       promotionThreshold: { uses: 5, confidence: 0.8 },
       allowSandboxTools: true, persistSandboxSource: true,
       // Forged code here computes; it reaches nothing. The ceiling grants no
@@ -268,14 +274,14 @@ export function createEmergentEngine(
  */
 export const SYNCHRONOUS_CODE_RULE =
   'Forged code here is synchronous: define a plain `function execute(input) { ... }` that returns its result directly. '
-  + 'A source holding the word `async` or `import` is refused before it runs, and the code has no Promise, '
+  + 'A source holding the word `async` or `import` is refused before it runs, '
   + 'so write no `await`, no `.then` and no timer.';
 
 /**
  * forge_tool's input schema with the description of sandbox code saying
  * what this server runs. AgentOS's own text allows "an async equivalent"
- * of `function execute(input)`, which its default executor awaits; the
- * executor here does not (forged-code-executor.ts).
+ * of `function execute(input)`; this server refuses one
+ * ({@link SynchronousForgeTool}).
  */
 function withSynchronousCodeRule(schema: JSONSchemaObject): JSONSchemaObject {
   const copy = structuredClone(schema) as JSONSchemaObject;
@@ -292,14 +298,12 @@ function withSynchronousCodeRule(schema: JSONSchemaObject): JSONSchemaObject {
 /**
  * AgentOS's forge_tool as a department is handed it here.
  *
- * AgentOS allows a forged tool to be an async function, and its default
- * executor awaits one. The executor here cannot: it runs the code in a
- * context that holds no Promise and reads the result when the call
- * returns (forged-code-executor.ts). A promise made in the context could
- * settle, or be left rejected, after the call and its time limit have
- * ended, which is what that context is built to rule out. So an async
- * source is not accepted, and the forging model is told so in three
- * places instead:
+ * AgentOS allows a forged tool to be an async function, and its executors
+ * await one. paracosm holds forged code to a plain synchronous function: a
+ * tool here computes over its input and returns, and the executor refuses
+ * a source with the word `async` or `import` at every test case
+ * (forged-code-executor.ts). So an async source is not accepted, and the
+ * forging model is told so in three places instead:
  *
  * - the schema's description of the code, which is what the model reads
  *   when it writes the call, offers no async form;
