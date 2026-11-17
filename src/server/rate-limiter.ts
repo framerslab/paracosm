@@ -31,7 +31,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
-import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, renameSync, realpathSync } from 'node:fs';
 
 /** The proxy headers a server can be told to read the client's address from. */
 export type ClientIpHeader = 'cf-connecting-ip' | 'x-real-ip' | 'x-forwarded-for';
@@ -162,6 +162,11 @@ export class IpRateLimiter {
     this.maxChatPerHour = maxChatPerHour;
     this.maxChatGlobalPerHour = maxChatGlobalPerHour;
     this.persistencePath = persistencePath;
+    if (persistencePath) {
+      // A deploy may link this file into a writable state directory. Keep
+      // atomic saves beside its target without replacing the root link.
+      try { this.persistencePath = realpathSync(persistencePath); } catch { /* first save creates it */ }
+    }
     this.cleanupTimer = setInterval(() => this.cleanup(), 60 * 60 * 1000);
     this.load();
   }
