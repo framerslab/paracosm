@@ -87,6 +87,7 @@ Options:
 Environment:
   PORT                  Dashboard port (default: 3456)
   HOST                  Address to listen on (default: 127.0.0.1; 0.0.0.0 for a container or a LAN)
+  PARACOSM_ALLOWED_HOSTS Additional names a local server answers besides localhost, IP addresses and HOST (comma-separated, no port)
   PARACOSM_ENABLE_SIMULATE_ENDPOINT=true   Enable POST /simulate one-shot endpoint
 `;
 
