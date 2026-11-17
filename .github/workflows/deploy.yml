@@ -370,40 +370,53 @@ jobs:
             npm ci --omit=dev --no-audit --no-fund
           }
 
-          # Stop the previous process before changing its state ownership.
-          pm2 delete paracosm 2>/dev/null || true
+          # Validate the account and state layout while the current process
+          # is still serving. Preparation errors must precede the stop.
           getent group paracosm >/dev/null || groupadd --system paracosm
           if ! id -u paracosm >/dev/null 2>&1; then
             useradd --system --gid paracosm --home-dir "$deploy_dir" --no-create-home --shell /usr/sbin/nologin paracosm
           fi
           [ "$(id -u paracosm)" -ne 0 ]
           [ "$(getent group paracosm | cut -d: -f3)" -ne 0 ]
+          for file in .rate-limit.json .rate-limit.json.tmp .event-buffer.json; do
+            target=".paracosm/$file"
+            [ ! -L "$target" ]
+            [ ! -e "$target" ] || [ -f "$target" ]
+            if [ -L "$file" ]; then
+              [ "$(readlink "$file")" = "$target" ]
+            else
+              [ ! -e "$file" ] || [ -f "$file" ]
+            fi
+          done
 
           # Only runtime state belongs to the app. Source, dependencies and
           # the application directory stay owned by root after rsync.
-          mkdir -p data output .live-runs scenarios/compiled .paracosm
-          touch .retry-stats.json .event-buffer.json
-          # Atomic rate-limit saves need a writable parent for tmp + rename.
-          # Keep the familiar paths while moving their data into .paracosm.
-          for file in .rate-limit.json .rate-limit.json.tmp; do
-            target=".paracosm/$file"
-            [ ! -L "$target" ]
-            if [ ! -L "$file" ]; then
-              if [ -f "$file" ]; then mv "$file" "$target"; fi
-              touch "$target"
-              ln -s "$target" "$file"
-            else
-              [ "$(readlink "$file")" = "$target" ]
-              touch "$target"
-            fi
-            chown -h paracosm:paracosm "$file"
+          mkdir -p data/scenarios output .live-runs scenarios/compiled .paracosm
+          touch .retry-stats.json
+          for file in .rate-limit.json .rate-limit.json.tmp .event-buffer.json; do
+            touch ".paracosm/$file"
           done
           chown -hR paracosm:paracosm data output .live-runs scenarios/compiled .paracosm
-          chown paracosm:paracosm .retry-stats.json .event-buffer.json
+          chown paracosm:paracosm .retry-stats.json
           if [ -f .env ]; then
             chown root:paracosm .env
             chmod 640 .env
           fi
+
+          # Stop before moving state, so the prior process finishes writing.
+          # Atomic saves and legacy-buffer cleanup use the writable targets;
+          # the aliases in the application directory stay in place.
+          pm2 delete paracosm 2>/dev/null || true
+          for file in .rate-limit.json .rate-limit.json.tmp .event-buffer.json; do
+            target=".paracosm/$file"
+            if [ ! -L "$file" ]; then
+              if [ -f "$file" ]; then mv "$file" "$target"; fi
+              ln -s "$target" "$file"
+            fi
+            chown -h paracosm:paracosm "$file"
+          done
+          # Include any files the old process wrote during shutdown.
+          chown -hR paracosm:paracosm data output .live-runs scenarios/compiled .paracosm
 
           # Restart with pm2. The host sits behind Cloudflare, which sets
           # CF-Connecting-IP to the client's address on every request, so
@@ -412,6 +425,7 @@ jobs:
           # passes this shell's environment to the app, and pm2 save keeps
           # it for a restart after a reboot.
           # PARACOSM_ALLOWED_ORIGINS lists the demo's own pages, so a browser that sends no Sec-Fetch-Site is not judged by the Host the proxy passes.
+          PARACOSM_SCENARIO_STORE_DIR="$deploy_dir/data/scenarios" \
           PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip PARACOSM_ALLOWED_ORIGINS=https://paracosm.agentos.sh pm2 start dist/cli/serve.js \
             --name paracosm \
             --uid paracosm --gid paracosm \
