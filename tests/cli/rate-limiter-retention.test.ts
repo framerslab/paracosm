@@ -57,3 +57,31 @@ test('rate limits keep their state in the linked writable directory', (t) => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('rate limits warn once per sequence of failed saves', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-limit-save-'));
+  const state = join(dir, 'state');
+  const path = join(state, 'limits.json');
+  const warn = t.mock.method(console, 'warn', () => {});
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const limiter = new IpRateLimiter(10, 5, 30, path);
+  const save = () => {
+    limiter.record('198.51.100.7');
+    t.mock.timers.tick(500);
+  };
+  try {
+    save();
+    save();
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0].arguments[0]), /rate-limit.*save/i);
+    mkdirSync(state);
+    save();
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).sim['198.51.100.7'].count, 3);
+    rmSync(state, { recursive: true });
+    save();
+    assert.equal(warn.mock.callCount(), 2);
+  } finally {
+    limiter.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

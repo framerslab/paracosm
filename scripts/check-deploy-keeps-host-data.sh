@@ -115,9 +115,21 @@ for path in "${host_data[@]}" "${stale_build[@]}"; do
   esac
 done
 
-rsync -a --delete "${rules[@]}" "$build/" "$host/"
+# Model both the sender's ownership and the existing destination.
+chown -R 1001:1001 "$build" "$host"
+ownership=()
+if [[ $command_text =~ (--chown=[^[:space:]]+) ]]; then
+  ownership+=("${BASH_REMATCH[1]}")
+fi
+rsync -a --delete "${ownership[@]}" "${rules[@]}" "$build/" "$host/"
 
 failed=0
+for path in . dist dist/index.js; do
+  if [ "$(stat -c %u:%g "$host/$path")" != 0:0 ]; then
+    echo "::error::The copy must make $path root-owned"
+    failed=1
+  fi
+done
 for path in "${host_data[@]}"; do
   if [ ! -e "$host/$path" ]; then
     echo "::error file=$workflow::A deploy deletes host data: $path"
@@ -277,6 +289,24 @@ cat >"$remote_bin/sleep" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$REMOTE_DIR/sleep.calls"
 STUB
+real_node=$(command -v node)
+cat >"$remote_bin/node" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == *server-app.js* ]]; then
+  [ "$(id -un)" = paracosm ] || exit 1
+  [ "$INSTALL_CASE" != import-failure ] || exit 1
+fi
+exec "$REAL_NODE" "$@"
+STUB
+cat >"$remote_bin/curl" <<'STUB'
+#!/usr/bin/env bash
+[[ " $* " == *" http://127.0.0.1:4567/health "* ]] || exit 1
+case "$INSTALL_CASE" in
+  unavailable) exit 7 ;;
+  wrong-version) echo '{"version":"0.0.1"}' ;;
+  *) echo '{"version":"1.2.3"}' ;;
+esac
+STUB
 chmod +x "$remote_bin/"*
 
 check_remote() {
@@ -288,10 +318,19 @@ check_remote() {
   fi
 }
 
-for install_case in always-fails retry success; do
+for install_case in always-fails retry success import-failure unavailable wrong-version shell-dir dotenv-dir; do
   remote_dir="$work/remote-$install_case"
   mkdir -p "$remote_dir/src" "$remote_dir/node_modules" "$remote_dir/dist/cli"
   printf 'PRIVATE_SETTING=test-value\n' >"$remote_dir/.env"
+  echo PORT=4567 >>"$remote_dir/.env"
+  extra_env=()
+  case "$install_case" in
+    shell-dir) extra_env+=(APP_DIR="$work/elsewhere") ;;
+    dotenv-dir) echo "APP_DIR=$work/elsewhere" >>"$remote_dir/.env" ;;
+  esac
+  mkdir -p "$remote_dir/dist/server"
+  echo 'export {};' >"$remote_dir/dist/server/server-app.js"
+  echo '{"type":"module","version":"1.2.3"}' >"$remote_dir/package.json"
   chmod 600 "$remote_dir/.env"
   writable_dirs=(data output .live-runs scenarios/compiled .paracosm)
   writable_files=(.rate-limit.json .rate-limit.json.tmp .retry-stats.json .event-buffer.json)
@@ -305,12 +344,29 @@ for install_case in always-fails retry success; do
   fi
   { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
   status=0
-  env PATH="$remote_bin:$PATH" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
-    bash -e "$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
+  env "${extra_env[@]}" PATH="$remote_bin:$PATH" REAL_NODE="$real_node" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
+    bash -es <"$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
   calls=$(cat "$remote_dir/npm.calls" 2>/dev/null || true)
   pm2_calls=$(cat "$remote_dir/pm2.calls" 2>/dev/null || true)
   check_remote 'the remote script installs only from the lockfile: flags and command' \
     test -z "$(printf '%s\n' "$calls" | grep -v '^ci --omit=dev --no-audit --no-fund$' || true)"
+  case "$install_case" in
+    import-failure|shell-dir|dotenv-dir)
+      check_remote "$install_case stops before restart" test "$status" -ne 0
+      check_remote "$install_case preserves the running process" test -z "$pm2_calls"
+      if [[ "$install_case" == *-dir ]]; then
+        check_remote "$install_case identifies APP_DIR" grep -q APP_DIR "$remote_dir/remote-output.log"
+      fi
+      continue ;;
+    unavailable|wrong-version)
+      check_remote "$install_case fails the readiness check" test "$status" -ne 0
+      check_remote "$install_case reports logs after start" awk '
+        /^start / {started=1}
+        /^logs paracosm --nostream --lines 80$/ && started {logged=1}
+        END {exit !logged}
+      ' "$remote_dir/pm2.calls"
+      continue ;;
+  esac
   if [ "$install_case" = always-fails ]; then
     check_remote 'the remote script installs only from the lockfile: second failure stops' test "$status" -ne 0
     check_remote 'the remote script installs only from the lockfile: no restart after failure' test -z "$pm2_calls"
@@ -319,6 +375,12 @@ for install_case in always-fails retry success; do
   else
     check_remote 'the remote script starts after a locked install succeeds' test "$status" -eq 0
     if [ "$status" -ne 0 ]; then cat "$remote_dir/remote-output.log"; fi
+    check_remote 'startup and save follow start in order' awk '
+      /^start / {step=1}
+      /^startup systemd -u root --hp \/root$/ && step==1 {step=2}
+      /^save$/ && step==2 {step=3}
+      END {exit step!=3}
+    ' "$remote_dir/pm2.calls"
     check_remote 'the deploy starts the server from built files' \
       grep -q '^start dist/cli/serve.js ' "$remote_dir/pm2.calls"
     check_remote 'the deploy starts the server as the service user: uid and gid' \
@@ -388,7 +450,7 @@ for host_case in user-setup ownership linked-target other-link; do
   { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
   status=0
   env PATH="$remote_bin:$PATH" REMOTE_DIR="$remote_dir" INSTALL_CASE=success HOST_CASE="$host_case" \
-    bash -e "$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
+    bash -es <"$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
   check_remote "the deploy refuses $host_case before stopping the current process" test "$status" -ne 0
   check_remote "the deploy keeps the current process during $host_case" \
     test ! -s "$remote_dir/pm2.calls"
