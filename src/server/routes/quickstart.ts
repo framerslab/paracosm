@@ -345,9 +345,9 @@ export async function handleFetchSeed(
  *
  * Job state is in-memory; resolved jobs are kept for 10 minutes so a
  * slow user retry hits the cached scenario instantly. Beyond that the
- * compiled scenario is still in customScenarioCatalog (via
- * installCompiledScenario); the job map is purely the compile-pipeline
- * deduplicator.
+ * compiled scenario is in customScenarioCatalog (via
+ * installCompiledScenario), unless it left the catalog to make room; the
+ * job map is purely the compile-pipeline deduplicator.
  */
 const JOB_TTL_MS = 10 * 60 * 1000;
 
@@ -366,6 +366,16 @@ interface CompileJob {
 
 const compileJobs = new Map<string, CompileJob>();
 const jobBySignature = new Map<string, string>();
+
+/** Ends finished jobs holding this exact package when it leaves the catalog to make room. */
+export function endFinishedJobsOf(scenario: ScenarioPackage): void {
+  for (const job of compileJobs.values()) {
+    if (job.status !== 'done' || job.scenario !== scenario) continue;
+    job.status = 'error';
+    job.error = 'This scenario left the catalog to make room. Compile it again.';
+    delete job.scenario;
+  }
+}
 
 function compileSignature(input: {
   seedText: string;
@@ -642,7 +652,9 @@ export async function handleGroundScenario(
     // a free-form metadata slot today; this in-memory side-channel is
     // intentionally scoped to the server process so a restart drops
     // citations along with the scenario itself.
-    deps.recordGroundingCitations?.(scenario.id, result.citations);
+    if (deps.getScenarioById(scenario.id) === scenario) {
+      deps.recordGroundingCitations?.(scenario.id, result.citations);
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       citations: result.citations,
