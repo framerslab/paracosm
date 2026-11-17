@@ -1431,7 +1431,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       for (const { id, draft, meta } of drafts) {
         try {
           if (!hydratingScenarioIds.has(id)) {
-            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog to make room while boot re-compiled it`);
+            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog while boot re-compiled it`);
             continue;
           }
           // Cache: true means we hit the local hook-source cache. With
@@ -1439,7 +1439,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // hooks regenerate via LLM at the going rate.
           const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
           if (!hydratingScenarioIds.has(id)) {
-            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog to make room while boot re-compiled it`);
+            console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog while boot re-compiled it`);
             continue;
           }
           // Checked again under the compiled id: an earlier draft of this
@@ -2584,13 +2584,24 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           mkdirSync(scenarioDir, { recursive: true });
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
-          if (switchable) {
-            if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled' || hydratingScenarioIds.has(scenarioJson.id)) {
-              deletePersistedCompiledScenario(scenarioDir, scenarioJson.id);
-              compiledScenarioMeta.delete(scenarioJson.id);
-              compiledBriefOwners.delete(scenarioJson.id);
-              compiledEntryInfo.delete(scenarioJson.id);
+          // The saved file takes the id from a compiled scenario or a draft
+          // boot is re-compiling, runnable or not: its saved draft goes, so
+          // a restart never brings the compiled scenario back. A save that
+          // is not runnable also takes the compiled scenario out of the
+          // catalog and ends boot's re-compile of it; the file loads at the
+          // next restart when the boot loader can read it.
+          if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled' || hydratingScenarioIds.has(scenarioJson.id)) {
+            deletePersistedCompiledScenario(scenarioDir, scenarioJson.id);
+            compiledScenarioMeta.delete(scenarioJson.id);
+            compiledBriefOwners.delete(scenarioJson.id);
+            compiledEntryInfo.delete(scenarioJson.id);
+            if (!switchable) {
+              if (customScenarioCatalog.get(scenarioJson.id)?.source === 'compiled') customScenarioCatalog.delete(scenarioJson.id);
+              groundingCitationsByScenarioId.delete(scenarioJson.id);
+              hydratingScenarioIds.delete(scenarioJson.id);
             }
+          }
+          if (switchable) {
             enterCatalog(scenarioJson.id, {
               scenario: scenarioJson,
               source: 'disk',
