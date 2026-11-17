@@ -39,11 +39,9 @@ import type { ScenarioPackage } from '../engine/types.js';
 export const COMPILED_SUBDIR = 'compiled';
 
 /**
- * Cap on the number of persisted compiled scenarios at any time. Oldest
- * (by mtime) evict FIFO when a 51st scenario tries to save. 50 is sized
- * for the public-demo use case: enough room for the entire interesting-
- * scenario tail, small enough that disk + boot-time recompile cost
- * stay bounded.
+ * Cap on the shared catalog's compiled scenarios and its saved drafts.
+ * Scenarios named by held runs stay in the catalog even above the cap;
+ * folder clean-up keeps compiled catalog entries and drafts loading at boot.
  */
 export const COMPILED_SCENARIOS_CAP = 50;
 
@@ -136,7 +134,8 @@ export interface PersistResult {
 /**
  * Save a compile-from-seed scenario to disk. Caller passes the fully-
  * compiled scenario; we persist a hook-stripped copy plus metadata.
- * Idempotent on the same id (overwrites the previous file).
+ * Idempotent on the same id (overwrites the previous file). The optional
+ * `keep` protects catalog entries and loading drafts from folder clean-up.
  *
  * @returns A {@link PersistResult} carrying the path written + the
  *   exact meta block stored on disk so callers can mirror it into
@@ -149,6 +148,7 @@ export function persistCompiledScenario(
   scenarioDir: string,
   scenario: ScenarioPackage,
   seedText: string | null,
+  keep?: (id: string) => boolean,
 ): PersistResult | null {
   if (!isSafeScenarioId(scenario.id)) {
     console.warn(`[scenarios] refusing to persist scenario with unsafe id: ${JSON.stringify(scenario.id)}`);
@@ -167,7 +167,7 @@ export function persistCompiledScenario(
     };
     const filePath = resolve(dir, `${scenario.id}.json`);
     writeFileSync(filePath, JSON.stringify(payload, null, 2));
-    enforceCompiledCap(dir, COMPILED_SCENARIOS_CAP);
+    enforceCompiledCap(dir, COMPILED_SCENARIOS_CAP, keep);
     return { filePath, meta };
   } catch (err) {
     console.warn(`[scenarios] persistCompiledScenario failed for ${scenario.id}:`, err);
@@ -238,24 +238,28 @@ export function loadPersistedCompiledDrafts(
   return out;
 }
 
-/**
- * FIFO eviction once the cap is exceeded. Oldest by mtime drops first.
- * Idempotent and safe to call after every persist — at-cap state is the
- * common case so the function returns quickly when nothing needs
- * eviction.
- */
-function enforceCompiledCap(dir: string, cap: number): void {
+/** Deletes the oldest saved drafts above the cap, except those the caller keeps. */
+function enforceCompiledCap(dir: string, cap: number, keep?: (id: string) => boolean): void {
   if (!existsSync(dir)) return;
   const files = readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.json'))
-    .map((e) => {
+    .filter(e => e.isFile() && e.name.endsWith('.json'))
+    .flatMap(e => {
+      const id = e.name.slice(0, -5);
+      if (!isSafeScenarioId(id)) return [];
       const filePath = resolve(dir, e.name);
-      return { filePath, mtime: statSync(filePath).mtimeMs };
+      try {
+        const draft: unknown = JSON.parse(readFileSync(filePath, 'utf-8'));
+        if (!draft || typeof draft !== 'object' || (draft as { id?: unknown }).id !== id) return [];
+        return [{ id, filePath, mtime: statSync(filePath).mtimeMs }];
+      } catch {
+        return []; // An unreadable file is not a saved draft we can remove.
+      }
     })
     .sort((a, b) => a.mtime - b.mtime);
   while (files.length > cap) {
-    const drop = files.shift();
-    if (!drop) break;
+    const index = files.findIndex(file => !keep?.(file.id));
+    if (index < 0) break;
+    const [drop] = files.splice(index, 1);
     try {
       unlinkSync(drop.filePath);
     } catch (err) {
@@ -268,8 +272,7 @@ function enforceCompiledCap(dir: string, cap: number): void {
  * Remove a persisted draft by id. Returns true when a file was actually
  * deleted, false when no matching file existed or the id failed
  * validation (idempotent for callers that don't pre-check). Used by
- * the future `/scenario/delete` admin surface and by tests; production
- * server-app does not call this on the active path.
+ * catalog eviction, an admin disk save, the admin delete route and tests.
  *
  * Path-traversal guard: rejects any id that doesn't match the strict
  * kebab-slug shape AND verifies the resolved file path stays inside

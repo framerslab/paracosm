@@ -294,6 +294,11 @@ export class LiveRunRegistry {
     return n;
   }
 
+  /** Scenario ids named by every run held here, including restored and finished runs. */
+  scenarioIdsInRuns(): Set<string> {
+    return new Set([...this.runs.values()].map(run => run.scenarioId));
+  }
+
   heldBytes(): number {
     let n = 0;
     for (const run of this.runs.values()) if (!run.inFlight) n += run.bytes;
