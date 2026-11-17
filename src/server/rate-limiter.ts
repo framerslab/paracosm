@@ -146,6 +146,7 @@ export class IpRateLimiter {
   private maxQuickstartPerDay: number;
   private cleanupTimer: ReturnType<typeof setInterval>;
   private persistencePath: string | null = null;
+  private saveWarningLogged = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -224,8 +225,12 @@ export class IpRateLimiter {
         const tmp = `${this.persistencePath}.tmp`;
         writeFileSync(tmp, payload, 'utf-8');
         renameSync(tmp, this.persistencePath);
-      } catch {
-        // Disk full, permission denied — swallow; logs would be noisy.
+        this.saveWarningLogged = false;
+      } catch (error) {
+        if (!this.saveWarningLogged) {
+          console.warn(`  [rate-limit] Could not save limits: ${error instanceof Error ? error.message : String(error)}`);
+          this.saveWarningLogged = true;
+        }
       }
     }, 500);
   }

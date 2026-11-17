@@ -333,9 +333,10 @@ for install_case in always-fails retry success import-failure unavailable wrong-
   echo '{"type":"module","version":"1.2.3"}' >"$remote_dir/package.json"
   chmod 600 "$remote_dir/.env"
   writable_dirs=(data output .live-runs scenarios/compiled .paracosm)
-  writable_files=(.rate-limit.json .rate-limit.json.tmp .retry-stats.json .event-buffer.json)
+  writable_files=(.rate-limit.json .rate-limit.json.tmp .retry-stats.json)
   # Both first-deploy (absent) and existing state must be writable on start.
   if [ "$install_case" != retry ]; then
+    writable_files+=(.event-buffer.json)
     for path in "${writable_dirs[@]}"; do
       mkdir -p "$remote_dir/$path"
       echo saved >"$remote_dir/$path/saved"
@@ -415,8 +416,13 @@ for install_case in always-fails retry success import-failure unavailable wrong-
       test "$(cat "$remote_dir/pm2.store-dir")" = "$remote_dir/data/scenarios"
     check_remote 'the service user can save admin scenarios' \
       runuser -u paracosm -- bash -c 'mkdir -p "$1/data/scenarios" && echo saved >"$1/data/scenarios/admin.json"' bash "$remote_dir"
-    check_remote 'the service user can remove legacy buffer data through its state link' \
-      runuser -u paracosm -- bash -c 'target=$(readlink -f "$1/.event-buffer.json"); rm "$target"' bash "$remote_dir"
+    if [ "$install_case" = retry ]; then
+      check_remote 'a fresh deploy leaves the legacy buffer absent' test ! -L "$remote_dir/.event-buffer.json"
+      check_remote 'a fresh deploy leaves the legacy buffer target absent' test ! -e "$remote_dir/.paracosm/.event-buffer.json"
+    else
+      check_remote 'the service user can remove legacy buffer data through its state link' \
+        runuser -u paracosm -- bash -c 'target=$(readlink -f "$1/.event-buffer.json"); rm "$target"' bash "$remote_dir"
+    fi
     check_remote 'the service user reads the existing .env keys' \
       runuser -u paracosm -- grep -q '^PRIVATE_SETTING=test-value$' "$remote_dir/.env"
     check_remote '.env stays private to root and the service group' \
