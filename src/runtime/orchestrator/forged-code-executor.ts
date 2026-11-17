@@ -22,8 +22,9 @@
  *   code no capability, and `QuickJSExecutor` installs every function a
  *   call carries;
  * - a source holding the word `async` or `import` is refused, the rule
- *   forge_tool applies before a test case runs (emergent-setup.ts), so
- *   forged code here is a plain synchronous function.
+ *   forge_tool applies before a test case runs (emergent-setup.ts). Only
+ *   the words are checked: QuickJS has `Promise`, and a promise the
+ *   function returns is awaited within the call's deadline.
  *
  * The guest runs on the server's thread: code that computes holds the
  * event loop until it returns or is stopped at its deadline.

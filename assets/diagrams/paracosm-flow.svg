@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1180" role="img" aria-labelledby="paracosm-flow-title paracosm-flow-desc" preserveAspectRatio="xMidYMid meet">
   <title id="paracosm-flow-title">Paracosm system flow: world source to forked futures</title>
-  <desc id="paracosm-flow-desc">A vertical flow diagram of the Paracosm pipeline. Prompts, briefs, URLs, PDFs, or JSON drafts feed into the Scenario Compiler, producing a typed ScenarioPackage. A deterministic seeded kernel and the Runtime Orchestrator run a per-turn pipeline of Director, Departments, Commander, and Reactions, with side modules for runtime tool forging in a V8 sandbox, an LLM judge, HEXACO personality drift, and AgentMemory. The result is an agent swarm of personality-typed cells and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn.</desc>
+  <desc id="paracosm-flow-desc">A vertical flow diagram of the Paracosm pipeline. Prompts, briefs, URLs, PDFs, or JSON drafts feed into the Scenario Compiler, producing a typed ScenarioPackage. A deterministic seeded kernel and the Runtime Orchestrator run a per-turn pipeline of Director, Departments, Commander, and Reactions, with side modules for runtime tool forging in a QuickJS WebAssembly sandbox, an LLM judge, HEXACO personality drift, and AgentMemory. The result is an agent swarm of personality-typed cells and a Zod-validated RunArtifact that can be replayed byte-for-byte or forked at any past turn.</desc>
 
   <style><![CDATA[
     :root {
