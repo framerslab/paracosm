@@ -60,11 +60,11 @@ jobs:
         run: npm run build
 
       # Times the executor forged code runs in (QuickJS, an instance a call):
-      # the first load, creating an executor, and 200 calls of a small forged
-      # tool, with the process's memory read across the calls. It prints the
-      # figures to the log and the job summary and sets no pass bar; it fails
-      # only when a call does not return the tool's result. A measurement for
-      # review, so deploy.yml does not run it.
+      # the first load, creating an executor, and 1,000 calls of a small forged
+      # tool, with the process's memory read across the calls and a second
+      # after the last. It prints the figures to the log and the job summary
+      # and sets no pass bar; it fails only when a call does not return the
+      # tool's result. A measurement for review, so deploy.yml does not run it.
       - name: Measure the forged-code executor
         run: node --expose-gc scripts/measure-forged-code-executor.mjs
 

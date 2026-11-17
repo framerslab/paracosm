@@ -18,8 +18,13 @@
  * - a call: {@link CALLS} calls, one after another, of one small forged tool
  *   at a 10-second and 128 MB limit;
  * - memory: the process's resident set, V8 heap and memory outside the heap
- *   before the calls, after every quarter of them and at the end, each read
- *   after a forced collection.
+ *   before the calls, after every fifth of them, and a second after the
+ *   last. Each point is read twice: right after a forced collection, and
+ *   again after a turn of the event loop and a second collection, since a
+ *   call's WebAssembly memory is freed when the collector takes it and V8
+ *   may finish freeing it after the collection returns. Comparing the two
+ *   shows whether memory that grows across calls is waiting to be freed or
+ *   is kept.
  *
  * Times are the median and the 95th percentile, in milliseconds. It exits 1
  * when a call does not return the tool's result; the figures set no pass bar.
@@ -29,7 +34,9 @@ import { performance } from 'node:perf_hooks';
 import { QuickJSExecutor } from '@framers/agentos';
 
 const CREATES = 50;
-const CALLS = 200;
+const CALLS = 1000;
+const READS = 5;
+const SETTLE_MS = 1000;
 const TIMEOUT_MS = 10_000;
 const MEMORY_MB = 128;
 
@@ -61,10 +68,21 @@ function summary(times) {
 
 const MIB = 1024 * 1024;
 
-function memory() {
-  collect();
+function usage() {
   const m = process.memoryUsage();
   return { rss: m.rss, heapUsed: m.heapUsed, external: m.external, arrayBuffers: m.arrayBuffers };
+}
+
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+/** The process's memory right after a forced collection, and again after a turn of the event loop and a second collection. */
+async function memory() {
+  collect();
+  const collected = usage();
+  await turn();
+  collect();
+  await turn();
+  return { collected, settled: usage() };
 }
 
 function showMemory(label, m) {
@@ -111,8 +129,12 @@ async function main() {
   // One call before the measured ones, so the first measured call is not the first a process makes.
   await executor.run(request);
 
-  const before = memory();
-  say(showMemory(`Memory before ${CALLS} calls`, before));
+  const showBoth = (label, m) => {
+    say(showMemory(`${label}, right after a collection`, m.collected));
+    say(showMemory(`${label}, after a turn and a second collection`, m.settled));
+  };
+  const before = await memory();
+  showBoth(`Memory before ${CALLS} calls`, before);
   const calls = [];
   for (let i = 1; i <= CALLS; i += 1) {
     const started = performance.now();
@@ -123,14 +145,19 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    if (i % (CALLS / 4) === 0 && i < CALLS) {
-      say(showMemory(`Memory after ${i} calls`, memory()));
+    if (i % (CALLS / READS) === 0 && i < CALLS) {
+      showBoth(`Memory after ${i} calls`, await memory());
     }
   }
-  const after = memory();
-  say(showMemory(`Memory after ${CALLS} calls`, after));
+  const after = await memory();
+  showBoth(`Memory after ${CALLS} calls`, after);
+  await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+  const later = await memory();
+  showBoth(`Memory ${SETTLE_MS} ms after the last call`, later);
   say(`A call of one small forged tool (${TIMEOUT_MS} ms, ${MEMORY_MB} MB): ${summary(calls)}`);
-  say(`Memory delta across ${CALLS} calls, after a forced collection: ${delta(before, after)}`);
+  say(`Memory delta across ${CALLS} calls, right after a collection: ${delta(before.collected, after.collected)}`);
+  say(`Memory delta across ${CALLS} calls, after a turn and a second collection: ${delta(before.settled, after.settled)}`);
+  say(`Memory delta from before the calls to ${SETTLE_MS} ms after the last, after a turn and a second collection: ${delta(before.settled, later.settled)}`);
 
   if (process.env.GITHUB_STEP_SUMMARY) {
     const { appendFileSync } = await import('node:fs');
