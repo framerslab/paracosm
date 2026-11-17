@@ -305,7 +305,7 @@ for install_case in always-fails retry success; do
   { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
   status=0
   env PATH="$remote_bin:$PATH" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
-    bash -e "$remote_dir/remote.sh" >"$remote_dir/output" 2>&1 || status=$?
+    bash -e "$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
   calls=$(cat "$remote_dir/npm.calls" 2>/dev/null || true)
   pm2_calls=$(cat "$remote_dir/pm2.calls" 2>/dev/null || true)
   check_remote 'the remote script installs only from the lockfile: flags and command' \
@@ -314,10 +314,10 @@ for install_case in always-fails retry success; do
     check_remote 'the remote script installs only from the lockfile: second failure stops' test "$status" -ne 0
     check_remote 'the remote script installs only from the lockfile: no restart after failure' test -z "$pm2_calls"
     check_remote 'the remote script installs only from the lockfile: error remains visible' \
-      grep -q 'locked install failed' "$remote_dir/output"
+      grep -q 'locked install failed' "$remote_dir/remote-output.log"
   else
     check_remote 'the remote script starts after a locked install succeeds' test "$status" -eq 0
-    if [ "$status" -ne 0 ]; then cat "$remote_dir/output"; fi
+    if [ "$status" -ne 0 ]; then cat "$remote_dir/remote-output.log"; fi
     check_remote 'the deploy starts the server from built files' \
       grep -q '^start dist/cli/serve.js ' "$remote_dir/pm2.calls"
     check_remote 'the deploy starts the server as the service user: uid and gid' \
