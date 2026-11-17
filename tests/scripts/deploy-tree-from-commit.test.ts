@@ -65,9 +65,13 @@ test('the deploy tree takes source and manifests from the commit', () => {
     const manifest = { name: 'paracosm', version: '0.9.0', scripts: { start: 'committed' } };
     put(dir, 'commit/package.json', JSON.stringify(manifest));
     put(dir, 'built/package.json', JSON.stringify({ version: '99.0.0', scripts: { start: 'other' } }));
-    for (const path of ['dist/cli/serve.js', 'dist/server/server-app.js', 'dist/dashboard/landing.html',
+    for (const path of ['dist/dashboard/landing.html',
       'dist/dashboard/dist/index.html', 'src/dashboard/dist/index.html', 'docs/api/index.html']) {
       put(dir, `built/${path}`, `built ${path}\n`);
+    }
+    for (const path of ['cli/serve.js', 'server/server-app.js']) {
+      put(dir, `compiled/${path}`, `built dist/${path}\n`);
+      put(dir, `built/dist/${path}`, 'other output\n');
     }
     const result = spawnSync('bash', ['-e', '-c', assembly], {
       cwd: dir, env: { ...process.env, VERSION: '0.9.1234' }, encoding: 'utf8',

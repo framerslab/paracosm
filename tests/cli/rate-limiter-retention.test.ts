@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, mkdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IpRateLimiter } from '../../src/server/rate-limiter.js';
@@ -29,3 +29,31 @@ for (const bucket of ['sim', 'compile', 'chat', 'quickstart']) {
     }
   });
 }
+
+test('rate limits keep their state in the linked writable directory', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-limit-directory-'));
+  const state = join(dir, '.paracosm');
+  mkdirSync(state);
+  const target = join(state, 'rate-limit.json');
+  const path = join(dir, '.rate-limit.json');
+  const address = '198.51.100.9';
+  writeFileSync(target, JSON.stringify({ sim: {
+    [address]: { count: 1, resetAt: Date.now() + 60_000 },
+  } }));
+  symlinkSync(target, path);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const limiter = new IpRateLimiter(3, 5, 30, path);
+  try {
+    limiter.record(address);
+    t.mock.timers.tick(500);
+    assert.equal(lstatSync(path).isSymbolicLink(), true, 'the link in the application directory stays in place');
+    assert.equal(JSON.parse(readFileSync(target, 'utf8')).sim[address].count, 2);
+    limiter.record(address);
+    t.mock.timers.tick(500);
+    assert.equal(JSON.parse(readFileSync(target, 'utf8')).sim[address].count, 3);
+  } finally {
+    limiter.destroy();
+    t.mock.timers.reset();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

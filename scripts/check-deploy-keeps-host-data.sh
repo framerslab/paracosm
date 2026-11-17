@@ -337,12 +337,17 @@ for install_case in always-fails retry success; do
           test "$(stat -c '%U:%G' "$remote_dir/$path/saved")" = paracosm:paracosm
       done
     fi
-    for path in src node_modules dist; do
+    for path in . src node_modules dist; do
       check_remote "the service user does not own $path" \
         test "$(stat -c '%U' "$remote_dir/$path")" = root
       check_remote "the service user cannot write $path" \
         runuser -u paracosm -- test ! -w "$remote_dir/$path"
     done
+    check_remote 'rate limits can save atomically inside their writable directory' \
+      runuser -u paracosm -- bash -c '
+        target=$(readlink -f "$1/.rate-limit.json")
+        printf "{}\n" >"$target.tmp" && mv "$target.tmp" "$target"
+      ' bash "$remote_dir"
     check_remote 'the service user reads the existing .env keys' \
       runuser -u paracosm -- grep -q '^PRIVATE_SETTING=test-value$' "$remote_dir/.env"
     check_remote '.env stays private to root and the service group' \
