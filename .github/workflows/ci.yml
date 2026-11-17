@@ -59,6 +59,15 @@ jobs:
       - name: Build TypeScript (engine + runtime)
         run: npm run build
 
+      # Times the executor forged code runs in (QuickJS, an instance a call):
+      # the first load, creating an executor, and 1,000 calls of a small forged
+      # tool, with the process's memory read across the calls and a second
+      # after the last. It prints the figures to the log and the job summary
+      # and sets no pass bar; it fails only when a call does not return the
+      # tool's result. A measurement for review, so deploy.yml does not run it.
+      - name: Measure the forged-code executor
+        run: node --expose-gc scripts/measure-forged-code-executor.mjs
+
       - name: Install dashboard dependencies
         run: cd src/dashboard && npm ci
 
@@ -147,6 +156,12 @@ jobs:
 
       - name: Install production dependencies from the lockfile, as the server does
         run: npm ci --omit=dev --no-audit --no-fund
+
+      # The forged-code executor needs two QuickJS packages that AgentOS lists
+      # only as optional peers. This loads QuickJS from what the server
+      # installs, on the server's Node, and measures it there.
+      - name: Load and measure the forged-code executor from the production install
+        run: node --expose-gc scripts/measure-forged-code-executor.mjs
 
   # deploy.yml copies the build to the host with rsync --delete. This runs that
   # command's filter options against a stand-in host tree and fails when a
