@@ -248,6 +248,115 @@ for app_dir in /srv/paracosm-check /srv/paracosm-check/; do
   fi
 done
 
+# Run the captured remote body on this disposable CI host. Only npm, pm2 and
+# sleep are stand-ins; user creation and file ownership use the real tools.
+remote_script="$log/ssh.stdin"
+remote_bin="$work/remote-bin"
+mkdir -p "$remote_bin"
+chmod 755 "$work"
+cat >"$remote_bin/npm" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$REMOTE_DIR/npm.calls"
+if [ "$1" = ci ]; then
+  count=$(grep -c '^ci ' "$REMOTE_DIR/npm.calls")
+  case "$INSTALL_CASE" in
+    always-fails) echo 'locked install failed' >&2; exit 1 ;;
+    retry) if [ "$count" = 1 ]; then echo 'first locked install failed' >&2; exit 1; fi ;;
+  esac
+fi
+STUB
+cat >"$remote_bin/pm2" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$REMOTE_DIR/pm2.calls"
+if [ "$1" = start ]; then
+  printf '%s\n' "${PARACOSM_CLIENT_IP_HEADER:-}" "${PARACOSM_ALLOWED_ORIGINS:-}" >"$REMOTE_DIR/pm2.env"
+fi
+STUB
+cat >"$remote_bin/sleep" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$REMOTE_DIR/sleep.calls"
+STUB
+chmod +x "$remote_bin/"*
+
+check_remote() {
+  local name="$1"
+  shift
+  if ! "$@"; then
+    echo "::error::$name"
+    failed=1
+  fi
+}
+
+for install_case in always-fails retry success; do
+  remote_dir="$work/remote-$install_case"
+  mkdir -p "$remote_dir/src" "$remote_dir/node_modules" "$remote_dir/dist/cli"
+  printf 'PRIVATE_SETTING=test-value\n' >"$remote_dir/.env"
+  chmod 600 "$remote_dir/.env"
+  writable_dirs=(data output .live-runs scenarios/compiled .paracosm)
+  writable_files=(.rate-limit.json .rate-limit.json.tmp .retry-stats.json .event-buffer.json)
+  # Both first-deploy (absent) and existing state must be writable on start.
+  if [ "$install_case" != retry ]; then
+    for path in "${writable_dirs[@]}"; do
+      mkdir -p "$remote_dir/$path"
+      echo saved >"$remote_dir/$path/saved"
+    done
+    for path in "${writable_files[@]}"; do echo '{}' >"$remote_dir/$path"; done
+  fi
+  { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
+  status=0
+  env PATH="$remote_bin:$PATH" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
+    bash -e "$remote_dir/remote.sh" >"$remote_dir/output" 2>&1 || status=$?
+  calls=$(cat "$remote_dir/npm.calls" 2>/dev/null || true)
+  pm2_calls=$(cat "$remote_dir/pm2.calls" 2>/dev/null || true)
+  check_remote 'the remote script installs only from the lockfile: flags and command' \
+    test -z "$(printf '%s\n' "$calls" | grep -v '^ci --omit=dev --no-audit --no-fund$' || true)"
+  if [ "$install_case" = always-fails ]; then
+    check_remote 'the remote script installs only from the lockfile: second failure stops' test "$status" -ne 0
+    check_remote 'the remote script installs only from the lockfile: no restart after failure' test -z "$pm2_calls"
+    check_remote 'the remote script installs only from the lockfile: error remains visible' \
+      grep -q 'locked install failed' "$remote_dir/output"
+  else
+    check_remote 'the remote script starts after a locked install succeeds' test "$status" -eq 0
+    if [ "$status" -ne 0 ]; then cat "$remote_dir/output"; fi
+    check_remote 'the deploy starts the server from built files' \
+      grep -q '^start dist/cli/serve.js ' "$remote_dir/pm2.calls"
+    check_remote 'the deploy starts the server as the service user: uid and gid' \
+      grep -q -- '--uid paracosm --gid paracosm' "$remote_dir/pm2.calls"
+    check_remote 'the deploy limits server memory to 1200M' \
+      grep -q -- '--max-memory-restart 1200M' "$remote_dir/pm2.calls"
+    check_remote 'the deploy keeps the client IP and allowed origin settings' \
+      test "$(cat "$remote_dir/pm2.env" 2>/dev/null)" = $'cf-connecting-ip\nhttps://paracosm.agentos.sh'
+    for path in "${writable_dirs[@]}" "${writable_files[@]}"; do
+      check_remote "the deploy starts the server as the service user: owns $path" \
+        test "$(stat -c '%U:%G' "$remote_dir/$path" 2>/dev/null || true)" = paracosm:paracosm
+      check_remote "the service user can write $path" runuser -u paracosm -- test -w "$remote_dir/$path"
+    done
+    if [ "$install_case" = success ]; then
+      for path in "${writable_dirs[@]}"; do
+        check_remote "existing state in $path remains and belongs to the service user" \
+          test "$(stat -c '%U:%G' "$remote_dir/$path/saved")" = paracosm:paracosm
+      done
+    fi
+    for path in src node_modules dist; do
+      check_remote "the service user does not own $path" \
+        test "$(stat -c '%U' "$remote_dir/$path")" = root
+      check_remote "the service user cannot write $path" \
+        runuser -u paracosm -- test ! -w "$remote_dir/$path"
+    done
+    check_remote 'the service user reads the existing .env keys' \
+      runuser -u paracosm -- grep -q '^PRIVATE_SETTING=test-value$' "$remote_dir/.env"
+    check_remote '.env stays private to root and the service group' \
+      test "$(stat -c '%U:%G:%a' "$remote_dir/.env")" = root:paracosm:640
+    check_remote 'other users cannot read .env' runuser -u nobody -- test ! -r "$remote_dir/.env"
+  fi
+  expected_calls=2
+  if [ "$install_case" = success ]; then expected_calls=1; fi
+  check_remote 'the remote script installs only from the lockfile: at most one retry' \
+    test "$(grep -c '^ci ' "$remote_dir/npm.calls")" -eq "$expected_calls"
+done
+check_remote 'the remote script has no unlocked install command' \
+  test -z "$(grep -E '\bnpm (install|i)( |$)' "$remote_script" || true)"
+
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
