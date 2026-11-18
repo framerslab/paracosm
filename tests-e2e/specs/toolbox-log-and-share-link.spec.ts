@@ -186,10 +186,14 @@ test.describe('the run actions menu', () => {
         { type: 'turn_done', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
       ],
     };
-    await page.getByRole('button', { name: 'RUN', exact: true }).click();
-    const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('menuitem', { name: /Load from file/ }).click();
-    await (await chooser).setFiles({ name: 'own-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(ownRun)) });
+    // Dropped on the page, as a visitor drags a saved run in.
+    await page.evaluate((text) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([text], 'own-run.json', { type: 'application/json' }));
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        window.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      }
+    }, JSON.stringify(ownRun));
     const preview = page.getByRole('dialog', { name: 'Load simulation' });
     await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
     await expect(preview).toHaveCount(0);
@@ -207,6 +211,9 @@ test.describe('the run actions menu', () => {
 
     await expectShareNote(page, id, 'Link copied.');
     await page.screenshot({ path: `${PICTURES}/1440-dark-run-actions-share-link-shown.png` });
+    // The note covers none of the top bar's keys.
+    await page.getByRole('button', { name: 'RUN', exact: true }).click({ trial: true, timeout: 5_000 });
+    await page.getByRole('button', { name: 'Open run actions menu' }).click({ trial: true, timeout: 5_000 });
 
     // The note is about this run: once the page leaves the replay, it goes.
     await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
