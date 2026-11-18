@@ -281,8 +281,16 @@ cat >"$remote_bin/pm2" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$REMOTE_DIR/pm2.calls"
 if [ "$1" = start ]; then
+  echo 'current stdout' >>"$PM2_HOME/logs/paracosm-out.log"
+  if [ "$INSTALL_CASE" = wrong-version ]; then
+    echo 'first current error' >>"$PM2_HOME/logs/paracosm-error.log"
+    for ((i=1; i<80; i++)); do echo "error $i"; done >>"$PM2_HOME/logs/paracosm-error.log"
+  fi
+  echo 'latest current error' >>"$PM2_HOME/logs/paracosm-error.log"
   printf '%s\n' "${PARACOSM_SCENARIO_STORE_DIR:-}" >"$REMOTE_DIR/pm2.store-dir"
   printf '%s\n' "${PARACOSM_CLIENT_IP_HEADER:-}" "${PARACOSM_ALLOWED_ORIGINS:-}" >"$REMOTE_DIR/pm2.env"
+elif [ "$1" = logs ]; then
+  tail -n 80 "$PM2_HOME"/logs/paracosm-{out,error}.log
 fi
 STUB
 cat >"$remote_bin/sleep" <<'STUB'
@@ -318,13 +326,33 @@ check_remote() {
   fi
 }
 
-for install_case in always-fails retry success import-failure unavailable wrong-version shell-dir dotenv-dir; do
+# Expose the remote commands without inheriting a system curl in this case.
+without_curl="$work/without-curl"
+mkdir -p "$without_curl"
+for cmd in bash cat chmod chown cut date getent grep id ln mkdir mv readlink rm runuser tail timeout touch wc; do
+  ln -s "$(command -v "$cmd")" "$without_curl/$cmd"
+done
+for cmd in npm pm2 sleep node; do ln -s "$remote_bin/$cmd" "$without_curl/$cmd"; done
+
+check_remote 'the remote script parses under dash' dash -n "$remote_script"
+for install_case in always-fails retry success import-failure unavailable wrong-version shell-dir dotenv-dir missing-curl shell-host dotenv-host; do
   remote_dir="$work/remote-$install_case"
   mkdir -p "$remote_dir/src" "$remote_dir/node_modules" "$remote_dir/dist/cli"
   printf 'PRIVATE_SETTING=test-value\n' >"$remote_dir/.env"
   echo PORT=4567 >>"$remote_dir/.env"
-  extra_env=()
+  remote_path="$remote_bin:$PATH"
+  extra_env=(HOST=)
+  pm2_home="$remote_dir/pm2"
+  mkdir -p "$pm2_home/logs"
+  if [ "$install_case" = unavailable ]; then
+    echo 'previous stderr' >"$pm2_home/logs/paracosm-error.log"
+    echo 'previous stdout' >"$pm2_home/logs/paracosm-out.log"
+  fi
   case "$install_case" in
+    missing-curl) remote_path="$without_curl" ;;
+    shell-host) extra_env=(HOST=192.0.2.1); echo 'HOST=localhost' >>"$remote_dir/.env" ;;
+    dotenv-host) echo 'HOST=192.0.2.1' >>"$remote_dir/.env" ;;
+    success) extra_env=(HOST=127.0.0.1); echo 'HOST=192.0.2.1' >>"$remote_dir/.env" ;;
     shell-dir) extra_env+=(APP_DIR="$work/elsewhere") ;;
     dotenv-dir) echo "APP_DIR=$work/elsewhere" >>"$remote_dir/.env" ;;
   esac
@@ -345,7 +373,7 @@ for install_case in always-fails retry success import-failure unavailable wrong-
   fi
   { printf "deploy_dir='%s'\n" "$remote_dir"; tail -n +2 "$remote_script"; } >"$remote_dir/remote.sh"
   status=0
-  env "${extra_env[@]}" PATH="$remote_bin:$PATH" REAL_NODE="$real_node" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
+  env "${extra_env[@]}" PM2_HOME="$pm2_home" PATH="$remote_path" REAL_NODE="$real_node" REMOTE_DIR="$remote_dir" INSTALL_CASE="$install_case" \
     bash -es <"$remote_dir/remote.sh" >"$remote_dir/remote-output.log" 2>&1 || status=$?
   calls=$(cat "$remote_dir/npm.calls" 2>/dev/null || true)
   pm2_calls=$(cat "$remote_dir/pm2.calls" 2>/dev/null || true)
@@ -359,13 +387,21 @@ for install_case in always-fails retry success import-failure unavailable wrong-
         check_remote "$install_case identifies APP_DIR" grep -q APP_DIR "$remote_dir/remote-output.log"
       fi
       continue ;;
+    missing-curl|shell-host|dotenv-host)
+      check_remote "$install_case stops during preparation" test "$status" -ne 0
+      check_remote "$install_case preserves the running process" test -z "$pm2_calls"
+      setting=HOST
+      if [ "$install_case" = missing-curl ]; then setting=curl; fi
+      check_remote "$install_case identifies the setting or command" grep -qw "$setting" "$remote_dir/remote-output.log"
+      check_remote "$install_case omits configuration values" test -z "$(grep -E 'test-value|192\.0\.2\.1' "$remote_dir/remote-output.log")"
+      continue ;;
     unavailable|wrong-version)
       check_remote "$install_case fails the readiness check" test "$status" -ne 0
-      check_remote "$install_case reports logs after start" awk '
-        /^start / {started=1}
-        /^logs paracosm --nostream --lines 80$/ && started {logged=1}
-        END {exit !logged}
-      ' "$remote_dir/pm2.calls"
+      output="$remote_dir/remote-output.log"
+      check_remote "$install_case reports the current error" grep -Fxq 'latest current error' "$output"
+      check_remote "$install_case omits earlier logs and stdout" test -z "$(grep -E 'previous stderr|previous stdout|current stdout|first current error' "$output")"
+      check_remote "$install_case names the host log directory" grep -Fq "$pm2_home/logs" "$output"
+      check_remote "$install_case skips startup and save" awk '$1 == "startup" || $1 == "save" {found=1} END {exit found}' "$remote_dir/pm2.calls"
       continue ;;
   esac
   if [ "$install_case" = always-fails ]; then
