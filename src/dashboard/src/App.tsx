@@ -264,6 +264,12 @@ function AppContent() {
   // set). Three-layer gating extracted to hooks/useForgeToasts.ts; see
   // that file for the rationale.
   const { toast } = useToast();
+  // The run actions menu's share note: the link, what became of the copy
+  // and who can open it. It names one run's link, so whatever replaces the
+  // run on screen clears it.
+  const shareLink = useShareLink();
+  const shareRunLink = shareLink.share;
+  const clearShareLink = shareLink.clear;
   useForgeToasts({
     events: effectiveEvents,
     replayDone: sse.replayDone,
@@ -417,6 +423,7 @@ function AppContent() {
     onConfirm: ({ events, results, verdict }) => {
       leaveDigitalTwin();
       sse.loadEvents(events, results, verdict);
+      clearShareLink();
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
       // `?load=` — falls back to 'sim' for picker / DnD loads and for
@@ -809,10 +816,6 @@ function AppContent() {
   // Copy a deep link that opens the current run on the viz tab. Used
   // for social shares (r/dataisbeautiful etc.) where viewers click
   // straight through to the swarm visualization with no upload step.
-  // The note shows the link, what became of the copy and who can open it.
-  const shareLink = useShareLink();
-  const shareRunLink = shareLink.share;
-  const clearShareLink = shareLink.clear;
   // The note names one run's link: it goes when the run on screen is
   // another one or none (a new run, a cleared page, leaving a replay).
   useEffect(() => {
@@ -1087,9 +1090,6 @@ function AppContent() {
           {replaySessionId && sse.status !== 'replay_not_found' ? (
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
-          {shareLink.shared && (
-            <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} floating />
-          )}
           <TopBar
             scenario={scenario}
             sse={sse}
@@ -1105,7 +1105,7 @@ function AppContent() {
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
             history={history.entries}
-            onRestoreHistory={(entry) => { leaveDigitalTwin(); history.restore(entry, sse.loadEvents); }}
+            onRestoreHistory={(entry) => { leaveDigitalTwin(); clearShareLink(); history.restore(entry, sse.loadEvents); }}
             onClearHistory={() => {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
@@ -1123,6 +1123,10 @@ function AppContent() {
             }}
           />
           <TabBar active={activeTab} onTabChange={setActiveTab} scenario={scenario} />
+          {/* In the page's flow under the tabs, so it covers none of the top bar's keys. */}
+          {shareLink.shared && (
+            <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+          )}
           {/* Cold-load gate: suppress the verdict banner unless the
               user actually started a run this session. Without this
               guard, a fresh visitor lands on the page with the SSE

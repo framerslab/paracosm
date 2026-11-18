@@ -3,6 +3,7 @@
 .note {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 6px;
   margin: 8px 12px;
   padding: 12px 14px;
@@ -22,16 +23,6 @@
   &[data-state='copying'] {
     border-left-color: var(--amber);
   }
-}
-
-.floating {
-  position: fixed;
-  top: 56px;
-  right: 16px;
-  z-index: 100001;
-  width: min(420px, calc(100vw - 32px));
-  margin: 0;
-  box-shadow: var(--card-shadow, 0 4px 16px rgba(0, 0, 0, 0.18));
 }
 
 .label {

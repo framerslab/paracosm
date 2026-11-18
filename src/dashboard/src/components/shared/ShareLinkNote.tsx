@@ -16,21 +16,19 @@ export const SHARE_WHO_CAN_OPEN = 'Anyone who has this link can watch this run.'
 interface ShareLinkNoteProps {
   shared: SharedLink;
   onClose: () => void;
-  /** Pinned under the top bar, for the run actions menu, which closes on the press. */
-  floating?: boolean;
 }
 
 /**
  * What a "Share viz link" press shows: the link in a field to select and
  * copy, what became of the copy, and who can open the link.
  */
-export function ShareLinkNote({ shared, onClose, floating = false }: ShareLinkNoteProps) {
+export function ShareLinkNote({ shared, onClose }: ShareLinkNoteProps) {
   const fieldId = useId();
   return (
     <div
       role="status"
       aria-label="Share link"
-      className={[styles.note, floating ? styles.floating : ''].filter(Boolean).join(' ')}
+      className={styles.note}
       data-state={shared.state}
     >
       <label htmlFor={fieldId} className={styles.label}>Link to this run</label>
