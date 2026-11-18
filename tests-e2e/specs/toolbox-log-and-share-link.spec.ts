@@ -76,7 +76,8 @@ async function expectShareNote(page: Page, id: string, result: string | RegExp):
 
 async function openDrawerAndShare(page: Page): Promise<void> {
   await page.goto('/sim?tab=library');
-  await page.getByRole('article', { name: 'Run mars-genesis by Aria Chen' }).getByRole('button', { name: 'Open' }).click();
+  // Exact: the card's Share key is named "Copy a deep link that opens this run ...".
+  await page.getByRole('article', { name: 'Run mars-genesis by Aria Chen' }).getByRole('button', { name: 'Open', exact: true }).click();
   const drawer = page.getByRole('dialog', { name: 'Run detail' });
   await expect(drawer.getByRole('heading', { name: 'Mars Genesis' })).toBeVisible();
   await drawer.getByText('Share viz link', { exact: true }).click();
