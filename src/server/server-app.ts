@@ -910,19 +910,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // address (PARACOSM_CLIENT_IP_HEADER). Unset: the connection's address.
   const clientIpHeader = readClientIpHeader(env);
 
+  /** The most web searches one /compile runs on the hosted demo. */
+  const HOSTED_COMPILE_MAX_SEARCHES = 5;
+
   /**
    * The Quickstart routes' limits on the hosted demo, where every
    * Quickstart call bills the host's keys (the routes take no caller key):
    * a compile counts against the caller's daily compile limit, as /compile
-   * does, with at most MAX_PENDING_QUICKSTART_COMPILES pending server-wide;
+   * does;
    * the grounding, actor and URL routes against a daily Quickstart limit of
    * their own; a Digital Twin run against the day's run limit, as /setup
    * does, on the demo's turn cap and the economy tier. Elsewhere the
-   * operator's keys pay, and the routes run as asked.
+   * operator's keys pay.
    */
-  const MAX_PENDING_QUICKSTART_COMPILES = 4;
-  /** The most web searches one /compile runs on the hosted demo. */
-  const HOSTED_COMPILE_MAX_SEARCHES = 5;
   const quickstartHostLimits = (req: IncomingMessage): QuickstartDeps['hostLimits'] => {
     const limiter = rateLimiter;
     if (serverMode !== 'hosted_demo' || !limiter) return undefined;
@@ -944,7 +944,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         console.log(`  [rate-limit] Quickstart compile blocked (${decision.limit}/${decision.limit} used)`);
         return refusal(decision, 'compiles', String(Math.max(1, Math.ceil((decision.resetAt - Date.now()) / 1000))));
       },
-      maxPendingCompiles: MAX_PENDING_QUICKSTART_COMPILES,
       admitCall: () => {
         const decision = limiter.consumeQuickstart(ip);
         if (decision.allowed) return null;
