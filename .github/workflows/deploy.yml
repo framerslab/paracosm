@@ -27,10 +27,13 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -108,35 +111,35 @@ jobs:
           VITE_GA_MEASUREMENT_ID: ${{ secrets.GA_MEASUREMENT_ID }}
           VITE_CLARITY_PROJECT_ID: ${{ secrets.CLARITY_PROJECT_ID }}
 
+      - name: Copy dashboard files for the compiled server
+        run: node scripts/pack-dashboard.mjs
+
       - name: Run tests
         run: npm test
 
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
 
-      # The build job's checkout has the dev-floor version (0.9.0) from
-      # package.json. package-check sets 0.9.${run_number} in its own
-      # checkout before it packs, so the build job never sees the published
-      # version. typedoc has `includeVersion: true` and reads
-      # package.json directly, which is why early v0.8 deploys advertised
-      # "v0.8.0" while npm shipped 0.8.${prev_run_number}.
-      #
-      # Query the npm registry for the latest published version and use
-      # it for typedoc. Most commits are UI-only (publish skipped) — for
-      # these, docs match npm exactly. Library commits drift docs behind
-      # by exactly one publish (build runs npm view BEFORE publish bumps
-      # the patch), and the next workflow run converges. Falling back to
-      # the run-number form when npm is unreachable so the docs deploy
-      # never produces a literal "0.9.0" again.
-      - name: Sync version for docs
+      # Select the version once: publishing pushes use this run's release,
+      # other pushes keep the current npm version. Deploy and package-check
+      # take this same value, so /health and the published package agree once publish succeeds.
+      - name: Select release version
+        id: version
         run: |
-          LATEST=$(npm view paracosm version 2>/dev/null || true)
-          if [ -z "$LATEST" ]; then
-            LATEST="0.9.${{ github.run_number }}"
-            echo "npm view failed; falling back to ${LATEST}"
-          fi
-          node -e "const p=require('./package.json'); p.version='${LATEST}'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n')"
-          echo "Docs will report version: ${LATEST}"
+          CURRENT=$(node -p "require('./package.json').version")
+          IFS='.' read -r MAJOR MINOR _ <<< "$CURRENT"
+          NEXT="${MAJOR}.${MINOR}.${{ github.run_number }}"
+          CHANGED=$(bash scripts/library-changed-since-release.sh)
+          case "$CHANGED" in
+            true) VERSION="$NEXT" ;;
+            false) VERSION=$(npm view paracosm version 2>/dev/null || true); VERSION="${VERSION:-$NEXT}" ;;
+            *) echo "::error::Expected a true or false publish decision"; exit 1 ;;
+          esac
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid release version"; exit 1; }
+          export VERSION
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); p.version=process.env.VERSION; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Docs and deploy will report version: $VERSION"
 
       - name: Build API docs (TypeDoc)
         run: |
@@ -151,20 +154,35 @@ jobs:
         with:
           name: build
           path: |
-            dist/
+            dist/dashboard/
             src/dashboard/dist/
             docs/api/
-            assets/
-            scenarios/
-            scripts/
-            package.json
-            package-lock.json
-            src/
-            config/
-            typedoc.json
-            tsconfig.json
-            tsconfig.build.json
-            .env.example
+          retention-days: 1
+
+  # Compile the hosted server on its own runner, without install lifecycle
+  # scripts or dashboard tools. Only this job supplies the server's JS.
+  compiled-server:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install without lifecycle scripts and compile the server
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node node_modules/typescript/bin/tsc -p tsconfig.build.json
+      - name: Upload the compiled server
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compiled-server
+          path: dist/
+          if-no-files-found: error
           retention-days: 1
 
   # The install the server runs after a deploy (`npm ci --omit=dev` from the
@@ -190,7 +208,7 @@ jobs:
         run: npm ci --omit=dev --no-audit --no-fund
 
   deploy:
-    needs: [build, server-install]
+    needs: [build, server-install, compiled-server]
     runs-on: ubuntu-latest
     # SERVER_IP + APP_DIR resolved from GitHub Actions repo secrets so
     # deploy topology isn't encoded in the public workflow file. Set both
@@ -201,18 +219,56 @@ jobs:
       SERVER_IP: ${{ secrets.SERVER_IP }}
       APP_DIR: ${{ secrets.APP_DIR }}
     steps:
+      - name: Check out the deployed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: commit
+          persist-credentials: false
+
       - name: Download build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: build
-          path: build/
+          path: built/
+
+      - name: Download the compiled server
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: compiled-server
+          path: compiled/
+
+      - name: Assemble deploy tree
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid release version"; exit 1; }
+          mkdir -p build
+          for path in assets scenarios scripts src config package.json package-lock.json typedoc.json tsconfig.json tsconfig.build.json .env.example; do
+            cp -a "commit/$path" "build/$path"
+          done
+          mkdir -p build/dist build/src/dashboard build/docs
+          cp -a compiled/. build/dist/
+          cp -a built/dist/dashboard build/dist/dashboard
+          cp -a built/src/dashboard/dist build/src/dashboard/dist
+          cp -a built/docs/api build/docs/api
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('build/package.json')); p.version=process.env.VERSION; fs.writeFileSync('build/package.json', JSON.stringify(p, null, 2) + '\n')"
 
       - name: Setup SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SERVER_HOST_KEY: ${{ secrets.SERVER_HOST_KEY }}
         run: |
+          : "${SERVER_IP:?SERVER_IP is not set}"
+          : "${SERVER_HOST_KEY:?SERVER_HOST_KEY is not set}"
+          [[ "$SERVER_HOST_KEY" =~ ^ssh-ed25519\ [A-Za-z0-9+/]+={0,3}$ ]] || { echo "::error::Expected one ed25519 host key"; exit 1; }
+          umask 077
           mkdir -p ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+          printf '%s %s\n' "$SERVER_IP" "$SERVER_HOST_KEY" > ~/.ssh/known_hosts
+          printf 'Host *\n  StrictHostKeyChecking yes\n  UserKnownHostsFile ~/.ssh/known_hosts\n  GlobalKnownHostsFile /dev/null\n  UpdateHostKeys no\n' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
 
       - name: Deploy to Linode
         run: |
@@ -282,7 +338,7 @@ jobs:
           # scripts/check-deploy-keeps-host-data.sh runs these options
           # against a stand-in host in CI. Never add --delete-excluded:
           # it deletes the excluded paths too.
-          rsync -azP --delete \
+          rsync -azP --delete --chown=root:root \
             --exclude='.env' \
             --exclude='node_modules' \
             --exclude='data/' \
@@ -308,7 +364,106 @@ jobs:
           cd "$deploy_dir"
 
           # Install production dependencies
-          npm ci --omit=dev 2>/dev/null || npm install --omit=dev
+          npm ci --omit=dev --no-audit --no-fund || {
+            echo "npm ci failed; retrying once in 15 s" >&2
+            sleep 15
+            npm ci --omit=dev --no-audit --no-fund
+          }
+
+          # Validate the account and state layout while the current process
+          # is still serving. Preparation errors must precede the stop.
+          if ! command -v curl >/dev/null; then
+            echo "Dashboard readiness requires curl" >&2
+            exit 1
+          fi
+          getent group paracosm >/dev/null || groupadd --system paracosm
+          if ! id -u paracosm >/dev/null 2>&1; then
+            useradd --system --gid paracosm --home-dir "$deploy_dir" --no-create-home --shell /usr/sbin/nologin paracosm
+          fi
+          [ "$(id -u paracosm)" -ne 0 ]
+          [ "$(getent group paracosm | cut -d: -f3)" -ne 0 ]
+          for file in .rate-limit.json .rate-limit.json.tmp .event-buffer.json; do
+            target=".paracosm/$file"
+            [ ! -L "$target" ]
+            [ ! -e "$target" ] || [ -f "$target" ]
+            if [ -L "$file" ]; then
+              [ "$(readlink "$file")" = "$target" ]
+            else
+              [ ! -e "$file" ] || [ -f "$file" ]
+            fi
+          done
+
+          # Only runtime state belongs to the app. Source, dependencies and
+          # the application directory stay owned by root after rsync.
+          mkdir -p data/scenarios output .live-runs scenarios/compiled .paracosm
+          touch .retry-stats.json
+          for file in .rate-limit.json .rate-limit.json.tmp; do
+            touch ".paracosm/$file"
+          done
+          chown -hR paracosm:paracosm data output .live-runs scenarios/compiled .paracosm
+          chown paracosm:paracosm .retry-stats.json
+          if [ -f .env ]; then
+            chown root:paracosm .env
+            chmod 640 .env
+          fi
+
+          # Read deployment settings as the server user, with the dashboard's
+          # shell precedence and first nonempty .env value.
+          port=$(runuser -u paracosm -- node -e '
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const settings = { APP_DIR: process.env.APP_DIR, PORT: process.env.PORT, HOST: process.env.HOST };
+            for (const line of fs.readFileSync(".env", "utf8").split("\n")) {
+              const entry = line.match(/^\s*([^#=]+?)\s*=\s*(.+?)\s*$/);
+              if (entry && Object.hasOwn(settings, entry[1]) && !settings[entry[1]]) {
+                settings[entry[1]] = entry[2];
+              }
+            }
+            if (path.resolve(settings.APP_DIR || ".") !== process.cwd()) {
+              console.error("APP_DIR must resolve to the deploy directory");
+              process.exit(1);
+            }
+            if (!["", "0.0.0.0", "127.0.0.1", "localhost"].includes((settings.HOST || "").trim())) {
+              console.error("Dashboard HOST must allow loopback readiness checks");
+              process.exit(1);
+            }
+            const port = parseInt(settings.PORT || "3456", 10);
+            if (!(port > 0 && port <= 65535)) throw new Error("Invalid dashboard PORT");
+            console.log(port);
+          ' </dev/null)
+          version=$(node -p "require('./package.json').version" </dev/null)
+
+          timeout 120 runuser -u paracosm -- node -e "
+            import('./dist/server/server-app.js').then(
+              () => process.exit(0),
+              error => { console.error(error); process.exit(1); }
+            )
+          " </dev/null
+          echo "Trial load passed for version $version on port $port"
+
+          # Stop before moving state, so the prior process finishes writing.
+          # Atomic saves and legacy-buffer cleanup use the writable targets;
+          # the aliases in the application directory stay in place.
+          pm2 delete paracosm 2>/dev/null || true
+          for file in .rate-limit.json .rate-limit.json.tmp .event-buffer.json; do
+            target=".paracosm/$file"
+            if [ "$file" = .event-buffer.json ] && [ ! -f "$file" ] && [ ! -f "$target" ]; then
+              if [ -L "$file" ]; then rm "$file" </dev/null; fi
+              continue
+            fi
+            if [ ! -L "$file" ]; then
+              if [ -f "$file" ]; then mv "$file" "$target"; fi
+              ln -s "$target" "$file"
+            fi
+            chown -h paracosm:paracosm "$file"
+          done
+          # Include any files the old process wrote during shutdown.
+          chown -hR paracosm:paracosm data output .live-runs scenarios/compiled .paracosm
+
+          log_dir="${PM2_HOME:-$HOME/.pm2}/logs"
+          error_log="$log_dir/paracosm-error.log"
+          error_bytes=0
+          if [ -f "$error_log" ]; then error_bytes=$(wc -c <"$error_log"); fi
 
           # Restart with pm2. The host sits behind Cloudflare, which sets
           # CF-Connecting-IP to the client's address on every request, so
@@ -317,11 +472,32 @@ jobs:
           # passes this shell's environment to the app, and pm2 save keeps
           # it for a restart after a reboot.
           # PARACOSM_ALLOWED_ORIGINS lists the demo's own pages, so a browser that sends no Sec-Fetch-Site is not judged by the Host the proxy passes.
-          pm2 delete paracosm 2>/dev/null || true
-          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip PARACOSM_ALLOWED_ORIGINS=https://paracosm.agentos.sh pm2 start "npx tsx src/cli/serve.ts" \
+          PARACOSM_SCENARIO_STORE_DIR="$deploy_dir/data/scenarios" \
+          PARACOSM_CLIENT_IP_HEADER=cf-connecting-ip PARACOSM_ALLOWED_ORIGINS=https://paracosm.agentos.sh pm2 start dist/cli/serve.js \
             --name paracosm \
-            --max-memory-restart 3G \
+            --uid paracosm --gid paracosm \
+            --max-memory-restart 1200M \
             --env production
+
+          deadline=$(( $(date +%s) + 60 ))
+          attempt=1
+          while :; do
+            if health=$(curl -fsS --max-time 2 "http://127.0.0.1:$port/health" </dev/null 2>/dev/null) &&
+              node -e 'try { process.exitCode = Number(JSON.parse(process.argv[1]).version !== process.argv[2]); } catch { process.exitCode = 1; }' "$health" "$version" </dev/null; then
+              echo "Readiness passed for version $version on port $port"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ] || [ "$attempt" -ge 31 ]; then
+              echo "Dashboard did not serve version $version on port $port" >&2 </dev/null
+              if [ -f "$error_log" ]; then
+                tail -c "+$((error_bytes + 1))" "$error_log" | tail -n 80 >&2
+              fi
+              echo "Full logs on the host are in $log_dir" >&2
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 2 </dev/null
+          done
 
           # Ensure pm2 resurrects the app after a reboot. Without this
           # systemd unit, a host reboot (Linode maintenance) brings nginx
@@ -396,13 +572,13 @@ jobs:
       - name: Version from the run number
         if: steps.changes.outputs.library_changed == 'true'
         id: version
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          IFS='.' read -r MAJOR MINOR _ <<< "$CURRENT"
-          NEXT="${MAJOR}.${MINOR}.${{ github.run_number }}"
-          node -e "const p=require('./package.json'); p.version='${NEXT}'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n')"
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "Packing ${NEXT} (run #${{ github.run_number }})"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid release version"; exit 1; }
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json')); p.version=process.env.VERSION; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Packing ${VERSION} (run #${{ github.run_number }})"
 
       # The prepack copy (scripts/pack-dashboard.mjs), then npm pack with
       # scripts off, which runs only this repository's code and npm.

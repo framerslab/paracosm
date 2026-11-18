@@ -59,6 +59,15 @@ jobs:
       - name: Build TypeScript (engine + runtime)
         run: npm run build
 
+      # Times the executor forged code runs in (QuickJS, an instance a call):
+      # the first load, creating an executor, and 1,000 calls of a small forged
+      # tool, with the process's memory read across the calls and a second
+      # after the last. It prints the figures to the log and the job summary
+      # and sets no pass bar; it fails only when a call does not return the
+      # tool's result. A measurement for review, so deploy.yml does not run it.
+      - name: Measure the forged-code executor
+        run: node --expose-gc scripts/measure-forged-code-executor.mjs
+
       - name: Install dashboard dependencies
         run: cd src/dashboard && npm ci
 
@@ -148,6 +157,12 @@ jobs:
       - name: Install production dependencies from the lockfile, as the server does
         run: npm ci --omit=dev --no-audit --no-fund
 
+      # The forged-code executor needs two QuickJS packages that AgentOS lists
+      # only as optional peers. This loads QuickJS from what the server
+      # installs, on the server's Node, and measures it there.
+      - name: Load and measure the forged-code executor from the production install
+        run: node --expose-gc scripts/measure-forged-code-executor.mjs
+
   # deploy.yml copies the build to the host with rsync --delete. This runs that
   # command's filter options against a stand-in host tree and fails when a
   # deploy would delete data the server writes there, or keep a stale build file.
@@ -165,4 +180,33 @@ jobs:
           persist-credentials: false
 
       - name: Run the deploy's rsync filter against a stand-in host
-        run: bash scripts/check-deploy-keeps-host-data.sh
+        run: sudo bash scripts/check-deploy-keeps-host-data.sh
+
+  deploy-pins-host-key:
+    name: Deploy pins the host key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the loopback SSH server
+        run: sudo apt-get update && sudo apt-get install -y openssh-server
+      - name: Check the pinned host key on loopback
+        run: sudo bash scripts/check-deploy-pins-host-key.sh
+
+  compiled-server:
+    name: Compiled server
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install without lifecycle scripts and compile the server
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node node_modules/typescript/bin/tsc -p tsconfig.build.json
