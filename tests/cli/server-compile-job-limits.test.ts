@@ -37,6 +37,7 @@ async function withJobs(t: TestContext, body: (
   scenarioDir: string,
   finishFirst: (id: string) => Promise<void>,
   failFirst: (message: string) => Promise<void>,
+  finishAll: () => Promise<void>,
 ) => Promise<void>, options: RunServerOptions = {}) {
   _resetCompileJobsForTest();
   const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-jobs-'));
@@ -54,6 +55,9 @@ async function withJobs(t: TestContext, body: (
         await setImmediate();
       }, async message => {
         pending[0].fail(message);
+        await setImmediate();
+      }, async () => {
+        pending.splice(0).forEach((job, index) => job.finish(`settled-${index}`));
         await setImmediate();
       });
     }, { ...options, scenarioDir, extra: { compileFromSeed } });
@@ -123,13 +127,18 @@ test('a compile that fails after ten minutes with no request between answers the
 });
 
 test('on the hosted demo a start refused for four pending compiles does not use the daily compile allowance', async t => {
-  await withJobs(t, async visitor => {
+  await withJobs(t, async (visitor, _scenarioDir, _finishFirst, _failFirst, finishAll) => {
     const statuses: number[] = [];
-    for (let variant = 1; variant <= 6; variant++) {
+    const startAndRead = async (variant: number) => {
       const response = await start(visitor, variant);
       await response.text();
       statuses.push(response.status);
-    }
-    assert.deepEqual(statuses, [202, 202, 202, 202, 503, 503]);
-  }, { maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } });
+    };
+    for (let variant = 1; variant <= 6; variant++) await startAndRead(variant);
+    // The hosted demo allows five compiles from a brief a day. Four are charged so far, so once the
+    // pending ones finish, one more start is admitted and the next is refused for the day.
+    await finishAll();
+    for (let variant = 7; variant <= 8; variant++) await startAndRead(variant);
+    assert.deepEqual(statuses, [202, 202, 202, 202, 503, 503, 202, 429]);
+  }, { env: { PARACOSM_HOSTED_DEMO: 'true' } });
 });
