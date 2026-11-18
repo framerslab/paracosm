@@ -12,7 +12,7 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { request } from 'node:http';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -27,10 +27,13 @@ const docsRoot = resolve(root, 'docs', 'api');
 const docsFile = `test-docs-${process.pid}.css`;
 // A module page as TypeDoc writes it, and the module index beside the
 // folder of the same name. CI runs the tests before it builds the docs, so
-// the index is written only when it is missing and removed only if written.
+// the index and the folder are made only when missing and removed only if
+// made here.
 const docsPage = `test-page-${process.pid}`;
 const docsIndex = resolve(docsRoot, 'modules.html');
+const docsModules = resolve(docsRoot, 'modules');
 let wroteDocsIndex = false;
+let madeDocsModules = false;
 // A page in docs/, one folder above docs/api: `/docs/../<name>` names it.
 const outsidePage = resolve(root, 'docs', `test-outside-${process.pid}.html`);
 
@@ -50,8 +53,11 @@ before(async () => {
   // be using it at the same time.
   mkdirSync(docsRoot, { recursive: true });
   writeFileSync(resolve(docsRoot, docsFile), 'body { color: black; }');
-  mkdirSync(resolve(docsRoot, 'modules'), { recursive: true });
-  writeFileSync(resolve(docsRoot, 'modules', `${docsPage}.html`), '<!DOCTYPE html><html><head></head><body><p>page</p></body></html>');
+  if (!existsSync(docsModules)) {
+    mkdirSync(docsModules);
+    madeDocsModules = true;
+  }
+  writeFileSync(resolve(docsModules, `${docsPage}.html`), '<!DOCTYPE html><html><head></head><body><p>page</p></body></html>');
   if (!existsSync(docsIndex)) {
     writeFileSync(docsIndex, '<!DOCTYPE html><html><head></head><body><p>modules</p></body></html>');
     wroteDocsIndex = true;
@@ -72,7 +78,8 @@ before(async () => {
     rmSync(resolve(demoRoot, demoSubdir), { recursive: true, force: true });
     rmSync(resolve(demoRoot, unreadableFile), { force: true });
     rmSync(resolve(docsRoot, docsFile), { force: true });
-    rmSync(resolve(docsRoot, 'modules', `${docsPage}.html`), { force: true });
+    rmSync(resolve(docsModules, `${docsPage}.html`), { force: true });
+    if (madeDocsModules) rmdirSync(docsModules);
     if (wroteDocsIndex) rmSync(docsIndex, { force: true });
     rmSync(outsidePage, { force: true });
   };
