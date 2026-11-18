@@ -423,7 +423,8 @@ test.describe('the consent bar on the hosted demo', () => {
   });
 
   test('Choose moves focus to the first switch, Tab follows the order on screen, and Escape goes back to Choose with the first layer still there', async ({ browser }) => {
-    const { context, page } = await open(browser, 'focus');
+    // At phone width the bar is one column, so the order on screen is top to bottom.
+    const { context, page } = await open(browser, 'focus', { viewport: { width: 390, height: 844 } });
     try {
       await page.goto('/');
       const choose = bar(page).getByRole('button', { name: 'Choose', exact: true });
@@ -438,6 +439,7 @@ test.describe('the consent bar on the hosted demo', () => {
         bar(page).getByRole('switch', { name: /Google Analytics/ }),
         bar(page).getByRole('switch', { name: /Microsoft Clarity/ }),
         bar(page).getByRole('button', { name: 'Save choices', exact: true }),
+        bar(page).getByRole('link', { name: 'How each tool works', exact: true }),
         bar(page).getByRole('button', { name: 'Reject all', exact: true }),
         choose,
         bar(page).getByRole('button', { name: 'Accept all', exact: true }),

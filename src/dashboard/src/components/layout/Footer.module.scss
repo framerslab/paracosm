@@ -26,15 +26,16 @@
   font-weight: 600;
 }
 
-// The Analytics choices control: a button the consent bar's script opens the
-// choices from, drawn as one of the footer's links.
-.consentLink {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
+// Where the page's Analytics choices control sits while the footer is
+// mounted (useConsentControl); the consent bar's stylesheet sizes the control.
+.consentSlot {
+  display: inline-flex;
+  align-items: center;
+
+  :global(button[data-consent-open]) {
+    color: var(--rust);
+    font-weight: 600;
+  }
 }
 
 .statusChip {

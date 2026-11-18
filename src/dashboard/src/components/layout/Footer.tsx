@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useMediaQuery, PHONE_QUERY } from '../viz/grid/useMediaQuery';
 import styles from './Footer.module.scss';
 
@@ -137,9 +137,30 @@ function hasConsentBar(): boolean {
   return typeof document !== 'undefined' && document.getElementById('paracosm-consent-config') !== null;
 }
 
+/**
+ * The page's Analytics choices control (#pcc-reopen in index.html, outside
+ * #root, so it is there when this script does not load), moved into the
+ * footer while the footer is mounted and back to its place after.
+ */
+function useConsentControl() {
+  const slot = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const control = document.getElementById('pcc-reopen');
+    const home = document.getElementById('pcc-shell');
+    const target = slot.current;
+    if (!control || !home || !target) return undefined;
+    target.appendChild(control);
+    return () => {
+      home.appendChild(control);
+    };
+  }, []);
+  return slot;
+}
+
 export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
   const isPhone = useMediaQuery(PHONE_QUERY);
   const consentBar = hasConsentBar();
+  const consentSlot = useConsentControl();
   const cls = ['shrink-0', styles.footer, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
   return (
     <footer className={cls} role="contentinfo">
@@ -171,11 +192,7 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
         </span>
       )}
 
-      {consentBar && (
-        <button type="button" data-consent-open className={`${styles.navLink} ${styles.consentLink}`}>
-          Analytics choices
-        </button>
-      )}
+      {consentBar && <span ref={consentSlot} className={styles.consentSlot} />}
 
       {!isPhone && (
         <span>

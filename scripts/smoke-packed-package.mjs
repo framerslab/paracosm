@@ -55,6 +55,8 @@ const REQUIRED_FILES = [
   'dist/dashboard/dist/index.html',
   'dist/dashboard/landing.html',
   'assets/landing.css',
+  'assets/fonts/fonts.css',
+  'assets/fonts/inter-latin-wght-normal.woff2',
   'assets/diagrams/paracosm-flow.svg',
   'assets/favicons/favicon-32.png',
   'assets/demo/e2e-atlas-8-poster.jpg',
@@ -67,6 +69,8 @@ const PAGES = [
   ['/', 'text/html', 'https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4'],
   ['/sim', 'text/html', '<div id="root">'],
   ['/brand/landing.css', 'text/css', null],
+  ['/brand/fonts/fonts.css', 'text/css', "font-family: 'Inter'"],
+  ['/brand/fonts/inter-latin-wght-normal.woff2', 'font/woff2', null],
   ['/diagrams/paracosm-flow.svg', 'image/svg+xml', '<svg'],
   ['/favicon.png', 'image/png', null],
 ];

@@ -5,17 +5,22 @@
  * Three purposes, besides what is strictly necessary:
  * - `count`: Plausible, self-hosted on the team's server and cookieless. On
  *   until the visitor turns it off. The page sends its page views to this
- *   server's `POST /api/event`, which forwards them, path only, to the
- *   shared Plausible instance (forwardCountEvent).
+ *   server's `POST /api/event`, which forwards each as the public page it
+ *   names, with the referring site's domain alone, to the shared Plausible
+ *   instance (countEventFrom, forwardCountEvent).
  * - `measure`: Google Analytics 4, off until the visitor turns it on.
  * - `record`: Microsoft Clarity, off until the visitor turns it on.
  *
  * The server puts no vendor tag in a page. It adds the bar's configuration,
  * its stylesheet and its script (assets/consent/), and the script loads
  * each vendor only under its purpose's yes. A privacy signal (the Sec-GPC
- * request header, navigator.globalPrivacyControl or Do Not Track) turns
+ * or DNT request header, navigator.globalPrivacyControl or
+ * navigator.doNotTrack) turns
  * every purpose off, the count included, and shows no bar. The landing
  * page's privacy section (#privacy) names each purpose and its vendor.
+ *
+ * The fonts every page uses are served from this site (assets/fonts/), so
+ * no page asks a font service for anything.
  *
  * Only the hosted demo loads any of it: the server adds it to the pages it
  * sends in hosted_demo mode (PARACOSM_HOSTED_DEMO=true), so a copy run from
@@ -31,7 +36,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
-import type { ClientIpHeader } from './rate-limiter.js';
+import { IpRateLimiter, type ClientIpHeader } from './rate-limiter.js';
 
 /** The site the hosted demo counts under on the shared Plausible instance, analytics.manic.agency. */
 export const PLAUSIBLE_DOMAIN = 'paracosm.agentos.sh';
@@ -82,16 +87,23 @@ export function readSiteAnalyticsIds(distDir: string): SiteAnalyticsIds {
   }
 }
 
-/** Whether a request carries the Global Privacy Control header, `Sec-GPC: 1`. */
+/**
+ * Whether a request sends a privacy signal: the Global Privacy Control
+ * header, `Sec-GPC: 1`, or the Do Not Track header, `DNT: 1`. Both the
+ * pages' bar configuration and `POST /api/event` read it.
+ */
 export function sendsPrivacySignal(req: IncomingMessage): boolean {
-  const value = req.headers['sec-gpc'];
-  return (Array.isArray(value) ? value[0] : value)?.trim() === '1';
+  const header = (name: string) => {
+    const value = req.headers[name];
+    return (Array.isArray(value) ? value[0] : value)?.trim();
+  };
+  return header('sec-gpc') === '1' || header('dnt') === '1';
 }
 
 /** What a page's bar is given: the ids, whether the request sent a privacy signal, and the asset version. */
 export interface SiteAnalyticsPage {
   ids: SiteAnalyticsIds;
-  /** The request sent `Sec-GPC: 1`: the bar shows nothing and runs no purpose. */
+  /** The request sent `Sec-GPC: 1` or `DNT: 1`: the bar shows nothing and runs no purpose. */
   signal: boolean;
   /** Appended to the bar's asset addresses so a release's browsers fetch its own copy. */
   assetVersion: string;
@@ -128,25 +140,63 @@ export function withSiteAnalytics(html: string, page: SiteAnalyticsPage): string
 /** A page view as the shared Plausible instance takes it (https://plausible.io/docs/events-api). */
 export interface CountEvent {
   name: 'pageview';
-  /** The page's address on the counted domain, path only: no query and no fragment. */
+  /** One of the site's public pages, on the counted domain: the landing page, the dashboard or a built API docs page. */
   url: string;
   domain: string;
-  /** The referring site's origin, or empty. */
+  /** The referring site's domain as `<scheme>://<domain>/`, at most its last two labels, or empty. */
   referrer: string;
 }
 
 const MAX_PATH_LENGTH = 512;
 const MAX_REFERRER_LENGTH = 2048;
+/** The shape of an API docs page's path; only a page that is built counts under its own path. */
+const DOCS_PAGE = /^\/docs\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.html$/;
 
 /**
- * The page view a browser's `POST /api/event` body describes, or null for a
- * body that is not one. The body is `{"n":"pageview","u":"<path>","r":"<referrer>"}`
- * (assets/consent/consent.js sends it). The server builds the address
- * itself from the path alone, on the counted domain, and keeps only the
- * referrer's origin, so no query string, fragment or referring page's path
- * reaches the instance.
+ * The public page a path counts as, or null for a path that is no page of
+ * the site: `/` (and `/index.html`), `/sim` for the dashboard (it answers
+ * any path under `/sim`, whose rest is never sent), and an API docs page
+ * under its own path when `isDocsPage` says the page is built.
  */
-export function countEventFrom(body: string): CountEvent | null {
+export function countedPage(pathname: string, isDocsPage: (path: string) => boolean = () => false): string | null {
+  if (pathname === '/' || pathname === '/index.html') return '/';
+  if (pathname === '/sim' || pathname.startsWith('/sim/')) return '/sim';
+  if (DOCS_PAGE.test(pathname) && !pathname.split('/').includes('..') && isDocsPage(pathname)) return pathname;
+  return null;
+}
+
+/**
+ * The referring site as Plausible takes it, cut to its registrable domain
+ * at most: the last two labels of its host name, so
+ * `https://token.preview.example.org/view` is sent as `https://example.org/`.
+ * An address, a single name or a referrer that is no web page sends none.
+ */
+export function countedReferrer(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REFERRER_LENGTH) return '';
+  let from: URL;
+  try {
+    from = new URL(value);
+  } catch {
+    return '';
+  }
+  if (from.protocol !== 'https:' && from.protocol !== 'http:') return '';
+  const host = from.hostname.replace(/\.$/, '').toLowerCase();
+  if (isIP(host.replace(/^\[|\]$/g, '')) !== 0) return '';
+  const labels = host.split('.');
+  if (labels.length < 2 || labels.some(label => !/^[a-z0-9-]+$/.test(label))) return '';
+  return `${from.protocol}//${labels.slice(-2).join('.')}/`;
+}
+
+/**
+ * The page view a browser's `POST /api/event` body describes: an event, the
+ * word `unlisted` for a path that is no page of the site (nothing is
+ * forwarded for it), or null for a body that is not a page view. The body
+ * is `{"n":"pageview","u":"<path>","r":"<referrer>"}` (assets/consent/consent.js
+ * sends it). The server builds the address itself from countedPage, on the
+ * counted domain, and the referrer from countedReferrer, so no query
+ * string, fragment, unlisted path or referring page reaches the instance.
+ */
+export function countEventFrom(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -162,16 +212,9 @@ export function countEventFrom(body: string): CountEvent | null {
   } catch {
     return null;
   }
-  let referrer = '';
-  if (typeof r === 'string' && r.length > 0 && r.length <= MAX_REFERRER_LENGTH) {
-    try {
-      const from = new URL(r);
-      if (from.protocol === 'https:' || from.protocol === 'http:') referrer = `${from.origin}/`;
-    } catch {
-      referrer = '';
-    }
-  }
-  return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${path}`, domain: PLAUSIBLE_DOMAIN, referrer };
+  const page = countedPage(path, isDocsPage);
+  if (page === null) return 'unlisted';
+  return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN, referrer: countedReferrer(r) };
 }
 
 /**
@@ -200,32 +243,85 @@ export const COUNT_FORWARDS_AT_ONCE = 32;
 /** The most addresses the per-address limit tracks; past it, a new address is refused until windows end. */
 const COUNT_LIMIT_ADDRESSES = 50_000;
 
+/** How long one address's window lasts, and how long the limit holds the address. */
+export const COUNT_WINDOW_MS = 60_000;
+
 /**
- * The per-address limit on forwarded page views: a window of a minute from
- * an address's first page view, COUNT_EVENTS_PER_MINUTE in it. Ended windows
- * are swept once 10,000 addresses are held, and no more than
+ * The per-address limit on forwarded page views: a window from an address's
+ * first page view, COUNT_EVENTS_PER_MINUTE in it. It keys on the address
+ * as IpRateLimiter.getIp gives it (an IPv6 address by its /64), holds it
+ * in memory only, and drops it when its window ends: a timer set for the
+ * oldest window, and a sweep on every take. No more than
  * COUNT_LIMIT_ADDRESSES are held at once.
  */
 export class CountEventLimit {
+  /** Kept in the order the windows began, so the oldest is first. */
   private readonly windows = new Map<string, { count: number; resetAt: number }>();
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly perMinute = COUNT_EVENTS_PER_MINUTE) {}
+  constructor(
+    private readonly perWindow = COUNT_EVENTS_PER_MINUTE,
+    private readonly windowMs = COUNT_WINDOW_MS,
+  ) {}
 
-  /** Takes one page view for the address; false when its minute is full. */
-  take(address: string, now = Date.now()): boolean {
-    if (this.windows.size >= 10_000) {
-      for (const [key, entry] of this.windows) if (entry.resetAt <= now) this.windows.delete(key);
-    }
-    const current = this.windows.get(address);
-    if (current === undefined || current.resetAt <= now) {
-      if (current === undefined && this.windows.size >= COUNT_LIMIT_ADDRESSES) return false;
-      this.windows.set(address, { count: 1, resetAt: now + 60_000 });
+  /** How many addresses the limit holds now. */
+  get size(): number {
+    return this.windows.size;
+  }
+
+  /** Takes one page view for the address key; false when its window is full. */
+  take(key: string, now = Date.now()): boolean {
+    this.sweep(now);
+    const current = this.windows.get(key);
+    if (current === undefined) {
+      if (this.windows.size >= COUNT_LIMIT_ADDRESSES) return false;
+      this.windows.set(key, { count: 1, resetAt: now + this.windowMs });
+      this.schedule();
       return true;
     }
-    if (current.count >= this.perMinute) return false;
+    if (current.count >= this.perWindow) return false;
     current.count += 1;
     return true;
   }
+
+  /** Stops the timer; the limit holds nothing after it. */
+  close(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.windows.clear();
+  }
+
+  /** Drops every ended window, oldest first. */
+  private sweep(now: number): void {
+    for (const [key, entry] of this.windows) {
+      if (entry.resetAt > now) break;
+      this.windows.delete(key);
+    }
+  }
+
+  /** Sets the timer for the oldest window's end, when none is set. */
+  private schedule(): void {
+    if (this.timer) return;
+    const oldest = this.windows.values().next();
+    if (oldest.done) return;
+    const timer = setTimeout(() => {
+      this.timer = null;
+      this.sweep(Date.now());
+      this.schedule();
+    }, Math.max(0, oldest.value.resetAt - Date.now()) + 5);
+    // The timer never keeps the process running on its own.
+    (timer as { unref?: () => void }).unref?.();
+    this.timer = timer;
+  }
+}
+
+/**
+ * The two forms of a visitor's address the count route uses: the key the
+ * count limit holds (IpRateLimiter.getIp, an IPv6 address by its /64), and
+ * the full address, which goes only to the instance in the forward.
+ */
+export function countAddresses(req: IncomingMessage, trustedHeader: ClientIpHeader | null): { limitKey: string; address: string } {
+  return { limitKey: IpRateLimiter.getIp(req, trustedHeader), address: clientAddress(req, trustedHeader) };
 }
 
 /**

@@ -56,7 +56,7 @@ import { openSessionStore, type SessionStore, type TimestampedEvent } from './st
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
 import {
-  clientAddress,
+  countAddresses,
   COUNT_FORWARDS_AT_ONCE,
   countEventFrom,
   CountEventLimit,
@@ -2091,14 +2091,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     assetVersion: PARACOSM_VERSION,
   });
 
+  /** Whether a path names an API docs page TypeDoc built, inside docs/api. */
+  const isDocsPage = (pathname: string): boolean => {
+    const docsDir = resolve(__dirname, '..', '..', 'docs', 'api');
+    const filePath = resolve(docsDir, pathname.replace(/^\/docs\//, ''));
+    if (!filePath.startsWith(docsDir + sep)) return false;
+    try {
+      return statSync(filePath).isFile();
+    } catch {
+      return false;
+    }
+  };
+
   /**
    * POST /api/event on the hosted demo: one page view from the consent bar's
-   * script (assets/consent/consent.js), forwarded path only to the shared
-   * Plausible instance with the visitor's browser name and address, as its
-   * events API asks. A request from another site, or one that sends a
-   * privacy signal, is answered 204 and forwards nothing. Past
-   * COUNT_EVENTS_PER_MINUTE from one address, or COUNT_FORWARDS_AT_ONCE
-   * forwards open, it answers 429 and forwards nothing.
+   * script (assets/consent/consent.js), forwarded to the shared Plausible
+   * instance as the public page it names (countEventFrom) with the
+   * referring site's domain alone, and with the visitor's browser name and
+   * address, as its events API asks. A request from another site, one that
+   * sends a privacy signal, or a path that is no page of the site is
+   * answered 204 and forwards nothing. Past COUNT_EVENTS_PER_MINUTE from one
+   * address (an IPv6 address by its /64), or COUNT_FORWARDS_AT_ONCE forwards
+   * open, it answers 429 and forwards nothing.
    */
   const handleCountEvent = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== 'POST') {
@@ -2113,12 +2127,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
     let event: ReturnType<typeof countEventFrom>;
     try {
-      event = countEventFrom(await readBody(req, 4096));
+      event = countEventFrom(await readBody(req, 4096), isDocsPage);
     } catch (error) {
       // The answer names the refusal alone, never the error's text.
       const tooLarge = error instanceof RequestBodyTooLargeError;
       res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ error: tooLarge ? 'body_too_large' : 'invalid_event' }));
+      return;
+    }
+    if (event === 'unlisted') {
+      res.writeHead(204, { 'Cache-Control': 'no-store' });
+      res.end();
       return;
     }
     const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '';
@@ -2127,8 +2146,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       res.end(JSON.stringify({ error: 'invalid_event' }));
       return;
     }
-    const address = clientAddress(req, clientIpHeader);
-    if (countForwardsOpen >= COUNT_FORWARDS_AT_ONCE || !countEventLimit.take(address)) {
+    const { limitKey, address } = countAddresses(req, clientIpHeader);
+    if (countForwardsOpen >= COUNT_FORWARDS_AT_ONCE || !countEventLimit.take(limitKey)) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '60' });
       res.end(JSON.stringify({ error: 'too_many_events' }));
       return;
@@ -4595,7 +4614,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // TypeDoc toolbar + page title hidden via CSS (kept in DOM so JS doesn't crash)
             // Add our CSS override + fonts + favicon + inline mobile styles
             html = html.replace('</head>',
-              `<link rel="icon" href="/favicon.png" sizes="32x32"><link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"><link rel="stylesheet" href="/docs/assets/paracosm-override.css">
+              `<link rel="icon" href="/favicon.png" sizes="32x32"><link rel="icon" type="image/svg+xml" href="/icon.svg"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"><link href="/brand/fonts/fonts.css" rel="stylesheet"><link rel="stylesheet" href="/docs/assets/paracosm-override.css">
 <style>
 /* Hamburger button (hidden on desktop) */
 .pdh-hamburger{display:none;background:none;border:1px solid var(--color-text-aside);border-radius:6px;width:32px;height:32px;cursor:pointer;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:7px;flex-shrink:0;opacity:.6;transition:opacity .2s}

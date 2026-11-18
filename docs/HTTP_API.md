@@ -48,7 +48,7 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | GET    | `/api/v1/demo/status` | Public-demo capability flags (always reachable) |
 | POST   | `/scenario/store` | Store a scenario in this visitor's memory; with `saveToDisk`, write it to the scenarios folder and the shared catalog instead (admin credential) |
 | POST   | `/compile` | Compile a scenario JSON into the shared catalog under an id that names nothing yet |
-| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, forwarded path only to the site's Plausible count |
+| POST   | `/api/event` | Hosted demo only: one page view from the consent bar, forwarded as the public page it names to the site's Plausible count |
 
 ---
 
@@ -363,7 +363,7 @@ Always reachable (not gated by `paracosmRoutesEnabled`). Lets a public-demo clie
 
 ## `POST /api/event`
 
-Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. The consent bar's script (`assets/consent/consent.js`) sends one page view per path while the visitor's count purpose is on, and the server forwards it to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it.
+Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the path answers `404`. The consent bar's script (`assets/consent/consent.js`) sends one page view per path while the visitor's count purpose is on, and the server forwards it to the shared Plausible instance with the visitor's `User-Agent` and address, as Plausible's [events API](https://plausible.io/docs/events-api) asks. The address is the connection's, or the `PARACOSM_CLIENT_IP_HEADER` header's value as the rate limits read it. The count limit below keys on it as the other per-client limits do (an IPv6 address by its /64), holds it in memory only, and drops it when its minute ends.
 
 **Request body** (any content type; at most 4,096 bytes)
 
@@ -371,16 +371,16 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 { "n": "pageview", "u": "/sim", "r": "https://news.example.com/item?id=7" }
 ```
 
-`u` is the page's path. The server builds the address it forwards from the path alone, on the counted domain, so a query string or fragment never leaves it, and it keeps only the origin of `r`, the referring page.
+`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or an API docs page under its own path when TypeDoc built it. A query string or fragment never leaves the server. Of `r`, the referring page, it keeps the site's domain at most: the last two labels of its host name, so `https://token.preview.example.org/view` is sent as `https://example.org/`; an IP address, a single name such as `localhost` or a referrer that is no web page is dropped.
 
 **Responses**
 
 - `202`: the instance took the page view
-- `204`: nothing was forwarded, because the request sent `Sec-GPC: 1` or came from a page on another site (the rule in "Base URL and gating")
+- `204`: nothing was forwarded, because the request sent a privacy signal (`Sec-GPC: 1` or `DNT: 1`), came from a page on another site (the rule in "Base URL and gating"), or named a path that is no page of the site
 - `400 invalid_event`: the body is not a page view of a path, or the request has no `User-Agent`
 - `405`: a method other than `POST`
 - `413 body_too_large`: the body is over 4,096 bytes
-- `429 too_many_events`: the address has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
+- `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
 ## `POST /scenario/store`
