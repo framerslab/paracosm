@@ -276,3 +276,28 @@ test('boot skips a persisted draft whose id is not a plain scenario id and compi
   assert.equal(capLines.length, 1, `one line states the cap: ${JSON.stringify(capLines)}`);
   assert.ok(lines.every(line => !line.includes('../outside')), 'no line carries the id read from the skipped file');
 });
+
+test('admin saves use the configured state directory and reload alongside bundled scenarios', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'paracosm-admin-state-'));
+  const scenarioDir = join(root, 'scenarios');
+  const savedDir = join(root, 'data', 'scenarios');
+  mkdirSync(scenarioDir);
+  writeFileSync(join(scenarioDir, 'curated-ocean.json'), JSON.stringify({ ...oceanStation, id: 'curated-ocean' }));
+  const env = { ...ADMIN_ENV, PARACOSM_SCENARIO_STORE_DIR: savedDir };
+  let api: RunServer | undefined;
+  try {
+    api = await startServer({ appDir: root, scenarioDir, env });
+    const res = await store(api.base, { scenario: oceanStation, saveToDisk: true }, { 'X-Admin-Token': TOKEN });
+    assert.equal(res.status, 200);
+    assert.ok(filesUnder(root).includes(join('data', 'scenarios', `${oceanStation.id}.json`)));
+    assert.deepEqual(readdirSync(scenarioDir), ['curated-ocean.json']);
+    await api.close();
+    api = await startServer({ appDir: root, scenarioDir, env });
+    const ids = await catalogIds(api.base);
+    assert.ok(ids.includes(oceanStation.id), 'the saved scenario reloads');
+    assert.ok(ids.includes('curated-ocean'), 'the bundled catalog still loads');
+  } finally {
+    await api?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
