@@ -380,6 +380,7 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 - `400 invalid_event`: the body is not a page view of a path, or the request has no `User-Agent`
 - `405`: a method other than `POST`
 - `413 body_too_large`: the body is over 4,096 bytes
+- `429 too_many_events`: the address has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
 ## `POST /scenario/store`

@@ -191,6 +191,43 @@ export function clientAddress(req: IncomingMessage, trustedHeader: ClientIpHeade
   return isIP(candidate) ? candidate : socket;
 }
 
+/** The most page views `POST /api/event` forwards from one address in a minute. */
+export const COUNT_EVENTS_PER_MINUTE = 120;
+
+/** The most page views `POST /api/event` holds open on their way to the instance at once. */
+export const COUNT_FORWARDS_AT_ONCE = 32;
+
+/** The most addresses the per-address limit tracks; past it, a new address is refused until windows end. */
+const COUNT_LIMIT_ADDRESSES = 50_000;
+
+/**
+ * The per-address limit on forwarded page views: a window of a minute from
+ * an address's first page view, COUNT_EVENTS_PER_MINUTE in it. Ended windows
+ * are swept once 10,000 addresses are held, and no more than
+ * COUNT_LIMIT_ADDRESSES are held at once.
+ */
+export class CountEventLimit {
+  private readonly windows = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(private readonly perMinute = COUNT_EVENTS_PER_MINUTE) {}
+
+  /** Takes one page view for the address; false when its minute is full. */
+  take(address: string, now = Date.now()): boolean {
+    if (this.windows.size >= 10_000) {
+      for (const [key, entry] of this.windows) if (entry.resetAt <= now) this.windows.delete(key);
+    }
+    const current = this.windows.get(address);
+    if (current === undefined || current.resetAt <= now) {
+      if (current === undefined && this.windows.size >= COUNT_LIMIT_ADDRESSES) return false;
+      this.windows.set(address, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    if (current.count >= this.perMinute) return false;
+    current.count += 1;
+    return true;
+  }
+}
+
 /**
  * Sends one page view to the instance with the visitor's browser name and
  * address, as its events API asks, and resolves true when the instance

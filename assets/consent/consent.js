@@ -100,21 +100,25 @@
     } catch (error) { /* storage refused: the answer lasts this page only */ }
   }
 
+  /** The answer given on this page, kept for a browser whose storage refuses it. */
   var pageAnswer = null;
 
-  /** The answer this browser holds, or null when it has given none. */
+  /**
+   * The answer this browser holds, or null when it has given none. Storage
+   * comes first, so an answer another tab saved later wins over this page's.
+   */
   function readAnswer() {
-    if (pageAnswer) return pageAnswer;
     var raw = readLocal(STORE_KEY);
-    if (!raw) return null;
-    try {
-      var parsed = JSON.parse(raw);
-      var purposes = parsed && parsed.purposes;
-      if (!purposes || typeof purposes !== 'object') return null;
-      return { count: purposes.count === true, measure: purposes.measure === true, record: purposes.record === true };
-    } catch (error) {
-      return null;
+    if (raw) {
+      try {
+        var parsed = JSON.parse(raw);
+        var purposes = parsed && parsed.purposes;
+        if (purposes && typeof purposes === 'object') {
+          return { count: purposes.count === true, measure: purposes.measure === true, record: purposes.record === true };
+        }
+      } catch (error) { /* a record that does not parse counts as none */ }
     }
+    return pageAnswer;
   }
 
   /** What runs on this page: the answer, or the count alone; nothing under a privacy signal. */
@@ -181,6 +185,8 @@
 
   function loadMeasure() {
     active.measure = true;
+    // Google's opt-out flag: while it is true the tag sends nothing
+    // (https://developers.google.com/analytics/devguides/collection/ga4/disable-analytics).
     window['ga-disable-' + GA_ID] = false;
     if (loaded.measure) {
       gtag('consent', 'update', { analytics_storage: 'granted' });
@@ -203,6 +209,7 @@
 
   function withdrawMeasure() {
     active.measure = false;
+    // The same flag set: the tag already on this page sends no more hits.
     if (GA_ID) window['ga-disable-' + GA_ID] = true;
     if (loaded.measure) gtag('consent', 'update', { analytics_storage: 'denied' });
     clearCookies(/^(_ga($|_)|_gid$|_gat)/);
@@ -228,6 +235,8 @@
   function withdrawRecord() {
     active.record = false;
     if (loaded.record) {
+      // Denied storage stops Clarity's cookies on this page; consent false
+      // withdraws its recording consent and erases the cookies it set.
       clarity('consentv2', { ad_Storage: 'denied', analytics_Storage: 'denied' });
       clarity('consent', false);
     }
@@ -428,6 +437,19 @@
     event.preventDefault();
     if (bar && !bar.hidden && opener === control) close();
     else reopen(control);
+  });
+
+  // Another tab of this browser saved an answer: this page follows it at
+  // once, stopping what it turned off and loading what it turned on.
+  window.addEventListener('storage', function (event) {
+    if (event.key !== STORE_KEY && event.key !== IGNORE_KEY && event.key !== null) return;
+    pageAnswer = null;
+    var purposes = effective();
+    if (active.measure && !purposes.measure) withdrawMeasure();
+    if (active.record && !purposes.record) withdrawRecord();
+    apply();
+    if (bar && !bar.hidden && readAnswer() && !rowsNode.hidden) syncSwitches();
+    else if (bar && !bar.hidden && readAnswer() && !opener) close();
   });
 
   document.addEventListener('keydown', function (event) {

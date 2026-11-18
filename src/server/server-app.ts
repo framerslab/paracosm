@@ -57,7 +57,9 @@ import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
 import {
   clientAddress,
+  COUNT_FORWARDS_AT_ONCE,
   countEventFrom,
+  CountEventLimit,
   forwardCountEvent,
   PLAUSIBLE_EVENT_URL,
   parseSiteAnalyticsIds,
@@ -805,6 +807,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const countEventUrl = options.countEventUrl ?? PLAUSIBLE_EVENT_URL;
   /** When the last failed forward of a page view was logged; one line a minute at most. */
   let countForwardWarnedAt = 0;
+  /** The page views forwarded per address this minute, and the forwards open now. */
+  const countEventLimit = new CountEventLimit();
+  let countForwardsOpen = 0;
   const pickCookieSecure = serverMode === 'hosted_demo';
   /** The visitor whose compile installed each compiled scenario's brief. */
   const compiledBriefOwners = new Map<string, string>();
@@ -2091,7 +2096,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    * script (assets/consent/consent.js), forwarded path only to the shared
    * Plausible instance with the visitor's browser name and address, as its
    * events API asks. A request from another site, or one that sends a
-   * privacy signal, is answered 204 and forwards nothing.
+   * privacy signal, is answered 204 and forwards nothing. Past
+   * COUNT_EVENTS_PER_MINUTE from one address, or COUNT_FORWARDS_AT_ONCE
+   * forwards open, it answers 429 and forwards nothing.
    */
   const handleCountEvent = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (req.method !== 'POST') {
@@ -2120,7 +2127,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       res.end(JSON.stringify({ error: 'invalid_event' }));
       return;
     }
-    const accepted = await forwardCountEvent(countEventUrl, event, { userAgent, address: clientAddress(req, clientIpHeader) });
+    const address = clientAddress(req, clientIpHeader);
+    if (countForwardsOpen >= COUNT_FORWARDS_AT_ONCE || !countEventLimit.take(address)) {
+      res.writeHead(429, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '60' });
+      res.end(JSON.stringify({ error: 'too_many_events' }));
+      return;
+    }
+    countForwardsOpen += 1;
+    let accepted = false;
+    try {
+      accepted = await forwardCountEvent(countEventUrl, event, { userAgent, address });
+    } finally {
+      countForwardsOpen -= 1;
+    }
     if (!accepted && Date.now() - countForwardWarnedAt > 60_000) {
       countForwardWarnedAt = Date.now();
       console.warn('  [analytics] The Plausible instance did not accept a page view; further failures this minute are not logged.');
