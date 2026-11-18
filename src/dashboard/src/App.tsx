@@ -821,6 +821,13 @@ function AppContent() {
   useEffect(() => {
     clearShareLink();
   }, [currentSessionId, clearShareLink]);
+  // A reset (RUN, Clear local data, clearing history) empties the page's
+  // events and can keep the replay parameter, so the session id above
+  // does not change; an empty page clears the note too.
+  const pageHoldsEvents = sse.events.length > 0;
+  useEffect(() => {
+    if (!pageHoldsEvents) clearShareLink();
+  }, [pageHoldsEvents, clearShareLink]);
   const handleShareViz = useCallback(() => {
     if (!currentSessionId) return;
     shareRunLink(buildReplayShareUrl(window.location.origin, currentSessionId, 'viz'));
