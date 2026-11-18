@@ -229,9 +229,13 @@ test('a docs page sent with its .html still answers 200', async () => {
 });
 
 test('a docs path with no page of that name still answers 404', async () => {
-  const res = await fetch(`${site}/docs/modules/no-such-page-${process.pid}`, { redirect: 'manual', signal: answerWithin() });
-  assert.equal(res.status, 404);
-  await res.arrayBuffer();
+  // The second path runs through a file as if it were a folder.
+  for (const path of [`/docs/modules/no-such-page-${process.pid}`, `/docs/modules/${docsPage}.html/x`]) {
+    const res = await fetch(`${site}${path}`, { redirect: 'manual', signal: answerWithin() });
+    assert.equal(res.status, 404, path);
+    await res.arrayBuffer();
+  }
+  await assertStillAnswers();
 });
 
 test('a docs path that leaves docs/api answers 404, though a page of that name sits outside it', async () => {

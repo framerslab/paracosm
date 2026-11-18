@@ -4466,10 +4466,26 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.end('Not found');
         return;
       }
+      // A path that names no file: the page with `.html` added, one trailing
+      // slash dropped, answers 301. The target comes from the resolved path,
+      // so it stays inside docs/api.
+      const htmlPath = resolve(docsDir, docPath.slice(1).replace(/\/$/, '') + '.html');
+      const redirectToPage = (): boolean => {
+        let isPage = false;
+        try {
+          isPage = htmlPath.startsWith(docsDir + sep) && statSync(htmlPath).isFile();
+        } catch {}
+        if (!isPage) return false;
+        const queryAt = (req.url || '').indexOf('?');
+        const query = queryAt === -1 ? '' : (req.url || '').slice(queryAt);
+        res.writeHead(301, { Location: `/docs/${relative(docsDir, htmlPath).split(sep).join('/')}${query}` });
+        res.end();
+        return true;
+      };
       try {
         const { statSync } = await import('node:fs');
-        const stat = statSync(filePath, { throwIfNoEntry: false });
-        if (stat?.isFile()) {
+        const stat = statSync(filePath);
+        if (stat.isFile()) {
           const ext = filePath.split('.').pop() || '';
           const mimeTypes: Record<string, string> = {
             html: 'text/html', css: 'text/css', js: 'application/javascript',
@@ -4650,19 +4666,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           res.end(content);
           return;
         }
-        // No file of that name: a page with `.html` added, one trailing
-        // slash dropped. The target comes from the resolved path, so it
-        // stays inside docs/api.
-        const htmlPath = resolve(docsDir, docPath.slice(1).replace(/\/$/, '') + '.html');
-        if (htmlPath.startsWith(docsDir + sep) && statSync(htmlPath, { throwIfNoEntry: false })?.isFile()) {
-          const queryAt = (req.url || '').indexOf('?');
-          const query = queryAt === -1 ? '' : (req.url || '').slice(queryAt);
-          res.writeHead(301, { Location: `/docs/${relative(docsDir, htmlPath).split(sep).join('/')}${query}` });
-          res.end();
-          return;
-        }
+        // The page wins over a folder of the same name.
+        if (redirectToPage()) return;
         // Directory: try index.html
-        if (stat?.isDirectory()) {
+        if (stat.isDirectory()) {
           const indexPath = resolve(filePath, 'index.html');
           if (existsSync(indexPath)) {
             const content = readFileSync(indexPath);
@@ -4671,7 +4678,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
         }
-      } catch {}
+      } catch {
+        // statSync throws when no file or folder has that name.
+        if (redirectToPage()) return;
+      }
     }
 
     // Vite assets (CSS, JS, fonts)
