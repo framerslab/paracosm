@@ -16,14 +16,27 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /** What became of the copy. */
 export type ShareCopyState = 'copying' | 'copied' | 'refused' | 'unanswered';
 
+/** The note's content: the link the press made and what became of its copy. */
 export interface SharedLink {
+  /** The link, shown in the note's field whatever became of the copy. */
   url: string;
+  /** What became of the copy. */
   state: ShareCopyState;
 }
 
 /** How long a clipboard write may take before the note says the link was not copied. */
 export const COPY_ANSWER_MS = 3000;
 
+/**
+ * The state behind a share note.
+ *
+ * - `share(url)` holds the link at once and starts the copy; the note
+ *   moves from `copying` to `copied` or `refused`, or to `unanswered`
+ *   after {@link COPY_ANSWER_MS} with no answer.
+ * - `clear()` removes the note; an answer to a copy made before it is
+ *   ignored.
+ * - `shared` is `null` while no note is shown.
+ */
 export function useShareLink(): {
   shared: SharedLink | null;
   share: (url: string) => void;

@@ -802,7 +802,7 @@ Two complementary surfaces produce these links from inside the dashboard so you 
 - **Run detail drawer → Share viz link** — Library → Open on a run whose session was linked when it was saved. Same URL shape.
 - **Quickstart actor card → Copy viz share link** — per-actor button on the [Quickstart results](../src/dashboard/src/components/quickstart/QuickstartResults.tsx) panel. Same URL shape, different invocation point.
 
-Every route goes through the public `/sessions/:id/replay` SSE endpoint, so the viewer streams the stored run live; the recipient does not need to download a `.json` first. Anyone who has the link can watch the run. The TopBar menu and the run drawer show the link in a field after the press, with whether it was copied and who can open it; when the browser refuses the clipboard or does not answer within three seconds, the note says so and the link stays in the field to copy by hand. The `?load=` URL shape below is the fallback for runs that exist as a static remote JSON instead of a server session.
+Every route goes through the public `/sessions/:id/replay` SSE endpoint, so the viewer streams the stored run live; the recipient does not need to download a `.json` first. Anyone who has the link and can reach the dashboard that made it can watch the run; a link made on a dashboard served at `localhost` opens only on that computer. The TopBar menu and the run drawer show the link in a field after the press, with whether it was copied and who can open it; when the browser refuses the clipboard or does not answer within three seconds, the note says so and the link stays in the field to copy by hand. The `?load=` URL shape below is the fallback for runs that exist as a static remote JSON instead of a server session.
 
 ### Input
 

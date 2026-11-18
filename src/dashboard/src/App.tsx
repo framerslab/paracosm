@@ -812,6 +812,12 @@ function AppContent() {
   // The note shows the link, what became of the copy and who can open it.
   const shareLink = useShareLink();
   const shareRunLink = shareLink.share;
+  const clearShareLink = shareLink.clear;
+  // The note names one run's link: it goes when the run on screen is
+  // another one or none (a new run, a cleared page, leaving a replay).
+  useEffect(() => {
+    clearShareLink();
+  }, [currentSessionId, clearShareLink]);
   const handleShareViz = useCallback(() => {
     if (!currentSessionId) return;
     shareRunLink(buildReplayShareUrl(window.location.origin, currentSessionId, 'viz'));
