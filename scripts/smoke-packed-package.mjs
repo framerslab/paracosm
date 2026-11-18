@@ -21,7 +21,7 @@
  * install that needs a toolchain fails.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -175,6 +175,10 @@ async function main() {
 
     const base = `http://127.0.0.1:${port}`;
     await waitForServer(`${base}/`, 60_000, child, closed);
+    const deployedVersion = JSON.parse(readFileSync(join(project, 'node_modules/paracosm/package.json'), 'utf8')).version;
+    const health = await (await fetch(`${base}/health`)).json();
+    if (health.version !== deployedVersion) throw new Error(`/health reports ${health.version}, expected ${deployedVersion}`);
+    console.log(`GET /health: version ${deployedVersion}`);
     for (const [path, type, marker] of PAGES) {
       const response = await fetch(`${base}${path}`);
       const contentType = response.headers.get('content-type') ?? '';

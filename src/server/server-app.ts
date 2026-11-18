@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, type Stats } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, realpathSync, type Stats } from 'node:fs';
 import { resolve, dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -882,6 +882,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     : 5 * 1024 * 1024;
   const maxRequestBodyBytes = options.maxRequestBodyBytes ?? defaultMaxRequestBodyBytes;
   const scenarioDir = options.scenarioDir ?? resolve(__dirname, '..', '..', 'scenarios');
+  // A hosted install keeps administrator saves in its writable state tree.
+  const scenarioStoreDir = env.PARACOSM_SCENARIO_STORE_DIR
+    ? resolve(env.PARACOSM_SCENARIO_STORE_DIR)
+    : scenarioDir;
   // Rate-limit state survives pm2 restarts via a JSON file alongside
   // the repo. Without this, a restart gives every blocked IP a full
   // fresh quota. APP_DIR is the install location on the Linode
@@ -1171,9 +1175,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // (64 MiB) of buffers, and written to ${APP_DIR}/.live-runs/ so a restart
   // (a deploy, a pm2 reload, a crash) does not evaporate a finished run from
   // its visitor's /chat and /results.
+  let legacyBufferPath = resolve(env.APP_DIR || '.', '.event-buffer.json');
+  // A root-owned application directory may expose a link to writable state.
+  // Delete the legacy data there while leaving the application tree alone.
+  try { legacyBufferPath = realpathSync(legacyBufferPath); } catch { /* no legacy data */ }
   const liveRuns = new LiveRunRegistry({
     dir: resolve(env.APP_DIR || '.', '.live-runs'),
-    legacyBufferPath: resolve(env.APP_DIR || '.', '.event-buffer.json'),
+    legacyBufferPath,
     maxRuns: Math.max(1, options.maxRuns ?? readLimitFromEnv(env, 'PARACOSM_MAX_RUNS', 3)),
     maxHeldRuns: options.maxHeldRuns ?? readLimitFromEnv(env, 'PARACOSM_MAX_HELD_RUNS', 10),
     maxHeldRunBytes: options.maxHeldRunBytes ?? readLimitFromEnv(env, 'PARACOSM_MAX_HELD_RUN_BYTES', 67_108_864),
@@ -1253,6 +1261,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // for specific IDs. New builtins ship by adding one more
   // customScenarioCatalog.set(id, { scenario, source: 'builtin' }) here.
   const customScenarioCatalog = loadDiskCustomScenarios(scenarioDir);
+  if (scenarioStoreDir !== scenarioDir) {
+    for (const [id, entry] of loadDiskCustomScenarios(scenarioStoreDir)) {
+      customScenarioCatalog.set(id, entry);
+    }
+  }
   // The two builtins are JSON as well. src/engine/scenarios/index.ts lifts
   // scenarios/mars.json and scenarios/lunar.json, with their knowledge
   // bundles, when it is imported, and the per-agent physics the data-driven
@@ -2545,7 +2558,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     // Store a scenario in this visitor's memory (any visitor) or, with
-    // saveToDisk, write it to <scenarioDir>/<id>.json and the catalog every
+    // saveToDisk, write it to <scenarioStoreDir>/<id>.json and the catalog every
     // visitor reads. The disk write takes the admin credential the /admin/*
     // routes take (requireAdminToken) and an id that names one file directly
     // in the scenarios folder (scenarioJsonPath). A memory store is the
@@ -2573,7 +2586,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             console.warn('[scenarios] scenario disk write refused: admin credential missing, wrong or not configured');
             return;
           }
-          const diskPath = scenarioJsonPath(scenarioDir, scenarioJson.id);
+          const diskPath = scenarioJsonPath(scenarioStoreDir, scenarioJson.id);
           if (!diskPath) {
             console.warn('[scenarios] scenario disk write refused: the id is not a plain scenario id');
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -2581,7 +2594,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return;
           }
           const { writeFileSync, mkdirSync } = await import('node:fs');
-          mkdirSync(scenarioDir, { recursive: true });
+          mkdirSync(scenarioStoreDir, { recursive: true });
           writeFileSync(diskPath, JSON.stringify(scenarioJson, null, 2));
           savedToDisk = true;
           // The saved file takes the id from a compiled scenario or a draft

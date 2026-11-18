@@ -31,7 +31,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
-import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, renameSync, realpathSync } from 'node:fs';
 
 /** The proxy headers a server can be told to read the client's address from. */
 export type ClientIpHeader = 'cf-connecting-ip' | 'x-real-ip' | 'x-forwarded-for';
@@ -146,6 +146,7 @@ export class IpRateLimiter {
   private maxQuickstartPerDay: number;
   private cleanupTimer: ReturnType<typeof setInterval>;
   private persistencePath: string | null = null;
+  private saveWarningLogged = false;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -162,6 +163,11 @@ export class IpRateLimiter {
     this.maxChatPerHour = maxChatPerHour;
     this.maxChatGlobalPerHour = maxChatGlobalPerHour;
     this.persistencePath = persistencePath;
+    if (persistencePath) {
+      // A deploy may link this file into a writable state directory. Keep
+      // atomic saves beside its target without replacing the root link.
+      try { this.persistencePath = realpathSync(persistencePath); } catch { /* first save creates it */ }
+    }
     this.cleanupTimer = setInterval(() => this.cleanup(), 60 * 60 * 1000);
     this.load();
   }
@@ -219,8 +225,12 @@ export class IpRateLimiter {
         const tmp = `${this.persistencePath}.tmp`;
         writeFileSync(tmp, payload, 'utf-8');
         renameSync(tmp, this.persistencePath);
-      } catch {
-        // Disk full, permission denied — swallow; logs would be noisy.
+        this.saveWarningLogged = false;
+      } catch (error) {
+        if (!this.saveWarningLogged) {
+          console.warn(`  [rate-limit] Could not save limits: ${error instanceof Error ? error.message : String(error)}`);
+          this.saveWarningLogged = true;
+        }
       }
     }, 500);
   }
