@@ -166,7 +166,9 @@
     });
   }
 
+  /** Whether each tool's script was added to this page, and whether it runs now. */
   var loaded = { measure: false, record: false };
+  var active = { measure: false, record: false };
 
   function gtag() {
     window.dataLayer = window.dataLayer || [];
@@ -178,6 +180,7 @@
   }
 
   function loadMeasure() {
+    active.measure = true;
     window['ga-disable-' + GA_ID] = false;
     if (loaded.measure) {
       gtag('consent', 'update', { analytics_storage: 'granted' });
@@ -199,6 +202,7 @@
   }
 
   function withdrawMeasure() {
+    active.measure = false;
     if (GA_ID) window['ga-disable-' + GA_ID] = true;
     if (loaded.measure) gtag('consent', 'update', { analytics_storage: 'denied' });
     clearCookies(/^(_ga($|_)|_gid$|_gat)/);
@@ -210,6 +214,7 @@
   }
 
   function loadRecord() {
+    active.record = true;
     if (loaded.record) {
       clarity('consentv2', { ad_Storage: 'denied', analytics_Storage: 'granted' });
       return;
@@ -221,6 +226,7 @@
   }
 
   function withdrawRecord() {
+    active.record = false;
     if (loaded.record) {
       clarity('consentv2', { ad_Storage: 'denied', analytics_Storage: 'denied' });
       clarity('consent', false);
@@ -247,8 +253,8 @@
 
   function apply() {
     var purposes = effective();
-    if (purposes.measure) loadMeasure();
-    if (purposes.record) loadRecord();
+    if (purposes.measure && !active.measure) loadMeasure();
+    if (purposes.record && !active.record) loadRecord();
   }
 
   // A page of the dashboard that changes its path without a load counts as a page view too.
@@ -257,7 +263,7 @@
     if (location.pathname === currentPath) return;
     currentPath = location.pathname;
     count();
-    if (loaded.measure && effective().measure) measurePage();
+    if (active.measure) measurePage();
   }
   ['pushState', 'replaceState'].forEach(function (method) {
     var original = history[method];
