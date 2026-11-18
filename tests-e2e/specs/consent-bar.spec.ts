@@ -20,6 +20,8 @@
  *   shows no bar and loads nothing optional;
  * - the footer's Analytics choices control reopens the choices, and turning
  *   a purpose off there clears that vendor's cookies.
+ * - a choice saved in one tab reaches another tab of the same browser that
+ *   is already open.
  *
  * It also writes pictures of the bar at 390 and 1440 px in both looks into
  * test-results/consent-bar-captures, which CI uploads.
@@ -298,6 +300,32 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.goto('/');
       await page.waitForTimeout(SETTLE_MS);
       expect(watch.vendor.slice(before), 'no vendor on the next page').toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('a choice saved in one tab stops the count and the tools in another tab that is already open', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'two-tabs');
+    try {
+      await page.goto('/');
+      const google = page.waitForRequest(request => request.url().startsWith(`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`));
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await google;
+
+      // A second tab of the same browser rejects everything.
+      const other = await context.newPage();
+      await other.goto('/sim');
+      await other.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(other).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await expect(bar(other)).toBeHidden();
+
+      // The first tab stops Google Analytics at once and counts no later page of its own.
+      await expect.poll(() => page.evaluate(id => (window as unknown as Record<string, unknown>)[`ga-disable-${id}`], GA_ID)).toBe(true);
+      const before = watch.counts.length;
+      await page.evaluate(() => history.pushState({}, '', '/another-page'));
+      await page.waitForTimeout(SETTLE_MS);
+      expect(watch.counts.length, 'no count from the first tab after the second rejected').toBe(before);
     } finally {
       await context.close();
     }

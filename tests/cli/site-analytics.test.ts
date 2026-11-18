@@ -175,6 +175,60 @@ test('POST /api/event answers 502 when the instance does not take the page view'
   }
 });
 
+test('POST /api/event forwards at most 120 page views a minute from one address, and answers 429 past it', async () => {
+  received.length = 0;
+  const pageview = JSON.stringify({ n: 'pageview', u: '/' });
+  // Direct calls with no Origin and no fetch metadata, as a script would send them.
+  const send = () => fetch(`${site}/api/event`, {
+    method: 'POST',
+    headers: { 'User-Agent': 'count-flood', 'X-Forwarded-For': '203.0.113.9' },
+    body: pageview,
+  });
+  const answers: number[] = [];
+  for (let i = 0; i < 125; i++) answers.push((await send()).status);
+  assert.deepEqual([...new Set(answers.slice(0, 120))], [202]);
+  assert.deepEqual([...new Set(answers.slice(120))], [429]);
+  assert.equal(received.filter(event => event.userAgent === 'count-flood').length, 120);
+
+  // Another address still counts.
+  const other = await post(site, pageview, { 'X-Forwarded-For': '203.0.113.10' });
+  assert.equal(other.status, 202);
+});
+
+test('POST /api/event holds at most 32 forwards open at once, and answers 429 past them', async () => {
+  const held: Array<import('node:http').ServerResponse> = [];
+  const slowSink = createServer((req, res) => {
+    req.resume();
+    held.push(res);
+  });
+  const slowUrl = `${await listen(slowSink)}/api/event`;
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-count-slow-'));
+  const server = createMarsServer({
+    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: 'true', PARACOSM_PLATFORM_API: undefined, PARACOSM_CLIENT_IP_HEADER: 'x-forwarded-for' },
+    runPairSimulations: async () => {},
+    countEventUrl: slowUrl,
+  });
+  const origin = await listen(server);
+  try {
+    const pageview = JSON.stringify({ n: 'pageview', u: '/' });
+    // 32 page views from 32 addresses, each held open by the sink.
+    const open = Array.from({ length: 32 }, (_, i) => post(origin, pageview, { 'X-Forwarded-For': `198.51.100.${i + 1}` }));
+    const deadline = Date.now() + 4_000;
+    while (held.length < 32 && Date.now() < deadline) await new Promise(resolveWait => setTimeout(resolveWait, 20));
+    assert.equal(held.length, 32, 'the 32 forwards reach the sink');
+    const refused = await post(origin, pageview, { 'X-Forwarded-For': '198.51.100.200' });
+    assert.equal(refused.status, 429);
+    for (const res of held) { res.writeHead(202); res.end(); }
+    assert.deepEqual([...new Set((await Promise.all(open)).map(res => res.status))], [202]);
+  } finally {
+    for (const res of held) if (!res.writableEnded) res.end();
+    server.close();
+    slowSink.close();
+    await Promise.all([once(server, 'close'), once(slowSink, 'close')]);
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('a copy run from the package or a clone has no /api/event route', async () => {
   received.length = 0;
   const res = await post(localSite, JSON.stringify({ n: 'pageview', u: '/' }));
