@@ -445,7 +445,7 @@ The refusal comes before the stream starts, before the compiler runs and before 
 
 The id is checked again when the compile finishes. If something took it while the compile ran, the stream ends with an `error` event that carries the same message, and the catalog is unchanged.
 
-The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under. A finished compile whose scenario left the catalog to make room answers its status with `status: "error"` and no scenario, and the same seed sent again starts a new compile.
+The Quickstart compile (`POST /api/quickstart/compile-from-seed`) picks the scenario's id itself. When that id is taken, the scenario lands under the next free id (`<id>-2`, then `<id>-3`), with the id cut short where it must be so the whole is at most 64 characters, the longest id the Quickstart routes take, and the status answer's `scenarioId` and `scenario.id` report the id it landed under. A finished compile whose scenario left the catalog to make room answers its status with `status: "error"` and no scenario, and the same seed sent again starts a new compile. At most 4 such compiles are pending at once (503 with `Retry-After: 60` above it), and one pending for 10 minutes ends with `status: "error"` and is never installed.
 
 **Request body**
 
