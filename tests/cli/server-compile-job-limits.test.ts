@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import test, { type TestContext } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import { _resetCompileJobsForTest } from '../../src/server/routes/quickstart.js';
-import { mars, withVisitors } from './helpers/run-server.js';
+import { mars, withVisitors, type RunServerOptions } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
 
 const route = '/api/quickstart/compile-from-seed';
 const deadlineError = 'The compile did not finish in 10 minutes. Try again.';
+const notFound = { error: 'Compile job not found. It may have expired (10-minute TTL) or never existed.' };
 
 function start(visitor: Visitor, variant: number) {
   const seedText = `Station ${variant} plans the crew, supplies and repairs for its next season. `.repeat(5);
@@ -32,21 +33,30 @@ async function status(visitor: Visitor, jobId: string) {
 }
 
 async function withJobs(t: TestContext, body: (
-  visitor: Visitor, scenarioDir: string, finishFirst: (id: string) => Promise<void>,
-) => Promise<void>) {
+  visitor: Visitor,
+  scenarioDir: string,
+  finishFirst: (id: string) => Promise<void>,
+  failFirst: (message: string) => Promise<void>,
+) => Promise<void>, options: RunServerOptions = {}) {
   _resetCompileJobsForTest();
   const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-jobs-'));
-  const pending: Array<(id: string) => void> = [];
-  const compileFromSeed = () => new Promise(resolve => {
-    pending.push(id => resolve({ ...mars, id, hooks: {} }));
+  const pending: Array<{ finish: (id: string) => void; fail: (message: string) => void }> = [];
+  const compileFromSeed = () => new Promise((resolve, reject) => {
+    pending.push({
+      finish: id => resolve({ ...mars, id, hooks: {} }),
+      fail: message => reject(new Error(message)),
+    });
   });
   try {
     await withVisitors(async api => {
       await body(api.cookied(), scenarioDir, async id => {
-        pending[0](id);
+        pending[0].finish(id);
+        await setImmediate();
+      }, async message => {
+        pending[0].fail(message);
         await setImmediate();
       });
-    }, { scenarioDir, extra: { compileFromSeed } });
+    }, { ...options, scenarioDir, extra: { compileFromSeed } });
   } finally {
     t.mock.timers.reset();
     _resetCompileJobsForTest();
@@ -95,5 +105,31 @@ test('a compile that settles after ten minutes with no request between installs 
       ...await installation(visitor, scenarioDir, 'late-0'),
       ...await status(visitor, first),
     }, { listed: false, saved: false, status: 'error', error: deadlineError, scenarioId: undefined });
+
+    t.mock.timers.tick(10 * 60_000 + 1);
+    const swept = await visitor.post(`${route}/status`, { jobId: first });
+    assert.equal(swept.status, 404);
+    assert.deepEqual(await swept.json(), notFound);
   });
+});
+
+test('a compile that fails after ten minutes with no request between answers the deadline error', async t => {
+  await withJobs(t, async (visitor, _scenarioDir, _finishFirst, failFirst) => {
+    const first = await startJob(visitor, 1);
+    passDeadline(t);
+    await failFirst('model down');
+    assert.deepEqual(await status(visitor, first), { status: 'error', error: deadlineError, scenarioId: undefined });
+  });
+});
+
+test('on the hosted demo a start refused for four pending compiles does not use the daily compile allowance', async t => {
+  await withJobs(t, async visitor => {
+    const statuses: number[] = [];
+    for (let variant = 1; variant <= 6; variant++) {
+      const response = await start(visitor, variant);
+      await response.text();
+      statuses.push(response.status);
+    }
+    assert.deepEqual(statuses, [202, 202, 202, 202, 503, 503]);
+  }, { maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } });
 });
