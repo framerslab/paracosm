@@ -6,12 +6,13 @@
  * EISDIR and no listener, and that stopped the process for every visitor.
  * A request path reaches the server as the visitor sent it, so a path with
  * `..` in it must never reach a file outside the folder its route serves.
+ * A docs link written without `.html` answers 301 to the page that has it.
  */
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { request } from 'node:http';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -24,6 +25,17 @@ const unreadableFile = `test-unreadable-${process.pid}.mp4`;
 
 const docsRoot = resolve(root, 'docs', 'api');
 const docsFile = `test-docs-${process.pid}.css`;
+// A module page as TypeDoc writes it, and the module index beside the
+// folder of the same name. CI runs the tests before it builds the docs, so
+// the index and the folder are made only when missing and removed only if
+// made here.
+const docsPage = `test-page-${process.pid}`;
+const docsIndex = resolve(docsRoot, 'modules.html');
+const docsModules = resolve(docsRoot, 'modules');
+let wroteDocsIndex = false;
+let madeDocsModules = false;
+// A page in docs/, one folder above docs/api: `/docs/../<name>` names it.
+const outsidePage = resolve(root, 'docs', `test-outside-${process.pid}.html`);
 
 let site = '';
 let port = 0;
@@ -41,6 +53,16 @@ before(async () => {
   // be using it at the same time.
   mkdirSync(docsRoot, { recursive: true });
   writeFileSync(resolve(docsRoot, docsFile), 'body { color: black; }');
+  if (!existsSync(docsModules)) {
+    mkdirSync(docsModules);
+    madeDocsModules = true;
+  }
+  writeFileSync(resolve(docsModules, `${docsPage}.html`), '<!DOCTYPE html><html><head></head><body><p>page</p></body></html>');
+  if (!existsSync(docsIndex)) {
+    writeFileSync(docsIndex, '<!DOCTYPE html><html><head></head><body><p>modules</p></body></html>');
+    wroteDocsIndex = true;
+  }
+  writeFileSync(outsidePage, '<!DOCTYPE html><html><head></head><body><p>outside</p></body></html>');
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-static-'));
   const env = { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: undefined };
   const server = createMarsServer({ env, runPairSimulations: async () => {} });
@@ -56,6 +78,10 @@ before(async () => {
     rmSync(resolve(demoRoot, demoSubdir), { recursive: true, force: true });
     rmSync(resolve(demoRoot, unreadableFile), { force: true });
     rmSync(resolve(docsRoot, docsFile), { force: true });
+    rmSync(resolve(docsModules, `${docsPage}.html`), { force: true });
+    if (madeDocsModules) rmdirSync(docsModules);
+    if (wroteDocsIndex) rmSync(docsIndex, { force: true });
+    rmSync(outsidePage, { force: true });
   };
 });
 
@@ -128,13 +154,13 @@ test('a demo file that cannot be opened answers 500, whole and by range, and the
  * Sends one GET with the path exactly as given. fetch() would resolve the
  * `..` segments first, as a browser does; a scanner sends them raw.
  */
-function getRawPath(path: string): Promise<{ status: number; body: string }> {
+function getRawPath(path: string): Promise<{ status: number; body: string; location?: string }> {
   return new Promise((done, fail) => {
     const req = request({ host: '127.0.0.1', port, path, signal: answerWithin() }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk: string) => { body += chunk; });
-      res.on('end', () => done({ status: res.statusCode ?? 0, body }));
+      res.on('end', () => done({ status: res.statusCode ?? 0, body, location: res.headers.location }));
       res.on('error', fail);
     });
     req.on('error', fail);
@@ -170,4 +196,53 @@ test('a file inside docs/api is still served', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'text/css');
   assert.equal(await res.text(), 'body { color: black; }');
+});
+
+// A docs link without `.html`, with or without a trailing slash, answers 301
+// to the page that has it, query string kept. The page wins over a folder of
+// the same name: TypeDoc writes both modules.html and modules/.
+const docsLinksWithoutHtml: ReadonlyArray<readonly [string, string]> = [
+  [`/docs/modules/${docsPage}`, `/docs/modules/${docsPage}.html`],
+  [`/docs/modules/${docsPage}/`, `/docs/modules/${docsPage}.html`],
+  [`/docs/modules/${docsPage}?v=1`, `/docs/modules/${docsPage}.html?v=1`],
+  ['/docs/modules', '/docs/modules.html'],
+  ['/docs/modules/', '/docs/modules.html'],
+];
+
+for (const [path, target] of docsLinksWithoutHtml) {
+  test(`GET ${path} answers 301 to ${target}, which answers 200`, async () => {
+    const res = await fetch(`${site}${path}`, { redirect: 'manual', signal: answerWithin() });
+    assert.equal(res.status, 301);
+    assert.equal(res.headers.get('location'), target);
+    await res.arrayBuffer();
+    const page = await fetch(`${site}${target}`, { signal: answerWithin() });
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get('content-type'), 'text/html');
+    await page.arrayBuffer();
+  });
+}
+
+test('a docs page sent with its .html still answers 200', async () => {
+  const res = await fetch(`${site}/docs/modules/${docsPage}.html`, { redirect: 'manual', signal: answerWithin() });
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /<p>page<\/p>/);
+});
+
+test('a docs path with no page of that name still answers 404', async () => {
+  // The second path runs through a file as if it were a folder.
+  for (const path of [`/docs/modules/no-such-page-${process.pid}`, `/docs/modules/${docsPage}.html/x`]) {
+    const res = await fetch(`${site}${path}`, { redirect: 'manual', signal: answerWithin() });
+    assert.equal(res.status, 404, path);
+    await res.arrayBuffer();
+  }
+  await assertStillAnswers();
+});
+
+test('a docs path that leaves docs/api answers 404, though a page of that name sits outside it', async () => {
+  for (const path of ['/docs/../package', `/docs/../test-outside-${process.pid}`, `/docs/../test-outside-${process.pid}/`]) {
+    const { status, location } = await getRawPath(path);
+    assert.equal(status, 404, path);
+    assert.equal(location, undefined, path);
+  }
+  await assertStillAnswers();
 });
