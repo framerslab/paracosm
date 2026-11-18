@@ -45,8 +45,9 @@ const VENDOR_HOST = /(^|\.)(googletagmanager\.com|google-analytics\.com|clarity\
 /** Every host the test answers itself: the vendors and the shared Plausible instance. */
 const ANSWERED_HOST = /^https:\/\/([a-z0-9-]+\.)*(googletagmanager\.com|google-analytics\.com|google\.com|clarity\.ms|bing\.com|posthog\.com|analytics\.manic\.agency)(:\d+)?\//;
 
-const DOCS_BUILT = existsSync(path.resolve(ROOT, 'docs/api/index.html'));
-const PAGES = ['/', '/sim', ...(DOCS_BUILT ? ['/docs/'] : [])];
+// /docs answers a redirect to the module index, the page the API docs open on.
+const DOCS_BUILT = existsSync(path.resolve(ROOT, 'docs/api/modules.html'));
+const PAGES = ['/', '/sim', ...(DOCS_BUILT ? ['/docs/modules.html'] : [])];
 const PHONE_WIDTHS = [320, 360, 390, 430, 480, 768];
 /** Long enough for a script a page should not load to have asked for its host. */
 const SETTLE_MS = 1500;

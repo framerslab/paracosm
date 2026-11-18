@@ -72,10 +72,11 @@ const PAGES = [
 ];
 
 /**
- * Hosts the visitor analytics load from. Only the hosted demo adds them (src/server/site-analytics.ts),
- * and the landing page's privacy section tells visitors a copy installed from npm loads none of them.
+ * Hosts the visitor analytics load from, and the consent bar's own assets. Only the hosted demo adds the bar,
+ * which loads each tool under the visitor's yes (src/server/site-analytics.ts), and the landing page's privacy
+ * section tells visitors a copy installed from npm loads none of them.
  */
-const ANALYTICS_HOSTS = ['analytics.manic.agency', 'googletagmanager.com', 'clarity.ms'];
+const ANALYTICS_HOSTS = ['analytics.manic.agency', 'googletagmanager.com', 'clarity.ms', '/brand/consent/'];
 
 /** [path, Location of the redirect]: the package ships no docs/api, so the docs links go to the hosted reference. */
 const REDIRECTS = [

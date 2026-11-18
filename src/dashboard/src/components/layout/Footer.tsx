@@ -127,8 +127,19 @@ function buildCostTooltip(
   return lines.join('\n');
 }
 
+/**
+ * Whether the server gave this page the consent bar (the hosted demo, in
+ * src/server/site-analytics.ts). Its script opens the choices from any
+ * element marked data-consent-open, so the footer offers the control only
+ * where the bar exists.
+ */
+function hasConsentBar(): boolean {
+  return typeof document !== 'undefined' && document.getElementById('paracosm-consent-config') !== null;
+}
+
 export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
   const isPhone = useMediaQuery(PHONE_QUERY);
+  const consentBar = hasConsentBar();
   const cls = ['shrink-0', styles.footer, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
   return (
     <footer className={cls} role="contentinfo">
@@ -158,6 +169,12 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
             </span>
           )}
         </span>
+      )}
+
+      {consentBar && (
+        <button type="button" data-consent-open className={`${styles.navLink} ${styles.consentLink}`}>
+          Analytics choices
+        </button>
       )}
 
       {!isPhone && (

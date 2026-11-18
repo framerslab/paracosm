@@ -26,6 +26,17 @@
   font-weight: 600;
 }
 
+// The Analytics choices control: a button the consent bar's script opens the
+// choices from, drawn as one of the footer's links.
+.consentLink {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .statusChip {
   display: inline-flex;
   align-items: center;

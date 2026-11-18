@@ -55,7 +55,17 @@ import { createCompilerTelemetry, type CompilerTelemetry } from '../engine/compi
 import { openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
-import { withSiteAnalytics } from './site-analytics.js';
+import {
+  clientAddress,
+  countEventFrom,
+  forwardCountEvent,
+  PLAUSIBLE_EVENT_URL,
+  parseSiteAnalyticsIds,
+  readSiteAnalyticsIds,
+  sendsPrivacySignal,
+  withSiteAnalytics,
+  type SiteAnalyticsIds,
+} from './site-analytics.js';
 import { createRunRecord, hashActorConfig, publicResultFrame } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
@@ -594,6 +604,18 @@ export interface CreateMarsServerOptions {
    * engine. Absent: the compile, which calls a model on its first use.
    */
   getDigitalTwinWorld?: () => Promise<WorldModel | null>;
+  /**
+   * The hosted demo's Google Analytics and Clarity ids. Absent: the ids the
+   * dashboard's build wrote into its site-analytics.json
+   * (src/server/site-analytics.ts). A test gives made-up ones.
+   */
+  siteAnalyticsIds?: SiteAnalyticsIds;
+  /**
+   * Where the hosted demo's `POST /api/event` forwards page views. Absent:
+   * the shared Plausible instance (PLAUSIBLE_EVENT_URL). A test gives a
+   * local sink, so nothing it sends is counted.
+   */
+  countEventUrl?: string;
 }
 
 /**
@@ -777,8 +799,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // retention sweep and the output wipe all use.
   const runsDir = resolveRunsDir(env);
   // Visitor analytics run on the hosted demo at paracosm.agentos.sh only; a
-  // copy run from the package or a clone sends its pages without them.
+  // copy run from the package or a clone sends its pages without them. Each
+  // runs only under the visitor's yes to its purpose (src/server/site-analytics.ts).
   const siteAnalytics = serverMode === 'hosted_demo';
+  const countEventUrl = options.countEventUrl ?? PLAUSIBLE_EVENT_URL;
+  /** When the last failed forward of a page view was logged; one line a minute at most. */
+  let countForwardWarnedAt = 0;
   const pickCookieSecure = serverMode === 'hosted_demo';
   /** The visitor whose compile installed each compiled scenario's brief. */
   const compiledBriefOwners = new Map<string, string>();
@@ -2047,6 +2073,60 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     res.end(JSON.stringify({ error: `Unknown run: ${key}` }));
   };
 
+  /**
+   * What the consent bar on the page a request gets is given: the analytics
+   * ids (the option, or the dashboard build's site-analytics.json, read per
+   * page as the landing page is), whether the request sent a privacy signal,
+   * and the version its asset addresses carry.
+   */
+  const analyticsPage = (req: IncomingMessage) => ({
+    ids: options.siteAnalyticsIds
+      ? parseSiteAnalyticsIds(options.siteAnalyticsIds)
+      : readSiteAnalyticsIds(resolve(__dirname, '../dashboard/dist')),
+    signal: sendsPrivacySignal(req),
+    assetVersion: PARACOSM_VERSION,
+  });
+
+  /**
+   * POST /api/event on the hosted demo: one page view from the consent bar's
+   * script (assets/consent/consent.js), forwarded path only to the shared
+   * Plausible instance with the visitor's browser name and address, as its
+   * events API asks. A request from another site, or one that sends a
+   * privacy signal, is answered 204 and forwards nothing.
+   */
+  const handleCountEvent = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST', 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    if (fromAnotherSite(req, allowedOrigins) || sendsPrivacySignal(req)) {
+      res.writeHead(204, { 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    let event: ReturnType<typeof countEventFrom>;
+    try {
+      event = countEventFrom(await readBody(req, 4096));
+    } catch (error) {
+      writeJsonError(res, error);
+      return;
+    }
+    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '';
+    if (!event || !userAgent) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'invalid_event' }));
+      return;
+    }
+    const accepted = await forwardCountEvent(countEventUrl, event, { userAgent, address: clientAddress(req, clientIpHeader) });
+    if (!accepted && Date.now() - countForwardWarnedAt > 60_000) {
+      countForwardWarnedAt = Date.now();
+      console.warn('  [analytics] The Plausible instance did not accept a page view; further failures this minute are not logged.');
+    }
+    res.writeHead(accepted ? 202 : 502, { 'Cache-Control': 'no-store' });
+    res.end();
+  };
+
   const handleRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     if (serverMode === 'local_demo' && !localHostKnown(req.headers.host, env.HOST ?? '', allowedHosts)) {
       writeLocalRefusal(res, '[host] refused a request sent to a name this local server does not answer');
@@ -2089,6 +2169,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (!pathDecodes(req.url)) {
       res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
       res.end(JSON.stringify({ error: 'invalid_path', message: 'The path holds a percent escape that does not decode.' }));
+      return;
+    }
+
+    // The consent bar's page views, on the hosted demo only.
+    if (siteAnalytics && (req.url ?? '').split('?')[0] === '/api/event') {
+      await handleCountEvent(req, res);
       return;
     }
 
@@ -4429,7 +4515,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           PARACOSM_VERSION,
         );
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-        res.end(siteAnalytics ? withSiteAnalytics(page, 'all') : page);
+        res.end(siteAnalytics ? withSiteAnalytics(page, analyticsPage(req)) : page);
         return;
       }
     }
@@ -4629,12 +4715,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     <a href="https://www.npmjs.com/package/paracosm">npm</a>
     <a href="https://frame.dev">Frame.dev</a>
     <a href="https://frame.dev">Frame</a>
-    <a href="/#privacy">Privacy</a>
+    <a href="/#privacy">Privacy</a>${siteAnalytics ? '\n    <button type="button" class="pdf-consent" data-consent-open hidden>Analytics choices</button>' : ''}
   </div>
   <span><span style="font-family:'JetBrains Mono','SF Mono',Menlo,monospace;font-weight:700;letter-spacing:.08em;font-size:10px">PARA<span style="color:#e8b44a">COSM</span></span> &middot; Apache-2.0 &middot; <a href="https://frame.dev">Frame.dev</a></span>
 </div></body>`);
             res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
-            res.end(siteAnalytics ? withSiteAnalytics(html, 'all') : html);
+            res.end(siteAnalytics ? withSiteAnalytics(html, analyticsPage(req)) : html);
             return;
           }
 
@@ -4706,8 +4792,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           htmlHeaders['Set-Cookie'] = visitorCookie(randomUUID(), pickCookieSecure);
         }
         res.writeHead(200, htmlHeaders);
-        // The bundle loads Google Analytics and Clarity itself when deploy.yml builds it with their ids.
-        res.end(siteAnalytics ? withSiteAnalytics(html, 'plausible') : html);
+        res.end(siteAnalytics ? withSiteAnalytics(html, analyticsPage(req)) : html);
         return;
       }
       // A source checkout has no dashboard build until it runs one; the npm

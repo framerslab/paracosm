@@ -54,7 +54,6 @@ import { SwarmViz } from './components/viz/SwarmViz';
 import { Footer } from './components/layout/Footer';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
-import { Analytics } from './components/shared/Analytics';
 import { GuidedTour } from './components/tour/GuidedTour';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
@@ -1414,7 +1413,6 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <ToastProvider>
-          <Analytics />
           <AppContent />
         </ToastProvider>
       </ThemeProvider>
