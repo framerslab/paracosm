@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   buildReplayShareUrl,
   findLatestSavedSessionId,
+  shareLinkOpensOnlyHere,
 } from './shareUrl.helpers.js';
 import type { SimEvent } from './useSSE';
 
@@ -108,4 +109,39 @@ test('findLatestSavedSessionId: skips failed save and returns prior saved id', (
   // Newest-wins iteration: failed save short-circuits the continue,
   // then the earlier saved entry is returned.
   assert.equal(findLatestSavedSessionId(events), 'sess_first');
+});
+
+// -- shareLinkOpensOnlyHere -----------------------------------------------
+
+test('shareLinkOpensOnlyHere: a link to localhost, a name under it or a loopback address opens only on this computer', () => {
+  for (const origin of [
+    'http://localhost:3456',
+    'http://LOCALHOST:3456',
+    'http://localhost.:3456',
+    'http://paracosm.localhost:3456',
+    'http://127.0.0.1:3462',
+    'http://127.8.4.2',
+    'http://[::1]:3456',
+    'http://0.0.0.0:3456',
+  ]) {
+    assert.equal(shareLinkOpensOnlyHere(buildReplayShareUrl(origin, 'abc123')), true, origin);
+  }
+});
+
+test('shareLinkOpensOnlyHere: a link to a public name or a network address can open on another computer', () => {
+  for (const origin of [
+    'https://paracosm.agentos.sh',
+    'http://192.168.1.20:3456',
+    'http://10.0.0.5:3456',
+    'http://128.0.0.1:3456',
+    'http://[2001:db8::1]:3456',
+    'https://localhost.example.com',
+    'https://notlocalhost',
+  ]) {
+    assert.equal(shareLinkOpensOnlyHere(buildReplayShareUrl(origin, 'abc123')), false, origin);
+  }
+});
+
+test('shareLinkOpensOnlyHere: text that is not a link names no local address', () => {
+  assert.equal(shareLinkOpensOnlyHere('not a link'), false);
 });
