@@ -59,6 +59,18 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
   return url.toString();
 }
 
+/**
+ * The Settings tab's Event Log filtered to one forged tool: `sub=log`
+ * opens the Event Log sub-tab and the `#log=<tool name>` hash is the
+ * filter EventLogPanel reads when it mounts (parseFiltersFromUrl).
+ */
+export function createToolLogHref(currentHref: string, toolName: string): string {
+  const url = new URL(createDashboardTabHref(currentHref, 'settings'));
+  url.searchParams.set('sub', 'log');
+  url.hash = `log=${encodeURIComponent(toolName)}`;
+  return url.toString();
+}
+
 /** Push the ?sub= URL param without reloading so refreshing the page
  *  (or copying the link) lands the user back on the same Studio /
  *  Settings sub-tab they had open. Pass null to drop the param when

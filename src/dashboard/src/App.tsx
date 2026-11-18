@@ -27,6 +27,8 @@ import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
 import { useSimSavedToast } from './hooks/useSimSavedToast';
+import { useShareLink } from './hooks/useShareLink';
+import { ShareLinkNote } from './components/shared/ShareLinkNote';
 import { useLaunchState } from './hooks/useLaunchState';
 import { VerdictBanner } from './components/layout/VerdictBanner';
 import { VerdictModal } from './components/layout/VerdictModal';
@@ -59,6 +61,7 @@ import { GuidedTour } from './components/tour/GuidedTour';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
+  createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
   getDashboardTabFromHref,
@@ -88,7 +91,15 @@ export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
 }
 
-const DashboardNavigationContext = createContext<((tab: Exclude<DashboardTab, 'about'>) => void) | null>(null);
+/**
+ * Where a navigation lands. `logTool` opens the Settings tab's Event Log
+ * filtered to that forged tool's events (the toolbox's "↗ LOG" key).
+ */
+export interface DashboardNavigationOptions {
+  logTool?: string;
+}
+type DashboardNavigate = (tab: Exclude<DashboardTab, 'about'>, options?: DashboardNavigationOptions) => void;
+const DashboardNavigationContext = createContext<DashboardNavigate | null>(null);
 export function useDashboardNavigation() {
   const ctx = useContext(DashboardNavigationContext);
   if (!ctx) throw new Error('useDashboardNavigation must be used within App');
@@ -275,7 +286,9 @@ function AppContent() {
   const [studioInitialSubTab] = useState<'author' | 'branches'>(
     initialRoute.tab === 'studio' && initialRoute.sub === 'branches' ? 'branches' : 'author',
   );
-  const [settingsInitialSubTab] = useState<'config' | 'log'>(
+  // The sub-tab the Settings tab opens on: its settings unless the URL
+  // or a tool's log key asks for the Event Log.
+  const [settingsInitialSubTab, setSettingsInitialSubTab] = useState<'config' | 'log'>(
     initialRoute.tab === 'settings' && initialRoute.sub === 'log' ? 'log' : 'config',
   );
   const setActiveTab = useCallback((tab: DashboardTab) => {
@@ -283,9 +296,22 @@ function AppContent() {
       window.location.href = '/';
       return;
     }
+    if (tab === 'settings') setSettingsInitialSubTab('config');
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
+  // The navigation components get. A tool's log key opens the Event Log
+  // with the tool's filter: the URL is written before the panel mounts,
+  // so EventLogPanel reads the filter from it on its first render.
+  const navigateTab = useCallback<DashboardNavigate>((tab, options) => {
+    if (options?.logTool) {
+      setSettingsInitialSubTab('log');
+      setActiveTabState('settings');
+      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool));
+      return;
+    }
+    setActiveTab(tab);
+  }, [setActiveTab]);
 
   // Direct deep-link to /sim?tab=about lands the user on the dashboard
   // with activeTab='about' but no rendering branch handles it (the
@@ -783,15 +809,13 @@ function AppContent() {
   // Copy a deep link that opens the current run on the viz tab. Used
   // for social shares (r/dataisbeautiful etc.) where viewers click
   // straight through to the swarm visualization with no upload step.
+  // The note shows the link, what became of the copy and who can open it.
+  const shareLink = useShareLink();
+  const shareRunLink = shareLink.share;
   const handleShareViz = useCallback(() => {
     if (!currentSessionId) return;
-    const url = buildReplayShareUrl(window.location.origin, currentSessionId, 'viz');
-    navigator.clipboard.writeText(url).then(() => {
-      toast('success', 'Share link copied', 'Anyone with the link opens this run on the viz tab.');
-    }).catch(() => {
-      toast('error', 'Copy Failed', 'Clipboard access denied.');
-    });
-  }, [currentSessionId, toast]);
+    shareRunLink(buildReplayShareUrl(window.location.origin, currentSessionId, 'viz'));
+  }, [currentSessionId, shareRunLink]);
 
   // App-level "launching" state: persists across tab navigation so the
   // user can submit /setup, switch to viz/chat/etc., come back to sim,
@@ -1032,7 +1056,7 @@ function AppContent() {
 
   return (
     <BranchesProvider>
-    <DashboardNavigationContext.Provider value={setActiveTab}>
+    <DashboardNavigationContext.Provider value={navigateTab}>
      <RunStartContext.Provider value={leaveDigitalTwin}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
@@ -1057,6 +1081,9 @@ function AppContent() {
           {replaySessionId && sse.status !== 'replay_not_found' ? (
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
+          {shareLink.shared && (
+            <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} floating />
+          )}
           <TopBar
             scenario={scenario}
             sse={sse}

@@ -163,6 +163,7 @@ test.describe('the run actions menu', () => {
     await page.getByRole('menuitem', { name: /Share viz link/ }).click();
 
     await expectShareNote(page, id, 'Link copied.');
+    await page.screenshot({ path: `${PICTURES}/1440-dark-run-actions-share-link-shown.png` });
 
     // A browser with none of this visitor's storage opens the link and watches the run.
     const other = await browser.newContext();
