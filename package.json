@@ -87,8 +87,8 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.19.0",
-    "@framers/sql-storage-adapter": "^0.9.6",
+    "@framers/agentos": "^0.19.3",
+    "@framers/sql-storage-adapter": "^0.9.7",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "better-sqlite3": "^12.11.1",
     "quickjs-emscripten-core": "0.32.0",
@@ -96,7 +96,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
