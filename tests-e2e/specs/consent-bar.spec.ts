@@ -444,14 +444,21 @@ test.describe('the consent bar on the hosted demo', () => {
         choose,
         bar(page).getByRole('button', { name: 'Accept all', exact: true }),
       ];
-      let previous = await order[0].boundingBox();
+      // Where each element sits in the bar as laid out, whatever the choices' own scroll.
+      const place = (locator: typeof choose) => locator.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        let y = rect.top;
+        for (let parent = element.parentElement; parent; parent = parent.parentElement) y += parent.scrollTop;
+        return { x: rect.left, y, height: rect.height, name: element.textContent?.trim() || element.getAttribute('aria-labelledby') || element.tagName };
+      });
+      let previous = await place(order[0]);
       for (const next of order.slice(1)) {
         await page.keyboard.press('Tab');
         await expect(next).toBeFocused();
-        const box = await next.boundingBox();
-        const below = box!.y >= previous!.y + previous!.height - 1;
-        const rightOnRow = Math.abs(box!.y - previous!.y) <= 1 && box!.x > previous!.x;
-        expect(below || rightOnRow, 'focus moves down the bar, then left to right along a row').toBe(true);
+        const box = await place(next);
+        const below = box.y >= previous.y + previous.height - 1;
+        const rightOnRow = Math.abs(box.y - previous.y) <= 1 && box.x > previous.x;
+        expect(below || rightOnRow, `focus moves down the bar, then left to right along a row: ${JSON.stringify(previous)} then ${JSON.stringify(box)}`).toBe(true);
         previous = box;
       }
 
