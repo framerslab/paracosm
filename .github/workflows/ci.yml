@@ -31,7 +31,7 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -139,6 +139,22 @@ jobs:
 
       - name: Check the sitemap against the API docs
         run: npm run check:sitemap
+
+      # The hosted demo's consent bar on the landing page, the dashboard and
+      # the API docs the step above built, against a server of its own in
+      # hosted_demo mode with made-up analytics ids. It writes pictures of the
+      # bar into test-results/consent-bar-captures.
+      - name: Consent bar end-to-end test
+        run: npx playwright test tests-e2e/specs/consent-bar.spec.ts --project=chromium-desktop
+
+      - name: Upload the consent bar pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: consent-bar-captures
+          path: test-results/consent-bar-captures/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The install the server runs after a deploy, as deploy.yml's server-install
   # job runs it: the production dependencies from the lockfile on Node 22, in

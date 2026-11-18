@@ -103,5 +103,16 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        // The hosted demo's server with its visitor analytics on and made-up
+        // ids, for the consent bar spec; the count events it forwards go to a
+        // sink on port 3463.
+        {
+          command: 'PORT=3462 CONSENT_SINK_PORT=3463 npx tsx tests-e2e/support/consent-server.ts',
+          url: 'http://127.0.0.1:3462/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
       ],
 });
