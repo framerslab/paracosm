@@ -372,6 +372,10 @@ jobs:
 
           # Validate the account and state layout while the current process
           # is still serving. Preparation errors must precede the stop.
+          if ! command -v curl >/dev/null; then
+            echo "Dashboard readiness requires curl" >&2
+            exit 1
+          fi
           getent group paracosm >/dev/null || groupadd --system paracosm
           if ! id -u paracosm >/dev/null 2>&1; then
             useradd --system --gid paracosm --home-dir "$deploy_dir" --no-create-home --shell /usr/sbin/nologin paracosm
@@ -408,7 +412,7 @@ jobs:
           port=$(runuser -u paracosm -- node -e '
             const fs = require("node:fs");
             const path = require("node:path");
-            const settings = { APP_DIR: process.env.APP_DIR, PORT: process.env.PORT };
+            const settings = { APP_DIR: process.env.APP_DIR, PORT: process.env.PORT, HOST: process.env.HOST };
             for (const line of fs.readFileSync(".env", "utf8").split("\n")) {
               const entry = line.match(/^\s*([^#=]+?)\s*=\s*(.+?)\s*$/);
               if (entry && Object.hasOwn(settings, entry[1]) && !settings[entry[1]]) {
@@ -419,12 +423,23 @@ jobs:
               console.error("APP_DIR must resolve to the deploy directory");
               process.exit(1);
             }
+            if (!["", "0.0.0.0", "127.0.0.1", "localhost"].includes((settings.HOST || "").trim())) {
+              console.error("Dashboard HOST must allow loopback readiness checks");
+              process.exit(1);
+            }
             const port = parseInt(settings.PORT || "3456", 10);
             if (!(port > 0 && port <= 65535)) throw new Error("Invalid dashboard PORT");
             console.log(port);
           ' </dev/null)
-          timeout 120 runuser -u paracosm -- node -e "import('./dist/server/server-app.js')" </dev/null
           version=$(node -p "require('./package.json').version" </dev/null)
+
+          timeout 120 runuser -u paracosm -- node -e "
+            import('./dist/server/server-app.js').then(
+              () => process.exit(0),
+              error => { console.error(error); process.exit(1); }
+            )
+          " </dev/null
+          echo "Trial load passed for version $version on port $port"
 
           # Stop before moving state, so the prior process finishes writing.
           # Atomic saves and legacy-buffer cleanup use the writable targets;
@@ -445,6 +460,11 @@ jobs:
           # Include any files the old process wrote during shutdown.
           chown -hR paracosm:paracosm data output .live-runs scenarios/compiled .paracosm
 
+          log_dir="${PM2_HOME:-$HOME/.pm2}/logs"
+          error_log="$log_dir/paracosm-error.log"
+          error_bytes=0
+          if [ -f "$error_log" ]; then error_bytes=$(wc -c <"$error_log"); fi
+
           # Restart with pm2. The host sits behind Cloudflare, which sets
           # CF-Connecting-IP to the client's address on every request, so
           # the per-IP limits key on that header; without the setting they
@@ -459,17 +479,23 @@ jobs:
             --max-memory-restart 1200M \
             --env production
 
-          deadline=$((SECONDS + 60))
-          for ((attempt=1; ; attempt++)); do
+          deadline=$(( $(date +%s) + 60 ))
+          attempt=1
+          while :; do
             if health=$(curl -fsS --max-time 2 "http://127.0.0.1:$port/health" </dev/null 2>/dev/null) &&
               node -e 'try { process.exitCode = Number(JSON.parse(process.argv[1]).version !== process.argv[2]); } catch { process.exitCode = 1; }' "$health" "$version" </dev/null; then
+              echo "Readiness passed for version $version on port $port"
               break
             fi
-            if (( SECONDS >= deadline || attempt >= 31 )); then
+            if [ "$(date +%s)" -ge "$deadline" ] || [ "$attempt" -ge 31 ]; then
               echo "Dashboard did not serve version $version on port $port" >&2 </dev/null
-              pm2 logs paracosm --nostream --lines 80 </dev/null
+              if [ -f "$error_log" ]; then
+                tail -c "+$((error_bytes + 1))" "$error_log" | tail -n 80 >&2
+              fi
+              echo "Full logs on the host are in $log_dir" >&2
               exit 1
             fi
+            attempt=$((attempt + 1))
             sleep 2 </dev/null
           done
 
