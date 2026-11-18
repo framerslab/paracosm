@@ -170,6 +170,22 @@ test.describe('when the copy does not happen', () => {
 test.describe('the run actions menu', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
+  test('the share note goes when Clear local data empties the page', async ({ page, context, request }) => {
+    const id = await storedSessionId(request);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: /Share viz link/ }).click();
+    await expectShareNote(page, id, 'Link copied.');
+
+    page.once('dialog', dialog => { void dialog.accept(); });
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: 'Clear local data' }).click();
+
+    await expect(page.getByRole('status', { name: 'Share link' })).toHaveCount(0);
+  });
+
   test('the share note goes when a loaded file replaces the replayed run', async ({ page, context, request }) => {
     const id = await storedSessionId(request);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
