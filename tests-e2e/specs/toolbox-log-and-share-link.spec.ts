@@ -170,6 +170,33 @@ test.describe('when the copy does not happen', () => {
 test.describe('the run actions menu', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
+  test('the share note goes when a loaded file replaces the replayed run', async ({ page, context, request }) => {
+    const id = await storedSessionId(request);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: /Share viz link/ }).click();
+    await expectShareNote(page, id, 'Link copied.');
+
+    const ownRun = {
+      schemaVersion: 3,
+      events: [
+        { type: 'turn_start', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
+        { type: 'turn_done', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
+      ],
+    };
+    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: /Load from file/ }).click();
+    await (await chooser).setFiles({ name: 'own-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(ownRun)) });
+    const preview = page.getByRole('dialog', { name: 'Load simulation' });
+    await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+    await expect(preview).toHaveCount(0);
+
+    await expect(page.getByRole('status', { name: 'Share link' })).toHaveCount(0);
+  });
+
   test('"Share viz link" shows the copied link, and another visitor who opens it watches the run', async ({ page, context, browser, request }) => {
     const id = await storedSessionId(request);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
