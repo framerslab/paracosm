@@ -10,23 +10,34 @@
  *
  * What it proves, on the landing page, the dashboard and the API docs:
  * - before any answer, the bar offers Reject all, Choose and Accept all,
- *   no request goes to Google, Microsoft or PostHog, and the page sends one
- *   count event to the product's own endpoint, which forwards it path only;
- * - the three keys stay on one row from 320 to 768 px wide, with text of
- *   14 px or more and keys 44 px tall;
+ *   no request goes to Google, Microsoft, PostHog or Plausible itself, and
+ *   the page sends one count event to the product's own endpoint, which
+ *   forwards it as the page's public address;
+ * - no page asks Google's font service for anything, before or after an
+ *   answer: the fonts come from the site itself;
+ * - the three keys stay on one row from 320 to 768 px wide, in that order,
+ *   drawn alike, with text of 14 px or more and keys 44 px tall;
  * - Reject all ends the count; Accept all loads Google Analytics and
  *   Clarity; Choose turns on one purpose alone;
- * - a privacy signal (the Sec-GPC header, or navigator.globalPrivacyControl)
- *   shows no bar and loads nothing optional;
- * - the footer's Analytics choices control reopens the choices, and turning
- *   a purpose off there clears that vendor's cookies.
- * - a choice saved in one tab reaches another tab of the same browser that
- *   is already open.
+ * - a privacy signal (the Sec-GPC header, the DNT header alone, or
+ *   navigator.globalPrivacyControl) shows no bar and loads nothing optional;
+ * - a stored answer of another version, or given to other words, counts as
+ *   none, and the words' hash covers every word the bar shows;
+ * - Choose moves focus into the choices, Tab follows the order on screen,
+ *   and Escape goes back to Choose;
+ * - the footer's Analytics choices control reopens the choices, also when
+ *   the dashboard's own script does not load, and turning a purpose off
+ *   there clears that vendor's cookies;
+ * - when the browser refuses to store an answer, the answer just given is
+ *   the one that runs, and the bar says it could not be saved;
+ * - answers given in one tab reach another open tab of the same browser,
+ *   and a withdrawal there stops a Clarity that would restart itself.
  *
  * It also writes pictures of the bar at 390 and 1440 px in both looks into
  * test-results/consent-bar-captures, which CI uploads.
  */
 import { test, expect, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Request } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,8 +53,10 @@ const GA_ID = 'G-E2E0TEST00';
 const CLARITY_ID = 'e2econsent';
 const CAPTURES = path.resolve(ROOT, 'test-results/consent-bar-captures');
 
-/** The hosts a page may reach only after its purpose's yes. */
-const VENDOR_HOST = /(^|\.)(googletagmanager\.com|google-analytics\.com|clarity\.ms|posthog\.com)$/;
+/** The hosts a page may reach only after its purpose's yes, and Plausible's, which a page never reaches itself. */
+const VENDOR_HOST = /(^|\.)(googletagmanager\.com|google-analytics\.com|clarity\.ms|posthog\.com|plausible\.io|analytics\.manic\.agency)$/;
+/** Google's font service, which no page asks. */
+const FONT_HOST = /^fonts\.(googleapis|gstatic)\.com$/;
 /** Every host the test answers itself: the vendors and the shared Plausible instance. */
 const ANSWERED_HOST = /^https:\/\/([a-z0-9-]+\.)*(googletagmanager\.com|google-analytics\.com|google\.com|clarity\.ms|bing\.com|posthog\.com|analytics\.manic\.agency)(:\d+)?\//;
 
@@ -57,6 +70,7 @@ const SETTLE_MS = 1500;
 interface Watch {
   vendor: string[];
   counts: Request[];
+  fonts: string[];
 }
 
 /** A context whose browser identifies itself uniquely, so the sink's events can be told apart by test. */
@@ -65,10 +79,11 @@ async function open(browser: Browser, name: string, options: BrowserContextOptio
   const context = await browser.newContext({ baseURL: BASE, userAgent: agent, ...options });
   await context.route(ANSWERED_HOST, route => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   const page = await context.newPage();
-  const watch: Watch = { vendor: [], counts: [] };
+  const watch: Watch = { vendor: [], counts: [], fonts: [] };
   page.on('request', request => {
     const url = new URL(request.url());
     if (VENDOR_HOST.test(url.hostname)) watch.vendor.push(request.url());
+    if (FONT_HOST.test(url.hostname)) watch.fonts.push(request.url());
     if (request.method() === 'POST' && url.origin === BASE && url.pathname === '/api/event') watch.counts.push(request);
   });
   return { context, page, watch, agent };
@@ -87,9 +102,69 @@ function keys(page: Page) {
   ];
 }
 
-async function stored(page: Page): Promise<{ purposes: Record<string, boolean> } | null> {
+async function stored(page: Page): Promise<{ purposes: Record<string, boolean>; words: string; version: number } | null> {
+  // Turning recordings off reloads the page; read the answer from the page that follows.
+  await page.waitForLoadState('load');
   const raw = await page.evaluate(() => localStorage.getItem('analytics_consent_purposes'));
-  return raw === null ? null : JSON.parse(raw) as { purposes: Record<string, boolean> };
+  return raw === null ? null : JSON.parse(raw) as { purposes: Record<string, boolean>; words: string; version: number };
+}
+
+/** Whether a loaded font face of the family is on the page. */
+function loadedFace(page: Page, family: string): Promise<boolean> {
+  return page.evaluate(async name => {
+    await document.fonts.ready;
+    return Array.from(document.fonts).some(face => face.family.replace(/["']/g, '') === name && face.status === 'loaded');
+  }, family);
+}
+
+/**
+ * Clarity's tag as it behaves: it runs what was queued before it loaded,
+ * starts recording either way, sends what it records every 150 ms, and,
+ * like clarity-js's consentv2 when analytics storage is denied, stops and
+ * starts again 300 ms later without cookies. Only its stop call ends it.
+ */
+const CLARITY_TAG = `(function () {
+  var queued = (window.clarity && window.clarity.q) || [];
+  var timer = null, restart = null;
+  function begin() {
+    if (timer) return;
+    timer = setInterval(function () { fetch('https://www.clarity.ms/collect', { method: 'POST', body: 'events' }).catch(function () {}); }, 150);
+  }
+  function end() { clearInterval(timer); timer = null; }
+  var api = {
+    start: begin,
+    stop: function () { clearTimeout(restart); end(); },
+    consentv2: function (state) {
+      if (state && state.analytics_Storage === 'denied' && timer) { end(); restart = setTimeout(begin, 300); }
+    },
+    consent: function (value) { if (value === false) api.consentv2({ analytics_Storage: 'denied' }); },
+  };
+  window.clarity = function (method) {
+    var call = api[method];
+    if (call) return call.apply(null, Array.prototype.slice.call(arguments, 1));
+  };
+  window.clarity.v = 'test';
+  while (queued.length) window.clarity.apply(null, queued.shift());
+  begin();
+})();`;
+
+/** Answers Clarity's tag with CLARITY_TAG in this context; registered after open()'s route, so it wins. */
+async function withClarityTag(context: BrowserContext): Promise<void> {
+  await context.route(/^https:\/\/www\.clarity\.ms\/tag\//, route => route.fulfill({ status: 200, contentType: 'text/javascript', body: CLARITY_TAG }));
+}
+
+/** Waits until a page has stopped Google Analytics and then sends nothing to any vendor for 1.5 s. */
+async function goesQuiet(page: Page, watch: Watch, label: string): Promise<void> {
+  // The tag is turned off, or the page was reloaded and loaded none.
+  await expect.poll(() => page.evaluate(id => {
+    const flags = window as unknown as Record<string, unknown>;
+    return flags[`ga-disable-${id}`] === true || !('dataLayer' in window);
+  }, GA_ID), { timeout: 10_000 }).toBe(true);
+  // Past the restart a cookieless Clarity would make.
+  await page.waitForTimeout(1000);
+  const seen = watch.vendor.length;
+  await page.waitForTimeout(SETTLE_MS);
+  expect(watch.vendor.slice(seen), label).toEqual([]);
 }
 
 async function forwarded(agent: string): Promise<Array<{ body: { name?: string; url?: string; domain?: string; referrer?: string } }>> {
@@ -110,7 +185,9 @@ test.describe('the consent bar on the hosted demo', () => {
         await count;
         await page.waitForTimeout(SETTLE_MS);
 
-        expect(watch.vendor, 'no request to Google, Microsoft or PostHog before an answer').toEqual([]);
+        expect(watch.vendor, 'no request to Google, Microsoft, PostHog or Plausible before an answer').toEqual([]);
+        expect(watch.fonts, 'no request to Google\'s font service').toEqual([]);
+        expect(await loadedFace(page, 'Inter'), 'Inter loads from the site itself').toBe(true);
         expect(watch.counts, 'one count event to the site itself').toHaveLength(1);
         expect(await page.evaluate(() => localStorage.getItem('plausible_ignore'))).toBeNull();
 
@@ -149,6 +226,21 @@ test.describe('the consent bar on the hosted demo', () => {
           expect(Math.max(...tops) - Math.min(...tops), `${pathname} at ${width} px: the keys sit on one row`).toBeLessThanOrEqual(1);
           const widths = boxes.map(box => Math.round(box.width));
           expect(Math.max(...widths) - Math.min(...widths), `${pathname} at ${width} px: the keys have equal weight`).toBeLessThanOrEqual(2);
+          expect(boxes[0].x < boxes[1].x && boxes[1].x < boxes[2].x, `${pathname} at ${width} px: Reject all, Choose, Accept all from left to right`).toBe(true);
+          const order = await bar(page).evaluate(region => Array.from(region.querySelectorAll('button'))
+            .map(button => button.textContent?.trim() ?? '')
+            .filter(name => ['Reject all', 'Choose', 'Accept all'].includes(name)));
+          expect(order, `${pathname} at ${width} px: the keys' order in the page`).toEqual(['Reject all', 'Choose', 'Accept all']);
+          const looks = [];
+          for (const key of keys(page)) {
+            looks.push(await key.evaluate(element => {
+              const style = getComputedStyle(element);
+              return ['font-size', 'font-weight', 'font-family', 'color', 'background-color', 'background-image', 'border-top-width', 'border-top-style', 'border-top-color', 'text-decoration-line', 'box-shadow', 'opacity']
+                .map(property => `${property}: ${style.getPropertyValue(property)}`);
+            }));
+          }
+          expect(looks[1], `${pathname} at ${width} px: Choose is drawn as Reject all is`).toEqual(looks[0]);
+          expect(looks[2], `${pathname} at ${width} px: Accept all is drawn as Reject all is`).toEqual(looks[0]);
           const textSize = await bar(page).locator('p').first().evaluate(element => parseFloat(getComputedStyle(element).fontSize));
           expect(textSize, `${pathname} at ${width} px: the bar's text size`).toBeGreaterThanOrEqual(14);
         }
@@ -197,7 +289,8 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.goto('/sim');
       await Promise.all([googleAgain, clarityAgain, count]);
       await expect(bar(page)).toBeHidden();
-      expect(watch.vendor.some(url => /(^|\.)posthog\.com$/.test(new URL(url).hostname))).toBe(false);
+      expect(watch.vendor.some(url => /(^|\.)(posthog\.com|plausible\.io|analytics\.manic\.agency)$/.test(new URL(url).hostname))).toBe(false);
+      expect(watch.fonts, 'no request to Google\'s font service after the yes').toEqual([]);
     } finally {
       await context.close();
     }
@@ -243,6 +336,189 @@ test.describe('the consent bar on the hosted demo', () => {
       }
       expect(watch.vendor).toEqual([]);
       expect(watch.counts).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('a DNT: 1 header alone shows no bar and loads nothing optional, the count included', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'dnt-header', { extraHTTPHeaders: { DNT: '1' } });
+    try {
+      for (const pathname of PAGES) {
+        await page.goto(pathname);
+        expect(await page.evaluate(() => navigator.doNotTrack), 'the page itself sees no Do Not Track').not.toBe('1');
+        await page.waitForTimeout(SETTLE_MS);
+        await expect(bar(page)).toBeHidden();
+      }
+      expect(watch.vendor).toEqual([]);
+      expect(watch.counts).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('a stored answer of another version, given to other words, or unreadable counts as none: the bar asks and nothing optional loads', async ({ browser }) => {
+    const records = [
+      JSON.stringify({ version: 0, purposes: { measure: true, record: true } }),
+      JSON.stringify({ version: 1, purposes: { count: true, measure: true, record: true }, words: 'f'.repeat(64), at: '2026-01-01T00:00:00.000Z' }),
+      JSON.stringify({ version: 1, purposes: { count: true, measure: true, record: true }, words: '', at: '2026-01-01T00:00:00.000Z' }),
+      'not json',
+    ];
+    for (const [index, record] of records.entries()) {
+      const { context, page, watch } = await open(browser, `stale-${index}`);
+      try {
+        await context.addInitScript(value => { localStorage.setItem('analytics_consent_purposes', value); }, record);
+        await page.goto('/sim');
+        await expect(bar(page), record).toBeVisible();
+        await page.waitForTimeout(SETTLE_MS);
+        expect(watch.vendor, record).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test('the stored answer carries the hash of every word the bar shows, ready before any key can save it', async ({ browser }) => {
+    const { context, page } = await open(browser, 'words');
+    try {
+      // A digest that takes its time: no key may save before it is done.
+      await context.addInitScript(() => {
+        const digest = SubtleCrypto.prototype.digest;
+        SubtleCrypto.prototype.digest = function (this: SubtleCrypto, ...args: Parameters<SubtleCrypto['digest']>) {
+          return new Promise(resolveLater => setTimeout(resolveLater, 800)).then(() => digest.apply(this, args));
+        } as SubtleCrypto['digest'];
+      });
+      await page.goto('/');
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      const record = await stored(page);
+      expect(record?.words, 'the answer carries a SHA-256').toMatch(/^[0-9a-f]{64}$/);
+      expect(record?.version).toBe(1);
+
+      // The hash is of the bar's words, all of them.
+      const words = await page.evaluate(() => JSON.stringify((window as unknown as { __paracosmConsent: { words: unknown } }).__paracosmConsent.words));
+      expect(record?.words).toBe(createHash('sha256').update(words).digest('hex'));
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      const shown = await bar(page).evaluate(region => {
+        const texts: string[] = [];
+        const walker = document.createTreeWalker(region, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node.textContent?.trim();
+          if (text) texts.push(text);
+        }
+        for (const element of Array.from(region.querySelectorAll('[aria-label]'))) texts.push(element.getAttribute('aria-label') ?? '');
+        texts.push(region.getAttribute('aria-label') ?? '');
+        return texts;
+      });
+      const hashed = new Set<string>();
+      const collect = (value: unknown): void => {
+        if (typeof value === 'string') hashed.add(value);
+        else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+      };
+      collect(JSON.parse(words));
+      for (const text of shown) expect(hashed.has(text), `"${text}" is among the hashed words`).toBe(true);
+      expect(shown.length).toBeGreaterThan(10);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('Choose moves focus to the first switch, Tab follows the order on screen, and Escape goes back to Choose with the first layer still there', async ({ browser }) => {
+    const { context, page } = await open(browser, 'focus');
+    try {
+      await page.goto('/');
+      const choose = bar(page).getByRole('button', { name: 'Choose', exact: true });
+      await choose.focus();
+      await page.keyboard.press('Enter');
+      const choices = page.getByRole('region', { name: 'Choose what runs' });
+      await expect(choices).toBeVisible();
+      await expect(bar(page).getByRole('switch', { name: /Plausible/ })).toBeFocused();
+
+      const order = [
+        bar(page).getByRole('switch', { name: /Plausible/ }),
+        bar(page).getByRole('switch', { name: /Google Analytics/ }),
+        bar(page).getByRole('switch', { name: /Microsoft Clarity/ }),
+        bar(page).getByRole('button', { name: 'Save choices', exact: true }),
+        bar(page).getByRole('button', { name: 'Reject all', exact: true }),
+        choose,
+        bar(page).getByRole('button', { name: 'Accept all', exact: true }),
+      ];
+      let previous = await order[0].boundingBox();
+      for (const next of order.slice(1)) {
+        await page.keyboard.press('Tab');
+        await expect(next).toBeFocused();
+        const box = await next.boundingBox();
+        const below = box!.y >= previous!.y + previous!.height - 1;
+        const rightOnRow = Math.abs(box!.y - previous!.y) <= 1 && box!.x > previous!.x;
+        expect(below || rightOnRow, 'focus moves down the bar, then left to right along a row').toBe(true);
+        previous = box;
+      }
+
+      await choose.focus();
+      await page.keyboard.press('Escape');
+      await expect(choices).toBeHidden();
+      await expect(choose).toBeFocused();
+      await expect(choose).toHaveAttribute('aria-expanded', 'false');
+      await expect(bar(page)).toBeVisible();
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      expect((await stored(page))?.purposes).toEqual({ count: true, measure: true, record: true });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('the Analytics choices control is on the dashboard page when its script does not load, with text of 14 px or more and a 44 px target on a phone', async ({ browser }) => {
+    const { context, page } = await open(browser, 'shell-control', { viewport: { width: 390, height: 844 } });
+    try {
+      for (const pathname of PAGES) {
+        await page.goto(pathname);
+        const control = page.getByRole('button', { name: 'Analytics choices', exact: true });
+        await expect(control, pathname).toBeVisible();
+        expect(await control.evaluate(element => parseFloat(getComputedStyle(element).fontSize)), `${pathname}: text size`).toBeGreaterThanOrEqual(14);
+        expect((await control.boundingBox())!.height, `${pathname}: target height`).toBeGreaterThanOrEqual(44);
+      }
+      await page.goto('/');
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+
+      // The dashboard's own script fails; the consent bar's still loads.
+      await context.route(url => url.origin === BASE && url.pathname.endsWith('.js') && !url.pathname.startsWith('/brand/'), route => route.abort());
+      await page.goto('/sim');
+      const control = page.getByRole('button', { name: 'Analytics choices', exact: true });
+      await expect(control).toBeVisible();
+      expect(await control.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await control.click();
+      await expect(bar(page)).toBeVisible();
+      await expect(bar(page).getByRole('switch', { name: /Google Analytics/ })).toHaveAttribute('aria-checked', 'true');
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('when the browser refuses to store an answer, the answer just given runs and the bar says it could not be saved', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'refused');
+    try {
+      await page.goto('/');
+      const google = page.waitForRequest(request => request.url().startsWith(`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`));
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await google;
+
+      // From here on the browser stores nothing.
+      await page.evaluate(() => {
+        Storage.prototype.setItem = function () { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); };
+      });
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+
+      await expect(bar(page)).toBeVisible();
+      await expect(bar(page).getByText('could not be saved on this device')).toBeVisible();
+      expect(await page.evaluate(id => (window as unknown as Record<string, unknown>)[`ga-disable-${id}`], GA_ID), 'Google Analytics stays off').toBe(true);
+      expect((await stored(page))?.purposes, 'the old answer is still what is stored').toEqual({ count: true, measure: true, record: true });
+
+      const before = watch.counts.length;
+      await page.evaluate(() => history.pushState({}, '', '/sim'));
+      await page.waitForTimeout(SETTLE_MS);
+      expect(watch.counts.length, 'no count after Reject all, though it was not stored').toBe(before);
+      expect(await page.evaluate(id => (window as unknown as Record<string, unknown>)[`ga-disable-${id}`], GA_ID), 'Google Analytics is still off').toBe(true);
     } finally {
       await context.close();
     }
@@ -305,27 +581,41 @@ test.describe('the consent bar on the hosted demo', () => {
     }
   });
 
-  test('a choice saved in one tab stops the count and the tools in another tab that is already open', async ({ browser }) => {
+  test('Reject all, Accept all, Reject all in one tab: the other open tab follows each, and its Clarity stops for good each time', async ({ browser }) => {
     const { context, page, watch } = await open(browser, 'two-tabs');
     try {
+      await withClarityTag(context);
       await page.goto('/');
-      const google = page.waitForRequest(request => request.url().startsWith(`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`));
+      const recording = page.waitForRequest(request => request.url().startsWith('https://www.clarity.ms/collect'));
       await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
-      await google;
+      await recording;
 
-      // A second tab of the same browser rejects everything.
       const other = await context.newPage();
       await other.goto('/sim');
-      await other.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
-      await bar(other).getByRole('button', { name: 'Reject all', exact: true }).click();
-      await expect(bar(other)).toBeHidden();
+      const answer = async (name: 'Reject all' | 'Accept all') => {
+        await other.waitForLoadState('load');
+        await other.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+        await bar(other).getByRole('button', { name, exact: true }).click();
+        await other.waitForLoadState('load');
+        await expect(bar(other)).toBeHidden();
+      };
 
-      // The first tab stops Google Analytics at once and counts no later page of its own.
-      await expect.poll(() => page.evaluate(id => (window as unknown as Record<string, unknown>)[`ga-disable-${id}`], GA_ID)).toBe(true);
+      await answer('Reject all');
+      await goesQuiet(page, watch, 'the first tab sends nothing to a vendor after the first Reject all');
+
+      const tagAgain = page.waitForRequest(request => request.url().startsWith(`https://www.clarity.ms/tag/${CLARITY_ID}`));
+      const googleAgain = page.waitForRequest(request => request.url().startsWith(`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`));
+      await answer('Accept all');
+      await Promise.all([tagAgain, googleAgain]);
+      await page.waitForRequest(request => request.url().startsWith('https://www.clarity.ms/collect'));
+
+      await answer('Reject all');
+      await goesQuiet(page, watch, 'the first tab sends nothing to a vendor after the second Reject all');
+
       const before = watch.counts.length;
-      await page.evaluate(() => history.pushState({}, '', '/another-page'));
+      await page.evaluate(() => history.pushState({}, '', '/sim'));
       await page.waitForTimeout(SETTLE_MS);
-      expect(watch.counts.length, 'no count from the first tab after the second rejected').toBe(before);
+      expect(watch.counts.length, 'no count from the first tab after the other rejected').toBe(before);
     } finally {
       await context.close();
     }

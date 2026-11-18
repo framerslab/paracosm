@@ -402,3 +402,42 @@ test('the privacy section names the address record and when it ends', () => {
   assert.match(privacy, /until the run is dropped or the view closes/);
   assert.doesNotMatch(privacy, /milliseconds/);
 });
+
+test("no page asks Google's font service for anything: the landing page, the API docs and the dashboard load their fonts from this site", async (t) => {
+  const site = await hostedSite();
+  const pages: Array<[string, string]> = [
+    ['the landing page source', html],
+    ['the hosted landing page', await (await fetch(`${site}/`)).text()],
+    ['the local landing page', await (await fetch(`${localSite}/`)).text()],
+    ['an API docs page', await withDocsPage(async (path) => (await fetch(`${site}${path}`)).text())],
+    ['the dashboard source', readFileSync(resolve(root, 'src', 'dashboard', 'index.html'), 'utf-8')],
+  ];
+  const sim = await fetch(`${site}/sim`);
+  if (sim.status === 503) t.diagnostic('the dashboard is not built in this checkout (CI builds it before the tests)');
+  else pages.push(['the dashboard page', await sim.text()]);
+  for (const [name, page] of pages) {
+    assert.doesNotMatch(page, /fonts\.googleapis\.com|fonts\.gstatic\.com/, `${name} must not name Google's font hosts`);
+    assert.ok(page.includes('/brand/fonts/fonts.css'), `${name} must load the site's own fonts`);
+  }
+
+  const css = await fetch(`${localSite}/brand/fonts/fonts.css`);
+  assert.equal(css.status, 200);
+  assert.equal(css.headers.get('content-type'), 'text/css');
+  const sheet = await css.text();
+  for (const family of ['Inter', 'JetBrains Mono']) assert.ok(sheet.includes(`font-family: '${family}'`), `the sheet must define ${family}`);
+  const files = [...sheet.matchAll(/url\('(\/brand\/fonts\/[^']+\.woff2)'\)/g)].map(match => match[1]);
+  assert.ok(files.length >= 2, 'the sheet must name its font files');
+  for (const file of new Set(files)) {
+    const res = await fetch(`${localSite}${file}`);
+    assert.equal(res.status, 200, file);
+    assert.equal(res.headers.get('content-type'), 'font/woff2', file);
+  }
+});
+
+test('the privacy section says what the server keeps of a page view and for how long', () => {
+  const privacy = section('privacy');
+  assert.match(privacy, /one of this site.s pages/, 'names what the page address is cut to');
+  assert.match(privacy, /referring site.s domain/, 'names what is kept of the referrer');
+  assert.match(privacy, /holds your IP address in memory for one minute/, 'names the count limit and its length');
+  assert.match(privacy, /never writes it to disk/, 'says the count limit is not saved');
+});

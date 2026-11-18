@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
-import { countEventFrom, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
+import { CountEventLimit, countEventFrom, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
 
 test('only an id of its vendor\'s shape reaches the bar', () => {
   assert.deepEqual(parseSiteAnalyticsIds({ ga: 'G-AB12CD34EF', clarity: 'abc123xyz' }), { ga: 'G-AB12CD34EF', clarity: 'abc123xyz' });
@@ -38,17 +38,66 @@ test('a build without site-analytics.json, or with one that does not parse, give
   }
 });
 
-test('a page view is forwarded path only, with the referring site\'s origin alone', () => {
+test('a page view is forwarded as its public page, with the referring site\'s domain alone', () => {
   assert.deepEqual(countEventFrom(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
     name: 'pageview',
     url: 'https://paracosm.agentos.sh/sim',
     domain: 'paracosm.agentos.sh',
-    referrer: 'https://news.example.com/',
+    referrer: 'https://example.com/',
   });
   // A query or fragment in the path is dropped; dot segments resolve.
   assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
   assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r: '' }))?.referrer, '');
   assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r: 'javascript:alert(1)' }))?.referrer, '');
+});
+
+test('a page view names one of the site\'s public pages, never the rest of a path', () => {
+  const url = (u: string, isDocsPage?: (path: string) => boolean) => {
+    const event = countEventFrom(JSON.stringify({ n: 'pageview', u }), isDocsPage);
+    return typeof event === 'object' && event !== null ? event.url : event;
+  };
+  assert.equal(url('/'), 'https://paracosm.agentos.sh/');
+  assert.equal(url('/index.html'), 'https://paracosm.agentos.sh/');
+  assert.equal(url('/sim/index.html'), 'https://paracosm.agentos.sh/sim');
+  // The dashboard answers any path under /sim; the rest of it is never sent.
+  assert.equal(url('/sim/run-key-example'), 'https://paracosm.agentos.sh/sim');
+  assert.equal(url('/sim/a/b/c'), 'https://paracosm.agentos.sh/sim');
+  // An API docs page counts under its own path only when it is one of the built pages.
+  const built = (path: string) => path === '/docs/modules.html';
+  assert.equal(url('/docs/modules.html', built), 'https://paracosm.agentos.sh/docs/modules.html');
+  assert.equal(url('/docs/secret-token-page.html', built), 'unlisted');
+  // Any other path is no page of this site: it is not forwarded.
+  for (const path of ['/another-page', '/api/runs/abc', '/simulator', '/docs', '/brand/consent/consent.js']) {
+    assert.equal(url(path, built), 'unlisted', path);
+  }
+});
+
+test('a referrer is sent as its site\'s registrable domain at most, or not at all', () => {
+  const referrer = (r: string) => {
+    const event = countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r }));
+    return typeof event === 'object' && event !== null ? event.referrer : null;
+  };
+  assert.equal(referrer('https://token-example.preview.example.org/view'), 'https://example.org/');
+  assert.equal(referrer('https://www.google.com/search?q=paracosm'), 'https://google.com/');
+  assert.equal(referrer('http://news.ycombinator.com/item?id=1'), 'http://ycombinator.com/');
+  assert.equal(referrer('https://example.org:8443/a'), 'https://example.org/');
+  // An address, a single name or a page of no site sends no referrer.
+  for (const r of ['http://192.168.1.5/admin', 'http://[2001:db8::1]/x', 'http://localhost:3000/', 'file:///etc/passwd']) {
+    assert.equal(referrer(r), '', r);
+  }
+});
+
+test('the count limit holds each address only for its window, with no further page view needed to drop it', async () => {
+  const limit = new CountEventLimit(120, 50);
+  assert.equal(limit.take('198.51.100.1'), true);
+  assert.equal(limit.take('198.51.100.2'), true);
+  assert.equal(limit.size, 2);
+  await new Promise(resolveWait => setTimeout(resolveWait, 200));
+  assert.equal(limit.size, 0, 'an ended window leaves no address behind');
+  // A new window starts for an address that comes back.
+  assert.equal(limit.take('198.51.100.1'), true);
+  assert.equal(limit.size, 1);
+  limit.close();
 });
 
 test('a body that is not a page view of this site forwards nothing', () => {
@@ -146,6 +195,7 @@ test('POST /api/event forwards nothing under a privacy signal, from another site
   received.length = 0;
   const pageview = JSON.stringify({ n: 'pageview', u: '/' });
   assert.equal((await post(site, pageview, { 'Sec-GPC': '1' })).status, 204);
+  assert.equal((await post(site, pageview, { DNT: '1' })).status, 204);
   assert.equal((await post(site, pageview, { 'Sec-Fetch-Site': 'cross-site' })).status, 204);
   assert.equal((await post(site, JSON.stringify({ n: 'pageview', u: 'https://elsewhere.example/' }))).status, 400);
   assert.equal((await post(site, 'x'.repeat(5000))).status, 413);
@@ -234,4 +284,33 @@ test('a copy run from the package or a clone has no /api/event route', async () 
   const res = await post(localSite, JSON.stringify({ n: 'pageview', u: '/' }));
   assert.equal(res.status, 404);
   assert.equal(received.length, 0);
+});
+
+test('a request that sends DNT: 1 alone gets a bar told to run nothing', async () => {
+  const res = await fetch(`${site}/`, { headers: { DNT: '1' } });
+  assert.equal(res.status, 200);
+  const config = (await res.text()).match(/<script type="application\/json" id="paracosm-consent-config">([^<]*)<\/script>/);
+  assert.ok(config, 'the page carries the bar\'s configuration');
+  assert.equal((JSON.parse(config[1]) as { signal: boolean }).signal, true);
+});
+
+test('POST /api/event drops a path that is no page of the site, and forwards nothing for it', async () => {
+  received.length = 0;
+  const res = await post(site, JSON.stringify({ n: 'pageview', u: '/another-page' }), { 'X-Forwarded-For': '192.0.2.40' });
+  assert.equal(res.status, 204);
+  assert.equal(received.length, 0);
+});
+
+test('POST /api/event limits the addresses of one IPv6 /64 together, and forwards the full address', async () => {
+  received.length = 0;
+  const pageview = JSON.stringify({ n: 'pageview', u: '/' });
+  const send = (address: string) => post(site, pageview, { 'User-Agent': 'count-v6', 'X-Forwarded-For': address });
+  const first = await send('2001:db8:5:7::1');
+  assert.equal(first.status, 202);
+  assert.equal(received[0]?.forwardedFor, '2001:db8:5:7::1', 'the instance gets the address itself');
+  for (let i = 1; i < 120; i++) assert.equal((await send(`2001:db8:5:7::${(i + 1).toString(16)}`)).status, 202);
+  // Another address of the same /64 shares the window, now full.
+  assert.equal((await send('2001:db8:5:7::ffff')).status, 429);
+  // An address of another /64 still counts.
+  assert.equal((await send('2001:db8:5:8::1')).status, 202);
 });
