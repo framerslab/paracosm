@@ -133,6 +133,22 @@ for (const size of WIDTHS) {
   }
 }
 
+test.describe('filters left from an earlier visit', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('a log key shows its tool\'s events whatever Event Log filters the address still holds', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    // An earlier visit to the Event Log left a type filter that matches none of the tool's events.
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports&logTypes=decision_made&logLeader=${encodeURIComponent('Dietrich Voss')}`);
+    const fold = page.locator('#toolbox summary').first();
+    await expect(fold).toBeVisible();
+    if (!(await logKey(page, LANDING).isVisible())) await fold.click();
+    await logKey(page, LANDING).click();
+
+    await expectLogFilteredToLandingTool(page);
+  });
+});
+
 test.describe('when the copy does not happen', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -164,6 +180,10 @@ test.describe('the run actions menu', () => {
 
     await expectShareNote(page, id, 'Link copied.');
     await page.screenshot({ path: `${PICTURES}/1440-dark-run-actions-share-link-shown.png` });
+
+    // The note is about this run: once the page leaves the replay, it goes.
+    await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
+    await expect(page.getByRole('status', { name: 'Share link' })).toHaveCount(0);
 
     // A browser with none of this visitor's storage opens the link and watches the run.
     const other = await browser.newContext();
