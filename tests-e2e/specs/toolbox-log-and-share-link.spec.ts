@@ -23,7 +23,9 @@ test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored run lives on a local 
 const SERVER = 'http://127.0.0.1:3462';
 const LANDING = 'mars_landing_site_score';
 const WATER = 'perchlorate_water_response_score';
-const WHO_CAN_OPEN = 'Anyone who has this link can watch this run.';
+// The spec's server is served at 127.0.0.1, and a link to a local address
+// opens only on the computer that serves it, so the note says so.
+const WHO_CAN_OPEN = 'This link opens only on this computer: the dashboard is served at a local address.';
 const PICTURES = 'test-pictures/toolbox-log-and-share-link';
 
 test.use({ baseURL: SERVER, deviceScaleFactor: 2 });
@@ -149,6 +151,42 @@ test.describe('filters left from an earlier visit', () => {
   });
 });
 
+for (const size of WIDTHS) {
+  test.describe(`one tool after another at ${size.width}`, () => {
+    test.use({ viewport: size });
+
+    test('the Reports toolbox and the Sim toolbox dialog each open the Event Log on the tool pressed', async ({ page, request }) => {
+      const id = await storedSessionId(request);
+      await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
+      const fold = page.locator('#toolbox summary').first();
+      await expect(fold).toBeVisible();
+      if (!(await logKey(page, LANDING).isVisible())) await fold.click();
+      await logKey(page, LANDING).click();
+      await expectLogFilteredToLandingTool(page);
+
+      // A second press, in the other toolbox, replaces the first tool's filter with its own.
+      await page.locator('#tab-sim').click();
+      await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
+      const dialog = page.getByRole('dialog', { name: /^Forged Toolbox/ });
+      await expect(dialog).toBeVisible();
+      await logKey(page, WATER).click();
+
+      const log = eventLog(page);
+      await expect(log).toBeVisible();
+      await expect(log.getByText(`tool: ${WATER}`)).toBeVisible();
+      await expect(log.getByRole('heading', { name: /^Event Log \(2 of \d+ events\)$/ })).toBeVisible();
+      // Its forge in turn 1 and the one report that used it.
+      await expect(log.locator('summary')).toHaveText([
+        /forge_attempt\s*Dietrich Voss\s*T1\s*medical/,
+        /specialist_done\s*Dietrich Voss\s*T1\s*medical/,
+      ]);
+      await expect(log).not.toContainText(LANDING);
+      // The dialog left with its tab.
+      await expect(dialog).toHaveCount(0);
+    });
+  });
+}
+
 test.describe('when the copy does not happen', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -236,11 +274,14 @@ test.describe('the run actions menu', () => {
     await expect(page.getByRole('status', { name: 'Share link' })).toHaveCount(0);
 
     // A browser with none of this visitor's storage opens the link and watches the run.
-    const other = await browser.newContext();
+    const other = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     try {
       const visitor = await other.newPage();
       await visitor.goto(shareUrl(id));
       await expect(visitor.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+      // The banner shows before the stream answers; the turn counter reaches
+      // the run's last turn only when the run's events have arrived.
+      await expect(visitor.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
     } finally {
       await other.close();
     }
