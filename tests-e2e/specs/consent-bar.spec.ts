@@ -195,7 +195,7 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.goto('/sim');
       await Promise.all([googleAgain, clarityAgain, count]);
       await expect(bar(page)).toBeHidden();
-      expect(watch.vendor.some(url => url.includes('posthog.com'))).toBe(false);
+      expect(watch.vendor.some(url => /(^|\.)posthog\.com$/.test(new URL(url).hostname))).toBe(false);
     } finally {
       await context.close();
     }

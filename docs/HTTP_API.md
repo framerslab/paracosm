@@ -379,7 +379,7 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 - `204`: nothing was forwarded, because the request sent `Sec-GPC: 1` or came from a page on another site (the rule in "Base URL and gating")
 - `400 invalid_event`: the body is not a page view of a path, or the request has no `User-Agent`
 - `405`: a method other than `POST`
-- `413`: the body is over 4,096 bytes
+- `413 body_too_large`: the body is over 4,096 bytes
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
 ## `POST /scenario/store`

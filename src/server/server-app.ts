@@ -2108,7 +2108,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     try {
       event = countEventFrom(await readBody(req, 4096));
     } catch (error) {
-      writeJsonError(res, error);
+      // The answer names the refusal alone, never the error's text.
+      const tooLarge = error instanceof RequestBodyTooLargeError;
+      res.writeHead(tooLarge ? 413 : 400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: tooLarge ? 'body_too_large' : 'invalid_event' }));
       return;
     }
     const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '';
