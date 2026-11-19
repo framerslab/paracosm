@@ -193,7 +193,8 @@ test('a tool held by actor and name is written as its number in the registry giv
 test('a run still playing in resolves no trace and calls nothing dangling', () => {
   // A registry built from part of the run's frames: Dietrich Voss's tool alone, numbered 1 for now.
   const partial = registryOf([roster, ...forged(DIETRICH.name, 1, 'governance', ROVER, true, 5)], false);
-  for (const params of [{ tool: '1', open: 'judge' }, { tool: '999' }, { tool: '1', attempt: '9' }, { attempt: '1' }]) {
+  const links: Array<Record<string, string>> = [{ tool: '1', open: 'judge' }, { tool: '999' }, { tool: '1', attempt: '9' }, { attempt: '1' }];
+  for (const params of links) {
     const { state, dangling } = parseForgeUrl(replay(params), partial, false);
     assert.equal(state.trace, null);
     assert.deepEqual(dangling, []);
