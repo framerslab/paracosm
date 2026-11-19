@@ -15,7 +15,11 @@
  *   The Library card's Share key does the same, also where the page has no
  *   clipboard at all (plain http on a network address).
  * - Changing an Event Log filter keeps the rest of the address, so a refresh
- *   reopens the same replay, tab, sub view and filter.
+ *   reopens the same replay, tab, sub view and filter. A Library search on a
+ *   replay keeps the replay in the address the same way.
+ * - The other copy keys say when the copy fails: the run actions menu's Copy
+ *   on a page with no clipboard, and the verdict's export key on a refused
+ *   clipboard.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -142,6 +146,55 @@ async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers' | '
   }, answer);
 }
 
+/** What the verdict's export key says when the browser does not copy the verdict. */
+const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
+/**
+ * A saved Mars Genesis pair run with its verdict, as the dashboard's Save
+ * writes it: the stream's events and the pair verdict the server broadcast.
+ */
+const SAVED_RUN_WITH_VERDICT = {
+  schemaVersion: 3,
+  events: [
+    { type: 'turn_start', leader: 'Aria Chen', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_start', leader: 'Dietrich Voss', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_done', leader: 'Aria Chen', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_done', leader: 'Dietrich Voss', data: { turn: 1, time: 2043, title: 'Landfall' } },
+  ],
+  verdict: {
+    winner: 'A',
+    winnerName: 'Aria Chen',
+    headline: 'Aria Chen leads on survival',
+    summary: 'Aria Chen scored the landing sites before choosing one; Dietrich Voss landed at the first site with ice.',
+    keyDivergence: 'The landing site in turn 1.',
+    scores: {
+      a: { survival: 8, prosperity: 7, morale: 7, innovation: 8 },
+      b: { survival: 6, prosperity: 6, morale: 5, innovation: 6 },
+    },
+    leaderA: { name: 'Aria Chen', archetype: 'The Visionary', unit: 'Ares' },
+    leaderB: { name: 'Dietrich Voss', archetype: 'The Engineer', unit: 'Olympus' },
+    settlementNoun: 'colony',
+    finalStats: {
+      a: { population: 100, morale: 0.72, food: 14, power: 410, modules: 6, science: 21, tools: 1 },
+      b: { population: 96, morale: 0.58, food: 11, power: 380, modules: 5, science: 15, tools: 1 },
+    },
+  },
+};
+
+/** Drops a saved run on the page, as a visitor drags a saved file in, and loads it. */
+async function dropSavedRun(page: Page, run: unknown): Promise<void> {
+  await page.evaluate((text) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([text], 'saved-run.json', { type: 'application/json' }));
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      window.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    }
+  }, JSON.stringify(run));
+  const preview = page.getByRole('dialog', { name: 'Load simulation' });
+  await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+  await expect(preview).toHaveCount(0);
+}
+
 for (const size of WIDTHS) {
   for (const look of LOOKS) {
     test.describe(`at ${size.width} in ${look}`, () => {
@@ -219,9 +272,62 @@ for (const size of WIDTHS) {
         await expect(reopened).toContainText(/forge_attempt\s*Dietrich Voss/);
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-filter-kept-after-refresh.png` });
       });
+
+      test('the verdict\'s export key on a refused clipboard says the verdict was not copied', async ({ page }) => {
+        await clipboardThat(page, 'refuses');
+        await useLook(page, look);
+        await page.goto('/sim?tab=sim');
+        await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+        const exportKey = page.getByRole('button', { name: 'Copy verdict as markdown' });
+        await expect(exportKey).toBeVisible();
+        await exportKey.click();
+
+        // Wait a moment for the words so the picture holds them; the check below decides.
+        await page.getByText(VERDICT_NOT_COPIED, { exact: true }).waitFor({ timeout: 5_000 }).catch(() => undefined);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-verdict-export-refused.png` });
+        await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+      });
     });
   }
 }
+
+test.describe('the other copy keys and the Library\'s address', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('the run actions menu\'s Copy on a page with no clipboard says the summary was not copied', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await clipboardThat(page, 'is-absent');
+    const clipboardErrors: string[] = [];
+    page.on('pageerror', (error) => {
+      if (/clipboard|writeText/i.test(error.message)) clipboardErrors.push(error.message);
+    });
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+
+    await expect(page.getByText('Clipboard access denied.', { exact: true })).toBeVisible();
+    expect(clipboardErrors).toEqual([]);
+  });
+
+  test('a Library search on a replay keeps the replay in the address, and a refresh reopens the replay with the search', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=library`);
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(runCard(page)).toBeVisible();
+
+    await page.getByRole('textbox', { name: 'Search runs' }).fill('mars');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('mars');
+    const params = new URL(page.url()).searchParams;
+    expect(params.get('replay')).toBe(id);
+    expect(params.get('tab')).toBe('library');
+
+    await page.reload();
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search runs' })).toHaveValue('mars');
+    await expect(runCard(page)).toBeVisible();
+  });
+});
 
 test.describe('filters left from an earlier visit', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
