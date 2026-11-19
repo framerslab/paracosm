@@ -29,6 +29,10 @@
  *   on this actor's tool by its whole name; a tool forged more than once
  *   opens at its latest attempt, with keys to its other attempts and a row
  *   for each where it leaves the line.
+ * - A link to one tool: Copy link to this tool copies a replay link that
+ *   names the tool by its number and its open stations; the link opens that
+ *   tool once the replay has played in, and a link to a tool the run lacks
+ *   opens the run with no dialog and leaves the address clean.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -38,8 +42,11 @@ import {
   COHORT_SERVER, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
   pairSessionId, replayUrl, sessionIdByName, useLook, type Look,
 } from '../support/forge-view-pages.js';
-import { DOZENS, generateCohortRun } from '../support/forge-fixtures.js';
+import { DOZENS, MAXIMUM, generateCohortRun } from '../support/forge-fixtures.js';
+import { pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
+import { buildToolRegistry } from '../../src/dashboard/src/hooks/toolRegistry.helpers.js';
+import { computeGameState } from '../../src/dashboard/src/hooks/useGameState.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored runs live on local servers of their own.');
 
@@ -1258,6 +1265,302 @@ test.describe('Record and the attempts on the run\'s record', () => {
         const log = page.getByRole('log', { name: 'Event log' });
         await expect(log.getByText(`tool: ${tool}`)).toBeVisible();
         await expect(log.getByRole('heading', { name: new RegExp(`^Event Log \\(${frames.length} of \\d+ events\\)$`) })).toBeVisible();
+      });
+    }
+  });
+});
+
+/** The run's tools as the dashboard numbers them: its own registry, built from the frames the server stores. */
+const registryOf = (frames: string[]) => buildToolRegistry(computeGameState(framesToSimEvents(frames), true));
+
+/** The trace's Copy link to this tool key. */
+const copyLinkKey = (trace: Locator): Locator => trace.getByRole('button', { name: 'Copy link to this tool', exact: true });
+
+/** The words Copy link to this tool says when the link is on the clipboard. */
+const LINK_COPIED = 'Link copied. Anyone with it can open this tool\'s trace and replay the run.';
+
+/** The address with the parameters given added, every other one kept. */
+function withParams(address: string, params: Record<string, string>): string {
+  const url = new URL(address);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+/** Records the name of every forged tool's dialog the page shows, from before its first script runs. */
+async function recordTraceNames(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    (window as unknown as { traceNames: string[] }).traceNames = seen;
+    const note = () => {
+      for (const el of document.querySelectorAll('[role="dialog"][aria-label*=", forged tool "]')) {
+        const name = el.getAttribute('aria-label') ?? '';
+        if (!seen.includes(name)) seen.push(name);
+      }
+    };
+    new MutationObserver(note).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-label'] });
+  });
+}
+
+/** Waits until the replay has played in to its end: the page's run status reads Complete. */
+const replayComplete = (page: Page, timeout: number) =>
+  expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout });
+
+const traceNamesSeen = (page: Page): Promise<string[]> =>
+  page.evaluate(() => (window as unknown as { traceNames?: string[] }).traceNames ?? []);
+
+/** The 300-actor run's actor and its tool a test opens by link. */
+function maximumTool(actorIndex: number, which: 'reforged' | 'first') {
+  const frames = generateCohortRun(MAXIMUM);
+  const registry = registryOf(frames);
+  const entry = registry.list.find(e => e.actorIndex === actorIndex && (which === 'first' || e.attempts.length > 1));
+  expect(entry, `A${actorIndex + 1} of the 300-actor run holds the tool`).toBeTruthy();
+  const leader = registry.actors[actorIndex].name;
+  const own = framesToSimEvents(frames)
+    .filter(e => e.leader === leader)
+    .filter(e => (e.type === 'forge_attempt' || e.type === 'specialist_done') && namesTool((e.data ?? {}) as Record<string, unknown>, entry!.name))
+    .map(e => e.data as Record<string, unknown>);
+  return { tool: entry!.name, n: entry!.n, forges: entry!.attempts.length, leader, frames: own };
+}
+
+test.describe('a link to one tool', () => {
+  test('f1 q6 and f12 q10: a copied link opens the same tool with the same stations open in a new browser', async ({ browser, page, request }) => {
+    test.setTimeout(240_000);
+    await clipboardThat(page, 'keeps');
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await forgetOpenStations(page);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+        await openStation(trace, 'request');
+        await openStation(trace, 'added');
+
+        await expect(copyLinkKey(trace)).toBeVisible();
+        await copyLinkKey(trace).click();
+        const said = trace.getByRole('status').filter({ hasText: LINK_COPIED });
+        await expect(said).toBeVisible();
+        await expect(said).toHaveAttribute('aria-live', 'polite');
+        await picture(page, `${size.width}-${look}-f1-link-copied`);
+        const link = await page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '');
+        const url = new URL(link);
+        expect(url.origin).toBe(PAIR_SERVER);
+        expect(url.searchParams.get('replay')).toBe(await pairSessionId(request));
+        expect(url.searchParams.get('tool')).toBe('1');
+        expect(url.searchParams.get('open')).toBe('request,judge,added');
+        // Copied stays for 5 seconds, then the key stands on its own again.
+        await expect(said).toBeHidden({ timeout: 8_000 });
+
+        // A new browser: nothing kept on its device, the link alone opens the tool and its stations.
+        const other = await browser.newContext({ viewport: size, deviceScaleFactor: 2 });
+        try {
+          const visitor = await other.newPage();
+          await visitor.goto(link);
+          await replayComplete(visitor, 60_000);
+          const shared = traceOf(visitor, LANDING, 1);
+          await expect(shared).toBeVisible();
+          await expectOpen(shared, { request: true, code: 'inactive', tests: 'inactive', judge: true, added: true });
+          await visitor.screenshot({ path: `${PICTURES}/${size.width}-${look}-f12-link-opened.png`, animations: 'disabled' });
+          // Close leaves the run on the page, with no tool in the address.
+          await closeTrace(shared);
+          await expect.poll(() => new URL(visitor.url()).searchParams.get('tool')).toBeNull();
+          expect(new URL(visitor.url()).searchParams.get('open')).toBeNull();
+          expect(new URL(visitor.url()).searchParams.get('replay')).toBe(url.searchParams.get('replay'));
+        } finally {
+          await other.close();
+        }
+      });
+    }
+  });
+
+  test('f1 q14: offline, the key copies and says "You are offline"', async ({ page, context, request }) => {
+    test.setTimeout(180_000);
+    await clipboardThat(page, 'keeps');
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await context.setOffline(false);
+        await openPairSim(page, request, size, look);
+        await context.setOffline(true);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+        const key = copyLinkKey(trace);
+        await expect(key).toBeEnabled();
+        await expect(key).not.toHaveAttribute('aria-disabled', 'true');
+        await key.click();
+        await expect(trace.getByText('You are offline', { exact: true })).toBeVisible();
+        await expect(trace.getByText(LINK_COPIED, { exact: true })).toBeVisible();
+        const link = await page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '');
+        expect(new URL(link).searchParams.get('tool')).toBe('1');
+        await picture(page, `${size.width}-${look}-f1-offline`);
+        // Back online, the words go.
+        await context.setOffline(false);
+        await expect(trace.getByText('You are offline', { exact: true })).toBeHidden();
+        await closeTrace(trace);
+      });
+    }
+  });
+
+  test('f1 q16: a refused clipboard shows the link to copy by hand', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await clipboardThat(page, 'refuses');
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+        await expect(copyLinkKey(trace)).toBeVisible();
+        await copyLinkKey(trace).click();
+        await expect(trace.getByText('Could not copy. Select the link and copy it.', { exact: true })).toBeVisible();
+        // The link stands as text to select and copy.
+        const shown = trace.locator('[data-tool-link]');
+        await expect(shown).toBeVisible();
+        const link = new URL((await shown.textContent()) ?? '');
+        expect(link.origin).toBe(PAIR_SERVER);
+        expect(link.searchParams.get('tool')).toBe('1');
+        expect(await shown.evaluate(el => getComputedStyle(el).userSelect)).not.toBe('none');
+        await picture(page, `${size.width}-${look}-f1-copy-refused`);
+      });
+    }
+  });
+
+  test('f1 q30: a link to A300\'s tool opens with its 40px tile', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.maximum);
+    const { tool, n } = maximumTool(299, 'first');
+    await page.setViewportSize(WIDTHS[0]);
+    await useLook(page, 'light');
+    await page.goto(withParams(replayUrl(COHORT_SERVER, id, 'sim'), { tool: String(n) }));
+    await replayComplete(page, 150_000);
+    const trace = traceOf(page, tool, n);
+    await expect(trace).toBeVisible();
+    const tile = trace.locator('[data-forge-header] [data-actor-tile]');
+    await expect(tile).toHaveText('A300');
+    expect((await tile.boundingBox())?.width).toBe(40);
+    // The tile's label and the tool's number stand whole on the header row.
+    await expect(trace.locator('[data-forge-header]')).toContainText(`Forged tool ${n}`);
+    await picture(page, '390-light-f1-a300-link');
+  });
+
+  test('a link to a tool the run lacks opens the run, with no dialog, and leaves the address clean', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const id = await pairSessionId(request);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await recordTraceNames(page);
+        await page.goto(withParams(replayUrl(PAIR_SERVER, id, 'sim'), { tool: '999', open: 'request,judge' }));
+        await lookShown(page, look);
+        // Once the replay has played in, the parameters that point at nothing leave the address.
+        await replayComplete(page, 60_000);
+        await expect.poll(() => new URL(page.url()).searchParams.has('tool')).toBe(false);
+        const address = new URL(page.url());
+        expect(address.searchParams.has('open')).toBe(false);
+        expect(address.searchParams.get('replay')).toBe(id);
+        expect(address.searchParams.get('tab')).toBe('sim');
+        await expect(page.getByText(LAST_TOOL).first()).toBeAttached();
+        await expect(page.getByRole('dialog', { name: /, forged tool \d+$/ })).toHaveCount(0);
+        expect(await traceNamesSeen(page)).toEqual([]);
+        await picture(page, `${size.width}-${look}-link-tool-the-run-lacks`);
+      });
+    }
+  });
+
+  test('a link to a later actor\'s tool opens that tool, not the one holding its number while the replay plays in', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const id = await pairSessionId(request);
+    const rover = registryOf(pairRunFrames()).getEntryFor(1, LAST_TOOL);
+    expect(rover, 'Dietrich Voss holds rover_route_planner').toBeTruthy();
+    const n = rover!.n;
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await recordTraceNames(page);
+        await page.goto(withParams(replayUrl(PAIR_SERVER, id, 'sim'), { tool: String(n) }));
+        await replayComplete(page, 60_000);
+        const trace = traceOf(page, LAST_TOOL, n);
+        await expect(trace).toBeVisible();
+        await expect(trace.locator('[data-forge-header] [data-actor-tile]')).toHaveText('A2');
+        await expect(trace.getByRole('heading', { level: 2, name: LAST_TOOL }).first()).toBeAttached();
+        // The one trace the page opened is the one the link names.
+        expect(await traceNamesSeen(page)).toEqual([`${LAST_TOOL}, forged tool ${n}`]);
+        expect(new URL(page.url()).searchParams.get('tool')).toBe(String(n));
+        await closeTrace(trace);
+        await expect.poll(() => new URL(page.url()).searchParams.get('tool')).toBeNull();
+      });
+    }
+  });
+
+  test('f1 q17 again: the header row with Copy link stays one row at the sweep widths', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const look of LOOKS) {
+      await openPairSim(page, request, WIDTHS[0], look);
+      await pressInspect(inspectKey(page, LANDING));
+      const trace = traceOf(page, LANDING, 1);
+      await expect(trace).toBeVisible();
+      for (const width of SWEEP_WIDTHS) {
+        await test.step(`${width} in the ${look} look`, async () => {
+          await page.setViewportSize({ width, height: 844 });
+          await expect(copyLinkKey(trace)).toBeVisible();
+          const row = await trace.evaluate((dialog) => {
+            const header = dialog.querySelector('[data-forge-header]');
+            if (!header) return null;
+            const box = (el: Element) => {
+              const r = el.getBoundingClientRect();
+              return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+            };
+            const shown = (el: Element) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+            return {
+              sheet: box(dialog),
+              headerScroll: header.scrollWidth - header.clientWidth,
+              keys: Array.from(header.querySelectorAll('button')).filter(shown).map(key => ({
+                name: key.getAttribute('aria-label') ?? '', rowTop: (key as HTMLElement).offsetTop, ...box(key),
+              })),
+            };
+          });
+          expect(row, 'the trace has a header row').not.toBeNull();
+          const { keys, sheet } = row!;
+          // Close, Copy link to this tool and the look key, in that order, on one row.
+          expect(keys.map(key => key.name)).toEqual(['Close the trace', 'Copy link to this tool', expect.stringMatching(/^Switch to (light|dark) mode$/)]);
+          expect(new Set(keys.map(key => key.rowTop)).size, 'every key of the header row shares one top').toBe(1);
+          expect(row!.headerScroll, 'the header row does not scroll sideways').toBeLessThanOrEqual(0);
+          for (const key of keys) {
+            expect(key.left, `"${key.name}" is inside the sheet`).toBeGreaterThanOrEqual(sheet.left - 0.5);
+            expect(key.right, `"${key.name}" is inside the sheet`).toBeLessThanOrEqual(sheet.right + 0.5);
+            // A phone's keys are 44 px square; from 900 px they are 32 px.
+            if (width < 900) expect(Math.round(key.height), `"${key.name}" is 44 px tall`).toBeGreaterThanOrEqual(44);
+          }
+          if (width === 320) await picture(page, `320-${look}-f1-header-row-copy-link`);
+        });
+      }
+    }
+  });
+
+  test('at 300 actors, a link opens A299\'s re-forged tool with Request and Added open, and its Record holds A299\'s frames alone', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.maximum);
+    const { tool, n, forges, frames } = maximumTool(298, 'reforged');
+    expect(forges).toBeGreaterThan(1);
+    for (const { size, look } of [{ size: WIDTHS[1], look: 'dark' as Look }, { size: WIDTHS[0], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await page.goto(withParams(replayUrl(COHORT_SERVER, id, 'sim'), { tool: String(n), open: 'request,added' }));
+        await replayComplete(page, 150_000);
+        const trace = traceOf(page, tool, n);
+        await expect(trace).toBeVisible();
+        await expect(trace.locator('[data-forge-header] [data-actor-tile]')).toHaveText('A299');
+        await expect(attemptKeys(trace).line).toHaveText(`${forges} of ${forges}`);
+        await expect(stationOf(trace, 'request').getByRole('link', { name: 'Attempt 1 · Did not pass', exact: true })).toBeVisible();
+        await expectOpen(trace, { request: true, judge: true, added: true });
+        await expect(stationOf(trace, 'request').locator('[data-actor-line]')).toHaveText(/^A299 \S/);
+        // Record: A299's own frames that name the tool, and no other actor's.
+        const panel = await openRecord(trace);
+        expect(await rawRecordOf(panel)).toEqual(frames);
+        await picture(page, `${size.width}-${look}-f1-a299-link`);
       });
     }
   });
