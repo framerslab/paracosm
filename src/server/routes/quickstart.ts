@@ -24,6 +24,7 @@ import { WorldModel } from '../../runtime/world-model/index.js';
 import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
 import {
   apiKeyForProvider,
+  credentialFingerprint,
   normalizeCredential,
   resolveProviderFromCredentials,
   type ProviderCredentialOptions,
@@ -477,18 +478,17 @@ function compileSignature(input: {
 }, calls: QuickstartModelCalls): string {
   // Trim the seed and lowercase the optional fields so trivially
   // different submissions share a slot. The key is a SHA-256 of the whole
-  // seed, so only the same text shares another submission's compile, and
-  // of the compile's routing (its provider and a SHA-256 of the keys it
-  // runs on), so a request shares only a compile that runs on its own keys.
+  // seed, so only the same text shares another submission's compile, then
+  // the compile's routing (its provider and a fingerprint of each key it
+  // runs on, never a key), so a request shares only a compile that runs on
+  // its own keys.
   const text = input.seedText.trim();
-  const keys = createHash('sha256').update(`${calls.apiKey ?? ''}\n${calls.anthropicKey ?? ''}`).digest('hex');
-  return createHash('sha256').update(JSON.stringify({
+  const seed = createHash('sha256').update(JSON.stringify({
     text,
     url: (input.sourceUrl ?? '').toLowerCase(),
     hint: (input.domainHint ?? '').toLowerCase(),
-    provider: calls.provider,
-    keys,
   })).digest('hex');
+  return [seed, calls.provider, credentialFingerprint(calls.apiKey), credentialFingerprint(calls.anthropicKey)].join(':');
 }
 
 /** End an overdue job before counting it or accepting its result. */
@@ -546,8 +546,8 @@ export async function handleCompileFromSeed(
 
   // The provider keys stay out of the compile's input and the installed
   // scenario's brief, which read the seed alone. The job's signature holds
-  // the routing, with the keys as a SHA-256 alone, so a request joins only
-  // a compile that runs on its own keys.
+  // the routing, with a fingerprint of each key in place of the key, so a
+  // request joins only a compile that runs on its own keys.
   const { apiKey, anthropicKey, ...seedInput } = parsed.data;
   const calls = modelCallsFor(deps, { apiKey, anthropicKey });
   if (isRefusal(calls)) {
