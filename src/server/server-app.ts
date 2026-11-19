@@ -4025,6 +4025,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // this variable is set, so env-only requests get clamped.
         const isHostedDemo = serverMode === 'hosted_demo';
         if (!hasUserKeys && isHostedDemo) {
+          // A host-paid run runs on OpenAI alone. When the host holds an
+          // Anthropic key and no OpenAI key, the provider resolver would
+          // move the run to the Anthropic key, so the run is refused before
+          // it counts toward the day. With neither key the resolver stops
+          // the run itself.
+          if (!normalizeCredential(env.OPENAI_API_KEY) && normalizeCredential(env.ANTHROPIC_API_KEY)) {
+            console.log('  [demo-mode] /setup refused: a host-paid run needs the host OpenAI key');
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'This demo runs on OpenAI and has no OpenAI key. Add your own OpenAI or Anthropic key in Settings to run.',
+            }));
+            return;
+          }
           simConfig = applyDemoCaps(simConfig);
           console.log(
             `  [demo-mode] Capped run: turns=${simConfig.turns} pop=${simConfig.initialPopulation} ` +
