@@ -25,7 +25,8 @@
  *   an earlier press is answered after a later one), and a refused verdict
  *   export says nothing on a run loaded after it, the same saved run loaded
  *   again included. A verdict the visitor collapsed stays collapsed when
- *   Exit Replay connects the live feed.
+ *   Exit Replay connects the live feed. A copy that works is said in the
+ *   status region too, for a screen reader.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -154,6 +155,12 @@ async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers' | '
 
 /** What the verdict's export key says when the browser does not copy the verdict. */
 const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
+/** What a screen reader hears when the verdict's export key copies the verdict. */
+const VERDICT_COPIED = 'The verdict was copied as markdown.';
+
+/** What a screen reader hears when a landing page code block's Copy key copies the code. */
+const CODE_COPIED = 'The code was copied.';
 
 /** What a landing page code block says when its Copy key's copy does not happen. */
 const CODE_NOT_COPIED = 'The browser did not copy the code. Select it and copy it.';
@@ -417,6 +424,24 @@ test.describe('the other copy keys and the Library\'s address', () => {
     await page.goto('/');
     // There from the start and empty, so a screen reader announces the words put in it.
     await expect(installBlock(page).getByRole('status')).toHaveText('');
+  });
+
+  test('a landing page copy that works says so in the block\'s status region', async ({ page }) => {
+    await clipboardAnswering(page, ['ok']);
+    await page.goto('/');
+    const block = installBlock(page);
+    await block.getByRole('button', { name: /^(Copy|Copied)$/ }).click();
+    // The words are for a screen reader; the key itself shows Copied.
+    await expect(block.getByRole('status')).toHaveText(CODE_COPIED);
+  });
+
+  test('a verdict export that works says so in its status region', async ({ page }) => {
+    await clipboardAnswering(page, ['ok']);
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Copy verdict as markdown' }).click();
+    // The key keeps its name, so the region carries the result for a screen reader.
+    await expect(page.getByRole('status', { name: 'Verdict copy result' })).toHaveText(VERDICT_COPIED);
   });
 
   test('a landing page copy that is refused after one that worked says only that the code was not copied', async ({ page }) => {
