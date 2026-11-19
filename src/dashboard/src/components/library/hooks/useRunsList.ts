@@ -33,6 +33,9 @@ function readFiltersFromUrl(): RunsListFilters {
   };
 }
 
+/** The query parameters the Library keeps its filters in ({@link buildQueryString}). */
+const LIBRARY_FILTER_PARAMS = ['q', 'mode', 'scenario', 'leader', 'limit', 'offset'] as const;
+
 function buildQueryString(f: RunsListFilters): string {
   const p = new URLSearchParams();
   if (f.q) p.set('q', f.q);
@@ -84,17 +87,15 @@ export function useRunsList(): {
     return () => ctrl.abort();
   }, [filters, version]);
 
+  // Only the Library's filter parameters change; every other parameter
+  // (the replay, the tab, the open run, the view) stays in the address, so
+  // a refresh reopens the same page.
   const setFilters = React.useCallback((next: RunsListFilters) => {
     setFiltersState(next);
     const qs = buildQueryString({ ...next, limit: next.limit ?? DEFAULT_LIMIT, offset: next.offset ?? 0 });
     const url = new URL(window.location.href);
-    const tab = url.searchParams.get('tab');
-    const runId = url.searchParams.get('runId');
-    const view = url.searchParams.get('view');
-    url.search = qs;
-    if (tab) url.searchParams.set('tab', tab);
-    if (runId) url.searchParams.set('runId', runId);
-    if (view) url.searchParams.set('view', view);
+    for (const key of LIBRARY_FILTER_PARAMS) url.searchParams.delete(key);
+    new URLSearchParams(qs).forEach((value, key) => url.searchParams.append(key, value));
     window.history.replaceState({}, '', url.toString());
   }, []);
 

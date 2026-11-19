@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useState, useCallback, type CSSProperties } from 'react';
 import { CohortVerdictDetails } from '../layout/VerdictModal';
 import { getActorColorVar } from '../../hooks/useGameState';
+import { writeClipboardText } from '../../hooks/writeClipboardText';
 import styles from './VerdictCard.module.scss';
 import { finalStatsTitle, formatScenarioStat, scenarioStatLabel, scenarioStatRows, statLeader, type ScenarioStatRow } from './verdict-stats';
 
@@ -181,13 +182,18 @@ function winColorFor(winner: VerdictData['winner']): string {
   return 'var(--amber)';
 }
 
+/** What the export key says when the browser does not copy the verdict. */
+export const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
 /**
  * Full verdict body shared by the Sim modal and the Reports inline
  * panel. Accepts the parsed VerdictData and renders the winner
  * headline, summary, key divergence, score bars, and final stats.
  * Caller supplies any wrapping chrome (modal vs inline card).
+ * `notCopied` shows {@link VERDICT_NOT_COPIED} under the header after an
+ * export press the browser refused, or on a page with no clipboard.
  */
-export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExport?: () => void; copied?: boolean }) {
+export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictData; onExport?: () => void; copied?: boolean; notCopied?: boolean }) {
   const winColor = winColorFor(v.winner);
   return (
     <>
@@ -214,6 +220,9 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
           </div>
         )}
       </div>
+      {onExport && notCopied && (
+        <p role="status" className={styles.exportRefused}>{VERDICT_NOT_COPIED}</p>
+      )}
 
       <div className={styles.summary}>{v.summary}</div>
 
@@ -277,6 +286,7 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
 export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
   const v = raw as unknown as VerdictData & { mode?: string; rankings?: unknown; winnerIndex?: number };
   const [copied, setCopied] = useState(false);
+  const [notCopied, setNotCopied] = useState(false);
   // Collapsible: clicking the close button shrinks the panel to a
   // single-line summary so the SIM area is not dominated by the
   // verdict block when reviewing turns. Clicking the collapsed bar
@@ -285,9 +295,10 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
   const [expanded, setExpanded] = useState(true);
   const handleExport = useCallback(() => {
     const md = buildMarkdownExport(v);
-    navigator.clipboard.writeText(md).then(
+    setNotCopied(false);
+    writeClipboardText(md).then(
       () => { setCopied(true); setTimeout(() => setCopied(false), 1800); },
-      () => { /* clipboard denied — silent */ },
+      () => { setNotCopied(true); },
     );
   }, [v]);
   if (!v.winner) return null;
@@ -334,7 +345,7 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
       </button>
       {mode === 'cohort'
         ? <CohortVerdictDetails v={v as unknown as Record<string, unknown>} />
-        : <VerdictDetails v={v} onExport={handleExport} copied={copied} />}
+        : <VerdictDetails v={v} onExport={handleExport} copied={copied} notCopied={notCopied} />}
     </div>
   );
 }
@@ -350,6 +361,7 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
   const v = raw as unknown as VerdictData;
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [notCopied, setNotCopied] = useState(false);
 
   // Escape key closes the modal when open. Matches the dismissal
   // behavior of every other dashboard modal (CostBreakdown,
@@ -363,9 +375,10 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
 
   const handleExport = useCallback(() => {
     const md = buildMarkdownExport(v);
-    navigator.clipboard.writeText(md).then(
+    setNotCopied(false);
+    writeClipboardText(md).then(
       () => { setCopied(true); setTimeout(() => setCopied(false), 1800); },
-      () => { /* clipboard denied — silent */ },
+      () => { setNotCopied(true); },
     );
   }, [v]);
 
@@ -411,7 +424,7 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
               >
                 ×
               </button>
-              <VerdictDetails v={v} onExport={handleExport} copied={copied} />
+              <VerdictDetails v={v} onExport={handleExport} copied={copied} notCopied={notCopied} />
             </div>
           </div>
         </div>
