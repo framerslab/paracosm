@@ -12,7 +12,8 @@
  * key, and so does a chat with no key of its own on a run the visitor's key
  * paid for.
  *
- * Every test goes through createMarsServer over HTTP in hosted demo mode.
+ * Every test but the chat agent pool's goes through createMarsServer over
+ * HTTP in hosted demo mode.
  * Where a test runs the server's own model calls, the providers are stubs at
  * the wire (./helpers/provider-wire.ts): every call to OpenAI, Anthropic or
  * OpenRouter is recorded with its provider, model and key and answered with
@@ -29,7 +30,7 @@ import { join } from 'node:path';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import type { RunArtifact } from '../../src/engine/schema/index.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
-import type { ChatAgentOptions, ColonistMemoryEntry, ColonistProfile } from '../../src/runtime/agents/chat-agents.js';
+import { chatAgentPoolKey, type ChatAgentOptions, type ColonistMemoryEntry, type ColonistProfile } from '../../src/runtime/agents/chat-agents.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createEmergentEngine } from '../../src/runtime/orchestrator/emergent-setup.js';
 import { openSessionStore } from '../../src/server/stores/session.js';
@@ -438,6 +439,21 @@ test('a host-paid chat on the hosted demo runs on OpenAI and does not fall back 
   assert.equal(opts.stayOnProvider, true, 'the chat does not fall back to another provider');
 });
 
+test('a chat agent kept on its provider is never the agent made for a chat that may fall back', () => {
+  const person: ColonistProfile = { agentId: PERSON, name: 'Bruno Morales' };
+  const opts: ChatAgentOptions = { provider: 'openai', runKey: 'run-1', leader: 'Aria Chen' };
+  assert.notEqual(
+    chatAgentPoolKey(person, { ...opts, stayOnProvider: true }),
+    chatAgentPoolKey(person, opts),
+    'on the environment key, a chat that stays on its provider and one that may fall back talk to different agents',
+  );
+  assert.equal(
+    chatAgentPoolKey(person, { ...opts, apiKey: VISITOR_OPENAI_KEY, stayOnProvider: true }),
+    chatAgentPoolKey(person, { ...opts, apiKey: VISITOR_OPENAI_KEY }),
+    'on an explicit key no chat falls back, so both talk to one agent',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Quickstart: the seed compile and the actors
 // ---------------------------------------------------------------------------
@@ -481,6 +497,41 @@ test('a host-paid Quickstart seed compile drafts and compiles on OpenAI and does
   assert.equal(options.stayOnProvider, true, 'the compile does not fall back to another provider');
   assert.equal(options.apiKey, undefined);
   assert.equal(options.anthropicKey, undefined);
+});
+
+test('a Quickstart seed compile on another key starts a compile of its own, and a retry on the same key joins the one it started', async () => {
+  const compiles: Array<Record<string, unknown>> = [];
+  const finish: Array<() => void> = [];
+  const seedText = seed('two keys');
+  await hosted(async api => {
+    const page = api.cookied();
+    const jobOf = async (body: Record<string, unknown>): Promise<string> => {
+      const res = await page.post('/api/quickstart/compile-from-seed', body);
+      assert.equal(res.status, 202, `POST compile-from-seed: ${await res.clone().text()}`);
+      return (await res.json() as { jobId: string }).jobId;
+    };
+    const first = await jobOf({ seedText, anthropicKey: VISITOR_ANTHROPIC_KEY });
+    await waitFor(() => compiles.length === 1, 'the first compile to start');
+    const onAnotherKey = await jobOf({ seedText, apiKey: VISITOR_OPENAI_KEY });
+    const retry = await jobOf({ seedText, anthropicKey: VISITOR_ANTHROPIC_KEY });
+
+    assert.notEqual(onAnotherKey, first, 'a request on another key does not wait on a compile that runs on a key it did not send');
+    assert.equal(retry, first, 'a retry on the same key joins the compile it started');
+    await waitFor(() => compiles.length === 2, 'the compile on the other key to start');
+    assert.equal(compiles.length, 2, 'two compiles: one for each key');
+    assert.equal(compiles[1].provider, 'openai', "the second compile is on its own key's provider");
+    assert.equal(compiles[1].apiKey, VISITOR_OPENAI_KEY, 'the second compile carries its own key');
+    assert.equal(compiles[1].anthropicKey, undefined, "the second compile carries no other request's key");
+    for (const done of finish) done();
+  }, {
+    extra: {
+      compileFromSeed: (_input: unknown, options: Record<string, unknown>) => {
+        compiles.push(options);
+        const id = `seed-two-keys-${compiles.length}`;
+        return new Promise<ScenarioPackage>(resolve => finish.push(() => resolve({ ...marsScenario, id })));
+      },
+    },
+  });
 });
 
 test("Quickstart actor generation with the visitor's Anthropic key runs on that key", async () => {
@@ -533,8 +584,12 @@ const leadersAskedFor: WireReply = call => {
   return asked ? JSON.stringify({ actors: Array.from({ length: Number(asked[1]) }, (_, i) => leader(i)) }) : undefined;
 };
 
-/** Posts a Quickstart actor call for 24 leaders to a hosted demo with the limiter on, its model answering; returns the leaders and the calls. */
-async function generateLeaders(keys: Record<string, string>): Promise<{ status: number; leaders: unknown[]; calls: WireCall[] }> {
+/**
+ * Posts a Quickstart actor call for 24 leaders to a hosted demo, its model
+ * answering, with the limiter at `maxSimsPerDay` runs a day (0 turns it
+ * off); returns the leaders and the calls.
+ */
+async function generateLeaders(keys: Record<string, string>, maxSimsPerDay = 1): Promise<{ status: number; leaders: unknown[]; calls: WireCall[] }> {
   const restore = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
   try {
     return await withProviderWire(async calls => {
@@ -546,7 +601,7 @@ async function generateLeaders(keys: Record<string, string>): Promise<{ status: 
         const answer = await res.json() as { actors?: unknown[]; error?: string };
         assert.equal(res.status, 200, `the actor call: ${JSON.stringify(answer).slice(0, 300)}\n${describeCalls(calls)}`);
         leaders = answer.actors ?? [];
-      }, { maxSimsPerDay: 1 });
+      }, { maxSimsPerDay });
       return { status, leaders, calls: modelCalls(calls) };
     }, leadersAskedFor);
   } finally {
@@ -568,6 +623,17 @@ test("Quickstart actor generation with the visitor's own key on the hosted demo 
 test("host-paid Quickstart actor generation on the hosted demo writes two leaders on the host's OpenAI key", async () => {
   const { leaders, calls } = await generateLeaders({});
   assert.equal(leaders.length, 2, 'a host-paid request is held to the two-leader cap');
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    assert.equal(call.provider, 'openai');
+    assert.equal(call.key, HOST_OPENAI_KEY, "the call bills the host's OpenAI key");
+  }
+  assert.match(calls[0].text, /Generate exactly 2 archetypal actors/);
+});
+
+test("host-paid Quickstart actor generation on the hosted demo with the limiter off writes two leaders on the host's OpenAI key", async () => {
+  const { leaders, calls } = await generateLeaders({}, 0);
+  assert.equal(leaders.length, 2, 'a host-paid request is held to the two-leader cap whether or not the limiter is on');
   assert.ok(calls.length > 0);
   for (const call of calls) {
     assert.equal(call.provider, 'openai');
