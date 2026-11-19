@@ -18,7 +18,10 @@ void React;
 
 interface EventCardProps {
   event: ProcessedEvent;
+  /** The colour slot: in the side-by-side columns, the column's place modulo 2. */
   actorIndex: number;
+  /** The actor's launch index, whose own registry a forged tool is read from. Defaults to `actorIndex`. */
+  actorSlot?: number;
 }
 
 const moodColors: Record<string, string> = {
@@ -31,13 +34,15 @@ const moodBgColors: Record<string, string> = {
   defiant: '#e06530', hopeful: '#6aad48', resigned: '#a89878', neutral: '#a89878',
 };
 
-export function EventCard({ event, actorIndex }: EventCardProps) {
+export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
   const scenario = useScenarioContext();
   const toolRegistry = useToolContext();
   // Open detail modal for a forge_attempt or specialist_done tool card. Tracks
   // the inspected tool's name so the modal can pull schema + sample
   // output + reuse stats from the registry.
   const [inspectingTool, setInspectingTool] = useState<string | null>(null);
+  // Each actor's tools are its own: a name another actor forged is that actor's tool.
+  const slot = actorSlot ?? actorIndex;
   const sideColor = getActorColorVar(actorIndex);
   const sideStyle = { '--side-color': sideColor } as CSSProperties;
   const dd = event.data;
@@ -182,7 +187,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
         </details>
         {inspectingTool && (
           <ToolDetailModal
-            entry={toolRegistry.getEntry(inspectingTool)}
+            entry={toolRegistry.getEntryFor(slot, inspectingTool)}
             fallbackName={inspectingTool}
             onClose={() => setInspectingTool(null)}
           />
@@ -433,7 +438,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
         </div>
         {inspectingTool && (
           <ToolDetailModal
-            entry={toolRegistry.getEntry(inspectingTool)}
+            entry={toolRegistry.getEntryFor(slot, inspectingTool)}
             fallbackName={inspectingTool}
             onClose={() => setInspectingTool(null)}
           />

@@ -170,6 +170,7 @@ export function MultiActorTurnRow({ turn, actorIds, eventsByActor, runTerminal, 
                     key={e.id}
                     event={e}
                     actorIndex={(idx % 2) as 0 | 1}
+                    actorSlot={idx}
                   />
                 ))
               )}
