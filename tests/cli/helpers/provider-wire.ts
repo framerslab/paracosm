@@ -12,6 +12,10 @@
  * circuit breaker on a 400, so every later call of the run is sent too. The
  * run takes the answer as a failed call and goes on.
  *
+ * A test may answer an OpenAI completion request with text of its own
+ * (`reply`), sent back as OpenAI sends a chat completion or a Responses
+ * reply; every request it leaves unanswered gets the 400.
+ *
  * A request to the test's own server (127.0.0.1 or localhost) goes to the
  * real `fetch`. A request to any other host answers 404 and is recorded.
  * The real `fetch` is put back however the run ends.
@@ -31,7 +35,12 @@ export interface WireCall {
   key?: string;
   /** Every string in its JSON body, one a line: the system text, the messages, the instructions. */
   text: string;
+  /** True when the body asks for a stream. */
+  stream: boolean;
 }
+
+/** Writes the text an OpenAI completion request is answered with, or undefined for the 400. */
+export type WireReply = (call: WireCall) => string | undefined;
 
 /** The message every model call is answered with. */
 export const OVERLOADED = 'The stub model is overloaded.';
@@ -63,7 +72,35 @@ function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
-function answer(call: WireCall): Response {
+/** A chat completion carrying `text`, whole or as a stream, or a Responses reply, as OpenAI sends them. */
+function openAiCompletion(call: WireCall, text: string): Response {
+  const model = call.model ?? 'gpt-4o';
+  if (call.path.endsWith('/responses')) {
+    return json({
+      id: 'resp-wire', object: 'response', created_at: 0, model, status: 'completed',
+      output: [{ type: 'message', id: 'msg-wire', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }],
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+    }, 200);
+  }
+  const head = { id: 'chatcmpl-wire', created: 0, model };
+  if (!call.stream) {
+    return json({
+      ...head,
+      object: 'chat.completion',
+      choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }, 200);
+  }
+  const chunks = [
+    { ...head, object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] },
+    { ...head, object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    { ...head, object: 'chat.completion.chunk', choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+  ];
+  const body = chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+function answer(call: WireCall, reply: WireReply | undefined): Response {
   if (call.provider === 'other') {
     return json({ error: { message: `the stub serves no ${call.url}` } }, 404);
   }
@@ -73,6 +110,8 @@ function answer(call: WireCall): Response {
   if (call.provider === 'anthropic') {
     return json({ type: 'error', error: { type: 'invalid_request_error', message: OVERLOADED } }, 400);
   }
+  const text = call.provider === 'openai' ? reply?.(call) : undefined;
+  if (text !== undefined) return openAiCompletion(call, text);
   return json({ error: { message: OVERLOADED, type: 'invalid_request_error', code: null } }, 400);
 }
 
@@ -81,7 +120,7 @@ function answer(call: WireCall): Response {
  * described above. `run` is handed the record of every provider request,
  * in the order sent.
  */
-export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>): Promise<T> {
+export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>, reply?: WireReply): Promise<T> {
   const calls: WireCall[] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -107,9 +146,10 @@ export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>
       model: typeof body.model === 'string' ? body.model : undefined,
       key: keyOf(provider, headers),
       text: strings.join('\n'),
+      stream: body.stream === true,
     };
     calls.push(call);
-    return answer(call);
+    return answer(call, reply);
   }) as typeof fetch;
   try {
     return await run(calls);

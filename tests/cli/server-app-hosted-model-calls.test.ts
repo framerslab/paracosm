@@ -34,10 +34,11 @@ import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createEmergentEngine } from '../../src/runtime/orchestrator/emergent-setup.js';
 import { openSessionStore } from '../../src/server/stores/session.js';
 import { mars, settingsBody, waitFor, withVisitors, type RunServer, type RunServerOptions } from './helpers/run-server.js';
-import { describeCalls, modelCalls, setHostKeys, withProviderWire, type WireCall } from './helpers/provider-wire.js';
+import { describeCalls, modelCalls, setHostKeys, withProviderWire, type WireCall, type WireReply } from './helpers/provider-wire.js';
 
 const HOST_OPENAI_KEY = 'host-openai-key-for-this-test';
 const HOST_ANTHROPIC_KEY = 'host-anthropic-key-for-this-test';
+const VISITOR_OPENAI_KEY = 'visitor-openai-key-for-this-test';
 const VISITOR_ANTHROPIC_KEY = 'visitor-anthropic-key-for-this-test';
 
 /** The hosted demo, with the host holding a key for each provider. */
@@ -504,4 +505,64 @@ test('host-paid Quickstart actor generation stays on OpenAI with the host key wh
   } finally {
     restore();
   }
+});
+
+/** One leader the actor call's schema takes. */
+function leader(i: number) {
+  return {
+    name: `Leader ${i + 1}`,
+    archetype: 'The Planner',
+    unit: 'Town water board',
+    hexaco: { openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, emotionality: 0.5, honestyHumility: 0.5 },
+    instructions: 'Weigh the water supply before every decision.',
+  };
+}
+
+/** Answers the actor call with as many leaders as its prompt asks for. */
+const leadersAskedFor: WireReply = call => {
+  const asked = /Generate exactly (\d+) archetypal actors/.exec(call.text);
+  return asked ? JSON.stringify({ actors: Array.from({ length: Number(asked[1]) }, (_, i) => leader(i)) }) : undefined;
+};
+
+/** Posts a Quickstart actor call for 24 leaders to a hosted demo with the limiter on, its model answering; returns the leaders and the calls. */
+async function generateLeaders(keys: Record<string, string>): Promise<{ status: number; leaders: unknown[]; calls: WireCall[] }> {
+  const restore = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
+  try {
+    return await withProviderWire(async calls => {
+      let status = 0;
+      let leaders: unknown[] = [];
+      await hosted(async api => {
+        const res = await api.cookied().post('/api/quickstart/generate-actors', { scenarioId: mars.id, count: 24, ...keys });
+        status = res.status;
+        const answer = await res.json() as { actors?: unknown[]; error?: string };
+        assert.equal(res.status, 200, `the actor call: ${JSON.stringify(answer).slice(0, 300)}\n${describeCalls(calls)}`);
+        leaders = answer.actors ?? [];
+      }, { maxSimsPerDay: 1 });
+      return { status, leaders, calls: modelCalls(calls) };
+    }, leadersAskedFor);
+  } finally {
+    restore();
+  }
+}
+
+test("Quickstart actor generation with the visitor's own key on the hosted demo writes every leader it asks for on that key", async () => {
+  const { leaders, calls } = await generateLeaders({ apiKey: VISITOR_OPENAI_KEY });
+  assert.equal(leaders.length, 24, 'the 24 leaders asked for: the two-leader cap holds a host-paid request only');
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    assert.equal(call.provider, 'openai', "the call is on the visitor's provider");
+    assert.equal(call.key, VISITOR_OPENAI_KEY, "the call carries the visitor's key, not the host's");
+  }
+  assert.match(calls[0].text, /Generate exactly 24 archetypal actors/);
+});
+
+test("host-paid Quickstart actor generation on the hosted demo writes two leaders on the host's OpenAI key", async () => {
+  const { leaders, calls } = await generateLeaders({});
+  assert.equal(leaders.length, 2, 'a host-paid request is held to the two-leader cap');
+  assert.ok(calls.length > 0);
+  for (const call of calls) {
+    assert.equal(call.provider, 'openai');
+    assert.equal(call.key, HOST_OPENAI_KEY, "the call bills the host's OpenAI key");
+  }
+  assert.match(calls[0].text, /Generate exactly 2 archetypal actors/);
 });
