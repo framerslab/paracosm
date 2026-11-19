@@ -5,7 +5,7 @@
  *
  * @module paracosm/dashboard/quickstart/QuickstartResults
  */
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -16,6 +16,8 @@ import {
 } from './QuickstartView.helpers';
 import { formatDelta } from '../branches/BranchesTab.helpers';
 import { ActorPresetPicker } from './ActorPresetPicker';
+import { useShareLink } from '../../hooks/useShareLink';
+import { ShareLinkNote } from '../shared/ShareLinkNote';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
@@ -38,7 +40,15 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
   const navigate = useDashboardNavigation();
   const labels = useScenarioLabels();
   const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
-  const [copiedForIndex, setCopiedForIndex] = useState<number | null>(null);
+  // The share note the run drawer and the run actions menu show: the link,
+  // what became of the copy, and who can open the link. Every card's key
+  // shares the same run, so the results hold one note.
+  const shareLink = useShareLink();
+  const clearShareLink = shareLink.clear;
+  // A share note belongs to the run it was made for.
+  useEffect(() => {
+    clearShareLink();
+  }, [sessionId, clearShareLink]);
 
   const handleFork = (i: number) => {
     dispatch({ type: 'SET_PARENT', artifact: artifacts[i] });
@@ -49,16 +59,9 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
     navigate('studio');
   };
 
-  const handleShare = async (i: number) => {
+  const handleShare = () => {
     if (!sessionId) return;
-    const url = buildQuickstartShareUrl(window.location.origin, sessionId);
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedForIndex(i);
-      setTimeout(() => setCopiedForIndex(null), 1500);
-    } catch {
-      // ignore clipboard errors (secure-context requirement etc.)
-    }
+    shareLink.share(buildQuickstartShareUrl(window.location.origin, sessionId));
   };
 
   const handleDownload = (i: number) => {
@@ -144,16 +147,16 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
               peers={artifacts.filter((a, j) => j !== i && !!a)}
               timeLabel={labels.time}
               timeLabelCap={labels.Time}
-              copiedHere={copiedForIndex === i}
               shareEnabled={!!sessionId}
               onDownload={() => handleDownload(i)}
-              onShare={() => handleShare(i)}
+              onShare={handleShare}
               onFork={() => handleFork(i)}
               onRequestSwap={() => setSwapTargetIndex(i)}
             />
           );
         })}
       </div>
+      {shareLink.shared && <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />}
       {swapTargetIndex !== null && (
         <ActorPresetPicker
           onSelect={preset => {
@@ -173,7 +176,6 @@ interface ActorResultCardProps {
   peers: RunArtifact[];
   timeLabel: string;
   timeLabelCap: string;
-  copiedHere: boolean;
   shareEnabled: boolean;
   onDownload: () => void;
   onShare: () => void;
@@ -183,7 +185,7 @@ interface ActorResultCardProps {
 
 function ActorResultCard({
   actor, artifact, peers, timeLabel, timeLabelCap,
-  copiedHere, shareEnabled, onDownload, onShare, onFork, onRequestSwap,
+  shareEnabled, onDownload, onShare, onFork, onRequestSwap,
 }: ActorResultCardProps) {
   const deltas = useMemo(() => computeMedianDeltas(artifact, peers), [artifact, peers]);
   const turnsCompleted = artifact.trajectory?.timepoints?.length ?? 0;
@@ -242,7 +244,7 @@ function ActorResultCard({
           disabled={!shareEnabled}
           title="Copy a deep link that opens this run on the visualization tab"
         >
-          {copiedHere ? 'Copied!' : 'Copy viz share link'}
+          Copy viz share link
         </button>
         <button
           type="button"

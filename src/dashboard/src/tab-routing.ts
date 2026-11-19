@@ -1,3 +1,5 @@
+import { LOG_FILTER_PARAMS } from './components/log/EventLogPanel.helpers';
+
 export const DASHBOARD_TABS = ['quickstart', 'sim', 'viz', 'settings', 'reports', 'chat', 'library', 'studio', 'about'] as const;
 
 export type DashboardTab = (typeof DASHBOARD_TABS)[number];
@@ -59,9 +61,6 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
   return url.toString();
 }
 
-/** The query parameters EventLogPanel keeps its filters in (serializeFiltersToUrl). */
-const EVENT_LOG_FILTER_PARAMS = ['logQuery', 'logTypes', 'logLeader', 'logTurnMin', 'logTurnMax'] as const;
-
 /**
  * The Settings tab's Event Log filtered to one forged tool: `sub=log`
  * opens the Event Log sub-tab and the `#log=<tool name>` hash is the
@@ -72,7 +71,7 @@ const EVENT_LOG_FILTER_PARAMS = ['logQuery', 'logTypes', 'logLeader', 'logTurnMi
  */
 export function createToolLogHref(currentHref: string, toolName: string): string {
   const url = new URL(createDashboardTabHref(currentHref, 'settings'));
-  for (const key of EVENT_LOG_FILTER_PARAMS) url.searchParams.delete(key);
+  for (const key of LOG_FILTER_PARAMS) url.searchParams.delete(key);
   url.searchParams.set('sub', 'log');
   url.hash = `log=${encodeURIComponent(toolName)}`;
   return url.toString();
