@@ -6,11 +6,12 @@
  * with the demo's OpenAI models, and never falls back to another provider:
  * the run's commander, departments, director, reactions, tool review and
  * verdict, a /simulate run, a Quickstart draft, its hook compile and its
- * actors, a Digital Twin run, a /compile and a chat. A host that holds no
- * OpenAI key refuses such a request before the day's limit counts it. A
- * request with the visitor's own key runs on that key's provider and that
- * key, and so does a chat with no key of its own on a run the visitor's key
- * paid for.
+ * actors, a Digital Twin run, the compile of the Digital Twin's world, a
+ * /compile and a chat. A host that holds no OpenAI key refuses such a
+ * request before the day's limit counts it. A request with the visitor's
+ * own key runs on that key's provider and that key, the compile of the
+ * Digital Twin's world included, and so does a chat with no key of its own
+ * on a run the visitor's key paid for.
  *
  * Every test but the chat agent pool's goes through createMarsServer over
  * HTTP in hosted demo mode.
@@ -24,7 +25,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ScenarioPackage } from '../../src/engine/types.js';
@@ -342,6 +344,236 @@ test('a host-paid Digital Twin run on a hosted demo with no host OpenAI key is r
     assert.equal(twin.runs.length, 0, 'no Twin run started');
     assert.equal(await runsLeft(api), 1, 'the refusal did not count toward the day');
   }, { env: ANTHROPIC_ONLY_ENV, maxSimsPerDay: 1, extra: { getDigitalTwinWorld: twin.getDigitalTwinWorld } });
+});
+
+// ---------------------------------------------------------------------------
+// The Digital Twin's world
+// ---------------------------------------------------------------------------
+
+/** The scenario the Digital Twin's world is compiled from, as the repository ships it. */
+const TWIN_SCENARIO = JSON.parse(readFileSync(new URL('../../scenarios/t2d-glp1-protocol.json', import.meta.url), 'utf-8')) as { labels: { name: string } };
+
+/** Text every model call of a scenario compile carries, and no call of a run. */
+const COMPILE_MARK = /You are generating [^\n]* simulation engine\./;
+
+/** The model calls of a scenario compile. */
+function compileCalls(calls: readonly WireCall[]): WireCall[] {
+  return modelCalls(calls).filter(c => COMPILE_MARK.test(c.text));
+}
+
+/**
+ * Answers each call of a compile with text no hook is read from, so the
+ * compile ends with its built-in hooks and writes nothing to its disk cache.
+ * Every other call gets the stub's error.
+ */
+const compileAnswered: WireReply = call => (COMPILE_MARK.test(call.text) ? 'no hook' : undefined);
+
+/**
+ * Resolves once the stub has received no request for a quarter of a second,
+ * or after five seconds: a compile or a run that failed may still have calls
+ * on their way, and they are to reach the stub, not the network.
+ */
+async function callsToEnd(calls: readonly WireCall[]): Promise<void> {
+  const deadline = Date.now() + 5000;
+  let seen = -1;
+  while (seen !== calls.length && Date.now() < deadline) {
+    seen = calls.length;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+}
+
+interface TwinServerSetup {
+  /** The server's environment. */
+  env: Record<string, string>;
+  /** The provider keys of the host, which a call with no key of its own runs on. */
+  hostKeys: { OPENAI_API_KEY?: string; ANTHROPIC_API_KEY?: string };
+  /**
+   * True: the twin's scenario is in the scenario folder when the server
+   * starts. Absent: the folder is empty at the start, so the server starts
+   * with no world, and the scenario is written before `body` runs, which
+   * then finds a world nothing has compiled.
+   */
+  scenarioAtBoot?: boolean;
+  /** True: the calls of a compile get the stub's error, which fails the compile. */
+  compileFails?: boolean;
+}
+
+/**
+ * A hosted demo server that compiles the Digital Twin's world itself, with
+ * the providers stubbed at the wire. The scenario it compiles carries a
+ * name of its own, so no compile of another test is read from the compile's
+ * disk cache.
+ */
+async function twinServer(body: (api: RunServer, calls: WireCall[]) => Promise<void>, setup: TwinServerSetup): Promise<void> {
+  const scenarioDir = mkdtempSync(join(tmpdir(), 'paracosm-twin-world-'));
+  const writeScenario = () => writeFileSync(
+    join(scenarioDir, 't2d-glp1-protocol.json'),
+    JSON.stringify({ ...TWIN_SCENARIO, labels: { ...TWIN_SCENARIO.labels, name: `${TWIN_SCENARIO.labels.name} ${randomUUID()}` } }),
+  );
+  const reply = setup.compileFails ? undefined : compileAnswered;
+  const restore = setHostKeys(setup.hostKeys);
+  try {
+    if (setup.scenarioAtBoot) writeScenario();
+    await withProviderWire(async calls => {
+      await hosted(async api => {
+        if (!setup.scenarioAtBoot) writeScenario();
+        try {
+          await body(api, calls);
+        } finally {
+          await callsToEnd(calls);
+        }
+      }, { env: setup.env, scenarioDir, extra: { getDigitalTwinWorld: undefined } });
+    }, reply, reply);
+  } finally {
+    restore();
+    rmSync(scenarioDir, { recursive: true, force: true });
+  }
+}
+
+/** Asserts a Twin request got past the world's preparation and its run began: it ended, or the stubbed model failed it. */
+async function assertTwinRunBegan(res: Response, what: string): Promise<void> {
+  const text = await res.text();
+  assert.ok(
+    res.status === 200 || (res.status === 500 && text.includes('Intervention run failed')),
+    `${what} began: ${res.status} ${text.slice(0, 300)}`,
+  );
+}
+
+/** The calls on a key of the host. */
+function onHostKeys(calls: readonly WireCall[]): string[] {
+  return modelCalls(calls).filter(c => c.key === HOST_OPENAI_KEY || c.key === HOST_ANTHROPIC_KEY).map(c => `${c.provider} ${c.path} ${c.model ?? '-'}`);
+}
+
+for (const visitor of [
+  { name: 'OpenAI', provider: 'openai', key: VISITOR_OPENAI_KEY, body: { apiKey: VISITOR_OPENAI_KEY } },
+  { name: 'Anthropic', provider: 'anthropic', key: VISITOR_ANTHROPIC_KEY, body: { anthropicKey: VISITOR_ANTHROPIC_KEY } },
+] as const) {
+  test(`a Digital Twin run with the visitor's ${visitor.name} key on a hosted demo with no host OpenAI key compiles the world and runs on that key`, async () => {
+    await twinServer(async (api, calls) => {
+      const res = await api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, ...visitor.body });
+      await assertTwinRunBegan(res, 'the Twin run');
+
+      const compiled = compileCalls(calls);
+      const made = modelCalls(calls);
+      assert.ok(compiled.length > 0, `the world was compiled for the request. The stub received:\n${describeCalls(calls)}`);
+      assert.ok(made.length > compiled.length, `the run made model calls after the compile. The stub received:\n${describeCalls(calls)}`);
+      for (const call of made) {
+        assert.equal(call.provider, visitor.provider, `${call.path} goes to the visitor's provider. The stub received:\n${describeCalls(calls)}`);
+        assert.equal(call.key, visitor.key, `${call.path} carries the visitor's key`);
+      }
+    }, { env: NO_KEYS_ENV, hostKeys: {} });
+  });
+}
+
+test("a Digital Twin run with the visitor's key on a world nothing has compiled makes no model call on the host's keys", async () => {
+  await twinServer(async (api, calls) => {
+    const res = await api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, anthropicKey: VISITOR_ANTHROPIC_KEY });
+    await assertTwinRunBegan(res, 'the Twin run');
+
+    assert.ok(compileCalls(calls).length > 0, `the world was compiled for the request. The stub received:\n${describeCalls(calls)}`);
+    assert.deepEqual(onHostKeys(calls), [], `no model call ran on a key of the host. The stub received:\n${describeCalls(calls)}`);
+    for (const call of modelCalls(calls)) {
+      assert.equal(call.provider, 'anthropic', `${call.path} goes to the visitor's provider`);
+      assert.equal(call.key, VISITOR_ANTHROPIC_KEY, `${call.path} carries the visitor's key`);
+    }
+  }, { env: HOST_ENV, hostKeys: { OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY } });
+});
+
+test("a host-paid Digital Twin request on a world nothing has compiled compiles it on the host's OpenAI key with the Quickstart model, and stays on OpenAI when OpenAI fails", async () => {
+  await twinServer(async (api, calls) => {
+    const res = await api.cookied().post('/api/quickstart/simulate-intervention', TWIN_BODY);
+    assert.equal(res.status, 503, `the compile failed, so there is no world to run: ${(await res.text()).slice(0, 300)}`);
+
+    await callsToEnd(calls);
+    const compiled = compileCalls(calls);
+    assert.ok(compiled.length > 0, `the compile reached OpenAI. The stub received:\n${describeCalls(calls)}`);
+    assert.deepEqual(modelCalls(calls).map(c => c.path), compiled.map(c => c.path), 'the compile made the only model calls');
+    assertOnHostOpenAi(calls, 'the compile');
+    for (const call of compiled) {
+      assert.equal(call.model, 'gpt-5.4-mini', "the model of the hosted demo's Quickstart calls");
+    }
+  }, { env: HOST_ENV, hostKeys: { OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY }, compileFails: true });
+});
+
+test('a Digital Twin request after the world is compiled makes no compile call, whoever pays for it', async () => {
+  await twinServer(async (api, calls) => {
+    const first = await api.cookied().post('/api/quickstart/simulate-intervention', TWIN_BODY);
+    await assertTwinRunBegan(first, 'the host-paid Twin run');
+    const compiled = compileCalls(calls);
+    assert.ok(compiled.length > 0, `the first request compiled the world. The stub received:\n${describeCalls(calls)}`);
+    for (const call of compiled) {
+      assert.equal(call.provider, 'openai', `${call.path} of the compile goes to OpenAI`);
+      assert.equal(call.key, HOST_OPENAI_KEY, `${call.path} of the compile runs on the host's OpenAI key`);
+    }
+
+    const second = await api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, anthropicKey: VISITOR_ANTHROPIC_KEY });
+    await assertTwinRunBegan(second, "the Twin run on the visitor's key");
+    const third = await api.cookied().post('/api/quickstart/simulate-intervention', TWIN_BODY);
+    await assertTwinRunBegan(third, 'the second host-paid Twin run');
+    assert.equal(compileCalls(calls).length, compiled.length, `the later requests compiled nothing. The stub received:\n${describeCalls(calls)}`);
+  }, { env: HOST_ENV, hostKeys: { OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY } });
+});
+
+test('a hosted demo with no host OpenAI key starts without compiling the Digital Twin world, and says why in one line', async t => {
+  const lines: string[] = [];
+  const record = (...args: unknown[]): void => {
+    lines.push(args.map(String).join(' '));
+  };
+  t.mock.method(console, 'log', record);
+  t.mock.method(console, 'error', record);
+  await twinServer(async (_api, calls) => {
+    const twinLines = await waitFor(() => {
+      const found = lines.filter(line => line.includes('[digital-twin]'));
+      return found.length > 0 ? found : null;
+    }, 'a Digital Twin line at the start');
+    assert.deepEqual(twinLines.filter(line => line.includes('Compile failed')), [], 'no compile was tried');
+    assert.equal(twinLines.length, 1, `one line about the Digital Twin: ${twinLines.join(' | ')}`);
+    assert.match(twinLines[0], /no host OpenAI key/i, 'the line says why the world is not compiled');
+    assert.deepEqual(modelCalls(calls), [], 'no model call was made at the start');
+  }, { env: ANTHROPIC_ONLY_ENV, hostKeys: { ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY }, scenarioAtBoot: true });
+});
+
+test("two Digital Twin requests on different keys, sent while nothing has compiled the world, each compile it on their own key", async () => {
+  await twinServer(async (api, calls) => {
+    // Every completion request to OpenAI waits at this gate, so the first
+    // request's compile is still running when the second request arrives.
+    const wire = globalThis.fetch;
+    let open: () => void = () => {};
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    let held = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const { hostname, pathname } = new URL(url);
+      if (hostname.endsWith('openai.com') && !pathname.endsWith('/models')) {
+        held += 1;
+        await gate;
+      }
+      return wire(input, init);
+    }) as typeof fetch;
+    const requests: Array<Promise<Response>> = [];
+    try {
+      requests.push(api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, apiKey: VISITOR_OPENAI_KEY }));
+      await waitFor(() => held > 0, 'the first compile to reach OpenAI', 10_000);
+      requests.push(api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, anthropicKey: VISITOR_ANTHROPIC_KEY }));
+      await waitFor(
+        () => compileCalls(calls).some(c => c.provider === 'anthropic'),
+        "a compile on the visitor's Anthropic key to reach Anthropic while the first compile runs",
+        10_000,
+      );
+    } finally {
+      open();
+      await Promise.allSettled(requests.map(async request => (await request).text()));
+      globalThis.fetch = wire;
+    }
+
+    const compiled = compileCalls(calls);
+    assert.ok(compiled.some(c => c.provider === 'openai'), `a compile ran on OpenAI. The stub received:\n${describeCalls(calls)}`);
+    assert.ok(compiled.some(c => c.provider === 'anthropic'), `a compile ran on Anthropic. The stub received:\n${describeCalls(calls)}`);
+    for (const call of compiled) {
+      assert.equal(call.key, call.provider === 'openai' ? VISITOR_OPENAI_KEY : VISITOR_ANTHROPIC_KEY, `${call.provider} ${call.path} of a compile carries the key of the request it is for`);
+    }
+    assert.deepEqual(onHostKeys(calls), [], `no model call ran on a key of the host. The stub received:\n${describeCalls(calls)}`);
+  }, { env: HOST_ENV, hostKeys: { OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY } });
 });
 
 // ---------------------------------------------------------------------------

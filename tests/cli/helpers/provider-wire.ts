@@ -14,7 +14,8 @@
  *
  * A test may answer an OpenAI completion request with text of its own
  * (`reply`), sent back as OpenAI sends a chat completion or a Responses
- * reply; every request it leaves unanswered gets the 400.
+ * reply, and an Anthropic one (`anthropicReply`), sent back as Anthropic
+ * sends a message; every request it leaves unanswered gets the 400.
  *
  * A request to the test's own server (127.0.0.1 or localhost) goes to the
  * real `fetch`. A request to any other host answers 404 and is recorded.
@@ -39,7 +40,7 @@ export interface WireCall {
   stream: boolean;
 }
 
-/** Writes the text an OpenAI completion request is answered with, or undefined for the 400. */
+/** Writes the text a completion request is answered with, or undefined for the 400. */
 export type WireReply = (call: WireCall) => string | undefined;
 
 /** The message every model call is answered with. */
@@ -100,7 +101,32 @@ function openAiCompletion(call: WireCall, text: string): Response {
   return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
 }
 
-function answer(call: WireCall, reply: WireReply | undefined): Response {
+/** A message carrying `text`, whole or as a stream, as Anthropic sends one. */
+function anthropicMessage(call: WireCall, text: string): Response {
+  const model = call.model ?? 'claude-sonnet-4-6';
+  const head = { id: 'msg-wire', type: 'message', role: 'assistant', model };
+  if (!call.stream) {
+    return json({
+      ...head,
+      content: [{ type: 'text', text }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }, 200);
+  }
+  const events = [
+    { type: 'message_start', message: { ...head, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } },
+    { type: 'message_stop' },
+  ];
+  const body = events.map(e => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+}
+
+function answer(call: WireCall, reply: WireReply | undefined, anthropicReply: WireReply | undefined): Response {
   if (call.provider === 'other') {
     return json({ error: { message: `the stub serves no ${call.url}` } }, 404);
   }
@@ -108,6 +134,8 @@ function answer(call: WireCall, reply: WireReply | undefined): Response {
     return json({ object: 'list', data: ['gpt-4o', 'gpt-4o-mini'].map(id => ({ id, object: 'model', created: 0, owned_by: 'openai' })) }, 200);
   }
   if (call.provider === 'anthropic') {
+    const message = anthropicReply?.(call);
+    if (message !== undefined) return anthropicMessage(call, message);
     return json({ type: 'error', error: { type: 'invalid_request_error', message: OVERLOADED } }, 400);
   }
   const text = call.provider === 'openai' ? reply?.(call) : undefined;
@@ -120,7 +148,7 @@ function answer(call: WireCall, reply: WireReply | undefined): Response {
  * described above. `run` is handed the record of every provider request,
  * in the order sent.
  */
-export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>, reply?: WireReply): Promise<T> {
+export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>, reply?: WireReply, anthropicReply?: WireReply): Promise<T> {
   const calls: WireCall[] = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -149,7 +177,7 @@ export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>
       stream: body.stream === true,
     };
     calls.push(call);
-    return answer(call, reply);
+    return answer(call, reply, anthropicReply);
   }) as typeof fetch;
   try {
     return await run(calls);
