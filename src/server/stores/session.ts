@@ -147,7 +147,8 @@ export interface SessionStore {
    * `maxSessions`; when every owner's unpinned rows together exceed
    * `maxTotalSessions`, the owner holding the most rows (the one whose
    * oldest row is oldest, on a tie) gives up their oldest. Rows with no
-   * owner count as one owner.
+   * owner count as one owner. Saves on one store run one at a time, so
+   * saves that finish together keep both bounds.
    *
    * Returns the new session's id and (when applicable) the id of the
    * row evicted to make room. Caller can log or surface the eviction.
@@ -300,73 +301,96 @@ export function openSessionStore(
     return adapterPromise;
   }
 
-  return {
-    async saveSession(events, override, options) {
-      const adapter = await getAdapter();
-      const id = randomUUID();
-      const createdAt = Date.now();
-      const derived = deriveMetadata(events);
-      const eventCount = events.length;
-      const durationMs = events.length >= 2
-        ? events[events.length - 1].ts - events[0].ts
-        : 0;
+  // Saves run one at a time: each save's insert, counts and evictions read
+  // the rows the save before it left, so runs that finish together cannot
+  // both count the same rows and evict the same one, leaving a bound
+  // exceeded.
+  let saveQueue: Promise<unknown> = Promise.resolve();
 
-      // Persist `leaders` as a JSON-encoded string array. Only stamp it
-      // when there's something to stamp — pair runs (n=2) leave it null
-      // because leaderA/leaderB already cover that case and nothing in
-      // the UI needs the array for n<3.
-      const resolvedLeaders = override?.leaders ?? derived.leaders;
-      const leadersJSON = resolvedLeaders && resolvedLeaders.length >= 3
-        ? JSON.stringify(resolvedLeaders)
-        : null;
+  const saveOne: SessionStore['saveSession'] = async (events, override, options) => {
+    const adapter = await getAdapter();
+    const id = randomUUID();
+    const createdAt = Date.now();
+    const derived = deriveMetadata(events);
+    const eventCount = events.length;
+    const durationMs = events.length >= 2
+      ? events[events.length - 1].ts - events[0].ts
+      : 0;
 
-      await adapter.run(
-        `INSERT INTO sessions
-           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned)
-         VALUES
-           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned)`,
-        {
-          id,
-          createdAt,
-          scenarioId: override?.scenarioId ?? derived.scenarioId ?? null,
-          scenarioName: override?.scenarioName ?? derived.scenarioName ?? null,
-          leaderA: override?.leaderA ?? derived.leaderA ?? null,
-          leaderB: override?.leaderB ?? derived.leaderB ?? null,
-          turnCount: override?.turnCount ?? derived.turnCount ?? null,
-          eventCount,
-          durationMs,
-          totalCostUSD: override?.totalCostUSD ?? derived.totalCostUSD ?? null,
-          events: JSON.stringify(events),
-          seedText: override?.seedText ?? derived.seedText ?? null,
-          leaders: leadersJSON,
-          owner: options?.owner ?? null,
-          pinned: options?.pinned ? 1 : 0,
-        },
-      );
+    // Persist `leaders` as a JSON-encoded string array. Only stamp it
+    // when there's something to stamp — pair runs (n=2) leave it null
+    // because leaderA/leaderB already cover that case and nothing in
+    // the UI needs the array for n<3.
+    const resolvedLeaders = override?.leaders ?? derived.leaders;
+    const leadersJSON = resolvedLeaders && resolvedLeaders.length >= 3
+      ? JSON.stringify(resolvedLeaders)
+      : null;
 
-      // An admin-saved (pinned) row is neither counted nor evicted. Each
-      // owner keeps their own ring of `maxSessions` unpinned rows, so other
-      // owners' saves never take an owner's newest runs; the bound on every
-      // owner's rows together takes from whoever holds the most.
-      let evictedId: string | undefined;
-      if (!options?.pinned) {
-        const owner = options?.owner ?? null;
-        const own = ownerMatch(owner);
+    await adapter.run(
+      `INSERT INTO sessions
+         (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned)
+       VALUES
+         (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned)`,
+      {
+        id,
+        createdAt,
+        scenarioId: override?.scenarioId ?? derived.scenarioId ?? null,
+        scenarioName: override?.scenarioName ?? derived.scenarioName ?? null,
+        leaderA: override?.leaderA ?? derived.leaderA ?? null,
+        leaderB: override?.leaderB ?? derived.leaderB ?? null,
+        turnCount: override?.turnCount ?? derived.turnCount ?? null,
+        eventCount,
+        durationMs,
+        totalCostUSD: override?.totalCostUSD ?? derived.totalCostUSD ?? null,
+        events: JSON.stringify(events),
+        seedText: override?.seedText ?? derived.seedText ?? null,
+        leaders: leadersJSON,
+        owner: options?.owner ?? null,
+        pinned: options?.pinned ? 1 : 0,
+      },
+    );
+
+    // An admin-saved (pinned) row is neither counted nor evicted. Each
+    // owner keeps their own ring of `maxSessions` unpinned rows, so other
+    // owners' saves never take an owner's newest runs; the bound on every
+    // owner's rows together takes from whoever holds the most.
+    // Each bound is evicted down to, so a bound lowered since rows were
+    // saved is met again on the next save.
+    let evictedId: string | undefined;
+    if (!options?.pinned) {
+      const owner = options?.owner ?? null;
+      const own = ownerMatch(owner);
+      for (;;) {
         const ownRows = await adapter.get<{ c: number }>(
           `SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0 AND ${own.sql}`,
           own.params,
         );
-        if (Number(ownRows?.c ?? 0) > maxSessions) evictedId = await evictOldest(adapter, owner) ?? evictedId;
+        if (Number(ownRows?.c ?? 0) <= maxSessions) break;
+        const evicted = await evictOldest(adapter, owner);
+        if (evicted === undefined) break;
+        evictedId = evicted;
       }
+    }
+    for (;;) {
       const totalRows = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0');
-      if (Number(totalRows?.c ?? 0) > maxTotalSessions) {
-        const largest = await adapter.get<{ owner: string | null }>(
-          'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner ORDER BY COUNT(*) DESC, MIN(createdAt) ASC LIMIT 1',
-        );
-        if (largest) evictedId = await evictOldest(adapter, largest.owner ?? null) ?? evictedId;
-      }
+      if (Number(totalRows?.c ?? 0) <= maxTotalSessions) break;
+      const largest = await adapter.get<{ owner: string | null }>(
+        'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner ORDER BY COUNT(*) DESC, MIN(createdAt) ASC LIMIT 1',
+      );
+      const evicted = largest ? await evictOldest(adapter, largest.owner ?? null) : undefined;
+      if (evicted === undefined) break;
+      evictedId = evicted;
+    }
 
-      return evictedId === undefined ? { id } : { id, evictedId };
+    return evictedId === undefined ? { id } : { id, evictedId };
+  };
+
+  return {
+    saveSession(events, override, options) {
+      const save = saveQueue.then(() => saveOne(events, override, options));
+      // A failed save rejects its own caller and leaves the queue running.
+      saveQueue = save.catch(() => undefined);
+      return save;
     },
 
     async listSessions(scope) {
