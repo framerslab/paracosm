@@ -24,7 +24,8 @@
  *   result before any press, only the last press's result shows (also when
  *   an earlier press is answered after a later one), and a refused verdict
  *   export says nothing on a run loaded after it, the same saved run loaded
- *   again included.
+ *   again included. A verdict the visitor collapsed stays collapsed when
+ *   Exit Replay connects the live feed.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -482,6 +483,24 @@ test.describe('the other copy keys and the Library\'s address', () => {
     await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
     await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
     await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toHaveCount(0);
+  });
+
+  test('a verdict the visitor collapsed stays collapsed when Exit Replay connects the live feed', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Collapse verdict' }).click();
+    await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
+
+    // Exit Replay drops the replay and opens the live feed, a source of its own.
+    const liveFeed = page.waitForResponse((response) => new URL(response.url()).pathname === '/events');
+    await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
+    await liveFeed;
+    // The feed's first frame follows its headers; give the page time to take it.
+    await page.waitForTimeout(1_000);
+    await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toHaveCount(0);
   });
 
   test('a verdict export answered after a later press leaves what the later press showed', async ({ page }) => {
