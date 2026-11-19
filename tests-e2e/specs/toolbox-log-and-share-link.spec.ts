@@ -204,7 +204,7 @@ for (const size of WIDTHS) {
         await log.getByRole('button', { name: 'Clear tool filter' }).click();
         await expect(log.getByText(`tool: ${LANDING}`)).toHaveCount(0);
         expectAddressOnReplayLog(page, id);
-        await log.getByRole('textbox', { name: /^Filter log by text/ }).fill('forge_attempt');
+        await log.getByRole('searchbox', { name: /^Filter log by text/ }).fill('forge_attempt');
         await expect.poll(() => new URL(page.url()).searchParams.get('logQuery')).toBe('forge_attempt');
         expectAddressOnReplayLog(page, id);
 
@@ -212,7 +212,7 @@ for (const size of WIDTHS) {
         expectAddressOnReplayLog(page, id);
         const reopened = eventLog(page);
         await expect(reopened).toBeVisible();
-        await expect(reopened.getByRole('textbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
+        await expect(reopened.getByRole('searchbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
         // The replay's two forge events, one for each tool.
         await expect(reopened.locator('summary')).toHaveCount(2);
         await expect(reopened).toContainText(/forge_attempt\s*Aria Chen/);
