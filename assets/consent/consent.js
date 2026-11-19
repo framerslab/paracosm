@@ -197,9 +197,12 @@
     };
     var record = JSON.stringify({ purposes: purposes, at: new Date().toISOString(), words: wordsHash, version: STORE_VERSION });
     var saved = writeLocal(STORE_KEY, record) && readLocal(STORE_KEY) === record;
+    // The earlier no to the count is part of the answer: when it cannot be
+    // cleared or set, this page's answer wins and the bar says it was not saved.
+    var ignoreSaved = writeLocal(IGNORE_KEY, purposes.count ? null : 'true') && readLocal(IGNORE_KEY) === (purposes.count ? null : 'true');
+    saved = saved && ignoreSaved;
     pageAnswer = purposes;
     pageWins = !saved;
-    writeLocal(IGNORE_KEY, purposes.count ? null : 'true');
     if (active.measure && !purposes.measure) withdrawMeasure();
     if (loaded.record && !purposes.record) withdrawRecord();
     apply();
@@ -389,7 +392,9 @@
     } catch (error) { /* no fetch: nothing is counted */ }
   }
 
+  /** Starts what the answer turns on: this page's count, Google Analytics, Clarity. */
   function apply() {
+    count();
     var purposes = effective();
     if (purposes.measure && !active.measure) loadMeasure();
     if (purposes.record && !active.record && !loaded.record) loadRecord();
@@ -671,7 +676,6 @@
     ready = true;
     var controls = document.querySelectorAll('[data-consent-open][hidden]');
     for (var i = 0; i < controls.length; i++) controls[i].hidden = false;
-    count();
     apply();
     if (!signal && !readAnswer()) show(false);
   }
