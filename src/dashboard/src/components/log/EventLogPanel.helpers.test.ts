@@ -9,6 +9,7 @@ import {
   applyLogFilters,
   emptyFilters,
   extractAvailableFacets,
+  hrefWithLogFilters,
   parseFiltersFromUrl,
   serializeFiltersToUrl,
   type LogFilters,
@@ -233,4 +234,22 @@ test('serializeFiltersToUrl: URL-encodes spaces + unicode', () => {
   const reparsed = parseFiltersFromUrl(qs, '');
   assert.equal(reparsed.leader, 'Aria Chen');
   assert.equal(reparsed.query, 'food & water');
+});
+
+test('hrefWithLogFilters: replaces the log parameters and keeps the replay, tab, sub view and hash', () => {
+  const href = 'https://example.test/sim?replay=abc&tab=settings&logQuery=old&logLeader=Aria&sub=log#log=mars_landing_site_score';
+  const filters: LogFilters = { ...emptyFilters(), query: 'forge_attempt' };
+  const next = new URL(hrefWithLogFilters(href, filters, false), 'https://example.test');
+  assert.equal(next.pathname, '/sim');
+  assert.equal(next.searchParams.get('replay'), 'abc');
+  assert.equal(next.searchParams.get('tab'), 'settings');
+  assert.equal(next.searchParams.get('sub'), 'log');
+  assert.equal(next.searchParams.get('logQuery'), 'forge_attempt');
+  assert.equal(next.searchParams.has('logLeader'), false);
+  assert.equal(next.hash, '#log=mars_landing_site_score');
+});
+
+test('hrefWithLogFilters: empty filters and a cleared tool chip leave only the other parameters', () => {
+  const href = 'https://example.test/sim?replay=abc&tab=settings&sub=log&logTypes=decision_made#log=mars_landing_site_score';
+  assert.equal(hrefWithLogFilters(href, emptyFilters(), true), '/sim?replay=abc&tab=settings&sub=log');
 });

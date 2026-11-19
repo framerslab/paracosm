@@ -5,7 +5,7 @@
  *
  * @module paracosm/dashboard/quickstart/QuickstartResults
  */
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type ReactNode } from 'react';
 import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -45,6 +45,9 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
   // shares the same run, so the results hold one note.
   const shareLink = useShareLink();
   const clearShareLink = shareLink.clear;
+  // The card whose key made the note: the note shows under that card, so a
+  // phone with the cards in one column shows it where the visitor pressed.
+  const [sharedFrom, setSharedFrom] = useState<number | null>(null);
   // A share note belongs to the run it was made for.
   useEffect(() => {
     clearShareLink();
@@ -59,8 +62,9 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
     navigate('studio');
   };
 
-  const handleShare = () => {
+  const handleShare = (i: number) => {
     if (!sessionId) return;
+    setSharedFrom(i);
     shareLink.share(buildQuickstartShareUrl(window.location.origin, sessionId));
   };
 
@@ -149,14 +153,16 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
               timeLabelCap={labels.Time}
               shareEnabled={!!sessionId}
               onDownload={() => handleDownload(i)}
-              onShare={handleShare}
+              onShare={() => handleShare(i)}
+              shareNote={sharedFrom === i && shareLink.shared
+                ? <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+                : null}
               onFork={() => handleFork(i)}
               onRequestSwap={() => setSwapTargetIndex(i)}
             />
           );
         })}
       </div>
-      {shareLink.shared && <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />}
       {swapTargetIndex !== null && (
         <ActorPresetPicker
           onSelect={preset => {
@@ -179,13 +185,15 @@ interface ActorResultCardProps {
   shareEnabled: boolean;
   onDownload: () => void;
   onShare: () => void;
+  /** The share note, when this card's key made it. */
+  shareNote: ReactNode;
   onFork: () => void;
   onRequestSwap: () => void;
 }
 
 function ActorResultCard({
   actor, artifact, peers, timeLabel, timeLabelCap,
-  shareEnabled, onDownload, onShare, onFork, onRequestSwap,
+  shareEnabled, shareNote, onDownload, onShare, onFork, onRequestSwap,
 }: ActorResultCardProps) {
   const deltas = useMemo(() => computeMedianDeltas(artifact, peers), [artifact, peers]);
   const turnsCompleted = artifact.trajectory?.timepoints?.length ?? 0;
@@ -256,6 +264,7 @@ function ActorResultCard({
           Fork in Branches &rarr;
         </button>
       </div>
+      {shareNote}
       <div className={styles.forkHint}>
         {turnsCompleted > 0
           ? `${turnsCompleted} ${timeLabelCap}${turnsCompleted === 1 ? '' : 's'} available for forking`
