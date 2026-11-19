@@ -1257,13 +1257,44 @@ if (themeBtn) {
   });
 }
 
-// Copy code to clipboard
+// Copy code to clipboard. Where the page has no clipboard (plain http at a
+// network address) or the browser refuses the write, the block says in one
+// line under its header that the code was not copied; a copy that works
+// takes the line away.
 function copyCode(btn, text) {
-  navigator.clipboard.writeText(text.trim()).then(() => {
+  const header = btn.closest('.code-header');
+  const shownNote = () => {
+    const next = header && header.nextElementSibling;
+    return next && next.classList.contains('code-copy-note') ? next : null;
+  };
+  const copied = () => {
+    const note = shownNote();
+    if (note) note.remove();
     btn.textContent = 'Copied';
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-  });
+  };
+  const notCopied = () => {
+    if (!header || shownNote()) return;
+    const note = document.createElement('p');
+    note.className = 'code-copy-note';
+    note.setAttribute('role', 'status');
+    header.after(note);
+    note.textContent = 'The browser did not copy the code. Select it and copy it.';
+  };
+  const clipboard = navigator.clipboard;
+  if (!clipboard || typeof clipboard.writeText !== 'function') {
+    notCopied();
+    return;
+  }
+  let write;
+  try {
+    write = clipboard.writeText(text.trim());
+  } catch (_) {
+    notCopied();
+    return;
+  }
+  write.then(copied, notCopied);
 }
 
 // Smooth scroll for anchor links

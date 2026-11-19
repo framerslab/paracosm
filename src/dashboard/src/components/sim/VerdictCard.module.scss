@@ -129,8 +129,8 @@
 }
 
 // What the export key says when the browser does not copy the verdict.
-// 15 px in --text-1 on the panel's --bg-panel and --bg-deep, 15:1 or more
-// in both looks.
+// 15 px in --text-1 on the panel's --bg-panel and --bg-deep: 16.5:1 or more
+// in the dark look, 14.9:1 or more in the light look.
 .exportRefused {
   margin: 0 0 12px;
   padding-left: 10px;
