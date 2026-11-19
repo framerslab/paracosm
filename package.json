@@ -48,6 +48,7 @@
     "config/actors.example.json",
     "config/actors.json",
     "assets/favicons/",
+    "assets/fonts/",
     "assets/landing.css",
     "assets/diagrams/",
     "assets/demo/e2e-atlas-8-poster.jpg",
