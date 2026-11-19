@@ -54,7 +54,7 @@ function billedBy(config: NormalizedSimulationConfig): { provider: string; key: 
   return { provider, key: own ?? (provider === 'anthropic' ? HOST_ANTHROPIC_KEY : HOST_OPENAI_KEY) };
 }
 
-interface TitleCall { provider: string; model: string; apiKey?: string }
+interface TitleCall { provider: string; model: string; apiKey?: string; fallbackProviders?: unknown[] }
 
 /** A runner that plays every leader through every turn at once and completes, so the server saves the run. */
 async function finishingRunner(config: NormalizedSimulationConfig, broadcast: BroadcastFn): Promise<void> {
@@ -82,7 +82,7 @@ async function withHostedDemo(body: (api: RunServer, titleCalls: TitleCall[]) =>
       getDigitalTwinWorld: async () => null,
       sessionStore: openSessionStore(':memory:', 10, { databaseOptions: { type: 'memory' } }),
       generateText: async (args: TitleCall & { prompt: string }) => {
-        titleCalls.push({ provider: args.provider, model: args.model, apiKey: args.apiKey });
+        titleCalls.push({ provider: args.provider, model: args.model, apiKey: args.apiKey, fallbackProviders: args.fallbackProviders });
         return { text: 'A saved run' };
       },
     },
@@ -130,6 +130,7 @@ test("a saved run made on the visitor's own key makes its title call with that k
     assert.equal(titleCalls.length, 1, 'one title call a saved run');
     assert.equal(call.provider, 'openai');
     assert.equal(call.apiKey, VISITOR_OPENAI_KEY, "the title call carries the visitor's key");
+    assert.deepEqual(call.fallbackProviders, [], 'a failed title call does not move to another provider on the environment key');
   });
 });
 
@@ -140,6 +141,7 @@ test("a saved run made on the visitor's own Anthropic key makes its title call o
 
     assert.equal(call.provider, 'anthropic');
     assert.equal(call.apiKey, VISITOR_ANTHROPIC_KEY, "the title call carries the visitor's key");
+    assert.deepEqual(call.fallbackProviders, [], 'a failed title call does not move to another provider on the environment key');
   });
 });
 
