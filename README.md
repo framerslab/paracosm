@@ -571,6 +571,8 @@ Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:
 
 Apache-2.0
 
+The landing page, the dashboard and the API docs load their fonts from the site itself: Inter and JetBrains Mono, in `assets/fonts/`, from the `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono` packages. Both fonts are under the [SIL Open Font License 1.1](https://openfontlicense.org/open-font-license-official-text/); the licence texts are `assets/fonts/LICENSE-Inter.txt` and `assets/fonts/LICENSE-JetBrains-Mono.txt`.
+
 ---
 
 <p align="center">
