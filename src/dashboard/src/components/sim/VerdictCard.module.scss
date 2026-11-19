@@ -128,6 +128,18 @@
   color: var(--green);
 }
 
+// What the export key says when the browser does not copy the verdict.
+// 15 px in --text-1 on the panel's --bg-panel and --bg-deep: 16.5:1 or more
+// in the dark look, 14.9:1 or more in the light look.
+.exportRefused {
+  margin: 0 0 12px;
+  padding-left: 10px;
+  border-left: 3px solid var(--rust);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text-1);
+}
+
 .summary {
   font-size: var(--font-md);
   color: var(--text-2);

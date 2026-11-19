@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { useEffect, useState, useCallback, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import { CohortVerdictDetails } from '../layout/VerdictModal';
 import { getActorColorVar } from '../../hooks/useGameState';
+import { writeClipboardText } from '../../hooks/writeClipboardText';
 import styles from './VerdictCard.module.scss';
 import { finalStatsTitle, formatScenarioStat, scenarioStatLabel, scenarioStatRows, statLeader, type ScenarioStatRow } from './verdict-stats';
 
@@ -31,6 +32,8 @@ interface VerdictData {
 
 interface VerdictCardProps {
   verdict: Record<string, unknown>;
+  /** Names the run the page shows; see {@link useVerdictExport}. */
+  shownRun?: string;
 }
 
 function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
@@ -181,13 +184,84 @@ function winColorFor(winner: VerdictData['winner']): string {
   return 'var(--amber)';
 }
 
+/** What the export key says when the browser does not copy the verdict. */
+export const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
+/**
+ * What a screen reader hears when the export key copies the verdict. The key
+ * keeps its name, and its COPIED is shown on the key alone, so the status
+ * region says it.
+ */
+export const VERDICT_COPIED = 'The verdict was copied as markdown.';
+
+/** How long the export key says it copied. */
+const COPIED_SHOWN_MS = 1800;
+
+/**
+ * The export key's state: what became of the last press on the verdict shown.
+ *
+ * Each press gets its own number and starts from nothing shown, so an
+ * answer to an earlier press never changes what the key says about a later
+ * one, and the key never says it copied beside a refusal. A result belongs
+ * to the verdict it was pressed on: when another verdict is shown, the
+ * result is dropped. The same holds when another run is shown, named by
+ * `shownRun`: a run loaded after it starts with nothing shown, the same
+ * saved file loaded again included, and an answer to a press on the earlier
+ * run changes nothing. The panel stays mounted, so a verdict the visitor
+ * collapsed stays collapsed.
+ */
+function useVerdictExport(v: VerdictData, shownRun?: string): { copied: boolean; notCopied: boolean; exportVerdict: () => void } {
+  const [result, setResult] = useState<'copied' | 'refused' | null>(null);
+  const pressRef = useRef(0);
+  const timerRef = useRef<number | null>(null);
+  const stopTimer = () => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+  // The verdict as text: it changes when another run's verdict is shown,
+  // and stays the same when the same verdict arrives as a new object.
+  const shownVerdict = useMemo(() => JSON.stringify(v), [v]);
+  useEffect(() => {
+    pressRef.current += 1;
+    stopTimer();
+    setResult(null);
+    return stopTimer;
+  }, [shownVerdict, shownRun]);
+  const exportVerdict = useCallback(() => {
+    const press = ++pressRef.current;
+    stopTimer();
+    setResult(null);
+    writeClipboardText(buildMarkdownExport(v)).then(
+      () => {
+        if (pressRef.current !== press) return;
+        setResult('copied');
+        timerRef.current = window.setTimeout(() => {
+          timerRef.current = null;
+          if (pressRef.current === press) setResult(null);
+        }, COPIED_SHOWN_MS);
+      },
+      () => {
+        if (pressRef.current === press) setResult('refused');
+      },
+    );
+  }, [v]);
+  return { copied: result === 'copied', notCopied: result === 'refused', exportVerdict };
+}
+
 /**
  * Full verdict body shared by the Sim modal and the Reports inline
  * panel. Accepts the parsed VerdictData and renders the winner
  * headline, summary, key divergence, score bars, and final stats.
  * Caller supplies any wrapping chrome (modal vs inline card).
+ * `notCopied` shows {@link VERDICT_NOT_COPIED} under the header after an
+ * export press the browser refused, or on a page with no clipboard. The
+ * words go into a status region that is there with the key, empty, so a
+ * screen reader announces them when they arrive. A copy that works puts
+ * {@link VERDICT_COPIED} there for a screen reader alone.
  */
-export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExport?: () => void; copied?: boolean }) {
+export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictData; onExport?: () => void; copied?: boolean; notCopied?: boolean }) {
   const winColor = winColorFor(v.winner);
   return (
     <>
@@ -214,6 +288,12 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
           </div>
         )}
       </div>
+      {onExport && (
+        <div role="status" aria-label="Verdict copy result">
+          {notCopied && <p className={styles.exportRefused}>{VERDICT_NOT_COPIED}</p>}
+          {copied && <span className="sr-only">{VERDICT_COPIED}</span>}
+        </div>
+      )}
 
       <div className={styles.summary}>{v.summary}</div>
 
@@ -274,22 +354,15 @@ export function VerdictDetails({ v, onExport, copied }: { v: VerdictData; onExpo
  * showed no verdict in the SIM body even when `cohort_verdict` had
  * landed cleanly.
  */
-export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
+export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
   const v = raw as unknown as VerdictData & { mode?: string; rankings?: unknown; winnerIndex?: number };
-  const [copied, setCopied] = useState(false);
+  const { copied, notCopied, exportVerdict } = useVerdictExport(v, shownRun);
   // Collapsible: clicking the close button shrinks the panel to a
   // single-line summary so the SIM area is not dominated by the
   // verdict block when reviewing turns. Clicking the collapsed bar
   // re-expands. State is per-session in-memory; remounting (page
   // reload, replay change) restores the expanded default.
   const [expanded, setExpanded] = useState(true);
-  const handleExport = useCallback(() => {
-    const md = buildMarkdownExport(v);
-    navigator.clipboard.writeText(md).then(
-      () => { setCopied(true); setTimeout(() => setCopied(false), 1800); },
-      () => { /* clipboard denied — silent */ },
-    );
-  }, [v]);
   if (!v.winner) return null;
   const mode: 'pair' | 'cohort' = v.mode === 'cohort' ? 'cohort' : 'pair';
   // Pair shape: bail without scores (back-compat: an older verdict
@@ -334,7 +407,7 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
       </button>
       {mode === 'cohort'
         ? <CohortVerdictDetails v={v as unknown as Record<string, unknown>} />
-        : <VerdictDetails v={v} onExport={handleExport} copied={copied} />}
+        : <VerdictDetails v={v} onExport={exportVerdict} copied={copied} notCopied={notCopied} />}
     </div>
   );
 }
@@ -349,7 +422,7 @@ export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
 export function VerdictCard({ verdict: raw }: VerdictCardProps) {
   const v = raw as unknown as VerdictData;
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copied, notCopied, exportVerdict } = useVerdictExport(v);
 
   // Escape key closes the modal when open. Matches the dismissal
   // behavior of every other dashboard modal (CostBreakdown,
@@ -360,14 +433,6 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
-
-  const handleExport = useCallback(() => {
-    const md = buildMarkdownExport(v);
-    navigator.clipboard.writeText(md).then(
-      () => { setCopied(true); setTimeout(() => setCopied(false), 1800); },
-      () => { /* clipboard denied — silent */ },
-    );
-  }, [v]);
 
   if (!v.winner || !v.scores) return null;
   const winColor = winColorFor(v.winner);
@@ -411,7 +476,7 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
               >
                 ×
               </button>
-              <VerdictDetails v={v} onExport={handleExport} copied={copied} />
+              <VerdictDetails v={v} onExport={exportVerdict} copied={copied} notCopied={notCopied} />
             </div>
           </div>
         </div>

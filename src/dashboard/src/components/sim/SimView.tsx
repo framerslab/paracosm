@@ -34,6 +34,10 @@ interface SimViewProps {
    *  does before spending LLM credits on their own run. */
   onTour?: () => void;
   verdict?: Record<string, unknown> | null;
+  /** Names the run the page shows. What the verdict's export key said
+   *  about one run never shows on the next, the same saved file loaded
+   *  again included. */
+  shownRun?: string;
   /** App-level launching flag — survives tab navigation so users can
    *  switch to viz/chat/etc. and come back to a still-loading sim. */
   launching?: boolean;
@@ -116,7 +120,7 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: launchingProp, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
+export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, launching: launchingProp, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   // Digital-twin short-circuit: when the dashboard receives an artifact
@@ -316,7 +320,7 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, launching: l
           dismissable surface; this panel is the always-visible
           counterpart pinned to the SIM tab. */}
       {state.isComplete && verdict && (verdict as Record<string, unknown>).winner ? (
-        <VerdictPanel verdict={verdict} />
+        <VerdictPanel verdict={verdict} shownRun={shownRun} />
       ) : null}
       {layout === 'constellation' ? (
         <>
