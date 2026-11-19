@@ -255,6 +255,10 @@ function AppContent() {
   const effectiveComplete = useDemoData ? true : sse.isComplete;
   // The results carry each decision's bar check, which the outcome cards show.
   const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
+  // Names the run the page shows, the same saved file loaded twice as two
+  // runs. The Chat tab's threads and the verdict panels start afresh for
+  // each run.
+  const shownRun = `${sse.runKey ?? ''}:${sse.loadedRuns}`;
   // What the Digital Twin views read: the run this page started when the
   // page's own state is not it, and the page's state otherwise.
   const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
@@ -1227,6 +1231,7 @@ function AppContent() {
                   onRun={handleRun}
                   onTour={handleTourStart}
                   verdict={sse.verdict}
+                  shownRun={shownRun}
                   launching={launching}
                   interventionArtifact={interventionArtifact}
                   interventionRunning={interventionRunning}
@@ -1287,7 +1292,7 @@ function AppContent() {
                 tabIndex={-1}
                 className={styles.tabPanel}
               >
-                <ReportView state={gameState} verdict={sse.verdict} reportSections={scenario.ui.reportSections} />
+                <ReportView state={gameState} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
               </section>
             )}
 
@@ -1352,7 +1357,7 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel key={`${sse.runKey ?? ''}:${sse.loadedRuns}`} state={gameState} onChatUsage={handleChatUsage} />
+              <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now

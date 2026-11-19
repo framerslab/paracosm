@@ -54,6 +54,10 @@ function usePersistedToggle(key: string, initial: boolean): [boolean, (v: boolea
 interface ReportViewProps {
   state: GameState;
   verdict?: Record<string, unknown> | null;
+  /** Names the run the page shows. The verdict panel starts afresh for
+   *  each run, so what its export key said about one run never shows on
+   *  the next, the same saved file loaded again included. */
+  shownRun?: string;
   reportSections: Array<'crisis' | 'departments' | 'decision' | 'outcome' | 'quotes' | 'causality'>;
 }
 
@@ -190,7 +194,7 @@ function toneColor(tone: 'pos' | 'neg' | 'neutral' | undefined): string {
   return 'var(--text-1)';
 }
 
-export function ReportView({ state, verdict, reportSections }: ReportViewProps) {
+export function ReportView({ state, verdict, shownRun, reportSections }: ReportViewProps) {
   const citationRegistry = useCitationContext();
   const toolRegistry = useToolContext();
   // User's expand/collapse preference for References + Toolbox in this tab,
@@ -947,7 +951,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         <CohortVerdict state={state} />
         {verdict && (
           <div className={styles.summaryVerdictWrap}>
-            <VerdictPanel verdict={verdict} />
+            <VerdictPanel key={shownRun} verdict={verdict} />
           </div>
         )}
       </section>

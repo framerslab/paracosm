@@ -195,7 +195,10 @@ const COPIED_SHOWN_MS = 1800;
  * answer to an earlier press never changes what the key says about a later
  * one, and the key never says it copied beside a refusal. A result belongs
  * to the verdict it was pressed on: when another verdict is shown, the
- * result is dropped.
+ * result is dropped. The Sim and Reports tabs key their panel by the run
+ * shown, so a run loaded after it starts with nothing shown, the same saved
+ * file loaded again included, and an answer to a press on the earlier run
+ * changes nothing.
  */
 function useVerdictExport(v: VerdictData): { copied: boolean; notCopied: boolean; exportVerdict: () => void } {
   const [result, setResult] = useState<'copied' | 'refused' | null>(null);
