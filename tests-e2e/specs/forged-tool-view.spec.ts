@@ -10,6 +10,9 @@
  *   living grid at each size.
  * - Before: pictures of the forged toolbox and of a forged tool's dialog as
  *   they are, at 390 and 1440 in both looks.
+ * - The forge view's tokens: the quiet tone, the edge tone, the problem
+ *   colour and the three text sizes hold their values in both looks, and
+ *   --rust keeps its own.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -61,6 +64,34 @@ test.describe('what a visitor compares today stays', () => {
       const grid = page.getByRole('region', { name: new RegExp(`^${leader} \\S+ viz$`) });
       await expect(grid).toBeInViewport();
       await expect(grid.getByRole('img', { name: new RegExp(`^${leader} \\S+, turn \\d+\\. 30 alive`) })).toBeVisible();
+    }
+  });
+});
+
+test.describe('the forge view\'s tokens', () => {
+  test('the six forge tokens hold their values in both looks, and --rust keeps its own', async ({ page }) => {
+    const expected = {
+      dark: { quiet: 'rgb(216, 204, 176)', edge: 'rgb(168, 152, 120)', problem: 'rgb(242, 148, 106)', rust: 'rgb(224, 101, 48)' },
+      light: { quiet: 'rgb(74, 62, 44)', edge: 'rgb(106, 92, 68)', problem: 'rgb(142, 44, 12)', rust: 'rgb(142, 44, 12)' },
+    };
+    for (const look of LOOKS) {
+      await useLook(page, look);
+      await page.goto(`${PAIR_SERVER}/sim`);
+      // The page puts the light look's class on its root once it has read the stored look.
+      await page.waitForFunction((l) => document.documentElement.classList.contains('light') === (l === 'light'), look);
+      // Each colour is read through a probe element, so the assertion is on the resolved colour.
+      const got = await page.evaluate(() => {
+        const host = document.querySelector('.light') ?? document.body;
+        const probe = document.createElement('span');
+        host.append(probe);
+        const read = (v: string) => { probe.style.color = `var(${v})`; return getComputedStyle(probe).color; };
+        const sizes = ['--forge-text-meta', '--forge-text-body', '--forge-text-title']
+          .map((k) => getComputedStyle(host).getPropertyValue(k).trim());
+        const colours = { quiet: read('--forge-quiet'), edge: read('--forge-edge'), problem: read('--problem'), rust: read('--rust') };
+        probe.remove();
+        return { ...colours, sizes };
+      });
+      expect(got, `the ${look} look`).toEqual({ ...expected[look], sizes: ['15px', '18px', '22px'] });
     }
   });
 });
