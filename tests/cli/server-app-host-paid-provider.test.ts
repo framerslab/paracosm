@@ -108,7 +108,7 @@ async function runsLeft(api: RunServer): Promise<number> {
 /**
  * Posts a host-paid /setup to a hosted demo whose host holds `env`'s keys,
  * with the limiter at one run a day, and checks it is refused before it
- * counts: a 503 that says why, no run started, the day's run still there.
+ * counts: a 503 that says why, no run started, the day's run left as it was.
  */
 async function assertRefusedBeforeTheDay(env: Record<string, string>): Promise<void> {
   await withHostedDemo(async (api) => {

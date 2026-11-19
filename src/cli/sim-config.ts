@@ -149,6 +149,12 @@ export interface NormalizedSimulationConfig {
   economics: ResolvedEconomicsProfile;
   apiKey?: string;
   anthropicKey?: string;
+  /**
+   * Keep every model call of the run on `provider`: no fallback to another
+   * provider, on any key. The server sets it on every run of the hosted
+   * demo; `normalizeSimulationConfig` never reads it from a request.
+   */
+  stayOnProvider?: boolean;
   serperKey?: string;
   firecrawlKey?: string;
   tavilyKey?: string;
@@ -577,6 +583,46 @@ function normalizeActiveDepartments(
 }
 
 /**
+ * The economics profile a host-paid run on the hosted demo plays: the
+ * economy profile on the demo's models for `provider`, with the commander
+ * moved up (DEMO_COMMANDER_MODELS). `applyDemoCaps` gives it to every
+ * host-paid /setup run, and a host-paid Digital Twin or /simulate run takes
+ * its models.
+ */
+export function demoEconomics(provider: LlmProvider = DEMO_PROVIDER): ResolvedEconomicsProfile {
+  const demoModels = DEMO_MODELS[provider];
+  // Pure economy tier for the hosted demo: let the 'economy' profile's
+  // own model matrix win, rather than layering DEMO_MODELS on top as
+  // overrides. DEMO_MODELS was pinning `gpt-4o` on departments to avoid
+  // gpt-4o-mini's verbatim-copying failure mode, but that was blended
+  // ~$2/M tokens on full runs — a 6-turn public demo was costing
+  // ~$2-3. The economy profile uses `gpt-5.4-mini` for departments
+  // (validated for structured-schema work) and `gpt-5.4-nano` for the
+  // shorter selection / reaction calls. A 6-turn hosted Atlas Lab pair
+  // cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499 for its two
+  // leaders). Users who provide their own keys
+  // keep their selected profile — this path only fires when the
+  // server is running on host-provided keys in hosted-demo mode.
+  const economy = resolveEconomicsProfile({
+    profileId: 'economy',
+    provider,
+    baseModels: demoModels,
+  });
+  // The commander alone moves up (DEMO_COMMANDER_MODELS). A commander
+  // override also moves the director unless the director is named, so the
+  // economy profile's director is named with it.
+  const demoCommander = DEMO_COMMANDER_MODELS[provider];
+  return demoCommander
+    ? resolveEconomicsProfile({
+        profileId: 'economy',
+        provider,
+        baseModels: demoModels,
+        overrides: { commander: demoCommander, director: economy.models.director },
+      })
+    : economy;
+}
+
+/**
  * Apply demo-mode caps to an already-normalized sim config.
  *
  * Called server-side when a request arrives without a user-supplied API
@@ -598,37 +644,8 @@ function normalizeActiveDepartments(
  */
 export function applyDemoCaps(input: NormalizedSimulationConfig): NormalizedSimulationConfig {
   const config: NormalizedSimulationConfig = { ...input, provider: DEMO_PROVIDER };
-  const demoModels = DEMO_MODELS[config.provider];
   const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
-  // Pure economy tier for the hosted demo: let the 'economy' profile's
-  // own model matrix win, rather than layering DEMO_MODELS on top as
-  // overrides. DEMO_MODELS was pinning `gpt-4o` on departments to avoid
-  // gpt-4o-mini's verbatim-copying failure mode, but that was blended
-  // ~$2/M tokens on full runs — a 6-turn public demo was costing
-  // ~$2-3. The economy profile uses `gpt-5.4-mini` for departments
-  // (validated for structured-schema work) and `gpt-5.4-nano` for the
-  // shorter selection / reaction calls. A 6-turn hosted Atlas Lab pair
-  // cost 0.7397 USD on 1 November 2026 (0.2898 and 0.4499 for its two
-  // leaders). Users who provide their own keys
-  // keep their selected profile — this path only fires when the
-  // server is running on host-provided keys in hosted-demo mode.
-  const economy = resolveEconomicsProfile({
-    profileId: 'economy',
-    provider: config.provider,
-    baseModels: demoModels,
-  });
-  // The commander alone moves up (DEMO_COMMANDER_MODELS). A commander
-  // override also moves the director unless the director is named, so the
-  // economy profile's director is named with it.
-  const demoCommander = DEMO_COMMANDER_MODELS[config.provider];
-  const economics = demoCommander
-    ? resolveEconomicsProfile({
-        profileId: 'economy',
-        provider: config.provider,
-        baseModels: demoModels,
-        overrides: { commander: demoCommander, director: economy.models.director },
-      })
-    : economy;
+  const economics = demoEconomics(config.provider);
   const turns = Math.min(config.turns, DEMO_EXECUTION.maxTurns);
   const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {

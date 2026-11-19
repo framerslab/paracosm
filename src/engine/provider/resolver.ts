@@ -78,6 +78,11 @@ export interface ResolveProviderOptions {
   env?: NodeJS.ProcessEnv;
   /** Suppress the fallback warning log (tests, library callers). */
   silent?: boolean;
+  /**
+   * Never move to another provider: a requested provider with no key throws
+   * `ProviderKeyMissingError` naming that provider alone.
+   */
+  stayOnProvider?: boolean;
 }
 
 /**
@@ -99,6 +104,10 @@ export function resolveProviderWithFallback(
 
   if (hasKey(requested, env)) {
     return { provider: requested, fellBack: false, requested };
+  }
+
+  if (options.stayOnProvider) {
+    throw new ProviderKeyMissingError(requested, [requested]);
   }
 
   for (const candidate of FALLBACK_ORDER) {

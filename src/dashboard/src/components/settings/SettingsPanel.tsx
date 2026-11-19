@@ -24,6 +24,7 @@ import {
 } from './shared/settingsStyles';
 import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
+import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -362,7 +363,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // belong to the user, so env presence is enough. On the hosted Linode
   // the server sets PARACOSM_HOSTED_DEMO=true and env keys belong to the
   // host — picker then requires an explicit session override from the user.
-  const hasSessionLlmKey = !!keyOverrides.openai || !!keyOverrides.anthropic;
+  // A key counts as the server reads it: a blank or masked value (`sk-...`)
+  // is no key, so it neither unlocks the page nor is posted.
+  const hasSessionLlmKey = hasSessionProviderKey(keyOverrides);
   const hasEnvLlmKey = !!envKeys.openai || !!envKeys.anthropic;
   const canPickModels = hasSessionLlmKey || (!hostedDemo && hasEnvLlmKey);
   // `hasUserLlmKey` controls whether launch() attaches `config.models`.
@@ -455,8 +458,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // alphabetic placeholder until status:parallel lands.
       writeActiveRunActors(window.localStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
-      if (keyOverrides.openai) config.apiKey = keyOverrides.openai;
-      if (keyOverrides.anthropic) config.anthropicKey = keyOverrides.anthropic;
+      Object.assign(config, sessionProviderKeys(keyOverrides));
       if (keyOverrides.serper) config.serperKey = keyOverrides.serper;
       if (keyOverrides.firecrawl) config.firecrawlKey = keyOverrides.firecrawl;
       if (keyOverrides.tavily) config.tavilyKey = keyOverrides.tavily;

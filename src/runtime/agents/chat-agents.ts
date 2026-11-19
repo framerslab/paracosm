@@ -19,6 +19,7 @@ import { scenarioWords } from '../util/scenario-words.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
+  fallbackProvidersFor,
   resolveProviderFromCredentials,
 } from '../../engine/provider/credentials.js';
 
@@ -80,6 +81,11 @@ export interface ChatAgentOptions {
   provider?: LlmProvider;
   apiKey?: string;
   anthropicKey?: string;
+  /**
+   * Keep the chat on `provider`, also without an explicit key: no fallback
+   * to another provider. The hosted demo sets it.
+   */
+  stayOnProvider?: boolean;
   settlementNoun?: string;
   populationNoun?: string;
   /** The scenario's labels: the leader and the time the character speaks of. */
@@ -271,7 +277,7 @@ export async function getOrCreateChatAgent(
     provider,
     model,
     apiKey: providerApiKey,
-    fallbackProviders: providerApiKey ? [] : undefined,
+    fallbackProviders: fallbackProvidersFor(providerApiKey, opts.stayOnProvider),
     name: colonist.name,
     instructions,
     personality,

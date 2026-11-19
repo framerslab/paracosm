@@ -312,6 +312,7 @@ export async function runPairSimulations(
       captureSnapshots: simConfig.captureSnapshots ?? false,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
@@ -475,6 +476,7 @@ export async function runForkSimulation(
       captureSnapshots: true,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
@@ -601,6 +603,7 @@ export async function runBatchSimulations(
       captureSnapshots: simConfig.captureSnapshots ?? false,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
@@ -727,8 +730,8 @@ export interface JudgedRun {
 
 /** What a verdict call needs besides the runs it judges. */
 export interface VerdictCallOptions {
-  /** Provider and keys; the run's normalized config satisfies it. */
-  credentials: Pick<NormalizedSimulationConfig, 'provider' | 'apiKey' | 'anthropicKey'>;
+  /** Provider, keys and whether the call stays on the provider; the run's normalized config satisfies it. */
+  credentials: Pick<NormalizedSimulationConfig, 'provider' | 'apiKey' | 'anthropicKey' | 'stayOnProvider'>;
   verdictModel: string;
   turns: number;
   /** The scenario the runs played; its labels and scores frame the verdict. */
@@ -826,6 +829,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      stayOnProvider: credentials.stayOnProvider,
       _generateObjectImpl: generateObjectImpl,
       schema: VerdictSchema,
       schemaName: 'Verdict',
@@ -931,6 +935,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      stayOnProvider: credentials.stayOnProvider,
       _generateObjectImpl: generateObjectImpl,
       schema: CohortVerdictSchema,
       schemaName: 'CohortVerdict',
