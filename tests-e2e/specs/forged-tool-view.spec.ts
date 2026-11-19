@@ -23,14 +23,23 @@
  *   decided the outcome open first; Code and Tests have nothing to open;
  *   Open all opens every station with evidence; the stations a visitor
  *   opened open on the run's next tool too.
+ * - Record and the attempts on the run's record: Record, one key at the
+ *   line's foot, opens the actor's frames that name the tool with Copy
+ *   record, Download JSON and Show in Event Log, which opens the Event Log
+ *   on this actor's tool by its whole name; a tool forged more than once
+ *   opens at its latest attempt, with keys to its other attempts and a row
+ *   for each where it leaves the line.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
+import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import {
   COHORT_SERVER, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
   pairSessionId, replayUrl, sessionIdByName, useLook, type Look,
 } from '../support/forge-view-pages.js';
+import { DOZENS, generateCohortRun } from '../support/forge-fixtures.js';
+import { framesToSimEvents } from '../support/run-frames.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored runs live on local servers of their own.');
 
@@ -56,6 +65,10 @@ const HABITAT = 'habitat_pressure_check';
 const OXYGEN = 'oxygen_reserve_days';
 /** Aria Chen's passed tool that nothing used after its forge. */
 const GREENHOUSE = 'greenhouse_yield_forecast';
+/** Aria Chen's tool forged twice: its turn 1 forge did not pass and its turn 2 forge passed. */
+const RATION = 'water_ration_index';
+/** Dietrich Voss's first tool: the Event Log on Aria Chen's first tool shows none of its rows. */
+const WATER = 'perchlorate_water_response_score';
 /** Where the trace keeps the stations a visitor opened, on this device, for each run. */
 const OPEN_STATIONS_KEY = 'paracosm:forgeOpenStations';
 
@@ -898,6 +911,353 @@ test.describe('the stations on the run\'s record', () => {
         await expect(station.locator('[data-actor-line]')).toHaveText(/^A3 \S/);
         expect(await groundOf(station.locator('[data-actor-rule]'))).toBe(await resolved(page, '--rust'));
         await picture(page, `${size.width}-${look}-f9-24-actors-a3`);
+      });
+    }
+  });
+});
+
+/** Record, the key at the line's foot. */
+const recordKey = (trace: Locator): Locator => trace.getByRole('button', { name: 'Record', exact: true });
+
+/** Opens Record unless it is open, and returns what it opened. */
+async function openRecord(trace: Locator): Promise<Locator> {
+  const key = recordKey(trace);
+  await expect(key).toHaveAttribute('aria-expanded', /^(true|false)$/);
+  if ((await key.getAttribute('aria-expanded')) === 'false') await key.click();
+  await expect(key).toHaveAttribute('aria-expanded', 'true');
+  const panel = trace.locator('[data-record-panel]');
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+/** The raw record Record shows: the frames that name the tool, each frame's data, as JSON. */
+async function rawRecordOf(panel: Locator): Promise<Array<Record<string, unknown>>> {
+  return JSON.parse((await panel.locator('[data-raw-record]').textContent()) ?? '') as Array<Record<string, unknown>>;
+}
+
+/** Whether a frame's data names a tool: a forge's own name, or a report's list of tools. */
+const namesTool = (data: Record<string, unknown>, tool: string): boolean =>
+  data.name === tool
+  || (Array.isArray(data.forgedTools) && (data.forgedTools as Array<{ name?: unknown }>).some(t => t?.name === tool));
+
+/** Replaces the page's clipboard before any script runs: it keeps what it is given, or refuses. */
+async function clipboardThat(page: Page, answer: 'keeps' | 'refuses'): Promise<void> {
+  await page.addInitScript((how) => {
+    const writeText = how === 'refuses'
+      ? () => Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
+      : (text: string) => { (window as unknown as { copied?: string }).copied = text; return Promise.resolve(); };
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
+  }, answer);
+}
+
+/** The Event Log shows the three events of Aria Chen's first tool and nothing of another tool. */
+async function expectLogFilteredToLandingTool(page: Page): Promise<void> {
+  const log = page.getByRole('log', { name: 'Event log' });
+  await expect(log).toBeVisible();
+  await expect(log.getByText(`tool: ${LANDING}`)).toBeVisible();
+  await expect(log.getByRole('heading', { name: /^Event Log \(3 of \d+ events\)$/ })).toBeVisible();
+  // Its forge in turn 1, the report that used it in turn 1, the report that used it again in turn 2.
+  await expect(log.locator('summary')).toHaveText([
+    /forge_attempt\s*Aria Chen\s*T1\s*engineering/,
+    /specialist_done\s*Aria Chen\s*T1\s*engineering/,
+    /specialist_done\s*Aria Chen\s*T2\s*engineering/,
+  ]);
+  await expect(log).not.toContainText(WATER);
+}
+
+/** The attempt keys of the trace's head: Previous attempt, the count, Next attempt. */
+const attemptKeys = (trace: Locator) => ({
+  previous: trace.getByRole('button', { name: 'Previous attempt', exact: true }),
+  next: trace.getByRole('button', { name: 'Next attempt', exact: true }),
+  line: trace.locator('[data-attempt-line]'),
+});
+
+/** A1's tools in the 24-actor run that it forged more than once, each with the data of A1's frames that name it. */
+function dozensReforgedOfA1(): Array<{ tool: string; forges: number; frames: Array<Record<string, unknown>> }> {
+  const a1 = framesToSimEvents(generateCohortRun(DOZENS)).filter(e => e.leader === 'Aria Chen');
+  const forges = new Map<string, number>();
+  for (const e of a1) {
+    if (e.type === 'forge_attempt' && typeof e.data?.name === 'string') forges.set(e.data.name, (forges.get(e.data.name) ?? 0) + 1);
+  }
+  return [...forges].filter(([, n]) => n > 1).map(([tool, n]) => ({
+    tool,
+    forges: n,
+    frames: a1
+      .filter(e => (e.type === 'forge_attempt' || e.type === 'specialist_done') && namesTool((e.data ?? {}) as Record<string, unknown>, tool))
+      .map(e => e.data as Record<string, unknown>),
+  }));
+}
+
+test.describe('Record and the attempts on the run\'s record', () => {
+  test('f12 q18: Record on a run with no trace holds the run\'s record of the tool and its three keys', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await clipboardThat(page, 'keeps');
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+
+        // Record is one key at the line's foot, never a sixth station.
+        const stations = trace.getByRole('list', { name: 'The forge\'s stations' });
+        await expect(stations.getByRole('listitem')).toHaveCount(5);
+        await expect(stations.getByRole('button', { name: 'Record', exact: true })).toHaveCount(0);
+        await expect(recordKey(trace)).toHaveAttribute('aria-expanded', 'false');
+
+        const panel = await openRecord(trace);
+        await expect(panel.getByText('The raw record', { exact: true })).toBeVisible();
+        // Aria Chen's three frames that name the tool, in stream order, each as the Event Log lists its data.
+        const record = await rawRecordOf(panel);
+        expect(record).toHaveLength(3);
+        expect(record[0].name).toBe(LANDING);
+        expect(record.map(data => data.turn)).toEqual([1, 1, 2]);
+        for (const data of record) {
+          expect(namesTool(data, LANDING)).toBe(true);
+          expect(Object.keys(data)).not.toContain('_filteredTools');
+        }
+        for (const key of ['Copy record', 'Download JSON', 'Show in Event Log']) {
+          await expect(panel.getByRole('button', { name: key, exact: true })).toBeVisible();
+        }
+        await picture(page, `${size.width}-${look}-f12-record`);
+
+        // Copy record copies the raw record and says so.
+        await panel.getByRole('button', { name: 'Copy record', exact: true }).click();
+        await expect(panel.getByText('Copied', { exact: true })).toBeVisible();
+        const copied = await page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '');
+        expect(JSON.parse(copied)).toEqual(record);
+
+        // Record closes again on its key.
+        await recordKey(trace).click();
+        await expect(recordKey(trace)).toHaveAttribute('aria-expanded', 'false');
+        await expect(trace.locator('[data-record-panel]')).toBeHidden();
+      });
+    }
+  });
+
+  test('f12 q5: Download JSON saves "{tool name}-trace.json"', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const panel = await openRecord(traceOf(page, LANDING, 1));
+        const record = await rawRecordOf(panel);
+        const [download] = await Promise.all([
+          page.waitForEvent('download'),
+          panel.getByRole('button', { name: 'Download JSON', exact: true }).click(),
+        ]);
+        expect(download.suggestedFilename()).toBe(`${LANDING}-trace.json`);
+        // The file holds the record the panel shows.
+        expect(JSON.parse(readFileSync(await download.path(), 'utf8'))).toEqual(record);
+      });
+    }
+  });
+
+  test('f12 q6: Show in Event Log closes the trace and opens the Event Log on this actor\'s tool', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const id = await pairSessionId(request);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        const panel = await openRecord(trace);
+        await panel.getByRole('button', { name: 'Show in Event Log', exact: true }).click();
+        await expect(trace).toBeHidden();
+        // The address holds the replay, Settings, its Event Log, this actor, and the tool by its whole name.
+        await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe('settings');
+        const address = new URL(page.url());
+        expect(address.searchParams.get('replay')).toBe(id);
+        expect(address.searchParams.get('sub')).toBe('log');
+        expect(address.searchParams.get('logLeader')).toBe('Aria Chen');
+        expect(address.hash).toBe(`#log=${LANDING}&logExact=1`);
+        await expectLogFilteredToLandingTool(page);
+        await picture(page, `${size.width}-${look}-f12-show-in-event-log`);
+      });
+    }
+  });
+
+  test('f12 q13: a refused clipboard says the record was not copied', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await clipboardThat(page, 'refuses');
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const panel = await openRecord(traceOf(page, LANDING, 1));
+        await panel.getByRole('button', { name: 'Copy record', exact: true }).click();
+        await expect(panel.getByText('Could not copy. Select the record and copy it.', { exact: true })).toBeVisible();
+        await expect(panel.getByText('Copied', { exact: true })).toHaveCount(0);
+        // The record stays on show to select by hand.
+        await expect(panel.locator('[data-raw-record]')).toBeVisible();
+        await picture(page, `${size.width}-${look}-f12-copy-refused`);
+      });
+    }
+  });
+
+  test('f12 q15: a download that fails says so', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await page.addInitScript(() => {
+      URL.createObjectURL = () => { throw new Error('The browser could not make the file.'); };
+    });
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const panel = await openRecord(traceOf(page, LANDING, 1));
+        await panel.getByRole('button', { name: 'Download JSON', exact: true }).click();
+        await expect(panel.getByText('Could not download. Try again, or use Copy record.', { exact: true })).toBeVisible();
+        await picture(page, `${size.width}-${look}-f12-download-failed`);
+      });
+    }
+  });
+
+  test('f13 q1 and q2: a tool forged twice opens at attempt 2, with the spur of attempt 1 after Request', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        // Either forge card's key opens the tool at its latest attempt.
+        await pressInspect(inspectKey(page, RATION).first());
+        const trace = traceOf(page, RATION);
+        const keys = attemptKeys(trace);
+
+        // Attempt 2, the latest: its head says what its forge said, with "2 of 2" between its keys.
+        await expect(trace.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
+        await expect(trace.getByRole('group', { name: 'Attempt 2 of 2', exact: true })).toBeVisible();
+        await expect(keys.line).toHaveText('2 of 2');
+        await expect(keys.previous).toBeEnabled();
+        await expect(keys.next).toBeDisabled();
+        const order = await trace.evaluate((dialog) => {
+          const named = (name: string) => dialog.querySelector(`[aria-label="${name}"]`);
+          const [prev, line, next] = [named('Previous attempt'), dialog.querySelector('[data-attempt-line]'), named('Next attempt')];
+          if (!prev || !line || !next) return null;
+          const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+          return follows(prev, line) && follows(line, next);
+        });
+        expect(order, 'the count stands between Previous attempt and Next attempt').toBe(true);
+        await expect(trace.getByText('The reason the run recorded')).toHaveCount(0);
+        // Attempt 1 leaves the line after Request as one row, a link to that attempt.
+        const request1 = stationOf(trace, 'request');
+        const spur = request1.getByRole('link', { name: 'Attempt 1 · Did not pass', exact: true });
+        await expect(spur).toBeVisible();
+        await expect(spur.locator('svg[data-glyph]')).toHaveAttribute('data-glyph', 'didNotPass');
+        await expect(trace.getByRole('link', { name: /^Attempt \d+ · / })).toHaveCount(1);
+        await picture(page, `${size.width}-${look}-f13-attempt-2`);
+
+        // Previous attempt: attempt 1's trace, the branch to attempt 2, and focus on the key pressed.
+        await keys.previous.click();
+        await expect(trace.getByRole('group', { name: 'Attempt 1 of 2', exact: true })).toBeVisible();
+        await expect(keys.line).toHaveText('Attempt 1 of 2');
+        const firstInHead = trace.locator('[data-forge-head] > *').first();
+        await expect(firstInHead).toContainText('Attempt 1 of 2');
+        await expect(trace.getByText('Did not pass. The run\'s record does not say where the forge stopped.', { exact: true })).toBeVisible();
+        await expect(trace.getByText('The reason the run recorded', { exact: true })).toBeVisible();
+        const branch = stationOf(trace, 'request').getByRole('link', { name: 'Attempt 2 · Passed', exact: true });
+        await expect(branch).toBeVisible();
+        await expect(branch.locator('svg[data-glyph]')).toHaveAttribute('data-glyph', 'passed');
+        await expect(trace.getByRole('link', { name: /^Attempt \d+ · / })).toHaveCount(1);
+        await expect(keys.previous).toBeDisabled();
+        await expect(keys.next).toBeEnabled();
+        await expect(keys.previous).toBeFocused();
+        await expect(trace).toHaveAccessibleName(new RegExp(`^${RATION}, forged tool \\d+$`));
+        await picture(page, `${size.width}-${look}-f13-attempt-1`);
+
+        // The branch is a link to attempt 2: the trace swaps back, and focus stays on that row, now attempt 1's spur.
+        await branch.click();
+        await expect(keys.line).toHaveText('2 of 2');
+        await expect(stationOf(trace, 'request').getByRole('link', { name: 'Attempt 1 · Did not pass', exact: true })).toBeFocused();
+      });
+    }
+  });
+
+  test('f13 q3: a tool forged once has no attempt keys, spur or branch', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        await pressInspect(inspectKey(page, LANDING));
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+        const keys = attemptKeys(trace);
+        await expect(keys.previous).toHaveCount(0);
+        await expect(keys.next).toHaveCount(0);
+        await expect(keys.line).toHaveCount(0);
+        await expect(trace.getByRole('link', { name: /^Attempt \d+ · / })).toHaveCount(0);
+      });
+    }
+  });
+
+  test('f13 q4: the attempt keys and their count stay one row at 320', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const look of LOOKS) {
+      await test.step(`320 in the ${look} look`, async () => {
+        await openPairSim(page, request, { width: 320, height: 844 }, look);
+        await pressInspect(inspectKey(page, RATION).first());
+        const trace = traceOf(page, RATION);
+        for (const shown of ['2 of 2', 'Attempt 1 of 2']) {
+          const keys = attemptKeys(trace);
+          if (shown !== '2 of 2') await keys.previous.click();
+          await expect(keys.line).toHaveText(shown);
+          const boxes = await Promise.all([keys.previous, keys.line, keys.next].map(part => part.boundingBox()));
+          expect(boxes.every(Boolean), 'each part of the attempt row is drawn').toBe(true);
+          const [prev, line, next] = boxes as Array<{ x: number; y: number; width: number; height: number }>;
+          // One row: each part stands beside the others, left to right, none under another.
+          for (const part of [line, next]) {
+            expect(part.y, `"${shown}": no part sits under Previous attempt`).toBeLessThan(prev.y + prev.height);
+            expect(prev.y, `"${shown}": no part sits over Previous attempt`).toBeLessThan(part.y + part.height);
+          }
+          expect(prev.x + prev.width).toBeLessThanOrEqual(line.x + 0.5);
+          expect(line.x + line.width).toBeLessThanOrEqual(next.x + 0.5);
+          // A phone's keys are 44 px tall, and the sheet does not scroll sideways.
+          expect(prev.height).toBeGreaterThanOrEqual(44);
+          expect(next.height).toBeGreaterThanOrEqual(44);
+          expect(await trace.evaluate(dialog => dialog.scrollWidth - dialog.clientWidth)).toBeLessThanOrEqual(0);
+          await picture(page, `320-${look}-f13-attempt-row-${shown === '2 of 2' ? 'latest' : 'earlier'}`);
+        }
+      });
+    }
+  });
+
+  test('at 24 actors, a re-forged tool opens at its latest attempt with its spur, and Record holds that actor\'s frames alone', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
+    const reforged = dozensReforgedOfA1();
+    expect(reforged.length, 'A1 of the 24-actor run holds a tool it forged more than once').toBeGreaterThan(0);
+    const { tool, forges, frames } = reforged[0];
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await page.goto(replayUrl(COHORT_SERVER, id, 'sim'));
+        await lookShown(page, look);
+        // A1's forge card of the tool, once the run's last actor has played in.
+        await expect(page.locator('[aria-label^="Events for actor 24 on turn "] button[aria-label^="Inspect forged tool "]').first())
+          .toBeAttached({ timeout: 60_000 });
+        await pressInspect(inspectKey(page.locator('[aria-label^="Events for actor 1 on turn "]'), tool).first());
+        const trace = traceOf(page, tool);
+        await expect(trace).toBeVisible();
+        await expect(trace.locator('[data-forge-header] [data-actor-tile]')).toHaveText('A1');
+
+        // The latest attempt, with each earlier one as a row after Request.
+        await expect(attemptKeys(trace).line).toHaveText(`${forges} of ${forges}`);
+        await expect(attemptKeys(trace).next).toBeDisabled();
+        await expect(stationOf(trace, 'request').getByRole('link', { name: 'Attempt 1 · Did not pass', exact: true })).toBeVisible();
+        await expect(stationOf(trace, 'request').getByRole('link', { name: /^Attempt \d+ · / })).toHaveCount(forges - 1);
+
+        // Record: A1's own frames that name the tool, and no other actor's.
+        const panel = await openRecord(trace);
+        expect(await rawRecordOf(panel)).toEqual(frames);
+        await picture(page, `${size.width}-${look}-f13-24-actors-a1`);
+
+        // Show in Event Log: the log of A1's tool, by A1's name.
+        await panel.getByRole('button', { name: 'Show in Event Log', exact: true }).click();
+        await expect(trace).toBeHidden();
+        await expect.poll(() => new URL(page.url()).searchParams.get('logLeader')).toBe('Aria Chen');
+        const log = page.getByRole('log', { name: 'Event log' });
+        await expect(log.getByText(`tool: ${tool}`)).toBeVisible();
+        await expect(log.getByRole('heading', { name: new RegExp(`^Event Log \\(${frames.length} of \\d+ events\\)$`) })).toBeVisible();
       });
     }
   });
