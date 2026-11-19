@@ -202,3 +202,98 @@ export const attemptOfTotal = (n: number, total: number): string => `Attempt ${n
 
 /** Another attempt's row where it leaves the line: "Attempt 1 · Did not pass". */
 export const attemptRow = (n: number, outcome: string): string => `Attempt ${n} · ${outcome}`;
+
+// ── The forged toolbox ──────────────────────────────────────────────────
+
+/** A count as the toolbox writes it: "3,612". */
+export const countWord = (n: number): string => n.toLocaleString('en-US');
+
+/** A count with its noun, the noun in the singular for one: "1 tool", "12 tools". */
+const counted = (n: number, one: string, many: string): string => `${countWord(n)} ${n === 1 ? one : many}`;
+
+/** The toolbox's title, the forge view's one run of capitals. */
+export const TOOLBOX_TITLE = 'FORGED TOOLBOX';
+
+/** The toolbox's name as a dialog: "Forged toolbox, 12 tools". */
+export const toolboxDialogName = (tools: number): string => `Forged toolbox, ${counted(tools, 'tool', 'tools')}`;
+
+export const CLOSE_TOOLBOX = 'Close the toolbox';
+
+/**
+ * The count line, on the run's record: "12 tools from 13 forges (1 re-forge)
+ * · 9 passed · 4 did not pass". The outcomes count forges and add up to
+ * them; the bracket shows only when a tool was forged more than once; an
+ * outcome with no forge is left out; a run of more than two actors ends
+ * "· 24 actors".
+ */
+export function toolboxCountLine(
+  counts: { tools: number; forges: number; reforges: number; passed: number; didNotPass: number },
+  actors: number,
+): string {
+  const reforged = counts.reforges > 0 ? ` (${counted(counts.reforges, 're-forge', 're-forges')})` : '';
+  return [
+    `${counted(counts.tools, 'tool', 'tools')} from ${counted(counts.forges, 'forge', 'forges')}${reforged}`,
+    counts.passed > 0 ? `${countWord(counts.passed)} passed` : '',
+    counts.didNotPass > 0 ? `${countWord(counts.didNotPass)} did not pass` : '',
+    actors > 2 ? `${countWord(actors)} actors` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** The filter: its name, the word before the menu's choice, and each choice's word. */
+export const SHOW_WORDS = {
+  name: 'Show',
+  menuLead: 'Show:',
+  all: 'All',
+  passed: OUTCOME_WORDS.passed,
+  did_not_pass: OUTCOME_WORDS.didNotPass,
+} as const;
+
+/** Find a tool: its label, its placeholder and its clear keys. */
+export const FIND_WORDS = {
+  label: 'Find a tool',
+  placeholder: 'Tool name…',
+  clear: 'Clear',
+  clearName: 'Clear the search',
+} as const;
+
+/** What the list says when it holds no row. */
+export const TOOLBOX_EMPTY = {
+  noTools: 'No department forged a tool in this run.',
+  everyToolPassed: 'Every tool in this run passed.',
+} as const;
+
+/** A search that matches no tool: "No tool matches “zzz”." */
+export const noToolMatches = (query: string): string => `No tool matches “${query}”.`;
+
+export const EXPORT_JSON = 'Export JSON';
+
+/** The file Export JSON saves. */
+export const TOOLBOX_FILE_NAME = 'paracosm-toolbox.json';
+
+/**
+ * A row's meta line after its actor: "engineering · turn 1 · used 1 time ·
+ * 1 re-forge". The uses show on a tool that was added, the re-forges on a
+ * tool forged more than once.
+ */
+export function toolMetaLine(parts: { department: string; turn: number; uses: number | null; reforges: number }): string {
+  return [
+    parts.department,
+    `turn ${parts.turn}`,
+    parts.uses === null ? '' : `used ${counted(parts.uses, 'time', 'times')}`,
+    parts.reforges > 0 ? counted(parts.reforges, 're-forge', 're-forges') : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** The other actors that forged a tool of this name: "Same name: A2, A9", and past three, "Same name in 5 other actors". */
+export function sameName(labels: string[]): string {
+  return labels.length > 3 ? `Same name in ${countWord(labels.length)} other actors` : `Same name: ${labels.join(', ')}`;
+}
+
+/**
+ * A row's name for a screen reader: "mars_landing_site_score, Passed, made
+ * by A1 Aria Chen", and on a tool forged again, ", forged 2 times".
+ */
+export function toolRowName(parts: { name: string; outcome: string; actorLabel: string; actorName: string; forges: number }): string {
+  const made = `${parts.name}, ${parts.outcome}, made by ${parts.actorLabel} ${parts.actorName}`;
+  return parts.forges > 1 ? `${made}, forged ${countWord(parts.forges)} times` : made;
+}

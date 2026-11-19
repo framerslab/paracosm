@@ -1,59 +1,35 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GameState, ProcessedEvent } from '../../hooks/useGameState';
 import { useToolContext } from '../../hooks/useToolRegistry';
-import type { StationId } from './forgeLine';
-import { TRACE_PARAMS, parseForgeUrl, withForgeState, withoutForgeParams } from './forgeUrl';
+import { TRACE_PARAMS, parseForgeUrl, withForgeState, withToolbox, withoutForgeParams } from './forgeUrl';
+import {
+  ALL_ROWS,
+  ForgeViewContext,
+  TOOLBOX_SHOWS,
+  ToolboxViewContext,
+  type ForgeView,
+  type ToolboxFilter,
+  type ToolboxShow,
+  type ToolboxView,
+  type TraceTarget,
+} from './forgeViewContext';
+import { ToolboxDialog } from './ToolboxDialog';
 import { TraceDialog, type TraceShown } from './TraceDialog';
 
-/**
- * One actor's tool, named by the actor's launch index and the tool's name.
- *
- * A tool is never held by its number: the list's numbers are positions in
- * actor order, so while a run plays in, an earlier actor's first forge moves
- * every later actor's numbers up by one, and a number held from before would
- * then name another tool.
- */
-export interface TraceTarget {
-  actorIndex: number;
-  toolName: string;
-  /** The attempt to show, 1-based. The latest when not given. */
-  attempt?: number;
-  /** The stations to open beside the one that decided the outcome. */
-  open?: StationId[];
-}
-
-/** The forge view's dialogs, opened from any surface of the dashboard. */
-export interface ForgeView {
-  /** Opens one tool's trace. `opener` is the key that asked: focus returns to it when the trace closes. */
-  openTrace(target: TraceTarget, opener?: HTMLElement | null): void;
-  /** Opens the forged toolbox. */
-  openToolbox(opener?: HTMLElement | null): void;
-  /**
-   * Closes the open dialog. Focus returns to the key that opened it, or goes
-   * to `focusTo` when given: an element of the run view the dialog pointed to.
-   * `then` runs once the page's history is back where it stood before the
-   * dialog opened, so a navigation it makes is not undone by that step back.
-   */
-  close(focusTo?: HTMLElement | null, then?: () => void): void;
-  current: { trace: TraceTarget | null; toolbox: boolean };
-}
+export { useForgeView, useToolboxView } from './forgeViewContext';
+export type { ForgeView, ToolboxFilter, ToolboxShow, ToolboxView, TraceTarget } from './forgeViewContext';
 
 const NOTHING_OPEN: ForgeView['current'] = { trace: null, toolbox: false };
 
 const NO_EVENTS: readonly ProcessedEvent[] = [];
 
-/** Outside the provider nothing opens: a card drawn on its own still renders. */
-const OUTSIDE_PROVIDER: ForgeView = {
-  openTrace: () => {},
-  openToolbox: () => {},
-  close: () => {},
-  current: NOTHING_OPEN,
-};
-
-const ForgeViewContext = createContext<ForgeView>(OUTSIDE_PROVIDER);
-
-export function useForgeView(): ForgeView {
-  return useContext(ForgeViewContext);
+/** The filter and the search an address names: every row for a filter it does not know. */
+function filterOf(href: string): ToolboxFilter {
+  const { show, find } = parseForgeUrl(href, { getEntryByNumber: () => undefined, actors: [] }, false).state.toolbox;
+  return {
+    show: TOOLBOX_SHOWS.includes(show as ToolboxShow) ? (show as ToolboxShow) : 'all',
+    find: find ?? '',
+  };
 }
 
 export interface ForgeViewProviderProps {
@@ -70,25 +46,39 @@ export interface ForgeViewProviderProps {
 
 /**
  * The one host of the forge view's dialogs. Mounted once, inside the tool
- * registry's provider, it opens a tool's trace from any surface and renders
- * the one dialog.
+ * registry's provider, it opens a tool's trace or the forged toolbox from
+ * any surface and renders them. A toolbox row's trace opens over the
+ * toolbox, and closing that trace leaves the toolbox open with focus on the
+ * row.
  *
  * Opening adds one entry to the page's history, so a phone's Back closes the
  * dialog and leaves the run on the page. Closing by a key steps back over
  * that entry, so Back afterwards does what it did before the dialog opened.
+ * The toolbox and a trace over it share that one entry: Back closes the
+ * trace, the toolbox takes a new entry, and the next Back closes the toolbox.
  *
- * The open trace is written into its entry's address (its tool's number, an
- * earlier attempt, the open stations), so the page's link names it; the
- * entry under it keeps the address without them, so closing leaves none.
- * Once the run is complete the address is read: a link to one tool opens
- * its trace, and the parameters that point at nothing in the run leave the
- * address. A number is never read while a run plays in, since an earlier
- * actor's first forge can still move it.
+ * What is open is written into its entry's address, so the page's link
+ * names it: the toolbox, and a trace's tool by its number, an earlier
+ * attempt and the open stations. The entry under it keeps the address
+ * without them, so closing leaves neither. The toolbox's filter and search
+ * are one for the dialog and the list in Reports' page; they are written
+ * into the address of the page as well, so a link opens the same rows on
+ * either.
+ *
+ * Once the run is complete the address is read: a link opens the toolbox,
+ * one tool's trace, or both, and the parameters that point at nothing in the
+ * run leave the address. A tool's number is never read while a run plays in,
+ * since an earlier actor's first forge can still move it.
  */
 export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, children }: ForgeViewProviderProps) {
   const registry = useToolContext();
   const [current, setCurrent] = useState<ForgeView['current']>(NOTHING_OPEN);
+  /** The key that opened the first dialog: focus returns to it once every dialog is closed. */
   const openerRef = useRef<HTMLElement | null>(null);
+  /** The toolbox row whose trace is open over the toolbox: focus returns to it when that trace closes. */
+  const rowRef = useRef<HTMLElement | null>(null);
+  /** Whether the toolbox is open, known the moment it opens or closes. */
+  const toolboxOpenRef = useRef(false);
   /** Whether the history entry added for the open dialog is the page's current one. */
   const entryRef = useRef(false);
   /** Steps back this provider asked for and whose popstate it has yet to see. */
@@ -106,21 +96,66 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
   /** The attempt and the open stations of the trace on show, as the dialog reports them. */
   const [shown, setShown] = useState<TraceShown | null>(null);
 
+  // The toolbox's filter and search, read from the address the page opened on.
+  const [filter, setFilter] = useState<ToolboxFilter>(() => (typeof window === 'undefined' ? ALL_ROWS : filterOf(window.location.href)));
+  const filterRef = useRef(filter);
+
+  /**
+   * The filter and the search in the address of the entry on show: the open
+   * toolbox's own, which names the toolbox too, else the page's, whose
+   * `toolbox` stays as a link wrote it until the run is complete and read.
+   */
+  const writeFilter = useCallback(() => {
+    const href = window.location.href;
+    const next = withToolbox(href, {
+      ...(toolboxOpenRef.current && entryRef.current ? { open: true } : {}),
+      ...filterRef.current,
+    });
+    if (next === href) return;
+    try {
+      window.history.replaceState(window.history.state, '', next);
+    } catch {
+      // A browser that limits how often a page may rewrite its address refused
+      // this one. The rows are filtered all the same, and the next change writes the address.
+    }
+  }, []);
+
+  const changeFilter = useCallback((next: Partial<ToolboxFilter>) => {
+    const was = filterRef.current;
+    const now: ToolboxFilter = { ...was, ...next };
+    if (now.show === was.show && now.find === was.find) return;
+    filterRef.current = now;
+    setFilter(now);
+    writeFilter();
+  }, [writeFilter]);
+
+  /** Adds the open dialog's entry to the page's history, over the address the page shows. */
+  const addEntry = useCallback(() => {
+    if (entryRef.current) return;
+    baseHrefRef.current = window.location.href;
+    window.history.pushState({ forgeView: true }, '');
+    entryRef.current = true;
+  }, []);
+
   const openTrace = useCallback((target: TraceTarget, opener?: HTMLElement | null) => {
     // A forge with no name is not in the run's list of tools, so it has no trace to open.
     if (!registryRef.current.getEntryFor(target.actorIndex, target.toolName)) return;
-    openerRef.current = opener ?? null;
-    if (!entryRef.current) {
-      baseHrefRef.current = window.location.href;
-      window.history.pushState({ forgeView: true }, '');
-      entryRef.current = true;
-    }
+    // Over the toolbox, the key that asked is one of its rows.
+    if (toolboxOpenRef.current) rowRef.current = opener ?? null;
+    else openerRef.current = opener ?? null;
+    addEntry();
     setShown(null);
-    setCurrent({ trace: target, toolbox: false });
-  }, []);
+    setCurrent((was) => ({ trace: target, toolbox: was.toolbox }));
+  }, [addEntry]);
 
-  // The Sim footer opens the forged toolbox in a dialog of its own.
-  const openToolbox = useCallback(() => {}, []);
+  const openToolbox = useCallback((opener?: HTMLElement | null) => {
+    if (toolboxOpenRef.current) return;
+    openerRef.current = opener ?? null;
+    toolboxOpenRef.current = true;
+    addEntry();
+    writeFilter();
+    setCurrent((was) => ({ trace: was.trace, toolbox: true }));
+  }, [addEntry, writeFilter]);
 
   const close = useCallback((focusTo?: HTMLElement | null, then?: () => void) => {
     // Focus goes to the element the dialog pointed to, in place of the key that opened it.
@@ -128,11 +163,13 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
       openerRef.current = focusTo;
       landingRef.current = focusTo;
     }
+    rowRef.current = null;
+    toolboxOpenRef.current = false;
     setCurrent(NOTHING_OPEN);
     if (entryRef.current) {
       entryRef.current = false;
       // The dialog's entry takes back the address it had before the dialog
-      // wrote its tool in, so the page shows no tool while the step back lands.
+      // wrote itself in, so the page shows no dialog while the step back lands.
       const base = baseHrefRef.current;
       baseHrefRef.current = null;
       if (base !== null && base !== window.location.href) window.history.replaceState(window.history.state, '', base);
@@ -144,15 +181,34 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     }
   }, []);
 
-  // A key that closes the dialog returns focus to the key that opened it.
+  /**
+   * Closes the trace by its own keys. Over the toolbox the trace closes
+   * alone: the toolbox keeps the history entry, and its address drops the
+   * tool. With no toolbox under it, everything closes.
+   */
+  const closeTrace = useCallback(() => {
+    if (!toolboxOpenRef.current) {
+      close();
+      return;
+    }
+    setShown(null);
+    setCurrent({ trace: null, toolbox: true });
+    const href = window.location.href;
+    const next = withoutForgeParams(href, TRACE_PARAMS);
+    if (next !== href) window.history.replaceState(window.history.state, '', next);
+  }, [close]);
+
+  // A key that closes the toolbox returns focus to the key that opened it.
   const closeByKey = useCallback(() => close(), [close]);
 
-  // Back closes the open dialog. A step back this provider took itself, after
-  // a close by a key, is counted off and closes nothing that opened since.
+  // Back closes the dialog on top. A step back this provider took itself,
+  // after a close by a key, is counted off and closes nothing that opened since.
   useEffect(() => {
     const onPop = () => {
       if (ownBacksRef.current > 0) {
         ownBacksRef.current -= 1;
+        // The page's own entry keeps the filter and the search the toolbox was closed on.
+        writeFilter();
         // A navigation the close asked for, made on the address the page had before the dialog.
         const then = afterBackRef.current;
         afterBackRef.current = null;
@@ -169,19 +225,33 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
         }
         return;
       }
+      if (!entryRef.current) return;
+      if (currentRef.current.trace && toolboxOpenRef.current) {
+        // Back over a row's trace closes the trace alone. The step back took
+        // the entry the two shared, so the toolbox takes a new one.
+        setShown(null);
+        setCurrent({ trace: null, toolbox: true });
+        entryRef.current = false;
+        addEntry();
+        writeFilter();
+        return;
+      }
       entryRef.current = false;
       baseHrefRef.current = null;
+      rowRef.current = null;
+      toolboxOpenRef.current = false;
       setCurrent(NOTHING_OPEN);
+      writeFilter();
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, []);
+  }, [addEntry, writeFilter]);
 
   const target = current.trace;
   const entry = target ? registry.getEntryFor(target.actorIndex, target.toolName) : undefined;
   const actorEvents = entry ? state.actors[state.actorIds[entry.actorIndex]]?.events ?? NO_EVENTS : NO_EVENTS;
 
-  // Show in Event Log: the trace closes, then the Event Log opens on this actor's tool by its whole name.
+  // Show in Event Log: every dialog closes, then the Event Log opens on this actor's tool by its whole name.
   const showInEventLog = useCallback(() => {
     if (!entry) return;
     const { name, actorName } = entry;
@@ -190,8 +260,8 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
 
   // The run on the page changed and no longer holds the open tool.
   useEffect(() => {
-    if (target && !entry) close();
-  }, [target, entry, close]);
+    if (target && !entry) closeTrace();
+  }, [target, entry, closeTrace]);
 
   // The open trace in its entry's address: the tool's number, read at each
   // render from the tool held by actor and name, an earlier attempt, and the
@@ -209,8 +279,9 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     if (next !== href) window.history.replaceState(window.history.state, '', next);
   }, [target, entry, shown, registry]);
 
-  // Once the run is complete, the address is read once for it: a link to one
-  // tool opens its trace, and parameters that point at nothing leave.
+  // Once the run is complete, the address is read once for it: a link opens
+  // the toolbox, one tool's trace, or both, and parameters that point at
+  // nothing leave.
   const complete = state.isComplete;
   const readForRef = useRef<string | null>(null);
   useEffect(() => {
@@ -221,15 +292,41 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     const href = window.location.href;
     const { state: linked, dangling } = parseForgeUrl(href, registry, true);
     if (dangling.length > 0) window.history.replaceState(window.history.state, '', withoutForgeParams(href, dangling));
-    // A trace already open (from a key pressed while the run played in) stays as it is.
-    if (!linked.trace || currentRef.current.trace) return;
-    // The page's own entry keeps the run without the tool, and the trace adds
-    // its entry over it, so Close and Back leave the run on the page.
-    window.history.replaceState(window.history.state, '', withoutForgeParams(window.location.href, TRACE_PARAMS));
-    openTrace(linked.trace, null);
-  }, [complete, runKey, sessionId, registry, openTrace]);
+    // The filter and the search as this run's address names them; a filter the toolbox does not know leaves.
+    const named = filterOf(window.location.href);
+    if (named.show !== filterRef.current.show || named.find !== filterRef.current.find) {
+      filterRef.current = named;
+      setFilter(named);
+    }
+    // A dialog already open (from a key pressed while the run played in) stays as it is.
+    if (currentRef.current.trace || currentRef.current.toolbox) return;
+    // The page's own entry keeps the run without the dialog, and the dialog
+    // adds its entry over it, so Close and Back leave the run on the page.
+    const page = withToolbox(withoutForgeParams(window.location.href, TRACE_PARAMS), { open: false, ...named });
+    if (page !== window.location.href) window.history.replaceState(window.history.state, '', page);
+    if (linked.toolbox.open) openToolbox(null);
+    if (linked.trace) openTrace(linked.trace, null);
+  }, [complete, runKey, sessionId, registry, openTrace, openToolbox]);
 
-  // Once the dialog is gone, focus returns to the key that opened it.
+  // A row's trace closed over the toolbox: focus returns to the row, or to
+  // the toolbox's title when the row is no longer in the list.
+  const traceOpen = target !== null;
+  const traceWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (traceOpen) {
+      traceWasOpenRef.current = true;
+      return;
+    }
+    if (!traceWasOpenRef.current) return;
+    traceWasOpenRef.current = false;
+    if (!current.toolbox) return;
+    const row = rowRef.current;
+    rowRef.current = null;
+    if (row?.isConnected) row.focus();
+    else document.querySelector<HTMLElement>('[data-toolbox-title]')?.focus();
+  }, [traceOpen, current.toolbox]);
+
+  // Once every dialog is gone, focus returns to the key that opened the first.
   const isOpen = target !== null || current.toolbox;
   const wasOpenRef = useRef(false);
   useEffect(() => {
@@ -248,26 +345,30 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     () => ({ openTrace, openToolbox, close, current }),
     [openTrace, openToolbox, close, current],
   );
+  const toolboxView = useMemo<ToolboxView>(() => ({ ...filter, set: changeFilter }), [filter, changeFilter]);
 
   return (
     <ForgeViewContext.Provider value={value}>
-      {children}
-      {target && entry && (
-        <TraceDialog
-          key={`${entry.actorIndex}:${entry.name}`}
-          entry={entry}
-          attempt={target.attempt}
-          open={target.open}
-          actorCount={state.actorIds.length}
-          runKey={runKey}
-          sessionId={sessionId}
-          events={actorEvents}
-          onShown={setShown}
-          onClose={closeByKey}
-          onGoToEvent={close}
-          onShowInEventLog={showInEventLog}
-        />
-      )}
+      <ToolboxViewContext.Provider value={toolboxView}>
+        {children}
+        {current.toolbox && <ToolboxDialog covered={target !== null} onClose={closeByKey} />}
+        {target && entry && (
+          <TraceDialog
+            key={`${entry.actorIndex}:${entry.name}`}
+            entry={entry}
+            attempt={target.attempt}
+            open={target.open}
+            actorCount={state.actorIds.length}
+            runKey={runKey}
+            sessionId={sessionId}
+            events={actorEvents}
+            onShown={setShown}
+            onClose={closeTrace}
+            onGoToEvent={close}
+            onShowInEventLog={showInEventLog}
+          />
+        )}
+      </ToolboxViewContext.Provider>
     </ForgeViewContext.Provider>
   );
 }

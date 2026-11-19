@@ -15,7 +15,7 @@ import type { ToolEntry, ToolRegistry } from '../../hooks/useToolRegistry';
 import { buildReplayShareUrl, type ShareTargetTab } from '../../hooks/shareUrl.helpers';
 import { getDashboardTabFromHref } from '../../tab-routing';
 import { STATIONS, type StationId } from './forgeLine';
-import type { TraceTarget } from './ForgeViewProvider';
+import type { TraceTarget } from './forgeViewContext';
 
 /** The address's parameters the forge view reads and writes, beside the ones the dashboard already reads. */
 export const FORGE_PARAMS = {
@@ -177,6 +177,35 @@ export function withForgeState(
   if (toolbox.group) url.searchParams.set(FORGE_PARAMS.group, toolbox.group);
   if (toolbox.actors && toolbox.actors.length > 0) url.searchParams.set(FORGE_PARAMS.actors, toolbox.actors.join(','));
   return url.toString();
+}
+
+/**
+ * The address with the toolbox written into it and every other parameter
+ * kept, the trace's and the toolbox's group and actors included: the filter
+ * when it is not every row, the search when it holds text, and `toolbox=1`
+ * while its dialog is open. With `open` not given, `toolbox` stays as the
+ * address has it. An address that already says so comes back as it was.
+ */
+export function withToolbox(href: string, toolbox: { open?: boolean; show: string; find: string }): string {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return href;
+  }
+  const want: Array<[string, string | null]> = [
+    [FORGE_PARAMS.show, toolbox.show && toolbox.show !== 'all' ? toolbox.show : null],
+    [FORGE_PARAMS.find, toolbox.find ? toolbox.find : null],
+  ];
+  if (toolbox.open !== undefined) want.push([FORGE_PARAMS.toolbox, toolbox.open ? '1' : null]);
+  let changed = false;
+  for (const [key, value] of want) {
+    if (url.searchParams.get(key) === value && url.searchParams.getAll(key).length <= 1) continue;
+    changed = true;
+    if (value === null) url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  }
+  return changed ? url.toString() : href;
 }
 
 /**

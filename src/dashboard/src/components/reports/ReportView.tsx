@@ -11,7 +11,9 @@ import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
 import { ReferencesSection } from '../shared/ReferencesSection';
-import { ToolboxSection } from '../shared/ToolboxSection';
+import { TOOLBOX_TITLE } from '../forge/forgeWords';
+import { ToolboxList } from '../forge/ToolboxList';
+import toolboxStyles from '../forge/ToolboxList.module.scss';
 import { VerdictPanel } from '../sim/VerdictCard';
 import { CostBreakdownModal } from '../layout/CostBreakdownModal';
 import { CommanderTrajectoryCard } from './CommanderTrajectoryCard';
@@ -916,16 +918,18 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
       {/* Forged Toolbox + References — collapsed by default in the Reports
           tab so the turn-by-turn report is the focus on open. The user's
           expand choice is persisted to localStorage so subsequent visits
-          restore their preferred view. */}
+          restore their preferred view. The toolbox's rows are the forge
+          view's list, the one its dialog shows. */}
       <section id="toolbox">
         {toolRegistry.list.length > 0 && (
-          <ToolboxSection
-            registry={toolRegistry}
-            title="Forged Toolbox"
-            collapsible
-            defaultOpen={toolsOpen}
-            onToggle={setToolsOpen}
-          />
+          <details
+            open={toolsOpen}
+            onToggle={(e) => setToolsOpen(e.currentTarget.open)}
+            className={toolboxStyles.pageFold}
+          >
+            <summary className={toolboxStyles.pageFoldSummary}>{TOOLBOX_TITLE}</summary>
+            <ToolboxList inPage />
+          </details>
         )}
       </section>
 

@@ -95,7 +95,7 @@ export function useScenarioReady() {
 /**
  * Where a navigation lands. `logTool` opens the Settings tab's Event Log
  * filtered to that forged tool's events by its whole name (a trace's Show
- * in Event Log, and the toolbox's "↗ LOG" key); `logActor` keeps the log to
+ * in Event Log); `logActor` keeps the log to
  * that actor's events, since two actors of a run can forge tools of one name.
  */
 export interface DashboardNavigationOptions {
@@ -301,7 +301,7 @@ function AppContent() {
     initialRoute.tab === 'studio' && initialRoute.sub === 'branches' ? 'branches' : 'author',
   );
   // The sub-tab the Settings tab opens on: its settings unless the URL
-  // or a tool's log key asks for the Event Log.
+  // or a forged tool's Show in Event Log asks for the Event Log.
   const [settingsInitialSubTab, setSettingsInitialSubTab] = useState<'config' | 'log'>(
     initialRoute.tab === 'settings' && initialRoute.sub === 'log' ? 'log' : 'config',
   );
@@ -314,8 +314,8 @@ function AppContent() {
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
-  // The navigation components get. A trace's Show in Event Log (and the
-  // toolbox's log key) opens the Event Log with the tool's filter: the URL
+  // The navigation components get. A trace's Show in Event Log opens the
+  // Event Log with the tool's filter: the URL
   // is written before the panel mounts, so EventLogPanel reads the filter
   // from it on its first render.
   const navigateTab = useCallback<DashboardNavigate>((tab, options) => {

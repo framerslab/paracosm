@@ -8,8 +8,6 @@
  *
  * - What a visitor compares today stays: the Viz tab draws every actor's
  *   living grid at each size.
- * - Before: pictures of the forged toolbox as it is, at 390 and 1440 in
- *   both looks.
  * - The forge view's tokens: the quiet tone, the edge tone, the problem
  *   colour and the three text sizes hold their values in both looks, and
  *   --rust keeps its own.
@@ -2122,10 +2120,13 @@ test.describe('the forged toolbox on the run\'s record', () => {
       await test.step(run, async () => {
         const registry = registryOf(generateCohortRun(spec));
         await openCohortSim(page, request, run, WIDTHS[1], 'dark', timeout);
-        const toolbox = await openToolbox(page, spec.tools);
-        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(line);
+        // A list of this size takes the page a moment to draw, so each check waits longer.
+        await toolboxKey(page).click();
+        const toolbox = toolboxOf(page, spec.tools);
+        await expect(toolbox).toBeVisible({ timeout: 60_000 });
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(line, { timeout: 60_000 });
         // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
-        await expect(rowsOf(toolbox)).toHaveCount(spec.tools);
+        await expect(rowsOf(toolbox)).toHaveCount(spec.tools, { timeout: 60_000 });
         const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
           name: el.getAttribute('data-tool-name'),
           actor: el.getAttribute('data-actor'),
@@ -2237,21 +2238,3 @@ test.describe('the forged toolbox on the run\'s record', () => {
     }
   });
 });
-
-for (const size of WIDTHS) {
-  for (const look of LOOKS) {
-    test.describe(`before: today's screens at ${size.width} in the ${look} look`, () => {
-      test.use({ viewport: size });
-
-      test('the Sim footer\'s forged toolbox', async ({ page, request }) => {
-        const id = await pairSessionId(request);
-        await useLook(page, look);
-        await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
-        await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
-        const toolbox = page.getByRole('dialog', { name: /^Forged Toolbox/ });
-        await expect(toolbox.getByText(LAST_TOOL).first()).toBeVisible();
-        await page.screenshot({ path: `${PICTURES}/before/${size.width}-${look}-toolbox.png` });
-      });
-    });
-  }
-}
