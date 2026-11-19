@@ -2948,9 +2948,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // The hosted demo's model policy (hosted-model-policy.ts) for the
           // draft, its hook compile, the actors and a Digital Twin run: on
           // the visitor's key and its provider, else on the host's keys on
-          // OpenAI with the demo's models and turn cap (whether or not the
-          // limiter is on), never with a fallback to another provider; a
-          // host-paid request on a host with no OpenAI key is refused.
+          // OpenAI with the demo's models, turn cap and leader cap (whether
+          // or not the limiter is on), never with a fallback to another
+          // provider; a host-paid request on a host with no OpenAI key is
+          // refused.
           modelCalls: (credentials) => {
             const routing = hostedModelRouting({ hostedDemo: serverMode === 'hosted_demo', env, credentials });
             if (!routing) return defaultModelCalls({ defaultProvider: 'openai', defaultModel: 'gpt-5.4-mini' }, credentials);
@@ -2966,6 +2967,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
                 hostPaid: true,
                 runModels: hostedRunModels(),
                 maxTurns: DEMO_EXECUTION.maxTurns,
+                maxActors: DEMO_EXECUTION.maxActors,
               };
             }
             return {

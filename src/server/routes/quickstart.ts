@@ -226,6 +226,8 @@ export interface QuickstartModelCalls {
   runModels?: SimulationModelConfig;
   /** The most turns a Digital Twin run takes. */
   maxTurns?: number;
+  /** The most leaders an actor call writes. */
+  maxActors?: number;
 }
 
 /**
@@ -472,15 +474,20 @@ function compileSignature(input: {
   seedText: string;
   sourceUrl?: string;
   domainHint?: string;
-}): string {
+}, calls: QuickstartModelCalls): string {
   // Trim the seed and lowercase the optional fields so trivially
   // different submissions share a slot. The key is a SHA-256 of the whole
-  // seed, so only the same text shares another submission's compile.
+  // seed, so only the same text shares another submission's compile, and
+  // of the compile's routing (its provider and a SHA-256 of the keys it
+  // runs on), so a request shares only a compile that runs on its own keys.
   const text = input.seedText.trim();
+  const keys = createHash('sha256').update(`${calls.apiKey ?? ''}\n${calls.anthropicKey ?? ''}`).digest('hex');
   return createHash('sha256').update(JSON.stringify({
     text,
     url: (input.sourceUrl ?? '').toLowerCase(),
     hint: (input.domainHint ?? '').toLowerCase(),
+    provider: calls.provider,
+    keys,
   })).digest('hex');
 }
 
@@ -537,11 +544,18 @@ export async function handleCompileFromSeed(
     return;
   }
 
-  // The provider keys stay out of the job: its signature, the compile's
-  // input and the installed scenario's brief read the seed alone.
+  // The provider keys stay out of the compile's input and the installed
+  // scenario's brief, which read the seed alone. The job's signature holds
+  // the routing, with the keys as a SHA-256 alone, so a request joins only
+  // a compile that runs on its own keys.
   const { apiKey, anthropicKey, ...seedInput } = parsed.data;
+  const calls = modelCallsFor(deps, { apiKey, anthropicKey });
+  if (isRefusal(calls)) {
+    writeRefusal(res, calls);
+    return;
+  }
   sweepStaleJobs();
-  const signature = compileSignature(seedInput);
+  const signature = compileSignature(seedInput, calls);
 
   // Dedupe: an existing job for this signature short-circuits a new
   // compile. Pending → return the same jobId so the second client
@@ -586,11 +600,6 @@ export async function handleCompileFromSeed(
     return;
   }
 
-  const calls = modelCallsFor(deps, { apiKey, anthropicKey });
-  if (isRefusal(calls)) {
-    writeRefusal(res, calls);
-    return;
-  }
   // A seed compile counts against the compile limit whoever pays for the
   // model: its research reads the web on the server's search keys.
   if (deps.hostLimits) {
@@ -714,8 +723,11 @@ export async function handleGenerateActors(
     return;
   }
   // A hosted run on the server's keys takes at most maxActors leaders, so no
-  // more are generated.
-  const count = hostLimits ? Math.min(parsed.data.count, hostLimits.maxActors) : parsed.data.count;
+  // more are generated: the request's routing caps it whether or not the
+  // daily limiter is on, and the limiter's cap holds where the routing
+  // names none.
+  const maxActors = calls.maxActors ?? hostLimits?.maxActors;
+  const count = maxActors !== undefined ? Math.min(parsed.data.count, maxActors) : parsed.data.count;
   try {
     const actors = await generateQuickstartActors(scenario, count, {
       provider: calls.provider,

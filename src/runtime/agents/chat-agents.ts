@@ -162,19 +162,21 @@ const pool = new Map<string, PoolEntry>();
 
 /**
  * The key the pool holds one person's agent under: the person, the
- * provider and the key that pays for it, the run, the leader, and whether
- * the run had ended. Two chats with equal keys talk to one agent, made
- * once.
+ * provider and the key that pays for it, whether the agent may fall back to
+ * another provider, the run, the leader, and whether the run had ended. Two
+ * chats with equal keys talk to one agent, made once.
  *
  * @param colonist The person the agent speaks for.
  * @param opts The factory's options.
  */
 export function chatAgentPoolKey(colonist: ColonistProfile, opts: ChatAgentOptions): string {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
+  const providerApiKey = apiKeyForProvider(provider, opts);
   return [
     colonist.agentId,
     provider,
-    credentialFingerprint(apiKeyForProvider(provider, opts)),
+    credentialFingerprint(providerApiKey),
+    fallbackProvidersFor(providerApiKey, opts.stayOnProvider) ? 'stays' : 'may-fall-back',
     opts.runKey ?? '',
     opts.leader ?? '',
     opts.runEnded ? (opts.runStopped ? 'stopped' : 'ended') : 'running',
