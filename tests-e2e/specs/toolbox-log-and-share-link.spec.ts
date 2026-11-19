@@ -18,8 +18,8 @@
  *   reopens the same replay, tab, sub view and filter. A Library search on a
  *   replay keeps the replay in the address the same way.
  * - The other copy keys say when the copy fails: the run actions menu's Copy
- *   on a page with no clipboard, and the verdict's export key on a refused
- *   clipboard.
+ *   on a page with no clipboard, the verdict's export key on a refused
+ *   clipboard, and the landing page's Copy key on a code block in both cases.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -148,6 +148,21 @@ async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers' | '
 
 /** What the verdict's export key says when the browser does not copy the verdict. */
 const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
+/** What a landing page code block says when its Copy key's copy does not happen. */
+const CODE_NOT_COPIED = 'The browser did not copy the code. Select it and copy it.';
+
+/** The landing page's install code block, the first one with a Copy key. */
+const installBlock = (page: Page) => page.locator('.code-block').filter({ hasText: 'Install (npm, pnpm, or bun)' });
+
+/** The page errors that name the clipboard, gathered from now on. */
+function clipboardErrorsOf(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => {
+    if (/clipboard|writeText/i.test(error.message)) errors.push(error.message);
+  });
+  return errors;
+}
 
 /**
  * A saved Mars Genesis pair run with its verdict, as the dashboard's Save
@@ -287,6 +302,21 @@ for (const size of WIDTHS) {
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-verdict-export-refused.png` });
         await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
       });
+
+      test('the landing page\'s Copy key on a page with no clipboard says the code was not copied', async ({ page }) => {
+        await clipboardThat(page, 'is-absent');
+        await useLook(page, look);
+        const clipboardErrors = clipboardErrorsOf(page);
+        await page.goto('/');
+        const block = installBlock(page);
+        await block.getByRole('button', { name: 'Copy', exact: true }).click();
+
+        // Wait a moment for the words so the picture holds them; the checks below decide.
+        await block.getByRole('status').waitFor({ timeout: 5_000 }).catch(() => undefined);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-landing-copy-no-clipboard.png` });
+        await expect(block.getByRole('status')).toHaveText(CODE_NOT_COPIED);
+        expect(clipboardErrors).toEqual([]);
+      });
     });
   }
 }
@@ -307,6 +337,30 @@ test.describe('the other copy keys and the Library\'s address', () => {
     await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
 
     await expect(page.getByText('Clipboard access denied.', { exact: true })).toBeVisible();
+    expect(clipboardErrors).toEqual([]);
+  });
+
+  test('the landing page\'s Copy key on a refused clipboard says the code was not copied, and a copy that works takes the words away', async ({ page }) => {
+    // The first write is refused; every later one is answered.
+    await page.addInitScript(() => {
+      let writes = 0;
+      const writeText = () => (++writes === 1
+        ? Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
+        : Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
+    });
+    const clipboardErrors = clipboardErrorsOf(page);
+    await page.goto('/');
+    const block = installBlock(page);
+    const copyKey = block.getByRole('button', { name: /^(Copy|Copied)$/ });
+
+    await copyKey.click();
+    await expect(block.getByRole('status')).toHaveText(CODE_NOT_COPIED);
+    await expect(copyKey).toHaveText('Copy');
+
+    await copyKey.click();
+    await expect(copyKey).toHaveText('Copied');
+    await expect(block.getByRole('status')).toHaveCount(0);
     expect(clipboardErrors).toEqual([]);
   });
 
