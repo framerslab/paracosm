@@ -90,7 +90,7 @@ for (const kind of ['run', 'compile'] as const) {
       env: {
         ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: join(appDir, 'runs'),
         PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', PARACOSM_CLIENT_IP_HEADER: '',
-        OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '',
+        ANTHROPIC_API_KEY: '',
       },
       maxSimsPerDay: 1,
       runHistoryStore: createNoopRunHistoryStore(),
