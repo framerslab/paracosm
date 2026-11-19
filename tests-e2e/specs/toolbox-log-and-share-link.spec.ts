@@ -20,6 +20,9 @@
  * - The other copy keys say when the copy fails: the run actions menu's Copy
  *   on a page with no clipboard, the verdict's export key on a refused
  *   clipboard, and the landing page's Copy key on a code block in both cases.
+ *   The verdict and a landing code block hold the place for their copy
+ *   result before any press, only the last press's result shows, and a
+ *   refused verdict export says nothing on a run loaded after it.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.

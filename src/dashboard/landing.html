@@ -1259,28 +1259,44 @@ if (themeBtn) {
 
 // Copy code to clipboard. Where the page has no clipboard (plain http at a
 // network address) or the browser refuses the write, the block says in one
-// line under its header that the code was not copied; a copy that works
-// takes the line away.
+// line under its header that the code was not copied.
+//
+// Each code block gets an empty status region under its header as the page
+// loads, so a screen reader announces the line when it is put there.
+function copyResultRegion(header) {
+  const next = header.nextElementSibling;
+  if (next && next.getAttribute('role') === 'status') return next;
+  const region = document.createElement('div');
+  region.setAttribute('role', 'status');
+  region.setAttribute('aria-label', 'Copy result');
+  header.after(region);
+  return region;
+}
+document.querySelectorAll('.code-header').forEach(copyResultRegion);
+
+// Each press gets its own number and starts from nothing shown, so only the
+// last press's result shows: the key never says Copied beside the line, and
+// an answer to an earlier press changes nothing.
 function copyCode(btn, text) {
   const header = btn.closest('.code-header');
-  const shownNote = () => {
-    const next = header && header.nextElementSibling;
-    return next && next.classList.contains('code-copy-note') ? next : null;
-  };
+  const region = header ? copyResultRegion(header) : null;
+  const press = (btn.copyPress = (btn.copyPress || 0) + 1);
+  clearTimeout(btn.copyTimer);
+  btn.textContent = 'Copy';
+  btn.classList.remove('copied');
+  if (region) region.replaceChildren();
   const copied = () => {
-    const note = shownNote();
-    if (note) note.remove();
+    if (btn.copyPress !== press) return;
     btn.textContent = 'Copied';
     btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    btn.copyTimer = setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
   };
   const notCopied = () => {
-    if (!header || shownNote()) return;
+    if (btn.copyPress !== press || !region) return;
     const note = document.createElement('p');
     note.className = 'code-copy-note';
-    note.setAttribute('role', 'status');
-    header.after(note);
     note.textContent = 'The browser did not copy the code. Select it and copy it.';
+    region.replaceChildren(note);
   };
   const clipboard = navigator.clipboard;
   if (!clipboard || typeof clipboard.writeText !== 'function') {
