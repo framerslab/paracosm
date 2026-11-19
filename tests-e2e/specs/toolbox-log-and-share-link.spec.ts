@@ -21,8 +21,10 @@
  *   on a page with no clipboard, the verdict's export key on a refused
  *   clipboard, and the landing page's Copy key on a code block in both cases.
  *   The verdict and a landing code block hold the place for their copy
- *   result before any press, only the last press's result shows, and a
- *   refused verdict export says nothing on a run loaded after it.
+ *   result before any press, only the last press's result shows (also when
+ *   an earlier press is answered after a later one), and a refused verdict
+ *   export says nothing on a run loaded after it, the same saved run loaded
+ *   again included.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -234,6 +236,35 @@ async function clipboardAnswering(page: Page, answers: Array<'ok' | 'refused'>):
   }, answers);
 }
 
+/**
+ * A clipboard that holds its first write until {@link answerFirstWrite}
+ * answers it, and refuses every later write, so the first press is answered
+ * after the second press's refusal.
+ */
+async function clipboardAnsweringFirstWriteLast(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let writes = 0;
+    const writeText = () => {
+      writes += 1;
+      if (writes === 1) {
+        return new Promise<void>((resolve) => {
+          (window as unknown as { answerFirstWrite: () => void }).answerFirstWrite = resolve;
+        });
+      }
+      return Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'));
+    };
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
+  });
+}
+
+/** Answers the held first write, and gives the page time to take the answer. */
+async function answerFirstWrite(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    (window as unknown as { answerFirstWrite: () => void }).answerFirstWrite();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+}
+
 for (const size of WIDTHS) {
   for (const look of LOOKS) {
     test.describe(`at ${size.width} in ${look}`, () => {
@@ -438,6 +469,49 @@ test.describe('the other copy keys and the Library\'s address', () => {
     await expect(page.getByText('Dietrich Voss leads on power', { exact: true }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
     await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toHaveCount(0);
+  });
+
+  test('a refused verdict export says nothing when the same saved run is loaded again', async ({ page }) => {
+    await clipboardThat(page, 'refuses');
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Copy verdict as markdown' }).click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+
+    // The same file again: a run of its own, and its verdict was never exported.
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toHaveCount(0);
+  });
+
+  test('a verdict export answered after a later press leaves what the later press showed', async ({ page }) => {
+    await clipboardAnsweringFirstWriteLast(page);
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    const exportKey = page.getByRole('button', { name: 'Copy verdict as markdown' });
+
+    await exportKey.click();
+    await exportKey.click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+    // The first press's copy is answered now, after the second press was refused.
+    await answerFirstWrite(page);
+    expect(await exportKey.textContent()).toBe('EXPORT MD');
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+  });
+
+  test('a landing page copy answered after a later press leaves what the later press showed', async ({ page }) => {
+    await clipboardAnsweringFirstWriteLast(page);
+    await page.goto('/');
+    const block = installBlock(page);
+    const copyKey = block.getByRole('button', { name: /^(Copy|Copied)$/ });
+
+    await copyKey.click();
+    await copyKey.click();
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toBeVisible();
+    // The first press's copy is answered now, after the second press was refused.
+    await answerFirstWrite(page);
+    expect(await copyKey.textContent()).toBe('Copy');
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toBeVisible();
   });
 
   test('a Library search on a replay keeps the replay in the address, and a refresh reopens the replay with the search', async ({ page, request }) => {
