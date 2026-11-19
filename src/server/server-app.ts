@@ -534,6 +534,8 @@ export interface CreateMarsServerOptions {
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
+  /** Runs a run of three or more actors; defaults to the pair runner's `runBatchSimulations`. */
+  runBatchSimulations?: typeof runBatchSimulations;
   generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   /**
@@ -2010,6 +2012,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
   const startFork = options.runForkSimulation ?? runForkSimulation;
+  const startBatch = options.runBatchSimulations ?? runBatchSimulations;
 
   const runGenerateText = options.generateText ?? (async args => {
     const { generateText } = await import('@framers/agentos');
@@ -4950,7 +4953,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
+            await startBatch(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else {
             await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           }
