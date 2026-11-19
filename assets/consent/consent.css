@@ -6,8 +6,11 @@
  *
  * Contrast in both looks: body text 16:1 or more on the bar, the rows'
  * details 13:1 or more, the switches' edges 4.5:1 or more. Text is 15 px or
- * larger; every key and switch is 44 px tall. The footers' Analytics
- * choices control has text of 14 px or more and a 44 px target on a phone.
+ * larger; every key and switch is 44 px tall. The bar is never taller than
+ * the screen and scrolls as one panel, so a short screen reaches all of it.
+ * The footers' Analytics choices control has text of 14 px or more, a 44 px
+ * target on a phone, and a focus ring in its own text's colour, which reads
+ * against whatever its text reads against.
  */
 .pcc,
 .pcc * {
@@ -40,6 +43,10 @@
   line-height: 1.5;
   text-align: left;
   padding: 14px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 html.light .pcc {
@@ -139,17 +146,19 @@ html.light .pcc {
 
 .pcc-key:focus-visible,
 .pcc-save:focus-visible,
-.pcc-switch:focus-visible,
+.pcc-switch:focus-visible {
+  outline: 3px solid var(--pcc-focus);
+  outline-offset: 2px;
+}
+
 [data-consent-open]:focus-visible {
-  outline: 3px solid var(--pcc-focus, #e8b44a);
+  outline: 3px solid currentColor;
   outline-offset: 2px;
 }
 
 .pcc-rows:not([hidden]) {
   display: grid;
   gap: 4px;
-  max-height: min(60vh, 520px);
-  overflow-y: auto;
 }
 
 .pcc-row {
@@ -244,14 +253,6 @@ html.light .pcc {
   opacity: 0.6;
 }
 
-.pcc-signal {
-  margin: 8px 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--pcc-text);
-}
-
-.pcc-signal[hidden],
 .pcc-save[hidden] {
   display: none;
 }
@@ -299,8 +300,14 @@ button[data-consent-open][hidden] {
   display: none;
 }
 
-/* The dashboard page's own place for the control, outside the dashboard's script: shown when that script has not taken it into its footer. */
+/*
+ * The dashboard page's own place for the control, outside the dashboard's
+ * script: shown when that script has not taken it into its footer, on the
+ * browser's own page colours for the look it shows.
+ */
 .pcc-shell {
+  background: Canvas;
+  color: CanvasText;
   display: flex;
   justify-content: center;
   padding: 8px 16px max(8px, env(safe-area-inset-bottom));

@@ -6,7 +6,7 @@
  * - `count`: Plausible, self-hosted on the team's server and cookieless. On
  *   until the visitor turns it off. The page sends its page views to this
  *   server's `POST /api/event`, which forwards each as the public page it
- *   names, with the referring site's domain alone, to the shared Plausible
+ *   names, with nothing of the referring page, to the shared Plausible
  *   instance (countEventFrom, forwardCountEvent).
  * - `measure`: Google Analytics 4, off until the visitor turns it on.
  * - `record`: Microsoft Clarity, off until the visitor turns it on.
@@ -143,12 +143,9 @@ export interface CountEvent {
   /** One of the site's public pages, on the counted domain: the landing page, the dashboard or a built API docs page. */
   url: string;
   domain: string;
-  /** The referring site's domain as `<scheme>://<domain>/`, at most its last two labels, or empty. */
-  referrer: string;
 }
 
 const MAX_PATH_LENGTH = 512;
-const MAX_REFERRER_LENGTH = 2048;
 /** The shape of an API docs page's path; only a page that is built counts under its own path. */
 const DOCS_PAGE = /^\/docs\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.html$/;
 
@@ -166,35 +163,14 @@ export function countedPage(pathname: string, isDocsPage: (path: string) => bool
 }
 
 /**
- * The referring site as Plausible takes it, cut to its registrable domain
- * at most: the last two labels of its host name, so
- * `https://token.preview.example.org/view` is sent as `https://example.org/`.
- * An address, a single name or a referrer that is no web page sends none.
- */
-export function countedReferrer(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_REFERRER_LENGTH) return '';
-  let from: URL;
-  try {
-    from = new URL(value);
-  } catch {
-    return '';
-  }
-  if (from.protocol !== 'https:' && from.protocol !== 'http:') return '';
-  const host = from.hostname.replace(/\.$/, '').toLowerCase();
-  if (isIP(host.replace(/^\[|\]$/g, '')) !== 0) return '';
-  const labels = host.split('.');
-  if (labels.length < 2 || labels.some(label => !/^[a-z0-9-]+$/.test(label))) return '';
-  return `${from.protocol}//${labels.slice(-2).join('.')}/`;
-}
-
-/**
  * The page view a browser's `POST /api/event` body describes: an event, the
  * word `unlisted` for a path that is no page of the site (nothing is
  * forwarded for it), or null for a body that is not a page view. The body
- * is `{"n":"pageview","u":"<path>","r":"<referrer>"}` (assets/consent/consent.js
- * sends it). The server builds the address itself from countedPage, on the
- * counted domain, and the referrer from countedReferrer, so no query
- * string, fragment, unlisted path or referring page reaches the instance.
+ * is `{"n":"pageview","u":"<path>"}` (assets/consent/consent.js sends it).
+ * The server builds the address itself from countedPage, on the counted
+ * domain, and sends no referrer: any other field of the body is ignored, so
+ * no query string, fragment, unlisted path or referring page reaches the
+ * instance.
  */
 export function countEventFrom(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
   let parsed: unknown;
@@ -204,7 +180,7 @@ export function countEventFrom(body: string, isDocsPage?: (path: string) => bool
     return null;
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
-  const { n, u, r } = parsed as Record<string, unknown>;
+  const { n, u } = parsed as Record<string, unknown>;
   if (n !== 'pageview' || typeof u !== 'string' || !u.startsWith('/') || u.startsWith('//') || u.length > MAX_PATH_LENGTH) return null;
   let path: string;
   try {
@@ -214,7 +190,7 @@ export function countEventFrom(body: string, isDocsPage?: (path: string) => bool
   }
   const page = countedPage(path, isDocsPage);
   if (page === null) return 'unlisted';
-  return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN, referrer: countedReferrer(r) };
+  return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN };
 }
 
 /**
@@ -325,8 +301,8 @@ export function countAddresses(req: IncomingMessage, trustedHeader: ClientIpHead
 }
 
 /**
- * Sends one page view to the instance with the visitor's browser name and
- * address, as its events API asks, and resolves true when the instance
+ * Sends one page view to the instance with the visitor's full User-Agent
+ * header and one address, as its events API asks, and resolves true when the instance
  * accepted it. It never throws: a refusal, a network error or a timeout
  * resolves false.
  */

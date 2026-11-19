@@ -7,37 +7,39 @@
  * hosted_demo mode (src/server/site-analytics.ts). Three purposes:
  *   count    Plausible, cookieless, on until the visitor turns it off. Page
  *            views go to this site's own POST /api/event, which forwards
- *            the page's public address alone.
+ *            the page's public address and no referrer.
  *   measure  Google Analytics 4, off until the visitor turns it on.
  *   record   Microsoft Clarity, off until the visitor turns it on.
  * The bar offers only the purposes whose tool this build configures. No
  * vendor script loads before its purpose's yes. A privacy signal (the
  * Sec-GPC or DNT header the server saw, navigator.globalPrivacyControl or
  * navigator.doNotTrack) turns every purpose off, the count included, and
- * shows no bar.
+ * shows no bar; the footers' control then explains the signal instead.
  *
  * The answer is kept per purpose in localStorage under
  * analytics_consent_purposes, with when it was given, the record's version
- * and a SHA-256 of every word the bar shows (WORDS). A stored answer counts
- * only when it has the current version and the current words' hash; any
- * other record counts as none, so the bar asks again. The hash is worked
- * out before the bar appears, so no key can save without it. When the
- * browser refuses to store an answer, the answer just given is the one
- * this page runs, and the bar says it could not be saved.
+ * and a hash of every word the bar shows (WORDS): a SHA-256 in hex where
+ * the browser has Web Crypto's digest, and an FNV-1a, written
+ * "fnv1a32-<8 hex digits>", where it has none (a page that is not a secure
+ * context). A stored answer counts only when it has the current version
+ * and the current words' hash; any other record counts as none, so the bar
+ * asks again. The hash is worked out before the bar appears, so no key can
+ * save without it. When the browser refuses to store an answer, the answer
+ * just given is the one this page runs, and the bar says it could not be
+ * saved.
  *
  * plausible_ignore is "true" exactly when the count is off, the flag
- * Plausible's own tracker reads. Any element with data-consent-open (the
- * footers' Analytics choices) reopens the choices. Turning recordings off
- * stops Clarity and reloads the page, since Clarity's own consent call
- * restarts it without cookies (clarity-js src/data/metadata.ts, consentv2).
+ * Plausible's own tracker reads. It holds while no current answer is
+ * stored, so an earlier Reject all keeps the count off until a new answer.
+ * Any element with data-consent-open (the footers' Analytics choices)
+ * reopens the choices. Turning recordings off ends Clarity on the page
+ * without reloading it (withdrawRecord).
  */
 (function () {
   'use strict';
 
   var STORE_KEY = 'analytics_consent_purposes';
   var IGNORE_KEY = 'plausible_ignore';
-  /** Set in sessionStorage before a reload that ends recordings, so the page that follows does not count itself again. */
-  var RELOAD_KEY = 'paracosm_consent_reload';
   var STORE_VERSION = 1;
 
   var configNode = document.getElementById('paracosm-consent-config');
@@ -84,11 +86,12 @@
     save: 'Save choices',
     close: 'Close',
     alwaysOn: 'Always on',
-    signal: 'Your browser sends a privacy signal, so this site counts nothing and loads none of these tools.',
+    signalTitle: 'Privacy signal',
+    signal: 'Your browser asks sites not to track you, so nothing optional runs on this site: no visit count and no analytics tools.',
     notSaved: 'Your choice could not be saved on this device, so it holds only until you leave this page.',
     rows: [
       { id: 'necessary', name: 'Strictly necessary', vendor: '', text: 'The dashboard’s two cookies, which keep your scenario pick and your runs with this browser.' },
-      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts, and Plausible discards it once it has worked out a country.' },
+      { id: 'count', name: 'Count visits', vendor: 'Plausible', text: 'Counts page views with no cookie. Our server holds your IP address in memory for one minute to limit repeated counts. Plausible receives your browser’s full User-Agent and your IP address, uses them for a daily visitor identifier, your browser and device and an approximate location, and stores neither.' },
       { id: 'measure', name: 'Measure use', vendor: 'Google Analytics', text: 'Sets cookies that tell visits apart, to show how each page is used. Google signals and ad personalization stay off.' },
       { id: 'record', name: 'Record sessions', vendor: 'Microsoft Clarity', text: 'Records clicks and scrolling as replays and heatmaps, with the page’s text and images masked.' },
     ].filter(function (row) { return row.id === 'necessary' || RUNS[row.id]; }),
@@ -179,7 +182,8 @@
   function effective() {
     if (signal) return { count: false, measure: false, record: false };
     var answer = readAnswer();
-    if (!answer) return { count: RUNS.count, measure: false, record: false };
+    // No current answer: the count runs, unless an earlier answer turned it off on this device.
+    if (!answer) return { count: RUNS.count && readLocal(IGNORE_KEY) !== 'true', measure: false, record: false };
     var count = answer.count && (pageWins || readLocal(IGNORE_KEY) !== 'true');
     return { count: count && RUNS.count, measure: answer.measure && RUNS.measure, record: answer.record && RUNS.record };
   }
@@ -197,7 +201,7 @@
     pageWins = !saved;
     writeLocal(IGNORE_KEY, purposes.count ? null : 'true');
     if (active.measure && !purposes.measure) withdrawMeasure();
-    if (loaded.record && !purposes.record) withdrawRecord(saved);
+    if (loaded.record && !purposes.record) withdrawRecord();
     apply();
     return saved;
   }
@@ -290,22 +294,81 @@
     inject('https://www.clarity.ms/tag/' + encodeURIComponent(CLARITY_ID));
   }
 
-  /**
-   * Ends Clarity on this page. Its stop call ends a running recording at
-   * once (clarity-js src/clarity.ts, stop). Clarity's consent calls are not
-   * used: denying analytics storage stops it and starts it again without
-   * cookies (src/data/metadata.ts, consentv2), and a tag still loading
-   * starts after a queued stop. So when the answer was stored, the page
-   * reloads, and the page that follows loads no Clarity at all.
-   */
-  function withdrawRecord(reload) {
-    active.record = false;
-    if (loaded.record) clarity('stop');
-    clearCookies(/^(_clck|_clsk)$/);
-    if (loaded.record && reload) {
-      try { window.sessionStorage.setItem(RELOAD_KEY, location.pathname); } catch (error) { /* the page counts itself again */ }
-      location.reload();
+  /** Whether this page refuses every request to Clarity's hosts. */
+  var clarityBlocked = false;
+
+  function toClarity(url) {
+    try {
+      return /(^|\.)clarity\.ms$/i.test(new URL(String(url), location.href).hostname);
+    } catch (error) {
+      return false;
     }
+  }
+
+  /**
+   * From now on this page sends nothing to Clarity's hosts: fetch rejects,
+   * sendBeacon answers false and an XMLHttpRequest is never sent, the ways
+   * clarity-js uploads (src/data/upload.ts) and reports (src/core/report.ts).
+   * Other requests pass as they were.
+   */
+  function blockClarity() {
+    if (clarityBlocked) return;
+    clarityBlocked = true;
+    var fetchFirst = window.fetch;
+    if (typeof fetchFirst === 'function') {
+      window.fetch = function (input) {
+        var url = input && typeof input === 'object' && 'url' in input ? input.url : input;
+        if (toClarity(url)) return Promise.reject(new TypeError('Recordings are off on this page.'));
+        return fetchFirst.apply(window, arguments);
+      };
+    }
+    if (typeof navigator.sendBeacon === 'function') {
+      var beaconFirst = navigator.sendBeacon;
+      navigator.sendBeacon = function (url) {
+        if (toClarity(url)) return false;
+        return beaconFirst.apply(navigator, arguments);
+      };
+    }
+    if (typeof XMLHttpRequest === 'function') {
+      var openFirst = XMLHttpRequest.prototype.open;
+      var sendFirst = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function (method, url) {
+        this.__pccToClarity = toClarity(url);
+        return openFirst.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function () {
+        if (this.__pccToClarity) return;
+        return sendFirst.apply(this, arguments);
+      };
+    }
+  }
+
+  /**
+   * Ends Clarity on this page, at once and for the rest of it, without a
+   * reload, so nothing typed on the page is lost:
+   * - the page first refuses every request to Clarity's hosts
+   *   (blockClarity). Clarity's stop call ends a running recording but
+   *   sends one last upload as it does (clarity-js src/clarity.ts, stop;
+   *   src/data/upload.ts, stop), and that upload is refused with the rest;
+   * - then the stop call, queued and dropped when the tag has not run yet;
+   * - then window.clarity becomes a function that does nothing, with the
+   *   "v" mark clarity-js reads as a Clarity already running, so a tag that
+   *   arrives later never starts (src/queue.ts, process).
+   * Clarity's consent calls are not used: denying analytics storage stops
+   * it and starts it again without cookies (src/data/metadata.ts,
+   * consentv2). A later yes starts recordings from the next page.
+   */
+  function withdrawRecord() {
+    active.record = false;
+    blockClarity();
+    if (loaded.record && typeof window.clarity === 'function') {
+      try { window.clarity('stop'); } catch (error) { /* it ends below either way */ }
+    }
+    var off = function () {};
+    off.v = 'off';
+    off.t = true;
+    window.clarity = off;
+    clearCookies(/^(_clck|_clsk)$/);
   }
 
   var ready = false;
@@ -319,7 +382,7 @@
       window.fetch('/api/event', {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ n: 'pageview', u: location.pathname, r: document.referrer || '' }),
+        body: JSON.stringify({ n: 'pageview', u: location.pathname }),
         credentials: 'same-origin',
         keepalive: true,
       }).catch(function () {});
@@ -440,12 +503,8 @@
       }
       rowsNode.appendChild(line);
     });
-    var signalNote = element('p', 'pcc-signal', WORDS.signal);
-    signalNote.hidden = !signal;
-    rowsNode.appendChild(signalNote);
     var saveKey = element('button', 'pcc-save', WORDS.save);
     saveKey.type = 'button';
-    saveKey.hidden = signal;
     saveKey.addEventListener('click', function () {
       answered(save({
         count: switches.count ? switches.count.getAttribute('aria-checked') === 'true' : false,
@@ -470,24 +529,20 @@
     inner.appendChild(words);
 
     var keys = element('div', 'pcc-keys');
-    if (signal) {
-      keys.appendChild(key(WORDS.close, close));
-    } else {
-      keys.appendChild(key(WORDS.reject, function () {
-        answered(save({ count: false, measure: false, record: false }));
-      }));
-      chooseKey = key(WORDS.choose, function () {
-        var open = rowsNode.hidden;
-        showRows(open);
-        if (open) focusChoices();
-      });
-      chooseKey.setAttribute('aria-expanded', 'false');
-      chooseKey.setAttribute('aria-controls', rowsNode.id);
-      keys.appendChild(chooseKey);
-      keys.appendChild(key(WORDS.accept, function () {
-        answered(save({ count: true, measure: true, record: true }));
-      }));
-    }
+    keys.appendChild(key(WORDS.reject, function () {
+      answered(save({ count: false, measure: false, record: false }));
+    }));
+    chooseKey = key(WORDS.choose, function () {
+      var open = rowsNode.hidden;
+      showRows(open);
+      if (open) focusChoices();
+    });
+    chooseKey.setAttribute('aria-expanded', 'false');
+    chooseKey.setAttribute('aria-controls', rowsNode.id);
+    keys.appendChild(chooseKey);
+    keys.appendChild(key(WORDS.accept, function () {
+      answered(save({ count: true, measure: true, record: true }));
+    }));
     inner.appendChild(keys);
     bar.appendChild(inner);
     document.body.appendChild(bar);
@@ -497,7 +552,6 @@
     var purposes = effective();
     Object.keys(switches).forEach(function (id) {
       setSwitch(switches[id], purposes[id]);
-      switches[id].disabled = signal;
     });
   }
 
@@ -507,9 +561,9 @@
     if (chooseKey) chooseKey.setAttribute('aria-expanded', open ? 'true' : 'false');
   }
 
-  /** Moves focus to the first switch of the open choices, or their first key under a privacy signal. */
+  /** Moves focus to the first switch of the open choices; the bar scrolls it into view. */
   function focusChoices() {
-    var first = rowsNode.querySelector('.pcc-switch:not([disabled])') || bar.querySelector('.pcc-key');
+    var first = rowsNode.querySelector('.pcc-switch') || bar.querySelector('.pcc-key');
     if (first) first.focus();
   }
 
@@ -533,11 +587,48 @@
     focusChoices();
   }
 
+  // Under a privacy signal the footers' control explains it: a short note
+  // with one key, never the bar, since nothing optional can run.
+  var signalNode = null;
+
+  function showSignal(from) {
+    if (!signalNode) {
+      signalNode = element('div', 'pcc pcc-signal-note');
+      signalNode.id = 'pcc-signal';
+      signalNode.setAttribute('role', 'dialog');
+      signalNode.setAttribute('aria-label', WORDS.signalTitle);
+      var inner = element('div', 'pcc-inner');
+      var words = element('div', 'pcc-words');
+      words.appendChild(element('p', 'pcc-lead', WORDS.signal));
+      inner.appendChild(words);
+      var keys = element('div', 'pcc-keys');
+      keys.appendChild(key(WORDS.close, closeSignal));
+      inner.appendChild(keys);
+      signalNode.appendChild(inner);
+      document.body.appendChild(signalNode);
+    }
+    opener = from;
+    signalNode.hidden = false;
+    signalNode.querySelector('.pcc-key').focus();
+  }
+
+  function closeSignal() {
+    if (!signalNode || signalNode.hidden) return;
+    signalNode.hidden = true;
+    if (opener && document.contains(opener)) opener.focus();
+    opener = null;
+  }
+
   document.addEventListener('click', function (event) {
     var target = event.target;
     var control = target && target.closest ? target.closest('[data-consent-open]') : null;
     if (!control || !ready) return;
     event.preventDefault();
+    if (signal) {
+      if (signalNode && !signalNode.hidden && opener === control) closeSignal();
+      else showSignal(control);
+      return;
+    }
     if (bar && !bar.hidden && opener === control) close();
     else reopen(control);
   });
@@ -552,18 +643,20 @@
     }
     var purposes = effective();
     if (active.measure && !purposes.measure) withdrawMeasure();
-    if (loaded.record && !purposes.record) {
-      withdrawRecord(true);
-      return;
-    }
+    if (loaded.record && !purposes.record) withdrawRecord();
     apply();
     if (bar && !bar.hidden && readAnswer() && !rowsNode.hidden) syncSwitches();
     else if (bar && !bar.hidden && readAnswer() && !opener) close();
   });
 
   document.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape' || !bar || bar.hidden) return;
-    if (readAnswer() || signal) {
+    if (event.key !== 'Escape') return;
+    if (signalNode && !signalNode.hidden) {
+      closeSignal();
+      return;
+    }
+    if (!bar || bar.hidden) return;
+    if (readAnswer()) {
       close();
       return;
     }
@@ -578,12 +671,6 @@
     ready = true;
     var controls = document.querySelectorAll('[data-consent-open][hidden]');
     for (var i = 0; i < controls.length; i++) controls[i].hidden = false;
-    var reloaded = null;
-    try {
-      reloaded = window.sessionStorage.getItem(RELOAD_KEY);
-      window.sessionStorage.removeItem(RELOAD_KEY);
-    } catch (error) { /* no session storage: nothing was set */ }
-    if (reloaded === location.pathname) countedPath = location.pathname;
     count();
     apply();
     if (!signal && !readAnswer()) show(false);

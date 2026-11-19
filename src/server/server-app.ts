@@ -2106,9 +2106,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   /**
    * POST /api/event on the hosted demo: one page view from the consent bar's
    * script (assets/consent/consent.js), forwarded to the shared Plausible
-   * instance as the public page it names (countEventFrom) with the
-   * referring site's domain alone, and with the visitor's browser name and
-   * address, as its events API asks. A request from another site, one that
+   * instance as the public page it names (countEventFrom), with nothing of
+   * the referring page, and with the visitor's full User-Agent header and
+   * one address, as its events API asks. A request from another site, one that
    * sends a privacy signal, or a path that is no page of the site is
    * answered 204 and forwards nothing. Past COUNT_EVENTS_PER_MINUTE from one
    * address (an IPv6 address by its /64), or COUNT_FORWARDS_AT_ONCE forwards

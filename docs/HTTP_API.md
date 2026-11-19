@@ -368,10 +368,10 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 **Request body** (any content type; at most 4,096 bytes)
 
 ```json
-{ "n": "pageview", "u": "/sim", "r": "https://news.example.com/item?id=7" }
+{ "n": "pageview", "u": "/sim" }
 ```
 
-`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or an API docs page under its own path when TypeDoc built it. A query string or fragment never leaves the server. Of `r`, the referring page, it keeps the site's domain at most: the last two labels of its host name, so `https://token.preview.example.org/view` is sent as `https://example.org/`; an IP address, a single name such as `localhost` or a referrer that is no web page is dropped.
+`u` is the page's path. The server forwards one of the site's public pages in its place, on the counted domain: `/` (for `/` and `/index.html`), `/sim` (for `/sim` and any path under it, whose rest is never sent), or a built API docs page under its own path. A query string or fragment never leaves the server. No referrer is sent: the server ignores any other field of the body.
 
 **Responses**
 
