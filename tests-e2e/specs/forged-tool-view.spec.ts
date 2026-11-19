@@ -33,6 +33,12 @@
  *   names the tool by its number and its open stations; the link opens that
  *   tool once the replay has played in, and a link to a tool the run lacks
  *   opens the run with no dialog and leaves the address clean.
+ * - The forged toolbox on the run's record: one row for each actor's tool,
+ *   with its outcome, its line in small under the five station names, what
+ *   it does and who made it; a count line that counts forges, a filter that
+ *   counts rows, Find a tool, and Export JSON for the rows shown. A row
+ *   opens its tool's trace over the toolbox, and Reports shows the same
+ *   rows in its page.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -42,7 +48,7 @@ import {
   COHORT_SERVER, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
   pairSessionId, replayUrl, sessionIdByName, useLook, type Look,
 } from '../support/forge-view-pages.js';
-import { DOZENS, MAXIMUM, generateCohortRun } from '../support/forge-fixtures.js';
+import { DOZENS, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
 import { pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
 import { buildToolRegistry } from '../../src/dashboard/src/hooks/toolRegistry.helpers.js';
@@ -1563,6 +1569,670 @@ test.describe('a link to one tool', () => {
         const panel = await openRecord(trace);
         expect(await rawRecordOf(panel)).toEqual(frames);
         await picture(page, `${size.width}-${look}-f1-a299-link`);
+      });
+    }
+  });
+});
+
+/** The forged toolbox: a dialog named for the run's count of tools. */
+const toolboxOf = (page: Page, tools?: number): Locator =>
+  page.getByRole('dialog', {
+    name: tools === undefined ? /^Forged toolbox, [\d,]+ tools?$/ : `Forged toolbox, ${tools.toLocaleString('en-US')} tools`,
+  });
+
+/** The Sim footer's key that opens the forged toolbox. */
+const toolboxKey = (page: Page): Locator => page.getByRole('button', { name: /^Open Forged Toolbox/ });
+
+/** Opens the forged toolbox from the Sim footer. */
+async function openToolbox(page: Page, tools?: number): Promise<Locator> {
+  await toolboxKey(page).click();
+  const toolbox = toolboxOf(page, tools);
+  await expect(toolbox).toBeVisible();
+  return toolbox;
+}
+
+/** The toolbox's rows, in a dialog or in Reports' page: one for each actor's tool. */
+const rowsOf = (scope: Locator): Locator => scope.locator('[data-tool-row]');
+/** One tool's row, of one actor where two actors forged the name. */
+const rowOf = (scope: Locator, tool: string, actor?: string): Locator =>
+  scope.locator(`[data-tool-row][data-tool-name="${tool}"]${actor ? `[data-actor="${actor}"]` : ''}`);
+/** A row's own key: the button that opens its tool's trace. */
+const rowKey = (row: Locator): Locator => row.getByRole('button');
+/** The stations of a row's line in small, each with its state: "request:reached". */
+const rowLine = (row: Locator): Promise<string[]> =>
+  row.locator('[data-forge-line="row"] [data-station]')
+    .evaluateAll(els => els.map(el => `${el.getAttribute('data-station')}:${el.getAttribute('data-state')}`));
+/** The stations of a trace's line, each with its state. */
+const traceLine = (trace: Locator): Promise<string[]> =>
+  trace.locator('[data-forge-line="trace"] > [data-station]')
+    .evaluateAll(els => els.map(el => `${el.getAttribute('data-station')}:${el.getAttribute('data-state')}`));
+const namesOf = (rows: Locator): Promise<Array<string | null>> =>
+  rows.evaluateAll(els => els.map(el => el.getAttribute('data-tool-name')));
+const sizeOf = (part: Locator): Promise<string> => part.evaluate(el => getComputedStyle(el).fontSize);
+
+const FIVE_REACHED = ['request:reached', 'code:reached', 'tests:reached', 'judge:reached', 'added:reached'];
+const REQUEST_ALONE = ['request:reached', 'code:unknown', 'tests:unknown', 'judge:unknown', 'added:notReached'];
+const PAIR_COUNT_LINE = '12 tools from 13 forges (1 re-forge) · 9 passed · 4 did not pass';
+/** Aria Chen's tool whose only forge did not pass, and that no report lists. */
+const SHELTER = 'dust_storm_shelter_plan';
+
+/** Chooses one filter: a segment from 768 px, the one-row menu below it. */
+async function chooseShow(toolbox: Locator, width: number, label: string): Promise<void> {
+  if (width >= 768) await toolbox.getByRole('radiogroup', { name: 'Show' }).getByRole('radio', { name: label, exact: true }).check();
+  else await toolbox.getByRole('combobox', { name: 'Show' }).selectOption({ label });
+}
+
+/** A row's name for a screen reader: the tool, its outcome, its actor, and its forges when it was forged again. */
+const rowNameOf = (entry: { name: string; outcome: string; actorIndex: number; actorName: string; attempts: unknown[] }): string =>
+  `${entry.name}, ${entry.outcome === 'passed' ? 'Passed' : 'Did not pass'}, made by A${entry.actorIndex + 1} ${entry.actorName}`
+  + (entry.attempts.length > 1 ? `, forged ${entry.attempts.length} times` : '');
+
+/** Opens a run of the cohort server on the Sim tab, played in to its end. */
+async function openCohortSim(page: Page, request: APIRequestContext, run: string, size: Size, look: Look, timeout: number): Promise<void> {
+  const id = await sessionIdByName(request, COHORT_SERVER, run);
+  await page.setViewportSize(size);
+  await useLook(page, look);
+  await page.goto(replayUrl(COHORT_SERVER, id, 'sim'));
+  await lookShown(page, look);
+  await replayComplete(page, timeout);
+}
+
+test.describe('the forged toolbox on the run\'s record', () => {
+  test('f10 q1 and q21: the count line and the filter of a run with no trace', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        // The toolbox opens with focus on its title.
+        await expect(toolbox.getByRole('heading', { level: 2, name: 'FORGED TOOLBOX' })).toBeFocused();
+        // The count line counts forges: thirteen of them made twelve tools.
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(PAIR_COUNT_LINE);
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+
+        // The filter counts the rows it shows: segments on a desktop, the one-row menu on a phone.
+        const segments = toolbox.getByRole('radiogroup', { name: 'Show' });
+        const menu = toolbox.getByRole('combobox', { name: 'Show' });
+        if (size.width >= 768) {
+          await expect(segments.getByRole('radio')).toHaveCount(3);
+          for (const name of ['All 12', 'Passed 9', 'Did not pass 3']) {
+            await expect(segments.getByRole('radio', { name, exact: true })).toBeVisible();
+          }
+          await expect(segments.getByRole('radio', { name: 'All 12', exact: true })).toBeChecked();
+          await expect(menu).toHaveCount(0);
+        } else {
+          await expect(menu).toBeVisible();
+          await expect(toolbox.locator('[data-toolbox-menu]')).toContainText('Show:');
+          expect(await menu.locator('option').allTextContents()).toEqual(['All 12', 'Passed 9', 'Did not pass 3']);
+          expect(await menu.evaluate(el => (el as HTMLSelectElement).selectedOptions[0]?.textContent)).toBe('All 12');
+          await expect(segments).toHaveCount(0);
+        }
+
+        // A passed row's line fills its five cells; a row that did not pass fills Request alone.
+        expect(await rowLine(rowOf(toolbox, LANDING))).toEqual(FIVE_REACHED);
+        expect(await rowLine(rowOf(toolbox, RADIATION))).toEqual(REQUEST_ALONE);
+        await picture(page, `${size.width}-${look}-f10-toolbox`);
+
+        // Each filter shows its rows alone, under the same count line.
+        await chooseShow(toolbox, size.width, 'Did not pass 3');
+        expect(await namesOf(rowsOf(toolbox))).toEqual([SHELTER, RADIATION, MORALE]);
+        await expect.poll(() => new URL(page.url()).searchParams.get('show')).toBe('did_not_pass');
+        await chooseShow(toolbox, size.width, 'Passed 9');
+        await expect(rowsOf(toolbox)).toHaveCount(9);
+        await expect(rowsOf(toolbox).locator('[data-row-outcome]')).toHaveText(Array.from({ length: 9 }, () => 'Passed'));
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(PAIR_COUNT_LINE);
+        await chooseShow(toolbox, size.width, 'All 12');
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+        await expect.poll(() => new URL(page.url()).searchParams.get('show')).toBeNull();
+      });
+    }
+  });
+
+  test('f10 q3: Find a tool narrows by name, says so when nothing matches, and Clear brings every row back', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of [{ size: { width: 768, height: 900 }, look: 'dark' as Look }, { size: WIDTHS[0], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        const find = toolbox.getByRole('searchbox', { name: 'Find a tool' });
+
+        // Part of a name: both actors' rows of it, and no other row.
+        await find.fill('habitat');
+        await expect(rowsOf(toolbox)).toHaveCount(2);
+        expect(await namesOf(rowsOf(toolbox))).toEqual([HABITAT, HABITAT]);
+        await expect(rowOf(toolbox, HABITAT, 'A1')).toBeVisible();
+        await expect(rowOf(toolbox, HABITAT, 'A2')).toBeVisible();
+        await expect.poll(() => new URL(page.url()).searchParams.get('find')).toBe('habitat');
+
+        // A name no tool holds: the list says so, and Clear is the way forward.
+        await find.fill('zzz');
+        await expect(rowsOf(toolbox)).toHaveCount(0);
+        await expect(toolbox.getByText('No tool matches “zzz”.', { exact: true })).toBeVisible();
+        await picture(page, `${size.width}-${look}-f10-no-tool-matches`);
+        await toolbox.getByRole('button', { name: 'Clear', exact: true }).click();
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+        await expect(find).toHaveValue('');
+        await expect(find).toBeFocused();
+
+        // The field's own key clears it too.
+        await find.fill('rover');
+        expect(await namesOf(rowsOf(toolbox))).toEqual([LAST_TOOL]);
+        await toolbox.getByRole('button', { name: 'Clear the search', exact: true }).click();
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+        await expect(find).toBeFocused();
+        await expect.poll(() => new URL(page.url()).searchParams.get('find')).toBeNull();
+
+        // The address holds the toolbox and the search, so the link opens the same rows.
+        await find.fill('habitat');
+        await expect.poll(() => new URL(page.url()).searchParams.get('find')).toBe('habitat');
+        expect(new URL(page.url()).searchParams.get('toolbox')).toBe('1');
+        await page.goto(page.url());
+        await replayComplete(page, 60_000);
+        const again = toolboxOf(page, 12);
+        await expect(again).toBeVisible();
+        await expect(again.getByRole('searchbox', { name: 'Find a tool' })).toHaveValue('habitat');
+        expect(await namesOf(rowsOf(again))).toEqual([HABITAT, HABITAT]);
+      });
+    }
+  });
+
+  test('f10 q4: a row opens its trace, and closing it returns focus to the row', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of [{ size: WIDTHS[0], look: 'light' as Look }, { size: WIDTHS[1], look: 'dark' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const address = page.url();
+        const toolbox = await openToolbox(page, 12);
+        const row = rowKey(rowOf(toolbox, OXYGEN));
+        const trace = traceOf(page, OXYGEN);
+
+        // The trace opens over the toolbox; Close leaves the toolbox open with focus on the row.
+        await row.click();
+        await expect(trace).toBeVisible();
+        await expect(trace.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
+        await picture(page, `${size.width}-${look}-f10-row-trace`);
+        await closeTrace(trace);
+        await expect(toolbox).toBeVisible();
+        await expect(row).toBeFocused();
+        await expect.poll(() => new URL(page.url()).searchParams.get('tool')).toBeNull();
+        expect(new URL(page.url()).searchParams.get('toolbox')).toBe('1');
+
+        // Escape closes the trace alone.
+        await row.click();
+        await expect(trace).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(trace).toBeHidden();
+        await expect(toolbox).toBeVisible();
+        await expect(row).toBeFocused();
+
+        // Back, as a phone's Back key sends it, closes the trace alone too.
+        await row.click();
+        await expect(trace).toBeVisible();
+        await page.evaluate(() => window.history.back());
+        await expect(trace).toBeHidden();
+        await expect(toolbox).toBeVisible();
+        await expect(row).toBeFocused();
+
+        // Escape then closes the toolbox: focus returns to the key that opened it, and the address is the run's.
+        await page.keyboard.press('Escape');
+        await expect(toolbox).toBeHidden();
+        await expect(toolboxKey(page)).toBeFocused();
+        await expect.poll(() => page.url()).toBe(address);
+
+        // Back closes the toolbox as well, and Close does the same.
+        await openToolbox(page, 12);
+        await page.evaluate(() => window.history.back());
+        await expect(toolbox).toBeHidden();
+        await expect(toolboxKey(page)).toBeFocused();
+        await openToolbox(page, 12);
+        await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+        await expect(toolbox).toBeHidden();
+        await expect(toolboxKey(page)).toBeFocused();
+        await expect.poll(() => page.url()).toBe(address);
+      });
+    }
+  });
+
+  test('f10 q6 and q7: at 320 no row is cut, and the filter stays one row at every sweep width', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const look of LOOKS) {
+      // The toolbox opens on a phone, then the window takes each width with it open.
+      await openPairSim(page, request, WIDTHS[0], look);
+      const toolbox = await openToolbox(page, 12);
+      for (const width of SWEEP_WIDTHS) {
+        await test.step(`${width} in the ${look} look`, async () => {
+          await page.setViewportSize({ width, height: 844 });
+          await expect(toolbox.getByRole('searchbox', { name: 'Find a tool' })).toBeVisible();
+          const read = await toolbox.evaluate((dialog) => {
+            const box = (el: Element) => {
+              const r = el.getBoundingClientRect();
+              return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
+            };
+            const shown = (el: Element) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+            const menu = dialog.querySelector('[data-toolbox-menu]');
+            const field = dialog.querySelector('input[type="search"]');
+            return {
+              window: window.innerWidth,
+              sheet: box(dialog),
+              sheetScroll: dialog.scrollWidth - dialog.clientWidth,
+              segments: Array.from(dialog.querySelectorAll('[data-show]')).filter(shown).map(box),
+              menu: menu && shown(menu) ? box(menu) : null,
+              field: field && shown(field) ? box(field) : null,
+              words: Array.from(dialog.querySelectorAll('[data-toolbox-stations] > *')).filter(shown).map(box),
+              rows: Array.from(dialog.querySelectorAll('[data-tool-row]')).map(box),
+              header: Array.from(dialog.querySelectorAll('[data-toolbox-header] button')).filter(shown).map(box),
+            };
+          });
+          // No sideways scroll, and no row cut at an edge: the 120-character name wraps inside its row.
+          expect(read.sheet.left).toBeGreaterThanOrEqual(-0.5);
+          expect(read.sheet.right).toBeLessThanOrEqual(read.window + 0.5);
+          expect(read.sheetScroll, 'the toolbox does not scroll sideways').toBeLessThanOrEqual(0);
+          expect(read.rows).toHaveLength(12);
+          for (const row of read.rows) {
+            expect(row.left, 'a row starts inside the toolbox').toBeGreaterThanOrEqual(read.sheet.left - 0.5);
+            expect(row.right, 'a row ends inside the toolbox').toBeLessThanOrEqual(read.sheet.right + 0.5);
+          }
+          // The five station names stand on one row above the rows.
+          expect(read.words).toHaveLength(5);
+          expect(new Set(read.words.map(word => Math.round(word.top))).size, 'the station names share one row').toBe(1);
+          // The header row's keys share one row.
+          expect(new Set(read.header.map(key => Math.round(key.top))).size, 'the header row is one row').toBe(1);
+
+          expect(read.field, 'Find a tool shows').not.toBeNull();
+          if (width < 768) {
+            // The one-row menu, beside Find a tool, each 44 px tall.
+            expect(read.segments).toHaveLength(0);
+            expect(read.menu, 'the filter is its menu').not.toBeNull();
+            expect(Math.max(read.menu!.top, read.field!.top), 'the menu and Find a tool share a row')
+              .toBeLessThan(Math.min(read.menu!.bottom, read.field!.bottom));
+            expect(Math.round(read.menu!.height)).toBeGreaterThanOrEqual(44);
+            expect(Math.round(read.field!.height)).toBeGreaterThanOrEqual(44);
+            expect(read.menu!.right).toBeLessThanOrEqual(read.field!.left + 0.5);
+            await expect(toolbox.locator('[data-toolbox-menu]')).toContainText('Show:');
+            expect(await toolbox.getByRole('combobox', { name: 'Show' }).evaluate(el => (el as HTMLSelectElement).selectedOptions[0]?.textContent)).toBe('All 12');
+          } else {
+            // The segments, on one row, each 44 px tall below 900 px.
+            expect(read.menu).toBeNull();
+            expect(read.segments).toHaveLength(3);
+            expect(new Set(read.segments.map(segment => Math.round(segment.top))).size, 'the segments share one row').toBe(1);
+            for (const segment of read.segments) expect(Math.round(segment.height)).toBeGreaterThanOrEqual(44);
+          }
+          if (width === 320) await picture(page, `320-${look}-f10-toolbox`);
+        });
+      }
+    }
+  });
+
+  test('f10 q8: Export JSON downloads the rows shown', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of [{ size: WIDTHS[1], look: 'dark' as Look }, { size: WIDTHS[0], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        const exportKey = toolbox.getByRole('button', { name: 'Export JSON', exact: true });
+        const exported = async (): Promise<Array<Record<string, unknown>>> => {
+          const [download] = await Promise.all([page.waitForEvent('download'), exportKey.click()]);
+          expect(download.suggestedFilename()).toBe('paracosm-toolbox.json');
+          return JSON.parse(readFileSync(await download.path(), 'utf8'));
+        };
+
+        // Every row, each with the fields the file has always held and the actor that holds the tool.
+        const all = await exported();
+        expect(all.map(row => row.name)).toEqual(await namesOf(rowsOf(toolbox)));
+        expect(all).toHaveLength(12);
+        expect(all[0]).toMatchObject({
+          n: 1, name: LANDING, description: LANDING_TEXT, firstForgedTurn: 1, firstForgedDepartment: 'engineering',
+          departments: ['engineering'], approved: true, confidence: 0.98, actor: 'A1', actorName: 'Aria Chen',
+        });
+        for (const field of ['mode', 'reuseCount', 'sampleOutput', 'inputFields', 'outputFields']) expect(all[0]).toHaveProperty(field);
+        const radiation = all.find(row => row.name === RADIATION);
+        expect(radiation).toMatchObject({ approved: false, actor: 'A2', actorName: 'Dietrich Voss' });
+        expect(radiation).toHaveProperty('inputSchema');
+        expect(radiation).toHaveProperty('outputSchema');
+        // The name both actors forged is two rows, told apart by their actor.
+        expect(all.filter(row => row.name === HABITAT).map(row => row.actor)).toEqual(['A1', 'A2']);
+
+        // With Did not pass chosen, the file holds its three rows.
+        await chooseShow(toolbox, size.width, 'Did not pass 3');
+        await expect(rowsOf(toolbox)).toHaveCount(3);
+        const some = await exported();
+        expect(some.map(row => [row.name, row.actor, row.actorName])).toEqual([
+          [SHELTER, 'A1', 'Aria Chen'], [RADIATION, 'A2', 'Dietrich Voss'], [MORALE, 'A2', 'Dietrich Voss'],
+        ]);
+      });
+    }
+  });
+
+  test('f10 q11 and q23: a row\'s words, sizes and parts', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        const ink = await resolved(page, '--text-1');
+        const quiet = await resolved(page, '--forge-quiet');
+
+        // A passed tool's row: its number and name, its outcome, what it does and its meta line.
+        const landing = rowOf(toolbox, LANDING);
+        await expect(landing.locator('[data-row-name]')).toHaveText(`[1] ${LANDING}`);
+        expect(await sizeOf(landing.locator('[data-row-name]'))).toBe('18px');
+        const does = landing.locator('[data-row-does]');
+        await expect(does).toHaveText(LANDING_TEXT);
+        expect(await sizeOf(does)).toBe('18px');
+        expect(await colourOf(does)).toBe(ink);
+        const meta = landing.locator('[data-row-meta]');
+        await expect(meta).toHaveText('A1 Aria Chen · engineering · turn 1 · used 1 time');
+        expect(await sizeOf(meta)).toBe('15px');
+        expect(await colourOf(meta)).toBe(quiet);
+        // The actor's label and name lead the meta line in the ink.
+        await expect(meta.locator('[data-row-actor]')).toHaveText('A1 Aria Chen');
+        expect(await colourOf(meta.locator('[data-row-actor]'))).toBe(ink);
+        // The outcome word in the ink beside its one glyph.
+        const outcome = landing.locator('[data-row-outcome]');
+        await expect(outcome).toHaveText('Passed');
+        await expect(outcome.locator('svg[data-glyph]')).toHaveCount(1);
+        await expect(outcome.locator('svg[data-glyph="passed"]')).toBeVisible();
+        expect(await colourOf(outcome)).toBe(ink);
+
+        // The other rows' meta lines: uses on a tool that was added, the re-forge on a tool forged again.
+        await expect(rowOf(toolbox, GREENHOUSE).locator('[data-row-meta]')).toHaveText('A1 Aria Chen · agriculture · turn 1 · used 0 times');
+        await expect(rowOf(toolbox, RATION).locator('[data-row-meta]')).toHaveText('A1 Aria Chen · agriculture · turn 1 · used 0 times · 1 re-forge');
+        await expect(rowOf(toolbox, OXYGEN).locator('[data-row-meta]')).toHaveText('A2 Dietrich Voss · engineering · turn 1 · used 1 time');
+        const radiation = rowOf(toolbox, RADIATION);
+        await expect(radiation.locator('[data-row-meta]')).toHaveText('A2 Dietrich Voss · medical · turn 1');
+        await expect(radiation.locator('[data-row-outcome]')).toHaveText('Did not pass');
+        await expect(radiation.locator('[data-row-outcome] svg[data-glyph="didNotPass"]')).toBeVisible();
+        expect(await colourOf(radiation.locator('[data-row-outcome]'))).toBe(ink);
+        // A name another actor forged too says which.
+        await expect(rowOf(toolbox, HABITAT, 'A1').locator('[data-row-same]')).toHaveText('Same name: A2');
+        await expect(rowOf(toolbox, HABITAT, 'A2').locator('[data-row-same]')).toHaveText('Same name: A1');
+        await expect(landing.locator('[data-row-same]')).toHaveCount(0);
+
+        // No stage word, chip or arrow on a row: the station names stand above the rows alone.
+        for (const word of ['Request', 'Code', 'Tests', 'Judge', 'Added']) {
+          await expect(rowsOf(toolbox).getByText(word, { exact: true })).toHaveCount(0);
+        }
+        // Rows part by one hairline: no outline and no box round a row or its key.
+        const edges = await rowOf(toolbox, GREENHOUSE).evaluate((row) => {
+          const item = getComputedStyle(row);
+          const key = getComputedStyle(row.querySelector('button')!);
+          return {
+            row: [item.borderTopWidth, item.borderRightWidth, item.borderBottomWidth, item.borderLeftWidth],
+            key: [key.borderTopWidth, key.borderRightWidth, key.borderBottomWidth, key.borderLeftWidth],
+            outline: key.outlineStyle,
+          };
+        });
+        expect(edges).toEqual({ row: ['1px', '0px', '0px', '0px'], key: ['0px', '0px', '0px', '0px'], outline: 'none' });
+
+        // The count line in the ink with no coloured word.
+        const count = toolbox.locator('[data-toolbox-count]');
+        expect(await colourOf(count)).toBe(ink);
+        expect(await sizeOf(count)).toBe('15px');
+        await expect(count.locator('*')).toHaveCount(0);
+        // "Find a tool" is a label that shows, and "Tool name…" its field's placeholder.
+        await expect(toolbox.getByText('Find a tool', { exact: true })).toBeVisible();
+        await expect(toolbox.getByRole('searchbox', { name: 'Find a tool' })).toHaveAttribute('placeholder', 'Tool name…');
+        // The title is the one run of capitals, in the ink.
+        expect(await colourOf(toolbox.getByRole('heading', { level: 2, name: 'FORGED TOOLBOX' }))).toBe(ink);
+      });
+    }
+  });
+
+  test('f10 q18 at the pair: each row\'s meta line names its actor, and the side mark and line take its colour', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(pairRunFrames());
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        const colours = [await resolved(page, '--vis'), await resolved(page, '--eng')];
+        expect(colours[0]).not.toBe(colours[1]);
+        // One row for each actor's tool, in the run's order.
+        expect(await namesOf(rowsOf(toolbox))).toEqual(registry.list.map(entry => entry.name));
+        for (const entry of registry.list) {
+          const actor = `A${entry.actorIndex + 1}`;
+          const row = rowOf(toolbox, entry.name, actor);
+          // The meta line begins with the actor's label and name.
+          await expect(row.locator('[data-row-meta]')).toHaveText(new RegExp(`^${actor} ${entry.actorName} · `));
+          // The 4 px side mark and the row's line are in one colour, the actor's: amber for A1, teal for A2.
+          const mark = row.locator('[data-side-mark]');
+          expect(await groundOf(mark), `${entry.name}: the side mark`).toBe(colours[entry.actorIndex]);
+          expect((await mark.boundingBox())?.width, `${entry.name}: the side mark is 4 px wide`).toBe(4);
+          expect(await groundOf(row.locator('[data-forge-line="row"] [data-station="request"] [data-cell]')), `${entry.name}: the line`)
+            .toBe(colours[entry.actorIndex]);
+          // A screen reader hears the tool, its outcome and its actor by label and name, and no colour word.
+          await expect(rowKey(row)).toHaveAccessibleName(rowNameOf(entry));
+        }
+      });
+    }
+  });
+
+  test('f10 q19 and q20: the stage words stand once above the rows, and each row\'s line is its trace\'s, cell for cell', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const registry = registryOf(pairRunFrames());
+    for (const { size, look } of [{ size: WIDTHS[1], look: 'dark' as Look }, { size: WIDTHS[0], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        // The five station names, once, in the quiet tone at 15 px.
+        const words = toolbox.locator('[data-toolbox-stations] > *');
+        await expect(words).toHaveText(['Request', 'Code', 'Tests', 'Judge', 'Added']);
+        const quiet = await resolved(page, '--forge-quiet');
+        for (const word of await words.all()) {
+          expect(await colourOf(word)).toBe(quiet);
+          expect(await sizeOf(word)).toBe('15px');
+        }
+        await expect(toolbox.locator('[data-toolbox-stations]')).toHaveCount(1);
+        // Each name stands over its station's cell on the first row.
+        const centre = (box: { x: number; width: number } | null) => (box ? box.x + box.width / 2 : Number.NaN);
+        const cells = rowsOf(toolbox).first().locator('[data-forge-line="row"] [data-station]');
+        for (let i = 0; i < 5; i++) {
+          const over = Math.abs(centre(await words.nth(i).boundingBox()) - centre(await cells.nth(i).boundingBox()));
+          expect(over, `"${STATIONS[i]}" stands over its cell`).toBeLessThanOrEqual(3);
+        }
+
+        // Every row's line is its trace's: the same state at each station, in the same colour.
+        for (const entry of registry.list) {
+          const row = rowOf(toolbox, entry.name, `A${entry.actorIndex + 1}`);
+          const onRow = await rowLine(row);
+          const rowColour = await groundOf(row.locator('[data-forge-line="row"] [data-station="request"] [data-cell]'));
+          await rowKey(row).click();
+          const trace = traceOf(page, entry.name, entry.n);
+          await expect(trace).toBeVisible();
+          expect(await traceLine(trace), `${entry.name}: the row's line is the trace's`).toEqual(onRow);
+          expect(await groundOf(reachedCell(trace, 'request')), `${entry.name}: one colour`).toBe(rowColour);
+          await closeTrace(trace);
+          await expect(rowKey(row)).toBeFocused();
+        }
+      });
+    }
+  });
+
+  test('f10 q22: the re-forged tool\'s row opens its latest attempt', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of [{ size: WIDTHS[0], look: 'dark' as Look }, { size: WIDTHS[1], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        const row = rowOf(toolbox, RATION);
+        // The row shows its latest forge's outcome, and its first attempt as a fork under Request.
+        await expect(row.locator('[data-row-outcome]')).toHaveText('Passed');
+        expect(await rowLine(row)).toEqual(FIVE_REACHED);
+        await expect(row.locator('[data-forge-line="row"] [data-station="request"] [data-spurs]')).toHaveAttribute('data-spurs', '1');
+        await expect(rowKey(row)).toHaveAccessibleName(`${RATION}, Passed, made by A1 Aria Chen, forged 2 times`);
+        await picture(page, `${size.width}-${look}-f10-reforged-row`);
+
+        await rowKey(row).click();
+        const trace = traceOf(page, RATION);
+        await expect(trace).toBeVisible();
+        await expect(attemptKeys(trace).line).toHaveText('2 of 2');
+        await expect(trace.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
+        await expect(stationOf(trace, 'request').getByRole('link', { name: 'Attempt 1 · Did not pass', exact: true })).toBeVisible();
+      });
+    }
+  });
+
+  test('a report-only run lists its tools from their reports, with no attempt keys', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(REPORT_ONLY_PAIR));
+    expect(registry.list).toHaveLength(2);
+    expect(registry.list.every(entry => entry.attempts.length === 0 && entry.outcome === 'passed')).toBe(true);
+    for (const { size, look } of [{ size: WIDTHS[0], look: 'light' as Look }, { size: WIDTHS[1], look: 'dark' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openCohortSim(page, request, RUNS.reportOnlyPair, size, look, 60_000);
+        const toolbox = await openToolbox(page, 2);
+        expect(await namesOf(rowsOf(toolbox))).toEqual(registry.list.map(entry => entry.name));
+        // The filter offers the outcomes the run's rows hold.
+        if (size.width >= 768) {
+          await expect(toolbox.getByRole('radiogroup', { name: 'Show' }).locator('[data-show]')).toHaveText(['All 2', 'Passed 2']);
+        } else {
+          expect(await toolbox.getByRole('combobox', { name: 'Show' }).locator('option').allTextContents()).toEqual(['All 2', 'Passed 2']);
+        }
+        for (const entry of registry.list) {
+          // Each row draws its line from its report: passed, five reached cells, no fork.
+          const row = rowOf(toolbox, entry.name, `A${entry.actorIndex + 1}`);
+          await expect(row.locator('[data-row-outcome]')).toHaveText('Passed');
+          expect(await rowLine(row)).toEqual(FIVE_REACHED);
+          await expect(row.locator('[data-spurs]')).toHaveCount(0);
+          await expect(rowKey(row)).toHaveAccessibleName(rowNameOf(entry));
+          // Its trace opens with no attempt keys.
+          await rowKey(row).click();
+          const trace = traceOf(page, entry.name, entry.n);
+          await expect(trace).toBeVisible();
+          await expect(trace.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
+          expect(await traceLine(trace)).toEqual(FIVE_REACHED);
+          const keys = attemptKeys(trace);
+          await expect(keys.previous).toHaveCount(0);
+          await expect(keys.next).toHaveCount(0);
+          await expect(keys.line).toHaveCount(0);
+          await closeTrace(trace);
+        }
+        await picture(page, `${size.width}-${look}-f10-report-only`);
+      });
+    }
+  });
+
+  test('the toolbox of the 24-actor and the 300-actor runs counts the whole run and names its actors', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const runs = [
+      { run: RUNS.dozens, spec: DOZENS, timeout: 60_000, line: '286 tools from 331 forges (45 re-forges) · 268 passed · 63 did not pass · 24 actors' },
+      { run: RUNS.maximum, spec: MAXIMUM, timeout: 150_000, line: '3,612 tools from 4,207 forges (595 re-forges) · 3,301 passed · 906 did not pass · 300 actors' },
+    ];
+    for (const { run, spec, timeout, line } of runs) {
+      await test.step(run, async () => {
+        const registry = registryOf(generateCohortRun(spec));
+        await openCohortSim(page, request, run, WIDTHS[1], 'dark', timeout);
+        const toolbox = await openToolbox(page, spec.tools);
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(line);
+        // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
+        await expect(rowsOf(toolbox)).toHaveCount(spec.tools);
+        const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
+          name: el.getAttribute('data-tool-name'),
+          actor: el.getAttribute('data-actor'),
+          meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
+        })));
+        expect(rows.map(row => [row.name, row.actor])).toEqual(registry.list.map(entry => [entry.name, `A${entry.actorIndex + 1}`]));
+        const strays = rows.filter((row, i) => !row.meta.startsWith(`A${registry.list[i].actorIndex + 1} ${registry.list[i].actorName} · `));
+        expect(strays, 'every meta line begins with its actor\'s label and name').toEqual([]);
+        // From three actors the rows' lines take the quiet tone, and each side mark its actor's run colour.
+        const third = rowsOf(toolbox).filter({ has: page.locator('[data-row-meta]', { hasText: /^A3 / }) }).first();
+        expect(await groundOf(third.locator('[data-forge-line="row"] [data-station="request"] [data-cell]'))).toBe(await resolved(page, '--forge-quiet'));
+        expect(await groundOf(third.locator('[data-side-mark]'))).toBe(await resolved(page, '--rust'));
+      });
+    }
+  });
+
+  test('Reports shows the same rows in its page', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const id = await pairSessionId(request);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await page.goto(replayUrl(PAIR_SERVER, id, 'reports'));
+        await lookShown(page, look);
+        const section = page.locator('#toolbox');
+        const fold = section.locator('summary').first();
+        await expect(fold).toHaveText('FORGED TOOLBOX');
+        await expect(rowsOf(section)).toHaveCount(12, { timeout: 60_000 });
+        if (!(await rowsOf(section).first().isVisible())) await fold.click();
+        await expect(rowsOf(section).first()).toBeVisible();
+        // The same count line, filter and rows as the dialog's, in the page.
+        await expect(section.locator('[data-toolbox-count]')).toHaveText(PAIR_COUNT_LINE);
+        expect(await rowLine(rowOf(section, RADIATION))).toEqual(REQUEST_ALONE);
+        await expect(rowOf(section, LANDING).locator('[data-row-meta]')).toHaveText('A1 Aria Chen · engineering · turn 1 · used 1 time');
+        await expect(section.locator('[data-toolbox-stations] > *')).toHaveText(['Request', 'Code', 'Tests', 'Judge', 'Added']);
+        await chooseShow(section, size.width, 'Did not pass 3');
+        expect(await namesOf(rowsOf(section))).toEqual([SHELTER, RADIATION, MORALE]);
+        await chooseShow(section, size.width, 'All 12');
+        await expect(rowsOf(section)).toHaveCount(12);
+        await picture(page, `${size.width}-${look}-f10-reports-toolbox`);
+
+        // A row opens its tool's trace over the page, and closing it returns focus to the row.
+        const row = rowKey(rowOf(section, LANDING));
+        await row.click();
+        const trace = traceOf(page, LANDING, 1);
+        await expect(trace).toBeVisible();
+        await closeTrace(trace);
+        await expect(row).toBeFocused();
+        // No toolbox dialog opens on Reports: its rows are in the page.
+        await expect(toolboxOf(page)).toHaveCount(0);
+      });
+    }
+  });
+
+  test('the WHY IT PASSED fold, its fixed sentences and the log key are gone', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const gone = ['WHY IT PASSED', 'WHY IT FAILED', '+0.04 outcome bonus', 'Cost of a failed forge', 'USE HISTORY', 'LATEST OUTPUT'];
+    const expectGone = async () => {
+      for (const words of gone) await expect(page.getByText(words)).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /in simulation log$/ })).toHaveCount(0);
+    };
+    const id = await pairSessionId(request);
+    for (const { size, look } of [{ size: WIDTHS[0], look: 'dark' as Look }, { size: WIDTHS[1], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        // The Sim footer's toolbox.
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+        await expectGone();
+        // Reports' toolbox, with its fold open.
+        await page.goto(replayUrl(PAIR_SERVER, id, 'reports'));
+        const section = page.locator('#toolbox');
+        await expect(rowsOf(section)).toHaveCount(12, { timeout: 60_000 });
+        if (!(await rowsOf(section).first().isVisible())) await section.locator('summary').first().click();
+        await expect(rowsOf(section).first()).toBeVisible();
+        await expectGone();
+      });
+    }
+  });
+
+  test('f10 q16 on the record: a link that sets Did not pass on a run where every tool passed shows the empty filter with All', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.reportOnlyPair);
+    for (const { size, look } of [{ size: WIDTHS[0], look: 'dark' as Look }, { size: WIDTHS[1], look: 'light' as Look }]) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, look);
+        await page.goto(withParams(replayUrl(COHORT_SERVER, id, 'sim'), { toolbox: '1', show: 'did_not_pass' }));
+        await lookShown(page, look);
+        await replayComplete(page, 60_000);
+        // The link opens the toolbox on the filter it names, which holds no row in this run.
+        const toolbox = toolboxOf(page, 2);
+        await expect(toolbox).toBeVisible();
+        await expect(rowsOf(toolbox)).toHaveCount(0);
+        await expect(toolbox.getByText('Every tool in this run passed.', { exact: true })).toBeVisible();
+        await picture(page, `${size.width}-${look}-f10-every-tool-passed`);
+        // All is the way forward.
+        await toolbox.getByRole('button', { name: 'All', exact: true }).click();
+        await expect(rowsOf(toolbox)).toHaveCount(2);
+        await expect.poll(() => new URL(page.url()).searchParams.get('show')).toBeNull();
+        expect(new URL(page.url()).searchParams.get('toolbox')).toBe('1');
+        // Close leaves the run on the page with no toolbox in its address.
+        await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+        await expect(toolbox).toBeHidden();
+        await expect.poll(() => new URL(page.url()).searchParams.get('toolbox')).toBeNull();
+        expect(new URL(page.url()).searchParams.get('replay')).toBe(id);
       });
     }
   });
