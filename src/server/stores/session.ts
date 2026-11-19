@@ -6,10 +6,18 @@
  * hosted demo can replay a saved session at original pacing instead of
  * triggering a fresh LLM-powered run. Each owner (a visitor) keeps a
  * ring of their N most recent saves, oldest evicted. A bound on every
- * owner's rows together keeps the file size predictable: past it the
- * owner holding the most rows gives up their oldest, so a visitor loses a
- * run to other visitors' saves only when nobody holds more rows than they
- * do.
+ * owner's rows together keeps the file size predictable: past it the save
+ * evicts the oldest unpinned row of the owner holding the most rows, and
+ * when every owner holds one row, the oldest unpinned row in the store,
+ * another owner's included. Rows an admin saved (pinned) are never
+ * evicted. With `ownerRings: false` (a local server) the store keeps one
+ * ring of N rows, whoever saved them.
+ *
+ * "Oldest" is the order rows were saved in: a sequence number stored with
+ * each row, which a clock moved back cannot reorder. A save's insert and
+ * its evictions commit in one transaction, and opening the store trims
+ * any owner over its bound, so a failed or cut save never leaves a bound
+ * exceeded. A save under a run key already saved returns that row.
  *
  * Backed by `@framers/sql-storage-adapter`. Given only a path, the store
  * opens better-sqlite3, or sql.js when the native module cannot load;
@@ -34,7 +42,8 @@ export const DEFAULT_MAX_SESSIONS = 10;
 
 /**
  * Default bound on the unpinned saved runs of every owner together. Past it
- * the owner holding the most rows gives up their oldest.
+ * the owner holding the most rows gives up their oldest, and when every
+ * owner holds one row, the oldest unpinned row in the store goes.
  */
 export const DEFAULT_MAX_TOTAL_SESSIONS = 50;
 
@@ -111,6 +120,12 @@ export interface SaveSessionOptions {
   owner?: string | null;
   /** An admin save: listed to every visitor and never evicted by the ring. */
   pinned?: boolean;
+  /**
+   * The live run the session was saved from. A save under a run key
+   * already saved adds no row and returns the saved row's id, so a save
+   * retried after a restart never saves a run twice.
+   */
+  runKey?: string;
 }
 
 /** Which saved sessions a listing returns. */
@@ -146,11 +161,17 @@ export interface SessionStore {
    * oldest unpinned row of its own owner when that owner holds more than
    * `maxSessions`; when every owner's unpinned rows together exceed
    * `maxTotalSessions`, the owner holding the most rows (the one whose
-   * oldest row is oldest, on a tie) gives up their oldest. Rows with no
-   * owner count as one owner. Saves on one store run one at a time, so
-   * saves that finish together keep both bounds.
+   * oldest row is oldest, on a tie) gives up their oldest, so when every
+   * owner holds one row the oldest unpinned row in the store goes, another
+   * owner's included. Rows with no owner count as one owner. With
+   * `ownerRings: false` the oldest unpinned row goes once the store holds
+   * more than `maxSessions`. "Oldest" follows the order rows were saved in.
+   * The insert and its evictions commit together or not at all, and saves
+   * on one store run one at a time, so saves that finish together keep
+   * both bounds. A save under a run key already saved returns that row's
+   * id and adds none.
    *
-   * Returns the new session's id and (when applicable) the id of the
+   * Returns the session's id and (when applicable) the id of the last
    * row evicted to make room. Caller can log or surface the eviction.
    */
   saveSession(events: TimestampedEvent[], override?: SessionMetaOverride, options?: SaveSessionOptions): Promise<{
@@ -164,6 +185,8 @@ export interface SessionStore {
   listSessions(scope?: ListSessionsScope): Promise<SessionMeta[]>;
   /** Loads one session in full. Returns `null` when the id is unknown. */
   getSession(id: string): Promise<StoredSession | null>;
+  /** The ids among `ids` the store holds. */
+  existingIds(ids: readonly string[]): Promise<Set<string>>;
   /** Number of currently stored sessions. Useful for tests + smoke checks. */
   count(): Promise<number>;
   /**
@@ -196,6 +219,13 @@ export interface OpenSessionStoreOptions {
    * `maxSessions`.
    */
   maxTotalSessions?: number;
+  /**
+   * True (the default): each owner keeps a ring of `maxSessions` rows,
+   * within `maxTotalSessions` in all (the hosted demo). False: one ring of
+   * `maxSessions` rows for the whole store, whatever owner keys the rows
+   * carry (a local server, whose operator is its only visitor).
+   */
+  ownerRings?: boolean;
 }
 
 function isSqliteAdapter(adapter: StorageAdapter): boolean {
@@ -220,7 +250,9 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       seedText TEXT,
       leaders TEXT,
       owner TEXT,
-      pinned INTEGER NOT NULL DEFAULT 0
+      pinned INTEGER NOT NULL DEFAULT 0,
+      seq INTEGER,
+      runKey TEXT
     );
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_createdAt ON sessions(createdAt);`);
@@ -236,6 +268,8 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS leaders TEXT');
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS owner TEXT');
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS seq INTEGER');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS runKey TEXT');
   } else if (isSqliteAdapter(adapter)) {
     const columns = await adapter.all<{ name: string }>('PRAGMA table_info(sessions)');
     const addColumnIfMissing = async (name: string, ddl: string) => {
@@ -252,7 +286,29 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
     await addColumnIfMissing('leaders', 'ALTER TABLE sessions ADD COLUMN leaders TEXT');
     await addColumnIfMissing('owner', 'ALTER TABLE sessions ADD COLUMN owner TEXT');
     await addColumnIfMissing('pinned', 'ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+    await addColumnIfMissing('seq', 'ALTER TABLE sessions ADD COLUMN seq INTEGER');
+    await addColumnIfMissing('runKey', 'ALTER TABLE sessions ADD COLUMN runKey TEXT');
   }
+  await adapter.exec('CREATE INDEX IF NOT EXISTS idx_sessions_seq ON sessions(seq)');
+  await adapter.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_runKey ON sessions(runKey)');
+
+  // Rows saved before the sequence existed take one in the order they were
+  // saved, after any row that has one.
+  await adapter.transaction(async (trx) => {
+    const unnumbered = await trx.all<{ id: string }>('SELECT id FROM sessions WHERE seq IS NULL ORDER BY createdAt ASC, id ASC');
+    if (unnumbered.length === 0) return;
+    let seq = await lastSeq(trx);
+    for (const row of unnumbered) {
+      seq += 1;
+      await trx.run('UPDATE sessions SET seq = ? WHERE id = ?', [seq, row.id]);
+    }
+  });
+}
+
+/** The highest save sequence number in the store, 0 when it holds no row. */
+async function lastSeq(adapter: StorageAdapter): Promise<number> {
+  const row = await adapter.get<{ s: number | null }>('SELECT MAX(seq) AS s FROM sessions');
+  return Number(row?.s ?? 0);
 }
 
 /**
@@ -288,6 +344,7 @@ export function openSessionStore(
   }
 
   const maxTotalSessions = Math.max(maxSessions, options.maxTotalSessions ?? DEFAULT_MAX_TOTAL_SESSIONS);
+  const bounds: Bounds = { maxSessions, maxTotalSessions, ownerRings: options.ownerRings !== false };
 
   let adapterPromise: Promise<StorageAdapter> | null = null;
   function getAdapter(): Promise<StorageAdapter> {
@@ -295,6 +352,9 @@ export function openSessionStore(
       adapterPromise = (async () => {
         const adapter = await createDatabase(options.databaseOptions ?? { file: dbPath });
         await bootstrapSchema(adapter);
+        // Rows saved under wider bounds, or by a save cut before its
+        // evictions, are brought within the bounds before any read.
+        await adapter.transaction(trx => enforceBounds(trx, bounds, null));
         return adapter;
       })();
     }
@@ -304,7 +364,7 @@ export function openSessionStore(
   // Saves run one at a time: each save's insert, counts and evictions read
   // the rows the save before it left, so runs that finish together cannot
   // both count the same rows and evict the same one, leaving a bound
-  // exceeded.
+  // exceeded, or take the same sequence number.
   let saveQueue: Promise<unknown> = Promise.resolve();
 
   const saveOne: SessionStore['saveSession'] = async (events, override, options) => {
@@ -325,64 +385,47 @@ export function openSessionStore(
     const leadersJSON = resolvedLeaders && resolvedLeaders.length >= 3
       ? JSON.stringify(resolvedLeaders)
       : null;
+    const pinned = options?.pinned === true;
+    const runKey = !pinned && options?.runKey ? options.runKey : null;
 
-    await adapter.run(
-      `INSERT INTO sessions
-         (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned)
-       VALUES
-         (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned)`,
-      {
-        id,
-        createdAt,
-        scenarioId: override?.scenarioId ?? derived.scenarioId ?? null,
-        scenarioName: override?.scenarioName ?? derived.scenarioName ?? null,
-        leaderA: override?.leaderA ?? derived.leaderA ?? null,
-        leaderB: override?.leaderB ?? derived.leaderB ?? null,
-        turnCount: override?.turnCount ?? derived.turnCount ?? null,
-        eventCount,
-        durationMs,
-        totalCostUSD: override?.totalCostUSD ?? derived.totalCostUSD ?? null,
-        events: JSON.stringify(events),
-        seedText: override?.seedText ?? derived.seedText ?? null,
-        leaders: leadersJSON,
-        owner: options?.owner ?? null,
-        pinned: options?.pinned ? 1 : 0,
-      },
-    );
-
-    // An admin-saved (pinned) row is neither counted nor evicted. Each
-    // owner keeps their own ring of `maxSessions` unpinned rows, so other
-    // owners' saves never take an owner's newest runs; the bound on every
-    // owner's rows together takes from whoever holds the most.
-    // Each bound is evicted down to, so a bound lowered since rows were
-    // saved is met again on the next save.
-    let evictedId: string | undefined;
-    if (!options?.pinned) {
-      const owner = options?.owner ?? null;
-      const own = ownerMatch(owner);
-      for (;;) {
-        const ownRows = await adapter.get<{ c: number }>(
-          `SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0 AND ${own.sql}`,
-          own.params,
-        );
-        if (Number(ownRows?.c ?? 0) <= maxSessions) break;
-        const evicted = await evictOldest(adapter, owner);
-        if (evicted === undefined) break;
-        evictedId = evicted;
+    // The insert and its evictions commit together: a failure part way
+    // rolls the insert back, so neither bound is ever left exceeded.
+    return adapter.transaction(async (trx) => {
+      if (runKey !== null) {
+        const saved = await trx.get<{ id: string }>('SELECT id FROM sessions WHERE runKey = ?', [runKey]);
+        if (saved) return { id: saved.id };
       }
-    }
-    for (;;) {
-      const totalRows = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0');
-      if (Number(totalRows?.c ?? 0) <= maxTotalSessions) break;
-      const largest = await adapter.get<{ owner: string | null }>(
-        'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner ORDER BY COUNT(*) DESC, MIN(createdAt) ASC LIMIT 1',
+      const seq = (await lastSeq(trx)) + 1;
+      await trx.run(
+        `INSERT INTO sessions
+           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned, seq, runKey)
+         VALUES
+           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned, @seq, @runKey)`,
+        {
+          id,
+          createdAt,
+          scenarioId: override?.scenarioId ?? derived.scenarioId ?? null,
+          scenarioName: override?.scenarioName ?? derived.scenarioName ?? null,
+          leaderA: override?.leaderA ?? derived.leaderA ?? null,
+          leaderB: override?.leaderB ?? derived.leaderB ?? null,
+          turnCount: override?.turnCount ?? derived.turnCount ?? null,
+          eventCount,
+          durationMs,
+          totalCostUSD: override?.totalCostUSD ?? derived.totalCostUSD ?? null,
+          events: JSON.stringify(events),
+          seedText: override?.seedText ?? derived.seedText ?? null,
+          leaders: leadersJSON,
+          owner: options?.owner ?? null,
+          pinned: pinned ? 1 : 0,
+          seq,
+          runKey,
+        },
       );
-      const evicted = largest ? await evictOldest(adapter, largest.owner ?? null) : undefined;
-      if (evicted === undefined) break;
-      evictedId = evicted;
-    }
-
-    return evictedId === undefined ? { id } : { id, evictedId };
+      // An admin-saved (pinned) row is neither counted nor evicted, and
+      // its save evicts nothing.
+      const evictedId = pinned ? undefined : await enforceBounds(trx, bounds, { owner: options?.owner ?? null, id });
+      return evictedId === undefined ? { id } : { id, evictedId };
+    });
   };
 
   return {
@@ -397,11 +440,11 @@ export function openSessionStore(
       const adapter = await getAdapter();
       const columns = 'id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, title, seedText, leaders, pinned';
       const rows = scope === undefined
-        ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions ORDER BY createdAt DESC`)
+        ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions ORDER BY seq DESC`)
         : scope.owner === null
-          ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions WHERE pinned = 1 ORDER BY createdAt DESC`)
+          ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions WHERE pinned = 1 ORDER BY seq DESC`)
           : await adapter.all<SessionMetaRow>(
-            `SELECT ${columns} FROM sessions WHERE pinned = 1 OR owner = ? ORDER BY createdAt DESC`,
+            `SELECT ${columns} FROM sessions WHERE pinned = 1 OR owner = ? ORDER BY seq DESC`,
             [scope.owner],
           );
       return rows.map(rowToMeta);
@@ -415,10 +458,26 @@ export function openSessionStore(
       return { meta: rowToMeta(row), events, owner: row.owner ?? null };
     },
 
+    async existingIds(ids) {
+      const found = new Set<string>();
+      const unique = [...new Set(ids)];
+      if (unique.length === 0) return found;
+      const adapter = await getAdapter();
+      for (let i = 0; i < unique.length; i += 500) {
+        const chunk = unique.slice(i, i + 500);
+        const rows = await adapter.all<{ id: string }>(
+          `SELECT id FROM sessions WHERE id IN (${chunk.map(() => '?').join(', ')})`,
+          chunk,
+        );
+        for (const row of rows) found.add(row.id);
+      }
+      return found;
+    },
+
     async count() {
       const adapter = await getAdapter();
       const row = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions');
-      return row?.c ?? 0;
+      return Number(row?.c ?? 0);
     },
 
     async updateTitle(id, title) {
@@ -436,7 +495,7 @@ export function openSessionStore(
       const adapter = await getAdapter();
       const before = await adapter.get<{ n: number }>('SELECT COUNT(*) AS n FROM sessions');
       await adapter.run('DELETE FROM sessions');
-      return before?.n ?? 0;
+      return Number(before?.n ?? 0);
     },
 
     async close() {
@@ -448,21 +507,86 @@ export function openSessionStore(
   };
 }
 
-/** The WHERE clause and parameters that select one owner's rows; rows with no owner are one owner. */
-function ownerMatch(owner: string | null): { sql: string; params: string[] | undefined } {
-  return owner === null ? { sql: 'owner IS NULL', params: undefined } : { sql: 'owner = ?', params: [owner] };
+/** The bounds a store keeps its unpinned rows within. */
+interface Bounds {
+  maxSessions: number;
+  maxTotalSessions: number;
+  ownerRings: boolean;
 }
 
-/** Deletes an owner's oldest unpinned row and returns its id, or undefined when they hold none. */
-async function evictOldest(adapter: StorageAdapter, owner: string | null): Promise<string | undefined> {
-  const match = ownerMatch(owner);
+/** The WHERE clause and parameters that select one owner's rows; rows with no owner are one owner. */
+function ownerMatch(owner: string | null): { sql: string; params: string[] } {
+  return owner === null ? { sql: 'owner IS NULL', params: [] } : { sql: 'owner = ?', params: [owner] };
+}
+
+/**
+ * Deletes the oldest unpinned row (by save sequence) of `owner`, or of the
+ * whole store when `owner` is undefined, never the row `keepId`, and returns
+ * its id, or undefined when there is none.
+ */
+async function evictOldest(adapter: StorageAdapter, owner: string | null | undefined, keepId: string | null): Promise<string | undefined> {
+  const match = owner === undefined ? { sql: '1 = 1', params: [] as string[] } : ownerMatch(owner);
+  const keep = keepId === null ? { sql: '', params: [] as string[] } : { sql: ' AND id <> ?', params: [keepId] };
   const oldest = await adapter.get<{ id: string }>(
-    `SELECT id FROM sessions WHERE pinned = 0 AND ${match.sql} ORDER BY createdAt ASC LIMIT 1`,
-    match.params,
+    `SELECT id FROM sessions WHERE pinned = 0 AND ${match.sql}${keep.sql} ORDER BY seq ASC LIMIT 1`,
+    [...match.params, ...keep.params],
   );
   if (!oldest) return undefined;
   await adapter.run('DELETE FROM sessions WHERE id = ?', [oldest.id]);
   return oldest.id;
+}
+
+async function unpinnedCount(adapter: StorageAdapter, owner?: string | null): Promise<number> {
+  const match = owner === undefined ? { sql: '1 = 1', params: [] as string[] } : ownerMatch(owner);
+  const row = await adapter.get<{ c: number }>(`SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0 AND ${match.sql}`, match.params);
+  return Number(row?.c ?? 0);
+}
+
+/**
+ * Evicts unpinned rows until the store is within its bounds; returns the
+ * last id evicted. With `saved` (a save's owner and new row), the save's
+ * owner is brought within their ring first and the new row is never the
+ * one evicted; with null (the store opening), every owner is.
+ */
+async function enforceBounds(
+  adapter: StorageAdapter,
+  bounds: Bounds,
+  saved: { owner: string | null; id: string } | null,
+): Promise<string | undefined> {
+  let evictedId: string | undefined;
+  const keepId = saved?.id ?? null;
+  if (!bounds.ownerRings) {
+    while (await unpinnedCount(adapter) > bounds.maxSessions) {
+      const evicted = await evictOldest(adapter, undefined, keepId);
+      if (evicted === undefined) break;
+      evictedId = evicted;
+    }
+    return evictedId;
+  }
+  const owners = saved
+    ? [saved.owner]
+    : (await adapter.all<{ owner: string | null }>(
+      'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner HAVING COUNT(*) > ?',
+      [bounds.maxSessions],
+    )).map(row => row.owner ?? null);
+  for (const owner of owners) {
+    while (await unpinnedCount(adapter, owner) > bounds.maxSessions) {
+      const evicted = await evictOldest(adapter, owner, keepId);
+      if (evicted === undefined) break;
+      evictedId = evicted;
+    }
+  }
+  while (await unpinnedCount(adapter) > bounds.maxTotalSessions) {
+    // The owner holding the most rows; on a tie, the one whose oldest row
+    // is oldest. When every owner holds one row, that is the oldest row of all.
+    const largest = await adapter.get<{ owner: string | null }>(
+      'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner ORDER BY COUNT(*) DESC, MIN(seq) ASC LIMIT 1',
+    );
+    const evicted = largest ? await evictOldest(adapter, largest.owner ?? null, keepId) : undefined;
+    if (evicted === undefined) break;
+    evictedId = evicted;
+  }
+  return evictedId;
 }
 
 /** Internal row shape — narrow `unknown` to the columns we select. */
@@ -525,15 +649,21 @@ function rowToMeta(row: SessionMetaRow): SessionMeta {
  * Pull common metadata fields out of the raw event stream.
  *
  * The orchestrator emits `active_scenario` near the start of every run
- * with `{ name, id, ... }`, and `complete` at the end with
- * `{ totalCostUSD, ... }` on its cost payload. Actor names appear in
- * the `setup` event. We extract these by scanning the SSE blobs once
- * so the metadata in the listing endpoint is rich enough to pick a
+ * with `{ name, id, ... }`. Actor names appear in the `setup` event or
+ * the parallel `status` event. We extract these by scanning the SSE blobs
+ * once so the metadata in the listing endpoint is rich enough to pick a
  * session without having to load it.
+ *
+ * The cost: a `complete` frame's aggregate `cost.totalCostUSD`, as older
+ * runs wrote it, when one is present. Otherwise each actor's last
+ * cumulative `_cost.totalCostUSD` (one tracker per actor, carried inside a
+ * sim frame's `data` or at its top), summed over the actors; a verdict's
+ * cost is not an actor's and is left out.
  */
 function deriveMetadata(events: TimestampedEvent[]): SessionMetaOverride {
   const out: SessionMetaOverride = {};
-  let maxCostSeen = 0;
+  const actorCosts = new Map<string, number>();
+  let aggregateCost: number | undefined;
   for (const { sse } of events) {
     const lines = sse.split('\n');
     if (lines.length < 2) continue;
@@ -609,16 +739,25 @@ function deriveMetadata(events: TimestampedEvent[]): SessionMetaOverride {
         out.turnCount = turn;
       }
     }
-    // Every sim event carries a cumulative `_cost` payload; `complete`
-    // sometimes also carries a top-level `cost`. Track the highest
-    // totalCostUSD observed across either so the metadata reflects the
-    // full run cost even when the terminal `complete` itself omits it.
-    const costCarrier = data as { _cost?: { totalCostUSD?: number }; cost?: { totalCostUSD?: number } };
-    const seenCost = costCarrier._cost?.totalCostUSD ?? costCarrier.cost?.totalCostUSD;
-    if (typeof seenCost === 'number' && seenCost > maxCostSeen) {
-      maxCostSeen = seenCost;
+    if (innerType === 'complete') {
+      const aggregate = (data as { cost?: { totalCostUSD?: unknown } }).cost?.totalCostUSD;
+      if (typeof aggregate === 'number') aggregateCost = aggregate;
+      continue;
+    }
+    if (innerType === 'verdict') continue;
+    // Each actor's tracker is cumulative, so its highest value is its last.
+    const nested = data.data && typeof data.data === 'object'
+      ? (data.data as { _cost?: { totalCostUSD?: unknown } })._cost?.totalCostUSD
+      : undefined;
+    const top = (data as { _cost?: { totalCostUSD?: unknown } })._cost?.totalCostUSD;
+    const seenCost = typeof nested === 'number' ? nested : top;
+    if (typeof seenCost === 'number') {
+      const actor = typeof data.leader === 'string' ? data.leader : '';
+      if (seenCost > (actorCosts.get(actor) ?? 0)) actorCosts.set(actor, seenCost);
     }
   }
-  if (maxCostSeen > 0) out.totalCostUSD = maxCostSeen;
+  const actorSum = [...actorCosts.values()].reduce((sum, cost) => sum + cost, 0);
+  if (aggregateCost !== undefined) out.totalCostUSD = aggregateCost;
+  else if (actorSum > 0) out.totalCostUSD = actorSum;
   return out;
 }

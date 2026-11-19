@@ -91,3 +91,42 @@ export function publicResultFrame(frame: string): string {
     }
   }).join('\n');
 }
+
+/**
+ * A stored `active_scenario` frame without the brief (`seedText`) the run
+ * was compiled from; any other frame as it is.
+ */
+export function withoutBrief(frame: string): string {
+  if (!frame.startsWith('event: active_scenario\n')) return frame;
+  return frame.split('\n').map(line => {
+    if (!line.startsWith('data: ')) return line;
+    try {
+      const data = JSON.parse(line.slice(6));
+      if (!data || typeof data !== 'object' || !('seedText' in data)) return line;
+      return `data: ${JSON.stringify({ ...data, seedText: null })}`;
+    } catch {
+      return line;
+    }
+  }).join('\n');
+}
+
+/**
+ * Run records with the session link (`sessionId`) left out where the
+ * session store no longer holds that session, so no record offers a replay
+ * link that answers 404. Without `savedSessionIds` the records are as given.
+ */
+export async function withSavedSessionLinks<T extends { sessionId?: string }>(
+  records: readonly T[],
+  savedSessionIds: ((ids: readonly string[]) => Promise<ReadonlySet<string>>) | undefined,
+): Promise<T[]> {
+  if (!savedSessionIds) return [...records];
+  const linked = records.map(r => r.sessionId).filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (linked.length === 0) return [...records];
+  const saved = await savedSessionIds(linked);
+  return records.map(record => {
+    if (!record.sessionId || saved.has(record.sessionId)) return record;
+    const { sessionId, ...rest } = record;
+    void sessionId;
+    return rest as unknown as T;
+  });
+}

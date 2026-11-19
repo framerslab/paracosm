@@ -132,9 +132,41 @@ export interface LiveRun {
   bytes: number;
   /** The run's `active_scenario` frame, which the trim keeps first. */
   metaFrame: string | null;
+  /**
+   * The frames the trim took out of the buffer while the run's save was
+   * still to be decided, oldest first; they sit at `trimmedAt` in the
+   * run's recording ({@link runRecording}). Emptied once the save is
+   * decided.
+   */
+  readonly trimmed: string[];
+  readonly trimmedTimestamps: number[];
+  /** Where in the buffer the trimmed frames were taken from: 1 when the opening frame stayed first, else 0. */
+  trimmedAt: number;
+  /**
+   * The actor-turns the run's `turn_done` frames reported, each counted
+   * once: `<actor>\u0000<turn>`, or a key of its own for a frame that
+   * names no actor or turn. The buffer's trim never shortens it.
+   */
+  readonly completedActorTurns: Set<string>;
+  /**
+   * The actor-turns a finished run reports: its actors times the turns it
+   * runs (a fork runs the turns after the one it forked at). Null for a
+   * run with no config, such as a Digital Twin run or one read back from
+   * disk before this count was written.
+   */
+  readonly expectedActorTurns: number | null;
+  /** Each actor's final artifact cost, by the artifact's run id. */
+  readonly artifactCosts: Map<string, number>;
   aborted: boolean;
   errored: boolean;
+  /**
+   * True once the run's save is decided: the session committed, or the run
+   * will never be saved (aborted, errored, short of its turns). A restart
+   * saves a finished run whose save was not decided.
+   */
   saved: boolean;
+  /** True while the run's save is in flight in this process. */
+  saving: boolean;
   /** The RunRecord ids inserted for this run, linked to its saved session. */
   readonly insertedRunIds: string[];
   capWarned: boolean;
@@ -240,6 +272,61 @@ interface PersistedRun {
   events: string[];
   timestamps: number[];
   actorIds: Array<string | null>;
+  /** The frames trimmed from `events` while the save was undecided, which go at `trimmedAt`. */
+  trimmed?: string[];
+  trimmedTimestamps?: number[];
+  trimmedAt?: number;
+  expectedActorTurns?: number | null;
+  artifactCosts?: Array<[string, number]>;
+}
+
+/**
+ * Every frame the run broadcast, in order, with its time: the buffer with
+ * the frames the trim took while the run's save was undecided put back.
+ * The run's saved session is made from it.
+ */
+export function runRecording(run: LiveRun): { frames: string[]; timestamps: number[] } {
+  if (run.trimmed.length === 0) return { frames: [...run.buffer], timestamps: [...run.timestamps] };
+  const at = run.trimmedAt;
+  return {
+    frames: [...run.buffer.slice(0, at), ...run.trimmed, ...run.buffer.slice(at)],
+    timestamps: [...run.timestamps.slice(0, at), ...run.trimmedTimestamps, ...run.timestamps.slice(at)],
+  };
+}
+
+/**
+ * The actor-turn a `turn_done` frame reports, or null for any other frame.
+ * The orchestrator's frame is `sim` with `{type: 'turn_done', leader,
+ * data: {turn}}`; an older frame is `turn_done` with the turn at its top
+ * and the actor as `leader` or `actorIndex`. A frame that names no actor
+ * or turn gets a key no other frame has, so it counts once.
+ */
+function completedActorTurn(event: string, data: unknown, actorId: string | null, counted: Set<string>): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const payload = data as { type?: unknown; leader?: unknown; actorIndex?: unknown; turn?: unknown; data?: unknown };
+  if (event === 'sim' ? payload.type !== 'turn_done' : event !== 'turn_done') return null;
+  const inner = event === 'sim' && payload.data && typeof payload.data === 'object'
+    ? (payload.data as { turn?: unknown })
+    : payload;
+  const turn = typeof inner.turn === 'number' ? inner.turn : typeof payload.turn === 'number' ? payload.turn : null;
+  const actor = typeof payload.leader === 'string' && payload.leader !== ''
+    ? payload.leader
+    : typeof payload.actorIndex === 'number' ? `#${payload.actorIndex}` : actorId;
+  if (actor === null || turn === null) return `\u0001${counted.size}`;
+  return `${actor}\u0000${turn}`;
+}
+
+/** Parses an SSE frame written by {@link sseFrame} back into its event and data. */
+function parseFrame(msg: string): { event: string; data: unknown } | null {
+  const nl = msg.indexOf('\n');
+  if (!msg.startsWith('event: ') || nl < 0) return null;
+  const dataLine = msg.slice(nl + 1).split('\n', 1)[0];
+  if (!dataLine.startsWith('data: ')) return null;
+  try {
+    return { event: msg.slice('event: '.length, nl), data: JSON.parse(dataLine.slice('data: '.length)) };
+  } catch {
+    return null;
+  }
 }
 
 const sseFrame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -404,9 +491,18 @@ export class LiveRunRegistry {
       actorIds: [],
       bytes: 0,
       metaFrame: null,
+      trimmed: [],
+      trimmedTimestamps: [],
+      trimmedAt: 0,
+      completedActorTurns: new Set(),
+      expectedActorTurns: input.config
+        ? input.config.actors.length * Math.max(0, input.config.turns - (input.forkedFrom?.atTurn ?? 0))
+        : null,
+      artifactCosts: new Map(),
       aborted: false,
       errored: false,
       saved: false,
+      saving: false,
       insertedRunIds: [],
       capWarned: false,
       inFlight: true,
@@ -466,6 +562,8 @@ export class LiveRunRegistry {
       run.timestamps.push(now);
       run.actorIds.push(tag);
       run.bytes += msg.length;
+      const done = completedActorTurn(event, data, tag, run.completedActorTurns);
+      if (done !== null) run.completedActorTurns.add(done);
       this.trim(run);
       run.lastActivity = now;
       this.persistSoon(run);
@@ -491,6 +589,31 @@ export class LiveRunRegistry {
     };
     this.broadcasts.set(run, broadcast);
     return broadcast;
+  }
+
+  /**
+   * Marks a run's save decided: its session committed, or it will never be
+   * saved. Its recording lets go of the frames the trim took, and the
+   * decision is written with the run, so a restart does not save it again.
+   */
+  settleSave(run: LiveRun): void {
+    run.saved = true;
+    run.saving = false;
+    run.trimmed.length = 0;
+    run.trimmedTimestamps.length = 0;
+    this.persistSoon(run);
+  }
+
+  /**
+   * The runs read back at boot that finished (their buffer holds a
+   * `complete`, and no abort or error) and whose save was not decided
+   * before the server stopped. A run written with no expected actor-turn
+   * count is left out: its save cannot be checked for a full run.
+   */
+  finishedUnsaved(): LiveRun[] {
+    return [...this.runs.values()].filter(run => !run.inFlight && !run.saved && !run.saving && !run.aborted && !run.errored
+      && run.expectedActorTurns !== null
+      && run.buffer.some(msg => msg.startsWith('event: complete\n')));
   }
 
   /** Writes a run's buffer to a stream, the frames of other actors left out for a stream subscribed to one. */
@@ -724,9 +847,16 @@ export class LiveRunRegistry {
     const keep = run.metaFrame !== null && run.buffer[0] === run.metaFrame ? 1 : 0;
     const drop = run.buffer.length - max - keep;
     const removed = run.buffer.splice(keep, drop);
-    run.timestamps.splice(keep, drop);
+    const removedTimestamps = run.timestamps.splice(keep, drop);
     run.actorIds.splice(keep, drop);
     for (const msg of removed) run.bytes -= msg.length;
+    // Until the run's save is decided its recording keeps every frame, so
+    // the saved session is the whole run, not what the buffer kept.
+    if (!run.saved) {
+      if (run.trimmed.length === 0) run.trimmedAt = keep;
+      run.trimmed.push(...removed);
+      run.trimmedTimestamps.push(...removedTimestamps);
+    }
     if (!run.capWarned) {
       console.warn(
         `[event-buffer] Run ${run.key} capped at ${max} events; dropped oldest ${drop}. ` +
@@ -777,6 +907,11 @@ export class LiveRunRegistry {
       events: run.buffer,
       timestamps: run.timestamps,
       actorIds: run.actorIds,
+      expectedActorTurns: run.expectedActorTurns,
+      ...(run.artifactCosts.size > 0 ? { artifactCosts: [...run.artifactCosts] } : {}),
+      ...(run.trimmed.length > 0
+        ? { trimmed: run.trimmed, trimmedTimestamps: run.trimmedTimestamps, trimmedAt: run.trimmedAt }
+        : {}),
     };
     try {
       if (!this.dirReady) {
@@ -906,6 +1041,25 @@ export class LiveRunRegistry {
       ? p.actorIds.map(a => (typeof a === 'string' ? a : null))
       : new Array<string | null>(events.length).fill(null);
     const first = events[0];
+    const trimmed = Array.isArray(p.trimmed) && p.trimmed.every(e => typeof e === 'string') ? p.trimmed as string[] : [];
+    const trimmedTimestamps = Array.isArray(p.trimmedTimestamps) && p.trimmedTimestamps.length === trimmed.length
+      ? p.trimmedTimestamps.map(t => (typeof t === 'number' ? t : 0))
+      : new Array<number>(trimmed.length).fill(0);
+    const trimmedAt = p.trimmedAt === 1 && events.length > 0 ? 1 : 0;
+    const artifactCosts = new Map<string, number>();
+    if (Array.isArray(p.artifactCosts)) {
+      for (const entry of p.artifactCosts) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number') artifactCosts.set(entry[0], entry[1]);
+      }
+    }
+    // The actor-turns are counted again from every frame the run recorded.
+    const completedActorTurns = new Set<string>();
+    for (const msg of [...events.slice(0, trimmedAt), ...trimmed, ...events.slice(trimmedAt)]) {
+      const frame = parseFrame(msg);
+      if (!frame) continue;
+      const done = completedActorTurn(frame.event, frame.data, null, completedActorTurns);
+      if (done !== null) completedActorTurns.add(done);
+    }
     return {
       key: p.key,
       visitorId: p.visitorId,
@@ -921,9 +1075,16 @@ export class LiveRunRegistry {
       actorIds,
       bytes: events.reduce((n, msg) => n + msg.length, 0),
       metaFrame: first !== undefined && first.startsWith('event: active_scenario\n') ? first : null,
+      trimmed,
+      trimmedTimestamps,
+      trimmedAt,
+      completedActorTurns,
+      expectedActorTurns: typeof p.expectedActorTurns === 'number' && p.expectedActorTurns >= 0 ? p.expectedActorTurns : null,
+      artifactCosts,
       aborted: p.aborted === true,
       errored: p.errored === true,
       saved: p.saved === true,
+      saving: false,
       insertedRunIds: [],
       capWarned: false,
       inFlight: false,
