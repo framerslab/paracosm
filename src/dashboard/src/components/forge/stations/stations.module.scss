@@ -324,6 +324,45 @@
   border-top: 1px solid var(--forge-edge);
 }
 
+// ── Record: the raw record, its keys and what they say ────────────────────
+.recordKeys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+// What a key says beside it: "Copied", or what failed and the way forward.
+.recordSaid {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// The raw record: the frames as JSON on the code ground, in a box that
+// scrolls inside itself, sideways and down, so the sheet never does.
+.record {
+  max-height: 60vh;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  white-space: pre;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
 @media (min-width: 900px) {
   .link,
   .switch {

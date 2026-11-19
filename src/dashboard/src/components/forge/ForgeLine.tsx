@@ -1,6 +1,6 @@
 import { Fragment, useId, type CSSProperties, type ReactNode } from 'react';
-import { STATIONS, glyphFor, type LineModel, type StationId, type StationState } from './forgeLine';
-import { LINE_STATE_WORDS, STATION_WORDS, STATIONS_LIST_NAME, stationName } from './forgeWords';
+import { STATIONS, glyphFor, type AttemptMark, type LineModel, type StationId, type StationState } from './forgeLine';
+import { LINE_STATE_WORDS, OUTCOME_WORDS, STATION_WORDS, STATIONS_LIST_NAME, attemptRow, stationName } from './forgeWords';
 import { OutcomeGlyph } from './OutcomeGlyph';
 import styles from './ForgeLine.module.scss';
 
@@ -18,6 +18,10 @@ export interface ForgeLineProps {
   stationResult?: (station: StationId) => ReactNode;
   /** A station's evidence, shown in place when it is open; a station with none has nothing to open. */
   renderEvidence?: (station: StationId) => ReactNode;
+  /** Shows another attempt of the tool: its row where it leaves the line is a link to it (trace size only). */
+  onAttempt?: (attempt: number) => void;
+  /** The address a row's link names; the page's own while a tool's address is not written. */
+  attemptHref?: (attempt: number) => string;
 }
 
 const forgeGot = (state: StationState | undefined) => state === 'reached' || state === 'stopped';
@@ -33,6 +37,34 @@ function Cell({ model, station, size }: { model: LineModel; station: StationId; 
     return <OutcomeGlyph kind={stop && stop.station === station ? stop.glyph : 'didNotPass'} size={size} />;
   }
   return <span className={styles.cell} data-cell={state} />;
+}
+
+/**
+ * Another attempt's row where it leaves the line: one quiet row in the ink,
+ * that attempt's glyph, its words and a chevron, and a link to that attempt.
+ */
+function AttemptRow({ mark, onAttempt, href }: { mark: AttemptMark; onAttempt?: (attempt: number) => void; href: string }) {
+  const kind = glyphFor(mark.outcome);
+  return (
+    <div className={styles.fork} data-fork={mark.attempt}>
+      <a
+        className={styles.forkLink}
+        href={href}
+        data-fork-attempt={mark.attempt}
+        onClick={(e) => {
+          if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          onAttempt?.(mark.attempt);
+        }}
+      >
+        <OutcomeGlyph kind={kind} size={20} />
+        <span className={styles.forkWords}>{attemptRow(mark.attempt, OUTCOME_WORDS[kind])}</span>
+        <svg className={styles.chevron} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M6 3.5L10.5 8L6 12.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </a>
+    </div>
+  );
 }
 
 /** The one line a station says while closed when its caller gives none: why it has nothing to open. */
@@ -53,12 +85,17 @@ function defaultResult(state: StationState): ReactNode {
  * has nothing to open: it is marked aria-disabled, its one line says why,
  * and it is left out of the tab order.
  *
+ * Every other attempt of the tool leaves the line at the station where it
+ * stopped, as one row in the ink with its glyph, its words ("Attempt 1 ·
+ * Did not pass") and a chevron: each earlier attempt a short spur, the next
+ * attempt the branch. Each row is a link that shows that attempt.
+ *
  * At row size the same line is drawn in small and hidden from screen
  * readers: the row's own button names the tool and its outcome. A tool
  * forged again forks after the station where its earlier attempts left the
  * line, each earlier attempt a small glyph under the shown attempt's line.
  */
-export function ForgeLine({ model, size, colour, open, onToggle, stationResult, renderEvidence }: ForgeLineProps) {
+export function ForgeLine({ model, size, colour, open, onToggle, stationResult, renderEvidence, onAttempt, attemptHref }: ForgeLineProps) {
   const baseId = useId();
   const lineStyle = { '--line': colour } as CSSProperties;
 
@@ -100,6 +137,11 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
         const evidenceId = `${baseId}-${station}-evidence`;
         const nameId = `${baseId}-${station}-name`;
         const quiet = state === 'notReached' || state === 'unknown';
+        // The attempts that leave the line here: each earlier one, then the next one.
+        const forks = [
+          ...model.spurs.filter((s) => s.station === station),
+          ...(model.branch && model.branch.station === station ? [model.branch] : []),
+        ];
         return (
           <li
             key={station}
@@ -135,6 +177,14 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
                 {isOpen ? evidence : null}
               </div>
             )}
+            {forks.map((mark) => (
+              <AttemptRow
+                key={mark.attempt}
+                mark={mark}
+                onAttempt={onAttempt}
+                href={attemptHref ? attemptHref(mark.attempt) : '#'}
+              />
+            ))}
           </li>
         );
       })}

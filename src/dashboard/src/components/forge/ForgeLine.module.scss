@@ -151,9 +151,83 @@
 
 .evidence { padding-bottom: 12px; }
 
+// ── Another attempt where it leaves the line ──────────────────────────────
+// One quiet row in the ink under its station. An elbow in the line's colour
+// leaves the rail at the station's mark and runs into the row: a short spur
+// to an earlier attempt, the branch to the next one.
+.fork {
+  // How far the elbow reaches back to the rail, and the room before the row's link.
+  --fork-reach: calc(var(--rail-col) / 2);
+  --fork-indent: 12px;
+
+  position: relative;
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 0 8px var(--fork-indent);
+}
+
+.fork::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--fork-reach) - 1px);
+  top: 0;
+  width: calc(var(--fork-reach) + var(--fork-indent) - 4px);
+  height: calc(50% - 4px);
+  border-left: 2px solid var(--line);
+  border-bottom: 2px solid var(--line);
+  pointer-events: none;
+}
+
+// The row's link: the attempt's glyph, its words and a chevron, in the ink.
+// A phone's row is 44 px tall and as wide as the column.
+.forkLink {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--row-h);
+  padding: 0 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  > svg { flex-shrink: 0; }
+}
+
+.forkWords {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chevron { color: var(--text-1); }
+
 // Tablet: each station's name and result on one row, its evidence under them.
 @media (min-width: 600px) {
-  .trace { --rail-col: 48px; }
+  .trace {
+    --rail-col: 48px;
+    --names-col: 200px;
+  }
+
+  .fork { grid-column: 2 / -1; }
 
   .station { grid-template-columns: var(--rail-col) 200px minmax(0, 1fr); }
 
@@ -187,9 +261,21 @@
     align-self: start;
     padding-bottom: 0;
   }
+
+  // The row stands in the evidence column, the elbow reaching back across the names.
+  .fork {
+    --fork-reach: calc(var(--rail-col) / 2 + var(--names-col));
+
+    grid-column: 3;
+    padding-top: 4px;
+  }
+
+  .forkLink { flex: 0 1 auto; }
 }
 
 @media (min-width: 1440px) {
+  .trace { --names-col: 240px; }
+
   .station { grid-template-columns: var(--rail-col) 240px minmax(0, 1fr); }
 }
 

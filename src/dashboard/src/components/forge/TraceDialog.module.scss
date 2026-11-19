@@ -110,6 +110,15 @@
     outline: 2px solid var(--amber);
     outline-offset: 2px;
   }
+
+  // An inactive key keeps its place and its focus; its mark is in the quiet tone.
+  &[aria-disabled='true'] {
+    color: var(--forge-quiet);
+    cursor: default;
+
+    &:hover,
+    &:active { background: transparent; }
+  }
 }
 
 // A key that holds a mark alone: a square.
@@ -188,6 +197,24 @@
   > span { min-width: 0; }
 }
 
+// ── The attempts: Previous attempt, the attempt line, Next attempt ────────
+// One row under the header row on a phone; at the right of the outcome
+// sentence from 900 px.
+.attempts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attemptLine {
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
 // ── The reason the run recorded, under the head ───────────────────────────
 
 .reason {
@@ -232,7 +259,31 @@
 // The line's column is 40 px wide with its 20 px cells in the middle, so the
 // cells' left edge stands on the sheet's side margin.
 .line {
+  padding: 8px max(var(--trace-pad), env(safe-area-inset-right)) 8px max(calc(var(--trace-pad) - 10px), env(safe-area-inset-left));
+}
+
+// ── Record: one key at the line's foot, aligned with the stations ─────────
+// Never a sixth station: no mark and no rail. On a phone the key is as wide
+// as the stations' column, and the record opens under it; from 900 px the
+// record opens across the evidence column, beside the key.
+.recordFoot {
+  --rail-col: 40px;
+
+  display: grid;
+  grid-template-columns: var(--rail-col) minmax(0, 1fr);
+  align-items: start;
+  row-gap: 12px;
   padding: 8px max(var(--trace-pad), env(safe-area-inset-right)) 24px max(calc(var(--trace-pad) - 10px), env(safe-area-inset-left));
+}
+
+.recordKey {
+  grid-column: 2;
+  width: 100%;
+}
+
+.recordBody {
+  grid-column: 2;
+  min-width: 0;
 }
 
 @media (min-width: 600px) {
@@ -247,10 +298,25 @@
   }
 
   .label,
-  .reason { grid-column: 1 / -1; }
+  .reason,
+  .attempts { grid-column: 1 / -1; }
 
   // The line's column is 48 px from here.
   .line { padding-left: calc(var(--trace-pad) - 14px); }
+
+  .recordFoot {
+    --rail-col: 48px;
+
+    grid-template-columns: var(--rail-col) 200px minmax(0, 1fr);
+    padding-left: calc(var(--trace-pad) - 14px);
+  }
+
+  .recordKey {
+    justify-self: start;
+    width: auto;
+  }
+
+  .recordBody { grid-column: 2 / -1; }
 }
 
 @media (min-width: 900px) {
@@ -287,13 +353,37 @@
 
   .nameInHead { display: none; }
 
-  .head { grid-template-columns: minmax(0, 1fr); }
+  // The label over the outcome sentence, and the attempt keys at its right.
+  .head { grid-template-columns: minmax(0, 1fr) auto; }
 
-  .outcome { font-size: var(--font-2xl); }
+  .label {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .outcome {
+    grid-column: 1;
+    grid-row: 2;
+    font-size: var(--font-2xl);
+  }
+
+  .attempts {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .recordBody {
+    grid-column: 3;
+    grid-row: 1;
+    max-width: 72ch;
+  }
 }
 
 @media (min-width: 1440px) {
   .dialog { width: 1200px; }
+
+  .recordFoot { grid-template-columns: var(--rail-col) 240px minmax(0, 1fr); }
 }
 
 // Open all, at the line's head, at its right.

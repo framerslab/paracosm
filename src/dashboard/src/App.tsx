@@ -94,10 +94,13 @@ export function useScenarioReady() {
 
 /**
  * Where a navigation lands. `logTool` opens the Settings tab's Event Log
- * filtered to that forged tool's events (the toolbox's "↗ LOG" key).
+ * filtered to that forged tool's events by its whole name (a trace's Show
+ * in Event Log, and the toolbox's "↗ LOG" key); `logActor` keeps the log to
+ * that actor's events, since two actors of a run can forge tools of one name.
  */
 export interface DashboardNavigationOptions {
   logTool?: string;
+  logActor?: string;
 }
 type DashboardNavigate = (tab: Exclude<DashboardTab, 'about'>, options?: DashboardNavigationOptions) => void;
 const DashboardNavigationContext = createContext<DashboardNavigate | null>(null);
@@ -311,18 +314,23 @@ function AppContent() {
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
-  // The navigation components get. A tool's log key opens the Event Log
-  // with the tool's filter: the URL is written before the panel mounts,
-  // so EventLogPanel reads the filter from it on its first render.
+  // The navigation components get. A trace's Show in Event Log (and the
+  // toolbox's log key) opens the Event Log with the tool's filter: the URL
+  // is written before the panel mounts, so EventLogPanel reads the filter
+  // from it on its first render.
   const navigateTab = useCallback<DashboardNavigate>((tab, options) => {
     if (options?.logTool) {
       setSettingsInitialSubTab('log');
       setActiveTabState('settings');
-      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool));
+      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool, options.logActor));
       return;
     }
     setActiveTab(tab);
   }, [setActiveTab]);
+  // A trace's Show in Event Log: the Event Log on one actor's tool.
+  const showToolLog = useCallback((toolName: string, actorName: string) => {
+    navigateTab('settings', { logTool: toolName, logActor: actorName });
+  }, [navigateTab]);
 
   // Direct deep-link to /sim?tab=about lands the user on the dashboard
   // with activeTab='about' but no rendering branch handles it (the
@@ -1085,7 +1093,7 @@ function AppContent() {
       <ScenarioReadyContext.Provider value={scenarioReady}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
-        <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId}>
+        <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
         {/* Skip link: keyboard users land on this first, jumping past
             the long tab/header chrome to the active tabpanel. The CSS

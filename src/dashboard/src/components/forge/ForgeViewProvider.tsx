@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { GameState } from '../../hooks/useGameState';
+import type { GameState, ProcessedEvent } from '../../hooks/useGameState';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import type { StationId } from './forgeLine';
 import { TraceDialog } from './TraceDialog';
@@ -30,12 +30,16 @@ export interface ForgeView {
   /**
    * Closes the open dialog. Focus returns to the key that opened it, or goes
    * to `focusTo` when given: an element of the run view the dialog pointed to.
+   * `then` runs once the page's history is back where it stood before the
+   * dialog opened, so a navigation it makes is not undone by that step back.
    */
-  close(focusTo?: HTMLElement | null): void;
+  close(focusTo?: HTMLElement | null, then?: () => void): void;
   current: { trace: TraceTarget | null; toolbox: boolean };
 }
 
 const NOTHING_OPEN: ForgeView['current'] = { trace: null, toolbox: false };
+
+const NO_EVENTS: readonly ProcessedEvent[] = [];
 
 /** Outside the provider nothing opens: a card drawn on its own still renders. */
 const OUTSIDE_PROVIDER: ForgeView = {
@@ -58,6 +62,8 @@ export interface ForgeViewProviderProps {
   runKey: string | null;
   /** The saved session the page replays or the run last saved as. Null for a run with none. */
   sessionId: string | null;
+  /** Opens the Settings tab's Event Log on one actor's tool: App's own navigation. */
+  showToolLog?: (toolName: string, actorName: string) => void;
   children: ReactNode;
 }
 
@@ -70,7 +76,7 @@ export interface ForgeViewProviderProps {
  * dialog and leaves the run on the page. Closing by a key steps back over
  * that entry, so Back afterwards does what it did before the dialog opened.
  */
-export function ForgeViewProvider({ state, runKey, children }: ForgeViewProviderProps) {
+export function ForgeViewProvider({ state, runKey, showToolLog, children }: ForgeViewProviderProps) {
   const registry = useToolContext();
   const [current, setCurrent] = useState<ForgeView['current']>(NOTHING_OPEN);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -80,6 +86,8 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
   const ownBacksRef = useRef(0);
   /** The element of the run view a closed dialog sent focus to, kept in view once the step back lands. */
   const landingRef = useRef<HTMLElement | null>(null);
+  /** What a close asked to run once its step back lands. */
+  const afterBackRef = useRef<(() => void) | null>(null);
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
@@ -97,7 +105,7 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
   // The Sim footer opens the forged toolbox in a dialog of its own.
   const openToolbox = useCallback(() => {}, []);
 
-  const close = useCallback((focusTo?: HTMLElement | null) => {
+  const close = useCallback((focusTo?: HTMLElement | null, then?: () => void) => {
     // Focus goes to the element the dialog pointed to, in place of the key that opened it.
     if (focusTo instanceof HTMLElement) {
       openerRef.current = focusTo;
@@ -107,7 +115,10 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
     if (entryRef.current) {
       entryRef.current = false;
       ownBacksRef.current += 1;
+      afterBackRef.current = then ?? null;
       window.history.back();
+    } else {
+      then?.();
     }
   }, []);
 
@@ -120,6 +131,10 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
     const onPop = () => {
       if (ownBacksRef.current > 0) {
         ownBacksRef.current -= 1;
+        // A navigation the close asked for, made on the address the page had before the dialog.
+        const then = afterBackRef.current;
+        afterBackRef.current = null;
+        then?.();
         // The step back can put the page back where it stood when the dialog
         // opened; the element focus went to is brought back into view.
         const landing = landingRef.current;
@@ -141,6 +156,14 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
 
   const target = current.trace;
   const entry = target ? registry.getEntryFor(target.actorIndex, target.toolName) : undefined;
+  const actorEvents = entry ? state.actors[state.actorIds[entry.actorIndex]]?.events ?? NO_EVENTS : NO_EVENTS;
+
+  // Show in Event Log: the trace closes, then the Event Log opens on this actor's tool by its whole name.
+  const showInEventLog = useCallback(() => {
+    if (!entry) return;
+    const { name, actorName } = entry;
+    close(null, () => showToolLog?.(name, actorName));
+  }, [entry, close, showToolLog]);
 
   // The run on the page changed and no longer holds the open tool.
   useEffect(() => {
@@ -178,8 +201,10 @@ export function ForgeViewProvider({ state, runKey, children }: ForgeViewProvider
           open={target.open}
           actorCount={state.actorIds.length}
           runKey={runKey}
+          events={actorEvents}
           onClose={closeByKey}
           onGoToEvent={close}
+          onShowInEventLog={showInEventLog}
         />
       )}
     </ForgeViewContext.Provider>

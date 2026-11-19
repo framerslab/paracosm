@@ -159,3 +159,38 @@ export const ADDED_WORDS = {
 export function historyRowLine(turn: number, department: string, eventTitle: string): string {
   return [`Turn ${turn}`, department, eventTitle ? `“${eventTitle}”` : ''].filter(Boolean).join(' · ');
 }
+
+// ── Record ──────────────────────────────────────────────────────────────
+
+/** Record, the key at the line's foot, and what it opens on a run with no trace. */
+export const RECORD_WORDS = {
+  key: 'Record',
+  rawRecord: 'The raw record',
+  copy: 'Copy record',
+  copied: 'Copied',
+  copyFailed: 'Could not copy. Select the record and copy it.',
+  download: 'Download JSON',
+  downloadFailed: 'Could not download. Try again, or use Copy record.',
+  showInEventLog: 'Show in Event Log',
+  unreadable: 'This record could not be shown.',
+} as const;
+
+/** The file Download JSON saves: "mars_landing_site_score-trace.json". */
+export const recordFileName = (toolName: string): string => `${toolName}-trace.json`;
+
+// ── Attempts ────────────────────────────────────────────────────────────
+
+/** The keys either side of the attempt line. */
+export const ATTEMPT_WORDS = {
+  previous: 'Previous attempt',
+  next: 'Next attempt',
+} as const;
+
+/** The attempt line on the latest attempt: "2 of 2". */
+export const attemptCount = (n: number, total: number): string => `${n} of ${total}`;
+
+/** The attempt line on an earlier attempt, and its name on every attempt: "Attempt 1 of 2". */
+export const attemptOfTotal = (n: number, total: number): string => `Attempt ${n} of ${total}`;
+
+/** Another attempt's row where it leaves the line: "Attempt 1 · Did not pass". */
+export const attemptRow = (n: number, outcome: string): string => `Attempt ${n} · ${outcome}`;
