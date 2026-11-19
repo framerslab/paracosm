@@ -71,10 +71,13 @@ async function finishingRunner(config: NormalizedSimulationConfig, broadcast: Br
   broadcast('complete', {});
 }
 
-async function withHostedDemo(body: (api: RunServer, titleCalls: TitleCall[]) => Promise<void>): Promise<void> {
+async function withHostedDemo(
+  body: (api: RunServer, titleCalls: TitleCall[]) => Promise<void>,
+  env: Record<string, string> = HOST_ENV,
+): Promise<void> {
   const titleCalls: TitleCall[] = [];
   await withVisitors(api => body(api, titleCalls), {
-    env: HOST_ENV,
+    env,
     runner: async (config, broadcast) => finishingRunner(config, broadcast),
     extra: {
       // The server warms the digital-twin world on start; with provider
@@ -109,6 +112,26 @@ test('a host-paid /setup on the hosted demo that posts provider anthropic runs o
     }
     assert.deepEqual(billedBy(config), { provider: 'openai', key: HOST_OPENAI_KEY }, "every call bills the host's OpenAI key");
   });
+});
+
+test('a host-paid /setup on a hosted demo whose host holds no OpenAI key is refused and starts no run', async () => {
+  await withHostedDemo(async (api) => {
+    const res = await api.cookied().post('/setup', { ...settingsBody(mars), provider: 'anthropic' });
+
+    assert.equal(res.status, 503, 'refused: a host-paid run runs on OpenAI only');
+    const answer = await res.json() as { error?: string };
+    assert.match(String(answer.error), /OpenAI/, 'the answer says why');
+    assert.equal(api.launches.length, 0, 'no run started on the host Anthropic key');
+  }, { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
+});
+
+test("a /setup with the visitor's own Anthropic key on a hosted demo whose host holds no OpenAI key runs on that key", async () => {
+  await withHostedDemo(async (api) => {
+    const { config } = await setupAndLaunch(api, { ...settingsBody(mars), provider: 'anthropic', anthropicKey: VISITOR_ANTHROPIC_KEY });
+
+    assert.equal(config.provider, 'anthropic');
+    assert.equal(config.anthropicKey, VISITOR_ANTHROPIC_KEY);
+  }, { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
 });
 
 test("a /setup on the hosted demo with the visitor's own Anthropic key runs on Anthropic with that key", async () => {
