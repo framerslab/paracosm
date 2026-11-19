@@ -29,12 +29,12 @@ declare module '*.module.css' {
 // dashboard actually uses inline so the typecheck stays self-contained.
 interface ImportMetaEnv {
   readonly VITE_NEW_GRID?: string;
-  readonly VITE_GA_MEASUREMENT_ID?: string;
-  readonly VITE_CLARITY_PROJECT_ID?: string;
   // Open string index so `(import.meta as { env?: Record<string,
-  // string | undefined> }).env` casts elsewhere in the dashboard
-  // (Analytics.tsx) stay assignment-compatible. The named VITE_* keys
-  // above document the env vars the dashboard actually reads.
+  // string | undefined> }).env` casts elsewhere in the dashboard stay
+  // assignment-compatible. The named VITE_* keys above document the env
+  // vars the dashboard's code reads. The build reads VITE_GA_MEASUREMENT_ID
+  // and VITE_CLARITY_PROJECT_ID in vite.config.ts and writes them into
+  // site-analytics.json, which only the server reads.
   readonly [key: string]: string | undefined;
 }
 interface ImportMeta {
