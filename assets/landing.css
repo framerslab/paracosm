@@ -889,6 +889,8 @@ a:hover { text-decoration: underline; }
 .light .code-copy { border-color: #302a22; color: #a89878; }
 .light .code-copy:hover { border-color: #e8b44a; color: #f5f0e4; }
 .light .code-block .code-copy-note { border-bottom-color: #302a22; }
+/* Heard by a screen reader, not shown: the Copy key itself shows Copied. */
+.code-block .code-copy-done { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* ── Chips ────────────────────────────────────────────────────────────────── */
 

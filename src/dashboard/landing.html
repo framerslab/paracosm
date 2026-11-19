@@ -1286,11 +1286,22 @@ function copyCode(btn, text) {
   btn.textContent = 'Copy';
   btn.classList.remove('copied');
   if (region) region.replaceChildren();
+  // The key shows Copied, and the region says it for a screen reader.
   const copied = () => {
     if (btn.copyPress !== press) return;
     btn.textContent = 'Copied';
     btn.classList.add('copied');
-    btn.copyTimer = setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    if (region) {
+      const done = document.createElement('span');
+      done.className = 'code-copy-done';
+      done.textContent = 'The code was copied.';
+      region.replaceChildren(done);
+    }
+    btn.copyTimer = setTimeout(() => {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copied');
+      if (region) region.replaceChildren();
+    }, 2000);
   };
   const notCopied = () => {
     if (btn.copyPress !== press || !region) return;

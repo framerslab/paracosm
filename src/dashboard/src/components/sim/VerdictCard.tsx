@@ -187,6 +187,13 @@ function winColorFor(winner: VerdictData['winner']): string {
 /** What the export key says when the browser does not copy the verdict. */
 export const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
 
+/**
+ * What a screen reader hears when the export key copies the verdict. The key
+ * keeps its name, and its COPIED is shown on the key alone, so the status
+ * region says it.
+ */
+export const VERDICT_COPIED = 'The verdict was copied as markdown.';
+
 /** How long the export key says it copied. */
 const COPIED_SHOWN_MS = 1800;
 
@@ -251,7 +258,8 @@ function useVerdictExport(v: VerdictData, shownRun?: string): { copied: boolean;
  * `notCopied` shows {@link VERDICT_NOT_COPIED} under the header after an
  * export press the browser refused, or on a page with no clipboard. The
  * words go into a status region that is there with the key, empty, so a
- * screen reader announces them when they arrive.
+ * screen reader announces them when they arrive. A copy that works puts
+ * {@link VERDICT_COPIED} there for a screen reader alone.
  */
 export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictData; onExport?: () => void; copied?: boolean; notCopied?: boolean }) {
   const winColor = winColorFor(v.winner);
@@ -283,6 +291,7 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
       {onExport && (
         <div role="status" aria-label="Verdict copy result">
           {notCopied && <p className={styles.exportRefused}>{VERDICT_NOT_COPIED}</p>}
+          {copied && <span className="sr-only">{VERDICT_COPIED}</span>}
         </div>
       )}
 
