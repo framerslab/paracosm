@@ -11,8 +11,12 @@
  * call uses the run's own key when the run brought one, and the host's key
  * only on a host-paid run.
  *
+ * A host that holds no OpenAI key refuses a host-paid run before the day's
+ * limit counts it, whatever other key it holds.
+ *
  * Every test goes through createMarsServer over HTTP, in hosted demo mode,
- * with both provider keys in the server's environment. The simulation
+ * with both provider keys in the server's environment unless it names
+ * others, and the limiter off unless it turns it on. The simulation
  * runner is a stub: it records the config the server hands it and reads
  * the provider and key that config bills the way each leader's run does
  * (resolveProviderFromCredentials, apiKeyForProvider and
@@ -74,10 +78,12 @@ async function finishingRunner(config: NormalizedSimulationConfig, broadcast: Br
 async function withHostedDemo(
   body: (api: RunServer, titleCalls: TitleCall[]) => Promise<void>,
   env: Record<string, string> = HOST_ENV,
+  maxSimsPerDay = 0,
 ): Promise<void> {
   const titleCalls: TitleCall[] = [];
   await withVisitors(api => body(api, titleCalls), {
     env,
+    maxSimsPerDay,
     runner: async (config, broadcast) => finishingRunner(config, broadcast),
     extra: {
       // The server warms the digital-twin world on start; with provider
@@ -90,6 +96,31 @@ async function withHostedDemo(
       },
     },
   });
+}
+
+/** The runs this client has left of the day, read from GET /rate-limit. */
+async function runsLeft(api: RunServer): Promise<number> {
+  const answer = await api.visitor().json<{ remaining?: number; unlimited?: boolean }>('/rate-limit');
+  assert.equal(answer.unlimited, undefined, 'the limiter is on');
+  return Number(answer.remaining);
+}
+
+/**
+ * Posts a host-paid /setup to a hosted demo whose host holds `env`'s keys,
+ * with the limiter at one run a day, and checks it is refused before it
+ * counts: a 503 that says why, no run started, the day's run still there.
+ */
+async function assertRefusedBeforeTheDay(env: Record<string, string>): Promise<void> {
+  await withHostedDemo(async (api) => {
+    assert.equal(await runsLeft(api), 1, 'one run of the day before the request');
+    const res = await api.cookied().post('/setup', { ...settingsBody(mars), provider: 'anthropic' });
+
+    assert.equal(res.status, 503, 'refused: a host-paid run runs on OpenAI only');
+    const answer = await res.json() as { error?: string };
+    assert.match(String(answer.error), /OpenAI/, 'the answer says why');
+    assert.equal(api.launches.length, 0, 'no run started');
+    assert.equal(await runsLeft(api), 1, 'the refusal did not count toward the day');
+  }, env, 1);
 }
 
 async function setupAndLaunch(api: RunServer, payload: Record<string, unknown>): Promise<{ config: NormalizedSimulationConfig; scenario: ScenarioPackage | undefined }> {
@@ -111,18 +142,16 @@ test('a host-paid /setup on the hosted demo that posts provider anthropic runs o
       assert.doesNotMatch(String(model), /^claude/, `the ${role} model is not an Anthropic model`);
     }
     assert.deepEqual(billedBy(config), { provider: 'openai', key: HOST_OPENAI_KEY }, "every call bills the host's OpenAI key");
+    assert.equal(config.stayOnProvider, true, 'no call of the run falls back to another provider');
   });
 });
 
-test('a host-paid /setup on a hosted demo whose host holds no OpenAI key is refused and starts no run', async () => {
-  await withHostedDemo(async (api) => {
-    const res = await api.cookied().post('/setup', { ...settingsBody(mars), provider: 'anthropic' });
+test('a host-paid /setup on a hosted demo whose host holds an Anthropic key and no OpenAI key is refused before it counts toward the day', async () => {
+  await assertRefusedBeforeTheDay({ PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
+});
 
-    assert.equal(res.status, 503, 'refused: a host-paid run runs on OpenAI only');
-    const answer = await res.json() as { error?: string };
-    assert.match(String(answer.error), /OpenAI/, 'the answer says why');
-    assert.equal(api.launches.length, 0, 'no run started on the host Anthropic key');
-  }, { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
+test('a host-paid /setup on a hosted demo whose host holds neither provider key is refused before it counts toward the day', async () => {
+  await assertRefusedBeforeTheDay({ PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: '', ANTHROPIC_API_KEY: '' });
 });
 
 test("a /setup with the visitor's own Anthropic key on a hosted demo whose host holds no OpenAI key runs on that key", async () => {
@@ -175,5 +204,6 @@ test("a saved host-paid run that posted provider anthropic makes its title call 
 
     assert.equal(call.provider, 'openai', 'the host-paid run runs on OpenAI, and so does its title');
     assert.equal(call.apiKey, undefined, "no key passed: the call uses the host's environment key");
+    assert.deepEqual(call.fallbackProviders, [], 'a failed title call does not move to another provider on the host key');
   });
 });
