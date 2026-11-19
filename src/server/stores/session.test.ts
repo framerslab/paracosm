@@ -66,6 +66,21 @@ test('saveSession returns evictedId only when capacity is exceeded', async () =>
   assert.equal(b.evictedId, undefined);
 });
 
+test('past the bound on every owner\'s rows, the owner holding the most gives up a row, not an owner holding one', async () => {
+  const store = openSessionStore(':memory:', 2, { maxTotalSessions: 3 });
+  await store.saveSession(baseEvents, undefined, { owner: 'heavy' });
+  await store.saveSession(baseEvents, undefined, { owner: 'heavy' });
+  const a = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  const b = await store.saveSession(baseEvents, undefined, { owner: 'b' });
+  assert.ok(b.evictedId, 'the fourth row goes over the bound of three');
+  assert.notEqual(b.evictedId, a.id);
+  assert.notEqual(b.evictedId, b.id);
+  assert.deepEqual((await store.listSessions({ owner: 'a' })).map(s => s.id), [a.id]);
+  assert.deepEqual((await store.listSessions({ owner: 'b' })).map(s => s.id), [b.id]);
+  assert.equal((await store.listSessions({ owner: 'heavy' })).length, 1);
+  await store.close();
+});
+
 test('getSession returns null for unknown id', async () => {
   const store = openSessionStore(':memory:');
   assert.equal(await store.getSession('does-not-exist'), null);

@@ -4,8 +4,12 @@
  * Captures the SSE event stream of a finished sim into the active
  * SQL backend (default: SQLite via better-sqlite3) so visitors to the
  * hosted demo can replay a saved session at original pacing instead of
- * triggering a fresh LLM-powered run. Bounded ring of N most recent
- * saves (oldest evicted) keeps the file size predictable.
+ * triggering a fresh LLM-powered run. Each owner (a visitor) keeps a
+ * ring of their N most recent saves, oldest evicted. A bound on every
+ * owner's rows together keeps the file size predictable: past it the
+ * owner holding the most rows gives up their oldest, so a visitor loses a
+ * run to other visitors' saves only when nobody holds more rows than they
+ * do.
  *
  * Backed by `@framers/sql-storage-adapter`. Given only a path, the store
  * opens better-sqlite3, or sql.js when the native module cannot load;
@@ -14,7 +18,7 @@
  * such as Postgres, takes `databaseOptions` in `OpenSessionStoreOptions`.
  *
  * Single-table schema with the event array stored as a JSON blob — for
- * a ring of 10 saved runs the row count is trivial and full-row reads
+ * at most 50 saved runs the row count is trivial and full-row reads
  * dominate access patterns. Splitting events into a per-event table
  * would add JOIN cost without any query that benefits.
  *
@@ -25,8 +29,14 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-/** Default ring size — pinned to the spec's "last 10 or so". */
+/** Default ring size of one owner's saved runs — pinned to the spec's "last 10 or so". */
 export const DEFAULT_MAX_SESSIONS = 10;
+
+/**
+ * Default bound on the unpinned saved runs of every owner together. Past it
+ * the owner holding the most rows gives up their oldest.
+ */
+export const DEFAULT_MAX_TOTAL_SESSIONS = 50;
 
 /** A single SSE event captured at broadcast time. */
 export interface TimestampedEvent {
@@ -132,8 +142,12 @@ export interface SessionMetaOverride {
 export interface SessionStore {
   /**
    * Persist a finished sim. Generates a UUID, computes derived metadata
-   * from the event stream, inserts, and evicts the oldest row when the
-   * row count exceeds `maxSessions`.
+   * from the event stream and inserts. An unpinned save then evicts the
+   * oldest unpinned row of its own owner when that owner holds more than
+   * `maxSessions`; when every owner's unpinned rows together exceed
+   * `maxTotalSessions`, the owner holding the most rows (the one whose
+   * oldest row is oldest, on a tie) gives up their oldest. Rows with no
+   * owner count as one owner.
    *
    * Returns the new session's id and (when applicable) the id of the
    * row evicted to make room. Caller can log or surface the eviction.
@@ -175,6 +189,12 @@ export interface OpenSessionStoreOptions {
    * it undefined, so the store opens `dbPath` with SQLite.
    */
   databaseOptions?: DatabaseOptions;
+  /**
+   * The most unpinned rows the store keeps for every owner together;
+   * defaults to {@link DEFAULT_MAX_TOTAL_SESSIONS}, and is never below
+   * `maxSessions`.
+   */
+  maxTotalSessions?: number;
 }
 
 function isSqliteAdapter(adapter: StorageAdapter): boolean {
@@ -248,9 +268,10 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
  *
  * @param dbPath Filesystem path to the SQLite database file. Use
  *   `':memory:'` in tests for an isolated in-process DB.
- * @param maxSessions Maximum rows to retain. Defaults to 10. Older
- *   sessions are evicted on save.
- * @param options Optional overrides (e.g. `databaseOptions: { type: 'memory' }`).
+ * @param maxSessions Maximum unpinned rows one owner keeps. Defaults to
+ *   10. An owner's older sessions are evicted on their save.
+ * @param options Optional overrides (e.g. `databaseOptions: { type: 'memory' }`,
+ *   `maxTotalSessions`).
  */
 export function openSessionStore(
   dbPath: string,
@@ -264,6 +285,8 @@ export function openSessionStore(
       void err;
     }
   }
+
+  const maxTotalSessions = Math.max(maxSessions, options.maxTotalSessions ?? DEFAULT_MAX_TOTAL_SESSIONS);
 
   let adapterPromise: Promise<StorageAdapter> | null = null;
   function getAdapter(): Promise<StorageAdapter> {
@@ -321,19 +344,26 @@ export function openSessionStore(
         },
       );
 
-      // The ring holds `maxSessions` unpinned rows; an admin-saved (pinned)
-      // row is neither counted nor evicted.
+      // An admin-saved (pinned) row is neither counted nor evicted. Each
+      // owner keeps their own ring of `maxSessions` unpinned rows, so other
+      // owners' saves never take an owner's newest runs; the bound on every
+      // owner's rows together takes from whoever holds the most.
       let evictedId: string | undefined;
-      const totalRowsRow = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0');
-      const totalRows = totalRowsRow?.c ?? 0;
-      if (totalRows > maxSessions) {
-        const oldest = await adapter.get<{ id: string }>(
-          'SELECT id FROM sessions WHERE pinned = 0 ORDER BY createdAt ASC LIMIT 1',
+      if (!options?.pinned) {
+        const owner = options?.owner ?? null;
+        const own = ownerMatch(owner);
+        const ownRows = await adapter.get<{ c: number }>(
+          `SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0 AND ${own.sql}`,
+          own.params,
         );
-        if (oldest) {
-          await adapter.run('DELETE FROM sessions WHERE id = ?', [oldest.id]);
-          evictedId = oldest.id;
-        }
+        if (Number(ownRows?.c ?? 0) > maxSessions) evictedId = await evictOldest(adapter, owner) ?? evictedId;
+      }
+      const totalRows = await adapter.get<{ c: number }>('SELECT COUNT(*) AS c FROM sessions WHERE pinned = 0');
+      if (Number(totalRows?.c ?? 0) > maxTotalSessions) {
+        const largest = await adapter.get<{ owner: string | null }>(
+          'SELECT owner FROM sessions WHERE pinned = 0 GROUP BY owner ORDER BY COUNT(*) DESC, MIN(createdAt) ASC LIMIT 1',
+        );
+        if (largest) evictedId = await evictOldest(adapter, largest.owner ?? null) ?? evictedId;
       }
 
       return evictedId === undefined ? { id } : { id, evictedId };
@@ -392,6 +422,23 @@ export function openSessionStore(
       adapterPromise = null;
     },
   };
+}
+
+/** The WHERE clause and parameters that select one owner's rows; rows with no owner are one owner. */
+function ownerMatch(owner: string | null): { sql: string; params: string[] | undefined } {
+  return owner === null ? { sql: 'owner IS NULL', params: undefined } : { sql: 'owner = ?', params: [owner] };
+}
+
+/** Deletes an owner's oldest unpinned row and returns its id, or undefined when they hold none. */
+async function evictOldest(adapter: StorageAdapter, owner: string | null): Promise<string | undefined> {
+  const match = ownerMatch(owner);
+  const oldest = await adapter.get<{ id: string }>(
+    `SELECT id FROM sessions WHERE pinned = 0 AND ${match.sql} ORDER BY createdAt ASC LIMIT 1`,
+    match.params,
+  );
+  if (!oldest) return undefined;
+  await adapter.run('DELETE FROM sessions WHERE id = ?', [oldest.id]);
+  return oldest.id;
 }
 
 /** Internal row shape — narrow `unknown` to the columns we select. */
@@ -527,9 +574,13 @@ function deriveMetadata(events: TimestampedEvent[]): SessionMetaOverride {
     // Count the highest `turn` observed. innerType covers both the
     // wrapped prod shape (`event: sim` + data.type=turn_done) and the
     // unwrapped legacy shape (`event: turn_done`) via the fallback
-    // above.
+    // above. The wrapped shape carries the turn in its inner `data`
+    // (`{type, leader, data: {turn, ...}}`), the legacy shape at the top.
     if (innerType === 'turn_done') {
-      const turn = (data as { turn?: number }).turn;
+      const inner = eventType === 'sim' && data.data && typeof data.data === 'object'
+        ? data.data as { turn?: number }
+        : data as { turn?: number };
+      const turn = inner.turn;
       if (typeof turn === 'number' && turn > (out.turnCount ?? 0)) {
         out.turnCount = turn;
       }

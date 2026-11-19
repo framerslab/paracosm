@@ -1638,8 +1638,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   // Persistent storage for completed sim runs. Lives at
   // `${APP_DIR}/data/sessions.db`; the directory is created on first
-  // open. Cap of 10 saved sessions; oldest evicts when an admin saves
-  // an 11th. The store is opened once at server start so the SQLite
+  // open. Each visitor keeps their 10 newest saved runs, and the server
+  // keeps at most 50 in all: past that, the visitor holding the most gives
+  // up their oldest, so other visitors' runs do not push a visitor's run
+  // out of their list (stores/session.ts). The store is opened once at server start so the SQLite
   // handle and prepared statements stay warm across requests.
   let sessionStore: SessionStore | null = options.sessionStore ?? null;
   const sessionsDbPath = resolve(env.APP_DIR || '.', 'data', 'sessions.db');
