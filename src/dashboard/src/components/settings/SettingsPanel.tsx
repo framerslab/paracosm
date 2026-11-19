@@ -374,6 +374,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     hostedDemo && !hasSessionLlmKey ? 'economy' : economicsProfile;
   const serverModeInfo = describeServerMode(serverMode);
   const isLocked = hostedDemo && !hasSessionLlmKey;
+  // A host-paid run on the hosted demo runs on OpenAI whatever the page
+  // posts (applyDemoCaps on the server), so the locked page shows and
+  // posts OpenAI.
+  const effectiveProvider = isLocked ? 'openai' : provider;
 
   const refreshScenarioCatalog = useCallback(() => {
     fetch('/scenarios')
@@ -430,7 +434,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     try {
       const config: Record<string, unknown> = {
         actors: actors.map(a => ({ ...a, hexaco: a.hexaco })),
-        provider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
+        provider: effectiveProvider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
         activeDepartments: scenario.departments.map(d => d.id),
         economics: { profileId: effectiveEconomicsProfile },
         // Names the scenario this config is for, so the re-run button
@@ -492,7 +496,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, effectiveProvider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');
@@ -699,8 +703,18 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         </div>
         <div className={`responsive-grid-3 ${styles.grid3}`}>
           <div>
-            <label htmlFor="provider-select" style={SETTINGS_LABEL_STYLE}>Provider</label>
-            <select id="provider-select" className={`pc-select ${styles.input}`} value={provider} onChange={e => setProvider(e.target.value)}>
+            <label htmlFor="provider-select" style={SETTINGS_LABEL_STYLE}>
+              Provider
+              {isLocked && <span className={styles.lockTag}>🔒 demo:openai</span>}
+            </label>
+            <select
+              id="provider-select"
+              className={`pc-select ${inputCls(isLocked)}`}
+              value={effectiveProvider}
+              onChange={e => setProvider(e.target.value)}
+              disabled={isLocked}
+              title={isLocked ? 'Locked to OpenAI in hosted demo mode. Add your own OpenAI or Anthropic key above to choose the provider.' : ''}
+            >
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
             </select>

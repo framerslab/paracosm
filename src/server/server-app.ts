@@ -20,6 +20,7 @@ import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import {
+  apiKeyForProvider,
   hasProviderCredentials,
   normalizeCredential,
   resolveProviderFromCredentials,
@@ -522,7 +523,12 @@ export interface CreateMarsServerOptions {
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
-  generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
+  /**
+   * The model call behind a saved run's title; defaults to AgentOS's
+   * `generateText`. `apiKey` is the run's own key for the title's provider,
+   * absent on a host-paid run, which then uses the environment's key.
+   */
+  generateText?: (args: { provider: string; model: string; prompt: string; apiKey?: string }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   /**
    * The compile behind POST /api/quickstart/compile-from-seed; defaults to
@@ -1950,9 +1956,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // unawaited. Emits a second `sim_saved` event when the title
       // lands so the dashboard can patch its in-memory session list
       // without a round-trip to /sessions.
-      const titleProvider = run.config?.provider === 'anthropic' ? 'anthropic' : 'openai';
+      // The title call bills whoever pays for the run: the run's own key
+      // when the request brought one (the provider that key belongs to, as
+      // each leader's run picks it), the environment's key on a host-paid
+      // run, where no key is passed.
+      const titleCredentials = { apiKey: run.config?.apiKey, anthropicKey: run.config?.anthropicKey };
+      const titleProvider = resolveProviderFromCredentials(run.config?.provider, titleCredentials, 'openai');
+      const titleApiKey = apiKeyForProvider(titleProvider, titleCredentials);
       const store = sessionStore; // non-null inside this closure
-      void generateSessionTitle(events, titleProvider, runGenerateText).then(async (title) => {
+      void generateSessionTitle(events, titleProvider, runGenerateText, undefined, titleApiKey).then(async (title) => {
         if (!title) return;
         try {
           await store.updateTitle(result.id, title);

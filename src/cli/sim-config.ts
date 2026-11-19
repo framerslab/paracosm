@@ -356,6 +356,12 @@ export const DEMO_COMMANDER_MODELS: Partial<Record<LlmProvider, string>> = {
 };
 
 /**
+ * The provider every host-paid run on the hosted demo runs on, whatever
+ * provider the request names. `applyDemoCaps` sets it.
+ */
+export const DEMO_PROVIDER: LlmProvider = 'openai';
+
+/**
  * Demo-mode execution caps. Enforced server-side when the request has no
  * user API key. Caps apply on top of whatever the client posted.
  *
@@ -583,10 +589,15 @@ function normalizeActiveDepartments(
  * scenario-level starting state pass through unchanged so the run still
  * feels like a real sim rather than a canned preview.
  *
- * The client cannot bypass by posting its own `models` or `turns` values.
- * Whatever the normalizer produced is overwritten here.
+ * The run always runs on OpenAI (DEMO_PROVIDER) with the demo's OpenAI
+ * models, whatever provider the client posted: the host's Anthropic key,
+ * when the host holds one, is never billed by a host-paid run.
+ *
+ * The client cannot bypass by posting its own `provider`, `models` or
+ * `turns` values. Whatever the normalizer produced is overwritten here.
  */
-export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSimulationConfig {
+export function applyDemoCaps(input: NormalizedSimulationConfig): NormalizedSimulationConfig {
+  const config: NormalizedSimulationConfig = { ...input, provider: DEMO_PROVIDER };
   const demoModels = DEMO_MODELS[config.provider];
   const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
   // Pure economy tier for the hosted demo: let the 'economy' profile's

@@ -228,18 +228,22 @@ export function fallbackTitle(h: RunHighlights): string {
  * title. Returns `null` when the call errored or produced nothing
  * usable — caller should leave the row titleless rather than
  * overwriting with empty string.
+ *
+ * `apiKey` is the run's own key for `provider`. It is passed to the call
+ * when given; without it the call uses the environment's key.
  */
 export async function generateSessionTitle(
   events: TimestampedEvent[],
   provider: 'openai' | 'anthropic',
-  runGenerateText: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>,
+  runGenerateText: (args: { provider: string; model: string; prompt: string; apiKey?: string }) => Promise<{ text: string }>,
   modelOverride?: string,
+  apiKey?: string,
 ): Promise<string | null> {
   const highlights = summariseForTitle(events);
   const prompt = buildTitlePrompt(highlights);
   const model = modelOverride ?? DEFAULT_TITLE_MODELS[provider];
   try {
-    const { text } = await runGenerateText({ provider, model, prompt });
+    const { text } = await runGenerateText(apiKey ? { provider, model, prompt, apiKey } : { provider, model, prompt });
     const cleaned = cleanTitle(text ?? '');
     if (!cleaned) return null;
     return cleaned;
