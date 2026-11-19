@@ -41,7 +41,8 @@ const TOKEN = 'visitor-privacy-test-token';
 interface SetupAnswer { runKey?: string; visitorId?: string; error?: string }
 interface SessionRow { id: string; seedText?: string }
 
-const memoryStore = (max = 10): SessionStore => openSessionStore(':memory:', max, { databaseOptions: { type: 'memory' } });
+/** A store keeping `max` saved runs a visitor and, with `maxTotalSessions`, at most that many in all. */
+const memoryStore = (max = 10, maxTotalSessions?: number): SessionStore => openSessionStore(':memory:', max, { databaseOptions: { type: 'memory' }, maxTotalSessions });
 
 async function setup(v: Visitor, body: unknown): Promise<{ status: number; answer: SetupAnswer }> {
   const res = await v.post('/setup', body);
@@ -130,7 +131,8 @@ test('a session the admin saved stays when visitors fill the ring', async () => 
   }, {
     runner: held.runner,
     env: { ...HOSTED, ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN },
-    extra: { ...NO_MODEL, sessionStore: memoryStore(2) },
+    // Two saved runs in all, so the visitors' runs push rows out of the store.
+    extra: { ...NO_MODEL, sessionStore: memoryStore(2, 2) },
   });
 });
 
