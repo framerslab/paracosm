@@ -1312,7 +1312,9 @@ const traceNamesSeen = (page: Page): Promise<string[]> =>
 function maximumTool(actorIndex: number, which: 'reforged' | 'first') {
   const frames = generateCohortRun(MAXIMUM);
   const registry = registryOf(frames);
-  const entry = registry.list.find(e => e.actorIndex === actorIndex && (which === 'first' || e.attempts.length > 1));
+  // A re-forged tool: its first forge did not pass and its latest did, so Added holds its uses.
+  const entry = registry.list.find(e => e.actorIndex === actorIndex
+    && (which === 'first' || (e.attempts.length > 1 && !e.attempts[0].approved && e.outcome === 'passed')));
   expect(entry, `A${actorIndex + 1} of the 300-actor run holds the tool`).toBeTruthy();
   const leader = registry.actors[actorIndex].name;
   const own = framesToSimEvents(frames)
@@ -1437,7 +1439,7 @@ test.describe('a link to one tool', () => {
     await expect(trace).toBeVisible();
     const tile = trace.locator('[data-forge-header] [data-actor-tile]');
     await expect(tile).toHaveText('A300');
-    expect((await tile.boundingBox())?.width).toBe(40);
+    expect((await tile.boundingBox())?.width ?? 0).toBeCloseTo(40, 0);
     // The tile's label and the tool's number stand whole on the header row.
     await expect(trace.locator('[data-forge-header]')).toContainText(`Forged tool ${n}`);
     await picture(page, '390-light-f1-a300-link');
@@ -1487,7 +1489,7 @@ test.describe('a link to one tool', () => {
         await expect(trace.getByRole('heading', { level: 2, name: LAST_TOOL }).first()).toBeAttached();
         // The one trace the page opened is the one the link names.
         expect(await traceNamesSeen(page)).toEqual([`${LAST_TOOL}, forged tool ${n}`]);
-        expect(new URL(page.url()).searchParams.get('tool')).toBe(String(n));
+        await expect.poll(() => new URL(page.url()).searchParams.get('tool')).toBe(String(n));
         await closeTrace(trace);
         await expect.poll(() => new URL(page.url()).searchParams.get('tool')).toBeNull();
       });

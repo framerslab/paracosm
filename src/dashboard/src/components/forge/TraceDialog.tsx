@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getActorColorVar, type ProcessedEvent } from '../../hooks/useGameState';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useShareLink } from '../../hooks/useShareLink';
 import { useToolContext, type RecordOutcome, type ToolEntry } from '../../hooks/useToolRegistry';
 import { ActorTile } from './ActorTile';
 import { STATIONS, attemptNumber, forgeLineModel, glyphFor, lineColour, usesOf, type StationId } from './forgeLine';
@@ -9,6 +10,7 @@ import {
   AI_WRITTEN_LABEL,
   ATTEMPT_WORDS,
   CLOSE_TRACE,
+  COPY_LINK,
   OPEN_ALL,
   RECORD_OUTCOME_SENTENCES,
   RECORD_WORDS,
@@ -21,6 +23,7 @@ import {
   usedTimes,
 } from './forgeWords';
 import { LookKey } from './LookKey';
+import { linkTab, toolLink } from './forgeUrl';
 import { initialOpen, keepStations, readKeptStations, recordEvidence, runKeyOf } from './openStations';
 import { OutcomeGlyph } from './OutcomeGlyph';
 import { RecordPanel, recordFrames } from './RecordPanel';
@@ -30,6 +33,30 @@ import { NotRecorded } from './stations/NotRecorded';
 import { RecordedReason } from './stations/RecordedReason';
 import { RequestStation } from './stations/RequestStation';
 import styles from './TraceDialog.module.scss';
+
+/** What the trace shows, for the page's address: its attempt (0 with none) and its open stations, in the line's order. */
+export interface TraceShown {
+  attempt: number;
+  open: StationId[];
+}
+
+/** How long Copy link to this tool says the link was copied. */
+const LINK_COPIED_FOR_MS = 5_000;
+
+/** Whether the browser says it is online, kept as it changes. */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine !== false);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+  return online;
+}
 
 export interface TraceDialogProps {
   /** The actor's tool the trace shows. */
@@ -42,6 +69,8 @@ export interface TraceDialogProps {
   actorCount: number;
   /** The run's key: the stations a visitor opens are kept on this device for the run it names. */
   runKey: string | null;
+  /** The saved session the page replays or the run last saved as: Copy link to this tool shows when there is one. */
+  sessionId?: string | null;
   /** The actor's events: Record shows the ones that name the tool. */
   events: readonly ProcessedEvent[];
   onClose: () => void;
@@ -49,6 +78,8 @@ export interface TraceDialogProps {
   onGoToEvent: (target: HTMLElement) => void;
   /** Closes the trace and opens the Event Log on this actor's tool. */
   onShowInEventLog: () => void;
+  /** Told the attempt on show and the open stations whenever they change, so the page's address names them. */
+  onShown?: (shown: TraceShown) => void;
 }
 
 /** The device's storage, or none where the page may not use it. */
@@ -83,12 +114,19 @@ function deviceStorage(): Storage | null {
  * row that links to it. Record, one key at the line's foot, opens the
  * actor's frames that name the tool.
  *
+ * Copy link to this tool, in the header row when the run has a replay link,
+ * copies that link with the tool's number, an earlier attempt and the open
+ * stations, and says what became of the copy under the row: copied for five
+ * seconds, or not copied with the link shown to select by hand. Offline, it
+ * copies as usual and says the page is offline, since the link opens once
+ * the connection returns.
+ *
  * A dialog over the run: a full-screen sheet with its header row fixed on a
  * phone, a centred dialog from 900 px. It opens with focus on the tool's
  * name, holds focus until it closes, and Escape closes it.
  */
 export function TraceDialog({
-  entry, attempt, open, actorCount, runKey, events, onClose, onGoToEvent, onShowInEventLog,
+  entry, attempt, open, actorCount, runKey, sessionId = null, events, onClose, onGoToEvent, onShowInEventLog, onShown,
 }: TraceDialogProps) {
   const registry = useToolContext();
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
@@ -173,6 +211,31 @@ export function TraceDialog({
     dialogRef.current?.querySelector<HTMLElement>(`[data-fork-attempt="${row}"]`)?.focus();
   }, [shownAt, dialogRef]);
 
+  // The attempt on show and the open stations, for the page's address.
+  useEffect(() => {
+    onShown?.({ attempt: shownAt, open: STATIONS.filter((s) => openSet.has(s)) });
+  }, [onShown, shownAt, openSet]);
+
+  // Copy link to this tool: the run's replay link, naming this tool as it shows now.
+  const { shared, share, clear } = useShareLink();
+  const online = useOnline();
+  const linkNoteId = useId();
+  useEffect(() => {
+    if (shared?.state !== 'copied') return;
+    const timer = window.setTimeout(clear, LINK_COPIED_FOR_MS);
+    return () => window.clearTimeout(timer);
+  }, [shared, clear]);
+  const copyLink = () => {
+    if (!sessionId) return;
+    share(toolLink(window.location.origin, sessionId, linkTab(window.location.href), {
+      actorIndex: entry.actorIndex,
+      toolName: entry.name,
+      ...(shownAt > 0 ? { attempt: shownAt } : {}),
+      open: STATIONS.filter((s) => openSet.has(s)),
+    }, registry));
+  };
+  const copyFailed = shared?.state === 'refused' || shared?.state === 'unanswered';
+
   // Record: the actor's frames that name the tool, opened in place at the line's foot.
   const [recordOpen, setRecordOpen] = useState(false);
   const frames = useMemo(() => (recordOpen ? recordFrames(events, entry.name) : []), [recordOpen, events, entry.name]);
@@ -244,9 +307,43 @@ export function TraceDialog({
             {entry.name}
           </h2>
           <span className={styles.headerEnd}>
+            {sessionId && (
+              <button
+                type="button"
+                className={`${styles.key} ${styles.iconKey}`}
+                onClick={copyLink}
+                aria-label={COPY_LINK.key}
+                aria-describedby={linkNoteId}
+                title={COPY_LINK.key}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path
+                    d="M6.5 9.5L9.5 6.5M7 4.5L8.5 3a2.5 2.5 0 0 1 3.5 3.5L10.5 8M9 11.5L7.5 13A2.5 2.5 0 0 1 4 9.5L5.5 8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
             <LookKey />
           </span>
         </div>
+
+        {sessionId && (
+          <div id={linkNoteId} className={styles.linkNote} role="status" aria-live="polite" data-link-note>
+            {!online && <p className={styles.linkSaid}>{COPY_LINK.offline}</p>}
+            {shared?.state === 'copied' && <p className={styles.linkSaid}>{COPY_LINK.copied}</p>}
+            {copyFailed && shared && (
+              <>
+                <p className={styles.linkSaid}>{COPY_LINK.failed}</p>
+                <p className={styles.linkText} data-tool-link translate="no">{shared.url}</p>
+              </>
+            )}
+          </div>
+        )}
 
         <div className={styles.head} data-forge-head>
           {total > 1 && (

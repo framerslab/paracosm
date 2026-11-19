@@ -60,6 +60,14 @@ export const forgedToolLabel = (n: number): string => `Forged tool ${n}`;
 
 export const CLOSE_TRACE = 'Close the trace';
 
+/** Copy link to this tool, in the header row, and what it says of the copy. */
+export const COPY_LINK = {
+  key: 'Copy link to this tool',
+  copied: "Link copied. Anyone with it can open this tool's trace and replay the run.",
+  failed: 'Could not copy. Select the link and copy it.',
+  offline: 'You are offline',
+} as const;
+
 /** The look key's names, the page header's own. */
 export const LOOK_KEY_NAMES = {
   toLight: 'Switch to light mode',

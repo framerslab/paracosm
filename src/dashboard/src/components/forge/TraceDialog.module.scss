@@ -141,6 +141,53 @@
   white-space: nowrap;
 }
 
+// Below 400 px the header row's parts stand 4 px apart, so Close, the tile,
+// the tool's number, Copy link to this tool and the look key fit at 320 px.
+// The number gives way last: "Forged tool 3612" beside A300's tile breaks
+// between its words inside the row, so nothing is cut and the keys stay on
+// one row.
+@media (max-width: 399px) {
+  .header,
+  .headerEnd { gap: 4px; }
+
+  .number {
+    flex-shrink: 1;
+    white-space: normal;
+  }
+}
+
+// ── What Copy link to this tool says, under the header row ────────────────
+// Empty until a copy answers or the page goes offline; a polite status.
+.linkNote {
+  display: grid;
+  gap: 4px;
+  padding: 0 max(var(--trace-pad), env(safe-area-inset-right)) 0 max(var(--trace-pad), env(safe-area-inset-left));
+
+  &:not(:empty) { padding-top: 12px; }
+}
+
+.linkSaid {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The link, to select and copy by hand when the clipboard refused it.
+.linkText {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 // The tool's name, the dialog's heading: an identifier, in the code face,
 // wrapping at any character.
 .name {

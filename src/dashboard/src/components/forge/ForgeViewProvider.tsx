@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { GameState, ProcessedEvent } from '../../hooks/useGameState';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import type { StationId } from './forgeLine';
-import { TraceDialog } from './TraceDialog';
+import { TRACE_PARAMS, parseForgeUrl, withForgeState, withoutForgeParams } from './forgeUrl';
+import { TraceDialog, type TraceShown } from './TraceDialog';
 
 /**
  * One actor's tool, named by the actor's launch index and the tool's name.
@@ -75,8 +76,16 @@ export interface ForgeViewProviderProps {
  * Opening adds one entry to the page's history, so a phone's Back closes the
  * dialog and leaves the run on the page. Closing by a key steps back over
  * that entry, so Back afterwards does what it did before the dialog opened.
+ *
+ * The open trace is written into its entry's address (its tool's number, an
+ * earlier attempt, the open stations), so the page's link names it; the
+ * entry under it keeps the address without them, so closing leaves none.
+ * Once the run is complete the address is read: a link to one tool opens
+ * its trace, and the parameters that point at nothing in the run leave the
+ * address. A number is never read while a run plays in, since an earlier
+ * actor's first forge can still move it.
  */
-export function ForgeViewProvider({ state, runKey, showToolLog, children }: ForgeViewProviderProps) {
+export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, children }: ForgeViewProviderProps) {
   const registry = useToolContext();
   const [current, setCurrent] = useState<ForgeView['current']>(NOTHING_OPEN);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -90,15 +99,23 @@ export function ForgeViewProvider({ state, runKey, showToolLog, children }: Forg
   const afterBackRef = useRef<(() => void) | null>(null);
   const registryRef = useRef(registry);
   registryRef.current = registry;
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  /** The page's address when the open dialog added its history entry: the address the page shows once it closes. */
+  const baseHrefRef = useRef<string | null>(null);
+  /** The attempt and the open stations of the trace on show, as the dialog reports them. */
+  const [shown, setShown] = useState<TraceShown | null>(null);
 
   const openTrace = useCallback((target: TraceTarget, opener?: HTMLElement | null) => {
     // A forge with no name is not in the run's list of tools, so it has no trace to open.
     if (!registryRef.current.getEntryFor(target.actorIndex, target.toolName)) return;
     openerRef.current = opener ?? null;
     if (!entryRef.current) {
+      baseHrefRef.current = window.location.href;
       window.history.pushState({ forgeView: true }, '');
       entryRef.current = true;
     }
+    setShown(null);
     setCurrent({ trace: target, toolbox: false });
   }, []);
 
@@ -114,6 +131,11 @@ export function ForgeViewProvider({ state, runKey, showToolLog, children }: Forg
     setCurrent(NOTHING_OPEN);
     if (entryRef.current) {
       entryRef.current = false;
+      // The dialog's entry takes back the address it had before the dialog
+      // wrote its tool in, so the page shows no tool while the step back lands.
+      const base = baseHrefRef.current;
+      baseHrefRef.current = null;
+      if (base !== null && base !== window.location.href) window.history.replaceState(window.history.state, '', base);
       ownBacksRef.current += 1;
       afterBackRef.current = then ?? null;
       window.history.back();
@@ -148,6 +170,7 @@ export function ForgeViewProvider({ state, runKey, showToolLog, children }: Forg
         return;
       }
       entryRef.current = false;
+      baseHrefRef.current = null;
       setCurrent(NOTHING_OPEN);
     };
     window.addEventListener('popstate', onPop);
@@ -169,6 +192,42 @@ export function ForgeViewProvider({ state, runKey, showToolLog, children }: Forg
   useEffect(() => {
     if (target && !entry) close();
   }, [target, entry, close]);
+
+  // The open trace in its entry's address: the tool's number, read at each
+  // render from the tool held by actor and name, an earlier attempt, and the
+  // open stations. The toolbox's parameters stay as they are.
+  useEffect(() => {
+    if (!target || !entry || !entryRef.current) return;
+    const href = window.location.href;
+    const trace = {
+      actorIndex: entry.actorIndex,
+      toolName: entry.name,
+      ...(shown && shown.attempt > 0 ? { attempt: shown.attempt } : {}),
+      ...(shown ? { open: shown.open } : {}),
+    };
+    const next = withForgeState(href, { trace, toolbox: parseForgeUrl(href, registry, false).state.toolbox }, registry);
+    if (next !== href) window.history.replaceState(window.history.state, '', next);
+  }, [target, entry, shown, registry]);
+
+  // Once the run is complete, the address is read once for it: a link to one
+  // tool opens its trace, and parameters that point at nothing leave.
+  const complete = state.isComplete;
+  const readForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!complete) return;
+    const run = `${runKey ?? ''}|${sessionId ?? ''}`;
+    if (readForRef.current === run) return;
+    readForRef.current = run;
+    const href = window.location.href;
+    const { state: linked, dangling } = parseForgeUrl(href, registry, true);
+    if (dangling.length > 0) window.history.replaceState(window.history.state, '', withoutForgeParams(href, dangling));
+    // A trace already open (from a key pressed while the run played in) stays as it is.
+    if (!linked.trace || currentRef.current.trace) return;
+    // The page's own entry keeps the run without the tool, and the trace adds
+    // its entry over it, so Close and Back leave the run on the page.
+    window.history.replaceState(window.history.state, '', withoutForgeParams(window.location.href, TRACE_PARAMS));
+    openTrace(linked.trace, null);
+  }, [complete, runKey, sessionId, registry, openTrace]);
 
   // Once the dialog is gone, focus returns to the key that opened it.
   const isOpen = target !== null || current.toolbox;
@@ -201,7 +260,9 @@ export function ForgeViewProvider({ state, runKey, showToolLog, children }: Forg
           open={target.open}
           actorCount={state.actorIds.length}
           runKey={runKey}
+          sessionId={sessionId}
           events={actorEvents}
+          onShown={setShown}
           onClose={closeByKey}
           onGoToEvent={close}
           onShowInEventLog={showInEventLog}
