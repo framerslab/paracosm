@@ -544,7 +544,7 @@ test("two Digital Twin requests on different keys, sent while nothing has compil
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const { hostname, pathname } = new URL(url);
-      if (hostname.endsWith('openai.com') && !pathname.endsWith('/models')) {
+      if ((hostname === 'api.openai.com' || hostname.endsWith('.openai.com')) && !pathname.endsWith('/models')) {
         held += 1;
         await gate;
       }
