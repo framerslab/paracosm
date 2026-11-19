@@ -12,6 +12,10 @@
  * - "Share viz link", in a run's drawer and in the run actions menu, shows the
  *   link, says whether it was copied, and says who can open it; a refused or
  *   unanswered clipboard says what failed and leaves the link to copy by hand.
+ *   The Library card's Share key does the same, also where the page has no
+ *   clipboard at all (plain http on a network address).
+ * - Changing an Event Log filter keeps the rest of the address, so a refresh
+ *   reopens the same replay, tab, sub view and filter.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -85,9 +89,52 @@ async function openDrawerAndShare(page: Page): Promise<void> {
   await drawer.getByText('Share viz link', { exact: true }).click();
 }
 
+const shareNote = (page: Page) => page.getByRole('status', { name: 'Share link' });
+const runCard = (page: Page) => page.getByRole('article', { name: 'Run mars-genesis by Aria Chen' });
+const cardShareKey = (page: Page) => runCard(page).getByRole('button', { name: 'Copy a deep link that opens this run on the visualization tab' });
+
+/**
+ * Saves a picture of what a press shows. It waits a moment for the share
+ * note so the picture holds it when there is one; the test's own checks
+ * come after and decide.
+ */
+async function pictureOfPress(page: Page, path: string): Promise<void> {
+  const note = shareNote(page);
+  if (await note.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await note.scrollIntoViewIfNeeded();
+  await page.screenshot({ path });
+}
+
+/** Presses Aria Chen's tool's "↗ LOG" key: in the Sim tab's toolbox dialog at 390, in the Reports tab's toolbox at 1440. */
+async function pressLandingLogKey(page: Page, id: string, width: number): Promise<void> {
+  if (width === 390) {
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
+    await expect(page.getByRole('dialog', { name: /^Forged Toolbox/ })).toBeVisible();
+  } else {
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
+    const fold = page.locator('#toolbox summary').first();
+    await expect(fold).toBeVisible();
+    if (!(await logKey(page, LANDING).isVisible())) await fold.click();
+  }
+  await logKey(page, LANDING).click();
+}
+
+/** The address holds the replay, the Settings tab and its Event Log sub view. */
+function expectAddressOnReplayLog(page: Page, id: string): void {
+  const params = new URL(page.url()).searchParams;
+  expect(params.get('replay')).toBe(id);
+  expect(params.get('tab')).toBe('settings');
+  expect(params.get('sub')).toBe('log');
+}
+
 /** Replaces the page's clipboard before any script runs. */
-async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers'): Promise<void> {
+async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers' | 'is-absent'): Promise<void> {
   await page.addInitScript((how) => {
+    if (how === 'is-absent') {
+      // A page served over plain http at a network address has no clipboard.
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      return;
+    }
     const writeText = how === 'refuses'
       ? () => Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
       : () => new Promise<void>(() => { /* the browser never answers */ });
@@ -130,6 +177,47 @@ for (const size of WIDTHS) {
         await expectShareNote(page, id, 'Link copied.');
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shareUrl(id));
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-share-link-shown.png` });
+      });
+
+      test('the Library card\'s Share key on a page with no clipboard shows the link to copy by hand', async ({ page, request }) => {
+        const id = await storedSessionId(request);
+        await clipboardThat(page, 'is-absent');
+        await useLook(page, look);
+        await page.goto('/sim?tab=library');
+        await cardShareKey(page).click();
+
+        await pictureOfPress(page, `${PICTURES}/${size.width}-${look}-library-card-share-no-clipboard.png`);
+        await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
+        // The press made the note, not the run's drawer.
+        await expect(page.getByRole('dialog', { name: 'Run detail' })).toHaveCount(0);
+      });
+
+      test('clearing an Event Log filter keeps the replay, tab and sub view, and a refresh reopens them with the filter', async ({ page, request }) => {
+        const id = await storedSessionId(request);
+        await useLook(page, look);
+        await pressLandingLogKey(page, id, size.width);
+        await expectLogFilteredToLandingTool(page);
+        expectAddressOnReplayLog(page, id);
+
+        // Clear the tool chip, then filter by text instead.
+        const log = eventLog(page);
+        await log.getByRole('button', { name: 'Clear tool filter' }).click();
+        await expect(log.getByText(`tool: ${LANDING}`)).toHaveCount(0);
+        expectAddressOnReplayLog(page, id);
+        await log.getByRole('textbox', { name: /^Filter log by text/ }).fill('forge_attempt');
+        await expect.poll(() => new URL(page.url()).searchParams.get('logQuery')).toBe('forge_attempt');
+        expectAddressOnReplayLog(page, id);
+
+        await page.reload();
+        expectAddressOnReplayLog(page, id);
+        const reopened = eventLog(page);
+        await expect(reopened).toBeVisible();
+        await expect(reopened.getByRole('textbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
+        // The replay's two forge events, one for each tool.
+        await expect(reopened.locator('summary')).toHaveCount(2);
+        await expect(reopened).toContainText(/forge_attempt\s*Aria Chen/);
+        await expect(reopened).toContainText(/forge_attempt\s*Dietrich Voss/);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-filter-kept-after-refresh.png` });
       });
     });
   }
@@ -194,6 +282,27 @@ test.describe('when the copy does not happen', () => {
     const id = await storedSessionId(request);
     await clipboardThat(page, 'refuses');
     await openDrawerAndShare(page);
+    await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
+  });
+
+  test('the Library card\'s Share key copies the link and says who can open it', async ({ page, context, request }) => {
+    const id = await storedSessionId(request);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
+    await page.goto('/sim?tab=library');
+    await cardShareKey(page).click();
+    await expectShareNote(page, id, 'Link copied.');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shareUrl(id));
+    // Closing the note leaves the Library as it was.
+    await shareNote(page).getByRole('button', { name: 'Close' }).click();
+    await expect(shareNote(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Run detail' })).toHaveCount(0);
+  });
+
+  test('the Library card\'s Share key on a refused clipboard says so', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await clipboardThat(page, 'refuses');
+    await page.goto('/sim?tab=library');
+    await cardShareKey(page).click();
     await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
   });
 
