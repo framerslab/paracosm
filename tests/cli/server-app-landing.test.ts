@@ -437,7 +437,12 @@ test("no page asks Google's font service for anything: the landing page, the API
 test('the privacy section says what the server keeps of a page view and for how long', () => {
   const privacy = section('privacy');
   assert.match(privacy, /one of this site.s pages/, 'names what the page address is cut to');
-  assert.match(privacy, /referring site.s domain/, 'names what is kept of the referrer');
+  assert.match(privacy, /no referrer/, 'says no referrer is sent');
+  assert.doesNotMatch(privacy, /referring site.s domain/, 'sends nothing of the referrer');
+  assert.match(privacy, /full User-Agent/, 'names the whole User-Agent header as what Plausible receives');
+  assert.match(privacy, /daily visitor identifier/, 'names what Plausible uses the address and User-Agent for');
+  assert.match(privacy, /stores neither/, 'says Plausible keeps neither');
+  assert.doesNotMatch(privacy, /browser.s name/, 'the User-Agent is more than the browser\'s name');
   assert.match(privacy, /holds your IP address in memory for one minute/, 'names the count limit and its length');
   assert.match(privacy, /never writes it to disk/, 'says the count limit is not saved');
 });

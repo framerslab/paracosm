@@ -20,18 +20,27 @@
  * - Reject all ends the count; Accept all loads Google Analytics and
  *   Clarity; Choose turns on one purpose alone;
  * - a privacy signal (the Sec-GPC header, the DNT header alone, or
- *   navigator.globalPrivacyControl) shows no bar and loads nothing optional;
+ *   navigator.globalPrivacyControl) shows no bar and loads nothing optional,
+ *   and the footer's control then explains the signal instead of the bar;
+ * - an earlier Reject all or count switch off holds while the bar asks
+ *   again for a stored answer that is missing or out of date;
  * - a stored answer of another version, or given to other words, counts as
  *   none, and the words' hash covers every word the bar shows;
  * - Choose moves focus into the choices, Tab follows the order on screen,
- *   and Escape goes back to Choose;
+ *   and Escape goes back to Choose; at 320 by 180 px the whole bar fits the
+ *   screen, scrolls as one panel, and focus never lands off screen;
  * - the footer's Analytics choices control reopens the choices, also when
- *   the dashboard's own script does not load, and turning a purpose off
- *   there clears that vendor's cookies;
+ *   the dashboard's own script does not load, with a focus ring of 3:1 or
+ *   more in both looks, and turning a purpose off there clears that
+ *   vendor's cookies;
  * - when the browser refuses to store an answer, the answer just given is
  *   the one that runs, and the bar says it could not be saved;
- * - answers given in one tab reach another open tab of the same browser,
- *   and a withdrawal there stops a Clarity that would restart itself.
+ * - turning recordings off stops Clarity on the page with no further
+ *   upload, its own last one included, and a Clarity tag that arrives after
+ *   a withdrawal, even one the browser refused to store, never records;
+ * - answers given in one tab reach another open tab of the same browser
+ *   without reloading it, and a withdrawal there stops a Clarity that would
+ *   restart itself.
  *
  * It also writes pictures of the bar at 390 and 1440 px in both looks into
  * test-results/consent-bar-captures, which CI uploads.
@@ -103,7 +112,6 @@ function keys(page: Page) {
 }
 
 async function stored(page: Page): Promise<{ purposes: Record<string, boolean>; words: string; version: number } | null> {
-  // Turning recordings off reloads the page; read the answer from the page that follows.
   await page.waitForLoadState('load');
   const raw = await page.evaluate(() => localStorage.getItem('analytics_consent_purposes'));
   return raw === null ? null : JSON.parse(raw) as { purposes: Record<string, boolean>; words: string; version: number };
@@ -121,7 +129,8 @@ function loadedFace(page: Page, family: string): Promise<boolean> {
  * Clarity's tag as it behaves: it runs what was queued before it loaded,
  * starts recording either way, sends what it records every 150 ms, and,
  * like clarity-js's consentv2 when analytics storage is denied, stops and
- * starts again 300 ms later without cookies. Only its stop call ends it.
+ * starts again 300 ms later without cookies. Only its stop call ends it,
+ * and, as clarity-js's stop does, it sends one last upload by beacon then.
  */
 const CLARITY_TAG = `(function () {
   var queued = (window.clarity && window.clarity.q) || [];
@@ -133,7 +142,11 @@ const CLARITY_TAG = `(function () {
   function end() { clearInterval(timer); timer = null; }
   var api = {
     start: begin,
-    stop: function () { clearTimeout(restart); end(); },
+    stop: function () {
+      clearTimeout(restart);
+      if (timer) navigator.sendBeacon('https://www.clarity.ms/collect', 'last');
+      end();
+    },
     consentv2: function (state) {
       if (state && state.analytics_Storage === 'denied' && timer) { end(); restart = setTimeout(begin, 300); }
     },
@@ -151,6 +164,35 @@ const CLARITY_TAG = `(function () {
 /** Answers Clarity's tag with CLARITY_TAG in this context; registered after open()'s route, so it wins. */
 async function withClarityTag(context: BrowserContext): Promise<void> {
   await context.route(/^https:\/\/www\.clarity\.ms\/tag\//, route => route.fulfill({ status: 200, contentType: 'text/javascript', body: CLARITY_TAG }));
+}
+
+/** Answers Clarity's tag with CLARITY_TAG only when the returned function is called. */
+async function withLateClarityTag(context: BrowserContext): Promise<() => void> {
+  let release: () => void = () => {};
+  const released = new Promise<void>(resolveRelease => { release = resolveRelease; });
+  await context.route(/^https:\/\/www\.clarity\.ms\/tag\//, async route => {
+    await released;
+    await route.fulfill({ status: 200, contentType: 'text/javascript', body: CLARITY_TAG });
+  });
+  return release;
+}
+
+/** The uploads Clarity's tag sent, of every request seen so far. */
+function uploads(watch: Watch): string[] {
+  return watch.vendor.filter(url => url.startsWith('https://www.clarity.ms/collect'));
+}
+
+/** The contrast of two CSS colours, each as rgb() or rgba() with full alpha. */
+function contrast(first: string, second: string): number {
+  const luminance = (color: string) => {
+    const [r, g, b] = (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number).map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05);
 }
 
 /** Waits until a page has stopped Google Analytics and then sends nothing to any vendor for 1.5 s. */
@@ -179,7 +221,7 @@ test.describe('the consent bar on the hosted demo', () => {
       const { context, page, watch, agent } = await open(browser, `first-${pathname}`);
       try {
         const count = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/api/event');
-        await page.goto(`${pathname}?utm_source=e2e#top`);
+        await page.goto(`${pathname}?utm_source=e2e#top`, { referer: 'https://ticket-123.internal/' });
         await expect(bar(page)).toBeVisible();
         for (const key of keys(page)) await expect(key).toBeVisible();
         await count;
@@ -197,6 +239,7 @@ test.describe('the consent bar on the hosted demo', () => {
         expect(event.body.name).toBe('pageview');
         expect(event.body.domain).toBe('paracosm.agentos.sh');
         expect(event.body.url).toBe(`https://paracosm.agentos.sh${pathname}`);
+        expect(event.body, 'nothing of the referring page is forwarded').not.toHaveProperty('referrer');
       } finally {
         await context.close();
       }
@@ -311,6 +354,7 @@ test.describe('the consent bar on the hosted demo', () => {
       await expect(measure).toHaveAttribute('aria-checked', 'false');
       await expect(record).toHaveAttribute('aria-checked', 'false');
       expect(watch.vendor, 'opening Choose asks no vendor').toEqual([]);
+      await expect(bar(page).getByText(/full User-Agent/), 'the count row says what Plausible receives').toBeVisible();
 
       await measure.click();
       await expect(measure).toHaveAttribute('aria-checked', 'true');
@@ -590,7 +634,7 @@ test.describe('the consent bar on the hosted demo', () => {
     }
   });
 
-  test('Reject all, Accept all, Reject all in one tab: the other open tab follows each, and its Clarity stops for good each time', async ({ browser }) => {
+  test('Reject all, Accept all, Reject all in one tab: the other open tab follows each without reloading, and its Clarity stops for good each time', async ({ browser }) => {
     const { context, page, watch } = await open(browser, 'two-tabs');
     try {
       await withClarityTag(context);
@@ -609,17 +653,26 @@ test.describe('the consent bar on the hosted demo', () => {
         await expect(bar(other)).toBeHidden();
       };
 
+      // A mark on the first tab's document: a reload would lose it, and with it anything typed and unsent.
+      const mark = () => page.evaluate(() => { (window as unknown as { __sameDocument?: boolean }).__sameDocument = true; });
+      const sameDocument = () => page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true);
+      await mark();
       await answer('Reject all');
       await goesQuiet(page, watch, 'the first tab sends nothing to a vendor after the first Reject all');
+      expect(await sameDocument(), 'the first tab was not reloaded').toBe(true);
 
-      const tagAgain = page.waitForRequest(request => request.url().startsWith(`https://www.clarity.ms/tag/${CLARITY_ID}`));
-      const googleAgain = page.waitForRequest(request => request.url().startsWith(`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`));
+      // Google Analytics comes back on this page; recordings, ended on it, start with its next load.
       await answer('Accept all');
-      await Promise.all([tagAgain, googleAgain]);
+      await expect.poll(() => page.evaluate(id => (window as unknown as Record<string, unknown>)[`ga-disable-${id}`], GA_ID), { timeout: 10_000 }).toBe(false);
+      const tagAgain = page.waitForRequest(request => request.url().startsWith(`https://www.clarity.ms/tag/${CLARITY_ID}`));
+      await page.reload();
+      await tagAgain;
       await page.waitForRequest(request => request.url().startsWith('https://www.clarity.ms/collect'));
 
+      await mark();
       await answer('Reject all');
       await goesQuiet(page, watch, 'the first tab sends nothing to a vendor after the second Reject all');
+      expect(await sameDocument(), 'the first tab was not reloaded').toBe(true);
 
       const before = watch.counts.length;
       await page.evaluate(() => history.pushState({}, '', '/sim'));
@@ -629,6 +682,177 @@ test.describe('the consent bar on the hosted demo', () => {
       await context.close();
     }
   });
+
+  test('Reject all while Clarity records stops it on the page with no further upload, its own last one included', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'stop-in-place');
+    try {
+      await withClarityTag(context);
+      await page.goto('/');
+      const recording = page.waitForRequest(request => request.url().startsWith('https://www.clarity.ms/collect'));
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await recording;
+      await page.evaluate(() => { (window as unknown as { __sameDocument?: boolean }).__sameDocument = true; });
+
+      const before = uploads(watch).length;
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await page.waitForTimeout(SETTLE_MS);
+      expect(uploads(watch).slice(before), 'no upload after Reject all').toEqual([]);
+      expect(await page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true), 'the page was not reloaded').toBe(true);
+      // Nothing on the page can start it again.
+      await page.evaluate(() => { (window as unknown as { clarity?: (...args: unknown[]) => void }).clarity?.('start'); });
+      await page.waitForTimeout(SETTLE_MS);
+      expect(uploads(watch).slice(before), 'no upload after a later start call').toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('a Reject all the browser refused to store, with Clarity\'s tag arriving after it, never lets recording start', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'refused-late-tag');
+    try {
+      const release = await withLateClarityTag(context);
+      await page.goto('/');
+      const tag = page.waitForRequest(request => request.url().startsWith(`https://www.clarity.ms/tag/${CLARITY_ID}`));
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await tag;
+
+      // The browser stores nothing from here on, and the tag is still on its way.
+      await page.evaluate(() => {
+        Storage.prototype.setItem = function () { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); };
+      });
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await expect(bar(page).getByText('could not be saved on this device')).toBeVisible();
+
+      release();
+      await page.waitForTimeout(SETTLE_MS * 2);
+      expect(uploads(watch), 'Clarity never records').toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('an earlier Reject all holds while the bar asks again for a stored answer that is missing or out of date', async ({ browser }) => {
+    const records = [
+      null,
+      JSON.stringify({ version: 1, purposes: { count: false, measure: false, record: false }, words: 'f'.repeat(64), at: '2026-01-01T00:00:00.000Z' }),
+    ];
+    for (const [index, record] of records.entries()) {
+      const { context, page, watch } = await open(browser, `ignore-${index}`);
+      try {
+        await context.addInitScript(value => {
+          localStorage.setItem('plausible_ignore', 'true');
+          if (value !== null) localStorage.setItem('analytics_consent_purposes', value);
+        }, record);
+        await page.goto('/sim');
+        await expect(bar(page), String(record)).toBeVisible();
+        await page.waitForTimeout(SETTLE_MS);
+        expect(watch.counts, `${record}: no count before a new answer`).toEqual([]);
+        await bar(page).getByRole('button', { name: 'Choose', exact: true }).click();
+        await expect(bar(page).getByRole('switch', { name: /Plausible/ }), String(record)).toHaveAttribute('aria-checked', 'false');
+        await page.evaluate(() => history.pushState({}, '', '/'));
+        await page.waitForTimeout(SETTLE_MS);
+        expect(watch.counts, `${record}: no count on the next page either`).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }
+  });
+
+  test('under a privacy signal the footer control explains the signal and never opens the bar', async ({ browser }) => {
+    const { context, page } = await open(browser, 'signal-footer', { extraHTTPHeaders: { DNT: '1' } });
+    try {
+      for (const pathname of PAGES) {
+        await page.goto(pathname);
+        const control = page.getByRole('button', { name: 'Analytics choices', exact: true }).first();
+        await expect(control, pathname).toBeVisible();
+        await control.click();
+        const note = page.getByRole('dialog', { name: 'Privacy signal' });
+        await expect(note, pathname).toBeVisible();
+        await expect(note.getByText(/asks sites not to track/), pathname).toBeVisible();
+        await expect(note.getByText(/nothing optional runs on this site/), pathname).toBeVisible();
+        await expect(bar(page), `${pathname}: no bar`).toHaveCount(0);
+        await expect(page.getByRole('switch'), `${pathname}: no switches`).toHaveCount(0);
+        await expect(note.getByRole('button', { name: 'Close', exact: true }), pathname).toBeFocused();
+        await page.keyboard.press('Escape');
+        await expect(note, pathname).toBeHidden();
+        await expect(control, `${pathname}: focus goes back to the control`).toBeFocused();
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('at 320 by 180 px the whole bar fits the screen, scrolls as one panel, and focus never lands off screen', async ({ browser }) => {
+    const { context, page } = await open(browser, 'short', { viewport: { width: 320, height: 180 } });
+    try {
+      await page.goto('/');
+      const choose = bar(page).getByRole('button', { name: 'Choose', exact: true });
+      await choose.focus();
+      await page.keyboard.press('Enter');
+      await expect(bar(page).getByRole('switch', { name: /Plausible/ })).toBeFocused();
+
+      const panel = await bar(page).evaluate(region => {
+        const rect = region.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, overflowY: getComputedStyle(region).overflowY, scrolls: region.scrollHeight > region.clientHeight };
+      });
+      expect(panel.top, 'the bar starts on screen').toBeGreaterThanOrEqual(-0.5);
+      expect(panel.bottom, 'the bar ends on screen').toBeLessThanOrEqual(180.5);
+      expect(panel.overflowY, 'the bar scrolls').toBe('auto');
+      expect(panel.scrolls, 'the bar holds more than the screen').toBe(true);
+
+      // Every stop of the keyboard's way through the bar is on screen when it is focused.
+      for (let step = 0; step < 8; step++) {
+        const focused = await page.evaluate(() => {
+          const element = document.activeElement as HTMLElement | null;
+          if (!element || !element.closest('#pcc')) return null;
+          const rect = element.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, name: element.textContent?.trim() || element.getAttribute('aria-labelledby') || element.tagName };
+        });
+        expect(focused, `step ${step}: focus stays in the bar`).not.toBeNull();
+        expect(focused!.top, `step ${step}: ${focused!.name} starts on screen`).toBeGreaterThanOrEqual(-0.5);
+        expect(focused!.bottom, `step ${step}: ${focused!.name} ends on screen`).toBeLessThanOrEqual(180.5);
+        await page.keyboard.press('Tab');
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  for (const look of ['light', 'dark'] as const) {
+    test(`the dashboard page's own Analytics choices control has a focus ring of 3:1 or more in the ${look} look`, async ({ browser }) => {
+      const { context, page } = await open(browser, `shell-focus-${look}`, { colorScheme: look });
+      try {
+        // The dashboard's script and stylesheet fail; the consent bar's still load.
+        await context.route(url => url.origin === BASE && /\.(js|css)$/.test(url.pathname) && !url.pathname.startsWith('/brand/'), route => route.abort());
+        await page.goto('/sim');
+        const control = page.locator('#pcc-reopen');
+        await expect(control).toBeVisible();
+        for (let step = 0; step < 30; step++) {
+          if (await control.evaluate(element => element === document.activeElement)) break;
+          await page.keyboard.press('Tab');
+        }
+        await expect(control).toBeFocused();
+        const ring = await control.evaluate(element => {
+          const style = getComputedStyle(element);
+          let background = 'rgba(0, 0, 0, 0)';
+          for (let node: Element | null = element.parentElement; node; node = node.parentElement) {
+            const color = getComputedStyle(node).backgroundColor;
+            if (color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent') { background = color; break; }
+          }
+          return { color: style.outlineColor, style: style.outlineStyle, width: parseFloat(style.outlineWidth), background };
+        });
+        // A page with no background of its own shows the browser's: white in the light look, Chromium's #121212 in the dark one.
+        const background = ring.background === 'rgba(0, 0, 0, 0)' ? (look === 'light' ? 'rgb(255, 255, 255)' : 'rgb(18, 18, 18)') : ring.background;
+        expect(ring.style, 'a solid ring').toBe('solid');
+        expect(ring.width, 'a ring 2 px wide or more').toBeGreaterThanOrEqual(2);
+        expect(contrast(ring.color, background), `ring ${ring.color} on ${background}`).toBeGreaterThanOrEqual(3);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 
   test('pictures of the bar at 390 and 1440 px in both looks', async ({ browser }) => {
     mkdirSync(CAPTURES, { recursive: true });

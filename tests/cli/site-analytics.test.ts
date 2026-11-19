@@ -38,17 +38,14 @@ test('a build without site-analytics.json, or with one that does not parse, give
   }
 });
 
-test('a page view is forwarded as its public page, with the referring site\'s domain alone', () => {
+test('a page view is forwarded as its public page and nothing of the referring page', () => {
   assert.deepEqual(countEventFrom(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
     name: 'pageview',
     url: 'https://paracosm.agentos.sh/sim',
     domain: 'paracosm.agentos.sh',
-    referrer: 'https://example.com/',
   });
   // A query or fragment in the path is dropped; dot segments resolve.
   assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
-  assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r: '' }))?.referrer, '');
-  assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r: 'javascript:alert(1)' }))?.referrer, '');
 });
 
 test('a page view names one of the site\'s public pages, never the rest of a path', () => {
@@ -72,18 +69,19 @@ test('a page view names one of the site\'s public pages, never the rest of a pat
   }
 });
 
-test('a referrer is sent as its site\'s registrable domain at most, or not at all', () => {
-  const referrer = (r: string) => {
+test('no referrer reaches the instance, whatever the page sends', () => {
+  for (const r of [
+    'https://ticket-123.internal/',
+    'https://news.example.co.uk/',
+    'https://token-example.preview.example.org/view',
+    'https://www.google.com/search?q=paracosm',
+    'http://192.168.1.5/admin',
+    '',
+    'javascript:alert(1)',
+  ]) {
     const event = countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r }));
-    return typeof event === 'object' && event !== null ? event.referrer : null;
-  };
-  assert.equal(referrer('https://token-example.preview.example.org/view'), 'https://example.org/');
-  assert.equal(referrer('https://www.google.com/search?q=paracosm'), 'https://google.com/');
-  assert.equal(referrer('http://news.ycombinator.com/item?id=1'), 'http://ycombinator.com/');
-  assert.equal(referrer('https://example.org:8443/a'), 'https://example.org/');
-  // An address, a single name or a page of no site sends no referrer.
-  for (const r of ['http://192.168.1.5/admin', 'http://[2001:db8::1]/x', 'http://localhost:3000/', 'file:///etc/passwd']) {
-    assert.equal(referrer(r), '', r);
+    assert.ok(typeof event === 'object' && event !== null, r);
+    assert.equal('referrer' in event, false, r);
   }
 });
 
@@ -180,12 +178,12 @@ function post(origin: string, body: string, headers: Record<string, string> = {}
 
 test('POST /api/event on the hosted demo forwards one page view with the visitor\'s browser name and address', async () => {
   received.length = 0;
-  const res = await post(site, JSON.stringify({ n: 'pageview', u: '/sim?tab=library', r: 'https://search.example/q?x=1' }), { 'X-Forwarded-For': '198.51.100.7' });
+  const res = await post(site, JSON.stringify({ n: 'pageview', u: '/sim?tab=library', r: 'https://ticket-123.internal/q?x=1' }), { 'X-Forwarded-For': '198.51.100.7' });
   assert.equal(res.status, 202);
   assert.equal(res.headers.get('cache-control'), 'no-store');
   assert.equal(received.length, 1);
   assert.deepEqual(received[0], {
-    body: { name: 'pageview', url: 'https://paracosm.agentos.sh/sim', domain: 'paracosm.agentos.sh', referrer: 'https://search.example/' },
+    body: { name: 'pageview', url: 'https://paracosm.agentos.sh/sim', domain: 'paracosm.agentos.sh' },
     userAgent: 'count-test-browser',
     forwardedFor: '198.51.100.7',
   });
