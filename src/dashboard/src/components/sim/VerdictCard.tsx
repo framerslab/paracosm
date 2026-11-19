@@ -32,6 +32,8 @@ interface VerdictData {
 
 interface VerdictCardProps {
   verdict: Record<string, unknown>;
+  /** Names the run the page shows; see {@link useVerdictExport}. */
+  shownRun?: string;
 }
 
 function ScoreBar({ label, a, b }: { label: string; a: number; b: number }) {
@@ -195,12 +197,13 @@ const COPIED_SHOWN_MS = 1800;
  * answer to an earlier press never changes what the key says about a later
  * one, and the key never says it copied beside a refusal. A result belongs
  * to the verdict it was pressed on: when another verdict is shown, the
- * result is dropped. The Sim and Reports tabs key their panel by the run
- * shown, so a run loaded after it starts with nothing shown, the same saved
- * file loaded again included, and an answer to a press on the earlier run
- * changes nothing.
+ * result is dropped. The same holds when another run is shown, named by
+ * `shownRun`: a run loaded after it starts with nothing shown, the same
+ * saved file loaded again included, and an answer to a press on the earlier
+ * run changes nothing. The panel stays mounted, so a verdict the visitor
+ * collapsed stays collapsed.
  */
-function useVerdictExport(v: VerdictData): { copied: boolean; notCopied: boolean; exportVerdict: () => void } {
+function useVerdictExport(v: VerdictData, shownRun?: string): { copied: boolean; notCopied: boolean; exportVerdict: () => void } {
   const [result, setResult] = useState<'copied' | 'refused' | null>(null);
   const pressRef = useRef(0);
   const timerRef = useRef<number | null>(null);
@@ -218,7 +221,7 @@ function useVerdictExport(v: VerdictData): { copied: boolean; notCopied: boolean
     stopTimer();
     setResult(null);
     return stopTimer;
-  }, [shownVerdict]);
+  }, [shownVerdict, shownRun]);
   const exportVerdict = useCallback(() => {
     const press = ++pressRef.current;
     stopTimer();
@@ -342,9 +345,9 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
  * showed no verdict in the SIM body even when `cohort_verdict` had
  * landed cleanly.
  */
-export function VerdictPanel({ verdict: raw }: VerdictCardProps) {
+export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
   const v = raw as unknown as VerdictData & { mode?: string; rankings?: unknown; winnerIndex?: number };
-  const { copied, notCopied, exportVerdict } = useVerdictExport(v);
+  const { copied, notCopied, exportVerdict } = useVerdictExport(v, shownRun);
   // Collapsible: clicking the close button shrinks the panel to a
   // single-line summary so the SIM area is not dominated by the
   // verdict block when reviewing turns. Clicking the collapsed bar

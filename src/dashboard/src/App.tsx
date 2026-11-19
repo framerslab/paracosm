@@ -256,8 +256,8 @@ function AppContent() {
   // The results carry each decision's bar check, which the outcome cards show.
   const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
   // Names the run the page shows, the same saved file loaded twice as two
-  // runs. The Chat tab's threads and the verdict panels start afresh for
-  // each run.
+  // runs. The Chat tab's threads start afresh for each run, and the
+  // verdict's export key drops what it said about the run before.
   const shownRun = `${sse.runKey ?? ''}:${sse.loadedRuns}`;
   // What the Digital Twin views read: the run this page started when the
   // page's own state is not it, and the page's state otherwise.

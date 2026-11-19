@@ -54,9 +54,9 @@ function usePersistedToggle(key: string, initial: boolean): [boolean, (v: boolea
 interface ReportViewProps {
   state: GameState;
   verdict?: Record<string, unknown> | null;
-  /** Names the run the page shows. The verdict panel starts afresh for
-   *  each run, so what its export key said about one run never shows on
-   *  the next, the same saved file loaded again included. */
+  /** Names the run the page shows. What the verdict's export key said
+   *  about one run never shows on the next, the same saved file loaded
+   *  again included. */
   shownRun?: string;
   reportSections: Array<'crisis' | 'departments' | 'decision' | 'outcome' | 'quotes' | 'causality'>;
 }
@@ -951,7 +951,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
         <CohortVerdict state={state} />
         {verdict && (
           <div className={styles.summaryVerdictWrap}>
-            <VerdictPanel key={shownRun} verdict={verdict} />
+            <VerdictPanel verdict={verdict} shownRun={shownRun} />
           </div>
         )}
       </section>
