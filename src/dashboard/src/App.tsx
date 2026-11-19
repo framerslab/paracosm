@@ -43,6 +43,7 @@ import { StudioTab } from './components/studio/StudioTab.js';
 import { QuickstartView } from './components/quickstart/QuickstartView';
 import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitationRegistry';
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
+import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
 import { TabBar } from './components/layout/TabBar';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
@@ -1084,6 +1085,7 @@ function AppContent() {
       <ScenarioReadyContext.Provider value={scenarioReady}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
+        <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId}>
         <BranchesSyncer sse={sse} />
         {/* Skip link: keyboard users land on this first, jumping past
             the long tab/header chrome to the active tabpanel. The CSS
@@ -1420,6 +1422,7 @@ function AppContent() {
           )}
           <ShortcutsOverlay />
         </div>
+        </ForgeViewProvider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
       </ScenarioReadyContext.Provider>

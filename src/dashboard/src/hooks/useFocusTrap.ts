@@ -4,8 +4,8 @@ import { useEffect, useRef } from 'react';
  * Traps keyboard focus inside a dialog while it is open. On activation
  * the first focusable descendant receives focus (or the container
  * itself when nothing inside is focusable), Tab cycles within the
- * container, and the previously-focused element is restored when the
- * dialog closes.
+ * container over the controls in its Tab order, and the previously-focused
+ * element is restored when the dialog closes.
  *
  * Usage:
  *   const ref = useFocusTrap<HTMLDivElement>(isOpen);
@@ -28,7 +28,9 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean) {
       const nodes = container.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
-      return Array.from(nodes).filter(el => !el.hasAttribute('aria-hidden') && el.offsetParent !== null);
+      // A control taken out of the Tab order (tabindex -1) is not a stop: Tab never
+      // lands on it, so the trap must not wait for it before it wraps.
+      return Array.from(nodes).filter(el => el.tabIndex >= 0 && !el.hasAttribute('aria-hidden') && el.offsetParent !== null);
     };
 
     const first = focusables()[0];

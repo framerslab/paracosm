@@ -8,8 +8,8 @@
  *
  * - What a visitor compares today stays: the Viz tab draws every actor's
  *   living grid at each size.
- * - Before: pictures of the forged toolbox and of a forged tool's dialog as
- *   they are, at 390 and 1440 in both looks.
+ * - Before: pictures of the forged toolbox as it is, at 390 and 1440 in
+ *   both looks.
  * - The forge view's tokens: the quiet tone, the edge tone, the problem
  *   colour and the three text sizes hold their values in both looks, and
  *   --rust keeps its own.
@@ -96,6 +96,10 @@ const resolved = (page: Page, token: string): Promise<string> => page.evaluate((
   probe.remove();
   return colour;
 }, token);
+
+/** Saves a picture of the window, with a dialog's opening motion finished. */
+const picture = (page: Page, name: string) =>
+  page.screenshot({ path: `${PICTURES}/${name}.png`, animations: 'disabled' });
 
 const colourOf = (part: Locator): Promise<string> => part.evaluate(el => getComputedStyle(el).color);
 const groundOf = (part: Locator): Promise<string> => part.evaluate(el => getComputedStyle(el).backgroundColor);
@@ -186,7 +190,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(passed.locator('[data-station="added"]')).toContainText('Used 1 time');
         await expect(passed.getByText('Written by an AI model during this paracosm run', { exact: true })).toBeVisible();
         await expect(passed.getByText('The reason the run recorded')).toHaveCount(0);
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-f1-passed.png` });
+        await picture(page, `${size.width}-${look}-f1-passed`);
         await passed.getByRole('button', { name: 'Close the trace' }).click();
         await expect(passed).toBeHidden();
 
@@ -207,7 +211,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(failed.getByText(RADIATION_REASON, { exact: true })).toBeVisible();
         await expect(failed.getByText('The run\'s record keeps at most 240 characters of this reason.', { exact: true })).toBeVisible();
         await expect(failed.getByText('Written by an AI model during this paracosm run', { exact: true })).toBeVisible();
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-f1-did-not-pass.png` });
+        await picture(page, `${size.width}-${look}-f1-did-not-pass`);
         await failed.getByRole('button', { name: 'Close the trace' }).click();
         await expect(failed).toBeHidden();
 
@@ -218,7 +222,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(unexplained.getByText('The reason the run recorded', { exact: true })).toBeVisible();
         await expect(unexplained.getByText('The record gave no reason.', { exact: true })).toBeVisible();
         await expect(unexplained.getByText('The run\'s record keeps at most 240 characters of this reason.')).toHaveCount(0);
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-f1-no-reason.png` });
+        await picture(page, `${size.width}-${look}-f1-no-reason`);
       });
     }
   });
@@ -299,7 +303,8 @@ test.describe('feature 1 on the run\'s record', () => {
   test('f1 q17: the header row is one row at 320, 360, 390, 430, 480 and 768', async ({ page, request }) => {
     test.setTimeout(180_000);
     for (const look of LOOKS) {
-      await openPairSim(page, request, { width: SWEEP_WIDTHS[0], height: 844 }, look);
+      // The trace opens on a phone, then the window takes each width with it open.
+      await openPairSim(page, request, WIDTHS[0], look);
       await pressInspect(inspectKey(page, LANDING));
       const trace = traceOf(page, LANDING, 1);
       await expect(trace).toBeVisible();
@@ -323,7 +328,7 @@ test.describe('feature 1 on the run\'s record', () => {
               sheetScroll: dialog.scrollWidth - dialog.clientWidth,
               headerScroll: header.scrollWidth - header.clientWidth,
               keys: Array.from(header.querySelectorAll('button')).filter(shown).map(key => ({
-                name: key.getAttribute('aria-label') ?? '', top: (key as HTMLElement).offsetTop, ...box(key),
+                name: key.getAttribute('aria-label') ?? '', rowTop: (key as HTMLElement).offsetTop, ...box(key),
               })),
               parts: Array.from(header.children).filter(shown).map(box),
             };
@@ -332,7 +337,7 @@ test.describe('feature 1 on the run\'s record', () => {
           const { keys, parts, sheet } = row!;
           // Close and the look key, each on the row.
           expect(keys.map(key => key.name)).toEqual(expect.arrayContaining(['Close the trace', expect.stringMatching(/^Switch to (light|dark) mode$/)]));
-          expect(new Set(keys.map(key => key.top)).size, 'every key of the header row shares one top').toBe(1);
+          expect(new Set(keys.map(key => key.rowTop)).size, 'every key of the header row shares one top').toBe(1);
           // One row: every part of the header stands beside the others, none under another.
           const lowestTop = Math.max(...parts.map(part => part.top));
           const highestBottom = Math.min(...parts.map(part => part.bottom));
@@ -346,7 +351,7 @@ test.describe('feature 1 on the run\'s record', () => {
             expect(key.left, `"${key.name}" is inside the sheet`).toBeGreaterThanOrEqual(sheet.left - 0.5);
             expect(key.right, `"${key.name}" is inside the sheet`).toBeLessThanOrEqual(sheet.right + 0.5);
           }
-          if (width === 320) await page.screenshot({ path: `${PICTURES}/320-${look}-f1-header-row.png` });
+          if (width === 320) await picture(page, `320-${look}-f1-header-row`);
         });
       }
     }
@@ -375,7 +380,7 @@ test.describe('feature 1 on the run\'s record', () => {
         const back = trace.getByRole('button', { name: `Switch to ${look} mode` });
         await expect(back).toBeFocused();
         await expect(back).toHaveText(other === 'dark' ? '☀' : '☽');
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${other}-f1-look-switched.png` });
+        await picture(page, `${size.width}-${other}-f1-look-switched`);
       });
     }
   });
@@ -403,7 +408,7 @@ test.describe('feature 1 on the run\'s record', () => {
             const word = trace.locator(`[data-station="${name.toLowerCase()}"] button`).getByText(name, { exact: true });
             expect(await colourOf(word), `${label}: ${name}`).toBe(ink);
           }
-          await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-f1-line-${label.toLowerCase()}.png` });
+          await picture(page, `${size.width}-${look}-f1-line-${label.toLowerCase()}`);
           await trace.getByRole('button', { name: 'Close the trace' }).click();
           await expect(trace).toBeHidden();
         }
@@ -468,7 +473,7 @@ test.describe('feature 1 on the run\'s record', () => {
         const tile = trace.locator('[data-forge-header] [data-actor-tile]');
         await expect(tile).toHaveText('A3');
         expect(await groundOf(tile.locator('[aria-hidden="true"]'))).toBe(await resolved(page, '--rust'));
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-f1-24-actors-a3.png` });
+        await picture(page, `${size.width}-${look}-f1-24-actors-a3`);
       });
     }
   });
@@ -513,21 +518,6 @@ for (const size of WIDTHS) {
         const toolbox = page.getByRole('dialog', { name: /^Forged Toolbox/ });
         await expect(toolbox.getByText(LAST_TOOL).first()).toBeVisible();
         await page.screenshot({ path: `${PICTURES}/before/${size.width}-${look}-toolbox.png` });
-      });
-
-      test('the INSPECT dialog of a forged tool', async ({ page, request }) => {
-        const id = await pairSessionId(request);
-        await useLook(page, look);
-        await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
-        await expect(page.getByText(LAST_TOOL).first()).toBeAttached();
-        // The key sits in the tool's forge card, a fold that opens on its summary row.
-        const inspect = page.locator(`button[aria-label="Inspect forged tool ${LANDING}"]`);
-        const summary = inspect.locator('..').locator('summary').first();
-        await summary.scrollIntoViewIfNeeded();
-        if (!(await inspect.isVisible())) await summary.click();
-        await inspect.click();
-        await expect(page.getByRole('dialog', { name: `Tool detail · ${LANDING}` })).toBeVisible();
-        await page.screenshot({ path: `${PICTURES}/before/${size.width}-${look}-inspect.png` });
       });
     });
   }

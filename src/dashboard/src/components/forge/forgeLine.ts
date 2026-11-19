@@ -70,6 +70,16 @@ function recordLine(outcome: RecordOutcome): Pick<LineModel, 'stations' | 'stop'
 }
 
 /**
+ * The attempt a number names, 1-based: the nearest one the tool holds, the
+ * latest for a number that is not finite, and 0 for a tool with no forge frame.
+ */
+export function attemptNumber(entry: ToolEntry, attempt: number): number {
+  const count = entry.attempts.length;
+  if (count === 0) return 0;
+  return Number.isFinite(attempt) ? Math.min(Math.max(Math.trunc(attempt), 1), count) : count;
+}
+
+/**
  * The line of one attempt of a tool, 1-based. A tool with no forge frame (a
  * report-only run) reads its report's outcome. An attempt the tool does not
  * hold is read as the nearest one it does, and a number that is not finite
@@ -80,9 +90,7 @@ export function forgeLineModel(entry: ToolEntry, attempt: number): LineModel {
   if (attempts.length === 0) {
     return { ...recordLine(entry.outcome), spurs: [], branch: null };
   }
-  const shownAt = Number.isFinite(attempt)
-    ? Math.min(Math.max(Math.trunc(attempt), 1), attempts.length)
-    : attempts.length;
+  const shownAt = attemptNumber(entry, attempt);
   const outcomeOf = (approved: boolean): RecordOutcome => (approved ? 'passed' : 'did_not_pass');
   const shown = attempts[shownAt - 1];
   const next = attempts[shownAt];
@@ -103,4 +111,12 @@ export function forgeLineModel(entry: ToolEntry, attempt: number): LineModel {
  */
 export function lineColour(actorIndex: number, actorCount: number): string {
   return actorCount <= 2 ? getActorColorVar(actorIndex) : 'var(--forge-quiet)';
+}
+
+/**
+ * How many times a tool was used after it was forged, as its actor's reports
+ * list it: the rows of its history after the first that are not forges of it.
+ */
+export function usesOf(entry: ToolEntry): number {
+  return entry.history.slice(1).filter((row) => !row.isReforge).length;
 }
