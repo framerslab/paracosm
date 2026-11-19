@@ -42,6 +42,9 @@ const TURNS = 6;
 
 interface SessionRow { id: string; turnCount?: number; title?: string; totalCostUSD?: number }
 
+/** No Digital Twin world, so a server's boot compiles none and calls no model, whatever keys the shell holds. */
+const NO_TWIN = { getDigitalTwinWorld: async () => null };
+
 const memoryStore = (max = 10): SessionStore => openSessionStore(':memory:', max, { databaseOptions: { type: 'memory' } });
 
 /** Stands in for the title a saved run gets from a model, and counts the calls. */
@@ -128,7 +131,7 @@ test("on the hosted demo a finished six-turn pair run is in its visitor's saved 
 
     const b = cookied();
     assert.deepEqual(await listSessions(b), [], "a second visitor's list holds none of the first visitor's runs");
-  }, { runner: pairOfSixTurns, env: HOSTED, extra: { generateText: titles.generateText, sessionStore: memoryStore() } });
+  }, { runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore() } });
 });
 
 test("on the hosted demo, until the store holds 50 rows, other visitors' finished runs leave a visitor's saved run in their list", async () => {
@@ -150,7 +153,7 @@ test("on the hosted demo, until the store holds 50 rows, other visitors' finishe
     const replay = await a.get(`/sessions/${String(saved.id)}/replay`);
     assert.equal(replay.status, 200, 'and still replays');
     await replay.body?.cancel();
-  }, { runner: pairOfSixTurns, env: HOSTED, extra: { generateText: titles.generateText, sessionStore: memoryStore(2) } });
+  }, { runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(2) } });
 });
 
 type OnArtifact = (artifact: unknown, leader: unknown) => void | Promise<void>;
@@ -221,7 +224,7 @@ test('a run of 300 actors whose live buffer was trimmed saves every turn of ever
     assert.equal((await listSessions(a))[0]?.turnCount, TURNS);
   }, {
     env: { PARACOSM_EVENT_BUFFER_MAX: '1000' },
-    extra: { generateText: titles.generateText, sessionStore: memoryStore(), runBatchSimulations: batchRunner },
+    extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runBatchSimulations: batchRunner },
   });
 });
 
@@ -242,7 +245,7 @@ test('a fork from turn 4 that runs turns 5 and 6 is a finished run and saves', a
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     const replay = await readAll(await a.get(`/sessions/${String(saved.id)}/replay`));
     assert.deepEqual(replay.filter(f => f.event === 'sim' && f.data.type === 'turn_done').map(f => (f.data.data as { turn: number }).turn), [5, 6]);
-  }, { extra: { generateText: titles.generateText, sessionStore: memoryStore(), runForkSimulation: forkRunner } });
+  }, { extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runForkSimulation: forkRunner } });
 });
 
 /**
@@ -285,7 +288,7 @@ test("a saved pair run's cost is the sum of its two actors' final artifact costs
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     const cost = (await listSessions(a))[0]?.totalCostUSD;
     assert.ok(cost !== undefined && Math.abs(cost - 0.5) < 1e-9, `0.20 + 0.30, got ${cost}`);
-  }, { extra: { generateText: titles.generateText, sessionStore: memoryStore(), runPairSimulations: pairWithArtifacts([]) } });
+  }, { extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runPairSimulations: pairWithArtifacts([]) } });
 });
 
 test("the Library offers no session link for a run whose saved session the store no longer holds", async () => {
@@ -310,6 +313,7 @@ test("the Library offers no session link for a run whose saved session the store
     assert.equal(sessionOf('run-3-1'), savedIds[2]);
   }, {
     extra: {
+      ...NO_TWIN,
       generateText: titles.generateText,
       sessionStore: memoryStore(2),
       runHistoryStore: createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } }),
@@ -351,7 +355,7 @@ test("on the hosted demo a replay of another visitor's run carries none of the b
       assert.equal(opening?.data.seedText ?? null, null);
       assert.equal((await b.json<{ meta: { seedText?: string } }>(`/sessions/${id}`)).meta.seedText, undefined);
     }
-  }, { env: HOSTED, extra: { sessionStore: store } });
+  }, { env: HOSTED, extra: { ...NO_TWIN, sessionStore: store } });
 });
 
 test('a replay asked for at a speed streams the saved run', async () => {
@@ -363,7 +367,7 @@ test('a replay asked for at a speed streams the saved run', async () => {
     assert.match(res.headers.get('content-type') ?? '', /text\/event-stream/);
     const frames = await readAll(res);
     assert.deepEqual(frames.map(f => f.event), ['active_scenario', 'sim', 'complete']);
-  }, { env: HOSTED, extra: { sessionStore: store } });
+  }, { env: HOSTED, extra: { ...NO_TWIN, sessionStore: store } });
 });
 
 test('a finished run whose save had not committed when the server stopped is saved once after the restart', async () => {
@@ -374,7 +378,7 @@ test('a finished run whose save had not committed when the server stopped is sav
     // between the run's end and the save's commit leaves it.
     const stalled = memoryStore();
     const neverSaves: SessionStore = { ...stalled, saveSession: () => new Promise(() => {}) };
-    const first = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { generateText: titles.generateText, sessionStore: neverSaves } });
+    const first = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: neverSaves } });
     const a = first.cookied();
     const visitorId = a.cookies.get(VISITOR_COOKIE)!;
     try {
@@ -386,7 +390,7 @@ test('a finished run whose save had not committed when the server stopped is sav
     }
 
     const store = memoryStore();
-    const second = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { generateText: titles.generateText, sessionStore: store } });
+    const second = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: store } });
     try {
       const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
       const rows = await waitFor(async () => { const r = await listSessions(again); return r.length > 0 && r; }, 'the run to be saved after the restart', 5000);
@@ -397,7 +401,7 @@ test('a finished run whose save had not committed when the server stopped is sav
     }
 
     // A third start finds the run saved and saves it no second time.
-    const third = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { generateText: titles.generateText, sessionStore: store } });
+    const third = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: store } });
     try {
       await new Promise(resolve => setTimeout(resolve, 300));
       assert.equal(await store.count(), 1);
@@ -426,5 +430,5 @@ test('a local server keeps one ring of ten saved runs, whoever saved them', asyn
     assert.equal(listed.length, 10);
     assert.ok(!listed.includes(String(cli.id)), 'the oldest run went');
     assert.deepEqual(listed, [...ids].reverse());
-  }, { runner: pairOfSixTurns, extra: { generateText: titles.generateText } });
+  }, { runner: pairOfSixTurns, extra: { ...NO_TWIN, generateText: titles.generateText } });
 });
