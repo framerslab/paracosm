@@ -5,7 +5,7 @@
  *
  * @module paracosm/dashboard/quickstart/QuickstartResults
  */
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, type ReactNode } from 'react';
 import { useBranchesContext } from '../branches/BranchesContext';
 import { useDashboardNavigation } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -16,6 +16,8 @@ import {
 } from './QuickstartView.helpers';
 import { formatDelta } from '../branches/BranchesTab.helpers';
 import { ActorPresetPicker } from './ActorPresetPicker';
+import { useShareLink } from '../../hooks/useShareLink';
+import { ShareLinkNote } from '../shared/ShareLinkNote';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
@@ -38,7 +40,18 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
   const navigate = useDashboardNavigation();
   const labels = useScenarioLabels();
   const [swapTargetIndex, setSwapTargetIndex] = useState<number | null>(null);
-  const [copiedForIndex, setCopiedForIndex] = useState<number | null>(null);
+  // The share note the run drawer and the run actions menu show: the link,
+  // what became of the copy, and who can open the link. Every card's key
+  // shares the same run, so the results hold one note.
+  const shareLink = useShareLink();
+  const clearShareLink = shareLink.clear;
+  // The card whose key made the note: the note shows under that card, so a
+  // phone with the cards in one column shows it where the visitor pressed.
+  const [sharedFrom, setSharedFrom] = useState<number | null>(null);
+  // A share note belongs to the run it was made for.
+  useEffect(() => {
+    clearShareLink();
+  }, [sessionId, clearShareLink]);
 
   const handleFork = (i: number) => {
     dispatch({ type: 'SET_PARENT', artifact: artifacts[i] });
@@ -49,16 +62,10 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
     navigate('studio');
   };
 
-  const handleShare = async (i: number) => {
+  const handleShare = (i: number) => {
     if (!sessionId) return;
-    const url = buildQuickstartShareUrl(window.location.origin, sessionId);
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedForIndex(i);
-      setTimeout(() => setCopiedForIndex(null), 1500);
-    } catch {
-      // ignore clipboard errors (secure-context requirement etc.)
-    }
+    setSharedFrom(i);
+    shareLink.share(buildQuickstartShareUrl(window.location.origin, sessionId));
   };
 
   const handleDownload = (i: number) => {
@@ -144,10 +151,12 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
               peers={artifacts.filter((a, j) => j !== i && !!a)}
               timeLabel={labels.time}
               timeLabelCap={labels.Time}
-              copiedHere={copiedForIndex === i}
               shareEnabled={!!sessionId}
               onDownload={() => handleDownload(i)}
               onShare={() => handleShare(i)}
+              shareNote={sharedFrom === i && shareLink.shared
+                ? <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+                : null}
               onFork={() => handleFork(i)}
               onRequestSwap={() => setSwapTargetIndex(i)}
             />
@@ -173,17 +182,18 @@ interface ActorResultCardProps {
   peers: RunArtifact[];
   timeLabel: string;
   timeLabelCap: string;
-  copiedHere: boolean;
   shareEnabled: boolean;
   onDownload: () => void;
   onShare: () => void;
+  /** The share note, when this card's key made it. */
+  shareNote: ReactNode;
   onFork: () => void;
   onRequestSwap: () => void;
 }
 
 function ActorResultCard({
   actor, artifact, peers, timeLabel, timeLabelCap,
-  copiedHere, shareEnabled, onDownload, onShare, onFork, onRequestSwap,
+  shareEnabled, shareNote, onDownload, onShare, onFork, onRequestSwap,
 }: ActorResultCardProps) {
   const deltas = useMemo(() => computeMedianDeltas(artifact, peers), [artifact, peers]);
   const turnsCompleted = artifact.trajectory?.timepoints?.length ?? 0;
@@ -242,7 +252,7 @@ function ActorResultCard({
           disabled={!shareEnabled}
           title="Copy a deep link that opens this run on the visualization tab"
         >
-          {copiedHere ? 'Copied!' : 'Copy viz share link'}
+          Copy viz share link
         </button>
         <button
           type="button"
@@ -254,6 +264,7 @@ function ActorResultCard({
           Fork in Branches &rarr;
         </button>
       </div>
+      {shareNote}
       <div className={styles.forkHint}>
         {turnsCompleted > 0
           ? `${turnsCompleted} ${timeLabelCap}${turnsCompleted === 1 ? '' : 's'} available for forking`

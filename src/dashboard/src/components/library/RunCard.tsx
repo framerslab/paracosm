@@ -2,6 +2,8 @@ import * as React from 'react';
 import styles from './RunCard.module.scss';
 import type { RunRecord } from '../../../../server/services/run-record.js';
 import { buildReplayShareUrl } from '../../hooks/shareUrl.helpers';
+import { useShareLink } from '../../hooks/useShareLink';
+import { ShareLinkNote } from '../shared/ShareLinkNote';
 
 export interface RunCardProps {
   record: RunRecord;
@@ -16,25 +18,14 @@ export function RunCard(props: RunCardProps): JSX.Element {
   // pass populated session_id via linkSessionId. Legacy rows + runs
   // whose broadcast save failed render with the button hidden (no UI
   // affordance suggesting a feature that wouldn't actually work).
-  const [copied, setCopied] = React.useState(false);
+  // The press shows the share note the run drawer and the run actions menu
+  // show: the link, what became of the copy, and who can open the link.
+  const shareLink = useShareLink();
   const canShare = !!record.sessionId;
   const handleShare = (e: React.MouseEvent): void => {
     e.stopPropagation();
     if (!record.sessionId) return;
-    const url = buildReplayShareUrl(window.location.origin, record.sessionId, 'viz');
-    void navigator.clipboard.writeText(url).then(
-      () => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      },
-      () => {
-        // Clipboard failures (secure-context required, permission
-        // denied) leave the button text unchanged. The dashboard's
-        // toast pipeline doesn't reach Library row buttons without
-        // additional plumbing; the silent failure matches how the
-        // Quickstart card's Share button handles the same error.
-      },
-    );
+    shareLink.share(buildReplayShareUrl(window.location.origin, record.sessionId, 'viz'));
   };
 
   return (
@@ -70,11 +61,18 @@ export function RunCard(props: RunCardProps): JSX.Element {
             aria-label="Copy a deep link that opens this run on the visualization tab"
             title="Copy viz share link"
           >
-            {copied ? 'Copied!' : 'Share'}
+            Share
           </button>
         )}
         {/* Compare lives at the bundle level (BundleCard). Solo runs only get Open + Replay (+ Share when sessionId is set). */}
       </div>
+      {shareLink.shared && (
+        // A press inside the note (its field, its Close key) stays in the
+        // note and does not open the run.
+        <div onClick={(e) => e.stopPropagation()}>
+          <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+        </div>
+      )}
     </article>
   );
 }

@@ -12,6 +12,21 @@
  * - "Share viz link", in a run's drawer and in the run actions menu, shows the
  *   link, says whether it was copied, and says who can open it; a refused or
  *   unanswered clipboard says what failed and leaves the link to copy by hand.
+ *   The Library card's Share key does the same, also where the page has no
+ *   clipboard at all (plain http on a network address).
+ * - Changing an Event Log filter keeps the rest of the address, so a refresh
+ *   reopens the same replay, tab, sub view and filter. A Library search on a
+ *   replay keeps the replay in the address the same way.
+ * - The other copy keys say when the copy fails: the run actions menu's Copy
+ *   on a page with no clipboard, the verdict's export key on a refused
+ *   clipboard, and the landing page's Copy key on a code block in both cases.
+ *   The verdict and a landing code block hold the place for their copy
+ *   result before any press, only the last press's result shows (also when
+ *   an earlier press is answered after a later one), and a refused verdict
+ *   export says nothing on a run loaded after it, the same saved run loaded
+ *   again included. A verdict the visitor collapsed stays collapsed when
+ *   Exit Replay connects the live feed. A copy that works is said in the
+ *   status region too, for a screen reader.
  *
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
@@ -85,14 +100,177 @@ async function openDrawerAndShare(page: Page): Promise<void> {
   await drawer.getByText('Share viz link', { exact: true }).click();
 }
 
+const shareNote = (page: Page) => page.getByRole('status', { name: 'Share link' });
+const runCard = (page: Page) => page.getByRole('article', { name: 'Run mars-genesis by Aria Chen' });
+const cardShareKey = (page: Page) => runCard(page).getByRole('button', { name: 'Copy a deep link that opens this run on the visualization tab' });
+
+/**
+ * Saves a picture of what a press shows. It waits a moment for the share
+ * note so the picture holds it when there is one; the test's own checks
+ * come after and decide.
+ */
+async function pictureOfPress(page: Page, path: string): Promise<void> {
+  const note = shareNote(page);
+  if (await note.waitFor({ timeout: 5_000 }).then(() => true, () => false)) await note.scrollIntoViewIfNeeded();
+  await page.screenshot({ path });
+}
+
+/** Presses Aria Chen's tool's "↗ LOG" key: in the Sim tab's toolbox dialog at 390, in the Reports tab's toolbox at 1440. */
+async function pressLandingLogKey(page: Page, id: string, width: number): Promise<void> {
+  if (width === 390) {
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
+    await expect(page.getByRole('dialog', { name: /^Forged Toolbox/ })).toBeVisible();
+  } else {
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
+    const fold = page.locator('#toolbox summary').first();
+    await expect(fold).toBeVisible();
+    if (!(await logKey(page, LANDING).isVisible())) await fold.click();
+  }
+  await logKey(page, LANDING).click();
+}
+
+/** The address holds the replay, the Settings tab and its Event Log sub view. */
+function expectAddressOnReplayLog(page: Page, id: string): void {
+  const params = new URL(page.url()).searchParams;
+  expect(params.get('replay')).toBe(id);
+  expect(params.get('tab')).toBe('settings');
+  expect(params.get('sub')).toBe('log');
+}
+
 /** Replaces the page's clipboard before any script runs. */
-async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers'): Promise<void> {
+async function clipboardThat(page: Page, answer: 'refuses' | 'never-answers' | 'is-absent'): Promise<void> {
   await page.addInitScript((how) => {
+    if (how === 'is-absent') {
+      // A page served over plain http at a network address has no clipboard.
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      return;
+    }
     const writeText = how === 'refuses'
       ? () => Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
       : () => new Promise<void>(() => { /* the browser never answers */ });
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
   }, answer);
+}
+
+/** What the verdict's export key says when the browser does not copy the verdict. */
+const VERDICT_NOT_COPIED = 'The browser refused to copy the verdict.';
+
+/** What a screen reader hears when the verdict's export key copies the verdict. */
+const VERDICT_COPIED = 'The verdict was copied as markdown.';
+
+/** What a screen reader hears when a landing page code block's Copy key copies the code. */
+const CODE_COPIED = 'The code was copied.';
+
+/** What a landing page code block says when its Copy key's copy does not happen. */
+const CODE_NOT_COPIED = 'The browser did not copy the code. Select it and copy it.';
+
+/** The landing page's install code block, the first one with a Copy key. */
+const installBlock = (page: Page) => page.locator('.code-block').filter({ hasText: 'Install (npm, pnpm, or bun)' });
+
+/** The page errors that name the clipboard, gathered from now on. */
+function clipboardErrorsOf(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => {
+    if (/clipboard|writeText/i.test(error.message)) errors.push(error.message);
+  });
+  return errors;
+}
+
+/**
+ * A saved Mars Genesis pair run with its verdict, as the dashboard's Save
+ * writes it: the stream's events and the pair verdict the server broadcast.
+ */
+const SAVED_RUN_WITH_VERDICT = {
+  schemaVersion: 3,
+  events: [
+    { type: 'turn_start', leader: 'Aria Chen', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_start', leader: 'Dietrich Voss', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_done', leader: 'Aria Chen', data: { turn: 1, time: 2043, title: 'Landfall' } },
+    { type: 'turn_done', leader: 'Dietrich Voss', data: { turn: 1, time: 2043, title: 'Landfall' } },
+  ],
+  verdict: {
+    winner: 'A',
+    winnerName: 'Aria Chen',
+    headline: 'Aria Chen leads on survival',
+    summary: 'Aria Chen scored the landing sites before choosing one; Dietrich Voss landed at the first site with ice.',
+    keyDivergence: 'The landing site in turn 1.',
+    scores: {
+      a: { survival: 8, prosperity: 7, morale: 7, innovation: 8 },
+      b: { survival: 6, prosperity: 6, morale: 5, innovation: 6 },
+    },
+    leaderA: { name: 'Aria Chen', archetype: 'The Visionary', unit: 'Ares' },
+    leaderB: { name: 'Dietrich Voss', archetype: 'The Engineer', unit: 'Olympus' },
+    settlementNoun: 'colony',
+    finalStats: {
+      a: { population: 100, morale: 0.72, food: 14, power: 410, modules: 6, science: 21, tools: 1 },
+      b: { population: 96, morale: 0.58, food: 11, power: 380, modules: 5, science: 15, tools: 1 },
+    },
+  },
+};
+
+/**
+ * Drops a saved run on the page, as a visitor drags a saved file in, and loads it.
+ * The page takes a drop once its drop listeners are set, which is after the
+ * document's load, so the drop is made again until the load preview opens.
+ */
+async function dropSavedRun(page: Page, run: unknown): Promise<void> {
+  const preview = page.getByRole('dialog', { name: 'Load simulation' });
+  await expect(async () => {
+    await page.evaluate((text) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([text], 'saved-run.json', { type: 'application/json' }));
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        window.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
+      }
+    }, JSON.stringify(run));
+    await expect(preview).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+  await expect(preview).toHaveCount(0);
+}
+
+/**
+ * A clipboard whose writes are answered or refused in the order given;
+ * every write after the last one named is answered.
+ */
+async function clipboardAnswering(page: Page, answers: Array<'ok' | 'refused'>): Promise<void> {
+  await page.addInitScript((order) => {
+    let writes = 0;
+    const writeText = () => (order[writes++] === 'refused'
+      ? Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'))
+      : Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
+  }, answers);
+}
+
+/**
+ * A clipboard that holds its first write until {@link answerFirstWrite}
+ * answers it, and refuses every later write, so the first press is answered
+ * after the second press's refusal.
+ */
+async function clipboardAnsweringFirstWriteLast(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    let writes = 0;
+    const writeText = () => {
+      writes += 1;
+      if (writes === 1) {
+        return new Promise<void>((resolve) => {
+          (window as unknown as { answerFirstWrite: () => void }).answerFirstWrite = resolve;
+        });
+      }
+      return Promise.reject(new DOMException('Write permission denied.', 'NotAllowedError'));
+    };
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText, readText: () => Promise.resolve('') } });
+  });
+}
+
+/** Answers the held first write, and gives the page time to take the answer. */
+async function answerFirstWrite(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    (window as unknown as { answerFirstWrite: () => void }).answerFirstWrite();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
 }
 
 for (const size of WIDTHS) {
@@ -131,9 +309,273 @@ for (const size of WIDTHS) {
         expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shareUrl(id));
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-share-link-shown.png` });
       });
+
+      test('the Library card\'s Share key on a page with no clipboard shows the link to copy by hand', async ({ page, request }) => {
+        const id = await storedSessionId(request);
+        await clipboardThat(page, 'is-absent');
+        await useLook(page, look);
+        await page.goto('/sim?tab=library');
+        await cardShareKey(page).click();
+
+        await pictureOfPress(page, `${PICTURES}/${size.width}-${look}-library-card-share-no-clipboard.png`);
+        await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
+        // The press made the note, not the run's drawer.
+        await expect(page.getByRole('dialog', { name: 'Run detail' })).toHaveCount(0);
+      });
+
+      test('clearing an Event Log filter keeps the replay, tab and sub view, and a refresh reopens them with the filter', async ({ page, request }) => {
+        const id = await storedSessionId(request);
+        await useLook(page, look);
+        await pressLandingLogKey(page, id, size.width);
+        await expectLogFilteredToLandingTool(page);
+        expectAddressOnReplayLog(page, id);
+
+        // Clear the tool chip, then filter by text instead.
+        const log = eventLog(page);
+        await log.getByRole('button', { name: 'Clear tool filter' }).click();
+        await expect(log.getByText(`tool: ${LANDING}`)).toHaveCount(0);
+        expectAddressOnReplayLog(page, id);
+        await log.getByRole('searchbox', { name: /^Filter log by text/ }).fill('forge_attempt');
+        await expect.poll(() => new URL(page.url()).searchParams.get('logQuery')).toBe('forge_attempt');
+        expectAddressOnReplayLog(page, id);
+
+        await page.reload();
+        expectAddressOnReplayLog(page, id);
+        const reopened = eventLog(page);
+        await expect(reopened).toBeVisible();
+        await expect(reopened.getByRole('searchbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
+        // The replay's two forge events, one for each tool.
+        await expect(reopened.locator('summary')).toHaveCount(2);
+        await expect(reopened).toContainText(/forge_attempt\s*Aria Chen/);
+        await expect(reopened).toContainText(/forge_attempt\s*Dietrich Voss/);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-filter-kept-after-refresh.png` });
+      });
+
+      test('the verdict\'s export key on a refused clipboard says the verdict was not copied', async ({ page }) => {
+        await clipboardThat(page, 'refuses');
+        await useLook(page, look);
+        await page.goto('/sim?tab=sim');
+        await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+        const exportKey = page.getByRole('button', { name: 'Copy verdict as markdown' });
+        await expect(exportKey).toBeVisible();
+        await exportKey.click();
+
+        // Wait a moment for the words so the picture holds them; the check below decides.
+        await page.getByText(VERDICT_NOT_COPIED, { exact: true }).waitFor({ timeout: 5_000 }).catch(() => undefined);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-verdict-export-refused.png` });
+        await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+      });
+
+      test('the landing page\'s Copy key on a page with no clipboard says the code was not copied', async ({ page }) => {
+        await clipboardThat(page, 'is-absent');
+        await useLook(page, look);
+        const clipboardErrors = clipboardErrorsOf(page);
+        await page.goto('/');
+        const block = installBlock(page);
+        await block.getByRole('button', { name: 'Copy', exact: true }).click();
+
+        // Wait a moment for the words so the picture holds them; the checks below decide.
+        await block.getByRole('status').waitFor({ timeout: 5_000 }).catch(() => undefined);
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-landing-copy-no-clipboard.png` });
+        await expect(block.getByRole('status')).toHaveText(CODE_NOT_COPIED);
+        expect(clipboardErrors).toEqual([]);
+      });
     });
   }
 }
+
+test.describe('the other copy keys and the Library\'s address', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('the run actions menu\'s Copy on a page with no clipboard says the summary was not copied', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await clipboardThat(page, 'is-absent');
+    const clipboardErrors: string[] = [];
+    page.on('pageerror', (error) => {
+      if (/clipboard|writeText/i.test(error.message)) clipboardErrors.push(error.message);
+    });
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Open run actions menu' }).click();
+    await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+
+    await expect(page.getByText('Clipboard access denied.', { exact: true })).toBeVisible();
+    expect(clipboardErrors).toEqual([]);
+  });
+
+  test('the landing page\'s Copy key on a refused clipboard says the code was not copied, and a copy that works takes the words away', async ({ page }) => {
+    await clipboardAnswering(page, ['refused']);
+    const clipboardErrors = clipboardErrorsOf(page);
+    await page.goto('/');
+    const block = installBlock(page);
+    const copyKey = block.getByRole('button', { name: /^(Copy|Copied)$/ });
+
+    await copyKey.click();
+    await expect(block.getByRole('status')).toHaveText(CODE_NOT_COPIED);
+    await expect(copyKey).toHaveText('Copy');
+
+    await copyKey.click();
+    await expect(copyKey).toHaveText('Copied');
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toHaveCount(0);
+    expect(clipboardErrors).toEqual([]);
+  });
+
+  test('a landing page code block has the place for its copy result before any press', async ({ page }) => {
+    await page.goto('/');
+    // There from the start and empty, so a screen reader announces the words put in it.
+    await expect(installBlock(page).getByRole('status')).toHaveText('');
+  });
+
+  test('a landing page copy that works says so in the block\'s status region', async ({ page }) => {
+    await clipboardAnswering(page, ['ok']);
+    await page.goto('/');
+    const block = installBlock(page);
+    await block.getByRole('button', { name: /^(Copy|Copied)$/ }).click();
+    // The words are for a screen reader; the key itself shows Copied.
+    await expect(block.getByRole('status')).toHaveText(CODE_COPIED);
+  });
+
+  test('a verdict export that works says so in its status region', async ({ page }) => {
+    await clipboardAnswering(page, ['ok']);
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Copy verdict as markdown' }).click();
+    // The key keeps its name, so the region carries the result for a screen reader.
+    await expect(page.getByRole('status', { name: 'Verdict copy result' })).toHaveText(VERDICT_COPIED);
+  });
+
+  test('a landing page copy that is refused after one that worked says only that the code was not copied', async ({ page }) => {
+    await clipboardAnswering(page, ['ok', 'refused']);
+    await page.goto('/');
+    const block = installBlock(page);
+    const copyKey = block.getByRole('button', { name: /^(Copy|Copied)$/ });
+
+    await copyKey.click();
+    await expect(copyKey).toHaveText('Copied');
+    await copyKey.click();
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toBeVisible();
+    // Read at once: the key must not go on saying Copied beside the words.
+    expect(await copyKey.textContent()).toBe('Copy');
+  });
+
+  test('the verdict has the place for its copy result before any press', async ({ page }) => {
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
+    // There with the key and empty, so a screen reader announces the words put in it.
+    await expect(page.getByRole('status', { name: 'Verdict copy result' })).toHaveText('');
+  });
+
+  test('a verdict export that is refused after one that worked says only that the verdict was not copied', async ({ page }) => {
+    await clipboardAnswering(page, ['ok', 'refused']);
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    const exportKey = page.getByRole('button', { name: 'Copy verdict as markdown' });
+
+    await exportKey.click();
+    await expect(exportKey).toHaveText('COPIED ✓');
+    await exportKey.click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+    // Read at once: the key must not go on saying it copied beside the words.
+    expect(await exportKey.textContent()).toBe('EXPORT MD');
+  });
+
+  test('a refused verdict export says nothing on the verdict of a run loaded after it', async ({ page }) => {
+    await clipboardThat(page, 'refuses');
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Copy verdict as markdown' }).click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+
+    // Another saved run: its verdict was never exported.
+    await dropSavedRun(page, {
+      ...SAVED_RUN_WITH_VERDICT,
+      verdict: { ...SAVED_RUN_WITH_VERDICT.verdict, winner: 'B', winnerName: 'Dietrich Voss', headline: 'Dietrich Voss leads on power' },
+    });
+    await expect(page.getByText('Dietrich Voss leads on power', { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toHaveCount(0);
+  });
+
+  test('a refused verdict export says nothing when the same saved run is loaded again', async ({ page }) => {
+    await clipboardThat(page, 'refuses');
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Copy verdict as markdown' }).click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+
+    // The same file again: a run of its own, and its verdict was never exported.
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toBeVisible();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toHaveCount(0);
+  });
+
+  test('a verdict the visitor collapsed stays collapsed when Exit Replay connects the live feed', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+    await expect(page.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toBeVisible({ timeout: 30_000 });
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    await page.getByRole('button', { name: 'Collapse verdict' }).click();
+    await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
+
+    // Exit Replay drops the replay and opens the live feed, a source of its own.
+    const liveFeed = page.waitForResponse((response) => new URL(response.url()).pathname === '/events');
+    await page.getByRole('button', { name: 'EXIT REPLAY' }).click();
+    await liveFeed;
+    // The feed's first frame follows its headers; give the page time to take it.
+    await page.waitForTimeout(1_000);
+    await expect(page.getByRole('button', { name: 'Expand verdict' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy verdict as markdown' })).toHaveCount(0);
+  });
+
+  test('a verdict export answered after a later press leaves what the later press showed', async ({ page }) => {
+    await clipboardAnsweringFirstWriteLast(page);
+    await page.goto('/sim?tab=sim');
+    await dropSavedRun(page, SAVED_RUN_WITH_VERDICT);
+    const exportKey = page.getByRole('button', { name: 'Copy verdict as markdown' });
+
+    await exportKey.click();
+    await exportKey.click();
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+    // The first press's copy is answered now, after the second press was refused.
+    await answerFirstWrite(page);
+    expect(await exportKey.textContent()).toBe('EXPORT MD');
+    await expect(page.getByText(VERDICT_NOT_COPIED, { exact: true })).toBeVisible();
+  });
+
+  test('a landing page copy answered after a later press leaves what the later press showed', async ({ page }) => {
+    await clipboardAnsweringFirstWriteLast(page);
+    await page.goto('/');
+    const block = installBlock(page);
+    const copyKey = block.getByRole('button', { name: /^(Copy|Copied)$/ });
+
+    await copyKey.click();
+    await copyKey.click();
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toBeVisible();
+    // The first press's copy is answered now, after the second press was refused.
+    await answerFirstWrite(page);
+    expect(await copyKey.textContent()).toBe('Copy');
+    await expect(block.getByText(CODE_NOT_COPIED, { exact: true })).toBeVisible();
+  });
+
+  test('a Library search on a replay keeps the replay in the address, and a refresh reopens the replay with the search', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=library`);
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(runCard(page)).toBeVisible();
+
+    await page.getByRole('textbox', { name: 'Search runs' }).fill('mars');
+    await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBe('mars');
+    const params = new URL(page.url()).searchParams;
+    expect(params.get('replay')).toBe(id);
+    expect(params.get('tab')).toBe('library');
+
+    await page.reload();
+    await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Search runs' })).toHaveValue('mars');
+    await expect(runCard(page)).toBeVisible();
+  });
+});
 
 test.describe('filters left from an earlier visit', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -194,6 +636,27 @@ test.describe('when the copy does not happen', () => {
     const id = await storedSessionId(request);
     await clipboardThat(page, 'refuses');
     await openDrawerAndShare(page);
+    await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
+  });
+
+  test('the Library card\'s Share key copies the link and says who can open it', async ({ page, context, request }) => {
+    const id = await storedSessionId(request);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: SERVER });
+    await page.goto('/sim?tab=library');
+    await cardShareKey(page).click();
+    await expectShareNote(page, id, 'Link copied.');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shareUrl(id));
+    // Closing the note leaves the Library as it was.
+    await shareNote(page).getByRole('button', { name: 'Close' }).click();
+    await expect(shareNote(page)).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: 'Run detail' })).toHaveCount(0);
+  });
+
+  test('the Library card\'s Share key on a refused clipboard says so', async ({ page, request }) => {
+    const id = await storedSessionId(request);
+    await clipboardThat(page, 'refuses');
+    await page.goto('/sim?tab=library');
+    await cardShareKey(page).click();
     await expectShareNote(page, id, 'The browser refused to copy the link. Select the link and copy it.');
   });
 

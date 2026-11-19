@@ -11,8 +11,8 @@ import type { SimEvent } from '../../hooks/useSSE';
 import { EventLogFilterBar } from './EventLogFilterBar';
 import {
   applyLogFilters,
+  hrefWithLogFilters,
   parseFiltersFromUrl,
-  serializeFiltersToUrl,
   type LogFilters,
 } from './EventLogPanel.helpers';
 import styles from './EventLogPanel.module.scss';
@@ -70,20 +70,16 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
   }, [events.length]);
 
   // Sync filters back to the URL so a refresh / share link preserves
-  // state. The legacy `#log=<tool>` hash is stripped when the user
-  // clears `toolHash` via the chip's × button; otherwise the hash is
+  // state. Only the log parameters change; the replay, tab and sub view
+  // stay in the address. The legacy `#log=<tool>` hash is stripped when the
+  // user clears `toolHash` via the chip's × button; otherwise the hash is
   // preserved (toolbox-section clicks can still drive it).
   const handleFiltersChange = useCallback(
     (next: LogFilters) => {
       setFilters((prev) => {
         try {
-          const qs = serializeFiltersToUrl(next);
-          const base = window.location.pathname;
-          // Drop the hash entirely when the user just cleared toolHash.
           const toolHashJustCleared = prev.toolHash !== '' && next.toolHash === '';
-          const hash = toolHashJustCleared ? '' : window.location.hash;
-          const target = base + qs + (hash || '');
-          window.history.replaceState({}, '', target);
+          window.history.replaceState({}, '', hrefWithLogFilters(window.location.href, next, toolHashJustCleared));
         } catch {
           // Best-effort; filter state still lives in React.
         }

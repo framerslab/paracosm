@@ -151,6 +151,24 @@ export function serializeFiltersToUrl(filters: LogFilters): string {
   return str ? `?${str}` : '';
 }
 
+/** The query parameters the Event Log keeps its filters in ({@link serializeFiltersToUrl}). */
+export const LOG_FILTER_PARAMS = ['logQuery', 'logTypes', 'logLeader', 'logTurnMin', 'logTurnMax'] as const;
+
+/**
+ * The address with the Event Log's filters replaced by `filters`. Only the
+ * log parameters change: every other parameter (the replay, the tab, the
+ * sub view) stays, so a refresh reopens the same view. The hash stays
+ * unless `dropHash` is set, which the panel does when the `#log=<tool>`
+ * chip is cleared. Returns a path, query and hash, without the origin.
+ */
+export function hrefWithLogFilters(currentHref: string, filters: LogFilters, dropHash: boolean): string {
+  const url = new URL(currentHref);
+  for (const key of LOG_FILTER_PARAMS) url.searchParams.delete(key);
+  new URLSearchParams(serializeFiltersToUrl(filters)).forEach((value, key) => url.searchParams.append(key, value));
+  if (dropHash) url.hash = '';
+  return url.pathname + url.search + url.hash;
+}
+
 /**
  * Parse filters out of a URL search + hash pair. `search` can include
  * or omit the leading `?`. Hash can include or omit the leading `#`.
