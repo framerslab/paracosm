@@ -939,6 +939,9 @@ footer { padding: 28px 24px; border-top: 1px solid var(--border); background: va
 .ft-links { display: flex; gap: 20px; font-size: var(--font-sm); flex-wrap: wrap; }
 .ft-links a { color: var(--t3); text-decoration: none; transition: color .2s; }
 .ft-links a:hover { color: var(--amber); }
+/* Analytics choices: a button the consent bar opens the choices from, drawn as a footer link. */
+.ft-links button { color: var(--t3); transition: color .2s; }
+.ft-links button:hover { color: var(--amber); }
 /* Bumped from --t4 (~3.2:1) to --t3 so the copyright passes WCAG AA against the footer background. */
 .ft-copy { font-size: var(--font-xs); color: var(--t3); }
 

@@ -1,0 +1,357 @@
+/*
+ * The hosted demo's consent bar (assets/consent/consent.js). It sits at the
+ * bottom of the page, over nothing it blocks: no backdrop, and the page
+ * scrolls and takes clicks behind it. Dark by default, light under
+ * html.light, the class the landing page and the dashboard set.
+ *
+ * Contrast in both looks: body text 16:1 or more on the bar, the rows'
+ * details 13:1 or more, the switches' edges 4.5:1 or more. Text is 15 px or
+ * larger; every key and switch is 44 px tall. The bar is never taller than
+ * the screen and scrolls as one panel, so a short screen reaches all of it.
+ * The footers' Analytics choices control has text of 14 px or more, a 44 px
+ * target on a phone, and a focus ring in its own text's colour, which reads
+ * against whatever its text reads against.
+ */
+.pcc,
+.pcc * {
+  box-sizing: border-box;
+}
+
+.pcc {
+  --pcc-bg: #14110e;
+  --pcc-edge: #6b5c45;
+  --pcc-text: #f5f0e4;
+  --pcc-detail: #e6dcc4;
+  --pcc-key-bg: #242018;
+  --pcc-key-hover: #302a22;
+  --pcc-on: #e8b44a;
+  --pcc-on-knob: #14110e;
+  --pcc-off: #3a3228;
+  --pcc-off-edge: #b8a888;
+  --pcc-focus: #e8b44a;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483000;
+  background: var(--pcc-bg);
+  color: var(--pcc-text);
+  border-top: 1px solid var(--pcc-edge);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.35);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: left;
+  padding: 14px max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  max-height: 100vh;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+html.light .pcc {
+  --pcc-bg: #f8f2e4;
+  --pcc-edge: #8a7a5e;
+  --pcc-text: #1a140e;
+  --pcc-detail: #2e261d;
+  --pcc-key-bg: #fffaf0;
+  --pcc-key-hover: #efe4cc;
+  --pcc-on: #6b4700;
+  --pcc-on-knob: #fffaf0;
+  --pcc-off: #e2d6bc;
+  --pcc-off-edge: #5a4c36;
+  --pcc-focus: #8e2c0c;
+  box-shadow: 0 -8px 24px rgba(60, 40, 10, 0.18);
+}
+
+.pcc[hidden] {
+  display: none;
+}
+
+.pcc-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+}
+
+.pcc-words {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pcc-lead {
+  margin: 0;
+  font-size: 15px;
+  color: var(--pcc-text);
+  max-width: 68ch;
+}
+
+.pcc-link {
+  color: var(--pcc-text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pcc-link:focus-visible {
+  outline: 3px solid var(--pcc-focus, #e8b44a);
+  outline-offset: 2px;
+}
+
+.pcc-note {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pcc-text);
+}
+
+.pcc-note[hidden] {
+  display: none;
+}
+
+.pcc-keys {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pcc-keys:has(> .pcc-key:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pcc-key,
+.pcc-save {
+  appearance: none;
+  margin: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--pcc-edge);
+  border-radius: 10px;
+  background: var(--pcc-key-bg);
+  color: var(--pcc-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.pcc-key:hover,
+.pcc-save:hover {
+  background: var(--pcc-key-hover);
+}
+
+.pcc-key:focus-visible,
+.pcc-save:focus-visible,
+.pcc-switch:focus-visible {
+  outline: 3px solid var(--pcc-focus);
+  outline-offset: 2px;
+}
+
+[data-consent-open]:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 2px;
+}
+
+.pcc-rows:not([hidden]) {
+  display: grid;
+  gap: 4px;
+}
+
+.pcc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--pcc-edge);
+}
+
+.pcc-row-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pcc-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pcc-text);
+}
+
+.pcc-vendor {
+  font-weight: 400;
+}
+
+.pcc-vendor::before {
+  content: '\00B7\00A0';
+}
+
+.pcc-detail {
+  font-size: 15px;
+  color: var(--pcc-detail);
+}
+
+.pcc-always {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--pcc-text);
+}
+
+.pcc-switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 56px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pcc-switch::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 9px;
+  height: 26px;
+  border-radius: 13px;
+  border: 2px solid var(--pcc-off-edge);
+  background: var(--pcc-off);
+}
+
+.pcc-switch[aria-checked='true']::before {
+  border-color: var(--pcc-on);
+  background: var(--pcc-on);
+}
+
+.pcc-knob {
+  position: absolute;
+  top: 14px;
+  left: 9px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--pcc-off-edge);
+  transition: transform 140ms ease;
+}
+
+.pcc-switch[aria-checked='true'] .pcc-knob {
+  transform: translateX(22px);
+  background: var(--pcc-on-knob);
+}
+
+.pcc-switch[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pcc-save[hidden] {
+  display: none;
+}
+
+.pcc-save {
+  justify-self: start;
+  margin-top: 8px;
+  padding: 8px 20px;
+}
+
+/* The footers' Analytics choices control reads as one of their links; a footer's own rules win. */
+:where(button[data-consent-open]) {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: inherit;
+  cursor: pointer;
+  min-height: 24px;
+}
+
+:where(button[data-consent-open]):hover {
+  text-decoration: underline;
+}
+
+/* Readable and easy to hit wherever it sits: 14 px text or larger, a 44 px target on a phone. */
+button[data-consent-open] {
+  font-size: max(14px, 1em);
+  line-height: 1.3;
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  button[data-consent-open] {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 4px;
+  }
+}
+
+button[data-consent-open][hidden] {
+  display: none;
+}
+
+/*
+ * The dashboard page's own place for the control, outside the dashboard's
+ * script: shown when that script has not taken it into its footer, on the
+ * browser's own page colours for the look it shows.
+ */
+.pcc-shell {
+  background: Canvas;
+  color: CanvasText;
+  display: flex;
+  justify-content: center;
+  padding: 8px 16px max(8px, env(safe-area-inset-bottom));
+}
+
+.pcc-shell:not(:has(button)) {
+  display: none;
+}
+
+@media (max-width: 359px) {
+  .pcc {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .pcc-key {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}
+
+@media (min-width: 900px) {
+  .pcc-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 24px;
+  }
+
+  .pcc-rows:not([hidden]) {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .pcc-keys {
+    grid-template-columns: repeat(3, 148px);
+  }
+
+  .pcc-keys:has(> .pcc-key:only-child) {
+    grid-template-columns: 148px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pcc-knob {
+    transition: none;
+  }
+}

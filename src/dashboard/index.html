@@ -40,9 +40,8 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
     <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- Served from this site (assets/fonts/), so no page asks a font service. -->
+    <link href="/brand/fonts/fonts.css" rel="stylesheet" />
 
     <!-- Structured Data -->
     <script type="application/ld+json">
@@ -99,6 +98,10 @@
         </noscript>
       </div>
     </main>
+    <!-- The Analytics choices control of the hosted demo's consent bar, outside
+         #root so it is there when the dashboard's script does not load. The bar's
+         script shows it; the dashboard's footer takes it in when it mounts. -->
+    <div class="pcc-shell" id="pcc-shell"><button type="button" id="pcc-reopen" data-consent-open hidden>Analytics choices</button></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
