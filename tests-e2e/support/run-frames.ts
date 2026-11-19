@@ -143,7 +143,8 @@ export interface CrewMember {
   shortTermMemory: string[];
 }
 
-const CREW_NAMES = ['Noor Aziz', 'Ben Calder', 'Ifeoma Eze', 'Lars Holm', 'Rin Sato', 'Paula Reyes', 'Idris Bello', 'Greta Lund'];
+const CREW_FIRST = ['Noor', 'Ben', 'Ifeoma', 'Lars', 'Rin', 'Paula', 'Idris', 'Greta'];
+const CREW_LAST = ['Aziz', 'Calder', 'Eze', 'Holm', 'Sato'];
 const CREW_RANKS = ['chief', 'lead', 'senior', 'junior'] as const;
 const CREW_MOODS = ['hopeful', 'neutral', 'anxious', 'focused'];
 
@@ -155,7 +156,7 @@ export function crewOf(leader: string, turn: number, departments: string[], size
   const slug = leader.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   return Array.from({ length: size }, (_, i) => ({
     agentId: `${slug}-crew-${i + 1}`,
-    name: CREW_NAMES[i % CREW_NAMES.length],
+    name: `${CREW_FIRST[i % CREW_FIRST.length]} ${CREW_LAST[Math.floor(i / CREW_FIRST.length) % CREW_LAST.length]}`,
     department: departments[i % departments.length],
     role: `${departments[i % departments.length]} specialist`,
     rank: CREW_RANKS[i % CREW_RANKS.length],

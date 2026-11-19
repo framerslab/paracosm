@@ -80,6 +80,8 @@ const RADIATION_OUTPUT = {
 const NO_FIELDS = { type: 'object', properties: {} };
 
 const timeOf = (turn: number): number => 2035 + (turn - 1) * 8;
+/** The population each stored turn reports. */
+const POPULATION = 30;
 const titleOf = (turn: number): string => (turn === 1 ? 'Landfall' : 'Dust Season');
 
 /** One row of a tool's history: the department call that forged it or used it. */
@@ -143,8 +145,8 @@ export function pairRunFrames(): string[] {
     ...departmentReport(D, 1, 'engineering',
       [forge(D, 1, 2035, 'engineering', OXYGEN, 'Counts the days the oxygen reserve lasts.', 0.96, { inputFields: [], outputFields: [], timestamp: at(26) })],
       [tool(OXYGEN, 'Counts the days the oxygen reserve lasts.', 'engineering', 1, true, 0.96, { ...oxygenFields, history: [oxygenForged] })]),
-    systemsSnapshot(A, 1, timeOf(1), crewOf(A, 1, DEPARTMENTS)),
-    systemsSnapshot(D, 1, timeOf(1), crewOf(D, 1, DEPARTMENTS)),
+    systemsSnapshot(A, 1, timeOf(1), crewOf(A, 1, DEPARTMENTS, POPULATION)),
+    systemsSnapshot(D, 1, timeOf(1), crewOf(D, 1, DEPARTMENTS, POPULATION)),
 
     // Turn 2.
     ...leaderTurn(A, 2, 'engineering',
@@ -175,8 +177,8 @@ export function pairRunFrames(): string[] {
     ...departmentReport(D, 2, 'governance',
       [forge(D, 2, 2043, 'governance', ROVER, 'Plans a rover route between two sites.', 0.93, { timestamp: at(54) })],
       [tool(ROVER, 'Plans a rover route between two sites.', 'governance', 2, true, 0.93, { history: [historyRow(2, 'governance', SCORE, true, false, 0.93)] })]),
-    systemsSnapshot(A, 2, timeOf(2), crewOf(A, 2, DEPARTMENTS)),
-    systemsSnapshot(D, 2, timeOf(2), crewOf(D, 2, DEPARTMENTS)),
+    systemsSnapshot(A, 2, timeOf(2), crewOf(A, 2, DEPARTMENTS, POPULATION)),
+    systemsSnapshot(D, 2, timeOf(2), crewOf(D, 2, DEPARTMENTS, POPULATION)),
 
     frame('complete', { timestamp: '2026-11-16T01:55:39.000Z' }),
   ];

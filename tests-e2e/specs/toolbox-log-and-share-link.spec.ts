@@ -344,8 +344,8 @@ for (const size of WIDTHS) {
         const reopened = eventLog(page);
         await expect(reopened).toBeVisible();
         await expect(reopened.getByRole('searchbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
-        // The replay's two forge events, one for each tool.
-        await expect(reopened.locator('summary')).toHaveCount(2);
+        // The replay's 13 forge events, 6 of Aria Chen and 7 of Dietrich Voss.
+        await expect(reopened.locator('summary')).toHaveCount(13);
         await expect(reopened).toContainText(/forge_attempt\s*Aria Chen/);
         await expect(reopened).toContainText(/forge_attempt\s*Dietrich Voss/);
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-filter-kept-after-refresh.png` });

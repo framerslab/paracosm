@@ -288,7 +288,8 @@ function pairShapedRun(spec: CohortRunSpec): string[] {
   }
   const [a, b] = buildRoster(spec, mulberry32(spec.seed));
   const reports = spec.reportOnly === true;
-  const snapshots = (turn: number) => [a, b].map(actor => systemsSnapshot(actor.name, turn, timeOf(turn), crewOf(actor.name, turn, spec.departments)));
+  // leaderTurn's turns report a population of 30.
+  const snapshots = (turn: number) => [a, b].map(actor => systemsSnapshot(actor.name, turn, timeOf(turn), crewOf(actor.name, turn, spec.departments, 30)));
   return [
     frame('active_scenario', { id: SCENARIO.id, name: SCENARIO.name, runKey: runKeyOf(spec), forkedFrom: null }),
     frame('status', { phase: 'starting', maxTurns: spec.turns, customEvents: [] }),
@@ -442,7 +443,8 @@ export function generateCohortRun(spec: CohortRunSpec): string[] {
     }
     /** What the actor's registry knows of a tool so far: where it was first forged, and its history rows. */
     const ledger = new Map<ToolPlan, { turn: number; eventIndex: number; history: Array<Record<string, unknown>> }>();
-    const population = 28 + below(rng, 9);
+    // A small population keeps a run of hundreds of actors light: the living grid draws one cell a member.
+    const population = spec.actors > 50 ? 6 : 12;
     const morale = round2(0.6 + rng() * 0.3);
     let approvedTools = 0;
 
@@ -505,7 +507,7 @@ export function generateCohortRun(spec: CohortRunSpec): string[] {
         frames.push(sim(leader, 'outcome', { ...at, outcome: 'conservative_success', category: 'environmental', emergent: false, systemDeltas: { morale: 0.02 }, eventIndex }));
       }
 
-      frames.push(systemsSnapshot(leader, turn, time, crewOf(leader, turn, spec.departments, 6), morale));
+      frames.push(systemsSnapshot(leader, turn, time, crewOf(leader, turn, spec.departments, population), morale));
       frames.push(sim(leader, 'turn_done', { ...at, metrics: { population, morale }, toolsForged: approvedTools }));
     }
 

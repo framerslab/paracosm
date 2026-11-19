@@ -144,6 +144,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Forged tool view end-to-end test
+        run: npx playwright test tests-e2e/specs/forged-tool-view.spec.ts --project=chromium-desktop
+
+      # The pictures that spec takes at 390 and 1440 in both looks, at 2, 24 and 300 actors.
+      - name: Upload the forged tool view pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: forged-tool-view-pictures
+          path: test-pictures/forged-tool-view/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
 
