@@ -81,6 +81,15 @@ test('past the bound on every owner\'s rows, the owner holding the most gives up
   await store.close();
 });
 
+test('saves that finish together keep each owner to their ring and the store to its bound', async () => {
+  const store = openSessionStore(':memory:', 2, { maxTotalSessions: 4 });
+  await Promise.all(Array.from({ length: 6 }, () => store.saveSession(baseEvents, undefined, { owner: 'one' })));
+  assert.equal((await store.listSessions({ owner: 'one' })).length, 2, "one owner's ring");
+  await Promise.all(['a', 'b', 'c', 'd', 'e'].map(owner => store.saveSession(baseEvents, undefined, { owner })));
+  assert.equal(await store.count(), 4, 'the bound on every owner together');
+  await store.close();
+});
+
 test('getSession returns null for unknown id', async () => {
   const store = openSessionStore(':memory:');
   assert.equal(await store.getSession('does-not-exist'), null);
