@@ -11,7 +11,7 @@ import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
   QUICKSTART_SCENARIO_ID_MAX, QUICKSTART_MODELS, defaultModelCalls, endFinishedJobsOf,
-  type QuickstartDeps,
+  type QuickstartDeps, type QuickstartModelCalls,
 } from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
 import { handleSimulate, type SimulateDeps } from './routes/simulate.js';
@@ -21,6 +21,7 @@ import { lunarScenario } from '../engine/scenarios/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import {
   apiKeyForProvider,
+  credentialFingerprint,
   hasProviderCredentials,
   normalizeCredential,
   resolveProviderFromCredentials,
@@ -1625,42 +1626,74 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // the result panel reads as a real digital twin rather than a
   // generic org sim with labels stapled on.
   //
-  // The first /api/quickstart/simulate-intervention call compiles and
-  // caches; later calls reuse the same WorldModel so a series of
-  // digital-twin runs costs one compile.
+  // The first request that finds no world compiles one and the server
+  // keeps it; later requests reuse the same WorldModel, so a series of
+  // digital-twin runs costs one compile. A kept world is served to every
+  // request: it holds no key, and serving it calls no model.
+  //
+  // Off the hosted demo the compile runs on the server's keys, on OpenAI
+  // with the compiler's own fallback, and one compile in flight serves
+  // every request that arrives before it ends.
+  //
+  // On the hosted demo the compile is a model call of the request that
+  // finds no world, routed as that request's other calls are
+  // (hosted-model-policy.ts): on the visitor's key and that key's provider
+  // when the request brought one, else on the host's OpenAI key, with the
+  // Quickstart model of its provider and no fallback to another provider.
+  // A compile in flight serves only the requests the same key pays for
+  // (the provider and a fingerprint of its key, `env` for the host's); a
+  // request another key pays for starts a compile of its own. A compile
+  // that fails is not kept, so it fails no later request.
   let digitalTwinWorld: WorldModel | null = null;
-  let digitalTwinCompilePromise: Promise<WorldModel | null> | null = null;
-  const getDigitalTwinWorld = (): Promise<WorldModel | null> => {
+  const digitalTwinCompiles = new Map<string, Promise<WorldModel | null>>();
+  const compileDigitalTwinWorld = async (calls: QuickstartModelCalls | undefined): Promise<WorldModel | null> => {
+    const scenarioPath = resolve(scenarioDir, 't2d-glp1-protocol.json');
+    if (!existsSync(scenarioPath)) {
+      console.log(`  [digital-twin] Scenario file missing: ${scenarioPath}`);
+      return null;
+    }
+    try {
+      const raw = JSON.parse(readFileSync(scenarioPath, 'utf-8')) as Record<string, unknown>;
+      const compiled = await compileScenarioReal(raw, calls
+        ? {
+            provider: calls.provider,
+            model: calls.model,
+            cache: true,
+            ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+            ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+            stayOnProvider: true,
+          }
+        : { provider: 'openai', model: 'gpt-5.4-mini', cache: true });
+      // Two compiles on different keys may both end: the first one's world is kept.
+      digitalTwinWorld ??= WorldModel.fromScenario(compiled);
+      console.log(`  [digital-twin] Compiled + cached ${compiled.id} (${compiled.labels?.name ?? 'unnamed'})`);
+      return digitalTwinWorld;
+    } catch (err) {
+      console.error('  [digital-twin] Compile failed:', err);
+      return null;
+    }
+  };
+  const getDigitalTwinWorld = (calls?: QuickstartModelCalls): Promise<WorldModel | null> => {
     if (options.getDigitalTwinWorld) return options.getDigitalTwinWorld();
     if (digitalTwinWorld) return Promise.resolve(digitalTwinWorld);
-    if (digitalTwinCompilePromise) return digitalTwinCompilePromise;
-    digitalTwinCompilePromise = (async () => {
-      const scenarioPath = resolve(scenarioDir, 't2d-glp1-protocol.json');
-      if (!existsSync(scenarioPath)) {
-        console.log(`  [digital-twin] Scenario file missing: ${scenarioPath}`);
-        digitalTwinCompilePromise = null;
-        return null;
-      }
-      try {
-        const raw = JSON.parse(readFileSync(scenarioPath, 'utf-8')) as Record<string, unknown>;
-        // On the hosted demo the host's keys pay for this compile: it
-        // falls back to no other provider (hosted-model-policy.ts).
-        const compiled = await compileScenarioReal(raw, {
-          provider: 'openai',
-          model: 'gpt-5.4-mini',
-          cache: true,
-          ...(serverMode === 'hosted_demo' ? { stayOnProvider: true } : {}),
-        });
-        digitalTwinWorld = WorldModel.fromScenario(compiled);
-        console.log(`  [digital-twin] Compiled + cached ${compiled.id} (${compiled.labels?.name ?? 'unnamed'})`);
-        return digitalTwinWorld;
-      } catch (err) {
-        console.error('  [digital-twin] Compile failed:', err);
-        digitalTwinCompilePromise = null;
-        return null;
-      }
-    })();
-    return digitalTwinCompilePromise;
+    const hostedDemo = serverMode === 'hosted_demo';
+    // On the hosted demo nothing is compiled for a caller with no routing.
+    if (hostedDemo && !calls) return Promise.resolve(null);
+    const routed = hostedDemo ? calls : undefined;
+    const payer = routed
+      ? `${routed.provider}:${credentialFingerprint(apiKeyForProvider(routed.provider, routed))}`
+      : 'server';
+    const inFlight = digitalTwinCompiles.get(payer);
+    if (inFlight) return inFlight;
+    const compile = compileDigitalTwinWorld(routed);
+    digitalTwinCompiles.set(payer, compile);
+    // `compile` never rejects. It leaves the map once it has ended, whatever
+    // its result: a world is read from `digitalTwinWorld`, and a failed
+    // compile is tried again by the next request.
+    void compile.finally(() => {
+      if (digitalTwinCompiles.get(payer) === compile) digitalTwinCompiles.delete(payer);
+    });
+    return compile;
   };
   // Pre-warm the digital-twin world on server boot so the first user
   // request does not pay the ~30-60s compile inside its response. Cloudflare
@@ -1668,10 +1701,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // compile + 2-turn simulation reliably tripped 524 errors. Pre-warming
   // moves the compile off the user's critical path; the cookbook's
   // disk cache means restarts after the first one are nearly free.
-  // Fire-and-forget — failure is logged from inside getDigitalTwinWorld
-  // and the route handler still surfaces a 503 if the user beats the
-  // pre-warm to the request.
-  void getDigitalTwinWorld();
+  // Fire-and-forget: a failure is logged from inside the compile, and the
+  // first request after a failed pre-warm compiles the world again.
+  //
+  // On the hosted demo the host pays for this compile, as it pays for a
+  // request that brings no key: it runs on the host's OpenAI key. A host
+  // with no OpenAI key compiles nothing here and says so once.
+  const bootRouting = hostedModelRouting({ hostedDemo: serverMode === 'hosted_demo', env, credentials: {} });
+  if (!bootRouting || options.getDigitalTwinWorld) {
+    void getDigitalTwinWorld();
+  } else if (bootRouting.payer === 'host') {
+    void getDigitalTwinWorld({
+      provider: bootRouting.provider,
+      model: QUICKSTART_MODELS[bootRouting.provider],
+      stayOnProvider: true,
+      hostPaid: true,
+    });
+  } else {
+    console.log('  [digital-twin] World not compiled at boot: the hosted demo has no host OpenAI key to pay for the compile');
+  }
 
   // Auto-save on clean completion. AUTO_SAVE_MIN_TURNS floors the run
   // length at one completed turn: accidental clicks never get saved (no
@@ -2946,7 +2994,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           defaultProvider: 'openai',
           defaultModel: 'gpt-5.4-mini',
           // The hosted demo's model policy (hosted-model-policy.ts) for the
-          // draft, its hook compile, the actors and a Digital Twin run: on
+          // draft, its hook compile, the actors, a Digital Twin run and the
+          // compile of the Digital Twin's world when no request has compiled it: on
           // the visitor's key and its provider, else on the host's keys on
           // OpenAI with the demo's models, turn cap and leader cap (whether
           // or not the limiter is on), never with a fallback to another

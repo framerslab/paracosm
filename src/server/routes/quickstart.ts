@@ -310,15 +310,21 @@ export interface QuickstartDeps {
     citations: Array<{ query: string; sources: Array<{ title: string; link: string; domain: string }> }>,
   ) => void;
   /**
-   * Lazily compile + cache the corporate-quarterly scenario and return a
-   * WorldModel ready for `intervene`. Used by the
-   * /simulate-intervention route so the digital-twin tab does not need
-   * the user to compile a scenario first.
+   * The Digital Twin's world, ready for `intervene`: the one the server
+   * keeps, else one compiled from scenarios/t2d-glp1-protocol.json and
+   * kept. Used by the /simulate-intervention route so the digital-twin
+   * tab does not need the user to compile a scenario first.
    *
-   * Returns undefined when the underlying scenario file is missing or
-   * compile fails (caller writes a 502 in that case).
+   * `calls` is the routing of the request the world is for. On the hosted
+   * demo a compile runs on it: on the request's own key and that key's
+   * provider, else on the host's OpenAI key, with no fallback to another
+   * provider. Off the hosted demo a compile runs on the server's keys
+   * whatever the request brought.
+   *
+   * Resolves to null when the scenario file is missing or the compile
+   * fails (the route answers 503).
    */
-  getDigitalTwinWorld?: () => Promise<WorldModel | null>;
+  getDigitalTwinWorld?: (calls: QuickstartModelCalls) => Promise<WorldModel | null>;
   /**
    * The directory a digital-twin run's output file is written to: the
    * server's runs directory. Omitted, the run writes to
@@ -820,8 +826,9 @@ export async function handleGroundScenario(
  *
  * Behaviour:
  * - If `scenarioId` is provided, resolves it via deps.getScenarioById.
- * - Otherwise calls deps.getDigitalTwinWorld() which lazily compiles
- *   t2d-glp1-protocol.json and caches the WorldModel.
+ * - Otherwise calls deps.getDigitalTwinWorld(calls), which returns the
+ *   world the server keeps, or compiles t2d-glp1-protocol.json on the
+ *   request's routing and keeps the WorldModel.
  * - Leader defaults to a Cautious Methodical Evaluator HEXACO profile
  *   if the body does not supply one.
  * - Options default to maxTurns=2, seed=11, costPreset='economy' so a
@@ -847,8 +854,8 @@ export async function handleSimulateIntervention(
 
   const { subject, intervention, leader, scenarioId, runKey: requestedRunKey, options = {} } = parsed.data;
 
-  // Routed before the world is prepared (a cold world compiles on the
-  // server's keys) and before the day's run is charged.
+  // Routed before the world is prepared (a world no request has compiled
+  // is compiled on this routing) and before the day's run is charged.
   const calls = modelCallsFor(deps, parsed.data);
   if (isRefusal(calls)) {
     writeRefusal(res, calls);
@@ -874,7 +881,7 @@ export async function handleSimulateIntervention(
       return;
     }
     try {
-      world = await deps.getDigitalTwinWorld();
+      world = await deps.getDigitalTwinWorld(calls);
     } catch (err) {
       console.error('[simulate-intervention] getDigitalTwinWorld failed:', err);
       res.writeHead(502, { 'Content-Type': 'application/json' });
