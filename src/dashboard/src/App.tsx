@@ -27,6 +27,8 @@ import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
 import { useSimSavedToast } from './hooks/useSimSavedToast';
+import { useShareLink } from './hooks/useShareLink';
+import { ShareLinkNote } from './components/shared/ShareLinkNote';
 import { useLaunchState } from './hooks/useLaunchState';
 import { VerdictBanner } from './components/layout/VerdictBanner';
 import { VerdictModal } from './components/layout/VerdictModal';
@@ -58,6 +60,7 @@ import { GuidedTour } from './components/tour/GuidedTour';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
+  createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
   getDashboardTabFromHref,
@@ -87,7 +90,15 @@ export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
 }
 
-const DashboardNavigationContext = createContext<((tab: Exclude<DashboardTab, 'about'>) => void) | null>(null);
+/**
+ * Where a navigation lands. `logTool` opens the Settings tab's Event Log
+ * filtered to that forged tool's events (the toolbox's "↗ LOG" key).
+ */
+export interface DashboardNavigationOptions {
+  logTool?: string;
+}
+type DashboardNavigate = (tab: Exclude<DashboardTab, 'about'>, options?: DashboardNavigationOptions) => void;
+const DashboardNavigationContext = createContext<DashboardNavigate | null>(null);
 export function useDashboardNavigation() {
   const ctx = useContext(DashboardNavigationContext);
   if (!ctx) throw new Error('useDashboardNavigation must be used within App');
@@ -252,6 +263,12 @@ function AppContent() {
   // set). Three-layer gating extracted to hooks/useForgeToasts.ts; see
   // that file for the rationale.
   const { toast } = useToast();
+  // The run actions menu's share note: the link, what became of the copy
+  // and who can open it. It names one run's link, so whatever replaces the
+  // run on screen clears it.
+  const shareLink = useShareLink();
+  const shareRunLink = shareLink.share;
+  const clearShareLink = shareLink.clear;
   useForgeToasts({
     events: effectiveEvents,
     replayDone: sse.replayDone,
@@ -274,7 +291,9 @@ function AppContent() {
   const [studioInitialSubTab] = useState<'author' | 'branches'>(
     initialRoute.tab === 'studio' && initialRoute.sub === 'branches' ? 'branches' : 'author',
   );
-  const [settingsInitialSubTab] = useState<'config' | 'log'>(
+  // The sub-tab the Settings tab opens on: its settings unless the URL
+  // or a tool's log key asks for the Event Log.
+  const [settingsInitialSubTab, setSettingsInitialSubTab] = useState<'config' | 'log'>(
     initialRoute.tab === 'settings' && initialRoute.sub === 'log' ? 'log' : 'config',
   );
   const setActiveTab = useCallback((tab: DashboardTab) => {
@@ -282,9 +301,22 @@ function AppContent() {
       window.location.href = '/';
       return;
     }
+    if (tab === 'settings') setSettingsInitialSubTab('config');
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
+  // The navigation components get. A tool's log key opens the Event Log
+  // with the tool's filter: the URL is written before the panel mounts,
+  // so EventLogPanel reads the filter from it on its first render.
+  const navigateTab = useCallback<DashboardNavigate>((tab, options) => {
+    if (options?.logTool) {
+      setSettingsInitialSubTab('log');
+      setActiveTabState('settings');
+      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool));
+      return;
+    }
+    setActiveTab(tab);
+  }, [setActiveTab]);
 
   // Direct deep-link to /sim?tab=about lands the user on the dashboard
   // with activeTab='about' but no rendering branch handles it (the
@@ -390,6 +422,7 @@ function AppContent() {
     onConfirm: ({ events, results, verdict }) => {
       leaveDigitalTwin();
       sse.loadEvents(events, results, verdict);
+      clearShareLink();
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
       // `?load=` — falls back to 'sim' for picker / DnD loads and for
@@ -782,15 +815,22 @@ function AppContent() {
   // Copy a deep link that opens the current run on the viz tab. Used
   // for social shares (r/dataisbeautiful etc.) where viewers click
   // straight through to the swarm visualization with no upload step.
+  // The note names one run's link: it goes when the run on screen is
+  // another one or none (a new run, a cleared page, leaving a replay).
+  useEffect(() => {
+    clearShareLink();
+  }, [currentSessionId, clearShareLink]);
+  // A reset (RUN, Clear local data, clearing history) empties the page's
+  // events and can keep the replay parameter, so the session id above
+  // does not change; an empty page clears the note too.
+  const pageHoldsEvents = sse.events.length > 0;
+  useEffect(() => {
+    if (!pageHoldsEvents) clearShareLink();
+  }, [pageHoldsEvents, clearShareLink]);
   const handleShareViz = useCallback(() => {
     if (!currentSessionId) return;
-    const url = buildReplayShareUrl(window.location.origin, currentSessionId, 'viz');
-    navigator.clipboard.writeText(url).then(() => {
-      toast('success', 'Share link copied', 'Anyone with the link opens this run on the viz tab.');
-    }).catch(() => {
-      toast('error', 'Copy Failed', 'Clipboard access denied.');
-    });
-  }, [currentSessionId, toast]);
+    shareRunLink(buildReplayShareUrl(window.location.origin, currentSessionId, 'viz'));
+  }, [currentSessionId, shareRunLink]);
 
   // App-level "launching" state: persists across tab navigation so the
   // user can submit /setup, switch to viz/chat/etc., come back to sim,
@@ -1031,7 +1071,7 @@ function AppContent() {
 
   return (
     <BranchesProvider>
-    <DashboardNavigationContext.Provider value={setActiveTab}>
+    <DashboardNavigationContext.Provider value={navigateTab}>
      <RunStartContext.Provider value={leaveDigitalTwin}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
@@ -1071,7 +1111,7 @@ function AppContent() {
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
             history={history.entries}
-            onRestoreHistory={(entry) => { leaveDigitalTwin(); history.restore(entry, sse.loadEvents); }}
+            onRestoreHistory={(entry) => { leaveDigitalTwin(); clearShareLink(); history.restore(entry, sse.loadEvents); }}
             onClearHistory={() => {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
@@ -1089,6 +1129,10 @@ function AppContent() {
             }}
           />
           <TabBar active={activeTab} onTabChange={setActiveTab} scenario={scenario} />
+          {/* In the page's flow under the tabs, so it covers none of the top bar's keys. */}
+          {shareLink.shared && (
+            <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+          )}
           {/* Cold-load gate: suppress the verdict banner unless the
               user actually started a run this session. Without this
               guard, a fresh visitor lands on the page with the SSE

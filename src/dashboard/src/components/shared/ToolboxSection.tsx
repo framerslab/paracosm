@@ -26,18 +26,10 @@ export function ToolboxSection({ registry, title = 'Forged Toolbox', collapsible
   const navigateTab = useDashboardNavigation();
   if (registry.list.length === 0) return null;
 
+  // Opens the Settings tab's Event Log filtered to this tool: its
+  // forge_attempt events and the department reports that used it.
   const jumpToLog = (toolName: string) => {
-    // Drop a search-hash the Log tab can read, then navigate. The Log
-    // tab filters to forge_attempt / specialist_done entries matching the
-    // tool name so users land on the exact event that forged (or
-    // reused) this tool instead of scrolling through the whole feed.
-    try {
-      window.location.hash = `log=${encodeURIComponent(toolName)}`;
-    } catch {
-      /* silent */
-    }
-    // Log is a sub-tab of Settings after the merge.
-    navigateTab('settings');
+    navigateTab('settings', { logTool: toolName });
   };
 
   const inner = (

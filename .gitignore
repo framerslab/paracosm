@@ -56,3 +56,6 @@ tests-e2e/screenshots/
 
 # Local SQLite file left by test runs; not part of the package.
 :memory:
+
+# Pictures the end-to-end specs take; CI uploads them as artifacts.
+/test-pictures/

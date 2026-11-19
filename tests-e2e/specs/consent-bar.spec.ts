@@ -55,8 +55,8 @@ test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The hosted-demo server with anal
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
-const BASE = 'http://127.0.0.1:3462';
-const SINK = 'http://127.0.0.1:3463';
+const BASE = 'http://127.0.0.1:3464';
+const SINK = 'http://127.0.0.1:3465';
 /** The ids tests-e2e/support/consent-server.ts gives the server. */
 const GA_ID = 'G-E2E0TEST00';
 const CLARITY_ID = 'e2econsent';

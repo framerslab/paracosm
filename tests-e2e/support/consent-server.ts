@@ -18,8 +18,8 @@ import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 
-const PORT = Number(process.env.PORT ?? 3462);
-const SINK_PORT = Number(process.env.CONSENT_SINK_PORT ?? 3463);
+const PORT = Number(process.env.PORT ?? 3464);
+const SINK_PORT = Number(process.env.CONSENT_SINK_PORT ?? 3465);
 
 interface ReceivedEvent {
   body: unknown;

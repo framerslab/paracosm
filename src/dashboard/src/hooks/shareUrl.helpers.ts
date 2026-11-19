@@ -89,3 +89,27 @@ export function findLatestSavedSessionId(events: readonly SimEvent[]): string | 
   }
   return null;
 }
+
+/**
+ * Whether a share link names a local address, so that it opens only on
+ * the computer that serves the dashboard: `localhost` and the names
+ * under it, the IPv4 loopback block (127.0.0.0/8), the IPv6 loopback
+ * (`::1`) and the unspecified address (`0.0.0.0`).
+ *
+ * The share note reads this to say who can open the link. Text that is
+ * not a URL names no local address, so it answers `false`.
+ */
+export function shareLinkOpensOnlyHere(link: string): boolean {
+  let host: string;
+  try {
+    host = new URL(link).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host.endsWith('.')) host = host.slice(0, -1);
+  return host === 'localhost'
+    || host.endsWith('.localhost')
+    || host === '[::1]'
+    || host === '0.0.0.0'
+    || /^127(?:\.\d{1,3}){3}$/.test(host);
+}
