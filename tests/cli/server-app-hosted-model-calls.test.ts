@@ -120,6 +120,15 @@ const ROLE_MARKS: Record<string, string> = {
   verdict: 'Your job is to decide which of them ran the',
 };
 
+/**
+ * The commander's promotion call is answered with `{}`, which fails its
+ * schema, so the run takes the fallback that promotes each department's
+ * top candidate: a promotion call that fails at the provider ends the run.
+ * Every other call is answered with the stub's error, which each of them
+ * meets with its own fallback, so the run reaches every role.
+ */
+const promotionsAnsweredEmpty: WireReply = call => (call.text.includes('You must promote') ? '{}' : undefined);
+
 test('every model call of a host-paid /setup run on the hosted demo stays on OpenAI with the host key when OpenAI fails', async () => {
   const restore = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY, ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY });
   try {
@@ -141,7 +150,7 @@ test('every model call of a host-paid /setup run on the hosted demo stays on Ope
           assert.doesNotMatch(String(call.model), /^claude/, `${call.path} names an OpenAI model`);
         }
       }, { extra: { runPairSimulations: undefined } });
-    });
+    }, promotionsAnsweredEmpty);
   } finally {
     restore();
   }
