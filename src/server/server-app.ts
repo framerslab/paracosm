@@ -526,9 +526,10 @@ export interface CreateMarsServerOptions {
   /**
    * The model call behind a saved run's title; defaults to AgentOS's
    * `generateText`. `apiKey` is the run's own key for the title's provider,
-   * absent on a host-paid run, which then uses the environment's key.
+   * absent on a host-paid run, which then uses the environment's key. A
+   * call on the run's own key carries `fallbackProviders: []`.
    */
-  generateText?: (args: { provider: string; model: string; prompt: string; apiKey?: string }) => Promise<{ text: string }>;
+  generateText?: (args: { provider: string; model: string; prompt: string; apiKey?: string; fallbackProviders?: [] }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   /**
    * The compile behind POST /api/quickstart/compile-from-seed; defaults to

@@ -230,12 +230,13 @@ export function fallbackTitle(h: RunHighlights): string {
  * overwriting with empty string.
  *
  * `apiKey` is the run's own key for `provider`. It is passed to the call
- * when given; without it the call uses the environment's key.
+ * when given, with no fallback to another provider; without it the call
+ * uses the environment's key.
  */
 export async function generateSessionTitle(
   events: TimestampedEvent[],
   provider: 'openai' | 'anthropic',
-  runGenerateText: (args: { provider: string; model: string; prompt: string; apiKey?: string }) => Promise<{ text: string }>,
+  runGenerateText: (args: { provider: string; model: string; prompt: string; apiKey?: string; fallbackProviders?: [] }) => Promise<{ text: string }>,
   modelOverride?: string,
   apiKey?: string,
 ): Promise<string | null> {
@@ -243,7 +244,10 @@ export async function generateSessionTitle(
   const prompt = buildTitlePrompt(highlights);
   const model = modelOverride ?? DEFAULT_TITLE_MODELS[provider];
   try {
-    const { text } = await runGenerateText(apiKey ? { provider, model, prompt, apiKey } : { provider, model, prompt });
+    // On the run's own key the call stays on that provider: AgentOS's
+    // default fallback chain would retry another provider on the
+    // environment's key.
+    const { text } = await runGenerateText(apiKey ? { provider, model, prompt, apiKey, fallbackProviders: [] } : { provider, model, prompt });
     const cleaned = cleanTitle(text ?? '');
     if (!cleaned) return null;
     return cleaned;
