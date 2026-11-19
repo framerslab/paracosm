@@ -1276,3 +1276,10 @@
     padding: 10px 12px;
   }
 }
+
+// A forged tool's trace moves focus to the event its tool was made for: the ring in the accent.
+.eventStartRow:focus { outline: none; }
+.eventStartRow:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}

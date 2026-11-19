@@ -295,3 +295,10 @@
 @media (min-width: 1440px) {
   .dialog { width: 1200px; }
 }
+
+// Open all, at the line's head, at its right.
+.lineHead {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+}

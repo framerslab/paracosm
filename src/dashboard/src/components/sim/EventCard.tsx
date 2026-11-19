@@ -55,8 +55,13 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
       const title = String(dd.title || '');
       const category = String(dd.category || '');
       if (total <= 1) return null;
+      // A forged tool's trace links to the event its tool was made for and moves focus here.
       return (
-        <div className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}>
+        <div
+          id={`sim-event-${slot}-${Number(dd.turn ?? 0)}-${idx}`}
+          tabIndex={-1}
+          className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}
+        >
           <span className={styles.eventNumber}>EVENT {idx + 1}/{total}</span>
           <span className={styles.eventStartTitle}>{title}</span>
           {category && <span className={styles.eventCategoryPill}>{category}</span>}

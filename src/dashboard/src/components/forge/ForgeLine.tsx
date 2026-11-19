@@ -47,7 +47,8 @@ function defaultResult(state: StationState): ReactNode {
  *
  * At trace size the line runs down the trace's left side as a list named
  * "The forge's stations": each station is a button, named by its station
- * and state, that opens its evidence in place and closes it again. A
+ * and state, that opens its evidence in place, a region named by the
+ * station, and closes it again. A
  * station the forge never reached, an unknown one, or one with no evidence
  * has nothing to open: it is marked aria-disabled, its one line says why,
  * and it is left out of the tab order.
@@ -97,6 +98,7 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
         const result = stationResult?.(station) ?? defaultResult(state);
         const resultId = `${baseId}-${station}-result`;
         const evidenceId = `${baseId}-${station}-evidence`;
+        const nameId = `${baseId}-${station}-name`;
         const quiet = state === 'notReached' || state === 'unknown';
         return (
           <li
@@ -121,7 +123,7 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
               <span className={styles.mark} aria-hidden="true">
                 <Cell model={model} station={station} size={20} />
               </span>
-              <span className={styles.name}>{STATION_WORDS[station]}</span>
+              <span id={nameId} className={styles.name}>{STATION_WORDS[station]}</span>
             </button>
             {!isOpen && result != null && (
               <div id={resultId} className={styles.result} data-quiet={quiet || undefined}>
@@ -129,7 +131,7 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
               </div>
             )}
             {openable && (
-              <div id={evidenceId} className={styles.evidence} hidden={!isOpen}>
+              <div id={evidenceId} className={styles.evidence} role="region" aria-labelledby={nameId} hidden={!isOpen}>
                 {isOpen ? evidence : null}
               </div>
             )}

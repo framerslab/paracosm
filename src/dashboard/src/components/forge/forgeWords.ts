@@ -94,3 +94,68 @@ export const judgeApprovedLine = (confidence: number): string =>
 
 /** Added's one line on an approved forge: "Used 3 times", "Used 1 time". */
 export const usedTimes = (n: number): string => (n === 1 ? 'Used 1 time' : `Used ${n} times`);
+
+// ── The stations, opened ─────────────────────────────────────────────────
+
+/** The key at the line's head: its label, and its name for a screen reader. */
+export const OPEN_ALL = {
+  open: 'Open all',
+  close: 'Close all',
+  openName: 'Open all stations',
+  closeName: 'Close all stations',
+} as const;
+
+/** The actor a tool was forged under, by its tile's label and name: "A1 Aria Chen, The Visionary · engineering · turn 1 · for “Landfall”". */
+export function actorLine(parts: {
+  label: string; name: string; archetype: string; department: string; turn: number; eventTitle: string;
+}): string {
+  const who = parts.archetype ? `${parts.label} ${parts.name}, ${parts.archetype}` : `${parts.label} ${parts.name}`;
+  return [
+    who,
+    parts.department,
+    `turn ${parts.turn}`,
+    parts.eventTitle ? `for “${parts.eventTitle}”` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** The link from Request to the event the tool was made for. */
+export const goToEvent = (eventTitle: string): string => `Go to the event: ${eventTitle}`;
+
+/** Request: what the tool does and its declared fields. */
+export const REQUEST_WORDS = {
+  whatItDoes: 'What it does',
+  inputFields: 'Input fields',
+  outputFields: 'Output fields',
+  columns: ['Field', 'Type', 'Required', 'Description'],
+  rawJson: 'Raw JSON',
+  noInputFields: 'This tool declares no input fields.',
+  noOutputFields: 'This tool declares no output fields.',
+  /** A field the record names with no schema to give its type. */
+  notRecorded: 'Not recorded',
+  yes: 'Yes',
+  no: 'No',
+} as const;
+
+/** Judge on the run's record: the verdict's confidence, and no words of the judge's own. */
+export const JUDGE_WORDS = {
+  heading: 'What the judge said',
+  notice: "A model's review of this code, not a security audit. Check before reuse.",
+  meterName: "The judge's confidence",
+  wordsNotRecorded: "The judge's words were not recorded for this run.",
+} as const;
+
+/** "The judge's confidence: 0.98 out of 1", the confidence to two places. */
+export const judgeConfidence = (confidence: number): string =>
+  `The judge's confidence: ${confidence.toFixed(2)} out of 1`;
+
+/** Added on the run's record: each history row with the output its run recorded. */
+export const ADDED_WORDS = {
+  output: 'Output the run recorded',
+  testNotRecorded: "This forge's test was not recorded.",
+  notUsed: 'Not used after it was forged.',
+} as const;
+
+/** One row of a tool's history: "Turn 1 · engineering · “Landfall”". */
+export function historyRowLine(turn: number, department: string, eventTitle: string): string {
+  return [`Turn ${turn}`, department, eventTitle ? `“${eventTitle}”` : ''].filter(Boolean).join(' · ');
+}

@@ -27,7 +27,11 @@ export interface ForgeView {
   openTrace(target: TraceTarget, opener?: HTMLElement | null): void;
   /** Opens the forged toolbox. */
   openToolbox(opener?: HTMLElement | null): void;
-  close(): void;
+  /**
+   * Closes the open dialog. Focus returns to the key that opened it, or goes
+   * to `focusTo` when given: an element of the run view the dialog pointed to.
+   */
+  close(focusTo?: HTMLElement | null): void;
   current: { trace: TraceTarget | null; toolbox: boolean };
 }
 
@@ -66,7 +70,7 @@ export interface ForgeViewProviderProps {
  * dialog and leaves the run on the page. Closing by a key steps back over
  * that entry, so Back afterwards does what it did before the dialog opened.
  */
-export function ForgeViewProvider({ state, children }: ForgeViewProviderProps) {
+export function ForgeViewProvider({ state, runKey, children }: ForgeViewProviderProps) {
   const registry = useToolContext();
   const [current, setCurrent] = useState<ForgeView['current']>(NOTHING_OPEN);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -74,6 +78,8 @@ export function ForgeViewProvider({ state, children }: ForgeViewProviderProps) {
   const entryRef = useRef(false);
   /** Steps back this provider asked for and whose popstate it has yet to see. */
   const ownBacksRef = useRef(0);
+  /** The element of the run view a closed dialog sent focus to, kept in view once the step back lands. */
+  const landingRef = useRef<HTMLElement | null>(null);
   const registryRef = useRef(registry);
   registryRef.current = registry;
 
@@ -91,7 +97,12 @@ export function ForgeViewProvider({ state, children }: ForgeViewProviderProps) {
   // The Sim footer opens the forged toolbox in a dialog of its own.
   const openToolbox = useCallback(() => {}, []);
 
-  const close = useCallback(() => {
+  const close = useCallback((focusTo?: HTMLElement | null) => {
+    // Focus goes to the element the dialog pointed to, in place of the key that opened it.
+    if (focusTo instanceof HTMLElement) {
+      openerRef.current = focusTo;
+      landingRef.current = focusTo;
+    }
     setCurrent(NOTHING_OPEN);
     if (entryRef.current) {
       entryRef.current = false;
@@ -100,12 +111,25 @@ export function ForgeViewProvider({ state, children }: ForgeViewProviderProps) {
     }
   }, []);
 
+  // A key that closes the dialog returns focus to the key that opened it.
+  const closeByKey = useCallback(() => close(), [close]);
+
   // Back closes the open dialog. A step back this provider took itself, after
   // a close by a key, is counted off and closes nothing that opened since.
   useEffect(() => {
     const onPop = () => {
       if (ownBacksRef.current > 0) {
         ownBacksRef.current -= 1;
+        // The step back can put the page back where it stood when the dialog
+        // opened; the element focus went to is brought back into view.
+        const landing = landingRef.current;
+        landingRef.current = null;
+        if (landing?.isConnected) {
+          requestAnimationFrame(() => {
+            landing.scrollIntoView({ block: 'nearest' });
+            if (document.activeElement !== landing) landing.focus({ preventScroll: true });
+          });
+        }
         return;
       }
       entryRef.current = false;
@@ -151,8 +175,11 @@ export function ForgeViewProvider({ state, children }: ForgeViewProviderProps) {
           key={`${entry.actorIndex}:${entry.name}`}
           entry={entry}
           attempt={target.attempt}
+          open={target.open}
           actorCount={state.actorIds.length}
-          onClose={close}
+          runKey={runKey}
+          onClose={closeByKey}
+          onGoToEvent={close}
         />
       )}
     </ForgeViewContext.Provider>
