@@ -577,6 +577,51 @@ test.describe('the consent bar on the hosted demo', () => {
     }
   });
 
+  test('Accept all on a page opened after Reject all counts that page at once, without a reload', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'yes-after-no');
+    try {
+      await page.goto('/');
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await page.goto('/sim');
+      await page.waitForTimeout(SETTLE_MS);
+      await page.evaluate(() => { (window as unknown as { __sameDocument?: boolean }).__sameDocument = true; });
+      const before = watch.counts.length;
+
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
+      expect(watch.counts[before].postDataJSON()).toEqual({ n: 'pageview', u: '/sim' });
+      expect(await page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true), 'the page was not reloaded').toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('when the earlier no to the count cannot be cleared, the yes just given still counts and the bar says it could not be saved', async ({ browser }) => {
+    const { context, page, watch } = await open(browser, 'ignore-stuck');
+    try {
+      await page.goto('/');
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await page.goto('/sim');
+      await page.waitForTimeout(SETTLE_MS);
+      const before = watch.counts.length;
+
+      // The answer itself stores; removing the earlier no to the count does not.
+      await page.evaluate(() => {
+        Storage.prototype.removeItem = function () { throw new DOMException('The operation is insecure.', 'SecurityError'); };
+      });
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await expect(bar(page).getByText('could not be saved on this device')).toBeVisible();
+      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
+
+      await page.evaluate(() => history.pushState({}, '', '/'));
+      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'the next path of this page is counted too' }).toBe(before + 2);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('navigator.globalPrivacyControl shows no bar and loads nothing optional, the count included', async ({ browser }) => {
     const { context, page, watch } = await open(browser, 'gpc-navigator');
     try {
@@ -693,9 +738,11 @@ test.describe('the consent bar on the hosted demo', () => {
       await recording;
       await page.evaluate(() => { (window as unknown as { __sameDocument?: boolean }).__sameDocument = true; });
 
-      const before = uploads(watch).length;
       await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
       await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      // The count starts at the withdrawal: an upload sent before the click is not one after it.
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+      const before = uploads(watch).length;
       await page.waitForTimeout(SETTLE_MS);
       expect(uploads(watch).slice(before), 'no upload after Reject all').toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true), 'the page was not reloaded').toBe(true);
