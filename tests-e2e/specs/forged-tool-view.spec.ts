@@ -54,6 +54,11 @@
  *   name, archetype or slot label, sorts them, and renders its rows as they
  *   scroll at 300 actors. A choice narrows the toolbox at once, its count
  *   line, its folds and Export JSON, and is kept in the page's link.
+ * - The Viz tab opens the forge view over the living grid: a forge mark of
+ *   its event strip opens that forge's attempt of the tool, and in FORGE
+ *   mode a key opens the toolbox, each with the grid dimmed and in view at
+ *   the dialog's sides; every actor's grid stays drawn with a dialog open
+ *   and after it closes, at 2, 24 and 300 actors.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -3343,6 +3348,226 @@ test.describe('one actor picker for the toolbox', () => {
         expect(at.sheet.height, 'the popover is no taller than 560 px').toBeLessThanOrEqual(560.5);
         expect(at.sheet.bottom, 'the popover ends on the window').toBeLessThanOrEqual(at.window.height + 0.5);
         expect(at.sheet.right, 'the popover ends on the window').toBeLessThanOrEqual(at.window.width + 0.5);
+      });
+    }
+  });
+});
+
+// ── The Viz tab ───────────────────────────────────────────────────────────
+
+/** What a forge mark of the Viz tab's event strip says: its turn, its tool and its side. */
+const FORGE_MARK = /^T(\d+): (?:forged|rejected) (\S+) \(([AB])\)/;
+
+/** The Viz tab's event strip, above its living grids. */
+const eventStrip = (page: Page): Locator => page.locator('[aria-label="Event filter"]');
+
+interface ForgeMark { label: string; turn: number; tool: string; side: 'a' | 'b' }
+
+/** The event strip's forge marks, each with the turn, the tool and the side its label names. */
+async function forgeMarks(page: Page): Promise<ForgeMark[]> {
+  const labels = await eventStrip(page).locator('button[aria-label]')
+    .evaluateAll(els => els.map(el => el.getAttribute('aria-label') ?? ''));
+  return labels.flatMap((label) => {
+    const m = FORGE_MARK.exec(label);
+    return m ? [{ label, turn: Number(m[1]), tool: m[2], side: m[3] === 'A' ? 'a' as const : 'b' as const }] : [];
+  });
+}
+
+/** A forge mark of the event strip, by its label. */
+const markOf = (page: Page, label: string): Locator =>
+  eventStrip(page).getByRole('button', { name: label, exact: true }).first();
+
+/** The grid on the left of a pair, or of the Focus pair of a larger run. */
+const leftGrid = (page: Page): Locator => page.getByTestId('living-colony-grid-a');
+
+/** Opens a stored run on the Viz tab at one size in one look, in LIVING mode, played in to its end. */
+async function openViz(page: Page, request: APIRequestContext, run: 'pair' | string, size: Size, look: Look, timeout: number): Promise<void> {
+  const id = run === 'pair' ? await pairSessionId(request) : await sessionIdByName(request, COHORT_SERVER, run);
+  await page.setViewportSize(size);
+  await useLook(page, look);
+  // The Viz tab keeps its mode on the device: each open starts from its default.
+  await page.addInitScript(() => { window.localStorage.removeItem('paracosm:gridMode'); });
+  await page.goto(replayUrl(run === 'pair' ? PAIR_SERVER : COHORT_SERVER, id, 'viz'));
+  await lookShown(page, look);
+  await replayComplete(page, timeout);
+}
+
+/** Chooses FORGE on the Viz tab's row of mode pills. */
+async function chooseForgeMode(page: Page): Promise<void> {
+  const pill = page.locator('[data-grid-mode="forge"]');
+  await pill.click();
+  await expect(pill).toHaveAttribute('aria-selected', 'true');
+}
+
+/** The key FORGE mode shows beside the mode pills: "Forged toolbox · 286". */
+const vizToolboxKey = (page: Page, tools: number): Locator =>
+  page.getByRole('button', { name: `Forged toolbox · ${tools.toLocaleString('en-US')}`, exact: true });
+
+/** The dashboard's dim over the run view, which the Viz tab's is lighter than. */
+const RUN_VIEW_DIM = 0.78;
+
+/**
+ * A living grid with a dialog open over the Viz tab: in the window, part of
+ * its box beside the dialog's, and the dim over that part, light enough to
+ * leave the grid in view.
+ */
+async function expectGridDimmedBeside(grid: Locator, dialog: Locator): Promise<void> {
+  await expect(grid, 'the living grid is rendered and in the window').toBeInViewport();
+  const seen = await dialog.evaluate((d, g) => {
+    if (!(g instanceof Element)) return null;
+    const dialogBox = d.getBoundingClientRect();
+    const gridBox = g.getBoundingClientRect();
+    const top = Math.max(gridBox.top, 0);
+    const bottom = Math.min(gridBox.bottom, window.innerHeight);
+    // The grid's part on the window left of the dialog, else right of it.
+    const left = { from: Math.max(gridBox.left, 0), to: Math.min(gridBox.right, dialogBox.left) };
+    const right = { from: Math.max(gridBox.left, dialogBox.right), to: Math.min(gridBox.right, window.innerWidth) };
+    const side = left.to - left.from >= 1 ? left : right.to - right.from >= 1 ? right : null;
+    if (!side || bottom - top < 1) return { beside: false, dimmed: false, alpha: -1 };
+    const backdrop = d.parentElement;
+    const atSide = document.elementFromPoint((side.from + side.to) / 2, (top + bottom) / 2);
+    const ground = backdrop ? getComputedStyle(backdrop).backgroundColor : '';
+    const rgba = /^rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)$/.exec(ground);
+    return { beside: true, dimmed: atSide === backdrop, alpha: rgba ? Number(rgba[1]) : ground.startsWith('rgb(') ? 1 : 0 };
+  }, await grid.elementHandle());
+  expect(seen?.beside, 'part of the grid stands in the window beside the dialog').toBe(true);
+  expect(seen?.dimmed, 'the dim lies over the grid at the dialog\'s side').toBe(true);
+  expect(seen?.alpha, 'the dim lets the grid through').toBeGreaterThan(0);
+  expect(seen?.alpha, 'over the Viz tab the dim is lighter than over the run view').toBeLessThan(RUN_VIEW_DIM);
+}
+
+test.describe('the Viz tab opens the forge view over the living grid', () => {
+  test('f1 q31: a forge mark on the Viz tab\'s event strip opens that attempt over the dimmed living grid', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    for (const look of LOOKS) {
+      await test.step(`the 24-actor run under Focus pair, 1440 in the ${look} look`, async () => {
+        await openViz(page, request, RUNS.dozens, WIDTHS[1], look, 90_000);
+        await page.getByRole('tab', { name: 'Focus pair', exact: true }).click();
+        // A mark of a forge that is its tool's only one on that turn: a re-forged tool's where the strip shows one.
+        const marks = (await forgeMarks(page)).flatMap((mark) => {
+          const entry = registry.getEntryFor(mark.side === 'a' ? 0 : 1, mark.tool);
+          const onTurn = entry?.attempts.filter(a => a.turn === mark.turn) ?? [];
+          return entry && onTurn.length === 1 ? [{ mark, entry, attempt: onTurn[0].attempt }] : [];
+        });
+        const chosen = marks.find(m => m.entry.attempts.length > 1) ?? marks[0];
+        if (!chosen) throw new Error('the event strip holds no forge mark of A1 or A2');
+        const { mark, entry, attempt } = chosen;
+        const key = markOf(page, mark.label);
+        await key.click();
+
+        // The trace of that actor's tool, at the mark's own attempt.
+        const trace = traceOf(page, mark.tool);
+        await expect(trace).toBeVisible();
+        await expect(trace.locator('[data-forge-header] [data-actor-tile]')).toHaveText(mark.side === 'a' ? 'A1' : 'A2');
+        if (entry.attempts.length > 1) {
+          await expect(trace.getByRole('group', { name: `Attempt ${attempt} of ${entry.attempts.length}`, exact: true })).toBeVisible();
+        }
+        // Under Focus pair the grids are the pair's: the left one is A1's, beside the dialog under the dim.
+        await expect(leftGrid(page)).toHaveAccessibleName(/^Aria Chen \S+ viz$/);
+        await expectGridDimmedBeside(leftGrid(page), trace);
+        await picture(page, `1440-${look}-f1-viz-mark-trace`);
+
+        await closeTrace(trace);
+        await expect(key, 'Close returns focus to the mark').toBeFocused();
+      });
+    }
+
+    await test.step('the pair run: each mark of a tool forged twice opens its own attempt', async () => {
+      await openViz(page, request, 'pair', WIDTHS[1], 'dark', 60_000);
+      const marks = (await forgeMarks(page)).filter(m => m.tool === RATION && m.side === 'a');
+      expect(marks.map(m => m.turn), 'Aria Chen forged it on turn 1, then again on turn 2').toEqual([1, 2]);
+      for (const [i, mark] of marks.entries()) {
+        const key = markOf(page, mark.label);
+        await key.click();
+        const trace = traceOf(page, RATION);
+        await expect(trace.getByRole('group', { name: `Attempt ${i + 1} of 2`, exact: true })).toBeVisible();
+        await expectGridDimmedBeside(leftGrid(page), trace);
+        await closeTrace(trace);
+        await expect(key, 'Close returns focus to the mark').toBeFocused();
+      }
+    });
+  });
+
+  test('f10 q37: "Forged toolbox · 286" in FORGE mode opens the toolbox over the living grid', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    for (const look of LOOKS) {
+      await test.step(`the 24-actor run, 1440 in the ${look} look`, async () => {
+        await openViz(page, request, RUNS.dozens, WIDTHS[1], look, 90_000);
+        // The key stands in FORGE mode alone.
+        await expect(page.getByRole('button', { name: /^Forged toolbox · / })).toHaveCount(0);
+        await chooseForgeMode(page);
+        const key = vizToolboxKey(page, DOZENS.tools);
+        await expect(key).toBeVisible();
+        await key.click();
+
+        const toolbox = toolboxOf(page, DOZENS.tools);
+        await expect(toolbox).toBeVisible();
+        // The cohort's grids stand side by side under the toolbox, the first beside it under the dim.
+        await expect(cohortGrids(page)).toHaveCount(24);
+        await expectGridDimmedBeside(page.getByLabel('Living swarm grid for actor 1: Aria Chen'), toolbox);
+        await picture(page, `1440-${look}-f10-viz-forge-toolbox`);
+
+        await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+        await expect(toolbox).toBeHidden();
+        await expect(key, 'Close returns focus to the key').toBeFocused();
+      });
+    }
+  });
+
+  test('f10 q5: a run with no forge opens an empty toolbox from FORGE mode', async ({ page, request }) => {
+    await openViz(page, request, RUNS.noForgePair, { width: 1100, height: 900 }, 'dark', 60_000);
+    await chooseForgeMode(page);
+    const key = vizToolboxKey(page, 0);
+    await expect(key).toBeVisible();
+    await key.click();
+
+    const toolbox = toolboxOf(page, 0);
+    await expect(toolbox).toBeVisible();
+    await expect(toolbox.getByText('No department forged a tool in this run.', { exact: true })).toBeVisible();
+    const strip = toolbox.locator('[data-forge-strip="0"]');
+    await expect(strip).toBeAttached();
+    await expect(strip.locator('[data-cell]')).toHaveCount(0);
+    await expectGridDimmedBeside(leftGrid(page), toolbox);
+    await picture(page, '1100-dark-f10-viz-forge-toolbox-empty');
+  });
+
+  test('the living grids are all there with the dialogs open and after they close', async ({ page, request }) => {
+    test.setTimeout(480_000);
+    const runs = [
+      { title: 'the pair run', run: 'pair', count: 2, tools: 12, timeout: 60_000,
+        grids: () => page.getByRole('region', { name: /^(Aria Chen|Dietrich Voss) \S+ viz$/ }) },
+      { title: 'the 24-actor run', run: RUNS.dozens, count: 24, tools: DOZENS.tools, timeout: 90_000, grids: () => cohortGrids(page) },
+      { title: 'the 300-actor run', run: RUNS.maximum, count: 300, tools: MAXIMUM.tools, timeout: 150_000, grids: () => cohortGrids(page) },
+    ];
+    for (const { title, run, count, tools, timeout, grids } of runs) {
+      await test.step(title, async () => {
+        await openViz(page, request, run, WIDTHS[1], 'dark', timeout);
+        // Each grid draws its population at a turn, with a dialog open and after it closes.
+        const allThere = async () => {
+          await expect(grids()).toHaveCount(count, { timeout });
+          await expect(grids().first()).toBeInViewport();
+          await expect(grids().first().getByRole('img', { name: /, turn \d+\. \d+ alive/ })).toBeVisible();
+        };
+        await allThere();
+
+        const [mark] = await forgeMarks(page);
+        if (!mark) throw new Error('the event strip holds no forge mark');
+        await markOf(page, mark.label).click();
+        const trace = traceOf(page, mark.tool);
+        await expect(trace).toBeVisible();
+        await allThere();
+        await closeTrace(trace);
+        await allThere();
+
+        await chooseForgeMode(page);
+        await vizToolboxKey(page, tools).click();
+        const toolbox = toolboxOf(page, tools);
+        await expect(toolbox).toBeVisible({ timeout: 30_000 });
+        await allThere();
+        await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+        await expect(toolbox).toBeHidden();
+        await allThere();
       });
     }
   });
