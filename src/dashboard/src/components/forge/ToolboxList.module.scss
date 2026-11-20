@@ -571,7 +571,12 @@
 
 .groups { min-width: 0; }
 
-.fold { border-top: 1px solid var(--forge-edge); }
+.fold { min-width: 0; }
+
+// A fold's hairline sits on its head's line, so past 50 lines, where the list
+// renders only the lines in view, a fold shown without its head draws none
+// and each line's height is all of its room.
+.foldTop { border-top: 1px solid var(--forge-edge); }
 
 .foldHeading {
   margin: 0;

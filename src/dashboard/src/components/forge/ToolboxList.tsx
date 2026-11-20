@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useToolContext, type ActorSummary, type ForgeCounts, type RecordOutcome, type ToolEntry } from '../../hooks/useToolRegistry';
 import { FoldHead, foldKey, opensRows, type GroupHead } from './FoldHead';
 import { STATIONS } from './forgeLine';
@@ -18,6 +18,7 @@ import {
   toolboxCountLine,
 } from './forgeWords';
 import { ToolboxRow } from './ToolboxRow';
+import { useLineFocus, useWindowedLines, type WindowLine } from './useWindowedLines';
 import styles from './ToolboxList.module.scss';
 
 export type { GroupHead } from './FoldHead';
@@ -87,6 +88,72 @@ export function groupRows(
     const own = rows.filter((row) => row.actorIndex === actor.index);
     return { head: { kind: 'actor', actor }, rows: byKey(own, departmentOf).flatMap(([, inDepartment]) => inDepartment) };
   });
+}
+
+/** The height a line is taken to have until a line of its kind is measured, in px. */
+const LINE_ESTIMATE = { head: 64, dept: 40, row: 112 } as const;
+
+/** A row's key: one actor's tool. */
+const rowKeyOf = (entry: ToolEntry): string => `${entry.actorIndex}:${entry.name}`;
+
+/**
+ * One line of the list as it stands: a fold head, a department's line in an
+ * actor's open fold, or a row. `fold` is the line's fold among the folds
+ * shown (-1 under Group: None), and a row's `pos` its place among every row
+ * the filter and the search leave, open fold or closed.
+ */
+type ListLine = WindowLine & (
+  | { kind: 'head'; fold: number }
+  | { kind: 'dept'; fold: number; dept: string }
+  | { kind: 'row'; fold: number; dept: string | null; entry: ToolEntry; pos: number }
+);
+
+/** A line's department: the line of a department, or a row under one in an actor's fold; null otherwise. */
+const deptOf = (line: ListLine): string | null => (line.kind === 'head' ? null : line.dept);
+
+/**
+ * The list's lines in the order they stand: under Group: None every row; in
+ * folds each head, then in an open fold its rows, under a line for each
+ * department in an actor's fold. Rows are counted in this order whether
+ * their fold is open or closed, so each row's place is its place in the
+ * whole list.
+ */
+function listLines(
+  group: ToolboxGroup,
+  rows: ToolEntry[],
+  groups: Array<{ head: GroupHead | null; rows: ToolEntry[] }>,
+  isOpen: (key: string) => boolean,
+): { lines: ListLine[]; rowCount: number } {
+  const lines: ListLine[] = [];
+  if (group === 'none') {
+    rows.forEach((entry, i) => {
+      lines.push({ kind: 'row', key: rowKeyOf(entry), estimate: LINE_ESTIMATE.row, focusable: true, fold: -1, dept: null, entry, pos: i + 1 });
+    });
+    return { lines, rowCount: rows.length };
+  }
+  let pos = 0;
+  groups.forEach((g, fold) => {
+    const head = g.head;
+    if (head === null) return;
+    const key = foldKey(head);
+    const open = opensRows(head) && g.rows.length > 0 && isOpen(key);
+    // A head opens its fold, or for an actor whose tools could not be read holds Show in Event Log.
+    const focusable = opensRows(head) || (head.kind === 'actor' && head.actor.unreadable);
+    lines.push({ kind: 'head', key, estimate: LINE_ESTIMATE.head, focusable, fold });
+    const parts: Array<[string | null, ToolEntry[]]> = head.kind === 'actor' ? byKey(g.rows, departmentOf) : [[null, g.rows]];
+    for (const [dept, own] of parts) {
+      if (open && dept !== null) {
+        lines.push({ kind: 'dept', key: `${key}|dept:${dept}`, estimate: LINE_ESTIMATE.dept, focusable: false, headKey: key, fold, dept });
+      }
+      for (const entry of own) {
+        pos += 1;
+        if (open) {
+          lines.push({ kind: 'row', key: `${key}|${rowKeyOf(entry)}`, estimate: LINE_ESTIMATE.row, focusable: true, headKey: key, fold, dept, entry, pos });
+        }
+      }
+    }
+  });
+  return { lines, rowCount: pos };
 }
 
 /** Folds open on a run of up to this many actors, and start closed on a run of more. */
@@ -295,9 +362,15 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
 
   // Which folds are open: a new grouping starts from the run's own start.
   const [folds, setFolds] = useState<FoldState>({ group, all: null, toggled: NO_TOGGLES });
-  const foldState: FoldState = folds.group === group ? folds : { group, all: null, toggled: NO_TOGGLES };
+  const foldState: FoldState = useMemo(
+    () => (folds.group === group ? folds : { group, all: null, toggled: NO_TOGGLES }),
+    [folds, group],
+  );
   const openAtStart = actorCount <= FOLDS_OPEN_UP_TO;
-  const isOpen = (key: string): boolean => (foldState.all ?? openAtStart) !== foldState.toggled.has(key);
+  const isOpen = useCallback(
+    (key: string): boolean => (foldState.all ?? openAtStart) !== foldState.toggled.has(key),
+    [foldState, openAtStart],
+  );
   const openable = groups.filter((g): g is { head: GroupHead; rows: ToolEntry[] } => g.head !== null && opensRows(g.head) && g.rows.length > 0);
   const allOpen = openable.length > 0 && openable.every((g) => isOpen(foldKey(g.head)));
   const groupsInactive = group === 'none' || openable.length === 0;
@@ -317,6 +390,13 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
     openTrace({ actorIndex: entry.actorIndex, toolName: entry.name }, el);
   }, [openTrace]);
 
+  // The lines, and past 50 the ones in view: the line that holds focus stays rendered.
+  const { lines, rowCount } = useMemo(() => listLines(group, rows, groups, isOpen), [group, rows, groups, isOpen]);
+  const [linesEl, setLinesEl] = useState<HTMLElement | null>(null);
+  const focus = useLineFocus(lines, linesEl);
+  const win = useWindowedLines(lines, linesEl, focus.keep);
+  focus.scrollTo.current = win.scrollToLine;
+
   // Clear empties the search and keeps focus in its field.
   const clearFind = () => {
     set({ find: '' });
@@ -330,14 +410,43 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
   };
 
   const choiceLabel = (choice: { id: ToolboxShow; count: number }) => `${SHOW_WORDS[choice.id]} ${countWord(choice.count)}`;
-  const renderRow = (entry: ToolEntry) => (
-    <ToolboxRow
-      key={`${entry.actorIndex}:${entry.name}`}
-      entry={entry}
-      actorCount={actorCount}
-      onOpen={(el) => openRow(entry, el)}
-    />
-  );
+  const renderRow = (at: number) => {
+    const line = lines[at];
+    if (line.kind !== 'row') return null;
+    return (
+      <ToolboxRow
+        key={rowKeyOf(line.entry)}
+        entry={line.entry}
+        actorCount={actorCount}
+        onOpen={(el) => openRow(line.entry, el)}
+        line={at}
+        setSize={rowCount}
+        posInSet={line.pos}
+      />
+    );
+  };
+
+  // The lines rendered, in order, and the room kept for the ones left out above and below.
+  const shown: number[] = [];
+  for (let at = win.first; at <= win.last; at += 1) shown.push(at);
+  const pads: CSSProperties | undefined = win.windowed ? { paddingTop: win.padTop, paddingBottom: win.padBottom } : undefined;
+  // Grouped, the rendered lines by their fold, and within an actor's fold by department.
+  const foldsShown: Array<{ fold: number; at: number[] }> = [];
+  for (const at of shown) {
+    const lastFold = foldsShown[foldsShown.length - 1];
+    if (lastFold && lastFold.fold === lines[at].fold) lastFold.at.push(at);
+    else foldsShown.push({ fold: lines[at].fold, at: [at] });
+  }
+  const byDepartment = (at: number[]): Array<{ dept: string; at: number[] }> => {
+    const parts: Array<{ dept: string; at: number[] }> = [];
+    for (const i of at) {
+      const dept = deptOf(lines[i]) ?? '';
+      const lastPart = parts[parts.length - 1];
+      if (lastPart && lastPart.dept === dept) lastPart.at.push(i);
+      else parts.push({ dept, at: [i] });
+    }
+    return parts;
+  };
 
   return (
     <div className={styles.list} data-toolbox-list={inPage ? 'page' : 'dialog'}>
@@ -450,34 +559,70 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                 </span>
               </div>
               {group === 'none' ? (
-                <ol className={styles.items} data-toolbox-rows>
-                  {rows.map(renderRow)}
+                <ol
+                  ref={setLinesEl}
+                  className={styles.items}
+                  data-toolbox-rows
+                  data-line-count={lines.length}
+                  data-windowed={win.windowed}
+                  style={pads}
+                >
+                  {shown.map(renderRow)}
                 </ol>
               ) : (
-                <div className={styles.groups} data-toolbox-rows>
-                  {groups.map((g) => {
-                    const head = g.head;
+                <div
+                  ref={setLinesEl}
+                  role="list"
+                  className={styles.groups}
+                  data-toolbox-rows
+                  data-line-count={lines.length}
+                  data-windowed={win.windowed}
+                  style={pads}
+                >
+                  {foldsShown.map(({ fold, at }) => {
+                    const g = groups[fold];
+                    const head = g?.head ?? null;
                     if (head === null) return null;
                     const key = foldKey(head);
                     const open = opensRows(head) && g.rows.length > 0 && isOpen(key);
+                    const headAt = at.find((i) => lines[i].kind === 'head');
+                    const body = at.filter((i) => lines[i].kind !== 'head');
+                    // Each fold is one of the list's groups, and says its place among them.
                     return (
-                      <div key={key} className={styles.fold} data-fold={head.kind === 'actor' ? head.actor.label : head.name}>
-                        <FoldHead
-                          head={head}
-                          open={open}
-                          onToggle={() => toggleFold(key)}
-                          onShowInEventLog={head.kind === 'actor' && head.actor.unreadable ? () => showActorLog(head.actor.index) : undefined}
-                        />
-                        {open && (head.kind === 'actor' ? (
-                          byKey(g.rows, departmentOf).map(([department, own]) => (
-                            <div key={department} className={styles.department}>
-                              <h4 className={styles.deptLine} data-dept-line>{department}</h4>
-                              <ol className={styles.items}>{own.map(renderRow)}</ol>
-                            </div>
-                          ))
+                      <div
+                        key={key}
+                        role="listitem"
+                        aria-setsize={groups.length}
+                        aria-posinset={fold + 1}
+                        className={styles.fold}
+                        data-fold={head.kind === 'actor' ? head.actor.label : head.name}
+                      >
+                        {headAt !== undefined && (
+                          <div className={styles.foldTop} data-line={headAt}>
+                            <FoldHead
+                              head={head}
+                              open={open}
+                              onToggle={() => toggleFold(key)}
+                              onShowInEventLog={head.kind === 'actor' && head.actor.unreadable ? () => showActorLog(head.actor.index) : undefined}
+                            />
+                          </div>
+                        )}
+                        {head.kind === 'actor' ? (
+                          byDepartment(body).map(({ dept, at: part }) => {
+                            const deptAt = part.find((i) => lines[i].kind === 'dept');
+                            const rowsAt = part.filter((i) => lines[i].kind === 'row');
+                            return (
+                              <div key={dept} className={styles.department}>
+                                {deptAt !== undefined && (
+                                  <h4 className={styles.deptLine} data-dept-line data-line={deptAt}>{dept}</h4>
+                                )}
+                                {rowsAt.length > 0 && <ol className={styles.items}>{rowsAt.map(renderRow)}</ol>}
+                              </div>
+                            );
+                          })
                         ) : (
-                          <ol className={styles.items}>{g.rows.map(renderRow)}</ol>
-                        ))}
+                          body.length > 0 && <ol className={styles.items}>{body.map(renderRow)}</ol>
+                        )}
                       </div>
                     );
                   })}
