@@ -12,7 +12,8 @@ import type { SimEvent } from '../../hooks/useSSE';
 import { computeGameState } from '../../hooks/useGameState';
 import { TurnBanner } from './TurnBanner';
 
-void React;
+// TurnBanner is compiled with the classic JSX transform under the test runner.
+(globalThis as { React?: unknown }).React = React;
 
 const ARIA = 'Aria Chen';
 const DIETRICH = 'Dietrich Voss';
