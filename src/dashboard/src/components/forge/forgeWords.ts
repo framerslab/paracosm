@@ -217,6 +217,9 @@ export const TOOLBOX_TITLE = 'FORGED TOOLBOX';
 /** The toolbox's name as a dialog: "Forged toolbox, 12 tools". */
 export const toolboxDialogName = (tools: number): string => `Forged toolbox, ${counted(tools, 'tool', 'tools')}`;
 
+/** The key the Viz tab's FORGE mode shows beside its mode pills: "Forged toolbox · 286". */
+export const vizToolboxKey = (tools: number): string => `Forged toolbox · ${countWord(tools)}`;
+
 export const CLOSE_TOOLBOX = 'Close the toolbox';
 
 /**

@@ -23,7 +23,9 @@ import {
 } from './grid/GridSettingsDrawer.js';
 import { useSoundCues } from './grid/useSoundCues.js';
 import { RunSummaryDrawer } from './grid/RunSummaryDrawer.js';
-import { ForgeLineageModal, type ForgeLineagePayload } from './grid/ForgeLineageModal.js';
+import { useForgeView } from '../forge/ForgeViewProvider';
+import { vizToolboxKey } from '../forge/forgeWords';
+import { useToolContext } from '../../hooks/useToolRegistry';
 import { ExportMenu } from './grid/ExportMenu.js';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels.js';
 import { HighlightStrip } from './HighlightStrip';
@@ -494,7 +496,21 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // the default collapsed state is the intended look; opening it
   // is a short-lived "I need a tool" gesture.
   const [overflowOpen, setOverflowOpen] = useState(false);
-  const [forgeLineage, setForgeLineage] = useState<ForgeLineagePayload | null>(null);
+  // A forge mark of the event strip opens its tool's trace, and FORGE mode's
+  // key the forged toolbox, each over this tab's living grid.
+  const forgeView = useForgeView();
+  const toolRegistry = useToolContext();
+  const openForgeMark = useCallback((toolName: string, side: 'a' | 'b', eventId?: string, opener?: HTMLElement): boolean => {
+    const actorName = side === 'a' ? firstLeaderId : secondLeaderId;
+    const actorIndex = actorName ? state.actorIds.indexOf(actorName) : -1;
+    const entry = actorIndex >= 0 ? toolRegistry.getEntryFor(actorIndex, toolName) : undefined;
+    if (!entry) return false;
+    // A turn alone cannot tell two attempts of one turn apart: the mark's own
+    // frame names its attempt, and the trace opens at the latest when none matches.
+    const attempt = entry.attempts.find(a => a.eventId === eventId)?.attempt;
+    forgeView.openTrace({ actorIndex, toolName, attempt }, opener);
+    return true;
+  }, [firstLeaderId, secondLeaderId, state.actorIds, toolRegistry, forgeView]);
   const [focusedSide, setFocusedSide] = useState<'a' | 'b' | null>(null);
   const toggleFocus = useCallback((side: 'a' | 'b') => {
     setFocusedSide(prev => (prev === side ? null : side));
@@ -1134,6 +1150,16 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
                 labels={scenarioLabels}
               />
             </div>
+            {gridMode === 'forge' && (
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={(e) => forgeView.openToolbox(e.currentTarget)}
+                className={styles.forgeToolboxKey}
+              >
+                {vizToolboxKey(toolRegistry.list.length)}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setOverflowOpen(o => !o)}
@@ -1235,8 +1261,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           totalDepartments={scenario.departments.length}
         />
         <EventChronicle
-          eventsA={(sideStateA?.events ?? []) as Array<{ type: string; turn?: number; data?: Record<string, unknown> }>}
-          eventsB={(sideStateB?.events ?? []) as Array<{ type: string; turn?: number; data?: Record<string, unknown> }>}
+          eventsA={sideStateA?.events ?? []}
+          eventsB={sideStateB?.events ?? []}
           currentTurn={currentTurn}
           onJumpToTurn={handleTurnChange}
           hoveredTurn={hoveredTurn}
@@ -1245,13 +1271,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           onFilterChange={setChronicleFilter}
           onHoverEventChange={setHoveredChronicleEvent}
           onJumpToReports={handleJumpToReports}
-          onForgeSelect={(toolName, side) =>
-            setForgeLineage({
-              toolName,
-              side,
-              sideColor: side === 'a' ? 'var(--vis)' : 'var(--eng)',
-            })
-          }
+          onForgeSelect={openForgeMark}
         />
         <TimelineSparkline
           snapsA={snapsA}
@@ -1453,18 +1473,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           settings={gridSettings}
           onChange={setGridSettings}
           onClose={() => setSettingsOpen(false)}
-        />
-        <ForgeLineageModal
-          payload={forgeLineage}
-          forgeAttemptsA={forgeFeeds.a.attempts}
-          forgeAttemptsB={forgeFeeds.b.attempts}
-          reuseCallsA={forgeFeeds.a.reuses}
-          reuseCallsB={forgeFeeds.b.reuses}
-          onClose={() => setForgeLineage(null)}
-          onJumpToTurn={t => {
-            handleTurnChange(t);
-            setForgeLineage(null);
-          }}
         />
         <RunSummaryDrawer
           open={summaryOpen}

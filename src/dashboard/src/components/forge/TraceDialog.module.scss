@@ -22,6 +22,13 @@
   background: rgba(10, 8, 6, 0.78);
 }
 
+// Over the Viz tab the same dim lets half the grid's light through, so the
+// living grid stays in view at the dialog's sides. The toolbox shares this
+// backdrop.
+:global(body:has(.viz-content)) .backdrop {
+  background: rgba(10, 8, 6, 0.5);
+}
+
 .dialog {
   // The side margin of the sheet, and the room its fixed header row takes.
   --trace-pad: 16px;

@@ -114,6 +114,39 @@
   gap: 4px;
 }
 
+// FORGE mode's key to the forged toolbox: the toolbar's accent on the card's
+// ground, at the forge view's sizes, 44 px tall on a phone and 32 px from
+// 900 px.
+.forgeToolboxKey {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  align-self: center;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--amber);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { text-decoration: underline; }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  @media (min-width: 900px) { min-height: 32px; }
+}
+
 .toolsRow {
   display: flex;
   gap: 6px;
