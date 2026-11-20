@@ -46,11 +46,12 @@ import {
   COHORT_SERVER, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
   pairSessionId, replayUrl, sessionIdByName, useLook, type Look,
 } from '../support/forge-view-pages.js';
-import { DOZENS, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
+import { DOZENS, DOZENS_A7_UNREADABLE, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
 import { pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
 import { buildToolRegistry } from '../../src/dashboard/src/hooks/toolRegistry.helpers.js';
-import { computeGameState } from '../../src/dashboard/src/hooks/useGameState.js';
+import { computeGameState, getActorColorVar } from '../../src/dashboard/src/hooks/useGameState.js';
+import { usesOf } from '../../src/dashboard/src/components/forge/forgeLine.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored runs live on local servers of their own.');
 
@@ -2236,5 +2237,405 @@ test.describe('the forged toolbox on the run\'s record', () => {
         expect(new URL(page.url()).searchParams.get('replay')).toBe(id);
       });
     }
+  });
+});
+
+// ── The toolbox at 24 and 300 actors ─────────────────────────────────────
+
+/** The toolbox's Group key: a menu button that names the grouping it shows. */
+const groupKey = (scope: Locator): Locator => scope.getByRole('button', { name: /^Group: / });
+
+/** Chooses a grouping in the Group menu, and waits for the key to name it. */
+async function chooseGroup(scope: Locator, choice: 'Actor' | 'Department' | 'None'): Promise<void> {
+  const key = groupKey(scope);
+  await key.click();
+  await scope.getByRole('menu', { name: 'Group' }).getByRole('menuitemradio', { name: choice, exact: true }).click();
+  await expect(key).toHaveAccessibleName(`Group: ${choice}`);
+}
+
+/** The fold heads of a grouped list, in order: each an h3 holding the key that opens its fold. */
+const foldHeads = (scope: Locator): Locator => scope.locator('[data-fold-head]');
+/** One actor's fold head, by the actor's slot label, or one department's by its name. */
+const foldHead = (scope: Locator, name: string): Locator => scope.locator(`[data-fold-head="${name}"]`);
+/** A fold: its head and, while it is open, its rows. */
+const foldOf = (scope: Locator, name: string): Locator => scope.locator(`[data-fold="${name}"]`);
+/** The key that opens or closes every fold. */
+const openAllGroups = (scope: Locator): Locator => scope.getByRole('button', { name: /^(Open|Close) all groups$/ });
+
+/** A token's name from the value getActorColorVar gives: "var(--vis)" -> "--vis". */
+const tokenOf = (cssVar: string): string => cssVar.replace(/^var\((--[\w-]+)\)$/, '$1');
+
+/** A count with its noun, as the toolbox writes it: "1 tool", "3,612 tools". */
+const countedAs = (n: number, one: string, many: string): string => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+
+/** A fold head's count line on the run's record: "14 tools from 14 forges · 12 passed · 2 did not pass". */
+const foldCountOf = (c: { tools: number; forges: number; passed: number; didNotPass: number }): string => [
+  `${countedAs(c.tools, 'tool', 'tools')} from ${countedAs(c.forges, 'forge', 'forges')}`,
+  c.passed > 0 ? `${c.passed.toLocaleString('en-US')} passed` : '',
+  c.didNotPass > 0 ? `${c.didNotPass.toLocaleString('en-US')} did not pass` : '',
+].filter(Boolean).join(' · ');
+
+/** The forges of a set of rows, counted as a fold head counts them. */
+function countsOfRows(rows: Array<{ attempts: Array<{ approved: boolean }> }>) {
+  const forges = rows.reduce((sum, row) => sum + row.attempts.length, 0);
+  const passed = rows.reduce((sum, row) => sum + row.attempts.filter(a => a.approved).length, 0);
+  return { tools: rows.length, forges, passed, didNotPass: forges - passed };
+}
+
+/** A row's meta line as the toolbox writes it, from the tool's record. */
+function metaLineOf(entry: ReturnType<typeof registryOf>['list'][number]): string {
+  const reforges = Math.max(0, entry.attempts.length - 1);
+  return [
+    `A${entry.actorIndex + 1} ${entry.actorName}`,
+    entry.firstForgedDepartment,
+    `turn ${entry.firstForgedTurn}`,
+    entry.outcome === 'passed' ? `used ${countedAs(usesOf(entry), 'time', 'times')}` : '',
+    reforges > 0 ? countedAs(reforges, 're-forge', 're-forges') : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** Each fold's parts in the order they stand: a department's line as "dept:{name}", a row as "{name}@{actor}". */
+const foldParts = (scope: Locator): Promise<Record<string, string[]>> =>
+  scope.locator('[data-fold]').evaluateAll(folds => Object.fromEntries(folds.map(fold => [
+    fold.getAttribute('data-fold') ?? '',
+    Array.from(fold.querySelectorAll('[data-dept-line], [data-tool-row]')).map(el => (el.hasAttribute('data-dept-line')
+      ? `dept:${el.textContent ?? ''}`
+      : `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`)),
+  ])));
+
+const DOZENS_LINE = '286 tools from 331 forges (45 re-forges) · 268 passed · 63 did not pass · 24 actors';
+
+/** Opens a cohort run's toolbox from the Sim footer, played in to its end. */
+async function openCohortToolbox(page: Page, request: APIRequestContext, run: string, tools: number, size: Size, look: Look, timeout: number): Promise<Locator> {
+  await openCohortSim(page, request, run, size, look, timeout);
+  await toolboxKey(page).click();
+  const toolbox = toolboxOf(page, tools);
+  await expect(toolbox).toBeVisible({ timeout: 60_000 });
+  return toolbox;
+}
+
+test.describe('the forged toolbox at 24 and 300 actors', () => {
+  test('f10 q18: the pair\'s toolbox reads Group: None', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        // Group is a menu button that reads the pair's grouping, None: one list, no fold.
+        const key = groupKey(toolbox);
+        await expect(key).toHaveAccessibleName('Group: None');
+        await expect(key).toHaveAttribute('aria-haspopup', 'menu');
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+        await expect(rowsOf(toolbox)).toHaveCount(12);
+        await expect(foldHeads(toolbox)).toHaveCount(0);
+        // Open all groups is inactive with Group: None.
+        await expect(openAllGroups(toolbox)).toHaveAccessibleName('Open all groups');
+        await expect(openAllGroups(toolbox)).toHaveAttribute('aria-disabled', 'true');
+        // The menu holds the three groupings with None checked, and Escape closes it on its key.
+        await key.click();
+        const menu = toolbox.getByRole('menu', { name: 'Group' });
+        await expect(menu).toBeVisible();
+        await expect(menu.getByRole('menuitemradio')).toHaveText(['Actor', 'Department', 'None']);
+        await expect(menu.getByRole('menuitemradio', { name: 'None', exact: true })).toHaveAttribute('aria-checked', 'true');
+        await expect(menu.getByRole('menuitemradio', { name: 'None', exact: true })).toBeFocused();
+        await picture(page, `${size.width}-${look}-f10-group-menu`);
+        await page.keyboard.press('Escape');
+        await expect(menu).toBeHidden();
+        await expect(key).toBeFocused();
+        await expect(toolbox).toBeVisible();
+      });
+    }
+  });
+
+  test('f10 q24: the 24-actor toolbox groups by actor with every fold closed', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[1], 'dark', 60_000);
+    await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(DOZENS_LINE);
+    await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+
+    // 24 fold heads in the run's order, each with its tile, name and archetype, count line and forge strip, all closed.
+    await expect(foldHeads(toolbox)).toHaveCount(24);
+    const heads = await foldHeads(toolbox).evaluateAll(els => els.map(el => ({
+      level: el.tagName,
+      tile: el.querySelector('[data-actor-tile]')?.textContent ?? '',
+      name: el.querySelector('[data-fold-name]')?.textContent ?? '',
+      count: el.querySelector('[data-fold-count]')?.textContent ?? '',
+      strip: Number(el.querySelector('[data-forge-strip]')?.getAttribute('data-forge-strip') ?? -1),
+      expanded: el.querySelector('button')?.getAttribute('aria-expanded') ?? null,
+    })));
+    expect(heads.map(h => h.level)).toEqual(registry.actors.map(() => 'H3'));
+    expect(heads.map(h => h.tile)).toEqual(registry.actors.map(a => a.label));
+    expect(heads.map(h => h.name)).toEqual(registry.actors.map(a => `${a.name} · ${a.archetype}`));
+    expect(heads.map(h => h.count)).toEqual(registry.actors.map(a => foldCountOf(a.counts)));
+    expect(heads.map(h => h.strip)).toEqual(registry.actors.map(a => a.strip.length));
+    expect(heads.map(h => h.expanded)).toEqual(registry.actors.map(() => 'false'));
+    // The heads' tools add up to the run's.
+    expect(heads.reduce((sum, h) => sum + Number(h.count.match(/^([\d,]+) tools?/)?.[1].replace(/,/g, '') ?? 0), 0)).toBe(286);
+    // A head is named by its actor, archetype and counts in words.
+    await expect(foldHead(toolbox, 'A7').getByRole('button')).toHaveAccessibleName('A7 Ines Duarte, The Strategist, 14 tools, 2 did not pass');
+    // Every fold closed: no row is drawn.
+    await expect(rowsOf(toolbox)).toHaveCount(0);
+
+    // A1's head opens its fold on A1's rows alone, and closes it again.
+    const a1 = foldHead(toolbox, 'A1').getByRole('button');
+    await a1.click();
+    await expect(a1).toHaveAttribute('aria-expanded', 'true');
+    const a1Tools = registry.list.filter(entry => entry.actorIndex === 0);
+    await expect(rowsOf(foldOf(toolbox, 'A1'))).toHaveCount(a1Tools.length);
+    await expect(rowsOf(toolbox)).toHaveCount(a1Tools.length);
+    await picture(page, '1440-dark-f10-toolbox-24-actors-A1-open');
+    await a1.click();
+    await expect(a1).toHaveAttribute('aria-expanded', 'false');
+    await expect(rowsOf(toolbox)).toHaveCount(0);
+  });
+
+  test('f10 q25: Open all groups opens each actor\'s rows under its departments, lines in the quiet tone', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[1], 'light', 60_000);
+    const key = openAllGroups(toolbox);
+    await expect(key).toHaveAccessibleName('Open all groups');
+    await expect(key).not.toHaveAttribute('aria-disabled', 'true');
+    await key.click();
+    await expect(key).toHaveAccessibleName('Close all groups');
+    await expect(foldHeads(toolbox).locator('button[aria-expanded="true"]')).toHaveCount(24);
+    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
+
+    // Each fold holds its actor's rows alone, under a line for each department, in the order the actor first forged there.
+    const expected = Object.fromEntries(registry.actors.map((actor) => {
+      const own = registry.list.filter(entry => entry.actorIndex === actor.index);
+      const departments = [...new Set(own.map(entry => entry.firstForgedDepartment))];
+      return [actor.label, departments.flatMap(d => [
+        `dept:${d}`,
+        ...own.filter(entry => entry.firstForgedDepartment === d).map(entry => `${entry.name}@${actor.label}`),
+      ])];
+    }));
+    expect(await foldParts(toolbox)).toEqual(expected);
+
+    // The rows' lines are in the quiet tone; each side mark and each head's tile band in its actor's run colour.
+    const quiet = await resolved(page, '--forge-quiet');
+    for (const label of ['A1', 'A2', 'A3', 'A9']) {
+      const index = Number(label.slice(1)) - 1;
+      const colour = await resolved(page, tokenOf(getActorColorVar(index)));
+      const row = rowsOf(foldOf(toolbox, label)).first();
+      expect(await groundOf(row.locator('[data-forge-line="row"] [data-station="request"] [data-cell]')), `${label}: the line`).toBe(quiet);
+      expect(await groundOf(row.locator('[data-side-mark]')), `${label}: the side mark`).toBe(colour);
+      expect(await groundOf(foldHead(toolbox, label).locator('[data-actor-tile] > span').first()), `${label}: the tile's band`).toBe(colour);
+    }
+    await foldHead(toolbox, 'A1').scrollIntoViewIfNeeded();
+    await picture(page, '1440-light-f10-toolbox-24-actors-all-open');
+
+    // Pressed again, every fold closes.
+    await key.click();
+    await expect(key).toHaveAccessibleName('Open all groups');
+    await expect(foldHeads(toolbox).locator('button[aria-expanded="true"]')).toHaveCount(0);
+    await expect(rowsOf(toolbox)).toHaveCount(0);
+  });
+
+  test('f10 q29: Group: Department folds by department', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, { width: 768, height: 1024 }, 'dark', 60_000);
+    await chooseGroup(toolbox, 'Department');
+    const departments = [...new Set(registry.list.map(entry => entry.firstForgedDepartment))];
+    expect(departments).toHaveLength(5);
+    // One fold a department, each headed by its name and its count line, closed past 8 actors.
+    await expect(foldHeads(toolbox)).toHaveCount(5);
+    const heads = await foldHeads(toolbox).evaluateAll(els => els.map(el => ({
+      name: el.querySelector('[data-fold-name]')?.textContent ?? '',
+      count: el.querySelector('[data-fold-count]')?.textContent ?? '',
+      expanded: el.querySelector('button')?.getAttribute('aria-expanded') ?? null,
+    })));
+    expect(heads.map(h => h.name)).toEqual(departments);
+    expect(heads.map(h => h.count)).toEqual(departments.map(d => foldCountOf(countsOfRows(registry.list.filter(entry => entry.firstForgedDepartment === d)))));
+    expect(heads.map(h => h.expanded)).toEqual(departments.map(() => 'false'));
+
+    // Opened, each fold holds that department's rows in the run's order, each meta line led by its actor's label and name.
+    await openAllGroups(toolbox).click();
+    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
+    for (const d of departments) {
+      const own = registry.list.filter(entry => entry.firstForgedDepartment === d);
+      const rows = await rowsOf(foldOf(toolbox, d)).evaluateAll(els => els.map(el => ({
+        tool: `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`,
+        meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
+      })));
+      expect(rows.map(row => row.tool), d).toEqual(own.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
+      expect(rows.map(row => row.meta), d).toEqual(own.map(metaLineOf));
+    }
+    await foldHead(toolbox, departments[0]).scrollIntoViewIfNeeded();
+    await picture(page, '768-dark-f10-toolbox-24-actors-by-department');
+  });
+
+  test('f10 q30: Group: None lists every row in run order', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[0], 'light', 60_000);
+    await chooseGroup(toolbox, 'None');
+    await expect(foldHeads(toolbox)).toHaveCount(0);
+    await expect(openAllGroups(toolbox)).toHaveAttribute('aria-disabled', 'true');
+    // One list of every row in the run's order, each led by its actor's label and name behind its side mark.
+    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
+    const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
+      tool: `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`,
+      meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
+      mark: el.querySelectorAll('[data-side-mark]').length,
+    })));
+    expect(rows.map(row => row.tool)).toEqual(registry.list.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
+    expect(rows.map(row => row.meta)).toEqual(registry.list.map(metaLineOf));
+    expect(rows.every(row => row.mark === 1), 'each row has its side mark').toBe(true);
+    // The grouping is kept in the page's link.
+    await expect.poll(() => new URL(page.url()).searchParams.get('group')).toBe('none');
+    await picture(page, '390-light-f10-toolbox-24-actors-none');
+  });
+
+  test('f10 q34: an actor whose reports cannot be read says so, and the other folds work', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS_A7_UNREADABLE));
+    expect(registry.actors[6].unreadable).toBe(true);
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozensA7Unreadable, registry.list.length, { width: 1100, height: 900 }, 'light', 60_000);
+    await expect(foldHeads(toolbox)).toHaveCount(24);
+    // A7's head names it by its tile and name, says its tools could not be read, and opens nothing.
+    const a7 = foldHead(toolbox, 'A7');
+    await expect(a7.locator('[data-actor-tile]')).toHaveText('A7');
+    await expect(a7.locator('[data-fold-name]')).toHaveText('Ines Duarte · The Strategist');
+    await expect(a7.locator('[data-fold-error]')).toHaveText('A7\'s tools could not be read.');
+    await expect(a7.locator('[aria-expanded]')).toHaveCount(0);
+    // The Event Log is the way forward.
+    const way = foldOf(toolbox, 'A7').getByRole('button', { name: 'Show in Event Log', exact: true });
+    await expect(way).toBeVisible();
+    await picture(page, '1100-light-f10-toolbox-A7-unreadable');
+
+    // The other folds work: A8's opens on A8's rows.
+    const a8 = foldHead(toolbox, 'A8').getByRole('button');
+    await a8.click();
+    await expect(a8).toHaveAttribute('aria-expanded', 'true');
+    await expect(rowsOf(foldOf(toolbox, 'A8'))).toHaveCount(registry.list.filter(entry => entry.actorIndex === 7).length);
+
+    // Show in Event Log closes the toolbox and opens the Event Log on A7's events.
+    await way.click();
+    await expect(toolbox).toBeHidden();
+    await expect.poll(() => new URL(page.url()).searchParams.get('logLeader')).toBe('Ines Duarte');
+    expect(new URL(page.url()).searchParams.get('tab')).toBe('settings');
+    expect(new URL(page.url()).searchParams.get('sub')).toBe('log');
+  });
+
+  test('f10 q35: the row of keys stays one row at the sweep widths at 24 actors', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    for (const look of LOOKS) {
+      const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[0], look, 60_000);
+      for (const width of SWEEP_WIDTHS) {
+        await test.step(`${width} in the ${look} look`, async () => {
+          await page.setViewportSize({ width, height: 844 });
+          await expect(groupKey(toolbox)).toBeVisible();
+          const read = await toolbox.evaluate((dialog) => {
+            const box = (el: Element) => {
+              const r = el.getBoundingClientRect();
+              return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
+            };
+            const shown = (el: Element) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+            const group = dialog.querySelector('button[aria-haspopup="menu"]');
+            const menu = dialog.querySelector('[data-toolbox-menu]');
+            const field = dialog.querySelector('input[type="search"]');
+            return {
+              window: window.innerWidth,
+              sheet: box(dialog),
+              sheetScroll: dialog.scrollWidth - dialog.clientWidth,
+              group: group ? box(group) : null,
+              segments: Array.from(dialog.querySelectorAll('[data-show]')).filter(shown).map(box),
+              menu: menu && shown(menu) ? box(menu) : null,
+              field: field && shown(field) ? box(field) : null,
+            };
+          });
+          expect(read.sheetScroll, 'the toolbox does not scroll sideways').toBeLessThanOrEqual(0);
+          expect(read.sheet.right).toBeLessThanOrEqual(read.window + 0.5);
+          // Group: one key, 44 px tall on a phone, inside the toolbox, on a row above the filter and the search.
+          expect(read.group, 'Group shows').not.toBeNull();
+          expect(Math.round(read.group!.height)).toBeGreaterThanOrEqual(44);
+          expect(read.group!.right).toBeLessThanOrEqual(read.sheet.right + 0.5);
+          expect(read.field, 'Find a tool shows').not.toBeNull();
+          expect(read.group!.bottom, 'Group stands above the filter and the search').toBeLessThanOrEqual(read.field!.top + 0.5);
+          // The filter and the search: one row, the menu below 768 px, the segments at 768 px.
+          const filter = width < 768 ? [read.menu] : read.segments;
+          if (width < 768) {
+            expect(read.segments).toHaveLength(0);
+            expect(read.menu, 'the filter is its menu').not.toBeNull();
+          } else {
+            expect(read.menu).toBeNull();
+            expect(read.segments).toHaveLength(3);
+          }
+          const parts = [...filter, read.field].filter((part): part is NonNullable<typeof part> => part !== null);
+          expect(Math.max(...parts.map(part => part.top)), 'the filter and the search share one row')
+            .toBeLessThan(Math.min(...parts.map(part => part.bottom)));
+          for (const part of parts) expect(part.right).toBeLessThanOrEqual(read.sheet.right + 0.5);
+          if (width === 320) await picture(page, `320-${look}-f10-toolbox-24-actors-keys`);
+        });
+      }
+    }
+  });
+
+  test('f10 q36: Export JSON on the 300-actor run says it is exporting, then downloads every actor\'s rows', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'dark', 150_000);
+    // Every word the export's status says, as it says it.
+    await toolbox.evaluate((dialog) => {
+      const seen: string[] = [];
+      (window as unknown as { exportSaid: string[] }).exportSaid = seen;
+      const note = () => {
+        for (const el of Array.from(dialog.querySelectorAll('[data-export-status]'))) {
+          const words = el.textContent ?? '';
+          if (words !== '' && !seen.includes(words)) seen.push(words);
+        }
+      };
+      new MutationObserver(note).observe(dialog, { subtree: true, childList: true, characterData: true });
+    });
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 60_000 }),
+      toolbox.getByRole('button', { name: 'Export JSON', exact: true }).click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('paracosm-toolbox.json');
+    const rows = JSON.parse(readFileSync(await download.path(), 'utf8')) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(3612);
+    expect(new Set(rows.map(row => row.actor)).size).toBe(300);
+    const said = await page.evaluate(() => (window as unknown as { exportSaid?: string[] }).exportSaid ?? []);
+    expect(said).toContain('Exporting 3,612 tools…');
+    // Once the file is saved the status says nothing more.
+    await expect(toolbox.locator('[data-export-status]').filter({ hasText: /\S/ })).toHaveCount(0);
+  });
+
+  test('f10 q38: A299\'s fold head names the registry\'s limit', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, { width: 768, height: 1024 }, 'light', 150_000);
+    await expect(foldHeads(toolbox)).toHaveCount(300, { timeout: 60_000 });
+    const a299 = foldHead(toolbox, 'A299');
+    await a299.scrollIntoViewIfNeeded();
+    await expect(a299.locator('[data-fold-count]')).toHaveText(/^50 tools from /);
+    await expect(a299.locator('[data-fold-note]')).toHaveText('50 tools: the most one actor\'s registry holds');
+    // No other actor's registry is full.
+    await expect(toolbox.locator('[data-fold-note]')).toHaveCount(1);
+    await picture(page, '768-light-f10-toolbox-300-actors-A299');
+  });
+
+  test('f10 q31 in this pull request: a name 40 actors forged gives 40 rows, each with its own uses', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const registry = registryOf(generateCohortRun(MAXIMUM));
+    const holders = registry.list.filter(entry => entry.name === HABITAT);
+    expect(holders).toHaveLength(40);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'light', 150_000);
+    await toolbox.getByRole('searchbox', { name: 'Find a tool' }).fill(HABITAT);
+    // The folds that hold the name, one an actor, and every fold opened shows its row.
+    await expect(foldHeads(toolbox)).toHaveCount(40);
+    await openAllGroups(toolbox).click();
+    await expect(rowsOf(toolbox)).toHaveCount(40);
+    const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
+      actor: el.getAttribute('data-actor'),
+      meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
+      same: el.querySelector('[data-row-same]')?.textContent ?? '',
+    })));
+    expect(rows.map(row => row.actor)).toEqual(holders.map(entry => `A${entry.actorIndex + 1}`));
+    // Each row its own actor's tool, with that actor's own uses.
+    expect(rows.map(row => row.meta)).toEqual(holders.map(metaLineOf));
+    expect(rows.map(row => row.same)).toEqual(holders.map(() => 'Same name in 39 other actors'));
+    await picture(page, '1440-light-f10-toolbox-300-actors-same-name');
   });
 });
