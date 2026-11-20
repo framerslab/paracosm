@@ -157,13 +157,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # The four checks below run when an earlier step has failed too, so a
+      # failing browser spec does not hide what they would report. The job
+      # still fails on that step.
       - name: Check doc examples compile against package
+        if: ${{ !cancelled() }}
         run: npm run check:doc-examples
 
       - name: Build API docs (TypeDoc)
+        if: ${{ !cancelled() }}
         run: npm run docs
 
       - name: Check the sitemap against the API docs
+        if: ${{ !cancelled() }}
         run: npm run check:sitemap
 
       # The hosted demo's consent bar on the landing page, the dashboard and
@@ -171,6 +177,7 @@ jobs:
       # hosted_demo mode with made-up analytics ids. It writes pictures of the
       # bar into test-results/consent-bar-captures.
       - name: Consent bar end-to-end test
+        if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/consent-bar.spec.ts --project=chromium-desktop
 
       - name: Upload the consent bar pictures

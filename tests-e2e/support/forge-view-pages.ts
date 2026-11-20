@@ -95,11 +95,13 @@ export interface ToolboxLine {
 }
 
 interface WalkArg {
-  op: 'read' | 'reveal' | 'step';
+  op: 'read' | 'reveal' | 'step' | 'tail';
   /** reveal: the part to scroll into view. */
   selector: string;
   /** step: how far to scroll, as a share of the view's height. */
   share: number;
+  /** read: how many lines to read from the top, 0 for every line. tail: how many lines to read back from the end. */
+  count: number;
 }
 
 interface WalkResult {
@@ -116,10 +118,12 @@ interface WalkResult {
  * 50 (data-windowed="true" on the list, data-line on each line). After each
  * scroll it waits until the lines rendered cover the view, so no line is
  * passed unread.
- * - read: from the top to the end, every line read once; then back to the top
+ * - read: from the top to the end, every line read once, or only as far as
+ *   its first `count` lines; then back to the top
+ * - tail: to the list's end, then back up until its last `count` lines are read
  * - reveal: from the top until the selector matches a rendered part, then that part centred in view
  * - step: one scroll by a share of the view, then what is rendered
- * Where the list renders whole, read and reveal read the page as it stands.
+ * Where the list renders whole, read, tail and reveal read the page as it stands.
  */
 async function walkList(root: Element, arg: WalkArg): Promise<WalkResult> {
   const result: WalkResult = { lines: [], found: false, moved: false, covered: true, rendered: 0, heads: [] };
@@ -224,12 +228,47 @@ async function walkList(root: Element, arg: WalkArg): Promise<WalkResult> {
     return result;
   }
 
+  if (arg.op === 'tail') {
+    if (windowed) {
+      // The heights of lines not rendered yet are estimates, so the end moves as they render: scroll to it until the last line is rendered.
+      let atEnd = false;
+      for (let i = 0; i < 40 && !atEnd; i += 1) {
+        box.scrollTop = box.scrollHeight;
+        if (!await settle()) throw new Error('The toolbox\'s list did not render the lines in view at its end.');
+        const shown = list.querySelectorAll<HTMLElement>('[data-line]');
+        atEnd = shown.length > 0 && Number(shown[shown.length - 1].dataset.line) === count - 1;
+      }
+      if (!atEnd) throw new Error('The toolbox\'s list did not render its last line at its end.');
+      collect();
+      const first = Math.max(0, count - arg.count);
+      while (!seen.has(first)) {
+        const before = box.scrollTop;
+        box.scrollTop = Math.max(0, before - Math.max(40, viewHeight() * 0.8));
+        if (box.scrollTop > before - 0.5) break;
+        if (!await settle()) throw new Error(`The toolbox's list did not render the lines in view at ${Math.round(box.scrollTop)} px.`);
+        collect();
+      }
+    } else {
+      collect();
+    }
+    const all = [...seen.values()].sort((a, b) => a.at - b.at);
+    const last = all.slice(Math.max(0, all.length - arg.count));
+    // Read from the end upwards, the lines must follow one another: a gap is a line the scroll passed unread.
+    last.forEach((line, i) => {
+      if (line.at !== last[0].at + i) throw new Error(`The toolbox's list passed line ${last[0].at + i} unread on the way back from its end.`);
+    });
+    result.lines = last;
+    return result;
+  }
+
   const target = () => (arg.op === 'reveal' ? list.querySelector<HTMLElement>(arg.selector) : null);
+  // A reveal stops at its part; a read of the first lines stops once the last of them is read.
+  const enough = () => (arg.op === 'reveal' ? target() !== null : arg.count > 0 && seen.has(arg.count - 1));
   if (windowed) {
     box.scrollTop = 0;
     if (!await settle()) throw new Error('The toolbox\'s list did not render the lines in view at its top.');
     collect();
-    while (arg.op === 'read' || target() === null) {
+    while (!enough()) {
       if (!scrollBy(Math.max(40, viewHeight() * 0.8))) break;
       if (!await settle()) throw new Error(`The toolbox's list did not render the lines in view at ${Math.round(box.scrollTop)} px.`);
       collect();
@@ -247,7 +286,8 @@ async function walkList(root: Element, arg: WalkArg): Promise<WalkResult> {
     box.scrollTop = 0;
     await settle();
   }
-  result.lines = [...seen.values()].sort((a, b) => a.at - b.at);
+  const lines = [...seen.values()].sort((a, b) => a.at - b.at);
+  result.lines = arg.op === 'read' && arg.count > 0 ? lines.slice(0, arg.count) : lines;
   return result;
 }
 
@@ -256,12 +296,23 @@ async function walkList(root: Element, arg: WalkArg): Promise<WalkResult> {
  * top to its end; the list is left at its top.
  */
 export async function readAllLines(list: Locator): Promise<ToolboxLine[]> {
-  return (await list.evaluate(walkList, { op: 'read', selector: '', share: 0 })).lines;
+  return (await list.evaluate(walkList, { op: 'read', selector: '', share: 0, count: 0 })).lines;
+}
+
+/**
+ * The first lines of the toolbox's list in order, or its last, without the
+ * scroll through all of it: from 'top' the first `count`, read down from its
+ * top, the list left at its top; from 'end' the last `count`, read back up
+ * from its end, the list left where the read stopped. A list that holds
+ * fewer lines gives them all.
+ */
+export async function readLinesFrom(list: Locator, from: 'top' | 'end', count: number): Promise<ToolboxLine[]> {
+  return (await list.evaluate(walkList, { op: from === 'top' ? 'read' : 'tail', selector: '', share: 0, count })).lines;
 }
 
 /** Scrolls the toolbox's list from its top until a part that matches the selector renders, and centres that part in view. */
 export async function revealLine(list: Locator, selector: string): Promise<void> {
-  await list.evaluate(walkList, { op: 'reveal', selector, share: 0 });
+  await list.evaluate(walkList, { op: 'reveal', selector, share: 0, count: 0 });
 }
 
 /**
@@ -271,6 +322,6 @@ export async function revealLine(list: Locator, selector: string): Promise<void>
  * heads, by their names.
  */
 export async function scrollListBy(list: Locator, share: number): Promise<{ moved: boolean; covered: boolean; rendered: number; heads: string[] }> {
-  const { moved, covered, rendered, heads } = await list.evaluate(walkList, { op: 'step', selector: '', share });
+  const { moved, covered, rendered, heads } = await list.evaluate(walkList, { op: 'step', selector: '', share, count: 0 });
   return { moved, covered, rendered, heads };
 }

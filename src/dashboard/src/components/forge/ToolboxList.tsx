@@ -128,7 +128,7 @@ const rowKeyOf = (entry: ToolEntry): string => `${entry.actorIndex}:${entry.name
  * shown (-1 under Group: None), and a row's `pos` its place among every row
  * the filter and the search leave, open fold or closed.
  */
-type ListLine = WindowLine & (
+export type ListLine = WindowLine & (
   | { kind: 'head'; fold: number }
   | { kind: 'dept'; fold: number; dept: string }
   | { kind: 'row'; fold: number; dept: string | null; entry: ToolEntry; pos: number }
@@ -144,7 +144,7 @@ const deptOf = (line: ListLine): string | null => (line.kind === 'head' ? null :
  * their fold is open or closed, so each row's place is its place in the
  * whole list.
  */
-function listLines(
+export function listLines(
   group: ToolboxGroup,
   rows: ToolEntry[],
   groups: Array<{ head: GroupHead | null; rows: ToolEntry[] }>,

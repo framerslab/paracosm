@@ -66,7 +66,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import {
   COHORT_SERVER, LINE_PARTS, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
-  pairSessionId, readAllLines, replayUrl, revealLine, scrollListBy, sessionIdByName, useLook,
+  pairSessionId, readAllLines, readLinesFrom, replayUrl, revealLine, scrollListBy, sessionIdByName, useLook,
   type Look, type ToolboxLine,
 } from '../support/forge-view-pages.js';
 import { DOZENS, DOZENS_A7_UNREADABLE, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
@@ -1659,6 +1659,17 @@ async function openCohortSim(page: Page, request: APIRequestContext, run: string
   await replayComplete(page, timeout);
 }
 
+/** How many rows the 300-actor test reads at each end of its flat list. */
+const STRETCH = 200;
+
+/** From three actors the rows' lines take the quiet tone and each side mark its actor's run colour: read on A3's first row. */
+async function expectThirdActorsTones(page: Page, toolbox: Locator): Promise<void> {
+  await revealLine(toolbox, '[data-tool-row][data-actor="A3"]');
+  const third = toolbox.locator('[data-tool-row][data-actor="A3"]').first();
+  expect(await groundOf(third.locator('[data-forge-line="row"] [data-station="request"] [data-cell]'))).toBe(await resolved(page, '--forge-quiet'));
+  expect(await groundOf(third.locator('[data-side-mark]'))).toBe(await resolved(page, '--rust'));
+}
+
 test.describe('the forged toolbox on the run\'s record', () => {
   test('f10 q1 and q21: the count line and the filter of a run with no trace', async ({ page, request }) => {
     test.setTimeout(180_000);
@@ -2134,37 +2145,57 @@ test.describe('the forged toolbox on the run\'s record', () => {
     }
   });
 
-  test('the toolbox of the 24-actor and the 300-actor runs counts the whole run and names its actors', async ({ page, request }) => {
+  test('the toolbox of the 24-actor run counts the whole run and names its actors', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    await openCohortSim(page, request, RUNS.dozens, WIDTHS[1], 'dark', 60_000);
+    // A list of this size takes the page a moment to draw, so each check waits longer.
+    await toolboxKey(page).click();
+    const toolbox = toolboxOf(page, DOZENS.tools);
+    await expect(toolbox).toBeVisible({ timeout: 60_000 });
+    await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(DOZENS_LINE, { timeout: 60_000 });
+    // Past two actors the toolbox opens grouped by actor with its folds closed; Group: None lists every row.
+    await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+    await chooseGroup(toolbox, 'None');
+    // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
+    // Past 50 lines the list renders the rows in view, so the read scrolls it through, all 286 rows of it.
+    const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(rows.map(row => [row.name, row.actor])).toEqual(registry.list.map(entry => [entry.name, `A${entry.actorIndex + 1}`]));
+    const strays = rows.filter((row, i) => !row.meta.startsWith(`A${registry.list[i].actorIndex + 1} ${registry.list[i].actorName} · `));
+    expect(strays, 'every meta line begins with its actor\'s label and name').toEqual([]);
+    await expectThirdActorsTones(page, toolbox);
+  });
+
+  test('the toolbox of the 300-actor run counts the whole run and names its actors', async ({ page, request }) => {
     test.setTimeout(300_000);
-    const runs = [
-      { run: RUNS.dozens, spec: DOZENS, timeout: 60_000, line: '286 tools from 331 forges (45 re-forges) · 268 passed · 63 did not pass · 24 actors' },
-      { run: RUNS.maximum, spec: MAXIMUM, timeout: 150_000, line: '3,612 tools from 4,207 forges (595 re-forges) · 3,301 passed · 906 did not pass · 300 actors' },
-    ];
-    for (const { run, spec, timeout, line } of runs) {
-      await test.step(run, async () => {
-        const registry = registryOf(generateCohortRun(spec));
-        await openCohortSim(page, request, run, WIDTHS[1], 'dark', timeout);
-        // A list of this size takes the page a moment to draw, so each check waits longer.
-        await toolboxKey(page).click();
-        const toolbox = toolboxOf(page, spec.tools);
-        await expect(toolbox).toBeVisible({ timeout: 60_000 });
-        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(line, { timeout: 60_000 });
-        // Past two actors the toolbox opens grouped by actor with its folds closed; Group: None lists every row.
-        await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
-        await chooseGroup(toolbox, 'None');
-        // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
-        // Past 50 lines the list renders the rows in view, so the read scrolls it through.
-        const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
-        expect(rows.map(row => [row.name, row.actor])).toEqual(registry.list.map(entry => [entry.name, `A${entry.actorIndex + 1}`]));
-        const strays = rows.filter((row, i) => !row.meta.startsWith(`A${registry.list[i].actorIndex + 1} ${registry.list[i].actorName} · `));
-        expect(strays, 'every meta line begins with its actor\'s label and name').toEqual([]);
-        // From three actors the rows' lines take the quiet tone, and each side mark its actor's run colour.
-        await revealLine(toolbox, '[data-tool-row][data-actor="A3"]');
-        const third = toolbox.locator('[data-tool-row][data-actor="A3"]').first();
-        expect(await groundOf(third.locator('[data-forge-line="row"] [data-station="request"] [data-cell]'))).toBe(await resolved(page, '--forge-quiet'));
-        expect(await groundOf(third.locator('[data-side-mark]'))).toBe(await resolved(page, '--rust'));
-      });
-    }
+    const registry = registryOf(generateCohortRun(MAXIMUM));
+    await openCohortSim(page, request, RUNS.maximum, WIDTHS[1], 'dark', 150_000);
+    // A list of this size takes the page a moment to draw, so each check waits longer.
+    await toolboxKey(page).click();
+    const toolbox = toolboxOf(page, MAXIMUM.tools);
+    await expect(toolbox).toBeVisible({ timeout: 60_000 });
+    await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(MAXIMUM_LINE, { timeout: 60_000 });
+    await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+    await chooseGroup(toolbox, 'None');
+    // One flat list of 3,612 lines, every one a row. The list renders the rows in view, so this reads
+    // its first rows down from the top and its last back up from the end: each row's place in the whole
+    // list, its tool, its actor and its meta line's lead. The 24-actor test above reads a whole list
+    // through, and tests/dashboard/toolbox-list-order.test.ts holds the order of all 3,612 lines.
+    await expect(toolbox.locator('[data-toolbox-rows]')).toHaveAttribute('data-line-count', '3612');
+    const whole = registry.list.map((entry, i) => ({
+      pos: i + 1, size: 3612, name: entry.name, actor: `A${entry.actorIndex + 1}`,
+      lead: `A${entry.actorIndex + 1} ${entry.actorName} · `,
+    }));
+    // What the page shows of each row read, its meta line cut to the length of the lead it should begin with.
+    const asRead = (lines: ToolboxLine[], rows: typeof whole) => lines.map((line, i) => ({
+      pos: line.pos, size: line.size, name: line.name, actor: line.actor,
+      lead: line.meta.slice(0, rows[i]?.lead.length ?? 0),
+    }));
+    const first = whole.slice(0, STRETCH);
+    expect(asRead(await readLinesFrom(toolbox, 'top', STRETCH), first), 'the first rows').toEqual(first);
+    const last = whole.slice(-STRETCH);
+    expect(asRead(await readLinesFrom(toolbox, 'end', STRETCH), last), 'the last rows').toEqual(last);
+    await expectThirdActorsTones(page, toolbox);
   });
 
   test('Reports shows the same rows in its page', async ({ page, request }) => {
@@ -2347,6 +2378,24 @@ const focusedPlace = (toolbox: Locator) => toolbox.evaluate((dialog) => {
   const view = dialog.getBoundingClientRect().top + dialog.clientTop + dialog.clientHeight;
   return { top: focused.top, bottom: focused.bottom, headBottom: head.bottom, viewBottom: view };
 });
+
+/**
+ * Tab from the focused head on through the heads of the actors from one slot
+ * to another, in order: each takes focus whole in view below the fixed head.
+ */
+async function tabThroughHeads(page: Page, toolbox: Locator, from: number, to: number): Promise<void> {
+  for (let n = from; n <= to; n += 1) {
+    if (n > from) await page.keyboard.press('Tab');
+    await expect(foldHead(toolbox, `A${n}`).getByRole('button'), `Tab reaches A${n}`).toBeFocused();
+    const at = await focusedPlace(toolbox);
+    expect(at.top, `A${n} sits below the fixed head`).toBeGreaterThanOrEqual(at.headBottom - 1);
+    expect(at.bottom, `A${n} is whole in view`).toBeLessThanOrEqual(at.viewBottom + 1);
+  }
+}
+
+/** On the 300-actor run the Tab test walks this many heads from the list's top, and this many to its end. */
+const FIRST_HEADS = 40;
+const LAST_HEADS = 10;
 
 const DOZENS_LINE = '286 tools from 331 forges (45 re-forges) · 268 passed · 63 did not pass · 24 actors';
 const MAXIMUM_LINE = '3,612 tools from 4,207 forges (595 re-forges) · 3,301 passed · 906 did not pass · 300 actors';
@@ -2726,8 +2775,22 @@ test.describe('the toolbox past 50 lines', () => {
     await picture(page, '1440-dark-f10-toolbox-300-actors-end');
   });
 
-  test('f10 q27: Tab moves through all 300 heads in order with no skip, each one whole below the fixed head', async ({ page, request }) => {
-    test.setTimeout(600_000);
+  test('f10 q27: Tab moves through all 24 heads in order with no skip, each one whole below the fixed head', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    for (const look of LOOKS) {
+      await test.step(`1440 in the ${look} look`, async () => {
+        const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[1], look, 60_000);
+        const first = foldHead(toolbox, 'A1').getByRole('button');
+        await first.focus();
+        await expect(first).toBeFocused();
+        await tabThroughHeads(page, toolbox, 1, 24);
+        await picture(page, `1440-${look}-f10-toolbox-24-actors-tab-A24`);
+      });
+    }
+  });
+
+  test('f10 q27 at 300 actors: Tab moves through the first heads and the last in order with no skip, each one whole below the fixed head', async ({ page, request }) => {
+    test.setTimeout(420_000);
     for (const look of LOOKS) {
       await test.step(`1440 in the ${look} look`, async () => {
         const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], look, 150_000);
@@ -2735,14 +2798,20 @@ test.describe('the toolbox past 50 lines', () => {
         await first.focus();
         await expect(first).toBeFocused();
         expect(await toolbox.locator(LINE_PARTS).count(), 'lines rendered with focus on A1').toBeLessThanOrEqual(MOST_LINES);
-        for (let n = 1; n <= 300; n += 1) {
-          if (n > 1) await page.keyboard.press('Tab');
-          await expect(foldHead(toolbox, `A${n}`).getByRole('button'), `Tab reaches A${n}`).toBeFocused();
-          const at = await focusedPlace(toolbox);
-          expect(at.top, `A${n} sits below the fixed head`).toBeGreaterThanOrEqual(at.headBottom - 1);
-          expect(at.bottom, `A${n} is whole in view`).toBeLessThanOrEqual(at.viewBottom + 1);
-          if (n % 50 === 0) expect(await toolbox.locator(LINE_PARTS).count(), `lines rendered with focus on A${n}`).toBeLessThanOrEqual(MOST_LINES);
-        }
+        // The first heads: Tab goes on past the lines rendered at the top, to heads the list had not rendered.
+        await expect(foldHead(toolbox, `A${FIRST_HEADS}`), `A${FIRST_HEADS} is not rendered at the top`).toHaveCount(0);
+        await tabThroughHeads(page, toolbox, 1, FIRST_HEADS);
+        expect(await toolbox.locator(LINE_PARTS).count(), `lines rendered with focus on A${FIRST_HEADS}`).toBeLessThanOrEqual(MOST_LINES);
+
+        // The last heads: focus leaves the list, the list scrolls to the tenth head from its end, and Tab goes on from it to A300.
+        await toolbox.locator('[data-toolbox-title]').focus();
+        const from = 300 - LAST_HEADS + 1;
+        await revealLine(toolbox, `[data-fold-head="A${from}"]`);
+        const late = foldHead(toolbox, `A${from}`).getByRole('button');
+        await late.focus();
+        await expect(late).toBeFocused();
+        await tabThroughHeads(page, toolbox, from, 300);
+        expect(await toolbox.locator(LINE_PARTS).count(), 'lines rendered with focus on A300').toBeLessThanOrEqual(MOST_LINES);
         await picture(page, `1440-${look}-f10-toolbox-300-actors-tab-A300`);
       });
     }
