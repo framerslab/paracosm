@@ -9,7 +9,7 @@ import { expect, type APIRequestContext, type Locator, type Page } from '@playwr
 /** The stored pair run: tests-e2e/support/shared-run-server.ts. */
 export const PAIR_SERVER = 'http://127.0.0.1:3462';
 /** The generated runs of 24 and 300 actors: tests-e2e/support/cohort-run-server.ts. */
-export const COHORT_SERVER = 'http://127.0.0.1:3466';
+export const COHORT_SERVER = 'http://127.0.0.1:3467';
 /** Where the spec saves its pictures, which CI uploads. */
 export const PICTURES = 'test-pictures/forged-tool-view';
 

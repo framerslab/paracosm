@@ -53,4 +53,4 @@ const server = createMarsServer({
   sessionStore,
   getDigitalTwinWorld: async () => null,
 });
-server.listen(Number(process.env.PORT ?? 3466));
+server.listen(Number(process.env.PORT ?? 3467));

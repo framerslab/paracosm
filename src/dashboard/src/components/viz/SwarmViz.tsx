@@ -19,6 +19,7 @@ import { ColonistSearch, type SearchMatch } from './grid/ColonistSearch.js';
 import {
   GridSettingsDrawer,
   DEFAULT_GRID_SETTINGS,
+  storedGridSettings,
   type GridSettings,
 } from './grid/GridSettingsDrawer.js';
 import { useSoundCues } from './grid/useSoundCues.js';
@@ -88,6 +89,12 @@ interface SwarmVizProps {
   onNavigateToChat?: (colonistName: string) => void;
 }
 
+/** True when a snapshot carries any of the four readings ECOLOGY draws. */
+function hasEcologyReadings(snap: TurnSnapshot | undefined): boolean {
+  if (!snap) return false;
+  return [snap.foodReserve, snap.waterLitersPerDay, snap.powerKw, snap.pressurizedVolumeM3].some(v => typeof v === 'number');
+}
+
 /**
  * VIZ tab composition root. Owns playhead state, grid mode, palette,
  * chronicle filter, focused-side, and timelapse recording. Delegates
@@ -132,13 +139,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const [currentTurn, setCurrentTurn] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  // Replay (`?replay=<id>`) is cached playback (no new LLM cost). The run
-  // reducer still flips `isRunning` true while replayed status events
-  // stream, so gate on replay too: treat cached playback as non-live so
-  // the VIZ suppresses the ambient wash just like completed/loaded runs.
-  const isReplaying = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).has('replay');
-  const isLiveRun = state.isRunning && !isReplaying;
 
   // Grid mode (new living-colony grid). Shared across both leaders so
   // tabs toggle in lockstep. Persisted to localStorage so the user's
@@ -261,20 +261,17 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const [gridSettings, setGridSettingsState] = useState<GridSettings>(() => {
     // Schema version tagged into localStorage so default-changes
     // propagate to users with older stored settings. Bumping when a
-    // default flips (v2: `lines` true → false, `deptLabels` off; v3:
-    // `deptRings` true → false) forces a clean reset for existing
-    // localStorage entries instead of letting the stored `true`
-    // override the new `false`. Users who customized get reset once;
-    // they can re-toggle from the drawer after.
+    // default flips (v2 turned `deptLabels` off, v3 a switch since removed) forces a
+    // clean reset for existing localStorage entries instead of letting
+    // the stored value override the new default. Keys of switches since
+    // removed are dropped on read (storedGridSettings), with no reset.
     const SETTINGS_VERSION = 3;
     try {
       const raw = localStorage.getItem('paracosm:gridSettings');
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<GridSettings> & { __v?: number };
+        const parsed = JSON.parse(raw) as Record<string, unknown> & { __v?: number };
         if (parsed.__v === SETTINGS_VERSION) {
-          const { __v, ...rest } = parsed;
-          void __v;
-          return { ...DEFAULT_GRID_SETTINGS, ...rest };
+          return storedGridSettings(parsed);
         }
         // Stale schema — drop the stored blob and use defaults.
         localStorage.removeItem('paracosm:gridSettings');
@@ -923,11 +920,13 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // constraint as the media-query hooks above: must run on every render
   // including the maxTurn === 0 empty-state branch, otherwise React
   // throws #310 on the transition between empty-state and populated.
-  // Highlight strip: pure derivation from the current and previous
-  // snapshot pair. snapToHighlight converts cumulative deaths/births
-  // into per-turn deltas; computeTurnHighlight picks the largest
-  // divergence and returns one templated sentence. Recomputes on turn
-  // change. Nothing async, no LLM.
+  // Highlight strip: pure derivation from the current snapshot pair.
+  // Each snapshot counts its own turn's births and deaths;
+  // computeTurnHighlight picks the largest divergence and returns one
+  // templated sentence in the actors' names and the scenario's nouns.
+  // Recomputes on turn change. Nothing async, no LLM.
+  const highlightNameA = leaderA?.name ?? 'Leader A';
+  const highlightNameB = leaderB?.name ?? 'Leader B';
   const highlightText = useMemo(() => {
     const a = snapsA[currentTurn]
       ? snapToHighlight(snapsA[currentTurn], snapsA[currentTurn - 1])
@@ -935,8 +934,14 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     const b = snapsB[currentTurn]
       ? snapToHighlight(snapsB[currentTurn], snapsB[currentTurn - 1])
       : null;
-    return computeTurnHighlight(a, b, currentTurn + 1);
-  }, [snapsA, snapsB, currentTurn]);
+    return computeTurnHighlight(a, b, currentTurn + 1, {
+      nameA: highlightNameA,
+      nameB: highlightNameB,
+      person: scenarioLabels.person,
+      people: scenarioLabels.people,
+      places: scenarioLabels.places,
+    });
+  }, [snapsA, snapsB, currentTurn, highlightNameA, highlightNameB, scenarioLabels.person, scenarioLabels.people, scenarioLabels.places]);
 
   // Department list for the legend popover. Colors come from the shared
   // DEPARTMENT_COLORS table so the swatch in the legend matches the
@@ -1243,6 +1248,19 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           <div className={styles.modeHint}>
             {gridModeHint(gridMode, scenarioLabels)}
           </div>
+          {gridMode === 'ecology' && !state.actorIds.some(id => {
+            // Every actor of the run, the pair view's two and the all-actor
+            // view's rest, at the turn on screen.
+            const snaps = snapshotMap[id] ?? [];
+            return hasEcologyReadings(snaps[currentTurn] ?? snaps[snaps.length - 1]);
+          }) && (
+            <div role="status" className={styles.ecologyNone}>
+              <span>ECOLOGY draws food, water, power and pressurized volume. This run holds none of them.</span>
+              <button type="button" onClick={() => setGridMode('living')} className={styles.ecologyBack}>
+                Back to LIVING
+              </button>
+            </div>
+          )}
         </div>
         <ColonistSearch
           value={searchQuery}
@@ -1342,7 +1360,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapA}
-            isLiveRun={isLiveRun}
             previousSnapshot={prevSnapA}
             snapshotHistory={snapsA}
             actorName={leaderA?.name ?? 'Leader A'}
@@ -1385,7 +1402,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           >
           <LivingSwarmGrid
             snapshot={snapB}
-            isLiveRun={isLiveRun}
             previousSnapshot={prevSnapB}
             snapshotHistory={snapsB}
             actorName={leaderB?.name ?? 'Leader B'}

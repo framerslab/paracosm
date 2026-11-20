@@ -210,6 +210,31 @@
   min-height: 12px;
 }
 
+/* ECOLOGY on a run that holds none of its four readings: says so, with a
+   way back to LIVING. */
+.ecologyNone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--font-2xs);
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+.ecologyBack {
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-1);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  min-height: 32px;
+  cursor: pointer;
+}
+
 .diffLine {
   padding: 4px 12px;
   font-size: var(--font-2xs);

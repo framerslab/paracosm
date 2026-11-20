@@ -5,10 +5,10 @@ export type GridMode = 'living' | 'mood' | 'forge' | 'ecology' | 'divergence';
 /** Hints are scenario-templated. `{people}` = plural population noun,
  *  `{person}` = singular, both lower-case. Resolved at render time. */
 const MODES: { key: GridMode; label: string; hint: string }[] = [
-  { key: 'living', label: 'LIVING', hint: 'Full field + {person} seeds + family lines + all events' },
-  { key: 'mood', label: 'MOOD', hint: '{Person} mood cloud emphasized; births / deaths / partner arcs' },
+  { key: 'living', label: 'LIVING', hint: 'Full field + {person} seeds + all events' },
+  { key: 'mood', label: 'MOOD', hint: '{Person} mood cloud emphasized; births / deaths' },
   { key: 'forge', label: 'FORGE', hint: 'Field dimmed; tool forge attempts + reuse arcs between departments' },
-  { key: 'ecology', label: 'ECOLOGY', hint: 'Glyphs hidden; metrics strip + crisis shockwaves lead' },
+  { key: 'ecology', label: 'ECOLOGY', hint: 'Glyphs hidden; food, water, power and volume tint a quadrant each' },
   { key: 'divergence', label: 'DIVERGENCE', hint: 'Only {people} alive here but dead on the other side' },
 ];
 
