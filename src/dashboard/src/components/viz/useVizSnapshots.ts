@@ -22,7 +22,13 @@ export function useVizSnapshots(state: GameState): Record<string, TurnSnapshot[]
   return useMemo(() => buildVizSnapshots(state), [state]);
 }
 
-/** The pure body of {@link useVizSnapshots}. */
+/**
+ * The pure body of {@link useVizSnapshots}. The reducer appends one roster
+ * to `agentSnapshots` for each `systems_snapshot` event, in order, so the
+ * i-th roster pairs with the i-th `systems_snapshot`; its turn number then
+ * finds the turn's `turn_done`. A fork resumed after turn k numbers its
+ * first snapshot k + 1, which an index-based turn lookup would miss.
+ */
 export function buildVizSnapshots(state: GameState): Record<string, TurnSnapshot[]> {
   const result: Record<string, TurnSnapshot[]> = {};
 
@@ -43,11 +49,10 @@ export function buildVizSnapshots(state: GameState): Record<string, TurnSnapshot
       }
     }
 
+    const snapshotEvents = s.events.filter(e => e.type === 'systems_snapshot');
     for (let i = 0; i < s.agentSnapshots.length; i++) {
       const agents = s.agentSnapshots[i];
-      const turnEvent = s.events.find(
-        e => e.type === 'systems_snapshot' && e.data?.turn === i + 1
-      );
+      const turnEvent = snapshotEvents[i];
       const dd = turnEvent?.data || {};
       const turnNum = (dd.turn as number) || i + 1;
       const turnDone = s.events.find(e => e.type === 'turn_done' && e.data?.turn === turnNum);

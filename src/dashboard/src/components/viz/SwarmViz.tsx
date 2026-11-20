@@ -923,8 +923,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       nameB: highlightNameB,
       person: scenarioLabels.person,
       people: scenarioLabels.people,
+      places: scenarioLabels.places,
     });
-  }, [snapsA, snapsB, currentTurn, highlightNameA, highlightNameB, scenarioLabels.person, scenarioLabels.people]);
+  }, [snapsA, snapsB, currentTurn, highlightNameA, highlightNameB, scenarioLabels.person, scenarioLabels.people, scenarioLabels.places]);
 
   // Department list for the legend popover. Colors come from the shared
   // DEPARTMENT_COLORS table so the swatch in the legend matches the
@@ -1221,7 +1222,12 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           <div className={styles.modeHint}>
             {gridModeHint(gridMode, scenarioLabels)}
           </div>
-          {gridMode === 'ecology' && !hasEcologyReadings(snapA) && !hasEcologyReadings(snapB) && (
+          {gridMode === 'ecology' && !state.actorIds.some(id => {
+            // Every actor of the run, the pair view's two and the all-actor
+            // view's rest, at the turn on screen.
+            const snaps = snapshotMap[id] ?? [];
+            return hasEcologyReadings(snaps[currentTurn] ?? snaps[snaps.length - 1]);
+          }) && (
             <div role="status" className={styles.ecologyNone}>
               <span>ECOLOGY draws food, water, power and pressurized volume. This run holds none of them.</span>
               <button type="button" onClick={() => setGridMode('living')} className={styles.ecologyBack}>

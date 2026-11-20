@@ -62,9 +62,11 @@ export interface HighlightWords {
   person: string;
   /** The scenario's plural population noun ("colonists"). */
   people: string;
+  /** The scenario's plural settlement noun ("colonies"). */
+  places: string;
 }
 
-const DEFAULT_WORDS: HighlightWords = { nameA: 'Leader A', nameB: 'Leader B', person: 'colonist', people: 'colonists' };
+const DEFAULT_WORDS: HighlightWords = { nameA: 'Leader A', nameB: 'Leader B', person: 'colonist', people: 'colonists', places: 'colonies' };
 
 export function computeTurnHighlight(
   a: HighlightInput | null,
@@ -92,26 +94,28 @@ export function computeTurnHighlight(
   // 2. Morale collapse
   const moraleGap = Math.abs(a.morale - b.morale);
   if (moraleGap >= MORALE_GAP_THRESHOLD) {
-    const lower = a.morale < b.morale ? 'A' : 'B';
-    const lowerVal = a.morale < b.morale ? a.morale : b.morale;
-    const higherVal = a.morale < b.morale ? b.morale : a.morale;
-    return `Turn ${turn}, year ${year}: Leader ${lower}'s morale collapsed to ${pct(lowerVal)}; the other held ${pct(higherVal)}.`;
+    const aLower = a.morale < b.morale;
+    const lowerName = aLower ? words.nameA : words.nameB;
+    const higherName = aLower ? words.nameB : words.nameA;
+    const lowerVal = aLower ? a.morale : b.morale;
+    const higherVal = aLower ? b.morale : a.morale;
+    return `Turn ${turn}, year ${year}: ${lowerName}'s morale collapsed to ${pct(lowerVal)}; ${higherName} held ${pct(higherVal)}.`;
   }
 
   // 3. Event-category divergence
   const aCats = a.eventCategories.join('|');
   const bCats = b.eventCategories.join('|');
   if (aCats && bCats && aCats !== bCats) {
-    return `Turn ${turn}, year ${year}: the leaders faced different events — A: ${a.eventCategories.join(', ')}; B: ${b.eventCategories.join(', ')}.`;
+    return `Turn ${turn}, year ${year}: different events. ${words.nameA}: ${a.eventCategories.join(', ')}; ${words.nameB}: ${b.eventCategories.join(', ')}.`;
   }
 
   // 4. Identical first event
   if (turn === 1 && aCats && aCats === bCats) {
-    return `Turn 1, year ${year}: identical first event (${a.eventCategories.join(', ')}). Both colonies start from the same state.`;
+    return `Turn 1, year ${year}: identical first event (${a.eventCategories.join(', ')}). Both ${words.places} start from the same state.`;
   }
 
   // 5. Fallback
-  return `Turn ${turn}, year ${year}: A and B tracked closely. See sub-tabs for details.`;
+  return `Turn ${turn}, year ${year}: ${words.nameA} and ${words.nameB} tracked closely. See sub-tabs for details.`;
 }
 
 function pct(v: number): string {
