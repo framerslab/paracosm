@@ -189,10 +189,22 @@ function readSurface(root: Element, arg: ReadArg): unknown {
       checkOpacity: withOpacity,
     });
   };
-  /** Drawn on the page: laid out wider and taller than one pixel, and not hidden. A screen reader's 1 px text is not drawn. */
+  /**
+   * Drawn on the page: laid out wider and taller than one pixel, not hidden,
+   * and not inside a part clipped to a pixel or to nothing, as words kept for
+   * a screen reader alone are (a 1 px box that clips, or clip-path inset(50%)).
+   */
   const drawn = (el: Element, withOpacity = true): boolean => {
     const r = el.getBoundingClientRect();
-    return r.width > 1 && r.height > 1 && visibleNow(el, withOpacity);
+    if (r.width <= 1 || r.height <= 1 || !visibleNow(el, withOpacity)) return false;
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      const ar = a.getBoundingClientRect();
+      const clipping = ['hidden', 'clip'].includes(s.overflowX) || ['hidden', 'clip'].includes(s.overflowY);
+      if (s.clipPath === 'inset(50%)' || (clipping && (ar.width <= 1 || ar.height <= 1))) return false;
+      if (a === root) break;
+    }
+    return true;
   };
   const SKIP = new Set(['OPTION', 'OPTGROUP', 'SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT', 'TITLE']);
   /** The words a part draws itself: its own text nodes, a menu's chosen option, a field's value. */
@@ -454,49 +466,60 @@ function readSurface(root: Element, arg: ReadArg): unknown {
     });
   }
 
-  // spacing: every word drawn whole, and none drawn over another.
+  // spacing: every word drawn whole, and none drawn over another word or another control.
   const cut: string[] = [];
   const overlaps: string[] = [];
   // A menu or a field draws its value in its own box, which scrolls.
   const field = (el: Element): boolean => el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
   const words = parts().filter((el) => !field(el) && ownText(el) !== '' && drawn(el));
   const clips = (value: string): boolean => value === 'hidden' || value === 'clip';
-  for (const el of words) {
+  /** Where a part's own words are drawn: the line boxes of its own text nodes, not its box. */
+  const drawnWords = (el: Element): DOMRect[] => {
+    const out: DOMRect[] = [];
+    el.childNodes.forEach((n) => {
+      if (n.nodeType !== Node.TEXT_NODE || (n.textContent ?? '').trim() === '') return;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      out.push(...Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0));
+    });
+    return out;
+  };
+  const meets = (p: DOMRect, q: DOMRect): boolean =>
+    Math.min(p.right, q.right) - Math.max(p.left, q.left) > 2 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 2;
+  const lines = words.map((el) => ({ el, text: ownText(el), rects: drawnWords(el) }));
+  for (const { el, text, rects } of lines) {
+    // Cut: a part that clips what it holds, the word's own included, hides some of its words, or an ellipsis stands for them.
     const cs = getComputedStyle(el);
-    const text = ownText(el);
-    if (cs.display !== 'inline') {
-      // Wider or taller than its box: cut where the box clips, drawn past it where it does not; a box that scrolls holds it.
-      if (el.scrollWidth > el.clientWidth + 1) {
-        if (clips(cs.overflowX) || cs.textOverflow === 'ellipsis') cut.push(`${describe(el, text)} is cut at its right`);
-        else if (cs.overflowX === 'visible') cut.push(`${describe(el, text)} runs past its own box at its right`);
-      }
-      if (el.scrollHeight > el.clientHeight + 1) {
-        if (clips(cs.overflowY)) cut.push(`${describe(el, text)} is cut at its foot`);
-        else if (cs.overflowY === 'visible') cut.push(`${describe(el, text)} runs past its own box at its foot`);
-      }
-    }
-    const r = el.getBoundingClientRect();
-    for (let a = el.parentElement; a; a = a.parentElement) {
+    if (cs.textOverflow === 'ellipsis' && cs.display !== 'inline' && el.scrollWidth > el.clientWidth + 1) cut.push(`${describe(el, text)} ends in an ellipsis`);
+    for (let a: Element | null = el; a; a = a.parentElement) {
       const s = getComputedStyle(a);
       const ar = a.getBoundingClientRect();
-      if (clips(s.overflowX) && (r.left < ar.left - 1 || r.right > ar.right + 1)) cut.push(`${describe(el, text)} runs out of ${describe(a, '')}`);
-      if (clips(s.overflowY) && (r.top < ar.top - 1 || r.bottom > ar.bottom + 1)) cut.push(`${describe(el, text)} runs out of ${describe(a, '')} at its top or foot`);
+      const left = ar.left + a.clientLeft;
+      const top = ar.top + a.clientTop;
+      const right = left + (a.clientWidth || ar.width);
+      const bottom = top + (a.clientHeight || ar.height);
+      if (clips(s.overflowX) && rects.some((r) => r.left < left - 1 || r.right > right + 1)) cut.push(`${describe(el, text)} is cut at the side by ${describe(a, '')}`);
+      if (clips(s.overflowY) && rects.some((r) => r.top < top - 1 || r.bottom > bottom + 1)) cut.push(`${describe(el, text)} is cut at the top or foot by ${describe(a, '')}`);
       if (a === root) break;
     }
   }
-  const lines = words.map((el) => ({ el, rects: Array.from(el.getClientRects()) }));
+  // Over another: a word's lines meet another part's words, or the box of a control that does not hold them.
+  const PRESS = 'button, a[href], select, input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]), textarea, summary, label:has(> input), label:has(> select)';
+  const controls = Array.from(root.querySelectorAll(PRESS)).filter((c) => drawn(c, false));
   for (let i = 0; i < lines.length; i += 1) {
+    const a = lines[i];
     for (let j = i + 1; j < lines.length; j += 1) {
-      const a = lines[i];
       const b = lines[j];
-      if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
-      const hit = a.rects.some((p) => b.rects.some((q) => (
-        Math.min(p.right, q.right) - Math.max(p.left, q.left) > 2 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 2
-      )));
-      if (hit) overlaps.push(`${describe(a.el, ownText(a.el))} over ${describe(b.el, ownText(b.el))}`);
+      if (a.rects.some((p) => b.rects.some((q) => meets(p, q)))) overlaps.push(`${describe(a.el, a.text)} over ${describe(b.el, b.text)}`);
+    }
+    const holder = a.el.closest(PRESS);
+    for (const c of controls) {
+      if (c.contains(a.el) || (holder && (holder === c || holder.contains(c)))) continue;
+      const box = c.getBoundingClientRect();
+      if (a.rects.some((p) => meets(p, box))) overlaps.push(`${describe(a.el, a.text)} over ${describe(c, (c.getAttribute('aria-label') ?? c.textContent ?? '').replace(/\s+/g, ' ').trim())}`);
     }
   }
-  return { cut: [...new Set(cut)], overlaps };
+  return { cut: [...new Set(cut)], overlaps: [...new Set(overlaps)] };
 }
 
 const read = <T>(root: Locator, arg: Partial<ReadArg> & { op: Op }): Promise<T> =>
@@ -551,7 +574,11 @@ export async function keyRows(root: Locator, rows: string[]): Promise<KeyRow[]> 
   return read<KeyRow[]>(root, { op: 'rows', rows });
 }
 
-/** With the text spacing applied: each word cut by a part that clips it, and each word drawn over another. */
+/**
+ * With the text spacing applied: each word a clipping part cuts or an
+ * ellipsis stands for, and each word drawn over another word or over a
+ * control that does not hold it, read from where its text is drawn.
+ */
 export async function spacingFaults(root: Locator): Promise<{ cut: string[]; overlaps: string[] }> {
   return read<{ cut: string[]; overlaps: string[] }>(root, { op: 'spacing' });
 }
