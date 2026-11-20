@@ -325,12 +325,29 @@
 }
 
 // ── Record: the raw record, its keys and what they say ────────────────────
+// The three keys share one row at every width: on a phone a key's words
+// take a second line inside it before the row would wrap. What a key says
+// stands under them.
 .recordKeys {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  align-items: stretch;
+  column-gap: 8px;
   min-width: 0;
+
+  > .switch {
+    justify-content: center;
+    text-align: center;
+  }
+
+  // The status stays in place, empty, until a key has something to say.
+  > .recordSaid { grid-column: 1 / -1; }
+  > .recordSaid:not(:empty) { margin-top: 8px; }
+}
+
+@media (max-width: 599.98px) {
+  .recordKeys > .switch { padding: 0 8px; }
 }
 
 // What a key says beside it: "Copied", or what failed and the way forward.
