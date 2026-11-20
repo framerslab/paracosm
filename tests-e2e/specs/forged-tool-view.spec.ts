@@ -3264,6 +3264,18 @@ test.describe('one actor picker for the toolbox', () => {
     };
     /** How far the toolbox, which scrolls inside its own dialog, is scrolled. */
     const scrollOf = (toolbox: Locator): Promise<number> => toolbox.evaluate(el => el.scrollTop);
+    /**
+     * Presses the Actors key in the page itself and waits for the picker. A
+     * driver's click may first scroll the key into place, and these steps read
+     * the toolbox's scroll, so they must see the page's own scrolling alone.
+     */
+    const pressActors = async (toolbox: Locator): Promise<Locator> => {
+      await actorsKey(toolbox).evaluate(el => (el as HTMLElement).click());
+      const picker = pickerOf(page);
+      await expect(picker).toBeVisible();
+      await expect(picker.getByRole('searchbox', { name: 'Find an actor' })).toBeFocused();
+      return picker;
+    };
     type Place = Awaited<ReturnType<typeof placeOf>>;
     /** A full-screen sheet: it covers the window, with its top row and its foot on it. */
     const coversTheWindow = (at: Place): void => {
@@ -3279,18 +3291,18 @@ test.describe('one actor picker for the toolbox', () => {
       await openPairSim(page, request, WIDTHS[0], 'dark');
       const toolbox = await openToolbox(page, 12);
       const before = await scrollOf(toolbox);
-      let picker = await openPicker(page, toolbox);
+      let picker = await pressActors(toolbox);
       coversTheWindow(await placeOf(picker));
       expect(await scrollOf(toolbox), 'opening the picker does not scroll the toolbox under it').toBe(before);
       await picture(page, '390-dark-f19-picker-sheet-on-window');
       await picker.getByRole('button', { name: 'Done', exact: true }).click();
       await expect(picker).toBeHidden();
-      // With the toolbox scrolled, the sheet covers the window all the same.
+      // With the toolbox scrolled, the sheet covers the window all the same, and the toolbox stays where it was.
       await toolbox.evaluate((el) => { el.scrollTop = 32; });
       expect(await scrollOf(toolbox)).toBe(32);
-      picker = await openPicker(page, toolbox);
+      picker = await pressActors(toolbox);
       const at = await placeOf(picker);
-      expect(await scrollOf(toolbox), 'the toolbox is scrolled under the sheet').toBeGreaterThan(0);
+      expect(await scrollOf(toolbox), 'the toolbox stays scrolled under the sheet').toBe(32);
       coversTheWindow(at);
       await picture(page, '390-dark-f19-picker-sheet-over-scrolled-toolbox');
     });
@@ -3298,7 +3310,7 @@ test.describe('one actor picker for the toolbox', () => {
     await test.step('768: a sheet from the bottom, 70 per cent of the window tall', async () => {
       const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, { width: 768, height: 1024 }, 'light', 60_000);
       const before = await scrollOf(toolbox);
-      const picker = await openPicker(page, toolbox);
+      const picker = await pressActors(toolbox);
       const at = await placeOf(picker);
       expect(Math.abs(at.sheet.bottom - at.window.height), 'the sheet ends at the window\'s foot').toBeLessThanOrEqual(0.5);
       expect(Math.abs(at.sheet.height - at.window.height * 0.7), 'the sheet is 70 per cent of the window tall').toBeLessThanOrEqual(1);
