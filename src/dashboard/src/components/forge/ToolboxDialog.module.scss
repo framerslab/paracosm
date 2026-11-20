@@ -85,7 +85,9 @@
   font-weight: 600;
   line-height: 1.4;
   color: var(--text-1);
-  white-space: nowrap;
+  // One line where it fits; with wider text spacing on a phone its two words
+  // take two lines inside the header row rather than run under its keys.
+  overflow-wrap: anywhere;
 
   &:focus { outline: none; }
 

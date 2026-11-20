@@ -451,13 +451,24 @@
   line-height: 1.4;
   color: var(--forge-quiet);
 
-  // Each name is centred on its column, also where it is wider than it.
+  // Each name is centred on its column.
   > span {
     display: flex;
     justify-content: center;
     min-width: 0;
     white-space: nowrap;
   }
+
+  // Where the first or the last name is wider than its column (Request at
+  // 15 px in a column of 54 px), it overflows away from the names beside it,
+  // into the room at the row's ends, so with wider text spacing no name runs
+  // over the next. The first name's start is its right side for that.
+  > span:first-child {
+    justify-content: safe center;
+    direction: rtl;
+  }
+
+  > span:last-child { justify-content: safe center; }
 }
 
 // ── The rows ──────────────────────────────────────────────────────────────
