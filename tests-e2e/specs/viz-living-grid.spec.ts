@@ -306,10 +306,17 @@ for (const look of LOOKS) {
     expect(lossTurn, 'the stored run has a turn with deaths and their causes').toBeDefined();
     expect(crackTurn, 'the stored run has a turn whose outcomes crack morale').toBeDefined();
 
-    await stepTurns(page, run.turns, 1);
+    // Pictures of those turns first, so a failing check still leaves them.
+    let at = run.turns;
+    for (const turn of [...new Set([crackTurn!, lossTurn!])].sort((x, y) => x - y)) {
+      await stepTurns(page, at, turn);
+      at = turn;
+      await page.screenshot({ path: `${PICTURES}/banner-turn-${turn}-1440-${look}.png` });
+    }
+
+    await stepTurns(page, at, 1);
     for (let turn = 1; turn <= run.turns; turn++) {
       if (turn > 1) await stepTurns(page, turn - 1, turn);
-      if (turn === lossTurn || turn === crackTurn) await page.screenshot({ path: `${PICTURES}/banner-turn-${turn}-1440-${look}.png` });
       for (const [label, name] of [['A', ARIA], ['B', DIETRICH]] as const) {
         const facts = turnFacts(run, name, turn);
         const text = (await line(label, name).first().textContent()) ?? '';
@@ -351,10 +358,13 @@ for (const look of LOOKS) {
     expect(fallTurn, 'the stored run has a turn whose deaths fall on one side').toBeDefined();
 
     const count = (n: number) => (n === 0 ? 'none' : `${n} ${n === 1 ? 'colonist' : 'colonists'}`);
-    await stepTurns(page, run.turns, 1);
+    // A picture of that turn first, so a failing check still leaves it.
+    await stepTurns(page, run.turns, fallTurn!);
+    await page.screenshot({ path: `${PICTURES}/strip-turn-${fallTurn}-1440-${look}.png` });
+
+    await stepTurns(page, fallTurn!, 1);
     for (let turn = 1; turn <= run.turns; turn++) {
       if (turn > 1) await stepTurns(page, turn - 1, turn);
-      if (turn === fallTurn) await page.screenshot({ path: `${PICTURES}/strip-turn-${turn}-1440-${look}.png` });
       const text = (await strip.textContent()) ?? '';
       expect(text, `T${turn}`).not.toMatch(/-\d/);
       const a = deathsOf(ARIA, turn);
