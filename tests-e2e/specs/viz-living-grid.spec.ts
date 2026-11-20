@@ -297,6 +297,60 @@ for (const { width, height } of WIDTHS) {
   }
 }
 
+/**
+ * Conway tiles on a panel's canvas outside its top-left corner (the first
+ * third of its width by the first two thirds of its height). A colony's
+ * tiles spread over the panel; a pattern planted at the canvas origin stays
+ * inside that corner.
+ */
+async function tilesBeyondTopLeft(page: Page, side: 'a' | 'b'): Promise<number> {
+  return canvasOf(page, side).evaluate((canvas: HTMLCanvasElement) => {
+    const read = (window as unknown as { __readTiles: (c: HTMLCanvasElement) => GridRead }).__readTiles(canvas);
+    return read.signature.split(';').filter(Boolean).filter(block => {
+      const [x, y] = block.split(',').map(Number);
+      return x >= canvas.width / 3 || y >= (canvas.height * 2) / 3;
+    }).length;
+  });
+}
+
+for (const look of LOOKS) {
+  test(`a panel hidden while the turn changes draws its tiles when shown again, at 390 in the ${look} look`, async ({ page, request }) => {
+    const run = await storedRun(request);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await useLook(page, look);
+    await installTileReader(page);
+    await openReplay(page, run);
+    await canvasOf(page, 'a').scrollIntoViewIfNeeded();
+    const actorTab = (name: string) => page.getByRole('tablist', { name: 'Leader panel selector' }).getByRole('tab', { name });
+    const shows = (name: string, turn: number) => page.getByRole('img', { name: new RegExp(`^${name} colony, turn ${turn}\\.`) });
+
+    // One turn back with Aria Chen's panel on screen: its tiles spread
+    // beyond the top-left corner. Then forward again.
+    await stepTurns(page, run.turns, run.turns - 1);
+    await page.waitForTimeout(1_000);
+    expect(await tilesBeyondTopLeft(page, 'a'), 'the colony draws tiles beyond the top-left corner at this turn').toBeGreaterThan(0);
+    await stepTurns(page, run.turns - 1, run.turns);
+
+    // A phone shows one actor at a time. The other actor's panel, hidden
+    // since the page opened, draws its tiles when first shown.
+    await actorTab(DIETRICH).click();
+    await expect(shows(DIETRICH, run.turns)).toBeVisible();
+    await page.waitForTimeout(1_000);
+    expect(await tilesBeyondTopLeft(page, 'b'), 'the second actor\'s panel draws its tiles when first shown').toBeGreaterThan(0);
+
+    // The turn changes while Aria Chen's panel is hidden.
+    await page.getByRole('button', { name: 'Previous turn', exact: true }).click();
+    await expect(shows(DIETRICH, run.turns - 1)).toBeVisible();
+
+    // Shown again, it draws that turn's tiles.
+    await actorTab(ARIA).click();
+    await expect(shows(ARIA, run.turns - 1)).toBeVisible();
+    await page.waitForTimeout(1_000);
+    await page.screenshot({ path: `${PICTURES}/shown-again-390-${look}.png` });
+    expect(await tilesBeyondTopLeft(page, 'a'), 'a panel hidden while the turn changed draws its Conway tiles when shown again').toBeGreaterThan(0);
+  });
+}
+
 for (const look of LOOKS) {
   test(`the turn banner says what each commander chose, the deaths and a morale crack, in the ${look} look`, async ({ page, request }) => {
     const run = await storedRun(request);
@@ -330,8 +384,13 @@ for (const look of LOOKS) {
         const text = (await line(label, name).first().textContent()) ?? '';
         if (facts.decided) expect(text, `T${turn} ${name}`).not.toContain('held position');
         if (facts.causes) {
-          const lost = Object.values(facts.causes).reduce((s, n) => s + n, 0);
-          expect(text, `T${turn} ${name}`).toContain(`${lost} lost to ${dominantCause(facts.causes)}`);
+          // Every death under one cause reads "N lost to <cause>"; several
+          // causes read the total, then the largest cause's own count.
+          const counts = Object.values(facts.causes);
+          const lost = counts.reduce((s, n) => s + n, 0);
+          const most = Math.max(...counts);
+          const cause = dominantCause(facts.causes);
+          expect(text, `T${turn} ${name}`).toContain(most === lost ? `${lost} lost to ${cause}` : `${lost} lost, ${most} to ${cause}`);
         } else if (facts.deaths > 0) {
           expect(text, `T${turn} ${name}`).toContain(`${facts.deaths} lost`);
         } else {
