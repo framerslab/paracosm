@@ -521,7 +521,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
       {registry.list.length === 0 ? (
         <div className={styles.empty} data-toolbox-empty="no-tools">
           <ForgeStrip cells={NO_FORGES} />
-          <p className={styles.emptyWords}>{TOOLBOX_EMPTY.noTools}</p>
+          <p className={styles.emptyWords} data-text="body">{TOOLBOX_EMPTY.noTools}</p>
         </div>
       ) : (
         <>
@@ -618,12 +618,12 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
             <div className={styles.empty} data-toolbox-empty={find.trim() !== '' ? 'no-match' : 'no-rows'}>
               {find.trim() !== '' ? (
                 <>
-                  <p className={styles.emptyWords}>{noToolMatches(find.trim())}</p>
+                  <p className={styles.emptyWords} data-text="body">{noToolMatches(find.trim())}</p>
                   <button type="button" className={styles.key} onClick={clearFind}>{FIND_WORDS.clear}</button>
                 </>
               ) : (
                 <>
-                  {show === 'did_not_pass' && <p className={styles.emptyWords}>{TOOLBOX_EMPTY.everyToolPassed}</p>}
+                  {show === 'did_not_pass' && <p className={styles.emptyWords} data-text="body">{TOOLBOX_EMPTY.everyToolPassed}</p>}
                   <button type="button" className={styles.key} onClick={showAll}>{SHOW_WORDS.all}</button>
                 </>
               )}

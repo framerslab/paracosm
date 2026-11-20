@@ -11,10 +11,10 @@ export function JudgeStation({ confidence }: { confidence: number }) {
   const value = Math.min(1, Math.max(0, Number(confidence.toFixed(2))));
   return (
     <div className={styles.open}>
-      <h3 className={styles.heading}>{JUDGE_WORDS.heading}</h3>
+      <h3 className={styles.heading} data-text="heading">{JUDGE_WORDS.heading}</h3>
       <p className={styles.meta}>{JUDGE_WORDS.notice}</p>
       <div className={styles.confidence}>
-        <p className={styles.body}>{judgeConfidence(confidence)}</p>
+        <p className={styles.body} data-text="body">{judgeConfidence(confidence)}</p>
         <div
           role="meter"
           className={styles.meter}

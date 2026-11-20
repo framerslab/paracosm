@@ -59,6 +59,13 @@
  *   mode a key opens the toolbox, each with the grid dimmed and in view at
  *   the dialog's sides; every actor's grid stays drawn with a dialog open
  *   and after it closes, at 2, 24 and 300 actors.
+ * - Readability and one row: every word of the trace, the toolbox and the
+ *   actor picker meets its contrast and size and every glyph and edge reads
+ *   4.5:1 at 320 to 1440 in both looks, each control is 44 px tall on a
+ *   phone and each key 32 px with 8 px between from 900 px, the pair's
+ *   toolbox opens on its counted first screen, every header row and row of
+ *   keys stays one row at the sweep widths with nothing scrolling sideways,
+ *   and WCAG 1.4.12's text spacing cuts and overlaps nothing.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -70,8 +77,11 @@ import {
   type Look, type ToolboxLine,
 } from '../support/forge-view-pages.js';
 import { DOZENS, DOZENS_A7_UNREADABLE, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
-import { pairRunFrames } from '../support/pair-run.js';
+import { LONG_NAME, pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
+import {
+  FIGURES, TEXT_SPACING, failures, firstScreen, keyRows, measureGlyphs, measureTargets, measureText, saidOf, settle, spacingFaults, targetFailures,
+} from '../support/readability.js';
 import { buildToolRegistry } from '../../src/dashboard/src/hooks/toolRegistry.helpers.js';
 import { computeGameState, getActorColorVar } from '../../src/dashboard/src/hooks/useGameState.js';
 import { usesOf } from '../../src/dashboard/src/components/forge/forgeLine.js';
@@ -1235,6 +1245,8 @@ test.describe('Record and the attempts on the run\'s record', () => {
           const keys = attemptKeys(trace);
           if (shown !== '2 of 2') await keys.previous.click();
           await expect(keys.line).toHaveText(shown);
+          // Read once the sheet has slid in: mid-slide a 44 px key reads 43.99999237.
+          await settle(trace);
           const boxes = await Promise.all([keys.previous, keys.line, keys.next].map(part => part.boundingBox()));
           expect(boxes.every(Boolean), 'each part of the attempt row is drawn').toBe(true);
           const [prev, line, next] = boxes as Array<{ x: number; y: number; width: number; height: number }>;
@@ -1246,8 +1258,8 @@ test.describe('Record and the attempts on the run\'s record', () => {
           expect(prev.x + prev.width).toBeLessThanOrEqual(line.x + 0.5);
           expect(line.x + line.width).toBeLessThanOrEqual(next.x + 0.5);
           // A phone's keys are 44 px tall, and the sheet does not scroll sideways.
-          expect(prev.height).toBeGreaterThanOrEqual(44);
-          expect(next.height).toBeGreaterThanOrEqual(44);
+          expect(Math.round(prev.height * 100) / 100).toBeGreaterThanOrEqual(44);
+          expect(Math.round(next.height * 100) / 100).toBeGreaterThanOrEqual(44);
           expect(await trace.evaluate(dialog => dialog.scrollWidth - dialog.clientWidth)).toBeLessThanOrEqual(0);
           await picture(page, `320-${look}-f13-attempt-row-${shown === '2 of 2' ? 'latest' : 'earlier'}`);
         }
@@ -3638,6 +3650,287 @@ test.describe('the Viz tab opens the forge view over the living grid', () => {
         await expect(toolbox).toBeHidden();
         await allThere();
       });
+    }
+  });
+});
+
+// ── Readability, one row and target sizes ─────────────────────────────────
+
+/** The widths the readability figures are read at: the narrowest phone, a phone, a tablet and two desktops. */
+const READ_WIDTHS = [320, 390, 768, 1100, 1440] as const;
+
+/** A window of one width: a phone's height below 900 px, a desktop's from it. */
+const sized = (width: number): Size => ({ width, height: width < FIGURES.desktopFrom ? 844 : 900 });
+
+/** The header rows and rows of keys of the trace, the toolbox and the actor picker. */
+const TRACE_HEADER = '[data-forge-header]';
+const ATTEMPT_ROW = '[data-forge-head] > [role="group"]';
+const RECORD_KEYS = '[data-record-panel] div:has(> button)';
+const TOOLBOX_ROWS = ['[data-toolbox-header]', '[data-toolbox-lead]', '[data-toolbox-keys]'];
+const PICKER_ROWS = ['div:has(> label > select)', '[data-picker-foot]'];
+
+/**
+ * Reads one surface's figures at one width: every word at its contrast and
+ * size, every glyph and edge at 4.5:1, and every control at its size (44 px
+ * tall below 900 px; from 900 px each key 32 px tall with 8 px to the next).
+ * Each figure is a soft check, so one run names every figure a surface
+ * misses.
+ */
+async function expectFigures(page: Page, root: Locator, where: string, width: number): Promise<void> {
+  // The pointer rests off every control, so no key is read in its hover ground.
+  await page.mouse.move(1, 1);
+  await settle(root);
+  const words = await measureText(page, root);
+  expect.soft(words.length, `${where}: the surface has words to read`).toBeGreaterThan(0);
+  expect.soft(failures(words).map(saidOf), `${where}: every word meets its contrast and size`).toEqual([]);
+  const glyphs = await measureGlyphs(page, root);
+  expect.soft(glyphs.length, `${where}: the surface has glyphs and edges to read`).toBeGreaterThan(0);
+  expect.soft(
+    glyphs.filter(g => g.ratio < FIGURES.glyphRatio).map(g => `${g.ratio}:1 ${g.selector}`),
+    `${where}: every glyph and edge reads 4.5:1`,
+  ).toEqual([]);
+  expect.soft(targetFailures(await measureTargets(page, root), width), `${where}: every control's size`).toEqual([]);
+}
+
+/** Reads one surface's figures at each of the five widths, the window taking each width with the surface open. */
+async function sweepFigures(page: Page, root: Locator, look: Look, where: string, slug: string): Promise<void> {
+  for (const width of READ_WIDTHS) {
+    await test.step(`${where} at ${width} in the ${look} look`, async () => {
+      await page.setViewportSize(sized(width));
+      await expect(root).toBeVisible();
+      await expectFigures(page, root, `${look}, ${where}, ${width}`, width);
+      if (width === 320 || width === 1440) await picture(page, `${width}-${look}-a14-${slug}`);
+    });
+  }
+}
+
+/**
+ * At each sweep width: each named row is one row inside the surface and no
+ * wider than itself, and neither the surface nor the page scrolls sideways.
+ */
+async function sweepRows(page: Page, root: Locator, look: Look, where: string, rows: string[]): Promise<void> {
+  for (const width of SWEEP_WIDTHS) {
+    await test.step(`${where} at ${width} in the ${look} look`, async () => {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(root).toBeVisible();
+      await settle(root);
+      for (const row of await keyRows(root, rows)) {
+        expect.soft(row.found, `${width}, ${where}: ${row.row} is drawn`).toBe(true);
+        if (!row.found) continue;
+        expect.soft(row.oneRow, `${width}, ${where}: ${row.row} is one row`).toBe(true);
+        expect.soft(row.inside, `${width}, ${where}: ${row.row} stands inside the surface`).toBe(true);
+        expect.soft(row.scroll, `${width}, ${where}: ${row.row} is no wider than itself`).toBeLessThanOrEqual(0);
+      }
+      const scroll = await root.evaluate(el => ({
+        surface: el.scrollWidth - el.clientWidth,
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      }));
+      expect.soft(scroll.surface, `${width}, ${where}: the surface does not scroll sideways`).toBeLessThanOrEqual(0);
+      expect.soft(scroll.page, `${width}, ${where}: the page does not scroll sideways`).toBeLessThanOrEqual(0);
+    });
+  }
+}
+
+/** A part whose words wrap inside its holder: no wider than itself, and inside the holder at its right. */
+async function expectWrapsInside(part: Locator, holder: Locator, what: string): Promise<void> {
+  const read = await part.evaluate((el, h) => ({
+    scroll: el.scrollWidth - el.clientWidth,
+    right: el.getBoundingClientRect().right,
+    holder: (h as Element).getBoundingClientRect().right,
+  }), await holder.elementHandle());
+  expect.soft(read.scroll, `${what} wraps inside its own box`).toBeLessThanOrEqual(0);
+  expect.soft(read.right, `${what} ends inside its holder`).toBeLessThanOrEqual(read.holder + 0.5);
+}
+
+test.describe('readability and one row', () => {
+  // A figure read from the built page reads the same on every try; one retry is kept for a slow runner.
+  test.describe.configure({ retries: 1 });
+
+  test('the trace meets its readability figures and target sizes at 320, 390, 768, 1100 and 1440 in both looks', async ({ page, request }) => {
+    test.setTimeout(360_000);
+    for (const look of LOOKS) {
+      await openPairSim(page, request, WIDTHS[0], look);
+      await forgetOpenStations(page);
+
+      // A passed tool with Open all.
+      await pressInspect(inspectKey(page, LANDING));
+      const landing = traceOf(page, LANDING, 1);
+      await expect(landing).toBeVisible();
+      await landing.getByRole('button', { name: 'Open all stations', exact: true }).click();
+      await expectOpen(landing, { request: true, judge: true, added: true });
+      await sweepFigures(page, landing, look, `${LANDING} with every station open`, 'trace-open-all');
+
+      // The same tool with Record open.
+      await page.setViewportSize(WIDTHS[0]);
+      await openRecord(landing);
+      await sweepFigures(page, landing, look, `${LANDING} with Record open`, 'trace-record');
+      await closeTrace(landing);
+
+      // A tool that did not pass, with the reason its forge recorded.
+      await page.setViewportSize(WIDTHS[0]);
+      await pressInspect(inspectKey(page, RADIATION));
+      const radiation = traceOf(page, RADIATION);
+      await expect(radiation.getByText(RADIATION_REASON)).toBeVisible();
+      await sweepFigures(page, radiation, look, `${RADIATION}, which did not pass`, 'trace-did-not-pass');
+      await closeTrace(radiation);
+
+      // The re-forged tool at its attempt 1.
+      await page.setViewportSize(WIDTHS[0]);
+      await pressInspect(inspectKey(page, RATION).first());
+      const ration = traceOf(page, RATION);
+      await attemptKeys(ration).previous.click();
+      await expect(attemptKeys(ration).line).toHaveText('Attempt 1 of 2');
+      await sweepFigures(page, ration, look, `${RATION} at attempt 1`, 'trace-attempt-1');
+      await closeTrace(ration);
+    }
+  });
+
+  test('the pair\'s and the 24-actor run\'s toolbox and the actor picker meet their readability figures and target sizes at every width in both looks', async ({ page, request }) => {
+    test.setTimeout(480_000);
+    for (const look of LOOKS) {
+      await openPairSim(page, request, WIDTHS[0], look);
+      const pair = await openToolbox(page, 12);
+      await sweepFigures(page, pair, look, 'the pair\'s toolbox', 'toolbox-pair');
+
+      // The 24-actor run, grouped by actor, with A1's fold open.
+      const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[0], look, 60_000);
+      await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+      const a1 = foldHead(toolbox, 'A1').getByRole('button');
+      await a1.click();
+      await expect(a1).toHaveAttribute('aria-expanded', 'true');
+      await sweepFigures(page, toolbox, look, 'the 24-actor toolbox with A1\'s fold open', 'toolbox-24-a1-open');
+
+      // The actor picker open over it.
+      await page.setViewportSize(WIDTHS[0]);
+      const picker = await openPicker(page, toolbox);
+      await sweepFigures(page, picker, look, 'the actor picker of the 24-actor run', 'picker-24');
+    }
+  });
+
+  test('the 300-actor toolbox scrolled to its end meets its readability figures and target sizes at every width in both looks', async ({ page, request }) => {
+    test.setTimeout(600_000);
+    for (const look of LOOKS) {
+      const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], look, 150_000);
+      await expect(toolbox.locator('[data-toolbox-rows]')).toHaveAttribute('data-line-count', '300', { timeout: 60_000 });
+      for (const width of READ_WIDTHS) {
+        await test.step(`the 300-actor toolbox at its end at ${width} in the ${look} look`, async () => {
+          await page.setViewportSize(sized(width));
+          await expect(toolbox).toBeVisible();
+          // The list's last line is A300's head.
+          const last = await readLinesFrom(toolbox, 'end', 1);
+          expect(last.map(line => line.name)).toEqual(['A300']);
+          await expectFigures(page, toolbox, `${look}, the 300-actor toolbox at its end, ${width}`, width);
+          if (width === 320 || width === 1440) await picture(page, `${width}-${look}-a14-toolbox-300-end`);
+        });
+      }
+    }
+  });
+
+  test('at 1440 the pair\'s toolbox opens on at most 15 controls, 5 text styles, 12 rules and boxes and 8 colours, in both looks', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    for (const look of LOOKS) {
+      await test.step(`1440 in the ${look} look`, async () => {
+        await openPairSim(page, request, WIDTHS[1], look);
+        const toolbox = await openToolbox(page, 12);
+        await page.mouse.move(1, 1);
+        await settle(toolbox);
+        const first = await firstScreen(page, toolbox);
+        expect.soft(first.controls, `${look}: the first screen's controls: ${first.detail.controls.join('; ')}`).toBeLessThanOrEqual(15);
+        expect.soft(first.textStyles, `${look}: the first screen's text styles: ${first.detail.textStyles.join('; ')}`).toBeLessThanOrEqual(5);
+        expect.soft(first.rulesAndBoxes, `${look}: the first screen's rules and boxes: ${first.detail.rulesAndBoxes.join('; ')}`).toBeLessThanOrEqual(12);
+        expect.soft(first.colours, `${look}: the first screen's colours: ${first.detail.colours.join('; ')}`).toBeLessThanOrEqual(8);
+        await picture(page, `1440-${look}-a14-first-screen`);
+      });
+    }
+  });
+
+  test('every header row and row of keys is one row at 320, 360, 390, 430, 480 and 768 with the 120-character name and every station open, and nothing scrolls sideways', async ({ page, request }) => {
+    test.setTimeout(360_000);
+    for (const look of LOOKS) {
+      await openPairSim(page, request, WIDTHS[0], look);
+      await forgetOpenStations(page);
+
+      // The 120-character name's trace with every station open and Record open (Review Focus 5; feature 12's QA 7).
+      await pressInspect(inspectKey(page, LONG_NAME));
+      const long = traceOf(page, LONG_NAME);
+      await expect(long).toBeVisible();
+      await long.getByRole('button', { name: 'Open all stations', exact: true }).click();
+      await expectOpen(long, { request: true, judge: true, added: true });
+      await openRecord(long);
+      await sweepRows(page, long, look, 'the 120-character name\'s trace', [TRACE_HEADER, RECORD_KEYS]);
+      for (const width of SWEEP_WIDTHS) {
+        await page.setViewportSize({ width, height: 844 });
+        await expectWrapsInside(long.locator('[data-forge-head] h2'), long, `${width}, ${look}: the 120-character name in the trace`);
+      }
+      await picture(page, `768-${look}-a14-long-name-trace`);
+      await closeTrace(long);
+
+      // The re-forged tool's attempt row, at its attempt 1.
+      await page.setViewportSize(WIDTHS[0]);
+      await pressInspect(inspectKey(page, RATION).first());
+      const ration = traceOf(page, RATION);
+      await attemptKeys(ration).previous.click();
+      await expect(attemptKeys(ration).line).toHaveText('Attempt 1 of 2');
+      await sweepRows(page, ration, look, `${RATION}'s trace at attempt 1`, [TRACE_HEADER, ATTEMPT_ROW]);
+      await closeTrace(ration);
+
+      // The pair's toolbox, with the 120-character name in its row.
+      await page.setViewportSize(WIDTHS[0]);
+      const toolbox = await openToolbox(page, 12);
+      await sweepRows(page, toolbox, look, 'the pair\'s toolbox', TOOLBOX_ROWS);
+      const longRow = rowOf(toolbox, LONG_NAME);
+      for (const width of SWEEP_WIDTHS) {
+        await page.setViewportSize({ width, height: 844 });
+        await expectWrapsInside(longRow.locator('[data-row-name]'), longRow, `${width}, ${look}: the 120-character name in its row`);
+      }
+      await picture(page, `320-${look}-a14-long-name-row`);
+
+      // The pair's actor picker: its top row and its foot.
+      await page.setViewportSize(WIDTHS[0]);
+      const picker = await openPicker(page, toolbox);
+      await sweepRows(page, picker, look, 'the pair\'s actor picker', PICKER_ROWS);
+      await page.keyboard.press('Escape');
+      await expect(picker).toBeHidden();
+    }
+  });
+
+  test('with the text spacing of WCAG 1.4.12 nothing is cut or overlaps, and the header rows keep their keys on one row', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    for (const look of LOOKS) {
+      await openPairSim(page, request, WIDTHS[0], look);
+      await forgetOpenStations(page);
+      await page.addStyleTag({ content: TEXT_SPACING });
+
+      const spaced = async (root: Locator, where: string, rows: string[]) => {
+        for (const width of [320, 390, 1440]) {
+          await test.step(`${where} at ${width} in the ${look} look`, async () => {
+            await page.setViewportSize(sized(width));
+            await expect(root).toBeVisible();
+            await settle(root);
+            // Read from the surface's top, where its fixed header row covers nothing.
+            await root.evaluate((el) => { el.scrollTop = 0; });
+            const faults = await spacingFaults(root);
+            expect.soft(faults.cut, `${width}, ${look}, ${where}: no word is cut`).toEqual([]);
+            expect.soft(faults.overlaps, `${width}, ${look}, ${where}: no word overlaps another`).toEqual([]);
+            for (const row of await keyRows(root, rows)) {
+              expect.soft(row.found && row.oneRow && row.inside, `${width}, ${look}, ${where}: ${row.row} keeps its keys on one row`).toBe(true);
+            }
+            if (width === 320) await picture(page, `320-${look}-a14-text-spacing-${where.startsWith('the trace') ? 'trace' : 'toolbox'}`);
+          });
+        }
+      };
+
+      await pressInspect(inspectKey(page, LONG_NAME));
+      const long = traceOf(page, LONG_NAME);
+      await expect(long).toBeVisible();
+      await long.getByRole('button', { name: 'Open all stations', exact: true }).click();
+      await expectOpen(long, { request: true, judge: true, added: true });
+      await spaced(long, 'the trace of the 120-character name with every station open', [TRACE_HEADER]);
+      await closeTrace(long);
+
+      await page.setViewportSize(WIDTHS[0]);
+      const toolbox = await openToolbox(page, 12);
+      await spaced(toolbox, 'the pair\'s toolbox', ['[data-toolbox-header]']);
     }
   });
 });

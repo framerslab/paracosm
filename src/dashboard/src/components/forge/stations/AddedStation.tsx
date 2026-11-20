@@ -13,7 +13,7 @@ export function AddedStation({ entry }: { entry: ToolEntry }) {
   const uses = usesOf(entry);
   return (
     <div className={styles.open}>
-      <p className={styles.body}>{usedTimes(uses)}</p>
+      <p className={styles.body} data-text="body">{usedTimes(uses)}</p>
       {entry.history.length > 0 && (
         <ol className={styles.uses}>
           {entry.history.map((row, i) => {

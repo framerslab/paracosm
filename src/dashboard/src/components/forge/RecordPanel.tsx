@@ -113,10 +113,10 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
 
   return (
     <section className={styles.open} data-record-panel aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.heading}>{RECORD_WORDS.rawRecord}</h3>
+      <h3 id={headingId} className={styles.heading} data-text="heading">{RECORD_WORDS.rawRecord}</h3>
       {text === null ? (
         <>
-          <p className={styles.body}>{RECORD_WORDS.unreadable}</p>
+          <p className={styles.body} data-text="body">{RECORD_WORDS.unreadable}</p>
           <div className={styles.recordKeys}>
             <button type="button" className={styles.switch} onClick={onShowInEventLog}>{RECORD_WORDS.showInEventLog}</button>
           </div>

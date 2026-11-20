@@ -355,7 +355,7 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
     >
       {state === 'error' ? (
         <div className={styles.empty} data-picker-error>
-          <p className={styles.emptyWords}>{ACTOR_PICKER_WORDS.unreadable}</p>
+          <p className={styles.emptyWords} data-text="body">{ACTOR_PICKER_WORDS.unreadable}</p>
           <button type="button" className={list.key} onClick={showAll}>{ACTOR_PICKER_WORDS.showAll}</button>
         </div>
       ) : (
@@ -410,7 +410,7 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
 
           {shown.length === 0 ? (
             <div className={styles.empty} data-picker-empty>
-              <p className={styles.emptyWords}>{noActorMatches(query.trim())}</p>
+              <p className={styles.emptyWords} data-text="body">{noActorMatches(query.trim())}</p>
               <button type="button" className={list.key} onClick={clearSearch}>{ACTOR_PICKER_WORDS.clear}</button>
             </div>
           ) : (

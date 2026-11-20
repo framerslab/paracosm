@@ -75,7 +75,7 @@ function FieldsTable({ caption, rows, none }: { caption: string; rows: FieldRow[
   if (rows.length === 0) {
     return (
       <div className={styles.part}>
-        <p className={styles.caption}>{caption}</p>
+        <p className={styles.caption} data-text="heading">{caption}</p>
         <p className={styles.quiet}>{none}</p>
       </div>
     );
@@ -83,7 +83,7 @@ function FieldsTable({ caption, rows, none }: { caption: string; rows: FieldRow[
   // The roles are written out, so the table keeps them where it is laid out as cards.
   return (
     <table className={styles.fields} role="table" aria-labelledby={captionId}>
-      <caption id={captionId} className={styles.caption}>{caption}</caption>
+      <caption id={captionId} className={styles.caption} data-text="heading">{caption}</caption>
       <thead role="rowgroup">
         <tr role="row">
           {REQUEST_WORDS.columns.map((column) => (
@@ -162,8 +162,8 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
       </div>
 
       <div className={styles.part}>
-        <h3 id={doesId} className={styles.heading}>{REQUEST_WORDS.whatItDoes}</h3>
-        <p className={styles.body}>{description}</p>
+        <h3 id={doesId} className={styles.heading} data-text="heading">{REQUEST_WORDS.whatItDoes}</h3>
+        <p className={styles.body} data-text="body">{description}</p>
       </div>
 
       <div className={styles.part}>

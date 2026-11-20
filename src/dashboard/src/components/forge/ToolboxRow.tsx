@@ -79,7 +79,7 @@ export function ToolboxRow({ entry, actorCount, onOpen, line, setSize, posInSet 
         onClick={(e) => onOpen(e.currentTarget)}
       >
         <span className={styles.top}>
-          <span className={styles.name} data-row-name>
+          <span className={styles.name} data-row-name data-text="heading">
             <span>[{entry.n}]</span>{' '}
             <span translate="no">{breakable(entry.name)}</span>
           </span>
@@ -92,7 +92,7 @@ export function ToolboxRow({ entry, actorCount, onOpen, line, setSize, posInSet 
           <ForgeLine model={forgeLineModel(entry, Number.NaN)} size="row" colour={lineColour(entry.actorIndex, actorCount)} />
         </span>
         {describes && (
-          <span id={`${id}-does`} className={styles.does} data-row-does>{entry.description}</span>
+          <span id={`${id}-does`} className={styles.does} data-row-does data-text="body">{entry.description}</span>
         )}
         <span id={`${id}-meta`} className={styles.metaCell}>
           <span className={styles.meta} data-row-meta>

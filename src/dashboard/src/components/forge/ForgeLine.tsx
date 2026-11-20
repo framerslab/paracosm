@@ -165,10 +165,10 @@ export function ForgeLine({ model, size, colour, open, onToggle, stationResult, 
               <span className={styles.mark} aria-hidden="true">
                 <Cell model={model} station={station} size={20} />
               </span>
-              <span id={nameId} className={styles.name}>{STATION_WORDS[station]}</span>
+              <span id={nameId} className={styles.name} data-text="heading">{STATION_WORDS[station]}</span>
             </button>
             {!isOpen && result != null && (
-              <div id={resultId} className={styles.result} data-quiet={quiet || undefined}>
+              <div id={resultId} className={styles.result} data-quiet={quiet || undefined} data-text={quiet ? undefined : 'body'}>
                 {result}
               </div>
             )}

@@ -329,7 +329,7 @@ export function TraceDialog({
           </button>
           <ActorTile index={entry.actorIndex} colour={getActorColorVar(entry.actorIndex)} />
           <span className={styles.number}>{forgedToolLabel(entry.n)}</span>
-          <h2 ref={rowNameRef} className={`${styles.name} ${styles.nameInRow}`} tabIndex={-1} translate="no">
+          <h2 ref={rowNameRef} className={`${styles.name} ${styles.nameInRow}`} tabIndex={-1} translate="no" data-text="heading">
             {entry.name}
           </h2>
           <span className={styles.headerEnd}>
@@ -404,10 +404,10 @@ export function TraceDialog({
             </div>
           )}
           <p className={styles.label}>{AI_WRITTEN_LABEL}</p>
-          <h2 ref={headNameRef} className={`${styles.name} ${styles.nameInHead}`} tabIndex={-1} translate="no">
+          <h2 ref={headNameRef} className={`${styles.name} ${styles.nameInHead}`} tabIndex={-1} translate="no" data-text="heading">
             {entry.name}
           </h2>
-          <p className={styles.outcome} data-forge-outcome>
+          <p className={styles.outcome} data-forge-outcome data-text="heading">
             <OutcomeGlyph kind={glyphFor(outcome)} size={20} />
             <span>{RECORD_OUTCOME_SENTENCES[outcome]}</span>
           </p>

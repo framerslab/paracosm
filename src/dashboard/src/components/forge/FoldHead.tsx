@@ -95,7 +95,7 @@ export function FoldHead({ head, open, onToggle, onShowInEventLog }: FoldHeadPro
           onClick={onToggle}
         >
           <Chevron />
-          <span className={styles.foldName} data-fold-name>{head.name}</span>
+          <span className={styles.foldName} data-fold-name data-text="heading">{head.name}</span>
           <span className={styles.foldCount} data-fold-count>{foldCountLine(head.counts)}</span>
         </button>
       </h3>
@@ -109,7 +109,7 @@ export function FoldHead({ head, open, onToggle, onShowInEventLog }: FoldHeadPro
       <span className={styles.foldTile}>
         <ActorTile index={actor.index} colour={getActorColorVar(actor.index)} />
       </span>
-      <span className={styles.foldName} data-fold-name translate="no">
+      <span className={styles.foldName} data-fold-name translate="no" data-text="heading">
         <span className={styles.foldActor}>{actor.name}</span>
         {actor.archetype ? ` · ${actor.archetype}` : ''}
       </span>

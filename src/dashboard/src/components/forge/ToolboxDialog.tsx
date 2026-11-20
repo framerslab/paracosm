@@ -158,7 +158,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
               <path d="M3 3L13 13M13 3L3 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
-          <h2 ref={titleRef} className={styles.title} tabIndex={-1} data-toolbox-title>{TOOLBOX_TITLE}</h2>
+          <h2 ref={titleRef} className={styles.title} tabIndex={-1} data-toolbox-title data-text="heading">{TOOLBOX_TITLE}</h2>
           <span className={styles.headerEnd}>
             <button type="button" className={`${keys.key} ${styles.exportInHeader}`} onClick={exportShown}>
               {EXPORT_JSON}

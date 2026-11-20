@@ -13,7 +13,7 @@ export function RecordedReason({ reason }: { reason: string | null }) {
   const headingId = useId();
   return (
     <section className={styles.reason} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.reasonHeading}>{RECORDED_REASON.heading}</h3>
+      <h3 id={headingId} className={styles.reasonHeading} data-text="heading">{RECORDED_REASON.heading}</h3>
       {reason ? (
         <>
           <pre className={styles.reasonText} translate="no">{reason}</pre>
