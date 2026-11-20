@@ -238,12 +238,15 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   const lastGolTurnRef = useRef<number>(-1);
   const lastGolModeRef = useRef<string>('');
   const lastGolFilterRef = useRef<string>('');
+  // The commander the grid was last seeded for. A cohort run's pair view
+  // changes a panel's commander on the same turn, mode and filter.
+  const lastGolActorRef = useRef<string | null>(null);
   const lastFlareSignatureRef = useRef<string | null>(null);
   // Timestamp (performance.now) when the GoL tile fade started, or
-  // -Infinity when no fade is active. Set on the first seed and on a jump
-  // of more than one turn (a cached load, a replay, a scrub) so the tile
-  // layer eases in instead of painting its whole steady state in one
-  // frame. See golReveal.ts.
+  // -Infinity when no fade is active. Set on the first seed, on a jump of
+  // more than one turn (a cached load, a replay, a scrub) and when the
+  // panel's commander changes, so the tile layer eases in instead of
+  // painting its whole steady state in one frame. See golReveal.ts.
   const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
 
   // Relationship-flare: when a colonist is clicked, brighten their
@@ -457,11 +460,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const modeChanged = mode !== lastGolModeRef.current;
     const turnChanged = snapshot.turn !== lastGolTurnRef.current;
     const filterChanged = eventFilter !== lastGolFilterRef.current;
+    const actorChanged = actorName !== lastGolActorRef.current;
     const prevGolTurn = lastGolTurnRef.current;
-    if (turnChanged || modeChanged || filterChanged) {
+    if (turnChanged || modeChanged || filterChanged || actorChanged) {
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
       lastGolFilterRef.current = eventFilter;
+      lastGolActorRef.current = actorName;
       seedFromColonists(gol, snapshot.cells, positions, size.w, size.h, eventFilter);
       // Mode determines warmup depth so clicking a mode pill produces
       // a visibly different CA state: LIVING = stabilized (5 ticks),
@@ -483,10 +488,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         warmup = 5;
       }
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
-      // First seed, cached load, replay or multi-turn scrub: ease the tile
-      // layer in instead of painting the full steady state in one frame.
-      // Single-turn advances (a live run, playback) reseed in place.
-      if (!reducedMotion && turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) {
+      // First seed, cached load, replay, multi-turn scrub or a new commander
+      // on this panel: ease the tile layer in instead of painting the full
+      // steady state in one frame. Single-turn advances (a live run,
+      // playback) reseed in place.
+      if (!reducedMotion && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
         golRevealStartRef.current = performance.now();
       }
       lastFlareSignatureRef.current = visibleFlares.length
