@@ -44,14 +44,20 @@
  *   registry; Open all groups opens every fold; an actor whose reports
  *   cannot be read says so with the Event Log as the way forward; Export
  *   JSON says it is exporting a large file.
+ * - Past 50 lines the toolbox renders only the lines in view: scrolling
+ *   renders the fold heads as they come into view, Tab moves through every
+ *   head in order, a screen reader counts every group and every row's place
+ *   in the whole list, and a fold closed with focus inside gives focus to its
+ *   head. The tests that read every row scroll the list through to read it.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
 import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import {
-  COHORT_SERVER, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
-  pairSessionId, replayUrl, sessionIdByName, useLook, type Look,
+  COHORT_SERVER, LINE_PARTS, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
+  pairSessionId, readAllLines, replayUrl, revealLine, scrollListBy, sessionIdByName, useLook,
+  type Look, type ToolboxLine,
 } from '../support/forge-view-pages.js';
 import { DOZENS, DOZENS_A7_UNREADABLE, MAXIMUM, REPORT_ONLY_PAIR, generateCohortRun } from '../support/forge-fixtures.js';
 import { pairRunFrames } from '../support/pair-run.js';
@@ -2137,17 +2143,14 @@ test.describe('the forged toolbox on the run\'s record', () => {
         await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
         await chooseGroup(toolbox, 'None');
         // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
-        await expect(rowsOf(toolbox)).toHaveCount(spec.tools, { timeout: 60_000 });
-        const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
-          name: el.getAttribute('data-tool-name'),
-          actor: el.getAttribute('data-actor'),
-          meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
-        })));
+        // Past 50 lines the list renders the rows in view, so the read scrolls it through.
+        const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
         expect(rows.map(row => [row.name, row.actor])).toEqual(registry.list.map(entry => [entry.name, `A${entry.actorIndex + 1}`]));
         const strays = rows.filter((row, i) => !row.meta.startsWith(`A${registry.list[i].actorIndex + 1} ${registry.list[i].actorName} · `));
         expect(strays, 'every meta line begins with its actor\'s label and name').toEqual([]);
         // From three actors the rows' lines take the quiet tone, and each side mark its actor's run colour.
-        const third = rowsOf(toolbox).filter({ has: page.locator('[data-row-meta]', { hasText: /^A3 / }) }).first();
+        await revealLine(toolbox, '[data-tool-row][data-actor="A3"]');
+        const third = toolbox.locator('[data-tool-row][data-actor="A3"]').first();
         expect(await groundOf(third.locator('[data-forge-line="row"] [data-station="request"] [data-cell]'))).toBe(await resolved(page, '--forge-quiet'));
         expect(await groundOf(third.locator('[data-side-mark]'))).toBe(await resolved(page, '--rust'));
       });
@@ -2304,16 +2307,41 @@ function metaLineOf(entry: ReturnType<typeof registryOf>['list'][number]): strin
   ].filter(Boolean).join(' · ');
 }
 
-/** Each fold's parts in the order they stand: a department's line as "dept:{name}", a row as "{name}@{actor}". */
-const foldParts = (scope: Locator): Promise<Record<string, string[]>> =>
-  scope.locator('[data-fold]').evaluateAll(folds => Object.fromEntries(folds.map(fold => [
-    fold.getAttribute('data-fold') ?? '',
-    Array.from(fold.querySelectorAll('[data-dept-line], [data-tool-row]')).map(el => (el.hasAttribute('data-dept-line')
-      ? `dept:${el.textContent ?? ''}`
-      : `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`)),
-  ])));
+/** Each fold's parts in the order they stand, from the list's lines: a department's line as "dept:{name}", a row as "{name}@{actor}". */
+function foldParts(lines: ToolboxLine[]): Record<string, string[]> {
+  const parts: Record<string, string[]> = {};
+  for (const line of lines) {
+    if (line.kind === 'head') parts[line.fold] ??= [];
+    else (parts[line.fold] ??= []).push(line.kind === 'dept' ? `dept:${line.name}` : `${line.name}@${line.actor}`);
+  }
+  return parts;
+}
+
+/**
+ * The rows in the order Group: Actor lists them: each actor's in launch
+ * order, under a line for each department in the order the actor first
+ * forged there.
+ */
+function actorOrder(registry: ReturnType<typeof registryOf>): ReturnType<typeof registryOf>['list'] {
+  return registry.actors.flatMap((actor) => {
+    const own = registry.list.filter(entry => entry.actorIndex === actor.index);
+    const departments = [...new Set(own.map(entry => entry.firstForgedDepartment))];
+    return departments.flatMap(d => own.filter(entry => entry.firstForgedDepartment === d));
+  });
+}
+
+/** Where the focused key stands: its top and bottom, the fixed head's bottom, and the bottom of the toolbox's view. */
+const focusedPlace = (toolbox: Locator) => toolbox.evaluate((dialog) => {
+  const focused = (document.activeElement as HTMLElement).getBoundingClientRect();
+  const head = dialog.querySelector('[data-toolbox-header]')!.getBoundingClientRect();
+  const view = dialog.getBoundingClientRect().top + dialog.clientTop + dialog.clientHeight;
+  return { top: focused.top, bottom: focused.bottom, headBottom: head.bottom, viewBottom: view };
+});
 
 const DOZENS_LINE = '286 tools from 331 forges (45 re-forges) · 268 passed · 63 did not pass · 24 actors';
+const MAXIMUM_LINE = '3,612 tools from 4,207 forges (595 re-forges) · 3,301 passed · 906 did not pass · 300 actors';
+/** Past 50 lines the toolbox renders the lines in view and a few past them: never more than about this many. */
+const MOST_LINES = 60;
 
 /** Opens a cohort run's toolbox from the Sim footer, played in to its end. */
 async function openCohortToolbox(page: Page, request: APIRequestContext, run: string, tools: number, size: Size, look: Look, timeout: number): Promise<Locator> {
@@ -2392,8 +2420,10 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
     await a1.click();
     await expect(a1).toHaveAttribute('aria-expanded', 'true');
     const a1Tools = registry.list.filter(entry => entry.actorIndex === 0);
-    await expect(rowsOf(foldOf(toolbox, 'A1'))).toHaveCount(a1Tools.length);
-    await expect(rowsOf(toolbox)).toHaveCount(a1Tools.length);
+    // Read through the list, which past 50 lines renders the lines in view: A1's rows, and no other actor's.
+    const a1Rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(a1Rows).toHaveLength(a1Tools.length);
+    expect(a1Rows.filter(row => row.fold !== 'A1' || row.actor !== 'A1')).toEqual([]);
     await picture(page, '1440-dark-f10-toolbox-24-actors-A1-open');
     await a1.click();
     await expect(a1).toHaveAttribute('aria-expanded', 'false');
@@ -2409,8 +2439,11 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
     await expect(key).not.toHaveAttribute('aria-disabled', 'true');
     await key.click();
     await expect(key).toHaveAccessibleName('Close all groups');
-    await expect(foldHeads(toolbox).locator('button[aria-expanded="true"]')).toHaveCount(24);
-    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
+    // Past 50 lines the list renders the lines in view, so the read scrolls it through.
+    const lines = await readAllLines(toolbox);
+    const heads = lines.filter(line => line.kind === 'head');
+    expect(heads.map(head => [head.name, head.expanded])).toEqual(registry.actors.map(actor => [actor.label, 'true']));
+    expect(lines.filter(line => line.kind === 'row')).toHaveLength(286);
 
     // Each fold holds its actor's rows alone, under a line for each department, in the order the actor first forged there.
     const expected = Object.fromEntries(registry.actors.map((actor) => {
@@ -2421,18 +2454,20 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
         ...own.filter(entry => entry.firstForgedDepartment === d).map(entry => `${entry.name}@${actor.label}`),
       ])];
     }));
-    expect(await foldParts(toolbox)).toEqual(expected);
+    expect(foldParts(lines)).toEqual(expected);
 
     // The rows' lines are in the quiet tone; each side mark and each head's tile band in its actor's run colour.
     const quiet = await resolved(page, '--forge-quiet');
     for (const label of ['A1', 'A2', 'A3', 'A9']) {
       const index = Number(label.slice(1)) - 1;
       const colour = await resolved(page, tokenOf(getActorColorVar(index)));
+      await revealLine(toolbox, `[data-fold-head="${label}"]`);
       const row = rowsOf(foldOf(toolbox, label)).first();
       expect(await groundOf(row.locator('[data-forge-line="row"] [data-station="request"] [data-cell]')), `${label}: the line`).toBe(quiet);
       expect(await groundOf(row.locator('[data-side-mark]')), `${label}: the side mark`).toBe(colour);
       expect(await groundOf(foldHead(toolbox, label).locator('[data-actor-tile] > span').first()), `${label}: the tile's band`).toBe(colour);
     }
+    await revealLine(toolbox, '[data-fold-head="A1"]');
     await foldHead(toolbox, 'A1').scrollIntoViewIfNeeded();
     await picture(page, '1440-light-f10-toolbox-24-actors-all-open');
 
@@ -2463,16 +2498,17 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
 
     // Opened, each fold holds that department's rows in the run's order, each meta line led by its actor's label and name.
     await openAllGroups(toolbox).click();
-    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
+    await expect(openAllGroups(toolbox)).toHaveAccessibleName('Close all groups');
+    // Past 50 lines the list renders the lines in view, so the read scrolls it through.
+    const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(rows).toHaveLength(286);
     for (const d of departments) {
       const own = registry.list.filter(entry => entry.firstForgedDepartment === d);
-      const rows = await rowsOf(foldOf(toolbox, d)).evaluateAll(els => els.map(el => ({
-        tool: `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`,
-        meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
-      })));
-      expect(rows.map(row => row.tool), d).toEqual(own.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
-      expect(rows.map(row => row.meta), d).toEqual(own.map(metaLineOf));
+      const inFold = rows.filter(row => row.fold === d);
+      expect(inFold.map(row => `${row.name}@${row.actor}`), d).toEqual(own.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
+      expect(inFold.map(row => row.meta), d).toEqual(own.map(metaLineOf));
     }
+    await revealLine(toolbox, `[data-fold-head="${departments[0]}"]`);
     await foldHead(toolbox, departments[0]).scrollIntoViewIfNeeded();
     await picture(page, '768-dark-f10-toolbox-24-actors-by-department');
   });
@@ -2485,15 +2521,11 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
     await expect(foldHeads(toolbox)).toHaveCount(0);
     await expect(openAllGroups(toolbox)).toHaveAttribute('aria-disabled', 'true');
     // One list of every row in the run's order, each led by its actor's label and name behind its side mark.
-    await expect(rowsOf(toolbox)).toHaveCount(286, { timeout: 60_000 });
-    const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
-      tool: `${el.getAttribute('data-tool-name')}@${el.getAttribute('data-actor')}`,
-      meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
-      mark: el.querySelectorAll('[data-side-mark]').length,
-    })));
-    expect(rows.map(row => row.tool)).toEqual(registry.list.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
+    // Past 50 lines the list renders the rows in view, so the read scrolls it through.
+    const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(rows.map(row => `${row.name}@${row.actor}`)).toEqual(registry.list.map(entry => `${entry.name}@A${entry.actorIndex + 1}`));
     expect(rows.map(row => row.meta)).toEqual(registry.list.map(metaLineOf));
-    expect(rows.every(row => row.mark === 1), 'each row has its side mark').toBe(true);
+    expect(rows.every(row => row.sideMarks === 1), 'each row has its side mark').toBe(true);
     // The grouping is kept in the page's link.
     await expect.poll(() => new URL(page.url()).searchParams.get('group')).toBe('none');
     await picture(page, '390-light-f10-toolbox-24-actors-none');
@@ -2520,7 +2552,10 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
     const a8 = foldHead(toolbox, 'A8').getByRole('button');
     await a8.click();
     await expect(a8).toHaveAttribute('aria-expanded', 'true');
-    await expect(rowsOf(foldOf(toolbox, 'A8'))).toHaveCount(registry.list.filter(entry => entry.actorIndex === 7).length);
+    // Read through the list, which past 50 lines renders the lines in view: A8's rows, and no other actor's.
+    const a8Rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(a8Rows).toHaveLength(registry.list.filter(entry => entry.actorIndex === 7).length);
+    expect(a8Rows.filter(row => row.fold !== 'A8')).toEqual([]);
 
     // Show in Event Log closes the toolbox and opens the Event Log on A7's events.
     await way.click();
@@ -2616,13 +2651,17 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
   test('f10 q38: A299\'s fold head names the registry\'s limit', async ({ page, request }) => {
     test.setTimeout(300_000);
     const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, { width: 768, height: 1024 }, 'light', 150_000);
-    await expect(foldHeads(toolbox)).toHaveCount(300, { timeout: 60_000 });
+    // Past 50 lines the list renders the heads in view, so the read scrolls it through: 300 heads, and A299's alone names the limit.
+    const heads = (await readAllLines(toolbox)).filter(line => line.kind === 'head');
+    expect(heads).toHaveLength(300);
+    expect(heads.filter(head => head.note !== '').map(head => [head.name, head.note]))
+      .toEqual([['A299', '50 tools: the most one actor\'s registry holds']]);
+    // A299's head, scrolled into view.
+    await revealLine(toolbox, '[data-fold-head="A299"]');
     const a299 = foldHead(toolbox, 'A299');
     await a299.scrollIntoViewIfNeeded();
     await expect(a299.locator('[data-fold-count]')).toHaveText(/^50 tools from /);
     await expect(a299.locator('[data-fold-note]')).toHaveText('50 tools: the most one actor\'s registry holds');
-    // No other actor's registry is full.
-    await expect(toolbox.locator('[data-fold-note]')).toHaveCount(1);
     await picture(page, '768-light-f10-toolbox-300-actors-A299');
   });
 
@@ -2636,16 +2675,127 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
     // The folds that hold the name, one an actor, and every fold opened shows its row.
     await expect(foldHeads(toolbox)).toHaveCount(40);
     await openAllGroups(toolbox).click();
-    await expect(rowsOf(toolbox)).toHaveCount(40);
-    const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({
-      actor: el.getAttribute('data-actor'),
-      meta: el.querySelector('[data-row-meta]')?.textContent ?? '',
-      same: el.querySelector('[data-row-same]')?.textContent ?? '',
-    })));
+    await expect(openAllGroups(toolbox)).toHaveAccessibleName('Close all groups');
+    // 40 heads, 40 department lines and 40 rows: past 50 lines the list renders the lines in view, so the read scrolls it through.
+    const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(rows).toHaveLength(40);
     expect(rows.map(row => row.actor)).toEqual(holders.map(entry => `A${entry.actorIndex + 1}`));
     // Each row its own actor's tool, with that actor's own uses.
     expect(rows.map(row => row.meta)).toEqual(holders.map(metaLineOf));
     expect(rows.map(row => row.same)).toEqual(holders.map(() => 'Same name in 39 other actors'));
     await picture(page, '1440-light-f10-toolbox-300-actors-same-name');
+  });
+});
+
+// ── Past 50 lines the toolbox renders only the lines in view ─────────────
+
+test.describe('the toolbox past 50 lines', () => {
+  test('f10 q26: scrolling from A1 to A300 renders the heads as they come into view, never more than about 60 lines', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'dark', 150_000);
+    await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(MAXIMUM_LINE);
+    // The first screen: the heads from A1, and no more than about 60 lines in the page.
+    await expect(foldHead(toolbox, 'A1')).toBeVisible();
+    expect(await toolbox.locator(LINE_PARTS).count(), 'lines rendered at the top').toBeLessThanOrEqual(MOST_LINES);
+    const seen = new Set<string>(await foldHeads(toolbox).evaluateAll(els => els.map(el => el.getAttribute('data-fold-head') ?? '')));
+    // A screen at a time to the end: at each step the lines in view are rendered, with no gap, and never more than about 60.
+    let last = '';
+    for (let step = 1; step <= 400; step += 1) {
+      const now = await scrollListBy(toolbox, 0.8);
+      expect(now.covered, `step ${step}: the lines in view are rendered`).toBe(true);
+      expect(now.rendered, `step ${step}: lines rendered`).toBeLessThanOrEqual(MOST_LINES);
+      for (const head of now.heads) seen.add(head);
+      last = now.heads[now.heads.length - 1] ?? last;
+      if (!now.moved) break;
+    }
+    // The scroll reaches A300, and every head rendered on the way.
+    expect(last, 'the last head').toBe('A300');
+    await expect(foldHead(toolbox, 'A300')).toBeVisible();
+    expect(seen.size).toBe(300);
+    expect([...Array(300)].map((_, i) => `A${i + 1}`).filter(label => !seen.has(label)), 'heads never rendered').toEqual([]);
+    await picture(page, '1440-dark-f10-toolbox-300-actors-end');
+  });
+
+  test('f10 q27: Tab moves through all 300 heads in order with no skip, each one whole below the fixed head', async ({ page, request }) => {
+    test.setTimeout(600_000);
+    for (const look of LOOKS) {
+      await test.step(`1440 in the ${look} look`, async () => {
+        const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], look, 150_000);
+        const first = foldHead(toolbox, 'A1').getByRole('button');
+        await first.focus();
+        await expect(first).toBeFocused();
+        expect(await toolbox.locator(LINE_PARTS).count(), 'lines rendered with focus on A1').toBeLessThanOrEqual(MOST_LINES);
+        for (let n = 1; n <= 300; n += 1) {
+          if (n > 1) await page.keyboard.press('Tab');
+          await expect(foldHead(toolbox, `A${n}`).getByRole('button'), `Tab reaches A${n}`).toBeFocused();
+          const at = await focusedPlace(toolbox);
+          expect(at.top, `A${n} sits below the fixed head`).toBeGreaterThanOrEqual(at.headBottom - 1);
+          expect(at.bottom, `A${n} is whole in view`).toBeLessThanOrEqual(at.viewBottom + 1);
+          if (n % 50 === 0) expect(await toolbox.locator(LINE_PARTS).count(), `lines rendered with focus on A${n}`).toBeLessThanOrEqual(MOST_LINES);
+        }
+        await picture(page, `1440-${look}-f10-toolbox-300-actors-tab-A300`);
+      });
+    }
+  });
+
+  test('f10 q28: a screen reader counts 300 groups and every row\'s place in the whole list', async ({ page, request }) => {
+    test.setTimeout(420_000);
+    const registry = registryOf(generateCohortRun(MAXIMUM));
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'dark', 150_000);
+    // The folds are a list of 300 groups: each fold a list item that says its place among the 300.
+    await expect(toolbox.locator('[data-toolbox-rows]')).toHaveAttribute('role', 'list');
+    await expect(foldOf(toolbox, 'A1')).toHaveAttribute('role', 'listitem');
+    await expect(foldOf(toolbox, 'A1')).toHaveAttribute('aria-setsize', '300');
+    await expect(foldOf(toolbox, 'A1')).toHaveAttribute('aria-posinset', '1');
+    const heads = (await readAllLines(toolbox)).filter(line => line.kind === 'head');
+    expect(heads.map(head => [head.name, head.pos, head.size])).toEqual(registry.actors.map((actor, i) => [actor.label, i + 1, 300]));
+    // Each head says its actor and its counts in words.
+    await expect(foldHead(toolbox, 'A1').getByRole('button')).toHaveAccessibleName(/^A1 Aria Chen, The Visionary, \d+ tools?(, \d+ did not pass)?$/);
+
+    // With Open all groups, each row says the whole list's size, 3,612, and its place in it.
+    await openAllGroups(toolbox).click();
+    await expect(openAllGroups(toolbox)).toHaveAccessibleName('Close all groups');
+    const order = actorOrder(registry);
+    const rows = (await readAllLines(toolbox)).filter(line => line.kind === 'row');
+    expect(rows).toHaveLength(3612);
+    expect(rows.filter(row => row.size !== 3612).length, 'rows with another size').toBe(0);
+    expect(rows.map(row => `${row.pos} ${row.name}@${row.actor}`))
+      .toEqual(order.map((entry, i) => `${i + 1} ${entry.name}@A${entry.actorIndex + 1}`));
+    await picture(page, '1440-dark-f10-toolbox-300-actors-all-open');
+  });
+
+  test('a fold closed with focus inside moves focus to its head', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[1], 'light', 60_000);
+    // A2's fold open, focus on its second row; the fold closes as a screen reader's press on its head closes it, with focus left on the row.
+    const a2 = foldHead(toolbox, 'A2').getByRole('button');
+    await a2.click();
+    await expect(a2).toHaveAttribute('aria-expanded', 'true');
+    const row = rowKey(rowsOf(foldOf(toolbox, 'A2')).nth(1));
+    await row.focus();
+    await expect(row).toBeFocused();
+    await a2.evaluate((el: HTMLElement) => el.click());
+    await expect(a2).toHaveAttribute('aria-expanded', 'false');
+    await expect(a2, 'focus moves to the head').toBeFocused();
+
+    // Every fold open, past 50 lines: focus on A12's last row, far down the list; Close all groups gives focus to A12's head, in view.
+    await openAllGroups(toolbox).click();
+    await expect(openAllGroups(toolbox)).toHaveAccessibleName('Close all groups');
+    const order = actorOrder(registry);
+    const lastOfA12 = order.map((entry, i) => ({ entry, pos: i + 1 })).filter(({ entry }) => entry.actorIndex === 11).pop();
+    expect(lastOfA12, 'A12 has rows').toBeDefined();
+    await revealLine(toolbox, `[data-tool-row][aria-posinset="${lastOfA12!.pos}"]`);
+    const deep = rowKey(toolbox.locator(`[data-tool-row][aria-posinset="${lastOfA12!.pos}"]`));
+    await deep.focus();
+    await expect(deep).toBeFocused();
+    await openAllGroups(toolbox).evaluate((el: HTMLElement) => el.click());
+    await expect(openAllGroups(toolbox)).toHaveAccessibleName('Open all groups');
+    const a12 = foldHead(toolbox, 'A12').getByRole('button');
+    await expect(a12, 'focus moves to the head').toBeFocused();
+    const at = await focusedPlace(toolbox);
+    expect(at.top, 'A12 sits below the fixed head').toBeGreaterThanOrEqual(at.headBottom - 1);
+    expect(at.bottom, 'A12 is whole in view').toBeLessThanOrEqual(at.viewBottom + 1);
+    await picture(page, '1440-light-f10-toolbox-24-actors-focus-to-head');
   });
 });
