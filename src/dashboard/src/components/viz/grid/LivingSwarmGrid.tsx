@@ -372,7 +372,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
 
   useEffect(() => {
     const overlay = overlayCanvasRef.current;
-    if (!overlay || !snapshot) return;
+    // Nothing is drawn or seeded before the canvas has a size: positions are
+    // empty until then, and a Conway seed taken from them would mark the turn
+    // seeded with an empty grid that a replay parked on its last turn never
+    // reseeds.
+    if (!overlay || !snapshot || size.w === 0 || size.h === 0) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 

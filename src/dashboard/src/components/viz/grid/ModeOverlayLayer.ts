@@ -174,10 +174,12 @@ export function drawEcologyResourceMap(
   ctx.fillRect(halfW, halfH, halfW, halfH);
 
   // Labels so users can tell which quadrant is which. Small faint
-  // monospace in each quadrant's corner; the top two sit under the HUD's
-  // name and turn rows (y 10 to 34) so they never print over the actor's
-  // name.
+  // monospace at each quadrant's top corner: the top two sit under the
+  // HUD's name and turn rows (y 10 to 34) so they never print over the
+  // actor's name, and the bottom two at the top of their quadrants, clear
+  // of the HUD's population readout and the featured pills at the bottom.
   const topLabelY = 40;
+  const bottomLabelY = halfH + 8;
   ctx.font = 'bold 9px ui-monospace, monospace';
   ctx.fillStyle = labelColor;
   ctx.textAlign = 'left';
@@ -189,12 +191,11 @@ export function drawEcologyResourceMap(
   }
   if (power != null) {
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`POWER ${Math.round(power)}kW`, 8, height - 8);
+    ctx.fillText(`POWER ${Math.round(power)}kW`, 8, bottomLabelY);
   }
   if (volume != null) {
     ctx.textAlign = 'right';
-    ctx.fillText(`VOL ${Math.round(volume)}m³`, width - 8, height - 8);
+    ctx.fillText(`VOL ${Math.round(volume)}m³`, width - 8, bottomLabelY);
   }
   // Reset baseline for downstream layers.
   ctx.textBaseline = 'alphabetic';
