@@ -128,11 +128,10 @@ export function drawEcologyResourceMap(
   labelColor = 'rgba(216, 204, 176, 0.6)',
 ): void {
   const asNum = (v: unknown): number | null => (typeof v === 'number' ? v : null);
-  const snap = snapshot as unknown as Record<string, unknown>;
-  const food = asNum(snap.foodReserve);
-  const water = asNum(snap.waterLitersPerDay);
-  const power = asNum(snap.powerKw);
-  const volume = asNum(snap.pressurizedVolumeM3);
+  const food = asNum(snapshot.foodReserve);
+  const water = asNum(snapshot.waterLitersPerDay);
+  const power = asNum(snapshot.powerKw);
+  const volume = asNum(snapshot.pressurizedVolumeM3);
   if (food == null && water == null && power == null && volume == null) return;
 
   // Scarcity tier: 1.0 = critical, 0.0 = abundant. Units are scenario-
@@ -175,15 +174,18 @@ export function drawEcologyResourceMap(
   ctx.fillRect(halfW, halfH, halfW, halfH);
 
   // Labels so users can tell which quadrant is which. Small faint
-  // monospace in each quadrant's corner.
+  // monospace in each quadrant's corner; the top two sit under the HUD's
+  // name and turn rows (y 10 to 34) so they never print over the actor's
+  // name.
+  const topLabelY = 40;
   ctx.font = 'bold 9px ui-monospace, monospace';
   ctx.fillStyle = labelColor;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  if (food != null) ctx.fillText(`FOOD ${food.toFixed(1)}mo`, 8, 8);
+  if (food != null) ctx.fillText(`FOOD ${food.toFixed(1)}mo`, 8, topLabelY);
   if (water != null) {
     ctx.textAlign = 'right';
-    ctx.fillText(`WATER ${Math.round(water)}L/d`, width - 8, 8);
+    ctx.fillText(`WATER ${Math.round(water)}L/d`, width - 8, topLabelY);
   }
   if (power != null) {
     ctx.textAlign = 'left';

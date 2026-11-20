@@ -6,8 +6,11 @@ import type { TurnSnapshot, CellSnapshot } from './viz-types';
  * Extract per-turn TurnSnapshot arrays from GameState, keyed by leader
  * name. Pulls systems_snapshot events for the spatial cells data and
  * joins event_start / turn_start events to surface category flashes
- * per turn. Population, morale, food and birth/death deltas come from
- * the snapshot payload.
+ * per turn. Population, morale, food and each turn's own births and
+ * deaths come from the snapshot payload; water, power and pressurized
+ * volume, which a snapshot does not carry, come from the same turn's
+ * `turn_done` metrics, so ECOLOGY can draw them on a live run and a
+ * replay alike.
  *
  * Return shape is `Record<actorName, TurnSnapshot[]>` — F1 (arena-
  * ready refactor) generalized this away from the old `{ a, b }` pair.
@@ -43,6 +46,9 @@ export function useVizSnapshots(state: GameState): Record<string, TurnSnapshot[]
         );
         const dd = turnEvent?.data || {};
         const turnNum = (dd.turn as number) || i + 1;
+        const turnDone = s.events.find(e => e.type === 'turn_done' && e.data?.turn === turnNum);
+        const metrics = (turnDone?.data?.metrics ?? {}) as Record<string, unknown>;
+        const reading = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
         const cells: CellSnapshot[] = agents.map(a => ({
           agentId: a.agentId,
@@ -68,7 +74,10 @@ export function useVizSnapshots(state: GameState): Record<string, TurnSnapshot[]
           cells,
           population: (dd.population as number) || cells.filter(c => c.alive).length,
           morale: (dd.morale as number) || 0,
-          foodReserve: typeof dd.foodReserve === 'number' ? dd.foodReserve : undefined,
+          foodReserve: typeof dd.foodReserve === 'number' ? dd.foodReserve : reading(metrics.foodMonthsReserve),
+          waterLitersPerDay: reading(metrics.waterLitersPerDay),
+          powerKw: reading(metrics.powerKw),
+          pressurizedVolumeM3: reading(metrics.pressurizedVolumeM3),
           deaths: (dd.deaths as number) || 0,
           births: (dd.births as number) || 0,
           eventCategories: categoriesByTurn.get(turnNum) ?? [],

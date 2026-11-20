@@ -31,10 +31,10 @@ export function GridHelpOverlay({ open, onClose }: GridHelpOverlayProps) {
         </div>
 
         <Section title="Modes">
-          <Row k="LIVING" v={`Full chemistry + ${labels.person} glyphs + family lines + event flares`} />
+          <Row k="LIVING" v={`Full chemistry + ${labels.person} glyphs + event flares`} />
           <Row k="MOOD" v={`Emphasizes ${labels.person} seeds + mood-coded chemistry clouds`} />
           <Row k="FORGE" v="Dims field, highlights forge attempts + reuse arcs" />
-          <Row k="ECOLOGY" v="Hides glyphs; metrics strip + crisis flares lead" />
+          <Row k="ECOLOGY" v="Hides glyphs; food, water, power and volume tint a quadrant each" />
           <Row k="DIVERGENCE" v={`Only shows ${labels.people} alive here but dead on the other side`} />
         </Section>
 
@@ -54,11 +54,6 @@ export function GridHelpOverlay({ open, onClose }: GridHelpOverlayProps) {
           <Row k={<Swatch color="rgba(224, 101, 48, 0.7)" />} v="Red flash — forge rejected" />
           <Row k={<Swatch color="rgba(232, 180, 74, 0.6)" />} v="Amber arc — tool reuse across departments" />
           <Row k={<Swatch color="rgba(196, 74, 30, 0.8)" />} v="Red ring — crisis shockwave (category-gated)" />
-        </Section>
-
-        <Section title="Family lines">
-          <Row k="— side color, bowed" v="Partner link" />
-          <Row k="– teal, dashed" v="Parent → child link" />
         </Section>
 
         <Section title="Keyboard">

@@ -20,14 +20,21 @@ interface LeaderTurnSummary {
   time: number;
 }
 
+/**
+ * One commander's line for a turn, from what the engine sends: the page folds
+ * each `decision_made` into the `outcome` after it as `_decision`, the
+ * outcome's `systemDeltas.morale` is the morale its decision moved, and the
+ * turn's `turn_done` names the causes of its deaths (`deathCauses`), with
+ * `systems_snapshot.deaths` as the count when no cause is named.
+ */
 function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null {
   const actorName = side.leader?.name ?? '';
   if (!actorName) return null;
 
   let decision = '';
   let outcome = '';
-  let deaths = 0;
-  let dominantCause: string | null = null;
+  let causes: Record<string, number> | null = null;
+  let snapshotDeaths = 0;
   let moraleDelta = 0;
   let eventTitle = '';
   let eventCategory = '';
@@ -41,15 +48,34 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
       eventCategory = String(evt.data?.category ?? eventCategory);
       time = Number(evt.data?.time ?? time);
     }
-    if (evt.type === 'decision_made') {
-      decision = String(evt.data?.decision ?? decision);
-    }
     if (evt.type === 'outcome') {
       outcome = String(evt.data?.outcome ?? outcome);
-      deaths = Number(evt.data?.deaths ?? deaths);
-      dominantCause = (evt.data?.dominantCause as string | undefined) ?? dominantCause;
-      moraleDelta = Number(evt.data?.moraleDelta ?? moraleDelta);
+      const folded = evt.data?._decision;
+      if (typeof folded === 'string' && folded.length > 0) decision = folded;
+      const morale = (evt.data?.systemDeltas as Record<string, unknown> | undefined)?.morale;
+      if (typeof morale === 'number' && Number.isFinite(morale)) moraleDelta += morale;
     }
+    if (evt.type === 'turn_done') {
+      const named = evt.data?.deathCauses;
+      if (named && typeof named === 'object') causes = named as Record<string, number>;
+    }
+    if (evt.type === 'systems_snapshot') {
+      snapshotDeaths = Number(evt.data?.deaths) || 0;
+    }
+  }
+
+  // The cause with the most deaths, the first named on a tie.
+  let deaths = snapshotDeaths;
+  let dominantCause: string | null = null;
+  if (causes) {
+    let named = 0;
+    let most = 0;
+    for (const [cause, n] of Object.entries(causes)) {
+      if (typeof n !== 'number' || n <= 0) continue;
+      named += n;
+      if (n > most) { most = n; dominantCause = cause; }
+    }
+    if (named > 0) deaths = named;
   }
 
   return { actorName, decision, outcome, deaths, dominantCause, moraleDelta, eventTitle, eventCategory, time };

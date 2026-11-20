@@ -49,32 +49,43 @@ describe('computeTurnHighlight', () => {
     assert.match(out, /awaiting first turn/i);
   });
 
-  it('snapToHighlight derives turn-deltas from cumulative deaths/births', () => {
+  it('snapToHighlight takes each turn\'s own deaths and births, never a difference from the turn before', () => {
+    // systems_snapshot counts the deaths of its own turn: one death in turn
+    // 5 and none in turn 6 is a turn 6 with no deaths, not -1.
     const prev: TurnSnapshot = {
-      turn: 1,
-      time: 2035,
+      turn: 5,
+      time: 2067,
       cells: [],
-      population: 100,
+      population: 30,
       morale: 0.85,
-      foodReserve: 18,
-      deaths: 0,
-      births: 0,
+      deaths: 1,
+      births: 2,
     };
     const current: TurnSnapshot = {
-      turn: 2,
-      time: 2043,
+      turn: 6,
+      time: 2075,
       cells: [],
-      population: 96,
-      morale: 0.65,
-      foodReserve: 14,
-      deaths: 4,
-      births: 0,
-      eventCategories: ['environmental'],
+      population: 31,
+      morale: 0.9,
+      deaths: 0,
+      births: 1,
+      eventCategories: ['technological'],
     };
     const input = snapToHighlight(current, prev);
-    assert.equal(input.deathsThisTurn, 4);
-    assert.equal(input.birthsThisTurn, 0);
-    assert.deepEqual(input.eventCategories, ['environmental']);
-    assert.equal(input.year, 2043);
+    assert.equal(input.deathsThisTurn, 0);
+    assert.equal(input.birthsThisTurn, 1);
+    assert.deepEqual(input.eventCategories, ['technological']);
+    assert.equal(input.year, 2075);
+  });
+
+  it('names who lost how many with the scenario\'s nouns, and none for a side with no deaths', () => {
+    const a: HighlightInput = { ...baseInput, deathsThisTurn: 0, year: 2075 };
+    const b: HighlightInput = { ...baseInput, deathsThisTurn: 1, year: 2075 };
+    const words = { nameA: 'Aria Chen', nameB: 'Dietrich Voss', person: 'crew member', people: 'crew' };
+    assert.equal(computeTurnHighlight(a, b, 6, words), 'Turn 6, year 2075: Dietrich Voss lost 1 crew member; Aria Chen lost none.');
+    assert.equal(
+      computeTurnHighlight({ ...a, deathsThisTurn: 3 }, { ...b, deathsThisTurn: 1 }, 6, words),
+      'Turn 6, year 2075: Aria Chen lost 3 crew; Dietrich Voss lost 1 crew member.',
+    );
   });
 });

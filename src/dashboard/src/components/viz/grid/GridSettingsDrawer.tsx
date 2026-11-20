@@ -7,11 +7,14 @@ import {
 } from '../../settings/shared/settingsStyles';
 import styles from './GridSettingsDrawer.module.scss';
 
+/**
+ * The Viz settings a visitor can change. Each one is read: dept labels by
+ * the HUD, the crosshair by the canvas, alerts by the toast effects and
+ * sound by the sound cues. Animation speed, dept rings, family lines, star
+ * dust and ghost trails drew layers removed on 20 April 2026 and are gone
+ * with them.
+ */
 export interface GridSettings {
-  /** RD animation speed multiplier applied to stepsPerFrame. */
-  animSpeed: 0.5 | 1 | 2;
-  /** Whether to render the dept cluster ring outlines. */
-  deptRings: boolean;
   /**
    * Whether to render the per-dept labeled boxes (e.g. "SCIENCE 1",
    * "ENGINEERING 2") near each cluster's centroid. Off by default
@@ -22,14 +25,8 @@ export interface GridSettings {
    * of the colonist glyphs.
    */
   deptLabels: boolean;
-  /** Whether to render partner/child connection arcs (when mode allows). */
-  lines: boolean;
-  /** Background star-dust pattern in empty field areas. */
-  dust: boolean;
   /** Draw crosshair + nearest-colonist hint when cursor is between glyphs. */
   crosshair: boolean;
-  /** Draw faded previous-turn positions with movement arrows. */
-  ghostTrail: boolean;
   /** Enable crash/crisis toast banners. */
   alerts: boolean;
   /** Enable audio cues on birth / death / forge / crisis. */
@@ -37,27 +34,24 @@ export interface GridSettings {
 }
 
 export const DEFAULT_GRID_SETTINGS: GridSettings = {
-  animSpeed: 1,
-  // Dept rings default OFF. Dashed arcs at large radii (small colonies
-  // give large centroid-to-edge distances) tile together into saw-tooth
-  // diagonals that users read as render artifacts. Same rationale as
-  // `lines` and `ghostTrail` below: opt-in, not default.
-  deptRings: false,
   deptLabels: false,
-  // Family lines default OFF. When on, partner arcs (curved) and
-  // parent-child lines (dashed) draw between every related colonist
-  // on the grid — with 14-30 colonists that's ~15-40 crossing
-  // diagonals. Users consistently reported the network of arcs as
-  // "weird diamond animations" that appeared on tab open. Keep the
-  // setting so users who want to see the relationship graph can
-  // enable it from the drawer, but don't fire it by default.
-  lines: false,
-  dust: true,
   crosshair: true,
-  ghostTrail: false,
   alerts: true,
   sound: false,
 };
+
+/**
+ * Settings read back from storage, keeping only the keys GridSettings has
+ * and only values of their type, over the defaults. A blob saved before a
+ * switch was removed keeps the visitor's other choices and drops the rest.
+ */
+export function storedGridSettings(stored: Record<string, unknown>): GridSettings {
+  const out: GridSettings = { ...DEFAULT_GRID_SETTINGS };
+  for (const key of Object.keys(DEFAULT_GRID_SETTINGS) as Array<keyof GridSettings>) {
+    if (typeof stored[key] === 'boolean') out[key] = stored[key] as boolean;
+  }
+  return out;
+}
 
 interface DrawerProps {
   open: boolean;
@@ -111,45 +105,14 @@ export function GridSettingsDrawer({ open, settings, onChange, onClose }: Drawer
           </button>
         </div>
 
-        <Row label="Animation speed">
-          {([0.5, 1, 2] as const).map(sp => (
-            <Pill
-              key={sp}
-              active={settings.animSpeed === sp}
-              onClick={() => toggle('animSpeed', sp)}
-              label={`${sp}x`}
-            />
-          ))}
-        </Row>
-
-        <Row label="Dept rings">
-          <Pill active={settings.deptRings} onClick={() => toggle('deptRings', true)} label="on" />
-          <Pill active={!settings.deptRings} onClick={() => toggle('deptRings', false)} label="off" />
-        </Row>
-
         <Row label="Dept labels">
           <Pill active={settings.deptLabels} onClick={() => toggle('deptLabels', true)} label="on" />
           <Pill active={!settings.deptLabels} onClick={() => toggle('deptLabels', false)} label="off" />
         </Row>
 
-        <Row label="Family lines">
-          <Pill active={settings.lines} onClick={() => toggle('lines', true)} label="on" />
-          <Pill active={!settings.lines} onClick={() => toggle('lines', false)} label="off" />
-        </Row>
-
-        <Row label="Star dust bg">
-          <Pill active={settings.dust} onClick={() => toggle('dust', true)} label="on" />
-          <Pill active={!settings.dust} onClick={() => toggle('dust', false)} label="off" />
-        </Row>
-
         <Row label="Crosshair">
           <Pill active={settings.crosshair} onClick={() => toggle('crosshair', true)} label="on" />
           <Pill active={!settings.crosshair} onClick={() => toggle('crosshair', false)} label="off" />
-        </Row>
-
-        <Row label="Ghost trail">
-          <Pill active={settings.ghostTrail} onClick={() => toggle('ghostTrail', true)} label="on" />
-          <Pill active={!settings.ghostTrail} onClick={() => toggle('ghostTrail', false)} label="off" />
         </Row>
 
         <Row label="Alert toasts">
