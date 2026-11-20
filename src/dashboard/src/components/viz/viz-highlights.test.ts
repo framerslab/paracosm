@@ -81,11 +81,28 @@ describe('computeTurnHighlight', () => {
   it('names who lost how many with the scenario\'s nouns, and none for a side with no deaths', () => {
     const a: HighlightInput = { ...baseInput, deathsThisTurn: 0, year: 2075 };
     const b: HighlightInput = { ...baseInput, deathsThisTurn: 1, year: 2075 };
-    const words = { nameA: 'Aria Chen', nameB: 'Dietrich Voss', person: 'crew member', people: 'crew' };
+    const words = { nameA: 'Aria Chen', nameB: 'Dietrich Voss', person: 'crew member', people: 'crew', places: 'habitats' };
     assert.equal(computeTurnHighlight(a, b, 6, words), 'Turn 6, year 2075: Dietrich Voss lost 1 crew member; Aria Chen lost none.');
     assert.equal(
       computeTurnHighlight({ ...a, deathsThisTurn: 3 }, { ...b, deathsThisTurn: 1 }, 6, words),
       'Turn 6, year 2075: Aria Chen lost 3 crew; Dietrich Voss lost 1 crew member.',
     );
+  });
+
+  it('uses the actors\' names and the scenario\'s places in every other branch', () => {
+    const words = { nameA: 'Aria Chen', nameB: 'Dietrich Voss', person: 'crew member', people: 'crew', places: 'habitats' };
+    assert.equal(
+      computeTurnHighlight({ ...baseInput, morale: 0.17, year: 2067 }, { ...baseInput, morale: 0.47, year: 2067 }, 5, words),
+      "Turn 5, year 2067: Aria Chen's morale collapsed to 17%; Dietrich Voss held 47%.",
+    );
+    assert.equal(
+      computeTurnHighlight({ ...baseInput, eventCategories: ['environmental'], year: 2043 }, { ...baseInput, eventCategories: ['social'], year: 2043 }, 2, words),
+      'Turn 2, year 2043: different events. Aria Chen: environmental; Dietrich Voss: social.',
+    );
+    assert.match(
+      computeTurnHighlight({ ...baseInput, eventCategories: ['onboarding'] }, { ...baseInput, eventCategories: ['onboarding'] }, 1, words),
+      /Both habitats start from the same state\./,
+    );
+    assert.equal(computeTurnHighlight(baseInput, baseInput, 4, words), 'Turn 4, year 2035: Aria Chen and Dietrich Voss tracked closely. See sub-tabs for details.');
   });
 });
