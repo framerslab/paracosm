@@ -14,6 +14,8 @@ interface LeaderTurnSummary {
   outcome: string;
   deaths: number;
   dominantCause: string | null;
+  /** The deaths under `dominantCause` alone, when the turn names its causes. */
+  dominantDeaths?: number;
   moraleDelta: number;
   eventTitle: string;
   eventCategory: string;
@@ -25,7 +27,8 @@ interface LeaderTurnSummary {
  * each `decision_made` into the `outcome` after it as `_decision`, the
  * outcome's `systemDeltas.morale` is the morale its decision moved, and the
  * turn's `turn_done` names the causes of its deaths (`deathCauses`), with
- * `systems_snapshot.deaths` as the count when no cause is named.
+ * `systems_snapshot.deaths` as the count when no cause is named. The line
+ * carries the total and, beside the largest cause, that cause's own count.
  */
 function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null {
   const actorName = side.leader?.name ?? '';
@@ -64,9 +67,11 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
     }
   }
 
-  // The cause with the most deaths, the first named on a tie.
+  // The cause with the most deaths, the first named on a tie, and how many
+  // of the turn's deaths are its own: a turn often has several causes.
   let deaths = snapshotDeaths;
   let dominantCause: string | null = null;
+  let dominantDeaths: number | undefined;
   if (causes) {
     let named = 0;
     let most = 0;
@@ -75,10 +80,13 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
       named += n;
       if (n > most) { most = n; dominantCause = cause; }
     }
-    if (named > 0) deaths = named;
+    if (named > 0) {
+      deaths = named;
+      dominantDeaths = most;
+    }
   }
 
-  return { actorName, decision, outcome, deaths, dominantCause, moraleDelta, eventTitle, eventCategory, time };
+  return { actorName, decision, outcome, deaths, dominantCause, dominantDeaths, moraleDelta, eventTitle, eventCategory, time };
 }
 
 // Cap on inline humanized lines in the banner. Past this many actors
