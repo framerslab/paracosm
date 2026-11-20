@@ -49,6 +49,11 @@
  *   head in order, a screen reader counts every group and every row's place
  *   in the whole list, and a fold closed with focus inside gives focus to its
  *   head. The tests that read every row scroll the list through to read it.
+ * - One actor picker for the toolbox: the Actors key opens "Choose actors",
+ *   each actor with its tile, counts and forge strip; it finds actors by
+ *   name, archetype or slot label, sorts them, and renders its rows as they
+ *   scroll at 300 actors. A choice narrows the toolbox at once, its count
+ *   line, its folds and Export JSON, and is kept in the page's link.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -2797,5 +2802,429 @@ test.describe('the toolbox past 50 lines', () => {
     expect(at.top, 'A12 sits below the fixed head').toBeGreaterThanOrEqual(at.headBottom - 1);
     expect(at.bottom, 'A12 is whole in view').toBeLessThanOrEqual(at.viewBottom + 1);
     await picture(page, '1440-light-f10-toolbox-24-actors-focus-to-head');
+  });
+});
+
+// ── One actor picker for the toolbox ─────────────────────────────────────
+
+/** The toolbox's Actors key: a button that names how many actors the toolbox shows and opens the picker. */
+const actorsKey = (scope: Locator): Locator => scope.getByRole('button', { name: /^Actors: / });
+
+/** The actor picker: a dialog named "Choose actors". */
+const pickerOf = (page: Page): Locator => page.getByRole('dialog', { name: 'Choose actors' });
+
+/** Opens the actor picker from the toolbox's Actors key; focus goes to Find an actor. */
+async function openPicker(page: Page, toolbox: Locator): Promise<Locator> {
+  const key = actorsKey(toolbox);
+  await expect(key).toHaveAttribute('aria-haspopup', 'dialog');
+  await key.click();
+  const picker = pickerOf(page);
+  await expect(picker).toBeVisible();
+  await expect(key).toHaveAttribute('aria-expanded', 'true');
+  await expect(picker.getByRole('searchbox', { name: 'Find an actor' })).toBeFocused();
+  return picker;
+}
+
+/** The picker's list of actors: a listbox whose options are the actors, each one press from chosen. */
+const actorList = (picker: Locator): Locator => picker.getByRole('listbox');
+/** The options the list renders, in order. */
+const optionsOf = (picker: Locator): Locator => actorList(picker).getByRole('option');
+/** One actor's option, by its slot label. */
+const optionOf = (picker: Locator, label: string): Locator => picker.locator(`[role="option"][data-actor="${label}"]`);
+/** The labels of the options the list renders, in order. */
+const optionLabels = (picker: Locator): Promise<Array<string | null>> =>
+  optionsOf(picker).evaluateAll(els => els.map(el => el.getAttribute('data-actor')));
+
+type PickedActor = ReturnType<typeof registryOf>['actors'][number];
+
+/** An actor's counts as the picker writes them: "14 tools · 2 did not pass", the second part left out when every forge passed. */
+const pickerCountsOf = (actor: PickedActor): string => (actor.counts.tools === 0
+  ? 'No tools'
+  : [countedAs(actor.counts.tools, 'tool', 'tools'), actor.counts.didNotPass > 0 ? `${actor.counts.didNotPass.toLocaleString('en-US')} did not pass` : '']
+    .filter(Boolean).join(' · '));
+
+/** An option's name: "A7 Ines Duarte, The Strategist, 14 tools, 2 did not pass". */
+const optionNameOf = (actor: PickedActor): string => [
+  `${actor.label} ${actor.name}`,
+  actor.archetype,
+  actor.counts.tools === 0 ? 'No tools' : countedAs(actor.counts.tools, 'tool', 'tools'),
+  actor.counts.didNotPass > 0 ? `${actor.counts.didNotPass.toLocaleString('en-US')} did not pass` : '',
+].filter(Boolean).join(', ');
+
+/** The toolbox's count line while some actors are chosen: "Showing 3 of 24 actors · 41 tools from 47 forges (6 re-forges) · …". */
+function chosenLineOf(picked: PickedActor[], of: number): string {
+  const sum = { tools: 0, forges: 0, reforges: 0, passed: 0, didNotPass: 0 };
+  for (const actor of picked) {
+    sum.tools += actor.counts.tools;
+    sum.forges += actor.counts.forges;
+    sum.reforges += actor.counts.reforges;
+    sum.passed += actor.counts.passed;
+    sum.didNotPass += actor.counts.didNotPass;
+  }
+  const reforged = sum.reforges > 0 ? ` (${countedAs(sum.reforges, 're-forge', 're-forges')})` : '';
+  return [
+    `Showing ${picked.length} of ${of} actors`,
+    `${countedAs(sum.tools, 'tool', 'tools')} from ${countedAs(sum.forges, 'forge', 'forges')}${reforged}`,
+    sum.passed > 0 ? `${sum.passed.toLocaleString('en-US')} passed` : '',
+    sum.didNotPass > 0 ? `${sum.didNotPass.toLocaleString('en-US')} did not pass` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/**
+ * Scrolls the picker's list by most of its view and waits until the options
+ * it renders cover the view. Says whether it moved, and the labels and the
+ * number of the options rendered.
+ */
+const scrollOptions = (list: Locator) => list.evaluate(async (el) => {
+  const frame = () => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+  const covered = (): boolean => {
+    const options = el.querySelectorAll<HTMLElement>('[role="option"]');
+    if (options.length === 0) return false;
+    const box = el.getBoundingClientRect();
+    const top = box.top + el.clientTop;
+    const bottom = top + el.clientHeight;
+    const first = options[0];
+    const last = options[options.length - 1];
+    const topOk = first.getAttribute('aria-posinset') === '1' || first.getBoundingClientRect().top <= top + 1;
+    const bottomOk = last.getAttribute('aria-posinset') === last.getAttribute('aria-setsize') || last.getBoundingClientRect().bottom >= bottom - 1;
+    return topOk && bottomOk;
+  };
+  const before = el.scrollTop;
+  el.scrollTop = before + Math.max(40, el.clientHeight * 0.8);
+  const moved = el.scrollTop > before + 0.5;
+  let ok = false;
+  for (let i = 0; i < 240 && !ok; i += 1) {
+    await frame();
+    if (covered()) {
+      await frame();
+      ok = covered();
+    }
+  }
+  const labels = Array.from(el.querySelectorAll('[role="option"]')).map(o => o.getAttribute('data-actor') ?? '');
+  return { moved, covered: ok, rendered: labels.length, labels };
+});
+
+test.describe('one actor picker for the toolbox', () => {
+  test('f19 q1: the pair\'s picker lists A1 Aria Chen and A2 Dietrich Voss with 5 and 7 tools', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(pairRunFrames());
+    expect(registry.actors.map(a => a.counts.tools)).toEqual([5, 7]);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        await openPairSim(page, request, size, look);
+        const toolbox = await openToolbox(page, 12);
+        // The Actors key reads the pair's every actor.
+        const key = actorsKey(toolbox);
+        await expect(key).toHaveAccessibleName('Actors: All 2');
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+        const picker = await openPicker(page, toolbox);
+        await expect(actorList(picker)).toHaveAttribute('aria-multiselectable', 'true');
+        await expect(optionsOf(picker)).toHaveCount(2);
+        // Each option: its tile, its name and archetype, its counts and its forge strip, named by them in words, none chosen.
+        const parts = await optionsOf(picker).evaluateAll(els => els.map(el => ({
+          tile: el.querySelector('[data-actor-tile]')?.textContent ?? '',
+          name: el.querySelector('[data-picker-name]')?.textContent ?? '',
+          archetype: el.querySelector('[data-picker-archetype]')?.textContent ?? '',
+          counts: el.querySelector('[data-picker-counts]')?.textContent ?? '',
+          strip: Number(el.querySelector('[data-forge-strip]')?.getAttribute('data-forge-strip') ?? -1),
+          selected: el.getAttribute('aria-selected'),
+          pos: `${el.getAttribute('aria-posinset')} of ${el.getAttribute('aria-setsize')}`,
+        })));
+        expect(parts).toEqual(registry.actors.map((actor, i) => ({
+          tile: actor.label,
+          name: actor.name,
+          archetype: actor.archetype,
+          counts: pickerCountsOf(actor),
+          strip: actor.strip.length,
+          selected: 'false',
+          pos: `${i + 1} of 2`,
+        })));
+        expect(parts.map(p => p.name)).toEqual(['Aria Chen', 'Dietrich Voss']);
+        await expect(optionOf(picker, 'A1')).toHaveAccessibleName(optionNameOf(registry.actors[0]));
+        await expect(optionOf(picker, 'A2')).toHaveAccessibleName(optionNameOf(registry.actors[1]));
+        // The tile's band and the strip are drawn only.
+        await expect(optionOf(picker, 'A1').locator('[data-forge-strip]')).toHaveAttribute('aria-hidden', 'true');
+        await picture(page, `${size.width}-${look}-f19-picker-pair`);
+      });
+    }
+  });
+
+  test('f19 q2 to q4: search by name or archetype, by label, and a search with no match', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const strat = registry.actors.filter(a => `${a.name} ${a.archetype}`.toLowerCase().includes('strat')).map(a => a.label);
+    expect(strat).toEqual(['A7', 'A11', 'A15', 'A19']);
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[1], 'light', 60_000);
+    await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: All 24');
+    const picker = await openPicker(page, toolbox);
+    await expect(optionsOf(picker)).toHaveCount(24);
+    const find = picker.getByRole('searchbox', { name: 'Find an actor' });
+    await expect(find).toHaveAttribute('placeholder', 'Name, archetype or A-number…');
+
+    // q2: "strat" finds the actors whose name or archetype holds it.
+    await find.fill('strat');
+    await expect.poll(() => optionLabels(picker)).toEqual(strat);
+    await picture(page, '1440-light-f19-picker-strat');
+    // Select shown checks every actor the search shows, and is inactive once each one shown is checked.
+    const selectShown = picker.getByRole('button', { name: 'Select shown', exact: true });
+    await selectShown.click();
+    await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: 4 of 24');
+    for (const label of strat) await expect(optionOf(picker, label)).toHaveAttribute('aria-selected', 'true');
+    await expect(selectShown).toHaveAttribute('aria-disabled', 'true');
+
+    // q3: "A17" finds A17 alone, and "A1" finds A1 alone.
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await find.fill('A17');
+    await expect.poll(() => optionLabels(picker)).toEqual(['A17']);
+    await find.fill('A1');
+    await expect.poll(() => optionLabels(picker)).toEqual(['A1']);
+    await picture(page, '768-light-f19-picker-A1');
+
+    // q4: a word no actor holds says so, with Clear as the way forward.
+    await page.setViewportSize(WIDTHS[0]);
+    await find.fill('zzz');
+    await expect(optionsOf(picker)).toHaveCount(0);
+    const empty = picker.locator('[data-picker-empty]');
+    await expect(empty).toContainText('No actor matches “zzz”.');
+    await picture(page, '390-light-f19-picker-no-match');
+    await empty.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(find).toHaveValue('');
+    await expect(find).toBeFocused();
+    await expect(optionsOf(picker)).not.toHaveCount(0);
+    // The field's own Clear shows while it holds text.
+    await find.fill('Ines');
+    await picker.getByRole('button', { name: 'Clear the actor search', exact: true }).click();
+    await expect(find).toHaveValue('');
+  });
+
+  test('f19 q5 and f10 q32: checking A1, A3 and A7 narrows the toolbox at once', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const picked = [0, 2, 6].map(i => registry.actors[i]);
+    for (const size of [WIDTHS[1], { width: 1100, height: 900 }]) {
+      await test.step(`${size.width} in the dark look`, async () => {
+        const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, size, 'dark', 60_000);
+        const picker = await openPicker(page, toolbox);
+        for (const [n, actor] of picked.entries()) {
+          await optionOf(picker, actor.label).click();
+          await expect(optionOf(picker, actor.label)).toHaveAttribute('aria-selected', 'true');
+          // Each choice applies at once: the key, the count line and the polite status follow it.
+          await expect(actorsKey(toolbox)).toHaveAccessibleName(`Actors: ${n + 1} of 24`);
+          await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(chosenLineOf(picked.slice(0, n + 1), 24));
+          await expect(picker.getByRole('status')).toHaveText(`Showing ${n + 1} of 24 actors`);
+        }
+        await picture(page, `${size.width}-dark-f19-picker-3-of-24`);
+        // Escape closes the picker; the toolbox shows those three actors' folds alone.
+        await page.keyboard.press('Escape');
+        await expect(picker).toBeHidden();
+        await expect(toolbox).toBeVisible();
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(chosenLineOf(picked, 24));
+        await expect(foldHeads(toolbox)).toHaveCount(3);
+        expect(await foldHeads(toolbox).evaluateAll(els => els.map(el => el.getAttribute('data-fold-head')))).toEqual(['A1', 'A3', 'A7']);
+        // The choice is kept in the page's link.
+        await expect.poll(() => new URL(page.url()).searchParams.get('actors')).toBe('1,3,7');
+        // Export JSON saves the chosen actors' rows alone.
+        const [download] = await Promise.all([
+          page.waitForEvent('download'),
+          toolbox.getByRole('button', { name: 'Export JSON', exact: true }).click(),
+        ]);
+        const rows = JSON.parse(readFileSync(await download.path(), 'utf8')) as Array<Record<string, unknown>>;
+        expect(rows).toHaveLength(picked.reduce((sum, a) => sum + a.counts.tools, 0));
+        expect([...new Set(rows.map(row => row.actor))]).toEqual(['A1', 'A3', 'A7']);
+        await picture(page, `${size.width}-dark-f10-toolbox-3-of-24`);
+        // Clear unchecks every actor, so every actor shows again.
+        const again = await openPicker(page, toolbox);
+        await again.locator('[data-picker-foot]').getByRole('button', { name: 'Clear', exact: true }).click();
+        await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: All 24');
+        await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(DOZENS_LINE);
+        await expect.poll(() => new URL(page.url()).searchParams.get('actors')).toBeNull();
+        await page.keyboard.press('Escape');
+        await expect(foldHeads(toolbox)).toHaveCount(24);
+      });
+    }
+  });
+
+  test('f19 q6: sorting by most forges that did not pass', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    const byDidNotPass = [...registry.actors].sort((a, b) => b.counts.didNotPass - a.counts.didNotPass || a.index - b.index);
+    const byTools = [...registry.actors].sort((a, b) => b.counts.tools - a.counts.tools || a.index - b.index);
+    const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, { width: 1100, height: 900 }, 'light', 60_000);
+    const picker = await openPicker(page, toolbox);
+    const sort = picker.getByRole('combobox', { name: 'Sort' });
+    await expect(sort.locator('option')).toHaveText(['Run order', 'Most tools', 'Most forges that did not pass']);
+    await expect(optionsOf(picker).first()).toHaveAttribute('data-actor', 'A1');
+    await sort.selectOption({ label: 'Most forges that did not pass' });
+    await expect.poll(() => optionLabels(picker)).toEqual(byDidNotPass.map(a => a.label));
+    // The first row holds the highest count.
+    const top = Math.max(...registry.actors.map(a => a.counts.didNotPass));
+    expect(byDidNotPass[0].counts.didNotPass).toBe(top);
+    await expect(optionsOf(picker).first().locator('[data-picker-counts]')).toHaveText(pickerCountsOf(byDidNotPass[0]));
+    // A sort's place in the list is what a screen reader counts.
+    await expect(optionsOf(picker).first()).toHaveAttribute('aria-posinset', '1');
+    await picture(page, '1100-light-f19-picker-sort-did-not-pass');
+    await sort.selectOption({ label: 'Most tools' });
+    await expect.poll(() => optionLabels(picker)).toEqual(byTools.map(a => a.label));
+    await sort.selectOption({ label: 'Run order' });
+    await expect.poll(() => optionLabels(picker)).toEqual(registry.actors.map(a => a.label));
+  });
+
+  test('f19 q7: the 300-actor picker renders its rows as they scroll and announces 300 options', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'dark', 150_000);
+    await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: All 300');
+    const picker = await openPicker(page, toolbox);
+    const list = actorList(picker);
+    await expect(list).toHaveAttribute('aria-multiselectable', 'true');
+    await expect(optionOf(picker, 'A1')).toHaveAttribute('aria-setsize', '300');
+    await expect(optionOf(picker, 'A1')).toHaveAttribute('aria-posinset', '1');
+    expect(await optionsOf(picker).count(), 'options rendered at the top').toBeLessThanOrEqual(MOST_LINES);
+    // A view at a time to the end: never more than about 60 options rendered, and every actor rendered on the way.
+    const seen = new Set<string>(await optionLabels(picker) as string[]);
+    for (let step = 1; step <= 200; step += 1) {
+      const now = await scrollOptions(list);
+      expect(now.covered, `step ${step}: the options in view are rendered`).toBe(true);
+      expect(now.rendered, `step ${step}: options rendered`).toBeLessThanOrEqual(MOST_LINES);
+      for (const label of now.labels) seen.add(label);
+      if (!now.moved) break;
+    }
+    await expect(optionOf(picker, 'A300')).toBeVisible();
+    await expect(optionOf(picker, 'A300')).toHaveAttribute('aria-posinset', '300');
+    expect(seen.size).toBe(300);
+    await picture(page, '1440-dark-f19-picker-300-end');
+    // The search finds any actor at once.
+    await picker.getByRole('searchbox', { name: 'Find an actor' }).fill('A250');
+    await expect.poll(() => optionLabels(picker)).toEqual(['A250']);
+  });
+
+  test('f19 q9: Escape closes the picker and returns focus to the Actors key', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const registry = registryOf(pairRunFrames());
+    await openPairSim(page, request, WIDTHS[1], 'dark');
+    const toolbox = await openToolbox(page, 12);
+    const picker = await openPicker(page, toolbox);
+    // The focus order: Find an actor, Sort, then the list; Up and Down move through the list and Space checks an actor.
+    await page.keyboard.press('Tab');
+    await expect(picker.getByRole('combobox', { name: 'Sort' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(optionOf(picker, 'A1')).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(optionOf(picker, 'A2')).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(optionOf(picker, 'A2')).toHaveAttribute('aria-selected', 'true');
+    await expect(optionOf(picker, 'A1')).toHaveAttribute('aria-selected', 'false');
+    await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: 1 of 2');
+    await page.keyboard.press('ArrowUp');
+    await expect(optionOf(picker, 'A1')).toBeFocused();
+    // Escape closes the picker alone, with focus back on the Actors key.
+    await page.keyboard.press('Escape');
+    await expect(picker).toBeHidden();
+    await expect(toolbox).toBeVisible();
+    await expect(actorsKey(toolbox)).toBeFocused();
+    await expect(actorsKey(toolbox)).toHaveAttribute('aria-expanded', 'false');
+    // The toolbox shows A2's rows alone.
+    await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(chosenLineOf([registry.actors[1]], 2));
+    await expect(rowsOf(toolbox)).toHaveCount(7);
+    expect(new Set(await rowsOf(toolbox).evaluateAll(els => els.map(el => el.getAttribute('data-actor'))))).toEqual(new Set(['A2']));
+    await picture(page, '1440-dark-f19-picker-closed-A2');
+  });
+
+  test('f19 q13: offline the picker works', async ({ page, context, request }) => {
+    test.setTimeout(120_000);
+    await openPairSim(page, request, WIDTHS[0], 'dark');
+    await context.setOffline(true);
+    try {
+      const toolbox = await openToolbox(page, 12);
+      const picker = await openPicker(page, toolbox);
+      await picker.getByRole('searchbox', { name: 'Find an actor' }).fill('Dietrich');
+      await expect.poll(() => optionLabels(picker)).toEqual(['A2']);
+      await optionOf(picker, 'A2').click();
+      await expect(actorsKey(toolbox)).toHaveAccessibleName('Actors: 1 of 2');
+      await picture(page, '390-dark-f19-picker-offline');
+      // Done closes the phone's sheet, with focus back on the Actors key.
+      await picker.getByRole('button', { name: 'Done', exact: true }).click();
+      await expect(picker).toBeHidden();
+      await expect(actorsKey(toolbox)).toBeFocused();
+      await expect(rowsOf(toolbox)).toHaveCount(7);
+    } finally {
+      await context.setOffline(false);
+    }
+  });
+
+  test('f19 q14: the picker\'s top row and foot stay one row at the sweep widths', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    for (const look of LOOKS) {
+      const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, WIDTHS[0], look, 60_000);
+      // The Actors key stands beside Group, above the filter and the search.
+      const picker = await openPicker(page, toolbox);
+      for (const width of SWEEP_WIDTHS) {
+        await test.step(`${width} in the ${look} look`, async () => {
+          await page.setViewportSize({ width, height: 844 });
+          await expect(picker).toBeVisible();
+          const read = await picker.evaluate((sheet) => {
+            const box = (el: Element | null) => {
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
+            };
+            const foot = sheet.querySelector('[data-picker-foot]');
+            return {
+              window: window.innerWidth,
+              pageScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              sheet: box(sheet)!,
+              sheetScroll: sheet.scrollWidth - sheet.clientWidth,
+              field: box(sheet.querySelector('input[type="search"]')),
+              sort: box(sheet.querySelector('select')),
+              foot: foot ? Array.from(foot.querySelectorAll('button')).map(b => ({ name: b.textContent ?? '', ...box(b)! })) : [],
+            };
+          });
+          expect(read.sheetScroll, 'the picker does not scroll sideways').toBeLessThanOrEqual(0);
+          expect(read.pageScroll, 'the page does not scroll sideways').toBeLessThanOrEqual(0);
+          expect(read.sheet.left).toBeGreaterThanOrEqual(-0.5);
+          expect(read.sheet.right).toBeLessThanOrEqual(read.window + 0.5);
+          // The top row: Find an actor and Sort side by side, each 44 px tall on a phone.
+          expect(read.field, 'Find an actor shows').not.toBeNull();
+          expect(read.sort, 'Sort shows').not.toBeNull();
+          expect(Math.max(read.field!.top, read.sort!.top), 'Find an actor and Sort share one row').toBeLessThan(Math.min(read.field!.bottom, read.sort!.bottom));
+          for (const part of [read.field!, read.sort!]) {
+            expect(Math.round(part.height)).toBeGreaterThanOrEqual(42);
+            expect(part.right).toBeLessThanOrEqual(read.sheet.right + 0.5);
+          }
+          // The foot: Select shown, Clear and Done on one row, each 44 px tall.
+          expect(read.foot.map(key => key.name)).toEqual(['Select shown', 'Clear', 'Done']);
+          expect(Math.max(...read.foot.map(key => key.top)), 'the foot is one row').toBeLessThan(Math.min(...read.foot.map(key => key.bottom)));
+          for (const key of read.foot) {
+            expect(Math.round(key.height), `${key.name} is 44 px tall`).toBeGreaterThanOrEqual(44);
+            expect(key.right).toBeLessThanOrEqual(read.sheet.right + 0.5);
+            expect(key.left).toBeGreaterThanOrEqual(read.sheet.left - 0.5);
+          }
+          if (width === 320 || width === 768) await picture(page, `${width}-${look}-f19-picker-sheet`);
+        });
+      }
+      await page.keyboard.press('Escape');
+      await expect(picker).toBeHidden();
+      // With the picker closed, the Actors key and Group share a row above the filter and the search at each width.
+      for (const width of SWEEP_WIDTHS) {
+        await page.setViewportSize({ width, height: 844 });
+        const keys = await toolbox.evaluate((dialog) => {
+          const box = (el: Element | null) => {
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom, right: r.right, height: r.height };
+          };
+          return {
+            sheet: box(dialog)!,
+            group: box(dialog.querySelector('button[aria-haspopup="menu"]')),
+            actors: box(dialog.querySelector('button[aria-haspopup="dialog"]')),
+            field: box(dialog.querySelector('input[type="search"]')),
+          };
+        });
+        expect(keys.actors, `${width}: the Actors key shows`).not.toBeNull();
+        expect(Math.round(keys.actors!.height), `${width}: the Actors key is 44 px tall`).toBeGreaterThanOrEqual(44);
+        expect(Math.max(keys.group!.top, keys.actors!.top), `${width}: Group and Actors share one row`).toBeLessThan(Math.min(keys.group!.bottom, keys.actors!.bottom));
+        expect(keys.actors!.bottom, `${width}: Actors stands above the search`).toBeLessThanOrEqual(keys.field!.top + 0.5);
+        expect(keys.actors!.right).toBeLessThanOrEqual(keys.sheet.right + 0.5);
+      }
+    }
   });
 });
