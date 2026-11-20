@@ -178,13 +178,14 @@ async function installTileReader(page: Page): Promise<void> {
 /**
  * Before any page script runs: watches panel A's canvas from the page's start,
  * keeps every read from the first one that holds a Conway tile until two
- * seconds after it, and stops there (or 15 seconds after the start with none).
+ * seconds after it, and stops there (or 15 seconds after the canvas first
+ * appears with none).
  */
 async function recordFirstTiles(page: Page): Promise<void> {
   await installTileReader(page);
   await page.addInitScript(`(() => {
     const out = window.__vizTiles = { reads: [], done: false };
-    const began = performance.now();
+    let began = 0;
     let lastRead = 0;
     const panelCanvas = () => document.querySelector('[data-testid="living-colony-grid-a"] canvas');
     const loop = () => {
@@ -196,7 +197,8 @@ async function recordFirstTiles(page: Page): Promise<void> {
         out.done = true;
         return;
       }
-      if (!first && now - began > 15000) { out.done = true; return; }
+      if (!began && panelCanvas()) began = now;
+      if (!first && began && now - began > 15000) { out.done = true; return; }
       if (first || now - lastRead >= 40) {
         lastRead = now;
         const canvas = panelCanvas();
