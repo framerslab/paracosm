@@ -81,10 +81,10 @@ export const FIGURES = {
   desktopFrom: 900,
 } as const;
 
-/** WCAG 1.4.12's text spacing, as the W3C's bookmarklet sets it. */
+/** WCAG 1.4.12's text spacing, as the W3C's bookmarklet sets it, on the dialogs the spec reads; the run view under them keeps its own. */
 export const TEXT_SPACING = [
-  '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }',
-  'p { margin-bottom: 2em !important; }',
+  '[role="dialog"], [role="dialog"] * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }',
+  '[role="dialog"] p { margin-bottom: 2em !important; }',
 ].join('\n');
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -279,11 +279,14 @@ function readSurface(root: Element, arg: ReadArg): unknown {
       const hiddenMark = el.getAttribute('aria-hidden') === 'true' && (el.textContent ?? '').trim() === '';
       if (el.matches(MARKS) || hiddenMark) {
         // A cell, a band, a side mark, a rule or a track: its ground if it has one, else its edges; and an open station's ring.
+        // A meter's fill reads against the ground outside the meter, as its track does (FEATURES.md's pairs).
+        const meter = el.getAttribute('role') === 'meter' ? null : el.closest('[role="meter"]');
+        const outside = meter ? meter.parentElement : el.parentElement;
         const bg = parse(cs.backgroundColor);
-        if (bg[3] > 0) add(cs.backgroundColor, el, el.parentElement, 'mark');
-        else for (const edge of new Set(edgesOf(cs))) add(edge, el, el.parentElement, 'mark edge');
+        if (bg[3] > 0) add(cs.backgroundColor, el, outside, 'mark');
+        else for (const edge of new Set(edgesOf(cs))) add(edge, el, outside, 'mark edge');
         const ring = outlineOf(cs);
-        if (ring) add(ring, el, el.parentElement, 'ring');
+        if (ring) add(ring, el, outside, 'ring');
       } else if (el.matches(CONTROLS) || (el.tagName === 'LABEL' && el.querySelector('input, select') !== null)) {
         // A key's or a field's edge, against the ground outside it.
         for (const edge of new Set(edgesOf(cs))) add(edge, el, el.parentElement, 'edge');
@@ -357,6 +360,8 @@ function readSurface(root: Element, arg: ReadArg): unknown {
     const styles = new Map<string, string>();
     const boxes: string[] = [];
     const colours = new Map<string, string>();
+    /** The lists whose rows part by one hairline each: the parting counts once a list. */
+    const partedLists = new Set<Element>();
     const colour = (paint: string, where: string) => {
       const c = parse(paint);
       if (c[3] <= 0) return;
@@ -383,8 +388,11 @@ function readSurface(root: Element, arg: ReadArg): unknown {
       }
       const text = ownText(el);
       if (text && r.width > 1 && r.height > 1) {
-        const style = `${cs.fontFamily.split(',')[0].replace(/["']/g, '').trim()} ${cs.fontSize} ${cs.fontWeight}${cs.fontStyle === 'normal' ? '' : ` ${cs.fontStyle}`}`;
-        if (!styles.has(style)) styles.set(style, `${style}: ${describe(el, text)}`);
+        // A character with no letter or digit (the look key's sun or moon, a dot between words) is a glyph, not a style of words.
+        if (/[\p{L}\p{N}]/u.test(text)) {
+          const style = `${cs.fontFamily.split(',')[0].replace(/["']/g, '').trim()} ${cs.fontSize} ${cs.fontWeight}${cs.fontStyle === 'normal' ? '' : ` ${cs.fontStyle}`}`;
+          if (!styles.has(style)) styles.set(style, `${style}: ${describe(el, text)}`);
+        }
         colour(cs.color, `text of ${describe(el, text)}`);
       }
       const edges = edgesOf(cs);
@@ -396,7 +404,15 @@ function readSurface(root: Element, arg: ReadArg): unknown {
       // A rule or a box: a part drawn with an edge or a ground of its own. The surface's own ground is the screen's,
       // and the drawings a screen reader skips (the line, its cells, the marks) are pictures, not boxes.
       const picture = el.closest('[aria-hidden="true"]') !== null;
-      if (el !== root && !picture && (edges.length > 0 || bg[3] > 0 || cs.backgroundImage !== 'none')) boxes.push(where);
+      // Rows that part by one hairline each (DECISIONS.md rules 33 and 57) draw one rule for their list, not a box a row.
+      const parting = (el.tagName === 'LI' || el.getAttribute('role') === 'listitem')
+        && edges.length === 1 && bg[3] === 0 && cs.backgroundImage === 'none' && el.parentElement !== null;
+      if (parting) {
+        if (!picture && !partedLists.has(el.parentElement!)) {
+          partedLists.add(el.parentElement!);
+          boxes.push(`${where}, with the hairline parting each row of its list`);
+        }
+      } else if (el !== root && !picture && (edges.length > 0 || bg[3] > 0 || cs.backgroundImage !== 'none')) boxes.push(where);
       for (const which of ['::before', '::after'] as const) {
         const ps = getComputedStyle(el, which);
         if (!pseudoDrawn(ps)) continue;
@@ -512,11 +528,14 @@ export async function measureGlyphs(_page: Page, root: Locator): Promise<GlyphMe
 
 /**
  * The first screen's counts inside the surface's first 900 px, clipped to
- * what its scroll areas show: the focusable elements, the distinct computed
- * text styles (face, size, weight), the elements with a visible edge or a
- * ground of their own (the drawings a screen reader skips are pictures, not
- * boxes), and the distinct computed colours (text, grounds, edges, outlines
- * and the drawings' paints, the surface's own included).
+ * what its scroll areas show: the focusable elements; the distinct computed
+ * text styles (face, size, weight) of words, a character with no letter or
+ * digit being a glyph; the elements with a visible edge or a ground of their
+ * own, where the drawings a screen reader skips are pictures, not boxes, and
+ * the hairlines that part a list's rows (DECISIONS.md rules 33 and 57) are
+ * one rule for the list, as the designer counted the designed screen; and
+ * the distinct computed colours (text, grounds, edges, outlines and the
+ * drawings' paints, the surface's own included).
  */
 export async function firstScreen(_page: Page, root: Locator): Promise<FirstScreen> {
   return read<FirstScreen>(root, { op: 'first', region: 900 });
