@@ -12,8 +12,12 @@
  *   full strength in one frame, a frame read two seconds after the first one
  *   that holds them differs from it, they follow the turn, they ease in again
  *   on a jump of several turns, and the panel keeps its morale tint.
+ * - On a phone, where one actor shows at a time, an actor's panel that was
+ *   hidden draws its tiles when shown: the second actor's when first shown,
+ *   and the first actor's when shown again after the turn changed.
  * - Each turn-banner line says what the commander chose, and a turn with
- *   deaths or a morale crack says so.
+ *   deaths or a morale crack says so: the deaths with their cause, and with
+ *   the largest cause's own count when the turn has several.
  * - The highlight strip names each side's losses that turn: no negative
  *   count, and each count with its own noun.
  * - ECOLOGY on a replay draws the living grid under its quadrants, and the
@@ -21,8 +25,9 @@
  * - The grid settings offer only switches that change something.
  *
  * Each width and look saves pictures into test-pictures/viz-living-grid/,
- * which CI uploads: two replay frames two seconds apart, the turn banner and
- * the highlight strip, ECOLOGY and the settings.
+ * which CI uploads: two replay frames two seconds apart, a hidden actor's
+ * panel when shown, the turn banner and the highlight strip, ECOLOGY and the
+ * settings.
  */
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 
@@ -314,7 +319,7 @@ async function tilesBeyondTopLeft(page: Page, side: 'a' | 'b'): Promise<number> 
 }
 
 for (const look of LOOKS) {
-  test(`a panel hidden while the turn changes draws its tiles when shown again, at 390 in the ${look} look`, async ({ page, request }) => {
+  test(`on a phone, an actor's panel that was hidden draws its tiles when shown, at 390 in the ${look} look`, async ({ page, request }) => {
     const run = await storedRun(request);
     await page.setViewportSize({ width: 390, height: 844 });
     await useLook(page, look);
@@ -332,10 +337,13 @@ for (const look of LOOKS) {
     await stepTurns(page, run.turns - 1, run.turns);
 
     // A phone shows one actor at a time. The other actor's panel, hidden
-    // since the page opened, draws its tiles when first shown.
+    // while the replay's turns arrived, draws its tiles when first shown.
+    // The picture first, so a failing check still leaves it.
     await actorTab(DIETRICH).click();
     await expect(shows(DIETRICH, run.turns)).toBeVisible();
     await page.waitForTimeout(1_000);
+    await canvasOf(page, 'b').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${PICTURES}/second-actor-390-${look}.png` });
     expect(await tilesBeyondTopLeft(page, 'b'), 'the second actor\'s panel draws its tiles when first shown').toBeGreaterThan(0);
 
     // The turn changes while Aria Chen's panel is hidden.
@@ -367,6 +375,11 @@ for (const look of LOOKS) {
     const crackTurn = Array.from({ length: run.turns }, (_, i) => i + 1).find(t => turnFacts(run, ARIA, t).morale <= -0.08);
     expect(lossTurn, 'the stored run has a turn with deaths and their causes').toBeDefined();
     expect(crackTurn, 'the stored run has a turn whose outcomes crack morale').toBeDefined();
+    // And a turn whose deaths have more than one cause, where the line gives
+    // the total and the largest cause's own count.
+    const severalCausesTurn = Array.from({ length: run.turns }, (_, i) => i + 1)
+      .find(t => [ARIA, DIETRICH].some(name => Object.keys(turnFacts(run, name, t).causes ?? {}).length > 1));
+    expect(severalCausesTurn, 'the stored run has a turn whose deaths have more than one cause').toBeDefined();
 
     // Pictures of those turns first, so a failing check still leaves them.
     let at = run.turns;
