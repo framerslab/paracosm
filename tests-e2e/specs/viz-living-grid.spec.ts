@@ -3,8 +3,9 @@
  * highlight strip, the ECOLOGY mode and the grid settings.
  *
  * The page talks to the real server over HTTP (tests-e2e/support/viz-replay-server.ts):
- * one finished Mars Genesis pair run is stored there as a session, so
- * /sim?replay=<id>&tab=viz plays it through the server's own replay route.
+ * one finished Mars Genesis pair run is stored there as a session, with a
+ * second run that adds a third commander to the same colonies, so
+ * /sim?replay=<id>&tab=viz plays either through the server's own replay route.
  * The spec reads the same stored stream from that route to know each turn's
  * deaths, their causes and the morale changes of each commander's outcomes.
  *
@@ -15,6 +16,8 @@
  * - On a phone, where one actor shows at a time, an actor's panel that was
  *   hidden draws its tiles when shown: the second actor's when first shown,
  *   and the first actor's when shown again after the turn changed.
+ * - In the pair view of a run with three commanders, a panel whose commander
+ *   changes seeds its tiles from the new colony and eases them in.
  * - Each turn-banner line says what the commander chose, and a turn with
  *   deaths or a morale crack says so: the deaths with their cause, and with
  *   the largest cause's own count when the turn has several.
@@ -26,8 +29,8 @@
  *
  * Each width and look saves pictures into test-pictures/viz-living-grid/,
  * which CI uploads: two replay frames two seconds apart, a hidden actor's
- * panel when shown, the turn banner and the highlight strip, ECOLOGY and the
- * settings.
+ * panel when shown, a panel after its commander changed, the turn banner and
+ * the highlight strip, ECOLOGY and the settings.
  */
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 
@@ -37,6 +40,7 @@ const SERVER = 'http://127.0.0.1:3466';
 const PICTURES = 'test-pictures/viz-living-grid';
 const ARIA = 'Aria Chen';
 const DIETRICH = 'Dietrich Voss';
+const YUKI = 'Yuki Tanaka';
 
 test.use({ baseURL: SERVER, deviceScaleFactor: 2 });
 
@@ -58,23 +62,29 @@ interface StoredRun {
   turns: number;
 }
 
-/** The stored run's id and the frames its replay route sends. */
-async function storedRun(request: APIRequestContext): Promise<StoredRun> {
+/**
+ * A stored run's id and the frames its replay route sends. The server stores
+ * two: the pair run, and the same colonies with a third commander.
+ */
+async function storedRun(request: APIRequestContext, commanders = 2): Promise<StoredRun> {
   const res = await request.get(`${SERVER}/sessions`);
   expect(res.ok()).toBe(true);
   const { sessions } = await res.json() as { sessions: Array<{ id: string }> };
-  expect(sessions).toHaveLength(1);
-  const id = sessions[0].id;
-  const replay = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
-  expect(replay.ok()).toBe(true);
-  const frames: SimFrame[] = [];
-  for (const chunk of (await replay.text()).split('\n\n')) {
-    const event = /^event: (.+)$/m.exec(chunk)?.[1];
-    const data = /^data: (.+)$/m.exec(chunk)?.[1];
-    if (event === 'sim' && data) frames.push(JSON.parse(data) as SimFrame);
+  expect(sessions).toHaveLength(2);
+  for (const { id } of sessions) {
+    const replay = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
+    expect(replay.ok()).toBe(true);
+    const frames: SimFrame[] = [];
+    for (const chunk of (await replay.text()).split('\n\n')) {
+      const event = /^event: (.+)$/m.exec(chunk)?.[1];
+      const data = /^data: (.+)$/m.exec(chunk)?.[1];
+      if (event === 'sim' && data) frames.push(JSON.parse(data) as SimFrame);
+    }
+    if (new Set(frames.map(f => f.leader)).size !== commanders) continue;
+    const turns = Math.max(...frames.filter(f => f.type === 'systems_snapshot').map(f => Number(f.data.turn)));
+    return { id, frames, turns };
   }
-  const turns = Math.max(...frames.filter(f => f.type === 'systems_snapshot').map(f => Number(f.data.turn)));
-  return { id, frames, turns };
+  throw new Error(`The server stores no run with ${commanders} commanders.`);
 }
 
 interface TurnFacts {
@@ -139,6 +149,16 @@ interface GridRead {
   maxAlpha: number;
   signature: string;
 }
+
+/** A panel's reads around a change of its commander, kept on the page. */
+interface CommanderSwitch {
+  /** When the picker's value changed, on the page's clock; 0 until it does. */
+  at: number;
+  reads: Array<GridRead & { t: number }>;
+  done: boolean;
+}
+
+type SwitchWindow = { __switch: CommanderSwitch; __readTiles: (canvas: HTMLCanvasElement) => GridRead };
 
 /**
  * Page-side reader; serialised into the page by evaluate and the init script.
@@ -317,6 +337,58 @@ async function tilesBeyondTopLeft(page: Page, side: 'a' | 'b'): Promise<number> 
     }).length;
   });
 }
+
+test('in the pair view of a run with three commanders, a panel whose commander changes seeds its tiles from the new colony and eases them in', async ({ page, request }) => {
+  const run = await storedRun(request, 3);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await useLook(page, 'dark');
+  await installTileReader(page);
+  await page.goto(replayUrl(run.id));
+  // Three actors open on every actor's panel; the pair view gives each of its
+  // two panels a commander picker.
+  await page.getByRole('tab', { name: 'Focus pair' }).click({ timeout: 30_000 });
+  const shows = (name: string) => page.getByRole('img', { name: new RegExp(`^${name} colony, turn ${run.turns}\\.`) });
+  await expect(shows(ARIA)).toBeAttached({ timeout: 30_000 });
+  await canvasOf(page, 'a').scrollIntoViewIfNeeded();
+  await expect.poll(async () => (await readGrid(page, 'a')).blocks, { timeout: 10_000 }).toBeGreaterThan(0);
+  await page.waitForTimeout(1_000);
+
+  // Reads the left panel's canvas every frame for two and a half seconds, and marks the
+  // moment its commander changes.
+  const picker = page.getByRole('combobox', { name: 'Left panel actor' });
+  await picker.evaluate((select) => {
+    const w = window as unknown as SwitchWindow;
+    const out: CommanderSwitch = { at: 0, reads: [], done: false };
+    w.__switch = out;
+    select.addEventListener('change', () => { out.at = performance.now(); }, { once: true });
+    const began = performance.now();
+    const loop = () => {
+      const now = performance.now();
+      const canvas = document.querySelector('[data-testid="living-colony-grid-a"] canvas') as HTMLCanvasElement | null;
+      if (canvas) out.reads.push({ ...w.__readTiles(canvas), t: now });
+      if (now - began < 2_500) requestAnimationFrame(loop); else out.done = true;
+    };
+    requestAnimationFrame(loop);
+  });
+  await page.waitForTimeout(300);
+  await picker.selectOption(YUKI);
+  await expect(shows(YUKI)).toBeAttached();
+  await page.waitForFunction(() => (window as unknown as SwitchWindow).__switch.done, undefined, { timeout: 10_000 });
+  const { at, reads } = await page.evaluate(() => (window as unknown as SwitchWindow).__switch);
+  await page.screenshot({ path: `${PICTURES}/commander-change-1440-dark.png` });
+
+  expect(at, 'the picker changed the left panel\'s commander').toBeGreaterThan(0);
+  const earlier = reads.filter(r => r.t < at);
+  const before = earlier[earlier.length - 1];
+  expect(before?.blocks ?? 0, 'the left panel drew tiles before its commander changed').toBeGreaterThan(0);
+  const after = reads.filter(r => r.t >= at);
+  const firstNew = after.find(r => r.blocks > 0 && r.signature !== before!.signature);
+  expect(firstNew, 'the left panel drew a new pattern after its commander changed').toBeDefined();
+  expect(firstNew!.maxAlpha, 'the new colony\'s tiles ease in rather than appearing at full strength').toBeLessThan(before!.maxAlpha);
+  const last = after[after.length - 1];
+  expect(last.blocks, 'the new colony\'s tiles are drawn once the ease-in ends').toBeGreaterThan(0);
+  expect(last.signature, 'the new colony\'s tiles are not the old colony\'s').not.toBe(before!.signature);
+});
 
 for (const look of LOOKS) {
   test(`on a phone, an actor's panel that was hidden draws its tiles when shown, at 390 in the ${look} look`, async ({ page, request }) => {

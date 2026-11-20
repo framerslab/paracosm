@@ -26,7 +26,13 @@
  * differ. The spec reads the turn banner and the highlight strip on those
  * turns, and reads which turns they are from the stored stream itself.
  *
- * GET /sessions lists the one stored run; /sim?replay=<id> plays it through
+ * A second stored run adds a third commander to the same two colonies: Yuki
+ * Tanaka, a preset Mars Genesis leader, on a kernel seed of its own, speaking
+ * Dietrich Voss's recorded words. With three actors the Viz opens on every
+ * actor's panel and offers a pair view whose panels each pick their
+ * commander; the spec changes a panel's commander there.
+ *
+ * GET /sessions lists the two stored runs; /sim?replay=<id> plays one through
  * the server's own /sessions/:id/replay.
  */
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -58,6 +64,8 @@ const LEADERS = [
   { name: 'Aria Chen', archetype: 'The Visionary' },
   { name: 'Dietrich Voss', archetype: 'The Engineer' },
 ];
+/** The third commander of the second stored run: a preset Mars Genesis leader (src/engine/presets/index.ts). */
+const THIRD = { name: 'Yuki Tanaka', archetype: 'The Innovator' };
 const TURNS = 6;
 const POPULATION = 30;
 const START = marsScenario.setup.defaultStartTime;
@@ -178,9 +186,14 @@ function pickColonies(): [ColonyTurn[], ColonyTurn[]] {
 const frame = (event: string, data: unknown): string => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 const sim = (leader: string, type: string, data: Record<string, unknown>): string => frame('sim', { type, leader, data });
 
-/** One commander's turn: the recorded event, reports, decisions, outcomes and reactions, between the engine's frames. */
-function leaderTurn(leader: string, t: ColonyTurn): string[] {
-  const mine = recorded.filter(e => e.leader === leader && e.data.turn === t.turn);
+/**
+ * One commander's turn: the recorded event, reports, decisions, outcomes and
+ * reactions, between the engine's frames. `wordsOf` names the recorded
+ * commander whose words the turn carries; it is the commander's own unless a
+ * commander has no recording.
+ */
+function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
+  const mine = recorded.filter(e => e.leader === wordsOf && e.data.turn === t.turn);
   const start = mine.find(e => e.type === 'turn_start' && e.data.title !== 'Director generating...');
   const between = mine.filter(e => e.type !== 'turn_start' && e.type !== 'systems_snapshot');
   const outcomes = between.filter(e => e.type === 'outcome').length;
@@ -221,6 +234,30 @@ const events: TimestampedEvent[] = frames.map((sse, i) => ({ ts: startTs + i * 2
 
 const sessionStore = openSessionStore(join(appDir, 'data', 'sessions.db'));
 await sessionStore.saveSession(events, {
+  scenarioId: marsScenario.id,
+  scenarioName: marsScenario.labels.name,
+  leaderA: LEADERS[0].name,
+  leaderB: LEADERS[1].name,
+});
+
+// The second stored run: the same two colonies and a third, Yuki Tanaka's, on
+// the first seed past the pair's search, with Dietrich Voss's words.
+const colonyC = colony(marsScenario.setup.defaultSeed + 250, THIRD.name);
+const cohortFrames: string[] = [
+  frame('active_scenario', { id: marsScenario.id, name: marsScenario.labels.name, runKey: 'a-viz-replay-cohort-run', forkedFrom: null }),
+  frame('status', { phase: 'starting', maxTurns: TURNS, customEvents: [] }),
+  frame('status', { phase: 'parallel', actors: [...LEADERS, THIRD] }),
+];
+for (let i = 0; i < TURNS; i++) {
+  cohortFrames.push(
+    ...leaderTurn(LEADERS[0].name, colonyA[i]),
+    ...leaderTurn(LEADERS[1].name, colonyB[i]),
+    ...leaderTurn(THIRD.name, colonyC[i], LEADERS[1].name),
+  );
+}
+cohortFrames.push(frame('complete', { timestamp: '2026-11-11T10:21:00.000Z' }));
+const cohortStartTs = Date.parse('2026-11-11T10:11:00.000Z');
+await sessionStore.saveSession(cohortFrames.map((sse, i) => ({ ts: cohortStartTs + i * 250, sse })), {
   scenarioId: marsScenario.id,
   scenarioName: marsScenario.labels.name,
   leaderA: LEADERS[0].name,
