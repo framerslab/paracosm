@@ -3227,4 +3227,104 @@ test.describe('one actor picker for the toolbox', () => {
       }
     }
   });
+
+  test('f19 layouts: the picker is a sheet on the window below 900 px, wherever the toolbox is scrolled, and a popover under its key from 900 px', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    /** The picker's box beside the window's, Find an actor's and the foot's, read once the picker has stopped moving. */
+    const placeOf = async (picker: Locator) => {
+      let was = '';
+      await expect.poll(async () => {
+        const now = JSON.stringify(await picker.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return [r.top, r.bottom, r.left, r.right];
+        }));
+        const still = now === was;
+        was = now;
+        return still;
+      }, { message: 'the picker has stopped moving' }).toBe(true);
+      return picker.evaluate((el) => {
+        const box = (node: Element) => {
+          const r = node.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+        };
+        return {
+          window: { width: window.innerWidth, height: window.innerHeight },
+          sheet: box(el),
+          field: box(el.querySelector('input[type="search"]')!),
+          foot: box(el.querySelector('[data-picker-foot]')!),
+        };
+      });
+    };
+    /** How far the toolbox, which scrolls inside its own dialog, is scrolled. */
+    const scrollOf = (toolbox: Locator): Promise<number> => toolbox.evaluate(el => el.scrollTop);
+    type Place = Awaited<ReturnType<typeof placeOf>>;
+    /** A full-screen sheet: it covers the window, with its top row and its foot on it. */
+    const coversTheWindow = (at: Place): void => {
+      expect(Math.abs(at.sheet.top), 'the sheet starts at the window\'s top').toBeLessThanOrEqual(0.5);
+      expect(Math.abs(at.sheet.bottom - at.window.height), 'the sheet ends at the window\'s foot').toBeLessThanOrEqual(0.5);
+      expect(Math.abs(at.sheet.left), 'the sheet starts at the window\'s left edge').toBeLessThanOrEqual(0.5);
+      expect(Math.abs(at.sheet.right - at.window.width), 'the sheet ends at the window\'s right edge').toBeLessThanOrEqual(0.5);
+      expect(at.field.top, 'Find an actor is on the window').toBeGreaterThanOrEqual(0);
+      expect(at.foot.bottom, 'the foot is on the window').toBeLessThanOrEqual(at.window.height + 0.5);
+    };
+
+    await test.step('390: a full-screen sheet', async () => {
+      await openPairSim(page, request, WIDTHS[0], 'dark');
+      const toolbox = await openToolbox(page, 12);
+      const before = await scrollOf(toolbox);
+      let picker = await openPicker(page, toolbox);
+      coversTheWindow(await placeOf(picker));
+      expect(await scrollOf(toolbox), 'opening the picker does not scroll the toolbox under it').toBe(before);
+      await picture(page, '390-dark-f19-picker-sheet-on-window');
+      await picker.getByRole('button', { name: 'Done', exact: true }).click();
+      await expect(picker).toBeHidden();
+      // With the toolbox scrolled, the sheet covers the window all the same.
+      await toolbox.evaluate((el) => { el.scrollTop = 32; });
+      expect(await scrollOf(toolbox)).toBe(32);
+      picker = await openPicker(page, toolbox);
+      const at = await placeOf(picker);
+      expect(await scrollOf(toolbox), 'the toolbox is scrolled under the sheet').toBeGreaterThan(0);
+      coversTheWindow(at);
+      await picture(page, '390-dark-f19-picker-sheet-over-scrolled-toolbox');
+    });
+
+    await test.step('768: a sheet from the bottom, 70 per cent of the window tall', async () => {
+      const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, { width: 768, height: 1024 }, 'light', 60_000);
+      const before = await scrollOf(toolbox);
+      const picker = await openPicker(page, toolbox);
+      const at = await placeOf(picker);
+      expect(Math.abs(at.sheet.bottom - at.window.height), 'the sheet ends at the window\'s foot').toBeLessThanOrEqual(0.5);
+      expect(Math.abs(at.sheet.height - at.window.height * 0.7), 'the sheet is 70 per cent of the window tall').toBeLessThanOrEqual(1);
+      expect(Math.abs(at.sheet.left), 'the sheet starts at the window\'s left edge').toBeLessThanOrEqual(0.5);
+      expect(Math.abs(at.sheet.right - at.window.width), 'the sheet ends at the window\'s right edge').toBeLessThanOrEqual(0.5);
+      expect(at.field.top, 'Find an actor is in the sheet').toBeGreaterThanOrEqual(at.sheet.top);
+      expect(at.foot.bottom, 'the foot is on the window').toBeLessThanOrEqual(at.window.height + 0.5);
+      expect(await scrollOf(toolbox), 'opening the picker does not scroll the toolbox under it').toBe(before);
+      await picture(page, '768-light-f19-picker-sheet-on-window');
+    });
+
+    const popovers: Array<{ size: Size; wide: number }> = [
+      { size: WIDTHS[1], wide: 560 },
+      { size: { width: 1100, height: 900 }, wide: 480 },
+    ];
+    for (const { size, wide } of popovers) {
+      await test.step(`${size.width}: a popover ${wide} px wide under the Actors key`, async () => {
+        await openPairSim(page, request, size, 'dark');
+        const toolbox = await openToolbox(page, 12);
+        const picker = await openPicker(page, toolbox);
+        const at = await placeOf(picker);
+        const key = await actorsKey(toolbox).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, bottom: r.bottom };
+        });
+        expect(Math.abs(at.sheet.width - wide), `the popover is ${wide} px wide`).toBeLessThanOrEqual(0.5);
+        expect(at.sheet.top, 'the popover starts under its key').toBeGreaterThanOrEqual(key.bottom);
+        expect(at.sheet.top, 'the popover stands close under its key').toBeLessThanOrEqual(key.bottom + 8);
+        expect(Math.abs(at.sheet.left - key.left), 'the popover starts at its key\'s left edge').toBeLessThanOrEqual(1);
+        expect(at.sheet.height, 'the popover is no taller than 560 px').toBeLessThanOrEqual(560.5);
+        expect(at.sheet.bottom, 'the popover ends on the window').toBeLessThanOrEqual(at.window.height + 0.5);
+        expect(at.sheet.right, 'the popover ends on the window').toBeLessThanOrEqual(at.window.width + 0.5);
+      });
+    }
+  });
 });
