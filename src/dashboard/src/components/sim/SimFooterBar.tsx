@@ -62,7 +62,7 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
           <FooterCta
             label="Forged Toolbox"
             count={toolsCount}
-            onClick={(e) => openToolbox(e.currentTarget)}
+            onClick={(e) => openToolbox(e.currentTarget, 'sim')}
             ariaLabel={`Open Forged Toolbox (${toolsCount} tools)`}
           />
         )}

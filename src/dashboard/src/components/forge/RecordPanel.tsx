@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ProcessedEvent } from '../../hooks/useGameState';
 import type { ToolEntry } from '../../hooks/useToolRegistry';
 import { writeClipboardText } from '../../hooks/writeClipboardText';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
 import { RECORD_WORDS, recordFileName } from './forgeWords';
 import styles from './stations/stations.module.scss';
 
@@ -78,6 +79,7 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
 
   const copy = () => {
     if (text === null) return;
+    sendForgeEvent({ name: 'forge_record_export', what: 'record_copy' });
     const press = ++copyRef.current;
     writeClipboardText(text).then(
       () => { if (press === copyRef.current) say('copied'); },
@@ -87,6 +89,7 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
 
   const download = () => {
     if (text === null) return;
+    sendForgeEvent({ name: 'forge_record_export', what: 'record_download' });
     try {
       const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
       const link = document.createElement('a');

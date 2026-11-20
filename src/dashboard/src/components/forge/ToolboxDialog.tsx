@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
 import { useToolContext, type ToolEntry } from '../../hooks/useToolRegistry';
 import { pickedActors } from './actorPicker.helpers';
 import { useToolboxView } from './forgeViewContext';
@@ -109,6 +110,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
 
   const [exported, setExported] = useState<ExportStatus>({ state: 'idle' });
   const exportShown = () => {
+    sendForgeEvent({ name: 'forge_record_export', what: 'toolbox' });
     const rows = filterRows(registry.list, show, find, pickedActors(actors, registry.actors.length));
     const save = () => {
       try {

@@ -5,6 +5,7 @@
 import { createContext, useContext } from 'react';
 import type { RecordOutcome } from '../../hooks/useToolRegistry';
 import type { StationId } from './forgeLine';
+import type { ToolboxOpenFrom, TraceOpenFrom } from '../../analytics/forgeEvents';
 
 /**
  * One actor's tool, named by the actor's launch index and the tool's name.
@@ -25,10 +26,18 @@ export interface TraceTarget {
 
 /** The forge view's dialogs, opened from any surface of the dashboard. */
 export interface ForgeView {
-  /** Opens one tool's trace. `opener` is the key that asked: focus returns to it when the trace closes. */
-  openTrace(target: TraceTarget, opener?: HTMLElement | null): void;
-  /** Opens the forged toolbox. `opener` is the key that asked: focus returns to it when the toolbox closes. */
-  openToolbox(opener?: HTMLElement | null): void;
+  /**
+   * Opens one tool's trace. `opener` is the key that asked: focus returns to
+   * it when the trace closes. `from` names where the visitor opened it, for
+   * the forge view's events; none sends no event.
+   */
+  openTrace(target: TraceTarget, opener?: HTMLElement | null, from?: TraceOpenFrom): void;
+  /**
+   * Opens the forged toolbox. `opener` is the key that asked: focus returns
+   * to it when the toolbox closes. `from` names where the visitor opened it,
+   * for the forge view's events; none (a link) sends no event.
+   */
+  openToolbox(opener?: HTMLElement | null, from?: ToolboxOpenFrom): void;
   /**
    * Closes every open dialog. Focus returns to the key that opened the
    * first, or goes to `focusTo` when given: an element of the run view the

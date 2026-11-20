@@ -508,7 +508,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     // A turn alone cannot tell two attempts of one turn apart: the mark's own
     // frame names its attempt, and the trace opens at the latest when none matches.
     const attempt = entry.attempts.find(a => a.eventId === eventId)?.attempt;
-    forgeView.openTrace({ actorIndex, toolName, attempt }, opener);
+    forgeView.openTrace({ actorIndex, toolName, attempt }, opener, 'viz');
     return true;
   }, [firstLeaderId, secondLeaderId, state.actorIds, toolRegistry, forgeView]);
   const [focusedSide, setFocusedSide] = useState<'a' | 'b' | null>(null);
@@ -1154,7 +1154,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
               <button
                 type="button"
                 aria-haspopup="dialog"
-                onClick={(e) => forgeView.openToolbox(e.currentTarget)}
+                onClick={(e) => forgeView.openToolbox(e.currentTarget, 'viz')}
                 className={styles.forgeToolboxKey}
               >
                 {vizToolboxKey(toolRegistry.list.length)}

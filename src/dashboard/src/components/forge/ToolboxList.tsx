@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useToolContext, type ActorSummary, type ForgeCounts, type RecordOutcome, type ToolEntry } from '../../hooks/useToolRegistry';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
 import { ActorPicker } from './ActorPicker';
 import { pickedActors } from './actorPicker.helpers';
 import { FoldHead, foldKey, opensRows, type GroupHead } from './FoldHead';
@@ -426,19 +427,33 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
   const allOpen = openable.length > 0 && openable.every((g) => isOpen(foldKey(g.head)));
   const groupsInactive = group === 'none' || openable.length === 0;
 
-  const toggleFold = (key: string) => setFolds((was) => {
-    const base: FoldState = was.group === group ? was : { group, all: null, toggled: NO_TOGGLES };
-    const toggled = new Set(base.toggled);
-    if (toggled.has(key)) toggled.delete(key);
-    else toggled.add(key);
-    return { ...base, toggled };
-  });
-  const toggleAll = () => setFolds({ group, all: !allOpen, toggled: NO_TOGGLES });
+  const toggleFold = (key: string) => {
+    sendForgeEvent({ name: 'forge_group_toggle', scope: 'one' });
+    setFolds((was) => {
+      const base: FoldState = was.group === group ? was : { group, all: null, toggled: NO_TOGGLES };
+      const toggled = new Set(base.toggled);
+      if (toggled.has(key)) toggled.delete(key);
+      else toggled.add(key);
+      return { ...base, toggled };
+    });
+  };
+  const toggleAll = () => {
+    sendForgeEvent({ name: 'forge_group_toggle', scope: 'all' });
+    setFolds({ group, all: !allOpen, toggled: NO_TOGGLES });
+  };
   // The run's own grouping is kept as no choice, so the page's link names a grouping only when a visitor chose another.
-  const chooseGroup = (next: ToolboxGroup) => set({ group: next === defaultGroup(actorCount) ? null : next });
+  const chooseGroup = (next: ToolboxGroup) => {
+    if (next !== group) sendForgeEvent({ name: 'forge_toolbox_group', group: next });
+    set({ group: next === defaultGroup(actorCount) ? null : next });
+  };
+  /** The filter a visitor chose: the rows of one outcome, or every row. */
+  const chooseShow = (next: ToolboxShow) => {
+    if (next !== show) sendForgeEvent({ name: 'forge_toolbox_filter', show: next });
+    set({ show: next });
+  };
 
   const openRow = useCallback((entry: ToolEntry, el: HTMLElement) => {
-    openTrace({ actorIndex: entry.actorIndex, toolName: entry.name }, el);
+    openTrace({ actorIndex: entry.actorIndex, toolName: entry.name }, el, 'toolbox');
   }, [openTrace]);
 
   // The lines, and past 50 the ones in view: the line that holds focus stays rendered.
@@ -455,7 +470,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
   };
   // All, the way forward from a filter with no row: focus goes to the filter.
   const showAll = () => {
-    set({ show: 'all' });
+    chooseShow('all');
     const controls = keysRef.current?.querySelectorAll<HTMLElement>('input[type="radio"][value="all"], select');
     Array.from(controls ?? []).find((el) => el.offsetParent !== null)?.focus();
   };
@@ -545,7 +560,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                       name={showName}
                       value={choice.id}
                       checked={show === choice.id}
-                      onChange={() => set({ show: choice.id })}
+                      onChange={() => chooseShow(choice.id)}
                     />
                     <span>{choiceLabel(choice)}</span>
                   </label>
@@ -557,7 +572,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                   className={styles.menuSelect}
                   aria-label={SHOW_WORDS.name}
                   value={show}
-                  onChange={(e) => set({ show: e.target.value as ToolboxShow })}
+                  onChange={(e) => chooseShow(e.target.value as ToolboxShow)}
                 >
                   {choices.map((choice) => (
                     <option key={choice.id} value={choice.id}>{choiceLabel(choice)}</option>

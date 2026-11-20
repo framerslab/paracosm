@@ -11,6 +11,7 @@ import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
 import { ReferencesSection } from '../shared/ReferencesSection';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
 import { TOOLBOX_TITLE } from '../forge/forgeWords';
 import { ToolboxList } from '../forge/ToolboxList';
 import toolboxStyles from '../forge/ToolboxList.module.scss';
@@ -924,7 +925,12 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
         {toolRegistry.list.length > 0 && (
           <details
             open={toolsOpen}
-            onToggle={(e) => setToolsOpen(e.currentTarget.open)}
+            onToggle={(e) => {
+              const open = e.currentTarget.open;
+              // A visitor opened the fold; the open state kept from an earlier visit sends nothing.
+              if (open && !toolsOpen) sendForgeEvent({ name: 'forge_toolbox_open', from: 'reports' });
+              setToolsOpen(open);
+            }}
             className={toolboxStyles.pageFold}
           >
             <summary className={toolboxStyles.pageFoldSummary}>{TOOLBOX_TITLE}</summary>

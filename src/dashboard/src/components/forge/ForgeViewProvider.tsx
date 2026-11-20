@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GameState, ProcessedEvent } from '../../hooks/useGameState';
 import { useToolContext } from '../../hooks/useToolRegistry';
+import { sendForgeEvent, type ToolboxOpenFrom, type TraceOpenFrom } from '../../analytics/forgeEvents';
 import { TRACE_PARAMS, parseForgeUrl, withForgeState, withToolbox, withoutForgeParams } from './forgeUrl';
 import {
   ALL_ROWS,
@@ -156,9 +157,10 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     entryRef.current = true;
   }, []);
 
-  const openTrace = useCallback((target: TraceTarget, opener?: HTMLElement | null) => {
+  const openTrace = useCallback((target: TraceTarget, opener?: HTMLElement | null, from?: TraceOpenFrom) => {
     // A forge with no name is not in the run's list of tools, so it has no trace to open.
     if (!registryRef.current.getEntryFor(target.actorIndex, target.toolName)) return;
+    if (from) sendForgeEvent({ name: 'forge_trace_open', from });
     // Over the toolbox, the key that asked is one of its rows.
     if (toolboxOpenRef.current) rowRef.current = opener ?? null;
     else openerRef.current = opener ?? null;
@@ -167,8 +169,9 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     setCurrent((was) => ({ trace: target, toolbox: was.toolbox }));
   }, [addEntry]);
 
-  const openToolbox = useCallback((opener?: HTMLElement | null) => {
+  const openToolbox = useCallback((opener?: HTMLElement | null, from?: ToolboxOpenFrom) => {
     if (toolboxOpenRef.current) return;
+    if (from) sendForgeEvent({ name: 'forge_toolbox_open', from });
     openerRef.current = opener ?? null;
     toolboxOpenRef.current = true;
     addEntry();
@@ -334,8 +337,9 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     // adds its entry over it, so Close and Back leave the run on the page.
     const page = withToolbox(withoutForgeParams(window.location.href, TRACE_PARAMS), { open: false, ...named });
     if (page !== window.location.href) window.history.replaceState(window.history.state, '', page);
+    // A toolbox's open event names the surface a visitor pressed, so a link's toolbox sends none; a link's trace is a trace open from a link.
     if (linked.toolbox.open) openToolbox(null);
-    if (linked.trace) openTrace(linked.trace, null);
+    if (linked.trace) openTrace(linked.trace, null, 'link');
   }, [complete, runKey, sessionId, registry, openTrace, openToolbox]);
 
   // A row's trace closed over the toolbox: focus returns to the row, or to

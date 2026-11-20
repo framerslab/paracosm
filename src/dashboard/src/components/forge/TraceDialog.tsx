@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { getActorColorVar, type ProcessedEvent } from '../../hooks/useGameState';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useShareLink } from '../../hooks/useShareLink';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
 import { useToolContext, type RecordOutcome, type ToolEntry } from '../../hooks/useToolRegistry';
 import { ActorTile } from './ActorTile';
 import { STATIONS, attemptNumber, forgeLineModel, glyphFor, lineColour, usesOf, type StationId } from './forgeLine';
@@ -174,6 +175,18 @@ export function TraceDialog({
     return initialOpen(model, [...kept, ...(open ?? [])], hasEvidence);
   });
 
+  // The stations the trace opened with beyond the one that decided the
+  // outcome were kept on this device or named by a link: each counts once as
+  // a station opened from the kept set. The deciding station counts as none.
+  const openedWithRef = useRef(false);
+  useEffect(() => {
+    if (openedWithRef.current) return;
+    openedWithRef.current = true;
+    for (const station of STATIONS) {
+      if (station !== model.deciding && openSet.has(station)) sendForgeEvent({ name: 'forge_station_open', station, via: 'kept' });
+    }
+  }, [model.deciding, openSet]);
+
   /** Opens and closes stations, and keeps the open set on this device for the run. */
   const changeOpen = (next: Set<StationId>) => {
     setOpenSet(next);
@@ -183,12 +196,20 @@ export function TraceDialog({
   const toggleStation = (station: StationId) => {
     const next = new Set(openSet);
     if (next.has(station)) next.delete(station);
-    else next.add(station);
+    else {
+      next.add(station);
+      sendForgeEvent({ name: 'forge_station_open', station, via: 'press' });
+    }
     changeOpen(next);
   };
   // Open all opens every station with evidence; Close all leaves the one that decided the outcome.
   const allOpen = openable.every((s) => openSet.has(s));
   const toggleAll = () => {
+    if (!allOpen) {
+      for (const station of openable) {
+        if (!openSet.has(station)) sendForgeEvent({ name: 'forge_station_open', station, via: 'open_all' });
+      }
+    }
     changeOpen(new Set(allOpen ? openable.filter((s) => s === model.deciding) : openable));
   };
 
@@ -227,6 +248,7 @@ export function TraceDialog({
   }, [shared, clear]);
   const copyLink = () => {
     if (!sessionId) return;
+    sendForgeEvent({ name: 'forge_link_copy' });
     share(toolLink(window.location.origin, sessionId, linkTab(window.location.href), {
       actorIndex: entry.actorIndex,
       toolName: entry.name,
@@ -239,6 +261,10 @@ export function TraceDialog({
   // Record: the actor's frames that name the tool, opened in place at the line's foot.
   const [recordOpen, setRecordOpen] = useState(false);
   const frames = useMemo(() => (recordOpen ? recordFrames(events, entry.name) : []), [recordOpen, events, entry.name]);
+  const jumpToLog = () => {
+    sendForgeEvent({ name: 'forge_log_jump' });
+    onShowInEventLog();
+  };
 
   // Each closed station's one line. A station the record says nothing of keeps the line's own word for it.
   const stationResult = (station: StationId): ReactNode => {
@@ -424,7 +450,7 @@ export function TraceDialog({
             {RECORD_WORDS.key}
           </button>
           <div id={recordId} className={styles.recordBody} hidden={!recordOpen}>
-            {recordOpen && <RecordPanel entry={entry} frames={frames} onShowInEventLog={onShowInEventLog} />}
+            {recordOpen && <RecordPanel entry={entry} frames={frames} onShowInEventLog={jumpToLog} />}
           </div>
         </div>
       </div>

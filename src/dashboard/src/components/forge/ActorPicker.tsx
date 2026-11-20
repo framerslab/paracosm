@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { getActorColorVar } from '../../hooks/useGameState';
+import { actorRange, sendForgeEvent } from '../../analytics/forgeEvents';
 import type { ActorSummary } from '../../hooks/useToolRegistry';
 import { useMediaQuery } from '../viz/grid/useMediaQuery';
 import { ActorTile } from './ActorTile';
@@ -33,6 +34,8 @@ export interface ActorPickerProps {
   onClose: () => void;
   /** The key that opened the picker: the popover stands under it, and focus returns to it. */
   opener: HTMLElement | null;
+  /** The surface the picker narrows, for the forge view's events: the toolbox when not given. */
+  where?: 'toolbox' | 'compare' | 'event_log';
 }
 
 /** A row's height before it is measured: two lines on a phone and a tablet, one line from 900 px. */
@@ -82,7 +85,7 @@ function Check() {
  * that holds its key, or in the page's body, so it is never cut by the
  * list it narrows.
  */
-export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose, opener }: ActorPickerProps) {
+export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose, opener, where = 'toolbox' }: ActorPickerProps) {
   const findId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const findRef = useRef<HTMLInputElement | null>(null);
@@ -96,6 +99,14 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
   const shown = useMemo(() => sortActors(matchActors(actors, query), sort), [actors, query, sort]);
   const allShownChosen = shown.length > 0 && shown.every((actor) => chosen.has(actor.index));
   const full = max !== undefined && chosen.size >= max;
+
+  // The picker's open counts once.
+  const openSentRef = useRef(false);
+  useEffect(() => {
+    if (openSentRef.current) return;
+    openSentRef.current = true;
+    sendForgeEvent({ name: 'forge_actor_picker_open', where });
+  }, [where]);
 
   // Focus is in Find an actor when the picker opens. The sheet is still on its
   // way up then, so the focus must not scroll the toolbox under it to reach the field.
@@ -176,6 +187,9 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
   // A choice applies at once, and the picker says how many actors the toolbox now shows.
   const choose = useCallback((next: Set<number>) => {
     onChange(next);
+    // How many actors are chosen, as a range; Clear chooses none, which is every actor and no filter.
+    const range = actorRange(next.size);
+    if (range) sendForgeEvent({ name: 'forge_actor_filter', actors: range });
     const n = actors.length;
     setSaid(showingActors(next.size === 0 ? n : Math.min(next.size, n), n));
   }, [onChange, actors.length]);

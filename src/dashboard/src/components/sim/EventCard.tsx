@@ -166,7 +166,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               of <summary> in the DOM. */}
           <button
             type="button"
-            onClick={(e) => forgeView.openTrace({ actorIndex: slot, toolName: name }, e.currentTarget)}
+            onClick={(e) => forgeView.openTrace({ actorIndex: slot, toolName: name }, e.currentTarget, 'inspect')}
             aria-label={`Inspect forged tool ${name}`}
             className={styles.forgeInspectAbs}
           >
@@ -387,7 +387,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    forgeView.openTrace({ actorIndex: slot, toolName: String(t.name || '') }, e.currentTarget);
+                    forgeView.openTrace({ actorIndex: slot, toolName: String(t.name || '') }, e.currentTarget, 'inspect');
                   }}
                   aria-label={`Inspect tool ${t.name || ''}`}
                   className={styles.toolInspectBtn}
