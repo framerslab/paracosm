@@ -26,6 +26,7 @@ import {
   DEFAULT_GOL_CONFIG,
   type GolState,
 } from './GameOfLifeLayer.js';
+import { isJumpReveal, golRevealAlpha, GOL_REVEAL_MS } from './golReveal.js';
 import { hitTestGlyph } from './hitTest.js';
 import type { GridMode } from './GridModePills.js';
 import { ClickPopover, type ClickPopoverPayload } from './ClickPopover.js';
@@ -85,7 +86,7 @@ interface LivingSwarmGridProps {
   searchQuery?: string;
   /** Display-shader palette: 0=amber, 1=cool, 2=mono. */
   palette?: 0 | 1 | 2;
-  /** User-tunable viz settings (anim speed, rings, lines, dust, crosshair). */
+  /** User-tunable viz settings (dept labels, crosshair). */
   settings?: GridSettings;
   /** Full-screen state — if `this` is the active full-screen side,
    *  `'a'` or `'b'`. When focused side is not this panel, we hide. */
@@ -111,14 +112,20 @@ interface LivingSwarmGridProps {
    * directly connected to the canvas.
    */
   chronicleHover?: { kind: 'birth' | 'death' | 'forge' | 'crisis'; side: 'a' | 'b'; turn: number } | null;
-  /**
-   * True while the run is actively streaming (live sim). When false
-   * (cached / loaded / completed runs) the ambient Conway tile layer and
-   * label-chip plates are suppressed so loaded panels read clean instead
-   * of painting the full steady-state wash in one frame. Defaults to
-   * true so callers that don't thread run state keep the textured look.
-   */
-  isLiveRun?: boolean;
+}
+
+/**
+ * The readings ECOLOGY tints its quadrants by, as the canvas's accessible
+ * name gives them: food, water, power and pressurized volume, each only when
+ * the snapshot carries it.
+ */
+function ecologyReadings(snapshot: TurnSnapshot): string {
+  const parts: string[] = [];
+  if (typeof snapshot.foodReserve === 'number') parts.push(`food reserve ${snapshot.foodReserve.toFixed(1)} months`);
+  if (typeof snapshot.waterLitersPerDay === 'number') parts.push(`water ${Math.round(snapshot.waterLitersPerDay)} litres a day`);
+  if (typeof snapshot.powerKw === 'number') parts.push(`power ${Math.round(snapshot.powerKw)} kW`);
+  if (typeof snapshot.pressurizedVolumeM3 === 'number') parts.push(`pressurized volume ${Math.round(snapshot.pressurizedVolumeM3)} cubic metres`);
+  return parts.map(p => `, ${p}`).join('');
 }
 
 function resolveCssColor(color: string, element: HTMLElement | null): string {
@@ -169,7 +176,6 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     onOpenChat,
     eventFilter = 'all',
     chronicleHover = null,
-    isLiveRun = true,
   } = props;
   const isFocused = focusedSide === side;
 
@@ -232,7 +238,16 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   const lastGolTurnRef = useRef<number>(-1);
   const lastGolModeRef = useRef<string>('');
   const lastGolFilterRef = useRef<string>('');
+  // The commander the grid was last seeded for. A cohort run's pair view
+  // changes a panel's commander on the same turn, mode and filter.
+  const lastGolActorRef = useRef<string | null>(null);
   const lastFlareSignatureRef = useRef<string | null>(null);
+  // Timestamp (performance.now) when the GoL tile fade started, or
+  // -Infinity when no fade is active. Set on the first seed, on a jump of
+  // more than one turn (a cached load, a replay, a scrub) and when the
+  // panel's commander changes, so the tile layer eases in instead of
+  // painting its whole steady state in one frame. See golReveal.ts.
+  const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -245,13 +260,20 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
 
   // Resize observer on the canvas wrapper (not the full container — the
   // container also holds the metrics strip DOM above the canvas).
+  //
+  // A panel with no box measures 0 by 0: the other actor's panel on a
+  // phone, or the side a full-screen focus hides. The size stays 0 then,
+  // so nothing is seeded or drawn until the panel is shown again. A floor
+  // of 1 let a turn change seed the Conway grid from positions clamped
+  // outside a 1 by 1 canvas and mark the turn seeded, and the panel came
+  // back with no tiles.
   useEffect(() => {
     const el = canvasWrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(entries => {
       for (const e of entries) {
-        const w = Math.max(1, Math.round(e.contentRect.width));
-        const h = Math.max(1, Math.round(e.contentRect.height));
+        const w = Math.max(0, Math.round(e.contentRect.width));
+        const h = Math.max(0, Math.round(e.contentRect.height));
         setSize(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
       }
     });
@@ -360,7 +382,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
 
   useEffect(() => {
     const overlay = overlayCanvasRef.current;
-    if (!overlay || !snapshot) return;
+    // Nothing is drawn or seeded before the canvas has a size: positions are
+    // empty until then, and a Conway seed taken from them would mark the turn
+    // seeded with an empty grid that a replay parked on its last turn never
+    // reseeds.
+    if (!overlay || !snapshot || size.w === 0 || size.h === 0) return;
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
@@ -434,10 +460,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const modeChanged = mode !== lastGolModeRef.current;
     const turnChanged = snapshot.turn !== lastGolTurnRef.current;
     const filterChanged = eventFilter !== lastGolFilterRef.current;
-    if (turnChanged || modeChanged || filterChanged) {
+    const actorChanged = actorName !== lastGolActorRef.current;
+    const prevGolTurn = lastGolTurnRef.current;
+    if (turnChanged || modeChanged || filterChanged || actorChanged) {
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
       lastGolFilterRef.current = eventFilter;
+      lastGolActorRef.current = actorName;
       seedFromColonists(gol, snapshot.cells, positions, size.w, size.h, eventFilter);
       // Mode determines warmup depth so clicking a mode pill produces
       // a visibly different CA state: LIVING = stabilized (5 ticks),
@@ -459,6 +488,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         warmup = 5;
       }
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
+      // First seed, cached load, replay, multi-turn scrub or a new commander
+      // on this panel: ease the tile layer in instead of painting the full
+      // steady state in one frame. Single-turn advances (a live run,
+      // playback) reseed in place.
+      if (!reducedMotion && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
+        golRevealStartRef.current = performance.now();
+      }
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
         : null;
@@ -487,14 +523,15 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     // dominate.
     const isLightTheme = typeof document !== 'undefined'
       && document.documentElement.classList.contains('light');
-    // Ambient Conway tile layer renders only while a run is actively
-    // streaming. On cached / completed loads it would paint the full
-    // steady-state pattern in one frame, which reads as a persistent dim
-    // wash (the "dim gradient" users reported on loaded runs) — so
-    // suppress it on non-live runs and loaded panels read clean.
-    if (isLiveRun) {
-      drawGol(ctx, gol, size.w, size.h, resolvedSide, isLightTheme ? 0.22 : 0.65);
-    }
+    // The tile layer draws on every run, live, finished or replayed. On a
+    // jump it eases in over GOL_REVEAL_MS (see golRevealStartRef above).
+    const golAlpha = golRevealAlpha(
+      isLightTheme ? 0.22 : 0.65,
+      performance.now() - golRevealStartRef.current,
+      GOL_REVEAL_MS,
+      reducedMotion,
+    );
+    drawGol(ctx, gol, size.w, size.h, resolvedSide, golAlpha);
     // DEATHS filter: gray hollow tombstone squares with an X at each
     // dead colonist's historical position. BIRTHS filter: green filled
     // squares with a "+" glyph at each native-born colonist's position.
@@ -541,10 +578,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         // hardcoded near-black in GlyphLayer which stamped dark
         // splotches across light-mode cohort canvases on cached-run
         // loads (100+ colonist labels per panel × 6 panels).
-        // On non-live (cached / loaded) runs, drop the chip backing so
-        // the label plates don't stack into the same dim wash; the
-        // colonist names themselves still render.
-        isLiveRun ? labelBg : 'transparent',
+        labelBg,
       );
     // Mode-specific overlays. Each runs AFTER the base layers so its
     // own visual signature rides on top of the RD backdrop, and
@@ -693,7 +727,6 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     startTime,
     forgeAttempts,
     eventFilter,
-    isLiveRun,
   ]);
 
   const onMouseMove = useCallback(
@@ -899,7 +932,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         ref={canvasWrapRef}
         className={styles.canvasWrap}
         style={{
-          '--tint-color': isLiveRun ? tintColor : 'transparent',
+          '--tint-color': tintColor,
           '--wrap-border': wrapBorder,
           '--wrap-glow': wrapGlow,
         } as CSSProperties}
@@ -909,7 +942,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           role="img"
           aria-label={
             snapshot
-              ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%${typeof snapshot.foodReserve === 'number' ? `, food reserve ${snapshot.foodReserve.toFixed(1)} months` : ''}. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
+              ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%${ecologyReadings(snapshot)}. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
               : `${actorName} ${scenarioLabels.place} — waiting for first turn.`
           }
           onMouseMove={onMouseMove}

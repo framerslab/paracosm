@@ -111,10 +111,11 @@ export function drawForgeHeatmap(
  * ramp derived from the resource's scarcity — full alpha when the
  * resource is critically low, transparent when abundant.
  *
- * Reads the snapshot's resource fields if present. Silently no-op
- * for snapshots that don't carry the expected keys (scenarios other
- * than Mars may label differently; this is a Mars-tuned overlay for
- * now).
+ * Reads the snapshot's resource fields if present. A quadrant is tinted
+ * and labelled only when the run holds its reading: a scenario declares
+ * the ones it has (Mars and the Moon all four, the Deep Ocean Station
+ * food and power), and an absent reading is not an abundant one. Draws
+ * nothing for a snapshot with none of the four.
  */
 export function drawEcologyResourceMap(
   ctx: CanvasRenderingContext2D,
@@ -128,27 +129,21 @@ export function drawEcologyResourceMap(
   labelColor = 'rgba(216, 204, 176, 0.6)',
 ): void {
   const asNum = (v: unknown): number | null => (typeof v === 'number' ? v : null);
-  const snap = snapshot as unknown as Record<string, unknown>;
-  const food = asNum(snap.foodReserve);
-  const water = asNum(snap.waterLitersPerDay);
-  const power = asNum(snap.powerKw);
-  const volume = asNum(snap.pressurizedVolumeM3);
+  const food = asNum(snapshot.foodReserve);
+  const water = asNum(snapshot.waterLitersPerDay);
+  const power = asNum(snapshot.powerKw);
+  const volume = asNum(snapshot.pressurizedVolumeM3);
   if (food == null && water == null && power == null && volume == null) return;
 
   // Scarcity tier: 1.0 = critical, 0.0 = abundant. Units are scenario-
   // specific so the thresholds below are rough Mars-defaults; scenarios
   // with different scales will just render softer tints (not wrong,
   // just less informative).
-  const scarcity = (val: number | null, critical: number, abundant: number): number => {
-    if (val == null) return 0;
+  const scarcity = (val: number, critical: number, abundant: number): number => {
     if (val <= critical) return 1;
     if (val >= abundant) return 0;
     return 1 - (val - critical) / (abundant - critical);
   };
-  const foodS = scarcity(food, 3, 18);
-  const waterS = scarcity(water, 200, 1200);
-  const powerS = scarcity(power, 150, 600);
-  const volumeS = scarcity(volume, 1500, 4000);
 
   // Colors: green channel for abundant overlays, amber/rust for scarce.
   // Alpha capped at 0.22 so the glyphs remain visible above.
@@ -161,38 +156,52 @@ export function drawEcologyResourceMap(
   const halfW = width / 2;
   const halfH = height / 2;
   ctx.save();
+  // A quadrant with no reading stays clear: the 6% green of an abundant
+  // store would say the run holds one.
   // Top-left — food
-  ctx.fillStyle = tint(foodS);
-  ctx.fillRect(0, 0, halfW, halfH);
+  if (food != null) {
+    ctx.fillStyle = tint(scarcity(food, 3, 18));
+    ctx.fillRect(0, 0, halfW, halfH);
+  }
   // Top-right — water
-  ctx.fillStyle = tint(waterS);
-  ctx.fillRect(halfW, 0, halfW, halfH);
+  if (water != null) {
+    ctx.fillStyle = tint(scarcity(water, 200, 1200));
+    ctx.fillRect(halfW, 0, halfW, halfH);
+  }
   // Bottom-left — power
-  ctx.fillStyle = tint(powerS);
-  ctx.fillRect(0, halfH, halfW, halfH);
+  if (power != null) {
+    ctx.fillStyle = tint(scarcity(power, 150, 600));
+    ctx.fillRect(0, halfH, halfW, halfH);
+  }
   // Bottom-right — volume
-  ctx.fillStyle = tint(volumeS);
-  ctx.fillRect(halfW, halfH, halfW, halfH);
+  if (volume != null) {
+    ctx.fillStyle = tint(scarcity(volume, 1500, 4000));
+    ctx.fillRect(halfW, halfH, halfW, halfH);
+  }
 
   // Labels so users can tell which quadrant is which. Small faint
-  // monospace in each quadrant's corner.
+  // monospace at each quadrant's top corner: the top two sit under the
+  // HUD's name and turn rows (y 10 to 34) so they never print over the
+  // actor's name, and the bottom two at the top of their quadrants, clear
+  // of the HUD's population readout and the featured pills at the bottom.
+  const topLabelY = 40;
+  const bottomLabelY = halfH + 8;
   ctx.font = 'bold 9px ui-monospace, monospace';
   ctx.fillStyle = labelColor;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  if (food != null) ctx.fillText(`FOOD ${food.toFixed(1)}mo`, 8, 8);
+  if (food != null) ctx.fillText(`FOOD ${food.toFixed(1)}mo`, 8, topLabelY);
   if (water != null) {
     ctx.textAlign = 'right';
-    ctx.fillText(`WATER ${Math.round(water)}L/d`, width - 8, 8);
+    ctx.fillText(`WATER ${Math.round(water)}L/d`, width - 8, topLabelY);
   }
   if (power != null) {
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`POWER ${Math.round(power)}kW`, 8, height - 8);
+    ctx.fillText(`POWER ${Math.round(power)}kW`, 8, bottomLabelY);
   }
   if (volume != null) {
     ctx.textAlign = 'right';
-    ctx.fillText(`VOL ${Math.round(volume)}m³`, width - 8, height - 8);
+    ctx.fillText(`VOL ${Math.round(volume)}m³`, width - 8, bottomLabelY);
   }
   // Reset baseline for downstream layers.
   ctx.textBaseline = 'alphabetic';
