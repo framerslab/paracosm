@@ -297,3 +297,78 @@ export function toolRowName(parts: { name: string; outcome: string; actorLabel: 
   const made = `${parts.name}, ${parts.outcome}, made by ${parts.actorLabel} ${parts.actorName}`;
   return parts.forges > 1 ? `${made}, forged ${countWord(parts.forges)} times` : made;
 }
+
+// ── The toolbox's groups ────────────────────────────────────────────────
+
+/** Group, the menu that folds the rows: its name, and each grouping's word. */
+export const GROUP_WORDS = {
+  name: 'Group',
+  actor: 'Actor',
+  department: 'Department',
+  none: 'None',
+} as const;
+
+/** The Group key's label: "Group: Actor". */
+export const groupKeyLabel = (group: 'actor' | 'department' | 'none'): string => `Group: ${GROUP_WORDS[group]}`;
+
+/** The key that opens or closes every fold. */
+export const OPEN_ALL_GROUPS = {
+  open: 'Open all groups',
+  close: 'Close all groups',
+} as const;
+
+/** An actor's fold head: its name and archetype, "Ines Duarte · The Strategist". */
+export const actorFoldTitle = (name: string, archetype: string): string => (archetype ? `${name} · ${archetype}` : name);
+
+/**
+ * A fold head's count line, its outcomes as the toolbox's count line has
+ * them: "14 tools from 16 forges · 13 passed · 3 did not pass". An outcome
+ * with no forge is left out.
+ */
+export function foldCountLine(counts: { tools: number; forges: number; passed: number; didNotPass: number }): string {
+  return [
+    `${counted(counts.tools, 'tool', 'tools')} from ${counted(counts.forges, 'forge', 'forges')}`,
+    counts.passed > 0 ? `${countWord(counts.passed)} passed` : '',
+    counts.didNotPass > 0 ? `${countWord(counts.didNotPass)} did not pass` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** An actor that forged no tool: its fold head's words. */
+export const NO_TOOLS = 'No tools';
+
+/** An actor whose reports cannot be read: "A7's tools could not be read." */
+export const actorToolsUnreadable = (label: string): string => `${label}'s tools could not be read.`;
+
+/** An actor whose registry is full: "50 tools: the most one actor's registry holds". */
+export const registryFull = (limit: number): string => `${countWord(limit)} tools: the most one actor's registry holds`;
+
+/**
+ * An actor's fold head as a screen reader names it: "A7 Ines Duarte, The
+ * Strategist, 14 tools, 2 did not pass".
+ */
+export function actorFoldName(parts: {
+  label: string; name: string; archetype: string;
+  tools: number; didNotPass: number; unreadable: boolean;
+}): string {
+  const who = [`${parts.label} ${parts.name}`, parts.archetype].filter(Boolean);
+  if (parts.unreadable) return [...who, actorToolsUnreadable(parts.label)].join(', ');
+  if (parts.tools === 0) return [...who, NO_TOOLS].join(', ');
+  return [
+    ...who,
+    counted(parts.tools, 'tool', 'tools'),
+    parts.didNotPass > 0 ? `${countWord(parts.didNotPass)} did not pass` : '',
+  ].filter(Boolean).join(', ');
+}
+
+/** A department's fold head as a screen reader names it: "engineering, 58 tools, 12 did not pass". */
+export function departmentFoldName(name: string, counts: { tools: number; didNotPass: number }): string {
+  return [
+    name,
+    counted(counts.tools, 'tool', 'tools'),
+    counts.didNotPass > 0 ? `${countWord(counts.didNotPass)} did not pass` : '',
+  ].filter(Boolean).join(', ');
+}
+
+/** What Export JSON says while it writes a large file, and when it fails. */
+export const exportingTools = (tools: number): string => `Exporting ${countWord(tools)} tools…`;
+export const EXPORT_FAILED = 'Could not export. Try again.';

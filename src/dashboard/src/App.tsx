@@ -315,19 +315,20 @@ function AppContent() {
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
   // The navigation components get. A trace's Show in Event Log opens the
-  // Event Log with the tool's filter: the URL
-  // is written before the panel mounts, so EventLogPanel reads the filter
-  // from it on its first render.
+  // Event Log with the tool's filter, and a toolbox actor's with that actor's:
+  // the URL is written before the panel mounts, so EventLogPanel reads the
+  // filter from it on its first render.
   const navigateTab = useCallback<DashboardNavigate>((tab, options) => {
-    if (options?.logTool) {
+    if (options?.logTool || options?.logActor) {
       setSettingsInitialSubTab('log');
       setActiveTabState('settings');
-      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool, options.logActor));
+      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool ?? '', options.logActor));
       return;
     }
     setActiveTab(tab);
   }, [setActiveTab]);
-  // A trace's Show in Event Log: the Event Log on one actor's tool.
+  // A trace's Show in Event Log: the Event Log on one actor's tool, or on
+  // the actor's events alone when the tool's name is empty.
   const showToolLog = useCallback((toolName: string, actorName: string) => {
     navigateTab('settings', { logTool: toolName, logActor: actorName });
   }, [navigateTab]);

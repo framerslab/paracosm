@@ -181,12 +181,16 @@ export function withForgeState(
 
 /**
  * The address with the toolbox written into it and every other parameter
- * kept, the trace's and the toolbox's group and actors included: the filter
- * when it is not every row, the search when it holds text, and `toolbox=1`
- * while its dialog is open. With `open` not given, `toolbox` stays as the
- * address has it. An address that already says so comes back as it was.
+ * kept, the trace's and the toolbox's actors included: the filter when it is
+ * not every row, the search when it holds text, the grouping a visitor chose,
+ * and `toolbox=1` while its dialog is open. With `open` or `group` not given,
+ * that parameter stays as the address has it; a `group` of null leaves the
+ * run's own default. An address that already says so comes back as it was.
  */
-export function withToolbox(href: string, toolbox: { open?: boolean; show: string; find: string }): string {
+export function withToolbox(
+  href: string,
+  toolbox: { open?: boolean; show: string; find: string; group?: string | null },
+): string {
   let url: URL;
   try {
     url = new URL(href);
@@ -198,6 +202,7 @@ export function withToolbox(href: string, toolbox: { open?: boolean; show: strin
     [FORGE_PARAMS.find, toolbox.find ? toolbox.find : null],
   ];
   if (toolbox.open !== undefined) want.push([FORGE_PARAMS.toolbox, toolbox.open ? '1' : null]);
+  if (toolbox.group !== undefined) want.push([FORGE_PARAMS.group, toolbox.group ? toolbox.group : null]);
   let changed = false;
   for (const [key, value] of want) {
     if (url.searchParams.get(key) === value && url.searchParams.getAll(key).length <= 1) continue;

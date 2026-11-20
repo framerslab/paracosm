@@ -1,8 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useToolContext, type ToolEntry } from '../../hooks/useToolRegistry';
 import { useToolboxView } from './forgeViewContext';
-import { CLOSE_TOOLBOX, EXPORT_JSON, TOOLBOX_FILE_NAME, TOOLBOX_TITLE, actorLabel, toolboxDialogName } from './forgeWords';
+import {
+  CLOSE_TOOLBOX,
+  EXPORT_FAILED,
+  EXPORT_JSON,
+  TOOLBOX_FILE_NAME,
+  TOOLBOX_TITLE,
+  actorLabel,
+  exportingTools,
+  toolboxDialogName,
+} from './forgeWords';
 import { LookKey } from './LookKey';
 import { ToolboxList, filterRows } from './ToolboxList';
 import keys from './TraceDialog.module.scss';
@@ -52,13 +61,22 @@ function downloadRows(rows: ToolEntry[]): void {
   URL.revokeObjectURL(url);
 }
 
+/** Past this many rows, Export JSON says it is exporting while it writes the file. */
+const EXPORT_NOTICE_PAST = 500;
+
+/** What Export JSON says: nothing, that it is writing a file of this many tools, or that it failed. */
+type ExportStatus = { state: 'idle' } | { state: 'exporting'; tools: number } | { state: 'failed' };
+
 /**
  * The forged toolbox: a dialog over the run that lists every actor's tool,
  * each one press from its trace.
  *
  * Its header row holds Close, the title, Export JSON and the look key; on a
  * phone Export JSON is one full-width key at the list's foot. Export JSON
- * saves the rows shown, under the filter and the search as they stand.
+ * saves the rows shown, under the filter and the search as they stand, every
+ * actor's whatever their folds. Past 500 rows it says "Exporting {tools}
+ * tools…" beside the key while it writes the file, and "Could not export.
+ * Try again." when the file could not be made.
  *
  * A full-screen sheet with its header row fixed on a phone, a centred
  * dialog 880 px wide from 900 px and 1200 px wide from 1440 px. It opens
@@ -88,7 +106,28 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const exportShown = () => downloadRows(filterRows(registry.list, show, find));
+  const [exported, setExported] = useState<ExportStatus>({ state: 'idle' });
+  const exportShown = () => {
+    const rows = filterRows(registry.list, show, find);
+    const save = () => {
+      try {
+        downloadRows(rows);
+        setExported({ state: 'idle' });
+      } catch {
+        setExported({ state: 'failed' });
+      }
+    };
+    if (rows.length <= EXPORT_NOTICE_PAST) {
+      save();
+      return;
+    }
+    // The status shows before the file is written: the page paints it, then writes.
+    setExported({ state: 'exporting', tools: rows.length });
+    requestAnimationFrame(() => { window.setTimeout(save, 0); });
+  };
+  const exportSays = exported.state === 'exporting'
+    ? exportingTools(exported.tools)
+    : exported.state === 'failed' ? EXPORT_FAILED : '';
 
   return (
     <div
@@ -123,6 +162,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
             </button>
             <LookKey />
           </span>
+          <span className={styles.exportStatus} role="status" data-export-status>{exportSays}</span>
         </div>
 
         <div className={styles.body}>
@@ -130,6 +170,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
         </div>
 
         <div className={styles.foot}>
+          <p className={styles.footStatus} role="status" data-export-status>{exportSays}</p>
           <button type="button" className={`${keys.key} ${styles.exportAtFoot}`} onClick={exportShown}>
             {EXPORT_JSON}
           </button>

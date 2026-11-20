@@ -68,7 +68,8 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
  * the tool's events by its whole name, so a tool whose name holds another
  * tool's name does not bring that tool's events with it. Given an actor's
  * name, the log shows that actor's events alone (`logLeader`), since two
- * actors of a run can forge tools of one name.
+ * actors of a run can forge tools of one name. An empty tool name writes no
+ * hash, so the log shows every event of that actor.
  * Event Log filters an earlier visit left in the address are dropped,
  * so they cannot hide the tool's events; other parameters (the replay
  * session) stay.
@@ -78,7 +79,7 @@ export function createToolLogHref(currentHref: string, toolName: string, actorNa
   for (const key of LOG_FILTER_PARAMS) url.searchParams.delete(key);
   url.searchParams.set('sub', 'log');
   if (actorName) url.searchParams.set('logLeader', actorName);
-  url.hash = `log=${encodeURIComponent(toolName)}&logExact=1`;
+  url.hash = toolName ? `log=${encodeURIComponent(toolName)}&logExact=1` : '';
   return url.toString();
 }
 

@@ -3,10 +3,15 @@
 // theme/tokens.css or one of the forge view's named tokens (--forge-quiet,
 // --forge-edge and the three text sizes).
 //
-// The count line, one row of keys (the filter and Find a tool), the five
-// station names once, then the rows. Rows part by one hairline in the edge
-// tone: no card, no box and no chip. Each row stands behind a 4 px side mark
-// in its actor's run colour (--actor, set inline by ToolboxRow.tsx).
+// The count line, the keys (Group, the filter and Find a tool), Open all
+// groups and the five station names once, then the rows, in folds by actor
+// or by department or as one list. Rows and fold heads part by space and one
+// hairline in the edge tone: no card, no box round a group and no chip. Each
+// row stands behind a 4 px side mark in its actor's run colour (--actor, set
+// inline by ToolboxRow.tsx).
+//
+// Below 900 px Group stands on a row of its own over the filter and Find a
+// tool; from 900 px the three share one row.
 //
 // The filter follows the window: a one-row menu below 768 px, a row of
 // segments from 768 px. A row follows the list's own width, so the dialog
@@ -45,7 +50,22 @@
   color: var(--text-1);
 }
 
-// ── The row of keys: the filter, then Find a tool ─────────────────────────
+// ── The keys: Group, then the filter and Find a tool ──────────────────────
+
+.keyRows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+// Group's row.
+.lead {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
 
 .keys {
   display: flex;
@@ -287,6 +307,70 @@
   }
 }
 
+// Group: a key that names the grouping shown, and its menu of three.
+.groupMenu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.menuKey {
+  gap: 8px;
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.menuKeyMark {
+  flex-shrink: 0;
+  color: var(--text-1);
+}
+
+.groupList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.groupItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--key-h);
+  padding: 0 12px 0 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:focus {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+
+  &[aria-checked='true'] { font-weight: 600; }
+}
+
+// The chosen grouping's check, drawn only: the item says it is checked.
+.groupCheck {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--text-1);
+}
+
+.groupItem[aria-checked='true'] .groupCheck { visibility: visible; }
+
 // ── A list with no row: one line and its way forward ──────────────────────
 
 .empty {
@@ -320,7 +404,26 @@
   padding-left: var(--row-lead);
 }
 
-.head { padding-bottom: 6px; }
+.head {
+  row-gap: 8px;
+  padding-bottom: 6px;
+}
+
+// Open all groups: over the station names on a phone, beside them where a
+// row sets its parts side by side. Inactive with Group: None, its label in
+// the edge tone.
+.openAll {
+  justify-self: start;
+  white-space: nowrap;
+
+  &[aria-disabled='true'] {
+    color: var(--forge-edge);
+    cursor: default;
+
+    &:hover,
+    &:active { background: transparent; }
+  }
+}
 
 .stations {
   display: grid;
@@ -464,6 +567,135 @@
 
 .actor { color: var(--text-1); }
 
+// ── The folds: a head, and its rows while it is open ──────────────────────
+
+.groups { min-width: 0; }
+
+.fold { border-top: 1px solid var(--forge-edge); }
+
+.foldHeading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+// A fold head: the chevron, the tile, the name and archetype, the count
+// line and the forge strip. Two lines with the strip under them below 900
+// px, one line from 900 px.
+.foldHead {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  width: 100%;
+  min-height: var(--key-h);
+  margin: 0;
+  padding: 12px 8px 12px var(--row-lead);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  text-align: left;
+}
+
+button.foldHead {
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 12%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+}
+
+.chevron,
+.chevronRoom {
+  grid-column: 1;
+  grid-row: 1;
+  width: 16px;
+  height: 16px;
+  color: var(--text-1);
+}
+
+// A fold opens and closes with no motion: the chevron turns at once.
+.foldHead[aria-expanded='true'] .chevron { transform: rotate(90deg); }
+
+.foldTile {
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+}
+
+.foldName {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.foldActor { font-weight: 600; }
+
+// The count line, the registry's limit and an actor's error: other words in the ink.
+.foldCount,
+.foldNote {
+  grid-column: 3;
+  min-width: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The forge strip under the head, ten cells a row.
+.foldStrip {
+  grid-column: 3;
+  min-width: 0;
+
+  > span {
+    flex-wrap: wrap;
+    max-width: calc(10 * 10px + 9 * 2px);
+  }
+}
+
+// A department's head: the chevron, its name and its count line.
+.foldHeadDept { grid-template-columns: 16px minmax(0, 1fr); }
+
+.foldHeadDept .foldName {
+  grid-column: 2;
+  font-weight: 600;
+}
+
+.foldHeadDept .foldCount { grid-column: 2; }
+
+// A head with no rows to open.
+.foldStill { cursor: default; }
+
+// Show in Event Log under an actor whose tools could not be read, in line with the head's words.
+.foldWay { padding: 0 8px 12px calc(var(--row-lead) + 26px); }
+
+// A department's line in an actor's open fold, over its rows.
+.department { min-width: 0; }
+
+.deptLine {
+  margin: 0;
+  padding: 12px 8px 6px var(--row-lead);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
 // ── Reports' page: the fold that holds the list ───────────────────────────
 
 .pageFold {
@@ -511,9 +743,58 @@
   }
 }
 
-// Keys are 32 px tall from here.
+// Keys are 32 px tall from here, Group shares the filter's row, and a fold
+// head is one line with its strip at the right end, up to 30 cells and 50
+// from 1440 px (FoldHead.tsx).
 @media (min-width: 900px) {
   .list { --key-h: 32px; }
+
+  .keyRows {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .lead { flex: 0 0 auto; }
+
+  .keys { flex: 1 1 auto; }
+
+  .foldHead {
+    grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
+    column-gap: 12px;
+  }
+
+  .foldName {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .foldCount {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .foldNote {
+    grid-column: 4;
+    grid-row: 2;
+  }
+
+  .foldStrip {
+    grid-column: 5;
+    grid-row: 1;
+    justify-self: end;
+
+    > span {
+      flex-wrap: nowrap;
+      max-width: none;
+    }
+  }
+
+  .foldHeadDept { grid-template-columns: 16px auto minmax(0, 1fr); }
+
+  .foldHeadDept .foldName { grid-column: 2; }
+
+  .foldHeadDept .foldCount { grid-column: 3; }
 
   .pageFoldSummary {
     min-height: 32px;
@@ -541,6 +822,14 @@
   .lineCell {
     grid-column: 2;
     grid-row: 1;
+  }
+
+  .stations { align-self: end; }
+
+  .openAll {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: end;
   }
 
   // The line stands level with the name's first line.

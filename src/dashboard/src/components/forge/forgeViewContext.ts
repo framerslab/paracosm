@@ -37,6 +37,8 @@ export interface ForgeView {
    * by that step back.
    */
   close(focusTo?: HTMLElement | null, then?: () => void): void;
+  /** Closes every open dialog and opens the Event Log on one actor's events, by the actor's launch index. */
+  showActorLog(actorIndex: number): void;
   current: { trace: TraceTarget | null; toolbox: boolean };
 }
 
@@ -47,6 +49,7 @@ const OUTSIDE_PROVIDER: ForgeView = {
   openTrace: () => {},
   openToolbox: () => {},
   close: () => {},
+  showActorLog: () => {},
   current: NOTHING_OPEN,
 };
 
@@ -61,22 +64,33 @@ export type ToolboxShow = 'all' | RecordOutcome;
 
 export const TOOLBOX_SHOWS: readonly ToolboxShow[] = ['all', 'passed', 'did_not_pass'];
 
-/** The toolbox's filter and search. */
+/** How the toolbox folds its rows: by actor, by department, or not at all. */
+export type ToolboxGroup = 'actor' | 'department' | 'none';
+
+export const TOOLBOX_GROUPS: readonly ToolboxGroup[] = ['actor', 'department', 'none'];
+
+/** The grouping a run opens on: None on a run of two actors, Actor on a run of more. */
+export const defaultGroup = (actors: number): ToolboxGroup => (actors > 2 ? 'actor' : 'none');
+
+/** The toolbox's filter, search and grouping. */
 export interface ToolboxFilter {
   show: ToolboxShow;
   /** The text in Find a tool, as typed. */
   find: string;
+  /** The grouping a visitor chose, or null for the run's own default. */
+  group: ToolboxGroup | null;
 }
 
 /**
- * The toolbox's filter and search, one for the toolbox dialog and the list
- * in Reports' page, kept in the page's address so a link opens the same rows.
+ * The toolbox's filter, search and grouping, one for the toolbox dialog and
+ * the list in Reports' page, kept in the page's address so a link opens the
+ * same rows.
  */
 export interface ToolboxView extends ToolboxFilter {
   set(next: Partial<ToolboxFilter>): void;
 }
 
-export const ALL_ROWS: ToolboxFilter = { show: 'all', find: '' };
+export const ALL_ROWS: ToolboxFilter = { show: 'all', find: '', group: null };
 
 /** Outside the provider the list shows every row and a change does nothing. */
 const UNFILTERED: ToolboxView = { ...ALL_ROWS, set: () => {} };

@@ -37,6 +37,13 @@
  *   counts rows, Find a tool, and Export JSON for the rows shown. A row
  *   opens its tool's trace over the toolbox, and Reports shows the same
  *   rows in its page.
+ * - The toolbox at 24 and 300 actors: Group folds the rows by actor (the
+ *   default past two actors, its folds closed past 8) or by department, or
+ *   lists them as one (the pair's default); an actor's fold head holds its
+ *   tile, name and archetype, count line and forge strip, and names a full
+ *   registry; Open all groups opens every fold; an actor whose reports
+ *   cannot be read says so with the Event Log as the way forward; Export
+ *   JSON says it is exporting a large file.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
@@ -2126,6 +2133,9 @@ test.describe('the forged toolbox on the run\'s record', () => {
         const toolbox = toolboxOf(page, spec.tools);
         await expect(toolbox).toBeVisible({ timeout: 60_000 });
         await expect(toolbox.locator('[data-toolbox-count]')).toHaveText(line, { timeout: 60_000 });
+        // Past two actors the toolbox opens grouped by actor with its folds closed; Group: None lists every row.
+        await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+        await chooseGroup(toolbox, 'None');
         // One flat list of every actor's rows in the run's order, each meta line led by its actor's label and name.
         await expect(rowsOf(toolbox)).toHaveCount(spec.tools, { timeout: 60_000 });
         const rows = await rowsOf(toolbox).evaluateAll(els => els.map(el => ({

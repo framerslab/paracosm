@@ -92,6 +92,36 @@
 // Export JSON stands at the list's foot on a phone, in the header row from 600 px.
 .header .exportInHeader { display: none; }
 
+// What Export JSON says, beside the key it belongs to: under the header row's
+// right end from 600 px, over the key at the list's foot on a phone. Empty,
+// it takes no room.
+.exportStatus {
+  position: absolute;
+  top: 100%;
+  right: max(var(--toolbox-pad), env(safe-area-inset-right));
+  display: none;
+  margin: 0;
+  padding: 4px 8px;
+  background: var(--bg-card);
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+
+  &:empty { padding: 0; }
+}
+
+.footStatus {
+  margin: 0 0 8px;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+
+  &:empty { margin: 0; }
+}
+
 .body {
   padding: 16px max(var(--toolbox-pad), env(safe-area-inset-right)) 16px max(var(--toolbox-pad), env(safe-area-inset-left));
 }
@@ -115,6 +145,8 @@
   .title { font-size: var(--forge-text-title); }
 
   .header .exportInHeader { display: inline-flex; }
+
+  .exportStatus { display: block; }
 
   .foot { display: none; }
 

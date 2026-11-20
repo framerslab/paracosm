@@ -5,10 +5,12 @@ import { TRACE_PARAMS, parseForgeUrl, withForgeState, withToolbox, withoutForgeP
 import {
   ALL_ROWS,
   ForgeViewContext,
+  TOOLBOX_GROUPS,
   TOOLBOX_SHOWS,
   ToolboxViewContext,
   type ForgeView,
   type ToolboxFilter,
+  type ToolboxGroup,
   type ToolboxShow,
   type ToolboxView,
   type TraceTarget,
@@ -17,20 +19,28 @@ import { ToolboxDialog } from './ToolboxDialog';
 import { TraceDialog, type TraceShown } from './TraceDialog';
 
 export { useForgeView, useToolboxView } from './forgeViewContext';
-export type { ForgeView, ToolboxFilter, ToolboxShow, ToolboxView, TraceTarget } from './forgeViewContext';
+export type { ForgeView, ToolboxFilter, ToolboxGroup, ToolboxShow, ToolboxView, TraceTarget } from './forgeViewContext';
 
 const NOTHING_OPEN: ForgeView['current'] = { trace: null, toolbox: false };
 
 const NO_EVENTS: readonly ProcessedEvent[] = [];
 
-/** The filter and the search an address names: every row for a filter it does not know. */
+/**
+ * The filter, the search and the grouping an address names: every row for a
+ * filter it does not know, and the run's own grouping for a grouping it does
+ * not know.
+ */
 function filterOf(href: string): ToolboxFilter {
-  const { show, find } = parseForgeUrl(href, { getEntryByNumber: () => undefined, actors: [] }, false).state.toolbox;
+  const { show, find, group } = parseForgeUrl(href, { getEntryByNumber: () => undefined, actors: [] }, false).state.toolbox;
   return {
     show: TOOLBOX_SHOWS.includes(show as ToolboxShow) ? (show as ToolboxShow) : 'all',
     find: find ?? '',
+    group: TOOLBOX_GROUPS.includes(group as ToolboxGroup) ? (group as ToolboxGroup) : null,
   };
 }
+
+const sameFilter = (a: ToolboxFilter, b: ToolboxFilter): boolean =>
+  a.show === b.show && a.find === b.find && a.group === b.group;
 
 export interface ForgeViewProviderProps {
   /** The run on the page: its actors and their events. */
@@ -39,7 +49,10 @@ export interface ForgeViewProviderProps {
   runKey: string | null;
   /** The saved session the page replays or the run last saved as. Null for a run with none. */
   sessionId: string | null;
-  /** Opens the Settings tab's Event Log on one actor's tool: App's own navigation. */
+  /**
+   * Opens the Settings tab's Event Log on one actor's tool: App's own
+   * navigation. An empty tool name opens it on the actor's events alone.
+   */
   showToolLog?: (toolName: string, actorName: string) => void;
   children: ReactNode;
 }
@@ -123,7 +136,7 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
   const changeFilter = useCallback((next: Partial<ToolboxFilter>) => {
     const was = filterRef.current;
     const now: ToolboxFilter = { ...was, ...next };
-    if (now.show === was.show && now.find === was.find) return;
+    if (sameFilter(now, was)) return;
     filterRef.current = now;
     setFilter(now);
     writeFilter();
@@ -258,6 +271,14 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     close(null, () => showToolLog?.(name, actorName));
   }, [entry, close, showToolLog]);
 
+  // An actor's Show in Event Log, from its fold head when its tools cannot be
+  // read: every dialog closes, then the Event Log opens on that actor's events.
+  const showActorLog = useCallback((actorIndex: number) => {
+    const actorName = state.actorIds[actorIndex];
+    if (!actorName) return;
+    close(null, () => showToolLog?.('', actorName));
+  }, [state.actorIds, close, showToolLog]);
+
   // The run on the page changed and no longer holds the open tool.
   useEffect(() => {
     if (target && !entry) closeTrace();
@@ -292,9 +313,9 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     const href = window.location.href;
     const { state: linked, dangling } = parseForgeUrl(href, registry, true);
     if (dangling.length > 0) window.history.replaceState(window.history.state, '', withoutForgeParams(href, dangling));
-    // The filter and the search as this run's address names them; a filter the toolbox does not know leaves.
+    // The filter, the search and the grouping as this run's address names them; a value the toolbox does not know leaves.
     const named = filterOf(window.location.href);
-    if (named.show !== filterRef.current.show || named.find !== filterRef.current.find) {
+    if (!sameFilter(named, filterRef.current)) {
       filterRef.current = named;
       setFilter(named);
     }
@@ -342,8 +363,8 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
   }, [isOpen]);
 
   const value = useMemo<ForgeView>(
-    () => ({ openTrace, openToolbox, close, current }),
-    [openTrace, openToolbox, close, current],
+    () => ({ openTrace, openToolbox, close, showActorLog, current }),
+    [openTrace, openToolbox, close, showActorLog, current],
   );
   const toolboxView = useMemo<ToolboxView>(() => ({ ...filter, set: changeFilter }), [filter, changeFilter]);
 
