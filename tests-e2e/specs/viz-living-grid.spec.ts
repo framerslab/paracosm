@@ -16,7 +16,8 @@
  *   deaths or a morale crack says so.
  * - The highlight strip names each side's losses that turn: no negative
  *   count, and each count with its own noun.
- * - ECOLOGY draws the replay's food, water, power and volume, a quadrant each.
+ * - ECOLOGY on a replay draws the living grid under its quadrants, and the
+ *   panel names the replay's food, water, power and volume it tints them by.
  * - The grid settings offer only switches that change something.
  *
  * Each width and look saves pictures into test-pictures/viz-living-grid/,
@@ -134,8 +135,13 @@ interface GridRead {
   signature: string;
 }
 
-/** Page-side reader; serialised into the page by evaluate and the init script. */
-function readTiles(canvas: HTMLCanvasElement): GridRead {
+/**
+ * Page-side reader; serialised into the page by evaluate and the init script.
+ * `minAlpha` and `maxAlpha` bound the alpha a tile pixel may have: 1 to 160
+ * on LIVING's clear canvas, higher where ECOLOGY's quadrant tint lies under
+ * the tiles.
+ */
+function readTiles(canvas: HTMLCanvasElement, minAlpha = 1, maxAlpha = 160): GridRead {
   const ctx = canvas.getContext('2d');
   if (!ctx || canvas.width === 0 || canvas.height === 0) return { blocks: 0, maxAlpha: 0, signature: '' };
   const { width, height } = canvas;
@@ -147,7 +153,7 @@ function readTiles(canvas: HTMLCanvasElement): GridRead {
     for (let x = 0; x + B <= width; x += B) {
       const i0 = (y * width + x) * 4;
       const a0 = px[i0 + 3];
-      if (a0 === 0 || a0 > 160) continue;
+      if (a0 === 0 || a0 < minAlpha || a0 > maxAlpha) continue;
       let same = true;
       for (let dy = 0; dy < B && same; dy += 5) {
         for (let dx = 0; dx < B; dx += 5) {
@@ -377,51 +383,33 @@ for (const look of LOOKS) {
   });
 }
 
-/** The share of each quadrant of a panel's canvas that holds paint. */
-async function quadrantCover(page: Page, side: 'a' | 'b'): Promise<{ tl: number; tr: number; bl: number; br: number }> {
-  return canvasOf(page, side).evaluate((canvas: HTMLCanvasElement) => {
-    const ctx = canvas.getContext('2d');
-    const zero = { tl: 0, tr: 0, bl: 0, br: 0 };
-    if (!ctx || canvas.width === 0 || canvas.height === 0) return zero;
-    const { width, height } = canvas;
-    const px = ctx.getImageData(0, 0, width, height).data;
-    const cover = (x0: number, y0: number) => {
-      let painted = 0;
-      let all = 0;
-      for (let j = 1; j < 12; j++) {
-        for (let i = 1; i < 24; i++) {
-          const x = Math.floor(x0 + (i / 24) * (width / 2));
-          const y = Math.floor(y0 + (j / 12) * (height / 2));
-          all += 1;
-          if (px[(y * width + x) * 4 + 3] > 0) painted += 1;
-        }
-      }
-      return painted / all;
-    };
-    return { tl: cover(0, 0), tr: cover(width / 2, 0), bl: cover(0, height / 2), br: cover(width / 2, height / 2) };
-  });
-}
-
 for (const look of LOOKS) {
-  test(`ECOLOGY draws the replay's food, water, power and volume, in the ${look} look`, async ({ page, request }) => {
+  test(`ECOLOGY on a replay draws the living grid and names the replay's food, water, power and volume, in the ${look} look`, async ({ page, request }) => {
     const run = await storedRun(request);
     await page.setViewportSize({ width: 1440, height: 900 });
     await useLook(page, look);
+    await installTileReader(page);
     await openReplay(page, run);
     await page.getByRole('tablist', { name: 'Grid viz mode' }).getByRole('tab', { name: /ECOLOGY/ }).click();
     await page.waitForTimeout(1_000);
     await page.screenshot({ path: `${PICTURES}/ecology-1440-${look}.png` });
 
-    // The stored run's last turn carries the four readings ECOLOGY draws.
+    // The four readings the replay's last turn carries for Aria Chen.
     const metrics = run.frames.find(f => f.leader === ARIA && f.type === 'turn_done' && Number(f.data.turn) === run.turns)?.data.metrics as Record<string, number>;
     for (const key of ['foodMonthsReserve', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3']) expect(typeof metrics[key], key).toBe('number');
 
-    // Each quadrant is tinted by its reading: food, water, power, volume.
-    const cover = await quadrantCover(page, 'a');
-    expect(cover.tl, 'food quadrant').toBeGreaterThan(0.9);
-    expect(cover.tr, 'water quadrant').toBeGreaterThan(0.9);
-    expect(cover.bl, 'power quadrant').toBeGreaterThan(0.9);
-    expect(cover.br, 'volume quadrant').toBeGreaterThan(0.9);
+    // The panel names the readings its quadrants are tinted by.
+    const name = (await canvasOf(page, 'a').getAttribute('aria-label')) ?? '';
+    expect(name).toContain(`food reserve ${metrics.foodMonthsReserve.toFixed(1)} months`);
+    expect(name).toContain(`water ${Math.round(metrics.waterLitersPerDay)} litres a day`);
+    expect(name).toContain(`power ${Math.round(metrics.powerKw)} kW`);
+    expect(name).toContain(`pressurized volume ${Math.round(metrics.pressurizedVolumeM3)} cubic metres`);
+
+    // Not an empty panel: the Conway tiles draw under the quadrants. The
+    // quadrant tint alone stays under alpha 60 and the HUD's plates over 200.
+    const tiles = await canvasOf(page, 'a').evaluate((canvas: HTMLCanvasElement) =>
+      (window as unknown as { __readTiles: (c: HTMLCanvasElement, min: number, max: number) => GridRead }).__readTiles(canvas, 60, 200));
+    expect(tiles.blocks, 'ECOLOGY draws the living grid on a replay').toBeGreaterThan(0);
   });
 }
 
