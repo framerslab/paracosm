@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useToolContext, type ActorSummary, type ForgeCounts, type RecordOutcome, type ToolEntry } from '../../hooks/useToolRegistry';
+import { ActorPicker } from './ActorPicker';
+import { pickedActors } from './actorPicker.helpers';
 import { FoldHead, foldKey, opensRows, type GroupHead } from './FoldHead';
 import { STATIONS } from './forgeLine';
 import { ForgeStrip } from './ForgeStrip';
@@ -12,6 +14,8 @@ import {
   SHOW_WORDS,
   STATION_WORDS,
   TOOLBOX_EMPTY,
+  actorsKeyLabel,
+  chosenCountLine,
   countWord,
   groupKeyLabel,
   noToolMatches,
@@ -24,14 +28,36 @@ import styles from './ToolboxList.module.scss';
 export type { GroupHead } from './FoldHead';
 
 /**
- * The rows a filter and a search leave: the rows of one outcome, a row
- * showing under its latest attempt's outcome, whose names hold the search's
- * text, in any case. Every row for 'all' and an empty search.
+ * The rows a filter, a search and a choice of actors leave: the rows of one
+ * outcome, a row showing under its latest attempt's outcome, whose names
+ * hold the search's text, in any case, of the actors chosen by launch index.
+ * Every row for 'all', an empty search and no actors (null) given.
  */
-export function filterRows(rows: ToolEntry[], show: 'all' | RecordOutcome, find: string): ToolEntry[] {
+export function filterRows(
+  rows: ToolEntry[],
+  show: 'all' | RecordOutcome,
+  find: string,
+  actors: readonly number[] | null = null,
+): ToolEntry[] {
   const query = find.trim().toLowerCase();
-  if (show === 'all' && query === '') return rows;
-  return rows.filter((row) => (show === 'all' || row.outcome === show) && (query === '' || row.name.toLowerCase().includes(query)));
+  const chosen = actors === null ? null : new Set(actors);
+  if (show === 'all' && query === '' && chosen === null) return rows;
+  return rows.filter((row) => (chosen === null || chosen.has(row.actorIndex))
+    && (show === 'all' || row.outcome === show)
+    && (query === '' || row.name.toLowerCase().includes(query)));
+}
+
+/** The forges of the actors chosen, added up: the count line's figures while actors are chosen. */
+function countsOfActors(actors: ActorSummary[]): ForgeCounts {
+  const counts: ForgeCounts = { tools: 0, forges: 0, reforges: 0, passed: 0, didNotPass: 0 };
+  for (const actor of actors) {
+    counts.tools += actor.counts.tools;
+    counts.forges += actor.counts.forges;
+    counts.reforges += actor.counts.reforges;
+    counts.passed += actor.counts.passed;
+    counts.didNotPass += actor.counts.didNotPass;
+  }
+  return counts;
 }
 
 /** The department a row is filed under: the one that first forged it. */
@@ -304,8 +330,8 @@ export interface ToolboxListProps {
 
 /**
  * The forged toolbox's list, read from the run's record: a count line, the
- * keys (Group, the filter and Find a tool), Open all groups and the five
- * station names once, then the rows, folded as Group says.
+ * keys (Group, Actors, the filter and Find a tool), Open all groups and the
+ * five station names once, then the rows, folded as Group says.
  *
  * The count line counts forges: its outcomes add up to them, and its
  * bracket says how many were re-forges, so the tools and the forges
@@ -318,27 +344,43 @@ export interface ToolboxListProps {
  * None on a run of two actors and Actor on a run of more. Folds start open
  * on a run of up to 8 actors and closed past 8, and Open all groups opens or
  * closes them all. A filter or a search leaves out the folds it empties; an
- * actor whose tools could not be read keeps its fold, which says so. Below
- * 900 px Group stands on its own row over the filter and Find a tool; from
- * 900 px all three share one row.
+ * actor whose tools could not be read keeps its fold, which says so.
  *
- * The filter, the search and the grouping are the provider's, one for the
- * toolbox dialog and for Reports' page, kept in the page's address. A row
+ * Actors opens the actor picker, and the actors it chooses narrow the rows,
+ * the folds, the filter's counts and Export JSON at once; the count line
+ * then reads "Showing 3 of 24 actors · …" with those actors' figures, and
+ * the key "Actors: 3 of 24". Below 1440 px Group and Actors stand on a row
+ * of their own over the filter and Find a tool; from 1440 px the four share
+ * one row.
+ *
+ * The filter, the search, the grouping and the chosen actors are the
+ * provider's, one for the toolbox dialog and for Reports' page, kept in the
+ * page's address. A row
  * opens its tool's trace, and focus returns to the row when the trace
  * closes. Which folds are open is this list's own.
  */
 export function ToolboxList({ inPage = false }: ToolboxListProps) {
   const registry = useToolContext();
-  const { show, find, group: chosenGroup, set } = useToolboxView();
+  const { show, find, group: chosenGroup, actors: chosenActors, set } = useToolboxView();
   const { openTrace, showActorLog } = useForgeView();
   const findId = useId();
   const showName = useId();
   const keysRef = useRef<HTMLDivElement | null>(null);
   const findRef = useRef<HTMLInputElement | null>(null);
+  const actorsKeyRef = useRef<HTMLButtonElement | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const all = registry.list;
-  const rows = useMemo(() => filterRows(all, show, find), [all, show, find]);
   const actorCount = registry.actors.length;
+  // The actors chosen, in launch order, or null for every actor.
+  const picked = useMemo(() => pickedActors(chosenActors, actorCount), [chosenActors, actorCount]);
+  const pickedSummaries = useMemo(
+    () => (picked === null ? registry.actors : picked.map((index) => registry.actors[index])),
+    [picked, registry.actors],
+  );
+  const chosenSet = useMemo(() => new Set(chosenActors.filter((index) => index < actorCount)), [chosenActors, actorCount]);
+  // The chosen actors' rows, and of those the rows the filter and the search leave.
+  const all = useMemo(() => filterRows(registry.list, 'all', '', picked), [registry.list, picked]);
+  const rows = useMemo(() => filterRows(all, show, find), [all, show, find]);
   const group: ToolboxGroup = chosenGroup ?? defaultGroup(actorCount);
   const narrowed = show !== 'all' || find.trim() !== '';
 
@@ -353,12 +395,21 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
     return counted.filter((choice) => choice.id === 'all' || choice.count > 0 || choice.id === show);
   }, [all, show]);
 
-  // The folds to show: a filter or a search leaves out the folds it empties.
+  // The folds to show: the chosen actors', and a filter or a search leaves out the folds it empties.
   const groups = useMemo(() => {
-    const folded = groupRows(rows, group, registry.actors);
+    const folded = groupRows(rows, group, pickedSummaries);
     if (!narrowed) return folded;
     return folded.filter((g) => g.head === null || g.rows.length > 0 || (g.head.kind === 'actor' && g.head.actor.unreadable));
-  }, [rows, group, registry.actors, narrowed]);
+  }, [rows, group, pickedSummaries, narrowed]);
+
+  // The count line: the run's, or while actors are chosen how many it shows and their figures.
+  const countLine = picked === null
+    ? toolboxCountLine(registry.counts, actorCount)
+    : chosenCountLine(picked.length, actorCount, countsOfActors(pickedSummaries));
+  const chooseActors = useCallback((next: Set<number>) => {
+    set({ actors: [...next].sort((a, b) => a - b) });
+  }, [set]);
+  const closePicker = useCallback(() => setPickerOpen(false), []);
 
   // Which folds are open: a new grouping starts from the run's own start.
   const [folds, setFolds] = useState<FoldState>({ group, all: null, toggled: NO_TOGGLES });
@@ -450,9 +501,9 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
 
   return (
     <div className={styles.list} data-toolbox-list={inPage ? 'page' : 'dialog'}>
-      <p className={styles.count} data-toolbox-count>{toolboxCountLine(registry.counts, actorCount)}</p>
+      <p className={styles.count} data-toolbox-count>{countLine}</p>
 
-      {all.length === 0 ? (
+      {registry.list.length === 0 ? (
         <div className={styles.empty} data-toolbox-empty="no-tools">
           <ForgeStrip cells={NO_FORGES} />
           <p className={styles.emptyWords}>{TOOLBOX_EMPTY.noTools}</p>
@@ -462,6 +513,28 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
           <div className={styles.keyRows}>
             <div className={styles.lead} data-toolbox-lead>
               <GroupMenu value={group} onChoose={chooseGroup} />
+              <div className={styles.actorsMenu}>
+                <button
+                  ref={actorsKeyRef}
+                  type="button"
+                  className={styles.key}
+                  aria-haspopup="dialog"
+                  aria-expanded={pickerOpen}
+                  onClick={() => setPickerOpen((was) => !was)}
+                >
+                  {actorsKeyLabel(picked === null ? null : picked.length, actorCount)}
+                </button>
+                {pickerOpen && (
+                  <ActorPicker
+                    actors={registry.actors}
+                    tools={registry.list.length}
+                    chosen={chosenSet}
+                    onChange={chooseActors}
+                    onClose={closePicker}
+                    opener={actorsKeyRef.current}
+                  />
+                )}
+              </div>
             </div>
             <div ref={keysRef} className={styles.keys} data-toolbox-keys>
               <div className={styles.segments} role="radiogroup" aria-label={SHOW_WORDS.name}>
@@ -526,7 +599,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
             </div>
           </div>
 
-          {rows.length === 0 ? (
+          {rows.length === 0 && narrowed ? (
             <div className={styles.empty} data-toolbox-empty={find.trim() !== '' ? 'no-match' : 'no-rows'}>
               {find.trim() !== '' ? (
                 <>

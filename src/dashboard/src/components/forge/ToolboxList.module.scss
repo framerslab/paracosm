@@ -3,15 +3,16 @@
 // theme/tokens.css or one of the forge view's named tokens (--forge-quiet,
 // --forge-edge and the three text sizes).
 //
-// The count line, the keys (Group, the filter and Find a tool), Open all
-// groups and the five station names once, then the rows, in folds by actor
+// The count line, the keys (Group, Actors, the filter and Find a tool), Open
+// all groups and the five station names once, then the rows, in folds by actor
 // or by department or as one list. Rows and fold heads part by space and one
 // hairline in the edge tone: no card, no box round a group and no chip. Each
 // row stands behind a 4 px side mark in its actor's run colour (--actor, set
 // inline by ToolboxRow.tsx).
 //
-// Below 900 px Group stands on a row of its own over the filter and Find a
-// tool; from 900 px the three share one row.
+// Below 1440 px Group and Actors stand on a row of their own over the filter
+// and Find a tool; from 1440 px the four share one row. Keys are 44 px tall
+// below 900 px and 32 px from 900 px.
 //
 // The filter follows the window: a one-row menu below 768 px, a row of
 // segments from 768 px. A row follows the list's own width, so the dialog
@@ -50,7 +51,7 @@
   color: var(--text-1);
 }
 
-// ── The keys: Group, then the filter and Find a tool ──────────────────────
+// ── The keys: Group and Actors, then the filter and Find a tool ───────────
 
 .keyRows {
   display: grid;
@@ -59,11 +60,26 @@
   min-width: 0;
 }
 
-// Group's row.
+// Group's and Actors' row. Where the two keys and their words do not fit
+// beside each other (Group: Department and Actors: 100 of 300 at 320 px),
+// a key's words take a second line inside it, and the row stays one row.
 .lead {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  min-width: 0;
+
+  .key {
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+  }
+}
+
+// Actors: the key that opens the actor picker (ActorPicker.tsx).
+.actorsMenu {
+  position: relative;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -310,7 +326,8 @@
 // Group: a key that names the grouping shown, and its menu of three.
 .groupMenu {
   position: relative;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .menuKey {
@@ -748,21 +765,10 @@ button.foldHead {
   }
 }
 
-// Keys are 32 px tall from here, Group shares the filter's row, and a fold
-// head is one line with its strip at the right end, up to 30 cells and 50
-// from 1440 px (FoldHead.tsx).
+// Keys are 32 px tall from here, and a fold head is one line with its strip
+// at the right end, up to 30 cells and 50 from 1440 px (FoldHead.tsx).
 @media (min-width: 900px) {
   .list { --key-h: 32px; }
-
-  .keyRows {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-  }
-
-  .lead { flex: 0 0 auto; }
-
-  .keys { flex: 1 1 auto; }
 
   .foldHead {
     grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
@@ -805,6 +811,24 @@ button.foldHead {
     min-height: 32px;
     line-height: 32px;
   }
+}
+
+// Group and Actors share the filter's row from here, where the dialog is
+// 1200 px wide and Find a tool keeps its room.
+@media (min-width: 1440px) {
+  .keyRows {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .lead {
+    flex: 0 0 auto;
+
+    .key { white-space: nowrap; }
+  }
+
+  .keys { flex: 1 1 auto; }
 }
 
 // ── By the list's own width: a row's layout ───────────────────────────────

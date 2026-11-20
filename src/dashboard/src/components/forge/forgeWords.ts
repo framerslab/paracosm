@@ -372,3 +372,61 @@ export function departmentFoldName(name: string, counts: { tools: number; didNot
 /** What Export JSON says while it writes a large file, and when it fails. */
 export const exportingTools = (tools: number): string => `Exporting ${countWord(tools)} tools…`;
 export const EXPORT_FAILED = 'Could not export. Try again.';
+
+// ── The actor picker ────────────────────────────────────────────────────
+
+/** The actor picker's words: its name as a dialog, its search, its keys and its states. */
+export const ACTOR_PICKER_WORDS = {
+  dialogName: 'Choose actors',
+  listName: 'Actors',
+  findLabel: 'Find an actor',
+  findPlaceholder: 'Name, archetype or A-number…',
+  clearSearchName: 'Clear the actor search',
+  sortName: 'Sort',
+  sortLead: 'Sort:',
+  selectShown: 'Select shown',
+  clear: 'Clear',
+  done: 'Done',
+  showAll: 'Show all',
+  waiting: 'Waiting to start',
+  unreadable: 'The actors could not be read.',
+} as const;
+
+/** Each of the picker's sorts, as its menu names it after "Sort:". */
+export const SORT_WORDS = {
+  run: 'Run order',
+  tools: 'Most tools',
+  didNotPass: 'Most forges that did not pass',
+} as const;
+
+/** The toolbox's Actors key: "Actors: All 24", or "Actors: 4 of 24" while some actors are chosen. */
+export const actorsKeyLabel = (picked: number | null, actors: number): string =>
+  (picked === null ? `Actors: All ${countWord(actors)}` : `Actors: ${countWord(picked)} of ${countWord(actors)}`);
+
+/** How many actors the toolbox shows: "Showing 4 of 24 actors". */
+export const showingActors = (picked: number, actors: number): string => `Showing ${countWord(picked)} of ${countWord(actors)} actors`;
+
+/**
+ * The count line while some actors are chosen: "Showing 4 of 24 actors ·
+ * 50 tools from 59 forges (9 re-forges) · 47 passed · 12 did not pass",
+ * counting the chosen actors' tools and forges.
+ */
+export function chosenCountLine(
+  picked: number,
+  actors: number,
+  counts: { tools: number; forges: number; reforges: number; passed: number; didNotPass: number },
+): string {
+  return `${showingActors(picked, actors)} · ${toolboxCountLine(counts, 0)}`;
+}
+
+/** An actor's counts in the picker: "14 tools · 2 did not pass", the second part left out when every forge passed. */
+export function pickerCounts(counts: { tools: number; didNotPass: number }): string {
+  if (counts.tools === 0) return NO_TOOLS;
+  return [
+    counted(counts.tools, 'tool', 'tools'),
+    counts.didNotPass > 0 ? `${countWord(counts.didNotPass)} did not pass` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+/** A search that matches no actor: "No actor matches “zzz”." */
+export const noActorMatches = (query: string): string => `No actor matches “${query}”.`;

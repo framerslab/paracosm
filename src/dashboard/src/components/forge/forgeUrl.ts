@@ -181,15 +181,17 @@ export function withForgeState(
 
 /**
  * The address with the toolbox written into it and every other parameter
- * kept, the trace's and the toolbox's actors included: the filter when it is
- * not every row, the search when it holds text, the grouping a visitor chose,
- * and `toolbox=1` while its dialog is open. With `open` or `group` not given,
- * that parameter stays as the address has it; a `group` of null leaves the
- * run's own default. An address that already says so comes back as it was.
+ * kept, the trace's included: the filter when it is not every row, the
+ * search when it holds text, the grouping a visitor chose, the chosen actors
+ * as their 1-based slots in launch order, and `toolbox=1` while its dialog is
+ * open. With `open`, `group` or `actors` not given, that parameter stays as
+ * the address has it; a `group` of null leaves the run's own default, and no
+ * actor chosen leaves every actor. An address that already says so comes
+ * back as it was.
  */
 export function withToolbox(
   href: string,
-  toolbox: { open?: boolean; show: string; find: string; group?: string | null },
+  toolbox: { open?: boolean; show: string; find: string; group?: string | null; actors?: readonly number[] },
 ): string {
   let url: URL;
   try {
@@ -203,6 +205,10 @@ export function withToolbox(
   ];
   if (toolbox.open !== undefined) want.push([FORGE_PARAMS.toolbox, toolbox.open ? '1' : null]);
   if (toolbox.group !== undefined) want.push([FORGE_PARAMS.group, toolbox.group ? toolbox.group : null]);
+  if (toolbox.actors !== undefined) {
+    const slots = [...new Set(toolbox.actors)].filter((i) => Number.isInteger(i) && i >= 0).sort((a, b) => a - b).map((i) => i + 1);
+    want.push([FORGE_PARAMS.actors, slots.length > 0 ? slots.join(',') : null]);
+  }
   let changed = false;
   for (const [key, value] of want) {
     if (url.searchParams.get(key) === value && url.searchParams.getAll(key).length <= 1) continue;

@@ -72,25 +72,27 @@ export const TOOLBOX_GROUPS: readonly ToolboxGroup[] = ['actor', 'department', '
 /** The grouping a run opens on: None on a run of two actors, Actor on a run of more. */
 export const defaultGroup = (actors: number): ToolboxGroup => (actors > 2 ? 'actor' : 'none');
 
-/** The toolbox's filter, search and grouping. */
+/** The toolbox's filter, search, grouping and chosen actors. */
 export interface ToolboxFilter {
   show: ToolboxShow;
   /** The text in Find a tool, as typed. */
   find: string;
   /** The grouping a visitor chose, or null for the run's own default. */
   group: ToolboxGroup | null;
+  /** The actors the actor picker chose, by launch index in launch order; none for every actor. */
+  actors: readonly number[];
 }
 
 /**
- * The toolbox's filter, search and grouping, one for the toolbox dialog and
- * the list in Reports' page, kept in the page's address so a link opens the
- * same rows.
+ * The toolbox's filter, search, grouping and chosen actors, one for the
+ * toolbox dialog and the list in Reports' page, kept in the page's address
+ * so a link opens the same rows.
  */
 export interface ToolboxView extends ToolboxFilter {
   set(next: Partial<ToolboxFilter>): void;
 }
 
-export const ALL_ROWS: ToolboxFilter = { show: 'all', find: '', group: null };
+export const ALL_ROWS: ToolboxFilter = { show: 'all', find: '', group: null, actors: [] };
 
 /** Outside the provider the list shows every row and a change does nothing. */
 const UNFILTERED: ToolboxView = { ...ALL_ROWS, set: () => {} };

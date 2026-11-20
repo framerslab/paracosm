@@ -26,21 +26,26 @@ const NOTHING_OPEN: ForgeView['current'] = { trace: null, toolbox: false };
 const NO_EVENTS: readonly ProcessedEvent[] = [];
 
 /**
- * The filter, the search and the grouping an address names: every row for a
- * filter it does not know, and the run's own grouping for a grouping it does
- * not know.
+ * The filter, the search, the grouping and the chosen actors an address
+ * names: every row for a filter it does not know, the run's own grouping for
+ * a grouping it does not know, and the actors by launch index, each once in
+ * launch order, from the address's 1-based slots.
  */
 function filterOf(href: string): ToolboxFilter {
-  const { show, find, group } = parseForgeUrl(href, { getEntryByNumber: () => undefined, actors: [] }, false).state.toolbox;
+  const { show, find, group, actors } = parseForgeUrl(href, { getEntryByNumber: () => undefined, actors: [] }, false).state.toolbox;
   return {
     show: TOOLBOX_SHOWS.includes(show as ToolboxShow) ? (show as ToolboxShow) : 'all',
     find: find ?? '',
     group: TOOLBOX_GROUPS.includes(group as ToolboxGroup) ? (group as ToolboxGroup) : null,
+    actors: [...new Set((actors ?? []).map((slot) => slot - 1))].sort((a, b) => a - b),
   };
 }
 
+const sameActors = (a: readonly number[], b: readonly number[]): boolean =>
+  a.length === b.length && a.every((index, i) => index === b[i]);
+
 const sameFilter = (a: ToolboxFilter, b: ToolboxFilter): boolean =>
-  a.show === b.show && a.find === b.find && a.group === b.group;
+  a.show === b.show && a.find === b.find && a.group === b.group && sameActors(a.actors, b.actors);
 
 export interface ForgeViewProviderProps {
   /** The run on the page: its actors and their events. */
@@ -114,9 +119,10 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
   const filterRef = useRef(filter);
 
   /**
-   * The filter and the search in the address of the entry on show: the open
-   * toolbox's own, which names the toolbox too, else the page's, whose
-   * `toolbox` stays as a link wrote it until the run is complete and read.
+   * The filter, the search, the grouping and the chosen actors in the
+   * address of the entry on show: the open toolbox's own, which names the
+   * toolbox too, else the page's, whose `toolbox` stays as a link wrote it
+   * until the run is complete and read.
    */
   const writeFilter = useCallback(() => {
     const href = window.location.href;
@@ -313,8 +319,11 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
     const href = window.location.href;
     const { state: linked, dangling } = parseForgeUrl(href, registry, true);
     if (dangling.length > 0) window.history.replaceState(window.history.state, '', withoutForgeParams(href, dangling));
-    // The filter, the search and the grouping as this run's address names them; a value the toolbox does not know leaves.
-    const named = filterOf(window.location.href);
+    // The filter, the search, the grouping and the chosen actors as this run's
+    // address names them; a value the toolbox does not know leaves, and so
+    // does an actor the run lacks.
+    const read = filterOf(window.location.href);
+    const named: ToolboxFilter = { ...read, actors: read.actors.filter((index) => index < registry.actors.length) };
     if (!sameFilter(named, filterRef.current)) {
       filterRef.current = named;
       setFilter(named);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useToolContext, type ToolEntry } from '../../hooks/useToolRegistry';
+import { pickedActors } from './actorPicker.helpers';
 import { useToolboxView } from './forgeViewContext';
 import {
   CLOSE_TOOLBOX,
@@ -73,8 +74,8 @@ type ExportStatus = { state: 'idle' } | { state: 'exporting'; tools: number } | 
  *
  * Its header row holds Close, the title, Export JSON and the look key; on a
  * phone Export JSON is one full-width key at the list's foot. Export JSON
- * saves the rows shown, under the filter and the search as they stand, every
- * actor's whatever their folds. Past 500 rows it says "Exporting {tools}
+ * saves the rows shown, under the filter, the search and the chosen actors as
+ * they stand, whatever their folds. Past 500 rows it says "Exporting {tools}
  * tools…" beside the key while it writes the file, and "Could not export.
  * Try again." when the file could not be made.
  *
@@ -85,7 +86,7 @@ type ExportStatus = { state: 'idle' } | { state: 'exporting'; tools: number } | 
  */
 export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
   const registry = useToolContext();
-  const { show, find } = useToolboxView();
+  const { show, find, actors } = useToolboxView();
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -108,7 +109,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
 
   const [exported, setExported] = useState<ExportStatus>({ state: 'idle' });
   const exportShown = () => {
-    const rows = filterRows(registry.list, show, find);
+    const rows = filterRows(registry.list, show, find, pickedActors(actors, registry.actors.length));
     const save = () => {
       try {
         downloadRows(rows);
