@@ -97,9 +97,10 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
   const allShownChosen = shown.length > 0 && shown.every((actor) => chosen.has(actor.index));
   const full = max !== undefined && chosen.size >= max;
 
-  // Focus is in Find an actor when the picker opens.
+  // Focus is in Find an actor when the picker opens. The sheet is still on its
+  // way up then, so the focus must not scroll the toolbox under it to reach the field.
   useEffect(() => {
-    findRef.current?.focus();
+    findRef.current?.focus({ preventScroll: true });
   }, []);
 
   const closeToOpener = useCallback(() => {

@@ -31,8 +31,13 @@
   &:focus { outline: none; }
 }
 
+// The sheet's entrance fills backwards only: once it has ended, no transform
+// stays in effect on the dialog. A transform in effect, even one that reads
+// none, makes its element the containing block of the fixed boxes inside it,
+// and the actor picker's sheet, fixed to the window, would then move with the
+// toolbox's scroll.
 @media (prefers-reduced-motion: no-preference) {
-  .dialog { animation: sheet-up 200ms ease-out both; }
+  .dialog { animation: sheet-up 200ms ease-out backwards; }
 }
 
 @keyframes sheet-up {

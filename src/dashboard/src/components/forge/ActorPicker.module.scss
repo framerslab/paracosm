@@ -206,9 +206,13 @@
 }
 
 // ── No actor to list: one line and its way forward ────────────────────────
+// It takes the list's room in a sheet, so the foot keeps its place at the
+// sheet's foot.
 
 .empty {
   display: grid;
+  flex: 1 1 auto;
+  align-content: start;
   justify-items: start;
   gap: 12px;
   padding: 16px 0;

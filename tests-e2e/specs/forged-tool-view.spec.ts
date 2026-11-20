@@ -2986,6 +2986,13 @@ test.describe('one actor picker for the toolbox', () => {
     await expect(optionsOf(picker)).toHaveCount(0);
     const empty = picker.locator('[data-picker-empty]');
     await expect(empty).toContainText('No actor matches “zzz”.');
+    // With no actor to list, Select shown, Clear and Done keep their place at the sheet's foot.
+    const footGap = await picker.evaluate((sheet) => {
+      const foot = sheet.querySelector('[data-picker-foot]')!.getBoundingClientRect();
+      return sheet.getBoundingClientRect().bottom - foot.bottom;
+    });
+    expect(footGap, 'the foot stands at the sheet\'s foot').toBeGreaterThanOrEqual(0);
+    expect(footGap, 'the foot stands at the sheet\'s foot').toBeLessThanOrEqual(24);
     await picture(page, '390-light-f19-picker-no-match');
     await empty.getByRole('button', { name: 'Clear', exact: true }).click();
     await expect(find).toHaveValue('');
