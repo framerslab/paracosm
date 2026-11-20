@@ -1,0 +1,453 @@
+/**
+ * The Viz tab on a replayed run: the living grid, the turn banner, the
+ * highlight strip, the ECOLOGY mode and the grid settings.
+ *
+ * The page talks to the real server over HTTP (tests-e2e/support/viz-replay-server.ts):
+ * one finished Mars Genesis pair run is stored there as a session, so
+ * /sim?replay=<id>&tab=viz plays it through the server's own replay route.
+ * The spec reads the same stored stream from that route to know each turn's
+ * deaths, their causes and the morale changes of each commander's outcomes.
+ *
+ * - The Conway tiles draw on the replay. They ease in rather than painting at
+ *   full strength in one frame, a frame read two seconds after the first one
+ *   that holds them differs from it, they follow the turn, they ease in again
+ *   on a jump of several turns, and the panel keeps its morale tint.
+ * - Each turn-banner line says what the commander chose, and a turn with
+ *   deaths or a morale crack says so.
+ * - The highlight strip names each side's losses that turn: no negative
+ *   count, and each count with its own noun.
+ * - ECOLOGY draws the replay's food, water, power and volume, a quadrant each.
+ * - The grid settings offer only switches that change something.
+ *
+ * Each width and look saves pictures into test-pictures/viz-living-grid/,
+ * which CI uploads: two replay frames two seconds apart, the turn banner and
+ * the highlight strip, ECOLOGY and the settings.
+ */
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+
+test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored run lives on a local server of its own.');
+
+const SERVER = 'http://127.0.0.1:3466';
+const PICTURES = 'test-pictures/viz-living-grid';
+const ARIA = 'Aria Chen';
+const DIETRICH = 'Dietrich Voss';
+
+test.use({ baseURL: SERVER, deviceScaleFactor: 2 });
+
+const WIDTHS = [
+  { width: 390, height: 844 },
+  { width: 1440, height: 900 },
+] as const;
+const LOOKS = ['light', 'dark'] as const;
+
+interface SimFrame {
+  type: string;
+  leader: string;
+  data: Record<string, unknown>;
+}
+
+interface StoredRun {
+  id: string;
+  frames: SimFrame[];
+  turns: number;
+}
+
+/** The stored run's id and the frames its replay route sends. */
+async function storedRun(request: APIRequestContext): Promise<StoredRun> {
+  const res = await request.get(`${SERVER}/sessions`);
+  expect(res.ok()).toBe(true);
+  const { sessions } = await res.json() as { sessions: Array<{ id: string }> };
+  expect(sessions).toHaveLength(1);
+  const id = sessions[0].id;
+  const replay = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
+  expect(replay.ok()).toBe(true);
+  const frames: SimFrame[] = [];
+  for (const chunk of (await replay.text()).split('\n\n')) {
+    const event = /^event: (.+)$/m.exec(chunk)?.[1];
+    const data = /^data: (.+)$/m.exec(chunk)?.[1];
+    if (event === 'sim' && data) frames.push(JSON.parse(data) as SimFrame);
+  }
+  const turns = Math.max(...frames.filter(f => f.type === 'systems_snapshot').map(f => Number(f.data.turn)));
+  return { id, frames, turns };
+}
+
+interface TurnFacts {
+  /** Deaths the turn's systems_snapshot counts. */
+  deaths: number;
+  /** The turn_done frame's causes of those deaths, when it names any. */
+  causes?: Record<string, number>;
+  /** The morale changes of the commander's outcomes this turn, added up. */
+  morale: number;
+  /** True when the commander made a decision this turn. */
+  decided: boolean;
+}
+
+function turnFacts(run: StoredRun, leader: string, turn: number): TurnFacts {
+  const mine = run.frames.filter(f => f.leader === leader && Number(f.data.turn) === turn);
+  const causes = mine.find(f => f.type === 'turn_done')?.data.deathCauses as Record<string, number> | undefined;
+  const snapshot = mine.find(f => f.type === 'systems_snapshot');
+  const morale = mine
+    .filter(f => f.type === 'outcome')
+    .reduce((sum, f) => sum + Number((f.data.systemDeltas as Record<string, number> | undefined)?.morale ?? 0), 0);
+  return {
+    deaths: Number(snapshot?.data.deaths ?? 0),
+    causes,
+    morale,
+    decided: mine.some(f => f.type === 'decision_made' && String(f.data.decision ?? '').length > 0),
+  };
+}
+
+/** The cause with the most deaths, the first named on a tie. */
+function dominantCause(causes: Record<string, number>): string {
+  let best = '';
+  let most = 0;
+  for (const [cause, n] of Object.entries(causes)) {
+    if (n > most) { best = cause; most = n; }
+  }
+  return best;
+}
+
+async function useLook(page: Page, look: 'light' | 'dark'): Promise<void> {
+  await page.addInitScript((t) => { window.localStorage.setItem('paracosm-theme', t); }, look);
+}
+
+const replayUrl = (id: string) => `/sim?replay=${encodeURIComponent(id)}&tab=viz`;
+const panel = (page: Page, side: 'a' | 'b') => page.getByTestId(`living-colony-grid-${side}`);
+const canvasOf = (page: Page, side: 'a' | 'b') => panel(page, side).locator('canvas');
+
+/** Opens the replay on the Viz tab and waits until both panels show its last turn. */
+async function openReplay(page: Page, run: StoredRun): Promise<void> {
+  await page.goto(replayUrl(run.id));
+  await expect(page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${run.turns}\\.`) })).toBeAttached({ timeout: 30_000 });
+}
+
+/**
+ * What the Conway layer paints on a panel's canvas, read from its pixels. A
+ * Conway tile is a solid square tens of pixels wide in the actor's colour at
+ * under 0.65 alpha; nothing else the LIVING mode draws is: glyphs are rings,
+ * names are text and their plates are 0.85 alpha. So a tile is found as a
+ * 16-pixel block whose pixels are one colour with alpha from 1 to 160.
+ */
+interface GridRead {
+  blocks: number;
+  maxAlpha: number;
+  signature: string;
+}
+
+/** Page-side reader; serialised into the page by evaluate and the init script. */
+function readTiles(canvas: HTMLCanvasElement): GridRead {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return { blocks: 0, maxAlpha: 0, signature: '' };
+  const { width, height } = canvas;
+  const px = ctx.getImageData(0, 0, width, height).data;
+  const B = 16;
+  const found: string[] = [];
+  let maxAlpha = 0;
+  for (let y = 0; y + B <= height; y += B) {
+    for (let x = 0; x + B <= width; x += B) {
+      const i0 = (y * width + x) * 4;
+      const a0 = px[i0 + 3];
+      if (a0 === 0 || a0 > 160) continue;
+      let same = true;
+      for (let dy = 0; dy < B && same; dy += 5) {
+        for (let dx = 0; dx < B; dx += 5) {
+          const i = ((y + dy) * width + x + dx) * 4;
+          if (px[i] !== px[i0] || px[i + 1] !== px[i0 + 1] || px[i + 2] !== px[i0 + 2] || px[i + 3] !== a0) { same = false; break; }
+        }
+      }
+      if (same) {
+        found.push(`${x},${y},${a0}`);
+        if (a0 > maxAlpha) maxAlpha = a0;
+      }
+    }
+  }
+  return { blocks: found.length, maxAlpha, signature: found.join(';') };
+}
+
+/** Before any page script runs: puts the tile reader on the page as window.__readTiles. */
+async function installTileReader(page: Page): Promise<void> {
+  await page.addInitScript(`window.__readTiles = ${readTiles.toString()};`);
+}
+
+/**
+ * Before any page script runs: watches panel A's canvas from the page's start,
+ * keeps every read from the first one that holds a Conway tile until two
+ * seconds after it, and stops there (or 15 seconds after the start with none).
+ */
+async function recordFirstTiles(page: Page): Promise<void> {
+  await installTileReader(page);
+  await page.addInitScript(`(() => {
+    const out = window.__vizTiles = { reads: [], done: false };
+    const began = performance.now();
+    let lastRead = 0;
+    const panelCanvas = () => document.querySelector('[data-testid="living-colony-grid-a"] canvas');
+    const loop = () => {
+      const now = performance.now();
+      const first = out.reads[0];
+      if (first && now - first.t >= 2000) {
+        const canvas = panelCanvas();
+        if (canvas) out.reads.push({ ...window.__readTiles(canvas), t: now });
+        out.done = true;
+        return;
+      }
+      if (!first && now - began > 15000) { out.done = true; return; }
+      if (first || now - lastRead >= 40) {
+        lastRead = now;
+        const canvas = panelCanvas();
+        if (canvas) {
+          const read = window.__readTiles(canvas);
+          if (first || read.blocks > 0) out.reads.push({ ...read, t: now });
+        }
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  })();`);
+}
+
+async function readGrid(page: Page, side: 'a' | 'b'): Promise<GridRead> {
+  return canvasOf(page, side).evaluate(readTiles);
+}
+
+/** The panel's morale tint, as its canvas wrapper's style sets it. */
+async function tintOf(page: Page, side: 'a' | 'b'): Promise<string> {
+  return panel(page, side).locator('[class*="canvasWrap"]').evaluate(el => (el as HTMLElement).style.getPropertyValue('--tint-color').trim());
+}
+
+/** Steps the replay from turn `from` to turn `to` with the Previous and Next keys. */
+async function stepTurns(page: Page, from: number, to: number): Promise<void> {
+  const key = page.getByRole('button', { name: to < from ? 'Previous turn' : 'Next turn', exact: true });
+  for (let t = from; t !== to; t += to < from ? -1 : 1) await key.click();
+  await expect(page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${to}\\.`) })).toBeAttached();
+}
+
+for (const { width, height } of WIDTHS) {
+  for (const look of LOOKS) {
+    test(`a replay draws the living grid at ${width} in the ${look} look`, async ({ page, request }) => {
+      const run = await storedRun(request);
+      await page.setViewportSize({ width, height });
+      await useLook(page, look);
+      await recordFirstTiles(page);
+      await openReplay(page, run);
+      await canvasOf(page, 'a').scrollIntoViewIfNeeded();
+
+      // Two frames two seconds apart, as a visitor meets the replay.
+      await page.screenshot({ path: `${PICTURES}/replay-${width}-${look}-f1.png` });
+      await page.waitForTimeout(2_000);
+      await page.screenshot({ path: `${PICTURES}/replay-${width}-${look}-f2.png` });
+
+      // The Conway tiles: present, eased in, and changed two seconds on.
+      await page.waitForFunction(() => (window as unknown as { __vizTiles: { done: boolean } }).__vizTiles.done, undefined, { timeout: 20_000 });
+      const reads = await page.evaluate(() => (window as unknown as { __vizTiles: { reads: Array<GridRead & { t: number }> } }).__vizTiles.reads);
+      expect(reads.length, 'the replay canvas never drew a Conway tile').toBeGreaterThan(1);
+      const first = reads[0];
+      const later = reads[reads.length - 1];
+      expect(later.t - first.t).toBeGreaterThanOrEqual(2_000);
+      expect(later.blocks, 'two seconds after the first tiles, the canvas holds tiles').toBeGreaterThan(0);
+      expect(later.signature, 'a frame two seconds after the first tiles differs from it').not.toBe(first.signature);
+      // No full-strength wash: some frame shows the tiles at under 60% of the
+      // strength they settle at before they reach it.
+      expect(Math.min(...reads.filter(r => r.blocks > 0).map(r => r.maxAlpha)), 'the tiles ease in').toBeLessThan(later.maxAlpha * 0.6);
+
+      // The morale tint behind the canvas is drawn on the replay.
+      const tint = await tintOf(page, 'a');
+      expect(tint).not.toBe('');
+      expect(tint).not.toBe('transparent');
+
+      // The tiles follow the turn: one turn back, a panel's tiles change.
+      const sides: Array<'a' | 'b'> = width >= 768 ? ['a', 'b'] : ['a'];
+      const atLast = await Promise.all(sides.map(s => readGrid(page, s)));
+      await stepTurns(page, run.turns, run.turns - 1);
+      await page.waitForTimeout(600);
+      const oneBack = await Promise.all(sides.map(s => readGrid(page, s)));
+      expect(oneBack.some(r => r.blocks > 0)).toBe(true);
+      expect(oneBack.map(r => r.signature), 'the tiles change with the turn').not.toEqual(atLast.map(r => r.signature));
+
+      // A jump of several turns eases the tiles in again.
+      await page.waitForTimeout(3_000);
+      // The reads start before the key is pressed and run for two seconds.
+      await page.evaluate(() => {
+        const w = window as unknown as { __readTiles: (c: HTMLCanvasElement) => GridRead; __jump: { reads: GridRead[]; done: boolean } };
+        const canvas = document.querySelector('[data-testid="living-colony-grid-a"] canvas') as HTMLCanvasElement;
+        w.__jump = { reads: [], done: false };
+        const began = performance.now();
+        const loop = () => {
+          w.__jump.reads.push(w.__readTiles(canvas));
+          if (performance.now() - began >= 2_000) { w.__jump.done = true; return; }
+          requestAnimationFrame(loop);
+        };
+        loop();
+      });
+      await page.getByRole('slider', { name: 'Scrub timeline' }).press('Home');
+      await page.waitForFunction(() => (window as unknown as { __jump: { done: boolean } }).__jump.done);
+      const jump = await page.evaluate(() => (window as unknown as { __jump: { reads: GridRead[] } }).__jump.reads);
+      await expect(page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn 1\\.`) })).toBeAttached();
+      const settled = jump[jump.length - 1];
+      expect(settled.blocks).toBeGreaterThan(0);
+      expect(jump.some(r => r.blocks > 0 && r.maxAlpha < settled.maxAlpha * 0.6), 'a jump of several turns eases the tiles in').toBe(true);
+    });
+  }
+}
+
+for (const look of LOOKS) {
+  test(`the turn banner says what each commander chose, the deaths and a morale crack, in the ${look} look`, async ({ page, request }) => {
+    const run = await storedRun(request);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await useLook(page, look);
+    await openReplay(page, run);
+    const banner = page.getByRole('status', { name: 'Current turn narrative' });
+    const line = (label: 'A' | 'B', name: string) => banner.locator('div').filter({ hasText: new RegExp(`^${label}: ${name}`) });
+
+    // The stored run holds the inputs this test reads: a turn after the
+    // first where Aria Chen's colony loses people to a named cause, and a
+    // turn whose outcomes cost her colony 0.08 of morale or more.
+    const lossTurn = Array.from({ length: run.turns }, (_, i) => i + 1).find(t => t > 1 && turnFacts(run, ARIA, t).causes);
+    const crackTurn = Array.from({ length: run.turns }, (_, i) => i + 1).find(t => turnFacts(run, ARIA, t).morale <= -0.08);
+    expect(lossTurn, 'the stored run has a turn with deaths and their causes').toBeDefined();
+    expect(crackTurn, 'the stored run has a turn whose outcomes crack morale').toBeDefined();
+
+    await stepTurns(page, run.turns, 1);
+    for (let turn = 1; turn <= run.turns; turn++) {
+      if (turn > 1) await stepTurns(page, turn - 1, turn);
+      if (turn === lossTurn || turn === crackTurn) await page.screenshot({ path: `${PICTURES}/banner-turn-${turn}-1440-${look}.png` });
+      for (const [label, name] of [['A', ARIA], ['B', DIETRICH]] as const) {
+        const facts = turnFacts(run, name, turn);
+        const text = (await line(label, name).first().textContent()) ?? '';
+        if (facts.decided) expect(text, `T${turn} ${name}`).not.toContain('held position');
+        if (facts.causes) {
+          const lost = Object.values(facts.causes).reduce((s, n) => s + n, 0);
+          expect(text, `T${turn} ${name}`).toContain(`${lost} lost to ${dominantCause(facts.causes)}`);
+        } else if (facts.deaths > 0) {
+          expect(text, `T${turn} ${name}`).toContain(`${facts.deaths} lost`);
+        } else {
+          expect(text, `T${turn} ${name}`).not.toContain(' lost');
+        }
+        if (facts.morale <= -0.08) expect(text, `T${turn} ${name}`).toContain('morale cracked');
+        else if (facts.morale >= 0.08) expect(text, `T${turn} ${name}`).toContain('morale steadied');
+        else expect(text, `T${turn} ${name}`).not.toContain('morale');
+      }
+    }
+  });
+}
+
+for (const look of LOOKS) {
+  test(`the highlight strip names each side's losses that turn, in the ${look} look`, async ({ page, request }) => {
+    const run = await storedRun(request);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await useLook(page, look);
+    await openReplay(page, run);
+    const strip = page.locator('div[role="status"][data-turn]');
+
+    // A turn where one side's deaths fall from the turn before while the
+    // two sides' changes differ: the turn a running-total reading of the
+    // per-turn counts turns negative.
+    const deathsOf = (name: string, turn: number) => turnFacts(run, name, turn).deaths;
+    const fallTurn = Array.from({ length: run.turns }, (_, i) => i + 1).find(t => {
+      if (t < 2) return false;
+      const changeA = deathsOf(ARIA, t) - deathsOf(ARIA, t - 1);
+      const changeB = deathsOf(DIETRICH, t) - deathsOf(DIETRICH, t - 1);
+      return changeA !== changeB && Math.min(changeA, changeB) < 0;
+    });
+    expect(fallTurn, 'the stored run has a turn whose deaths fall on one side').toBeDefined();
+
+    const count = (n: number) => (n === 0 ? 'none' : `${n} ${n === 1 ? 'colonist' : 'colonists'}`);
+    await stepTurns(page, run.turns, 1);
+    for (let turn = 1; turn <= run.turns; turn++) {
+      if (turn > 1) await stepTurns(page, turn - 1, turn);
+      if (turn === fallTurn) await page.screenshot({ path: `${PICTURES}/strip-turn-${turn}-1440-${look}.png` });
+      const text = (await strip.textContent()) ?? '';
+      expect(text, `T${turn}`).not.toMatch(/-\d/);
+      const a = deathsOf(ARIA, turn);
+      const b = deathsOf(DIETRICH, turn);
+      if (a !== b) {
+        const [heavy, light] = a > b ? [[ARIA, a], [DIETRICH, b]] as const : [[DIETRICH, b], [ARIA, a]] as const;
+        expect(text, `T${turn}`).toContain(`${heavy[0]} lost ${count(heavy[1])}; ${light[0]} lost ${count(light[1])}.`);
+      }
+    }
+  });
+}
+
+/** The share of each quadrant of a panel's canvas that holds paint. */
+async function quadrantCover(page: Page, side: 'a' | 'b'): Promise<{ tl: number; tr: number; bl: number; br: number }> {
+  return canvasOf(page, side).evaluate((canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    const zero = { tl: 0, tr: 0, bl: 0, br: 0 };
+    if (!ctx || canvas.width === 0 || canvas.height === 0) return zero;
+    const { width, height } = canvas;
+    const px = ctx.getImageData(0, 0, width, height).data;
+    const cover = (x0: number, y0: number) => {
+      let painted = 0;
+      let all = 0;
+      for (let j = 1; j < 12; j++) {
+        for (let i = 1; i < 24; i++) {
+          const x = Math.floor(x0 + (i / 24) * (width / 2));
+          const y = Math.floor(y0 + (j / 12) * (height / 2));
+          all += 1;
+          if (px[(y * width + x) * 4 + 3] > 0) painted += 1;
+        }
+      }
+      return painted / all;
+    };
+    return { tl: cover(0, 0), tr: cover(width / 2, 0), bl: cover(0, height / 2), br: cover(width / 2, height / 2) };
+  });
+}
+
+for (const look of LOOKS) {
+  test(`ECOLOGY draws the replay's food, water, power and volume, in the ${look} look`, async ({ page, request }) => {
+    const run = await storedRun(request);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await useLook(page, look);
+    await openReplay(page, run);
+    await page.getByRole('tablist', { name: 'Grid viz mode' }).getByRole('tab', { name: /ECOLOGY/ }).click();
+    await page.waitForTimeout(1_000);
+    await page.screenshot({ path: `${PICTURES}/ecology-1440-${look}.png` });
+
+    // The stored run's last turn carries the four readings ECOLOGY draws.
+    const metrics = run.frames.find(f => f.leader === ARIA && f.type === 'turn_done' && Number(f.data.turn) === run.turns)?.data.metrics as Record<string, number>;
+    for (const key of ['foodMonthsReserve', 'waterLitersPerDay', 'powerKw', 'pressurizedVolumeM3']) expect(typeof metrics[key], key).toBe('number');
+
+    // Each quadrant is tinted by its reading: food, water, power, volume.
+    const cover = await quadrantCover(page, 'a');
+    expect(cover.tl, 'food quadrant').toBeGreaterThan(0.9);
+    expect(cover.tr, 'water quadrant').toBeGreaterThan(0.9);
+    expect(cover.bl, 'power quadrant').toBeGreaterThan(0.9);
+    expect(cover.br, 'volume quadrant').toBeGreaterThan(0.9);
+  });
+}
+
+/** A fingerprint of a canvas's pixels. */
+async function canvasPrint(page: Page, side: 'a' | 'b'): Promise<number> {
+  return canvasOf(page, side).evaluate((canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 0;
+    const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let h = 2166136261;
+    for (let i = 0; i < px.length; i += 7) h = Math.imul(h ^ px[i], 16777619);
+    return h >>> 0;
+  });
+}
+
+for (const look of LOOKS) {
+  test(`the grid settings offer only switches that change something, in the ${look} look`, async ({ page, request }) => {
+    const run = await storedRun(request);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await useLook(page, look);
+    await openReplay(page, run);
+    await page.getByRole('button', { name: 'Show advanced tools (palette, stats, export, settings)' }).click();
+    await page.getByRole('button', { name: 'Open grid settings' }).click();
+    const drawer = page.getByRole('dialog', { name: 'Grid viz settings' });
+    await expect(drawer).toBeVisible();
+    await page.screenshot({ path: `${PICTURES}/settings-1440-${look}.png` });
+
+    // Animation speed, Dept rings, Family lines, Star dust bg and Ghost
+    // trail drew layers that no longer exist; the switches left are read.
+    await expect(drawer.locator('[class*="rowLabel"]')).toHaveText(['Dept labels', 'Crosshair', 'Alert toasts', 'Sound cues']);
+
+    // Dept labels changes the canvas.
+    await page.waitForTimeout(3_000);
+    const before = await canvasPrint(page, 'a');
+    await drawer.getByText('Dept labels', { exact: true }).locator('..').getByRole('button', { name: 'on', exact: true }).click();
+    await page.waitForTimeout(400);
+    expect(await canvasPrint(page, 'a')).not.toBe(before);
+  });
+}
