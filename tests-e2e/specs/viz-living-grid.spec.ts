@@ -148,7 +148,7 @@ function readTiles(canvas: HTMLCanvasElement, minAlpha = 1, maxAlpha = 160): Gri
   const px = ctx.getImageData(0, 0, width, height).data;
   const B = 16;
   const found: string[] = [];
-  let maxAlpha = 0;
+  let peak = 0;
   for (let y = 0; y + B <= height; y += B) {
     for (let x = 0; x + B <= width; x += B) {
       const i0 = (y * width + x) * 4;
@@ -163,11 +163,11 @@ function readTiles(canvas: HTMLCanvasElement, minAlpha = 1, maxAlpha = 160): Gri
       }
       if (same) {
         found.push(`${x},${y},${a0}`);
-        if (a0 > maxAlpha) maxAlpha = a0;
+        if (a0 > peak) peak = a0;
       }
     }
   }
-  return { blocks: found.length, maxAlpha, signature: found.join(';') };
+  return { blocks: found.length, maxAlpha: peak, signature: found.join(';') };
 }
 
 /** Before any page script runs: puts the tile reader on the page as window.__readTiles. */
