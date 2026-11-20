@@ -257,13 +257,20 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
 
   // Resize observer on the canvas wrapper (not the full container — the
   // container also holds the metrics strip DOM above the canvas).
+  //
+  // A panel with no box measures 0 by 0: the other actor's panel on a
+  // phone, or the side a full-screen focus hides. The size stays 0 then,
+  // so nothing is seeded or drawn until the panel is shown again. A floor
+  // of 1 let a turn change seed the Conway grid from positions clamped
+  // outside a 1 by 1 canvas and mark the turn seeded, and the panel came
+  // back with no tiles.
   useEffect(() => {
     const el = canvasWrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(entries => {
       for (const e of entries) {
-        const w = Math.max(1, Math.round(e.contentRect.width));
-        const h = Math.max(1, Math.round(e.contentRect.height));
+        const w = Math.max(0, Math.round(e.contentRect.width));
+        const h = Math.max(0, Math.round(e.contentRect.height));
         setSize(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
       }
     });
