@@ -5,7 +5,8 @@
  *   visitor's saved runs (the list the Sim tab's "Replay from cache", Load
  *   Prior Run and the Quickstart "Replay last run" link read), and
  *   `/sessions/:id/replay` streams it back without starting a run or calling
- *   a model. A second visitor's list does not hold it.
+ *   a model. A second visitor's list does not hold it. A pair run whose two
+ *   actors share a name is saved too.
  * - Until the store holds 50 rows, other visitors' finished runs leave a
  *   visitor's saved run in that visitor's list.
  * - A run of 300 actors whose live buffer was trimmed, and a fork that runs
@@ -131,6 +132,23 @@ test("on the hosted demo a finished six-turn pair run is in its visitor's saved 
 
     const b = cookied();
     assert.deepEqual(await listSessions(b), [], "a second visitor's list holds none of the first visitor's runs");
+  }, { runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore() } });
+});
+
+test('on the hosted demo a finished pair run whose two actors share a name is saved', async () => {
+  const titles = titleStub();
+  await withVisitors(async ({ cookied, launches }) => {
+    const a = cookied();
+    const [first, second] = mars.presets[0].leaders;
+    const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS, actors: [{ ...first, name: 'Ada Reyes' }, { ...second, name: 'Ada Reyes' }] });
+    assert.equal(res.status, 200, await res.text());
+    const saved = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved'), 'the save decision', 5000)).data;
+    const [nameA, nameB] = launches[0].config.actors.map(actor => actor.name);
+    assert.equal(nameA, nameB, 'both actors ran under one name');
+    // Each actor's turn_done frames carry the same leader name, so the
+    // twelve actor-turns of the two actors are twelve, not six.
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.deepEqual((await listSessions(a)).map(s => s.id), [saved.id]);
   }, { runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore() } });
 });
 
