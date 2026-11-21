@@ -2056,8 +2056,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         : undefined;
       const result = await sessionStore.saveSession(events, override, { owner: sessionOwner(run.visitorId), runKey: run.key });
       liveRuns.settleSave(run);
-      const storeCount = await sessionStore.count();
-      console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} actor-turns (store count: ${storeCount})`);
+      // The row count is for the log line and the status alone: a store
+      // that cannot count once the save committed still reports the save,
+      // links the run's Library records and titles it.
+      let storeCount: number | null = null;
+      try {
+        storeCount = await sessionStore.count();
+      } catch (err) {
+        console.warn(`[sessions] saved run ${result.id}, but could not count the saved runs:`, err);
+      }
+      console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} actor-turns (store count: ${storeCount ?? 'unknown'})`);
       // Backfill session_id onto every RunRecord that onArtifactPersist
       // inserted for this broadcast. Wrapped in try/catch because a
       // link failure must not abort the save broadcast — the run is
@@ -2076,7 +2084,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         evictedId: result.evictedId,
         eventCount: events.length,
         turnCount: turnDoneCount,
-        totalStored: storeCount,
+        ...(storeCount !== null ? { totalStored: storeCount } : {}),
       });
       // Title-generation pipeline: fire-and-forget nano-tier LLM call
       // off the save hot path. A failed / slow title call must not
