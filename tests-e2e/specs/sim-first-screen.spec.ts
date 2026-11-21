@@ -908,6 +908,460 @@ screenTest('feature 5: loading shapes', async ({ page }) => {
   }
 });
 
+/** The shared colony panel's canvas pixels as one string: two frames are the same frame when their strings are equal. */
+const frameOf = (canvas: Locator): Promise<string> => canvas.evaluate((el) => (el as HTMLCanvasElement).toDataURL());
+
+/**
+ * How many solid squares of one colour the canvas holds, each 12 pixels or
+ * more: the Game of Life cells. Rings and lines are thinner than that.
+ */
+function countTiles(el: Element): number {
+  const canvas = el as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || canvas.width === 0 || canvas.height === 0) return 0;
+  const { width, height } = canvas;
+  const px = ctx.getImageData(0, 0, width, height).data;
+  const B = 12;
+  let found = 0;
+  for (let y = 0; y + B <= height; y += B) {
+    for (let x = 0; x + B <= width; x += B) {
+      const i0 = (y * width + x) * 4;
+      if (px[i0 + 3] === 0) continue;
+      let same = true;
+      for (let dy = 0; dy < B && same; dy += 3) {
+        for (let dx = 0; dx < B; dx += 3) {
+          const i = ((y + dy) * width + x + dx) * 4;
+          if (px[i] !== px[i0] || px[i + 1] !== px[i0 + 1] || px[i + 2] !== px[i0 + 2] || px[i + 3] !== px[i0 + 3]) { same = false; break; }
+        }
+      }
+      if (same) found += 1;
+    }
+  }
+  return found;
+}
+
+/** Opens /sim, waits for the scenario line and for the shared colony panel's canvas to hold its cells. */
+async function openColony(page: Page, size: { width: number; height: number }, look: Look, name = 'Mars Genesis'): Promise<{ root: Locator; colony: Locator; canvas: Locator }> {
+  const root = await openReady(page, size, look, name);
+  const colony = root.getByTestId('shared-colony');
+  const canvas = colony.locator('canvas');
+  await expect(canvas).toHaveCount(1);
+  await expect.poll(() => canvas.evaluate(countTiles), { message: 'the panel draws its Game of Life cells' }).toBeGreaterThan(0);
+  return { root, colony, canvas };
+}
+
+/** The people set over the field as text, each with its box. */
+async function nameBoxes(colony: Locator): Promise<Array<{ name: string; left: number; top: number; right: number; bottom: number; size: number; colour: string; opacity: number }>> {
+  return colony.locator('[data-person][data-featured="true"]').evaluateAll((els) => els.map((el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return { name: (el.textContent ?? '').trim(), left: r.left, top: r.top, right: r.right, bottom: r.bottom, size: parseFloat(cs.fontSize), colour: cs.color, opacity: Number(cs.opacity) };
+  }));
+}
+
+screenTest('feature 14: one colony field, the key people, no ticks', async ({ page }) => {
+  test.setTimeout(300_000);
+  const people = keyPeopleOf(await serverScenario(page));
+  expect(people).toHaveLength(5);
+  expect(new Set(people.map((p) => p.department)).size).toBe(4);
+
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const { root, colony, canvas } = await openColony(page, size, look);
+        // Exactly one colony field on the screen, inside the panel; no card carries one.
+        await expect(root.locator('canvas')).toHaveCount(1);
+        await expect(root.getByTestId('leaders').locator('canvas')).toHaveCount(0);
+
+        // The header, in the live grid's own type, the caption and the key line.
+        const turn = colony.getByTestId('colony-turn');
+        await expect(turn).toHaveText('TURN 0');
+        const turnStyle = await styleOf(turn);
+        expect(turnStyle.face).toContain('JetBrains Mono');
+        expect(turnStyle.size).toBe(15);
+        await expect(colony.getByTestId('colony-figures')).toHaveText(COLONY_FIGURES);
+        await expect(colony.getByTestId('colony-caption')).toHaveText(COLONY_CAPTION);
+        await expect(colony.getByTestId('colony-key').getByRole('listitem')).toHaveText(COLONY_KEY);
+        await expect(colony.getByRole('img', { name: COLONY_SPOKEN })).toHaveCount(1);
+
+        // Each featured person's name is text at 15 px or more in the ink, inside the field, and no two overlap.
+        const ink = await tokenColour(page, '--text-1');
+        const field = await box(colony.getByTestId('colony-field'));
+        const names = await nameBoxes(colony);
+        expect(names.map((n) => n.name)).toEqual(people.filter((p) => p.featured).map((p) => p.name));
+        for (const n of names) {
+          expect(n.size, `${n.name} is set at 15 px or more`).toBeGreaterThanOrEqual(15);
+          expect(n.colour, `${n.name} is set in the ink`).toBe(ink);
+          expect(n.opacity).toBe(1);
+          expect(n.right - n.left).toBeGreaterThan(20);
+          expect(n.left).toBeGreaterThanOrEqual(field.x - 1);
+          expect(n.right).toBeLessThanOrEqual(field.x + field.width + 1);
+          expect(n.top).toBeGreaterThanOrEqual(field.y - 1);
+          expect(n.bottom).toBeLessThanOrEqual(field.y + field.height + 1);
+        }
+        for (let i = 0; i < names.length; i += 1) {
+          for (let j = i + 1; j < names.length; j += 1) {
+            const a = names[i];
+            const b = names[j];
+            const apart = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+            expect(apart, `${a.name} and ${b.name} do not overlap`).toBe(true);
+          }
+        }
+
+        // The cells draw in the grid's first colour, the accent amber, and the panel rests: two frames two seconds apart are the same frame.
+        const vis = await tokenColour(page, '--vis');
+        const tile = await canvas.evaluate((el) => {
+          const c = el as HTMLCanvasElement;
+          const ctx = c.getContext('2d');
+          if (!ctx) return '';
+          const px = ctx.getImageData(0, 0, c.width, c.height).data;
+          const counts = new Map<string, number>();
+          for (let i = 0; i < px.length; i += 4 * 7) {
+            if (px[i + 3] === 0) continue;
+            const key = `rgb(${px[i]}, ${px[i + 1]}, ${px[i + 2]})`;
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+          return [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? '';
+        });
+        expect(tile, 'the cells draw in the accent amber').toBe(vis);
+        const first = await frameOf(canvas);
+        await colony.scrollIntoViewIfNeeded();
+        await picture(page, `colony-${size.width}-${look}-f1`);
+        await page.waitForTimeout(2_000);
+        expect(await frameOf(canvas), 'two frames two seconds apart are the same frame').toBe(first);
+        await picture(page, `colony-${size.width}-${look}-f2`);
+
+        // The panel stands above the leaders, the column's width.
+        const [panel, leaders, column] = await Promise.all([box(colony), box(root.getByTestId('leaders')), box(root)]);
+        expect(panel.y + panel.height).toBeLessThanOrEqual(leaders.y + 1);
+        expect(Math.abs(field.width - column.width)).toBeLessThanOrEqual(1);
+
+        if (size.width < 1100) {
+          // Feature 14, QA step 4: switching the leader leaves the panel as it was.
+          await root.getByTestId('leaders').getByRole('tab', { name: 'Show Dietrich Voss' }).click();
+          await expect(root.getByTestId('leaders').getByTestId('leader-head')).toHaveText(DIETRICH.title);
+          expect(await frameOf(canvas)).toBe(first);
+          const still = await box(colony.getByTestId('colony-field'));
+          expect(Math.abs(still.height - field.height)).toBeLessThanOrEqual(1);
+          expect(Math.abs(still.width - field.width)).toBeLessThanOrEqual(1);
+        }
+
+        // A person is one press: the name opens the grid's own popover, and Escape closes it.
+        const person = colony.locator('[data-person]').first();
+        await person.click();
+        const popover = colony.getByRole('dialog', { name: `${people[0].name} drilldown` });
+        await expect(popover).toBeVisible();
+        await expect(popover).toContainText(people[0].department);
+        await page.keyboard.press('Escape');
+        await expect(popover).toHaveCount(0);
+
+        // The panel is one stop: the arrow keys move between the people.
+        await expect(colony.locator('[data-person][tabindex="0"]')).toHaveCount(1);
+        await person.focus();
+        await page.keyboard.press('ArrowRight');
+        await expect(colony.locator('[data-person]').nth(1)).toBeFocused();
+        await expect(colony.locator('[data-person][tabindex="0"]')).toHaveCount(1);
+        await page.keyboard.press('ArrowLeft');
+        await expect(person).toBeFocused();
+      });
+    }
+  }
+
+  // Feature 14, QA step 13 at a pair: the field's height at each width, with no sideways scroll.
+  for (const [width, height] of FIELD_HEIGHTS) {
+    await test.step(`the field at ${width}`, async () => {
+      const { root, colony } = await openColony(page, sizeAt(width), 'dark');
+      const field = await box(colony.getByTestId('colony-field'));
+      expect(Math.abs(field.height - height)).toBeLessThanOrEqual(1);
+      expect(Math.abs(field.width - (await box(root)).width)).toBeLessThanOrEqual(1);
+      await expectNoSidewaysScroll(page, root);
+      await expect(root.locator('canvas')).toHaveCount(1);
+    });
+  }
+
+  // A person who is not featured shows no name at rest; the name shows on focus.
+  await test.step('a person who is not featured, 1440 in the dark look', async () => {
+    await routeScenario(page, (scenario) => {
+      const preset = scenario.presets.find((p) => p.id === 'default') ?? scenario.presets[0];
+      if (preset?.personnel?.[1]) preset.personnel[1].featured = false;
+    });
+    const { colony } = await openColony(page, WIDE, 'dark');
+    await expect(colony.locator('[data-person][data-featured="true"]')).toHaveCount(4);
+    const quiet = colony.locator('[data-person][data-featured="false"]');
+    await expect(quiet).toHaveCount(1);
+    await expect(quiet).toHaveText(people[1].name);
+    expect(await quiet.evaluate((el) => getComputedStyle(el).opacity)).toBe('0');
+    await colony.locator('[data-person]').first().focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(quiet).toBeFocused();
+    await expect.poll(() => quiet.evaluate((el) => getComputedStyle(el).opacity)).toBe('1');
+    expect((await styleOf(quiet)).size).toBeGreaterThanOrEqual(15);
+    await page.unroute('**/scenario');
+  });
+});
+
+screenTest('feature 14: under reduced motion', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // From the page's start: every frame of the panel's canvas and of the cover that would fade it in.
+  await page.addInitScript(() => {
+    const out: { frames: Array<{ url: string; cover: number; w: number; h: number }>; done: boolean } = { frames: [], done: false };
+    (window as unknown as { colonyFrames: typeof out }).colonyFrames = out;
+    let began = 0;
+    const loop = () => {
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="shared-colony"] canvas');
+      const now = performance.now();
+      if (canvas) {
+        if (!began) began = now;
+        const cover = canvas.parentElement?.querySelector('[class*="revealCover"]');
+        out.frames.push({ url: canvas.toDataURL(), cover: cover ? Number(getComputedStyle(cover).opacity) : 0, w: canvas.width, h: canvas.height });
+        if (now - began > 1500) { out.done = true; return; }
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const { colony, canvas } = await openColony(page, WIDE, look);
+      await page.waitForFunction(() => (window as unknown as { colonyFrames: { done: boolean } }).colonyFrames.done, undefined, { timeout: 20_000 });
+      const frames = await page.evaluate(() => (window as unknown as { colonyFrames: { frames: Array<{ url: string; cover: number; w: number; h: number }> } }).colonyFrames.frames);
+      expect(frames.length).toBeGreaterThan(5);
+      const settled = await frameOf(canvas);
+      const last = frames[frames.length - 1];
+      expect(last.url).toBe(settled);
+      // No fade: the cover is never part way, and it ends clear.
+      expect(frames.map((f) => f.cover).filter((cover) => cover > 0 && cover < 1), 'no frame shows the panel part way through a fade').toEqual([]);
+      expect(last.cover).toBe(0);
+      // The settled frame draws at once: at the canvas's final size it is either not drawn yet or the settled frame, never a frame between.
+      const sized = frames.filter((f) => f.w === last.w && f.h === last.h);
+      expect(new Set(sized.map((f) => f.url)).size).toBeLessThanOrEqual(2);
+      const firstSettled = sized.findIndex((f) => f.url === settled);
+      expect(firstSettled).toBeGreaterThanOrEqual(0);
+      expect(sized.slice(firstSettled).every((f) => f.url === settled)).toBe(true);
+      // Nothing ticks afterwards.
+      await page.waitForTimeout(1_000);
+      expect(await frameOf(canvas)).toBe(settled);
+      await colony.scrollIntoViewIfNeeded();
+      await picture(page, `colony-reduced-motion-1440-${look}`);
+    });
+  }
+});
+
+screenTest('feature 14: the light canvas ground', async ({ page }) => {
+  test.setTimeout(120_000);
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`${size.width} in the light look`, async () => {
+      const { colony, canvas } = await openColony(page, size, 'light');
+      const read = await canvas.evaluate((el) => {
+        const canvasEl = el as HTMLCanvasElement;
+        type RGB = [number, number, number];
+        type RGBA = [number, number, number, number];
+        const probe = document.createElement('canvas');
+        probe.width = 1;
+        probe.height = 1;
+        const pctx = probe.getContext('2d', { willReadFrequently: true });
+        /** Any computed colour as red, green, blue and alpha. */
+        const parse = (css: string): RGBA => {
+          const m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/.exec(css.trim());
+          if (m) return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+          const s = /^color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*\/\s*([\d.]+))?\s*\)$/.exec(css.trim());
+          if (s) return [Number(s[1]) * 255, Number(s[2]) * 255, Number(s[3]) * 255, s[4] === undefined ? 1 : Number(s[4])];
+          if (!pctx) return [0, 0, 0, 0];
+          pctx.clearRect(0, 0, 1, 1);
+          pctx.fillStyle = css;
+          pctx.fillRect(0, 0, 1, 1);
+          const d = pctx.getImageData(0, 0, 1, 1).data;
+          return [d[0], d[1], d[2], d[3] / 255];
+        };
+        const over = (top: RGBA, under: RGB): RGB => [
+          top[0] * top[3] + under[0] * (1 - top[3]),
+          top[1] * top[3] + under[1] * (1 - top[3]),
+          top[2] * top[3] + under[2] * (1 - top[3]),
+        ];
+        const lin = (c: number): number => {
+          const v = c / 255;
+          return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        };
+        const lum = (c: RGB): number => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+        const ratio = (a: RGB, b: RGB): number => {
+          const x = lum(a);
+          const y = lum(b);
+          return Math.round(((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)) * 100) / 100;
+        };
+        const token = (name: string): RGBA => {
+          const span = document.createElement('span');
+          span.style.color = `var(${name})`;
+          document.body.appendChild(span);
+          const colour = parse(getComputedStyle(span).color);
+          span.remove();
+          return colour;
+        };
+
+        // The canvas ground: the nearest opaque ground behind the canvas, with every wash between laid over it.
+        const layers: RGBA[] = [];
+        let ground: RGB = [255, 255, 255];
+        for (let node: Element | null = canvasEl.parentElement; node; node = node.parentElement) {
+          const bg = parse(getComputedStyle(node).backgroundColor);
+          if (bg[3] >= 0.999) { ground = [bg[0], bg[1], bg[2]]; break; }
+          if (bg[3] > 0) layers.push(bg);
+        }
+        for (let i = layers.length - 1; i >= 0; i -= 1) ground = over(layers[i], ground);
+
+        const ctx = canvasEl.getContext('2d');
+        if (!ctx) throw new Error('the canvas has no context');
+        const { width, height } = canvasEl;
+        const px = ctx.getImageData(0, 0, width, height).data;
+        const at = (x: number, y: number): RGBA => {
+          const i = (Math.round(y) * width + Math.round(x)) * 4;
+          return [px[i], px[i + 1], px[i + 2], px[i + 3] / 255];
+        };
+
+        // A Game of Life cell, at a known point: the middle of the first solid square found.
+        let tile: RGBA | null = null;
+        const B = 12;
+        for (let y = 0; y + B <= height && !tile; y += B) {
+          for (let x = 0; x + B <= width && !tile; x += B) {
+            const first = at(x, y);
+            if (first[3] === 0) continue;
+            let same = true;
+            for (let dy = 0; dy < B && same; dy += 3) {
+              for (let dx = 0; dx < B; dx += 3) {
+                const p = at(x + dx, y + dy);
+                if (p[0] !== first[0] || p[1] !== first[1] || p[2] !== first[2] || p[3] !== first[3]) { same = false; break; }
+              }
+            }
+            if (same) tile = at(x + B / 2, y + B / 2);
+          }
+        }
+
+        // A person's ring, at a known point: the strongest pixel on the ring of the first person the panel names.
+        const person = document.querySelector<HTMLElement>('[data-testid="shared-colony"] [data-person][data-featured="true"]');
+        const scale = width / canvasEl.getBoundingClientRect().width;
+        let ring: RGBA | null = null;
+        if (person) {
+          const cx = Number(person.dataset.ringX) * scale;
+          const cy = Number(person.dataset.ringY) * scale;
+          for (let a = 0; a < 360; a += 2) {
+            for (let r = 3.5 * scale; r <= 6.5 * scale; r += 0.5) {
+              const x = cx + Math.cos((a * Math.PI) / 180) * r;
+              const y = cy + Math.sin((a * Math.PI) / 180) * r;
+              if (x < 0 || y < 0 || x >= width || y >= height) continue;
+              const p = at(x, y);
+              if (!ring || p[3] > ring[3]) ring = p;
+            }
+          }
+        }
+
+        const wrap = canvasEl.parentElement;
+        const fieldEdge = wrap ? parse(getComputedStyle(wrap).borderTopColor) : ([0, 0, 0, 0] as RGBA);
+        return {
+          ground: ground.map((c) => Math.round(c)),
+          tile: tile ? ratio(over(tile, ground), ground) : 0,
+          ring: ring ? ratio(over(ring, ground), ground) : 0,
+          amber: ratio(over(token('--vis'), ground), ground),
+          teal: ratio(over(token('--eng'), ground), ground),
+          edge: ratio(over(token('--edge-control'), ground), ground),
+          fieldEdge: ratio(over(fieldEdge, ground), ground),
+        };
+      });
+      const said = JSON.stringify(read);
+      // On the light canvas ground: the cells and rings, place 2's teal and the band edge each read 4.5 to 1 or more.
+      expect(read.tile, said).toBeGreaterThanOrEqual(4.5);
+      expect(read.ring, said).toBeGreaterThanOrEqual(4.5);
+      expect(read.amber, said).toBeGreaterThanOrEqual(4.5);
+      expect(read.teal, said).toBeGreaterThanOrEqual(4.5);
+      expect(read.edge, said).toBeGreaterThanOrEqual(4.5);
+      expect(read.fieldEdge, said).toBeGreaterThanOrEqual(4.5);
+      // The field is flat, edged in the control edge.
+      const wrap = canvas.locator('xpath=..');
+      expect(await wrap.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await tokenColour(page, '--edge-control'));
+      expect(await wrap.evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
+      await colony.scrollIntoViewIfNeeded();
+      await picture(page, `colony-light-ground-${size.width}`);
+    });
+  }
+});
+
+screenTest('feature 14: waits for the scenario', async ({ page }) => {
+  test.setTimeout(120_000);
+  const mars = keyPeopleOf(await serverScenario(page)).map((p) => p.name);
+  expect(mars).toHaveLength(5);
+  await switchScenario(page, 'lunar-outpost');
+  const lunar = keyPeopleOf(await serverScenario(page));
+  expect(lunar.map((p) => p.name)).not.toEqual(mars);
+  await page.addInitScript((names) => {
+    const w = window as unknown as { marsPeoplePainted: boolean; colonyEmptyPainted: boolean };
+    w.marsPeoplePainted = false;
+    w.colonyEmptyPainted = false;
+    new MutationObserver(() => {
+      const text = document.querySelector('[data-testid="shared-colony"]')?.textContent ?? '';
+      if (names.some((name) => text.includes(name))) w.marsPeoplePainted = true;
+      if (text.includes('names no key people')) w.colonyEmptyPainted = true;
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  }, mars);
+  for (const look of LOOKS) {
+    await test.step(`390 in the ${look} look`, async () => {
+      const release = await holdScenario(page);
+      const root = await openRun(page, PHONE, look);
+      const colony = root.getByTestId('shared-colony');
+      // While the scenario loads: the panel's frame at its final size, with no canvas, no name and no empty-state sentence.
+      const field = colony.getByTestId('colony-field');
+      await expect(field).toBeVisible();
+      expect(Math.abs((await box(field)).height - 190)).toBeLessThanOrEqual(1);
+      await expect(root.locator('canvas')).toHaveCount(0);
+      await expect(colony.locator('[data-person]')).toHaveCount(0);
+      await expect(colony).not.toContainText('names no key people');
+      for (const name of mars) await expect(colony).not.toContainText(name);
+      const before = await box(colony);
+
+      release();
+      await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost' })).toBeVisible();
+      await expect(colony.locator('[data-person]')).toHaveText(lunar.map((p) => p.name));
+      await expect(colony.getByTestId('colony-figures')).toHaveText(`${lunar.length} key people · ${new Set(lunar.map((p) => p.department)).size} departments`);
+      await expect(root.locator('canvas')).toHaveCount(1);
+      const after = await box(colony);
+      expect(Math.abs(after.height - before.height)).toBeLessThan(PHONE.height * 0.1);
+      const painted = await page.evaluate(() => {
+        const w = window as unknown as { marsPeoplePainted: boolean; colonyEmptyPainted: boolean };
+        return { mars: w.marsPeoplePainted, empty: w.colonyEmptyPainted };
+      });
+      expect(painted).toEqual({ mars: false, empty: false });
+      await page.unroute('**/scenario');
+    });
+  }
+});
+
+screenTest('feature 14: a scenario with no key people', async ({ page }) => {
+  test.setTimeout(120_000);
+  await routeScenario(page, (scenario) => {
+    for (const preset of scenario.presets) delete preset.personnel;
+  });
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const root = await openReady(page, size, look);
+        const colony = root.getByTestId('shared-colony');
+        // Still the screen's one colony field: the frame, the header and the key line, with the sentence and no canvas.
+        await expect(colony).toHaveCount(1);
+        const field = colony.getByTestId('colony-field');
+        await expect(field).toBeVisible();
+        expect(Math.abs((await box(field)).height - (size.width < 600 ? 190 : 280))).toBeLessThanOrEqual(1);
+        await expect(colony.getByTestId('colony-turn')).toHaveText('TURN 0');
+        await expect(colony.getByTestId('colony-key').getByRole('listitem')).toHaveText(COLONY_KEY);
+        await expect(colony.getByTestId('colony-empty')).toHaveText(NO_KEY_PEOPLE);
+        await expect(root.locator('canvas')).toHaveCount(0);
+        await expect(colony.locator('[data-person]')).toHaveCount(0);
+        // The two written leaders still show under it.
+        await expect(root.getByTestId('leaders')).toContainText(ARIA.title);
+        expect(await measureReadability(page)).toEqual([]);
+        await colony.scrollIntoViewIfNeeded();
+        await picture(page, `colony-no-key-people-${size.width}-${look}`);
+      });
+    }
+  }
+});
+
 screenTest('readability: the first screen at five widths', async ({ page }) => {
   test.setTimeout(180_000);
   for (const width of [320, 390, 768, 1100, 1440]) {
