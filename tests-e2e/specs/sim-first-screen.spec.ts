@@ -43,6 +43,14 @@
  *   the panel's frame with a sentence and no canvas.
  * - On the light look's canvas ground the grid's tones read 4.5 to 1.
  *
+ * The run's size (feature 4), and the screen at 24 and 300 leaders:
+ * - A run on the host's keys is a pair, said in words. On the visitor's own
+ *   key, or on a server that is not the hosted demo, the size is a number
+ *   from 2 to 300 with a fewer key and a more key, kept in the address.
+ * - Above 2 the screen keeps the two written leaders and one colony field,
+ *   says Paracosm writes all the leaders when the run starts, and writes the
+ *   scenario line and the panel's caption for that size.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -1396,6 +1404,389 @@ screenTest('feature 14: a scenario with no key people', async ({ page }) => {
       });
     }
   }
+});
+
+/* The run's size (feature 4), the screen at 24 and 300 leaders, and Start (feature 10). */
+
+/** A server of this suite that is not the hosted demo: it runs on its own keys and has no free runs to count. */
+const SELF_HOSTED = 'http://127.0.0.1:3456';
+const FREE_SIZE_LINE = 'A free run has 2 leaders. With your own API key, a run can have up to 300.';
+const CHOOSE_SIZE = 'Choose 2 to 300 leaders.';
+const SETTINGS_NOT_READ = 'The server’s settings could not be read. The server checks the size when you press Start.';
+const writesAll = (n: number) => `Paracosm writes all ${n} leaders from this scenario when the run starts, in place of these two.`;
+const cohortSentences = (n: number) => `${n} AI leaders each run this scenario for 6 turns, each under its own orders. Press Start to watch them decide. At the end, a report ranks them on morale, population and deaths.`;
+const cohortCaption = (n: number) => `All ${n} colonies start with the same 100 people, these 5 among them. Each leader’s decisions make them diverge.`;
+
+const START_FREE = 'Start Mars Genesis: 6 turns, about 3 and a half minutes';
+const FREE_SECOND_LINE = '6 turns, about 3½ minutes';
+const FREE_RUN = 'This run is free: we pay for it.';
+const AI_AGENTS = 'The leaders are AI agents.';
+const AFTER_NO_SAVED_RUN = 'After that, add your own API key in Settings to run again today. Your provider bills you for those runs.';
+const OWN_KEY_NOTICE = 'This run uses your OpenAI API key, and your provider bills you. Runs on your key skip the daily limit and do not use your free runs. They are not held to this demo’s size, so they can be larger than the free run.';
+const SERVER_NOTICE = 'This run uses this server’s API keys.';
+const CHECKING = 'Checking your free runs…';
+const STARTING = 'Starting…';
+
+/** A provider key saved in Settings, as this browser keeps it: the run is the visitor's own. */
+async function saveKey(page: Page): Promise<void> {
+  await page.addInitScript(() => { window.localStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-test"}'); });
+}
+
+/** The visitor's last launch, as Settings keeps it. */
+async function saveLastLaunch(page: Page, config: Record<string, unknown>): Promise<void> {
+  await page.addInitScript((value) => { window.localStorage.setItem('paracosm:lastLaunchConfig', value); }, JSON.stringify(config));
+}
+
+const consentAnswered = new WeakSet<Page>();
+/** Answers the hosted demo's consent bar once a page, so it covers no part of a picture. */
+async function answerConsent(page: Page): Promise<void> {
+  if (consentAnswered.has(page)) return;
+  const bar = page.locator('#pcc');
+  // The bar is built a moment after the page is ready, once its words are hashed.
+  await bar.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => undefined);
+  if (await bar.isVisible()) await bar.getByRole('button', { name: 'Reject all' }).click();
+  await expect(bar).toBeHidden();
+  consentAnswered.add(page);
+}
+
+/** Opens an address of the Run tab, waits for the scenario line, and answers the consent bar. */
+async function openReadyAt(page: Page, path: string, size: { width: number; height: number }, look: Look, name: string | null = 'Mars Genesis'): Promise<Locator> {
+  await page.setViewportSize(size);
+  await useLook(page, look);
+  await page.goto(path);
+  await page.waitForFunction((l) => document.documentElement.classList.contains('light') === (l === 'light'), look);
+  const root = page.locator(FIRST_SCREEN);
+  // A server of its own (an address with its host) may hold any scenario, and shows no consent bar.
+  await expect(root.getByRole('heading', name === null ? { level: 1 } : { level: 1, name })).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await expect(root.getByTestId('scenario-figures')).toBeVisible();
+  if (path.startsWith('/')) await answerConsent(page);
+  return root;
+}
+
+/** A request held until `open` is called. */
+function gate(): { open: () => void; opened: Promise<void> } {
+  let open: () => void = () => {};
+  const opened = new Promise<void>((resolve) => { open = resolve; });
+  return { open, opened };
+}
+
+/** A press made in the page, which reaches a key that says it is unavailable. */
+const pressInPage = (key: Locator): Promise<void> => key.evaluate((el) => (el as HTMLElement).click());
+
+/** The parts of the run's size. */
+const sizeParts = (root: Locator) => {
+  const part = root.getByTestId('run-size');
+  return {
+    part,
+    fewer: part.getByRole('button', { name: 'Fewer leaders', exact: true }),
+    field: part.getByRole('spinbutton', { name: 'Number of leaders', exact: true }),
+    more: part.getByRole('button', { name: 'More leaders', exact: true }),
+  };
+};
+
+/** The parts of the Start band. */
+const startParts = (root: Locator) => ({
+  key: root.getByTestId('start-key'),
+  bar: root.getByTestId('start-bar'),
+  barLines: root.getByTestId('start-bar-lines'),
+  notice: root.getByTestId('start-notice'),
+  runLine: root.getByTestId('run-line'),
+});
+
+/** The day's count for this test's internet address, asked from the page so it carries the page's address. */
+const dayCount = (page: Page): Promise<{ remaining: number; limit: number; resetAt: number }> =>
+  page.evaluate(async () => (await fetch('/rate-limit', { cache: 'no-store' })).json());
+
+/** A reset time as the browser prints it: a clock time with its time zone. */
+const clockTime = (page: Page, at: number): Promise<string> => page.evaluate(
+  (ms) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(ms)),
+  at,
+);
+
+/** Scrolls the first screen's end to the foot of the visible area, where the Start band rests in its place. */
+const scrollToBandPlace = (root: Locator): Promise<void> => root.evaluate((el) => { el.scrollIntoView({ block: 'end' }); });
+
+/** An internet address of its own for a second visitor inside one test: one a step and a retry. */
+async function secondAddress(context: BrowserContext, info: TestInfo, step: number): Promise<void> {
+  await context.setExtraHTTPHeaders({ 'x-real-ip': `203.0.113.${1 + step * 3 + info.retry}` });
+}
+
+screenTest('feature 4: a free run names its size', async ({ page }) => {
+  test.setTimeout(180_000);
+  for (const width of [390, 1100, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(`${width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', sizeAt(width), look);
+        const { part } = sizeParts(root);
+        const mark = part.getByTestId('leaders-mark');
+        await expect(mark).toHaveText('LEADERS');
+        const markStyle = await styleOf(mark);
+        expect(markStyle.size).toBe(15);
+        expect(markStyle.face).toContain('JetBrains Mono');
+        // A run on the host's keys is a pair, said in words: no field and no key.
+        const value = part.getByTestId('run-size-value');
+        await expect(value).toHaveText('2 leaders');
+        const line = part.getByTestId('run-size-line');
+        await expect(line).toHaveText(FREE_SIZE_LINE);
+        await expect(root.getByRole('spinbutton')).toHaveCount(0);
+        await expect(part.getByRole('button')).toHaveCount(0);
+        // Feature 4, QA step 18: the sizes.
+        expect((await styleOf(value)).size).toBe(18);
+        expect((await styleOf(line)).size).toBe(15);
+        // The size stands in the leaders' heading row: under the shared colony, over the leaders.
+        const [colony, size, leaders] = await Promise.all([box(root.getByTestId('shared-colony')), box(part), box(root.getByTestId('leaders'))]);
+        expect(size.y).toBeGreaterThanOrEqual(colony.y + colony.height - 1);
+        expect(size.y + size.height).toBeLessThanOrEqual(leaders.y + 1);
+        // A pair: no row about writing leaders.
+        await expect(root.getByTestId('writes-all')).toHaveCount(0);
+        await expectNoSidewaysScroll(page, root);
+        await part.scrollIntoViewIfNeeded();
+        await picture(page, `run-size-free-${width}-${look}`);
+      });
+    }
+  }
+});
+
+screenTest('feature 4: the control with a key', async ({ page, context }) => {
+  test.setTimeout(240_000);
+  await saveKey(page);
+  for (const width of [390, 1100, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(`${width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', sizeAt(width), look);
+        const { part, fewer, field, more } = sizeParts(root);
+        await expect(part.getByTestId('leaders-mark')).toHaveText('LEADERS');
+        await expect(part.getByTestId('run-size-value')).toHaveCount(0);
+        // At 2 the fewer key is unavailable, and says why.
+        await expect(field).toHaveValue('2');
+        await expect(field).toHaveAttribute('aria-valuemin', '2');
+        await expect(field).toHaveAttribute('aria-valuemax', '300');
+        await expect(field).toHaveAttribute('aria-valuenow', '2');
+        await expect(fewer).toBeDisabled();
+        await expect(more).toBeEnabled();
+        await expect(part.getByTestId('run-size-bound')).toHaveText('2 is the fewest a run takes.');
+        await expect(fewer).toHaveAccessibleDescription('2 is the fewest a run takes.');
+        expect((await styleOf(field)).size).toBe(18);
+
+        // The keyboard: up, Page Up, End and Home.
+        await field.focus();
+        await field.press('ArrowUp');
+        await expect(field).toHaveValue('3');
+        await expect(fewer).toBeEnabled();
+        await expect(part.getByTestId('run-size-bound')).toHaveCount(0);
+        await field.press('PageUp');
+        await expect(field).toHaveValue('13');
+        await field.press('End');
+        await expect(field).toHaveValue('300');
+        await expect(field).toHaveAttribute('aria-valuenow', '300');
+        await expect(more).toBeDisabled();
+        await expect(part.getByTestId('run-size-bound')).toHaveText('300 is the most a run takes.');
+        await field.press('Home');
+        await expect(field).toHaveValue('2');
+
+        // A number out of range says so, and the field returns to the nearest bound when it loses focus.
+        await field.fill('1');
+        const refusal = part.getByTestId('run-size-error');
+        await expect(refusal).toHaveText(CHOOSE_SIZE);
+        await expect(refusal.locator('[data-mark="warning"]')).toBeVisible();
+        await field.blur();
+        await expect(field).toHaveValue('2');
+        await expect(refusal).toHaveText(CHOOSE_SIZE);
+        await field.fill('400');
+        await expect(refusal).toHaveText(CHOOSE_SIZE);
+        await field.blur();
+        await expect(field).toHaveValue('300');
+        // A number in range clears the sentence.
+        await field.fill('24');
+        await field.blur();
+        await expect(field).toHaveValue('24');
+        await expect(refusal).toHaveCount(0);
+        // A number that is not whole keeps the last good one.
+        await field.fill('2.5');
+        await expect(refusal).toHaveText(CHOOSE_SIZE);
+        await field.blur();
+        await expect(field).toHaveValue('24');
+
+        // The keys: fewer and more, one leader a press.
+        await field.fill('2');
+        await field.blur();
+        for (let i = 0; i < 22; i += 1) await more.click();
+        await expect(field).toHaveValue('24');
+        await fewer.click();
+        await expect(field).toHaveValue('23');
+        await part.scrollIntoViewIfNeeded();
+        await picture(page, `run-size-control-${width}-${look}`);
+      });
+    }
+  }
+
+  await test.step('the keys and the field at 320: 44 px targets, 8 px apart, one row', async () => {
+    const root = await openReadyAt(page, '/sim', sizeAt(320), 'dark');
+    const { part, fewer, field, more } = sizeParts(root);
+    const [f, n, m] = await Promise.all([box(fewer), box(field), box(more)]);
+    for (const key of [f, m]) {
+      expect(key.width).toBeGreaterThanOrEqual(44);
+      expect(key.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(n.height).toBeGreaterThanOrEqual(44);
+    expect(n.width).toBeGreaterThanOrEqual(72);
+    expect(n.x - (f.x + f.width)).toBeGreaterThanOrEqual(8);
+    expect(m.x - (n.x + n.width)).toBeGreaterThanOrEqual(8);
+    expect(Math.abs(f.y - m.y)).toBeLessThanOrEqual(1);
+    // The mark LEADERS and the three controls on one row.
+    const mark = await box(part.getByTestId('leaders-mark'));
+    expect(mark.y).toBeLessThan(f.y + f.height);
+    expect(mark.y + mark.height).toBeGreaterThan(f.y);
+    await expectNoSidewaysScroll(page, root);
+    await part.scrollIntoViewIfNeeded();
+    await picture(page, 'run-size-control-320-dark');
+  });
+
+  await test.step('offline, the control still works', async () => {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { field, more } = sizeParts(root);
+    await expect(field).toHaveValue('2');
+    await context.setOffline(true);
+    await more.click();
+    await expect(field).toHaveValue('3');
+    await context.setOffline(false);
+  });
+
+  await test.step('the size reads as words until the server has answered, then the control shows once', async () => {
+    const held = gate();
+    await page.route('**/rate-limit', async (route: Route) => { await held.opened; await route.continue(); });
+    await page.route('**/admin-config', async (route: Route) => { await held.opened; await route.continue(); });
+    const root = await openReadyAt(page, '/sim', PHONE, 'light');
+    const { part, field } = sizeParts(root);
+    await expect(part.getByTestId('run-size-value')).toHaveText('2 leaders');
+    await expect(root.getByRole('spinbutton')).toHaveCount(0);
+    held.open();
+    await expect(field).toBeVisible();
+    await expect(part.getByTestId('run-size-value')).toHaveCount(0);
+    await page.unroute('**/rate-limit');
+    await page.unroute('**/admin-config');
+  });
+});
+
+screenTest('feature 4: self-hosted takes 2 to 300 with no key', async ({ page }) => {
+  test.setTimeout(120_000);
+  const config = await (await page.request.get(`${SELF_HOSTED}/admin-config`)).json() as { hostedDemo?: unknown };
+  expect(config.hostedDemo).toBe(false);
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, `${SELF_HOSTED}/sim`, WIDE, look, null);
+      const { part, fewer, field, more } = sizeParts(root);
+      await expect(part.getByTestId('run-size-value')).toHaveCount(0);
+      await expect(field).toHaveValue('2');
+      await expect(fewer).toBeDisabled();
+      await field.focus();
+      await field.press('End');
+      await expect(field).toHaveValue('300');
+      await expect(more).toBeDisabled();
+      await field.press('Home');
+      await expect(field).toHaveValue('2');
+      await part.scrollIntoViewIfNeeded();
+      await picture(page, `run-size-self-hosted-1440-${look}`);
+    });
+  }
+});
+
+screenTest('feature 4: settings could not be read', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.route('**/admin-config', (route: Route) => route.abort('failed'));
+  await test.step('with no key, the pair as words', async () => {
+    const root = await openRun(page, PHONE, 'dark');
+    await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+    const { part } = sizeParts(root);
+    await expect(part.getByTestId('run-size-value')).toHaveText('2 leaders');
+    await expect(root.getByRole('spinbutton')).toHaveCount(0);
+    await expect(part.getByTestId('run-size-settings')).toHaveCount(0);
+  });
+  await saveKey(page);
+  for (const look of LOOKS) {
+    await test.step(`with a key, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { part, field } = sizeParts(root);
+      await expect(field).toHaveValue('2');
+      const said = part.getByTestId('run-size-settings');
+      await expect(said).toHaveText(SETTINGS_NOT_READ);
+      expect((await styleOf(said)).size).toBe(15);
+      await part.scrollIntoViewIfNeeded();
+      await picture(page, `run-size-settings-not-read-390-${look}`);
+    });
+  }
+});
+
+screenTest('scale: the first screen at 24 and 300', async ({ page }) => {
+  test.setTimeout(300_000);
+  await saveKey(page);
+  for (const n of [24, 300]) {
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        await test.step(`${n} leaders at ${size.width} in the ${look} look`, async () => {
+          const root = await openReadyAt(page, `/sim?size=${n}`, size, look);
+          const { field } = sizeParts(root);
+          await expect(field).toHaveValue(String(n));
+          // The scenario line is written for the run's size.
+          await expect(root.getByTestId('scenario-sentences')).toHaveText(cohortSentences(n));
+          await expect(root.getByTestId('scenario-figures')).toHaveText(OWN_KEY_FIGURES);
+          // The two written leaders, and one row saying Paracosm writes them all.
+          const leaders = root.getByTestId('leaders');
+          await expect(leaders.getByTestId('writes-all')).toHaveText(writesAll(n));
+          if (size.width >= 1100) await expect(leaders.getByRole('article')).toHaveCount(2);
+          else await expect(leaders.getByRole('tab')).toHaveCount(2);
+          await expect(leaders).toContainText(ARIA.title);
+          // Exactly one colony field, whatever the size.
+          const colony = root.getByTestId('shared-colony');
+          await expect(root.locator('canvas')).toHaveCount(1);
+          await expect(colony.locator('canvas')).toHaveCount(1);
+          await expect(colony.getByTestId('colony-caption')).toHaveText(cohortCaption(n));
+          expect(await measureReadability(page)).toEqual([]);
+          expect(await axeFindings(page)).toEqual([]);
+          await expectNoSidewaysScroll(page, root);
+          await root.getByTestId('run-size').scrollIntoViewIfNeeded();
+          await picture(page, `scale-${n}-${size.width}-${look}`);
+        });
+      }
+    }
+  }
+
+  await test.step('every row is one row at six widths with the control shown', async () => {
+    for (const width of [320, 360, 390, 430, 480, 768]) {
+      const root = await openReadyAt(page, '/sim?size=24', sizeAt(width), 'dark');
+      await expect(sizeParts(root).field).toHaveValue('24');
+      expect(await rowsOnOneRow(page), `at ${width}`).toEqual([]);
+      await expectNoSidewaysScroll(page, root);
+    }
+  });
+
+  await test.step('the size is kept in the address', async () => {
+    const root = await openReadyAt(page, '/sim?size=300', WIDE, 'dark');
+    const { field } = sizeParts(root);
+    await expect(field).toHaveValue('300');
+    await page.reload();
+    await expect(field).toHaveValue('300');
+    // A change of the size is written to the address, so a reload keeps it.
+    await field.focus();
+    await field.press('Home');
+    await field.press('PageUp');
+    await expect(field).toHaveValue('12');
+    expect(new URL(page.url()).searchParams.get('size')).toBe('12');
+    await page.reload();
+    await expect(field).toHaveValue('12');
+    await expect(root.getByTestId('scenario-sentences')).toHaveText(cohortSentences(12));
+  });
+
+  await test.step('a size the address cannot hold falls back to 2, with no error', async () => {
+    for (const bad of ['999', '1', '2.5', 'many']) {
+      const root = await openReadyAt(page, `/sim?size=${bad}`, WIDE, 'dark');
+      const { part, field } = sizeParts(root);
+      await expect(field).toHaveValue('2');
+      await expect(part.getByTestId('run-size-error')).toHaveCount(0);
+      await expect(root.getByTestId('scenario-sentences')).toHaveText(PAIR_SENTENCES);
+    }
+  });
 });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
