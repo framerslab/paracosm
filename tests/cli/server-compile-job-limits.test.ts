@@ -142,5 +142,5 @@ test('on the hosted demo a start refused for four pending compiles does not use 
     assert.deepEqual(statuses, [202, 202, 202, 202, 503, 503, 202, 429]);
     // maxSimsPerDay above 0 makes the server create its rate limiter, which holds the daily
     // compile allowance; with the test helper's default of 0 there is no limiter at all.
-  }, { maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } });
+  }, { maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' } });
 });

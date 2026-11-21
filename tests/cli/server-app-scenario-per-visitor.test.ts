@@ -427,5 +427,5 @@ test('on the hosted demo the pick cookie is Secure, in the answers to a switch a
     await waitFor(() => launches[0], 'the run');
     const [runCookie] = ran.headers.getSetCookie();
     assert.ok(runCookie.split('; ').includes('Secure'), runCookie);
-  }, { env: { PARACOSM_HOSTED_DEMO: 'true' } });
+  }, { env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' } });
 });

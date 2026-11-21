@@ -149,6 +149,12 @@ export interface NormalizedSimulationConfig {
   economics: ResolvedEconomicsProfile;
   apiKey?: string;
   anthropicKey?: string;
+  /**
+   * Keep every model call of the run on `provider`: no fallback to another
+   * provider, on any key. The server sets it on every run of the hosted
+   * demo; `normalizeSimulationConfig` never reads it from a request.
+   */
+  stayOnProvider?: boolean;
   serperKey?: string;
   firecrawlKey?: string;
   tavilyKey?: string;
@@ -354,6 +360,12 @@ export const DEMO_MODELS: Record<LlmProvider, SimulationModelConfig> = {
 export const DEMO_COMMANDER_MODELS: Partial<Record<LlmProvider, string>> = {
   openai: 'gpt-5.4-mini',
 };
+
+/**
+ * The provider every host-paid run on the hosted demo runs on, whatever
+ * provider the request names. `applyDemoCaps` sets it.
+ */
+export const DEMO_PROVIDER: LlmProvider = 'openai';
 
 /**
  * Demo-mode execution caps. Enforced server-side when the request has no
@@ -571,24 +583,14 @@ function normalizeActiveDepartments(
 }
 
 /**
- * Apply demo-mode caps to an already-normalized sim config.
- *
- * Called server-side when a request arrives without a user-supplied API
- * key, so the run bills against the host's provider key. Replaces models
- * with DEMO_MODELS, clamps turn/population/department counts, keeps the
- * first two leaders with their instructions and labels trimmed, trims key
- * personnel to the population (their labels trimmed) and custom events to
- * the first one of each turn within the run's turns, turns live search off,
- * and tightens tool-loop step caps. Seed, scenario content, and
- * scenario-level starting state pass through unchanged so the run still
- * feels like a real sim rather than a canned preview.
- *
- * The client cannot bypass by posting its own `models` or `turns` values.
- * Whatever the normalizer produced is overwritten here.
+ * The economics profile a host-paid run on the hosted demo plays: the
+ * economy profile on the demo's models for `provider`, with the commander
+ * moved up (DEMO_COMMANDER_MODELS). `applyDemoCaps` gives it to every
+ * host-paid /setup run, and a host-paid Digital Twin or /simulate run takes
+ * its models.
  */
-export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSimulationConfig {
-  const demoModels = DEMO_MODELS[config.provider];
-  const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
+export function demoEconomics(provider: LlmProvider = DEMO_PROVIDER): ResolvedEconomicsProfile {
+  const demoModels = DEMO_MODELS[provider];
   // Pure economy tier for the hosted demo: let the 'economy' profile's
   // own model matrix win, rather than layering DEMO_MODELS on top as
   // overrides. DEMO_MODELS was pinning `gpt-4o` on departments to avoid
@@ -603,21 +605,47 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   // server is running on host-provided keys in hosted-demo mode.
   const economy = resolveEconomicsProfile({
     profileId: 'economy',
-    provider: config.provider,
+    provider,
     baseModels: demoModels,
   });
   // The commander alone moves up (DEMO_COMMANDER_MODELS). A commander
   // override also moves the director unless the director is named, so the
   // economy profile's director is named with it.
-  const demoCommander = DEMO_COMMANDER_MODELS[config.provider];
-  const economics = demoCommander
+  const demoCommander = DEMO_COMMANDER_MODELS[provider];
+  return demoCommander
     ? resolveEconomicsProfile({
         profileId: 'economy',
-        provider: config.provider,
+        provider,
         baseModels: demoModels,
         overrides: { commander: demoCommander, director: economy.models.director },
       })
     : economy;
+}
+
+/**
+ * Apply demo-mode caps to an already-normalized sim config.
+ *
+ * Called server-side when a request arrives without a user-supplied API
+ * key, so the run bills against the host's provider key. Replaces models
+ * with DEMO_MODELS, clamps turn/population/department counts, keeps the
+ * first two leaders with their instructions and labels trimmed, trims key
+ * personnel to the population (their labels trimmed) and custom events to
+ * the first one of each turn within the run's turns, turns live search off,
+ * and tightens tool-loop step caps. Seed, scenario content, and
+ * scenario-level starting state pass through unchanged so the run still
+ * feels like a real sim rather than a canned preview.
+ *
+ * The run always runs on OpenAI (DEMO_PROVIDER) with the demo's OpenAI
+ * models, whatever provider the client posted: the host's Anthropic key,
+ * when the host holds one, is never billed by a host-paid run.
+ *
+ * The client cannot bypass by posting its own `provider`, `models` or
+ * `turns` values. Whatever the normalizer produced is overwritten here.
+ */
+export function applyDemoCaps(input: NormalizedSimulationConfig): NormalizedSimulationConfig {
+  const config: NormalizedSimulationConfig = { ...input, provider: DEMO_PROVIDER };
+  const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
+  const economics = demoEconomics(config.provider);
   const turns = Math.min(config.turns, DEMO_EXECUTION.maxTurns);
   const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {

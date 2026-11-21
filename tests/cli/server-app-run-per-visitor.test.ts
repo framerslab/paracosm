@@ -331,7 +331,7 @@ test('on the hosted demo a visitor sees no run of a caller that sent no cookie',
     assert.equal(chat.status, 400);
     assert.match((await chat.json() as { error: string }).error, /no simulation in memory/);
     held.runs[0].release();
-  }, { runner: held.runner, env: { PARACOSM_HOSTED_DEMO: 'true' } });
+  }, { runner: held.runner, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' } });
 });
 
 test("Clear drops the visitor's own run and leaves every other visitor's", async () => {

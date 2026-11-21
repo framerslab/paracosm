@@ -73,7 +73,7 @@ async function withHostedDemo(
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-demo-models-'));
   const launches: Array<{ config: NormalizedSimulationConfig; scenario: ScenarioPackage | undefined }> = [];
   const server = createMarsServer({
-    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: 'true' },
+    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
     maxSimsPerDay: 0,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: async (config, _broadcast, _signal, scenario) => { launches.push({ config, scenario }); },

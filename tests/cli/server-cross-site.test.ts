@@ -41,7 +41,7 @@ async function withServer(body: (api: RunServer, calls: { compile: number; seed:
   const api = await startServer({
     ...options,
     env: {
-      PARACOSM_HOSTED_DEMO: 'true', PARACOSM_PLATFORM_API: '', PARACOSM_ALLOWED_ORIGINS: '',
+      PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', PARACOSM_PLATFORM_API: '', PARACOSM_ALLOWED_ORIGINS: '',
       PARACOSM_ENABLE_SIMULATE_ENDPOINT: '', FIRECRAWL_API_KEY: '', ...options.env,
     },
     compileScenario: async json => {

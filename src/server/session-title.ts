@@ -13,6 +13,7 @@
  * @module paracosm/cli/session-title
  */
 import type { TimestampedEvent } from './stores/session.js';
+import { fallbackProvidersFor } from '../engine/provider/credentials.js';
 
 /** Model id used for title generation per provider family. */
 export interface TitleModelConfig {
@@ -228,18 +229,35 @@ export function fallbackTitle(h: RunHighlights): string {
  * title. Returns `null` when the call errored or produced nothing
  * usable — caller should leave the row titleless rather than
  * overwriting with empty string.
+ *
+ * `apiKey` is the run's own key for `provider`. It is passed to the call
+ * when given, with no fallback to another provider; without it the call
+ * uses the environment's key. `stayOnProvider` (a run on the hosted demo)
+ * keeps a call on the environment's key on `provider` too.
  */
 export async function generateSessionTitle(
   events: TimestampedEvent[],
   provider: 'openai' | 'anthropic',
-  runGenerateText: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>,
+  runGenerateText: (args: { provider: string; model: string; prompt: string; apiKey?: string; fallbackProviders?: [] }) => Promise<{ text: string }>,
   modelOverride?: string,
+  apiKey?: string,
+  stayOnProvider?: boolean,
 ): Promise<string | null> {
   const highlights = summariseForTitle(events);
   const prompt = buildTitlePrompt(highlights);
   const model = modelOverride ?? DEFAULT_TITLE_MODELS[provider];
   try {
-    const { text } = await runGenerateText({ provider, model, prompt });
+    // On the run's own key, and on a run that stays on its provider, the
+    // call stays on that provider: AgentOS's default fallback chain would
+    // retry another provider on the environment's key.
+    const fallbackProviders = fallbackProvidersFor(apiKey, stayOnProvider);
+    const { text } = await runGenerateText({
+      provider,
+      model,
+      prompt,
+      ...(apiKey ? { apiKey } : {}),
+      ...(fallbackProviders ? { fallbackProviders } : {}),
+    });
     const cleaned = cleanTitle(text ?? '');
     if (!cleaned) return null;
     return cleaned;

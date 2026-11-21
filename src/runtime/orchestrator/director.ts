@@ -356,6 +356,8 @@ export class EventDirector {
     onSchemaAttempt?: (attempts: number, fellBack: boolean) => void,
     /** Explicit provider API key for this run. */
     apiKey?: string,
+    /** Keep the call on `provider`, also without an explicit key: the run's `stayOnProvider`. */
+    stayOnProvider?: boolean,
   ): Promise<DirectorEventBatch> {
     const prompt = buildDirectorPrompt(ctx, maxEvents);
     const systemInstructions = directorSystemInstructions(instructions, maxEvents);
@@ -379,6 +381,7 @@ export class EventDirector {
         // event array.
         maxTokens: 2500,
         apiKey,
+        stayOnProvider,
         onUsage,
         onProviderError,
       });

@@ -28,7 +28,7 @@ import { join } from 'node:path';
 import { publicResultFrame } from './services/run-record.js';
 import type { BroadcastFn } from '../cli/pair-runner.js';
 import type { NormalizedSimulationConfig } from '../cli/sim-config.js';
-import type { ScenarioPackage } from '../engine/types.js';
+import type { LlmProvider, ScenarioPackage } from '../engine/types.js';
 
 /** The first-party cookie that names a browser to this server. */
 export const VISITOR_COOKIE = 'paracosm_visitor';
@@ -124,6 +124,8 @@ export interface LiveRun {
   readonly config: NormalizedSimulationConfig | null;
   /** See {@link OpenRunInput.ownKeyAddress}. */
   readonly ownKeyAddress: string | null;
+  /** See {@link OpenRunInput.ownKeys}. Never written with the run. */
+  readonly ownKeys: RunOwnKeys | null;
   /** The run's SSE frames, with each one's wall-clock time and the actor it is tagged with. */
   readonly buffer: string[];
   readonly timestamps: number[];
@@ -206,6 +208,20 @@ export interface OpenRunInput {
    * holds at most all but one of the run slots with such runs.
    */
   ownKeyAddress?: string | null;
+  /**
+   * The provider and keys of a Digital Twin run on the caller's own key. Such
+   * a run has no config to hold them, and a chat on it that brings no key
+   * runs on them. Held in memory alone: a run's file holds no key, and a run
+   * read back after a restart has none. Null or absent for any other run.
+   */
+  ownKeys?: RunOwnKeys | null;
+}
+
+/** The provider a run on the caller's own key runs on, with that key. */
+export interface RunOwnKeys {
+  provider: LlmProvider;
+  apiKey?: string;
+  anthropicKey?: string;
 }
 
 interface StreamInfo {
@@ -399,6 +415,7 @@ export class LiveRunRegistry {
       seedText: input.seedText,
       config: input.config,
       ownKeyAddress: input.ownKeyAddress ?? null,
+      ownKeys: input.ownKeys ?? null,
       buffer: [],
       timestamps: [],
       actorIds: [],
@@ -916,6 +933,7 @@ export class LiveRunRegistry {
       seedText: typeof p.seedText === 'string' ? p.seedText : null,
       config: null,
       ownKeyAddress: null,
+      ownKeys: null,
       buffer: events,
       timestamps,
       actorIds,

@@ -724,8 +724,14 @@ const QuickstartActorSchema = z.object({
   instructions: z.string().min(10).max(400),
 });
 
+/**
+ * The most leaders one actor call writes: the most `POST
+ * /api/quickstart/generate-actors` asks for (its `count`, 2 to 300).
+ */
+const MAX_QUICKSTART_ACTORS = 300;
+
 const QuickstartActorsSchema = z.object({
-  actors: z.array(QuickstartActorSchema).min(2).max(6),
+  actors: z.array(QuickstartActorSchema).min(2).max(MAX_QUICKSTART_ACTORS),
 });
 
 /**
@@ -738,7 +744,14 @@ const QuickstartActorsSchema = z.object({
 export async function generateQuickstartActors(
   scenario: ScenarioPackage,
   count: number,
-  opts: { provider?: string; model?: string } = {},
+  opts: {
+    provider?: string;
+    model?: string;
+    /** The provider key the call bills; without it the call uses the environment's key. */
+    apiKey?: string;
+    /** Keep the call on `provider`: no fallback to another provider. */
+    stayOnProvider?: boolean;
+  } = {},
 ): Promise<ActorConfig[]> {
   const provider = opts.provider ?? 'anthropic';
   const model = opts.model ?? 'claude-sonnet-4-6';
@@ -763,7 +776,10 @@ Generate exactly ${count} archetypal actors. Each one makes recognizably differe
     systemCacheable: systemPrompt,
     prompt,
     maxRetries: 1,
+    apiKey: opts.apiKey,
+    stayOnProvider: opts.stayOnProvider,
   });
 
-  return result.object.actors as ActorConfig[];
+  // The leaders asked for, never more.
+  return (result.object.actors as ActorConfig[]).slice(0, count);
 }

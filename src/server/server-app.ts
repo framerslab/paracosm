@@ -10,8 +10,8 @@ import { runPairSimulations, runForkSimulation, runBatchSimulations, type Broadc
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
   handleGenerateActors, handleGroundScenario, handleSimulateIntervention,
-  QUICKSTART_SCENARIO_ID_MAX, endFinishedJobsOf,
-  type QuickstartDeps,
+  QUICKSTART_SCENARIO_ID_MAX, QUICKSTART_MODELS, defaultModelCalls, endFinishedJobsOf,
+  type QuickstartDeps, type QuickstartModelCalls,
 } from './routes/quickstart.js';
 import { WorldModel } from '../runtime/world-model/index.js';
 import { handleSimulate, type SimulateDeps } from './routes/simulate.js';
@@ -20,10 +20,13 @@ import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
 import {
+  apiKeyForProvider,
+  credentialFingerprint,
   hasProviderCredentials,
   normalizeCredential,
   resolveProviderFromCredentials,
 } from '../engine/provider/credentials.js';
+import { hostedModelRouting, hostedRunModels } from './hosted-model-policy.js';
 import {
   describeCustomScenarioSource,
   type CustomScenarioEntry,
@@ -534,7 +537,13 @@ export interface CreateMarsServerOptions {
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
-  generateText?: (args: { provider: string; model: string; prompt: string }) => Promise<{ text: string }>;
+  /**
+   * The model call behind a saved run's title; defaults to AgentOS's
+   * `generateText`. `apiKey` is the run's own key for the title's provider,
+   * absent on a host-paid run, which then uses the environment's key. A
+   * call on the run's own key carries `fallbackProviders: []`.
+   */
+  generateText?: (args: { provider: string; model: string; prompt: string; apiKey?: string; fallbackProviders?: [] }) => Promise<{ text: string }>;
   compileScenario?: (scenarioJson: Record<string, unknown>, options: Record<string, unknown>) => Promise<ScenarioPackage>;
   /**
    * The compile behind POST /api/quickstart/compile-from-seed; defaults to
@@ -1468,6 +1477,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // in a stub compiler that returns a fixture without LLM cost).
     // Fallback dynamically-imports the real compileScenario for
     // the production happy path.
+    // On the hosted demo the host's keys pay for this compile, so it runs on
+    // OpenAI and falls back to no other provider (hosted-model-policy.ts).
+    const hostedCompileRouting = serverMode === 'hosted_demo' ? { provider: 'openai' as const, stayOnProvider: true } : {};
     try {
       const compileScenario = options.compileScenario
         ?? (await import('../engine/compiler/index.js')).compileScenario;
@@ -1480,7 +1492,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // Cache: true means we hit the local hook-source cache. With
           // a warm cache this is ~10ms per draft; with a cold cache the
           // hooks regenerate via LLM at the going rate.
-          const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true });
+          const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true, ...hostedCompileRouting });
           if (!hydratingScenarioIds.has(id)) {
             console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog while boot re-compiled it`);
             continue;
@@ -1614,39 +1626,84 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // the result panel reads as a real digital twin rather than a
   // generic org sim with labels stapled on.
   //
-  // The first /api/quickstart/simulate-intervention call compiles and
-  // caches; later calls reuse the same WorldModel so a series of
-  // digital-twin runs costs one compile.
+  // The first request that finds no world compiles one and the server
+  // keeps it; later requests reuse the same WorldModel, so a series of
+  // digital-twin runs costs one compile. A kept world is served to every
+  // request: it holds no key, and serving it calls no model.
+  //
+  // Off the hosted demo the compile runs on the server's keys, on OpenAI
+  // with the compiler's own fallback, and one compile in flight serves
+  // every request that arrives before it ends.
+  //
+  // On the hosted demo the compile is a model call of the request that
+  // finds no world, routed as that request's other calls are
+  // (hosted-model-policy.ts): on the visitor's key and that key's provider
+  // when the request brought one, else on the host's OpenAI key, with the
+  // Quickstart model of its provider and no fallback to another provider.
+  // A compile in flight serves only the requests the same key pays for
+  // (the provider and a fingerprint of its key, `env` for the host's); a
+  // request another key pays for starts a compile of its own. A compile
+  // that fails is not kept, so it fails no later request, and its own
+  // request runs in the world another request's compile has left meanwhile,
+  // when one has. At most MAX_DIGITAL_TWIN_COMPILES compiles run at once,
+  // whoever pays: a request past them starts none, waits for them to end
+  // and runs in the world they leave.
   let digitalTwinWorld: WorldModel | null = null;
-  let digitalTwinCompilePromise: Promise<WorldModel | null> | null = null;
-  const getDigitalTwinWorld = (): Promise<WorldModel | null> => {
+  const digitalTwinCompiles = new Map<string, Promise<WorldModel | null>>();
+  const MAX_DIGITAL_TWIN_COMPILES = 4;
+  const compileDigitalTwinWorld = async (calls: QuickstartModelCalls | undefined): Promise<WorldModel | null> => {
+    const scenarioPath = resolve(scenarioDir, 't2d-glp1-protocol.json');
+    if (!existsSync(scenarioPath)) {
+      console.log(`  [digital-twin] Scenario file missing: ${scenarioPath}`);
+      return null;
+    }
+    try {
+      const raw = JSON.parse(readFileSync(scenarioPath, 'utf-8')) as Record<string, unknown>;
+      const compiled = await compileScenarioReal(raw, calls
+        ? {
+            provider: calls.provider,
+            model: calls.model,
+            cache: true,
+            ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+            ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+            stayOnProvider: true,
+          }
+        : { provider: 'openai', model: 'gpt-5.4-mini', cache: true });
+      // Two compiles on different keys may both end: the first one's world is kept.
+      digitalTwinWorld ??= WorldModel.fromScenario(compiled);
+      console.log(`  [digital-twin] Compiled + cached ${compiled.id} (${compiled.labels?.name ?? 'unnamed'})`);
+      return digitalTwinWorld;
+    } catch (err) {
+      console.error('  [digital-twin] Compile failed:', err);
+      // The world a compile on another key left while this one ran, if any.
+      return digitalTwinWorld;
+    }
+  };
+  const getDigitalTwinWorld = (calls?: QuickstartModelCalls): Promise<WorldModel | null> => {
     if (options.getDigitalTwinWorld) return options.getDigitalTwinWorld();
     if (digitalTwinWorld) return Promise.resolve(digitalTwinWorld);
-    if (digitalTwinCompilePromise) return digitalTwinCompilePromise;
-    digitalTwinCompilePromise = (async () => {
-      const scenarioPath = resolve(scenarioDir, 't2d-glp1-protocol.json');
-      if (!existsSync(scenarioPath)) {
-        console.log(`  [digital-twin] Scenario file missing: ${scenarioPath}`);
-        digitalTwinCompilePromise = null;
-        return null;
-      }
-      try {
-        const raw = JSON.parse(readFileSync(scenarioPath, 'utf-8')) as Record<string, unknown>;
-        const compiled = await compileScenarioReal(raw, {
-          provider: 'openai',
-          model: 'gpt-5.4-mini',
-          cache: true,
-        });
-        digitalTwinWorld = WorldModel.fromScenario(compiled);
-        console.log(`  [digital-twin] Compiled + cached ${compiled.id} (${compiled.labels?.name ?? 'unnamed'})`);
-        return digitalTwinWorld;
-      } catch (err) {
-        console.error('  [digital-twin] Compile failed:', err);
-        digitalTwinCompilePromise = null;
-        return null;
-      }
-    })();
-    return digitalTwinCompilePromise;
+    const hostedDemo = serverMode === 'hosted_demo';
+    // On the hosted demo nothing is compiled for a caller with no routing.
+    if (hostedDemo && !calls) return Promise.resolve(null);
+    const routed = hostedDemo ? calls : undefined;
+    const payer = routed
+      ? `${routed.provider}:${credentialFingerprint(apiKeyForProvider(routed.provider, routed))}`
+      : 'server';
+    const inFlight = digitalTwinCompiles.get(payer);
+    if (inFlight) return inFlight;
+    // Each key could otherwise start a compile of its own with no bound.
+    if (digitalTwinCompiles.size >= MAX_DIGITAL_TWIN_COMPILES) {
+      return Promise.all([...digitalTwinCompiles.values()]).then(() => digitalTwinWorld);
+    }
+    const compile = compileDigitalTwinWorld(routed);
+    digitalTwinCompiles.set(payer, compile);
+    // `compile` never rejects. It leaves the map once it has ended, whatever
+    // its result: a world is read from `digitalTwinWorld`, and a failed
+    // compile is tried again by the next request.
+    void compile.finally(() => {
+      if (digitalTwinCompiles.get(payer) === compile) digitalTwinCompiles.delete(payer);
+    });
+    return compile;
   };
   // Pre-warm the digital-twin world on server boot so the first user
   // request does not pay the ~30-60s compile inside its response. Cloudflare
@@ -1654,10 +1711,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // compile + 2-turn simulation reliably tripped 524 errors. Pre-warming
   // moves the compile off the user's critical path; the cookbook's
   // disk cache means restarts after the first one are nearly free.
-  // Fire-and-forget — failure is logged from inside getDigitalTwinWorld
-  // and the route handler still surfaces a 503 if the user beats the
-  // pre-warm to the request.
-  void getDigitalTwinWorld();
+  // Fire-and-forget: a failure is logged from inside the compile, and the
+  // first request after a failed pre-warm compiles the world again.
+  //
+  // On the hosted demo the host pays for this compile, as it pays for a
+  // request that brings no key: it runs on the host's OpenAI key. A host
+  // with no OpenAI key compiles nothing here and says so once.
+  const bootRouting = hostedModelRouting({ hostedDemo: serverMode === 'hosted_demo', env, credentials: {} });
+  if (!bootRouting || options.getDigitalTwinWorld) {
+    void getDigitalTwinWorld();
+  } else if (bootRouting.payer === 'host') {
+    void getDigitalTwinWorld({
+      provider: bootRouting.provider,
+      model: QUICKSTART_MODELS[bootRouting.provider],
+      stayOnProvider: true,
+      hostPaid: true,
+    });
+  } else {
+    console.log('  [digital-twin] World not compiled at boot: the hosted demo has no host OpenAI key to pay for the compile');
+  }
 
   // Auto-save on clean completion. AUTO_SAVE_MIN_TURNS floors the run
   // length at one completed turn: accidental clicks never get saved (no
@@ -1981,9 +2053,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // unawaited. Emits a second `sim_saved` event when the title
       // lands so the dashboard can patch its in-memory session list
       // without a round-trip to /sessions.
-      const titleProvider = run.config?.provider === 'anthropic' ? 'anthropic' : 'openai';
+      // The title call bills whoever pays for the run: the run's own key
+      // when the request brought one (the provider that key belongs to, as
+      // each leader's run picks it), the environment's key on a host-paid
+      // run, where no key is passed.
+      const titleCredentials = { apiKey: run.config?.apiKey, anthropicKey: run.config?.anthropicKey };
+      const titleProvider = resolveProviderFromCredentials(run.config?.provider, titleCredentials, 'openai');
+      const titleApiKey = apiKeyForProvider(titleProvider, titleCredentials);
       const store = sessionStore; // non-null inside this closure
-      void generateSessionTitle(events, titleProvider, runGenerateText).then(async (title) => {
+      void generateSessionTitle(events, titleProvider, runGenerateText, undefined, titleApiKey, run.config?.stayOnProvider === true).then(async (title) => {
         if (!title) return;
         try {
           await store.updateTitle(result.id, title);
@@ -2020,6 +2098,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   const corsHeaders: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
+  };
+
+  /**
+   * Answers a request the hosted model policy refuses (hosted-model-policy.ts):
+   * a host-paid request on a hosted demo whose host holds no OpenAI key.
+   */
+  const writeHostedRefusal = (res: ServerResponse, refusal: { status: number; error: string }): void => {
+    res.writeHead(refusal.status, { 'Content-Type': 'application/json', ...corsHeaders });
+    res.end(JSON.stringify({ error: refusal.error }));
   };
 
   const writeCrossSiteRefusal = (res: ServerResponse): void => {
@@ -2910,17 +2997,47 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return cookie ? { 'Set-Cookie': cookie } : {};
           },
           fetchSeedFromUrl,
-          // Default to OpenAI to match compileScenario's existing
-          // default (compiler/index.ts:162) and the codebase's
-          // default-to-openai posture. The quickstart SeedInput form
-          // does not yet collect user-supplied keys, so this default
-          // is what hosted prod hits when the user does not override.
-          // Self-hosted deployments can change this at the call site
-          // (or pass `defaultProvider` from a custom server).
-          // `inferProviderFromCredentials` still honors single-key
-          // intent when only one of OPENAI/ANTHROPIC is in env.
+          // The provider and model of a Quickstart request that brings no
+          // provider key off the hosted demo, matching compileScenario's
+          // default. A request with the visitor's key runs on that key's
+          // provider (defaultModelCalls, modelCalls below).
           defaultProvider: 'openai',
           defaultModel: 'gpt-5.4-mini',
+          // The hosted demo's model policy (hosted-model-policy.ts) for the
+          // draft, its hook compile, the actors, a Digital Twin run and the
+          // compile of the Digital Twin's world when no request has compiled it: on
+          // the visitor's key and its provider, else on the host's keys on
+          // OpenAI with the demo's models, turn cap and leader cap (whether
+          // or not the limiter is on), never with a fallback to another
+          // provider; a host-paid request on a host with no OpenAI key is
+          // refused.
+          modelCalls: (credentials) => {
+            const routing = hostedModelRouting({ hostedDemo: serverMode === 'hosted_demo', env, credentials });
+            if (!routing) return defaultModelCalls({ defaultProvider: 'openai', defaultModel: 'gpt-5.4-mini' }, credentials);
+            if (routing.payer === 'refused') {
+              console.log('  [demo-mode] Quickstart request refused: a host-paid request needs the host OpenAI key');
+              return { status: routing.status, headers: {}, body: { error: routing.error } };
+            }
+            if (routing.payer === 'host') {
+              return {
+                provider: routing.provider,
+                model: QUICKSTART_MODELS[routing.provider],
+                stayOnProvider: true,
+                hostPaid: true,
+                runModels: hostedRunModels(),
+                maxTurns: DEMO_EXECUTION.maxTurns,
+                maxActors: DEMO_EXECUTION.maxActors,
+              };
+            }
+            return {
+              provider: routing.provider,
+              model: QUICKSTART_MODELS[routing.provider],
+              ...(routing.apiKey ? { apiKey: routing.apiKey } : {}),
+              ...(routing.anthropicKey ? { anthropicKey: routing.anthropicKey } : {}),
+              stayOnProvider: true,
+              hostPaid: false,
+            };
+          },
           recordGroundingCitations: (scenarioId, citations) => {
             groundingCitationsByScenarioId.set(scenarioId, citations);
           },
@@ -2932,7 +3049,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // alone, and it holds a capacity slot until `finish`. Its events go
           // through the broadcast bound to it, so a late event of a twin its
           // visitor has since replaced is discarded.
-          openRun: (scenario, runKey) => {
+          openRun: (scenario, runKey, calls) => {
+            // A twin on the caller's own key skips the day limit, as a /setup
+            // run on one does, so its address holds all but one of the run
+            // slots; and it has no config to hold its keys, so the run keeps
+            // them, in memory alone, for a chat that brings none.
+            const ownKeys = calls && !calls.hostPaid
+              ? {
+                  provider: calls.provider,
+                  ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+                  ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+                }
+              : null;
             const run = liveRuns.open({
               visitorId: runVisitorFor(req).visitorId,
               kind: 'intervention',
@@ -2940,6 +3068,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
               runKey,
+              ownKeyAddress: ownKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+              ownKeys,
             });
             return {
               runKey: run.key,
@@ -3028,6 +3158,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           writeCrossSiteRefusal(res);
           return;
         }
+        // The hosted demo's model policy (hosted-model-policy.ts), checked
+        // before the day's limit counts the request: a host-paid run on
+        // OpenAI with the hosted models, a run on the caller's key on that
+        // key's provider, and no fallback to another provider.
+        const simulateRouting = hostedModelRouting({ hostedDemo: serverMode === 'hosted_demo', env, credentials: simulateCredentials });
+        if (simulateRouting?.payer === 'refused') {
+          console.log('  [demo-mode] /simulate refused: a host-paid run needs the host OpenAI key');
+          writeHostedRefusal(res, simulateRouting);
+          return;
+        }
+        // On the hosted demo the compile behind /simulate reads no seed URL
+        // and runs no web search: both would run on the host's scraping and
+        // search keys, which the caller's model keys do not pay for.
+        const simulateSeedUrl = (body as { options?: { seedUrl?: unknown } } | null)?.options?.seedUrl;
+        if (simulateRouting && typeof simulateSeedUrl === 'string' && simulateSeedUrl.trim() !== '') {
+          res.writeHead(400, { ...corsHeaders, 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'This server reads no seed URL for /simulate. Send the seed as options.seedText.' }));
+          return;
+        }
         // Rate limit with BYO-key bypass, matching the /setup pattern.
         // `.check()` alone is advisory; `.record()` consumes the slot.
         if (rateLimiter && !hasUserKeys) {
@@ -3064,7 +3213,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             return runSimulation(leader, keyPersonnel, { ...runOpts, outputDir: runsDir });
           },
         };
-        await handleSimulate(req, res, body, deps, simulateCredentials);
+        await handleSimulate(req, res, body, deps, simulateCredentials, simulateRouting
+          ? {
+              ...(simulateRouting.payer === 'host' ? { provider: simulateRouting.provider, models: hostedRunModels() } : {}),
+              stayOnProvider: true,
+              serverSearch: false,
+            }
+          : {});
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -3095,6 +3250,21 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             (!hasProviderCredentials(compileCredentials) || compileUsesHostSearch(body, env)) &&
             fromAnotherSite(req, allowedOrigins)) {
           writeCrossSiteRefusal(res);
+          return;
+        }
+        // The hosted demo's model policy (hosted-model-policy.ts), checked
+        // before the compile limit counts the request: a host-paid compile
+        // on OpenAI, a compile on the caller's key on that key's provider,
+        // and no fallback to another provider.
+        const compileRouting = hostedModelRouting({
+          hostedDemo: serverMode === 'hosted_demo',
+          env,
+          credentials: compileCredentials,
+          requestedProvider: typeof requestedProvider === 'string' ? requestedProvider as 'openai' | 'anthropic' : undefined,
+        });
+        if (compileRouting?.payer === 'refused') {
+          console.log('  [demo-mode] /compile refused: a host-paid compile needs the host OpenAI key');
+          writeHostedRefusal(res, compileRouting);
           return;
         }
 
@@ -3187,7 +3357,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
 
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
-        const provider = resolveProviderFromCredentials(requestedProvider, compileCredentials, envDefaultProvider);
+        const provider = compileRouting
+          ? compileRouting.provider
+          : resolveProviderFromCredentials(requestedProvider, compileCredentials, envDefaultProvider);
         // Force the cheapest class only when the host is billing
         // (hosted-demo mode + no session key). Local dev and BYO-key
         // paths honor the requested model.
@@ -3230,6 +3402,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           maxSearches: compileMaxSearches,
           apiKey: compileCredentials.apiKey,
           anthropicKey: compileCredentials.anthropicKey,
+          ...(compileRouting ? { stayOnProvider: true } : {}),
           telemetry: compileTelemetry,
           onProgress(hookName: string, status: string) {
             res.write(`event: progress\ndata: ${JSON.stringify({ hook: hookName, status })}\n\n`);
@@ -3406,13 +3579,43 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
         const chatRun = liveRuns.watched(chatVisitor);
 
-        const chatCredentials = {
+        const ownChatCredentials = {
           apiKey: normalizeCredential(apiKey),
           anthropicKey: normalizeCredential(anthropicKey),
         };
-        const chatUserKey = hasProviderCredentials(chatCredentials);
-        if (serverMode === 'hosted_demo' && !chatUserKey && fromAnotherSite(req, allowedOrigins)) {
+        if (serverMode === 'hosted_demo' && !hasProviderCredentials(ownChatCredentials) && fromAnotherSite(req, allowedOrigins)) {
           writeCrossSiteRefusal(res);
+          return;
+        }
+        // On the hosted demo a chat that brings no key of its own, on a run
+        // the visitor's own key paid for, runs on that run's key and
+        // provider: the run is the visitor's (their cookie names it) and its
+        // people are the run's, so the chat is billed as the run was. A chat
+        // on a host-paid run is host-paid. Elsewhere a chat runs on the keys
+        // it brings, else the environment's. A /setup run's keys are in its
+        // config; a Digital Twin run, which has none, keeps its own.
+        const runOwnKeys = chatRun?.config ?? chatRun?.ownKeys;
+        const runChatCredentials = {
+          apiKey: normalizeCredential(runOwnKeys?.apiKey),
+          anthropicKey: normalizeCredential(runOwnKeys?.anthropicKey),
+        };
+        const chatCredentials = serverMode === 'hosted_demo'
+          && !hasProviderCredentials(ownChatCredentials)
+          && hasProviderCredentials(runChatCredentials)
+          ? runChatCredentials
+          : ownChatCredentials;
+        const chatUserKey = hasProviderCredentials(chatCredentials);
+        // The hosted demo's model policy (hosted-model-policy.ts), checked
+        // before the chat limit counts the request.
+        const chatRouting = hostedModelRouting({
+          hostedDemo: serverMode === 'hosted_demo',
+          env,
+          credentials: chatCredentials,
+          requestedProvider: runOwnKeys?.provider,
+        });
+        if (chatRouting?.payer === 'refused') {
+          console.log('  [demo-mode] /chat refused: a host-paid chat needs the host OpenAI key');
+          writeHostedRefusal(res, chatRouting);
           return;
         }
 
@@ -3554,11 +3757,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // and by whether the run had ended, so the first chat after the
         // end gets an agent made from the whole run.
         const envDefaultProvider = env.ANTHROPIC_API_KEY && !env.OPENAI_API_KEY ? 'anthropic' : 'openai';
-        const provider = resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
+        const provider = chatRouting
+          ? chatRouting.provider
+          : resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
         const { session, isNew } = await getOrCreateChatAgent(profile, memories, {
           provider,
           apiKey: chatCredentials.apiKey,
           anthropicKey: chatCredentials.anthropicKey,
+          ...(chatRouting ? { stayOnProvider: true } : {}),
           settlementNoun: runLabels?.settlementNoun,
           populationNoun: runLabels?.populationNoun,
           labels: runLabels,
@@ -4138,7 +4344,25 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // any model overrides the client sent. On the hosted Linode
         // this variable is set, so env-only requests get clamped.
         const isHostedDemo = serverMode === 'hosted_demo';
-        if (!hasUserKeys && isHostedDemo) {
+        // The hosted demo's model policy (hosted-model-policy.ts): a run on
+        // the host's keys runs on OpenAI with the demo's models and caps, a
+        // run on the visitor's key on that key's provider, and no call of
+        // either falls back to another provider. A host with no OpenAI key
+        // refuses a host-paid run, whatever other key it holds, before the
+        // run counts toward the day.
+        const setupRouting = hostedModelRouting({
+          hostedDemo: isHostedDemo,
+          env,
+          credentials: requestCredentials,
+          requestedProvider: simConfig.provider,
+        });
+        if (setupRouting?.payer === 'refused') {
+          console.log('  [demo-mode] /setup refused: a host-paid run needs the host OpenAI key');
+          writeHostedRefusal(res, setupRouting);
+          return;
+        }
+        if (setupRouting) simConfig = { ...simConfig, stayOnProvider: true };
+        if (setupRouting?.payer === 'host') {
           simConfig = applyDemoCaps(simConfig);
           console.log(
             `  [demo-mode] Capped run: turns=${simConfig.turns} pop=${simConfig.initialPopulation} ` +

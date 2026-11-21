@@ -420,7 +420,7 @@ test('POST /setup on the hosted demo refuses a fork past its turn cap instead of
       assert.equal(launches.length, 0);
     },
     0,
-    { PARACOSM_HOSTED_DEMO: 'true' },
+    { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
   );
 });
 

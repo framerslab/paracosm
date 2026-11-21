@@ -75,6 +75,7 @@ import {
 import { resolveProviderWithFallback } from '../../engine/provider/resolver.js';
 import {
   apiKeyForProvider,
+  fallbackProvidersFor,
   resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
 } from '../../engine/provider/credentials.js';
@@ -546,12 +547,18 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Preflight env check. Falls back to the other supported provider if
   // the requested one has no key; throws ProviderKeyMissingError when
   // neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set, rather than
-  // hanging in a retry loop during the first LLM call.
+  // hanging in a retry loop during the first LLM call. A run that stays on
+  // its provider (`stayOnProvider`, the hosted demo) never moves to another
+  // provider's key: its provider's missing key throws instead.
   const resolvedProvider = resolveProviderWithFallback(requestedProvider, {
     apiKey: requestedProviderApiKey,
+    stayOnProvider: opts.stayOnProvider,
   });
   const provider = resolvedProvider.provider;
   const providerApiKey = apiKeyForProvider(provider, opts);
+  // The fallback chain every model call of the run passes AgentOS: none on
+  // the run's own key or when the run stays on its provider.
+  const callFallbackProviders = fallbackProvidersFor(providerApiKey, opts.stayOnProvider);
   const archetypeSlug = (typeof leader.archetype === 'string' ? leader.archetype : '')
     .toLowerCase().replace(/\s+/g, '-')
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
@@ -755,6 +762,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     (err) => reportProviderError(err, 'judge'),
     forgedExecutables,
     providerApiKey,
+    opts.stayOnProvider,
   );
   const callForgedTool = createCallForgedTool(forgedExecutables);
   const toolRegs: Record<string, string[]> = {};
@@ -812,7 +820,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const commander = agent({
     provider, model: modelConfig.commander,
     apiKey: providerApiKey,
-    fallbackProviders: providerApiKey ? [] : undefined,
+    fallbackProviders: callFallbackProviders,
     instructions: leader.instructions,
     personality: { openness: leaderHexaco.openness, conscientiousness: leaderHexaco.conscientiousness, extraversion: leaderHexaco.extraversion, agreeableness: leaderHexaco.agreeableness, emotionality: leaderHexaco.emotionality, honesty: leaderHexaco.honestyHumility },
     maxSteps: opts.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
@@ -965,7 +973,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       provider,
       model: modelConfig.departments || cfg.defaultModel,
       apiKey: providerApiKey,
-      fallbackProviders: providerApiKey ? [] : undefined,
+      fallbackProviders: callFallbackProviders,
       systemBlocks: [{ text: deptSystemPrompt, cacheBreakpoint: true }],
       tools,
       maxSteps: opts.execution?.departmentMaxSteps ?? DEFAULT_EXECUTION.departmentMaxSteps,
@@ -1162,6 +1170,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // Feed per-schema retry telemetry.
         (attempts, fellBack) => recordSchemaAttempt('DirectorEventBatch', attempts, fellBack),
         providerApiKey,
+        opts.stayOnProvider,
       );
       turnEvents = batch.events;
       batchPacing = batch.pacing;
@@ -1825,6 +1834,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       lastOutcome,
       provider,
       apiKey: providerApiKey,
+      stayOnProvider: opts.stayOnProvider,
       modelConfig,
       execution: opts.execution,
       trackUsage,

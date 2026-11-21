@@ -35,7 +35,7 @@ const NO_MODEL = { generateText: async () => ({ text: 'A saved run' }) };
 import type { Visitor } from './helpers/visitor.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const HOSTED = { PARACOSM_HOSTED_DEMO: 'true' };
+const HOSTED = { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' };
 const TOKEN = 'visitor-privacy-test-token';
 
 interface SetupAnswer { runKey?: string; visitorId?: string; error?: string }

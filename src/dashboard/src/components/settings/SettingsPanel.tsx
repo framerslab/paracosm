@@ -24,6 +24,7 @@ import {
 } from './shared/settingsStyles';
 import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
+import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -362,7 +363,9 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // belong to the user, so env presence is enough. On the hosted Linode
   // the server sets PARACOSM_HOSTED_DEMO=true and env keys belong to the
   // host — picker then requires an explicit session override from the user.
-  const hasSessionLlmKey = !!keyOverrides.openai || !!keyOverrides.anthropic;
+  // A key counts as the server reads it: a blank or masked value (`sk-...`)
+  // is no key, so it neither unlocks the page nor is posted.
+  const hasSessionLlmKey = hasSessionProviderKey(keyOverrides);
   const hasEnvLlmKey = !!envKeys.openai || !!envKeys.anthropic;
   const canPickModels = hasSessionLlmKey || (!hostedDemo && hasEnvLlmKey);
   // `hasUserLlmKey` controls whether launch() attaches `config.models`.
@@ -374,6 +377,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     hostedDemo && !hasSessionLlmKey ? 'economy' : economicsProfile;
   const serverModeInfo = describeServerMode(serverMode);
   const isLocked = hostedDemo && !hasSessionLlmKey;
+  // A host-paid run on the hosted demo runs on OpenAI whatever the page
+  // posts (applyDemoCaps on the server), so the locked page shows and
+  // posts OpenAI.
+  const effectiveProvider = isLocked ? 'openai' : provider;
 
   const refreshScenarioCatalog = useCallback(() => {
     fetch('/scenarios')
@@ -430,7 +437,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     try {
       const config: Record<string, unknown> = {
         actors: actors.map(a => ({ ...a, hexaco: a.hexaco })),
-        provider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
+        provider: effectiveProvider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
         activeDepartments: scenario.departments.map(d => d.id),
         economics: { profileId: effectiveEconomicsProfile },
         // Names the scenario this config is for, so the re-run button
@@ -451,8 +458,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // alphabetic placeholder until status:parallel lands.
       writeActiveRunActors(window.localStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
-      if (keyOverrides.openai) config.apiKey = keyOverrides.openai;
-      if (keyOverrides.anthropic) config.anthropicKey = keyOverrides.anthropic;
+      Object.assign(config, sessionProviderKeys(keyOverrides));
       if (keyOverrides.serper) config.serperKey = keyOverrides.serper;
       if (keyOverrides.firecrawl) config.firecrawlKey = keyOverrides.firecrawl;
       if (keyOverrides.tavily) config.tavilyKey = keyOverrides.tavily;
@@ -492,7 +498,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       setStatus(`Failed: ${err}`);
       setLaunching(false);
     }
-  }, [actors, turns, seed, startTime, timePerTurn, population, provider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
+  }, [actors, turns, seed, startTime, timePerTurn, population, effectiveProvider, liveSearch, navigateTab, runStart, scenario, scenarioReady, keyOverrides, tierModels, hasUserLlmKey, effectiveEconomicsProfile]);
 
   const inputCls = (locked: boolean) =>
     [styles.input, locked ? styles.locked : ''].filter(Boolean).join(' ');
@@ -699,8 +705,18 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         </div>
         <div className={`responsive-grid-3 ${styles.grid3}`}>
           <div>
-            <label htmlFor="provider-select" style={SETTINGS_LABEL_STYLE}>Provider</label>
-            <select id="provider-select" className={`pc-select ${styles.input}`} value={provider} onChange={e => setProvider(e.target.value)}>
+            <label htmlFor="provider-select" style={SETTINGS_LABEL_STYLE}>
+              Provider
+              {isLocked && <span className={styles.lockTag}>🔒 demo:openai</span>}
+            </label>
+            <select
+              id="provider-select"
+              className={`pc-select ${inputCls(isLocked)}`}
+              value={effectiveProvider}
+              onChange={e => setProvider(e.target.value)}
+              disabled={isLocked}
+              title={isLocked ? 'Locked to OpenAI in hosted demo mode. Add your own OpenAI or Anthropic key above to choose the provider.' : ''}
+            >
               <option value="openai">OpenAI</option>
               <option value="anthropic">Anthropic</option>
             </select>
