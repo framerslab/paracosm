@@ -215,7 +215,7 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
   const at = Math.min(active, Math.max(0, shown.length - 1));
   const win = useWindowedLines(lines, innerEl, inList ? at : null);
   // The row a Tab into the list lands on: the active one while it is rendered, else the first in view.
-  const tabStop = at >= win.first && at <= win.last ? at : win.first;
+  const tabStop = (at >= win.first && at <= win.last) || at === win.kept ? at : win.first;
 
   // A new search or sort starts the list from its top.
   useEffect(() => {
@@ -280,8 +280,14 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
     closeToOpener();
   };
 
+  // The rows in view, and the focused row apart from them when it is far
+  // away, with the room of the rows between kept before the later of the two.
   const rows: number[] = [];
+  const keptAbove = win.kept !== undefined && win.kept < win.first;
+  if (win.kept !== undefined && keptAbove) rows.push(win.kept);
   for (let i = win.first; i <= win.last; i += 1) rows.push(i);
+  if (win.kept !== undefined && !keptAbove) rows.push(win.kept);
+  const gapAt = win.kept === undefined || !win.gap ? -1 : keptAbove ? win.first : win.kept;
   const pads: CSSProperties | undefined = win.windowed ? { paddingTop: win.padTop, paddingBottom: win.padBottom } : undefined;
   const placed: CSSProperties | undefined = desktop && place ? { top: place.top, left: place.left, maxHeight: place.maxHeight } : undefined;
 
@@ -427,7 +433,10 @@ export function ActorPicker({ actors, chosen, max, tools = 0, onChange, onClose,
               }}
             >
               <div ref={setInnerEl} className={styles.rows} style={pads} data-windowed={win.windowed}>
-                {rows.map(renderRow)}
+                {rows.flatMap((i) => [
+                  i === gapAt ? <div key="gap" aria-hidden="true" data-lines-gap style={{ height: win.gap }} /> : null,
+                  renderRow(i),
+                ])}
               </div>
             </div>
           )}
