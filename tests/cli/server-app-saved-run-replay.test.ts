@@ -16,7 +16,8 @@
  * - `?speed=` paces a replay; the replay of another visitor's run carries no
  *   brief that visitor compiled; the Library offers no session link the
  *   store no longer holds, and lists its runs with no links when the store
- *   cannot be read.
+ *   cannot be read. A save that commits is reported saved and linked when
+ *   the store cannot count its rows.
  * - A finished run whose save had not committed when the server stopped is
  *   saved once after the restart, with no title from a model, since the
  *   restart let go of the key that paid for the run, and its Library records
@@ -354,6 +355,28 @@ test("the Library offers no session link for a run whose saved session the store
       sessionStore: memoryStore(2),
       runHistoryStore: createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } }),
       runPairSimulations: pairWithArtifacts(runIds),
+    },
+  });
+});
+
+test('a save that commits is reported saved and linked when the store cannot count its rows', async () => {
+  const titles = titleStub();
+  const store = memoryStore();
+  const uncounted: SessionStore = { ...store, count: async () => { throw new Error('database is locked'); } };
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const saved = await finishRun(a);
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.deepEqual((await listSessions(a)).map(s => s.id), [saved.id]);
+    const { runs } = await a.json<{ runs: Array<{ runId: string; sessionId?: string }> }>('/api/v1/runs');
+    assert.deepEqual(runs.map(r => r.sessionId), [saved.id, saved.id], "the run's Library records link to it");
+  }, {
+    extra: {
+      ...NO_TWIN,
+      generateText: titles.generateText,
+      sessionStore: uncounted,
+      runHistoryStore: createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } }),
+      runPairSimulations: pairWithArtifacts([]),
     },
   });
 });
