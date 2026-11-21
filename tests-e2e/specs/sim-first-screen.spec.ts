@@ -1554,6 +1554,19 @@ screenTest('feature 4: a free run names its size', async ({ page }) => {
       });
     }
   }
+
+  // Feature 4, QA step 16: with the day's free run used and no key, the size reads the same.
+  await page.route('**/rate-limit', (route: Route) => route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt: Date.UTC(2026, 10, 22) } }));
+  for (const look of LOOKS) {
+    await test.step(`no free run left, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { part } = sizeParts(root);
+      await expect(part.getByTestId('run-size-value')).toHaveText('2 leaders');
+      await expect(part.getByTestId('run-size-line')).toHaveText(FREE_SIZE_LINE);
+      await expect(root.getByRole('spinbutton')).toHaveCount(0);
+      await expect(part.getByRole('button')).toHaveCount(0);
+    });
+  }
 });
 
 screenTest('feature 4: the control with a key', async ({ page, context }) => {
@@ -1846,6 +1859,16 @@ screenTest('feature 10: Start on a free run', async ({ page }) => {
       });
     }
   }
+
+  await test.step('a day\'s limit of 3: the count reads what the server answers', async () => {
+    const resetAt = Date.UTC(2026, 10, 22);
+    await page.route('**/rate-limit', (route: Route) => route.fulfill({ json: { allowed: true, remaining: 3, limit: 3, resetAt } }));
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key, notice } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(notice.getByTestId('notice-count')).toHaveText(`Free runs left today on your internet address: 3 of 3, shared by everyone using it. They reset at ${await clockTime(page, resetAt)}. A new run or a fork uses one.`);
+    await page.unroute('**/rate-limit');
+  });
 });
 
 screenTest('feature 10: one press, three stages, then Watch', async ({ page, context }, info) => {
@@ -2243,6 +2266,30 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
       await picture(page, `start-bar-resting-390-${look}`);
     });
   }
+
+  await test.step('320 by 568 in the dark look: stuck, then resting in its place', async () => {
+    const small = { width: 320, height: 568 };
+    const root = await openReadyAt(page, '/sim', small, 'dark');
+    const { key, bar, barLines } = startParts(root);
+    await expect(bar).toHaveAttribute('data-stuck', 'true');
+    await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+    // The key's two lines fit inside it, and the bar is whole in the window.
+    const [start, held] = await Promise.all([box(key), box(bar)]);
+    for (const line of [key.getByTestId('start-first'), key.getByTestId('start-second')]) {
+      const b = await box(line);
+      expect(b.x).toBeGreaterThanOrEqual(start.x);
+      expect(b.x + b.width).toBeLessThanOrEqual(start.x + start.width + 1);
+      expect(b.y).toBeGreaterThanOrEqual(start.y);
+      expect(b.y + b.height).toBeLessThanOrEqual(start.y + start.height + 1);
+    }
+    expect(held.y + held.height).toBeLessThanOrEqual(await windowHeight() + 1);
+    await expectNoSidewaysScroll(page, root);
+    await picture(page, 'start-bar-stuck-320x568-dark');
+    await scrollToBandPlace(root);
+    await expect(bar).toHaveAttribute('data-stuck', 'false');
+    await expect(barLines).toHaveCount(0);
+    await expect(key).toBeVisible();
+  });
 
   await test.step('Start is on screen at first paint in four windows', async () => {
     for (const size of [{ width: 1440, height: 900 }, { width: 1100, height: 800 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
