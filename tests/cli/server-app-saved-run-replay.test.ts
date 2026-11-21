@@ -30,7 +30,12 @@
  *   restart let go of the key that paid for the run, and its Library records
  *   link to it. A run's end is on disk as it ends, before its save starts.
  *   A Library link that fails once the save commits is tried again, in the
- *   same process and at the next start, as is one the server stopped during.
+ *   same process and at the next start, as is one the server stopped during;
+ *   the run's page is told its save is done before the link answers. A
+ *   finished run whose `complete` frame the trim took is still finished
+ *   after a restart.
+ * - An admin pin of a long run already saved holds every frame of the run,
+ *   and a Wipe All sent while a run's save is in flight leaves no session.
  * - A local server keeps one ring of ten saved runs, whoever saved them.
  *
  * Every test goes through createMarsServer over HTTP with stub runners and

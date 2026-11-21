@@ -151,6 +151,15 @@ export interface LiveRun {
   recordingLost: boolean;
   /** Where in the buffer the trimmed frames were taken from: 1 when the opening frame stayed first, else 0. */
   trimmedAt: number;
+  /** Set once the run broadcast `complete`, and written with the run, so a trim that takes the `complete` frame leaves the run finished. */
+  ended: boolean;
+  /**
+   * Set once the buffer no longer holds every frame and no recording file
+   * holds the rest: the trim took frames after the save was decided, or the
+   * recording file went with the decision. The run's whole recording is
+   * then its saved session's, if it has one.
+   */
+  framesLost: boolean;
   /**
    * The actor-turns the run's `turn_done` frames reported, each counted
    * once: `<actor>\u0000<turn>` (one key for each actor of that name, see
@@ -201,6 +210,8 @@ export interface LiveRun {
    * otherwise. Written with the run, so the next start tries it again.
    */
   pendingLink: string | null;
+  /** The session the run's save committed, or null. */
+  savedSessionId: string | null;
   capWarned: boolean;
   /** True until the run's runner settles; the run holds a capacity slot until then. */
   inFlight: boolean;
@@ -331,6 +342,9 @@ interface PersistedRun {
   spooled?: number;
   trimmedAt?: number;
   recordingLost?: boolean;
+  ended?: boolean;
+  framesLost?: boolean;
+  savedSessionId?: string;
   actorTurnsDone?: number;
   pendingLink?: string;
   expectedActorTurns?: number | null;
@@ -618,6 +632,8 @@ export class LiveRunRegistry {
       recordingFile: this.recordingFileOf(key),
       recordingLost: false,
       trimmedAt: 0,
+      ended: false,
+      framesLost: false,
       completedActorTurns: new Set(),
       actorTurnsDone: 0,
       actorNameCounts: sharedNameCounts(input.config?.actors.map(actor => actor.name) ?? []),
@@ -631,6 +647,7 @@ export class LiveRunRegistry {
       saving: false,
       insertedRunIds: [],
       pendingLink: null,
+      savedSessionId: null,
       capWarned: false,
       inFlight: true,
       stoppedByVisitor: false,
@@ -716,6 +733,7 @@ export class LiveRunRegistry {
       if (event === 'complete' && data && typeof data === 'object' && (data as { aborted?: unknown }).aborted === true) run.aborted = true;
       if (event === 'sim_error' || simType === 'provider_error') run.errored = true;
       if (event === 'complete') {
+        run.ended = true;
         // The run's end goes to disk now, before its save starts: a server
         // stopped before the save commits reads the run back finished and
         // saves it after its restart.
@@ -730,18 +748,23 @@ export class LiveRunRegistry {
   /**
    * Marks a run's save decided: its session committed, or it will never be
    * saved. The decision is written with the run now, so a restart does not
-   * save it again, and then its recording file goes. A committed session
-   * whose Library records are still to be linked is written as the run's
-   * pending link in the same write, so a server stopped before the link
-   * answers links them at its next start. A server already closed cannot
-   * write the decision: the file stays, and the restart saves the run
-   * again under its key, which the store holds once.
+   * save it again, and then its recording file goes. A committed save's
+   * session is written with the run, and so is its Library link when the
+   * run's records are still to be linked to it, in the same write, so a
+   * server stopped before the link answers links them at its next start.
+   * A server already closed cannot write the decision: the file stays, and
+   * the restart saves the run again under its key, which the store holds
+   * once.
    */
-  settleSave(run: LiveRun, pendingLink: string | null = null): void {
+  settleSave(run: LiveRun, committed: { sessionId: string; linkPending: boolean } | null = null): void {
     run.saved = true;
     run.saving = false;
-    if (pendingLink !== null) run.pendingLink = pendingLink;
+    if (committed !== null) {
+      run.savedSessionId = committed.sessionId;
+      if (committed.linkPending) run.pendingLink = committed.sessionId;
+    }
     if (this.closed && !run.dropped) return;
+    if (run.spooled > 0) run.framesLost = true;
     run.spooled = 0;
     this.persistNow(run);
     this.removeRecording(run);
@@ -782,7 +805,7 @@ export class LiveRunRegistry {
   finishedUnsaved(): LiveRun[] {
     return [...this.runs.values()].filter(run => !run.inFlight && !run.saved && !run.saving && !run.aborted && !run.errored
       && run.expectedActorTurns !== null
-      && run.buffer.some(msg => msg.startsWith('event: complete\n')));
+      && run.ended);
   }
 
   /**
@@ -1029,6 +1052,7 @@ export class LiveRunRegistry {
     // the saved session is the whole run, not what the buffer kept: in the
     // run's recording file, not in memory.
     if (!run.saved) this.spool(run, removed, removedTimestamps, keep);
+    else run.framesLost = true;
     if (!run.capWarned) {
       console.warn(
         `[event-buffer] Run ${run.key} capped at ${max} events; dropped oldest ${drop}. ` +
@@ -1081,6 +1105,7 @@ export class LiveRunRegistry {
 
   /** Removes a run's recording file, if it has one. */
   private removeRecording(run: LiveRun): void {
+    if (run.spooled > 0) run.framesLost = true;
     run.spooled = 0;
     try {
       unlinkSync(run.recordingFile);
@@ -1136,6 +1161,9 @@ export class LiveRunRegistry {
       // says how many, so no write serializes them again.
       ...(run.spooled > 0 ? { spooled: run.spooled, trimmedAt: run.trimmedAt } : {}),
       ...(run.recordingLost ? { recordingLost: true } : {}),
+      ...(run.ended ? { ended: true } : {}),
+      ...(run.framesLost ? { framesLost: true } : {}),
+      ...(run.savedSessionId !== null ? { savedSessionId: run.savedSessionId } : {}),
       ...(run.pendingLink !== null ? { pendingLink: run.pendingLink } : {}),
     };
     try {
@@ -1224,7 +1252,9 @@ export class LiveRunRegistry {
         try { unlinkSync(this.fileOf(run)); } catch { /* best effort */ }
         continue;
       }
-      const ended = run.buffer.some(msg => msg.startsWith('event: complete\n'));
+      // Finished when its `complete` was broadcast, which the trim may have
+      // taken from the buffer into its recording file.
+      const ended = run.ended;
       // Only a finished run whose save is still to be decided is saved from
       // its recording file; any other run's file goes.
       if (!ended || run.saved || run.aborted || run.errored || run.expectedActorTurns === null) this.removeRecording(run);
@@ -1239,6 +1269,7 @@ export class LiveRunRegistry {
           run.bytes += msg.length;
         }
         run.aborted = true;
+        run.ended = true;
         this.writeRun(run);
         try {
           const at = new Date(mtimeMs);
@@ -1325,6 +1356,8 @@ export class LiveRunRegistry {
       recordingFile: this.recordingFileOf(p.key),
       recordingLost: p.recordingLost === true,
       trimmedAt,
+      ended: p.ended === true || events.some(msg => msg.startsWith('event: complete\n')),
+      framesLost: p.framesLost === true,
       completedActorTurns,
       actorTurnsDone: writtenTurnsDone ?? completedActorTurns.size,
       actorNameCounts,
@@ -1336,6 +1369,7 @@ export class LiveRunRegistry {
       saving: false,
       insertedRunIds: Array.isArray(p.insertedRunIds) ? p.insertedRunIds.filter((id): id is string => typeof id === 'string') : [],
       pendingLink: typeof p.pendingLink === 'string' && p.pendingLink.length > 0 ? p.pendingLink : null,
+      savedSessionId: typeof p.savedSessionId === 'string' && p.savedSessionId.length > 0 ? p.savedSessionId : null,
       capWarned: false,
       inFlight: false,
       stoppedByVisitor: false,
