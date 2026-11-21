@@ -958,6 +958,110 @@ test('a run whose server stopped while its first Library link was in flight, its
   }
 });
 
+test("a run's saved status reaches its page while its first Library link has not answered", async () => {
+  const history = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  const runHistoryStore = { ...history, linkSessionId: (): Promise<void> => new Promise<void>(() => {}) };
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+    assert.equal(res.status, 200, await res.text());
+    const saved = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved'), 'the save decision while the first link has not answered', 5000)).data;
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+  }, { extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore(), runHistoryStore, runPairSimulations: pairWithArtifacts([]) } });
+});
+
+const ADMIN = { ADMIN_WRITE: 'true', ADMIN_TOKEN: 'saved-run-replay-admin-token' };
+
+test('an admin pin of a long run already saved holds every frame of the run', async () => {
+  const sent: number[] = [];
+  const server = await startServer({ runner: longPair(sent), env: { PARACOSM_EVENT_BUFFER_MAX: String(SMALL_BUFFER), ...ADMIN }, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore() } });
+  try {
+    const a = server.cookied();
+    const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+    assert.equal(res.status, 200, await res.text());
+    const saved = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved'), 'the save decision', 10000)).data;
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.ok(sent.length > SMALL_BUFFER * 2, `the run wrote ${sent.length} frames, past its buffer of ${SMALL_BUFFER}`);
+
+    const pin = await fetch(`${server.base}/admin/sessions/save`, {
+      method: 'POST',
+      headers: { 'X-Admin-Token': ADMIN.ADMIN_TOKEN, Cookie: `${VISITOR_COOKIE}=${a.cookies.get(VISITOR_COOKIE)}` },
+    });
+    assert.equal(pin.status, 200, await pin.clone().text());
+    const pinned = await pin.json() as { id: string };
+    const replay = await readAll(await a.get(`/sessions/${pinned.id}/replay`));
+    assert.deepEqual(replay.filter(f => typeof f.data.seq === 'number').map(f => f.data.seq), sent, 'the pinned session holds every frame, in the order the run wrote it');
+  } finally {
+    await server.close();
+    rmSync(server.appDir, { recursive: true, force: true });
+  }
+});
+
+test('a Wipe All that arrives while a finished run is being saved leaves no saved session', async () => {
+  const store = memoryStore();
+  let base = '';
+  let wipe: Promise<Response> | undefined;
+  let saveDone: Promise<unknown> | undefined;
+  // The wipe is sent as the save starts, and the save commits 200 ms later.
+  const wipedDuringSave: SessionStore = {
+    ...store,
+    saveSession: (...args) => {
+      wipe = fetch(`${base}/admin/data/wipe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN.ADMIN_TOKEN },
+        body: '{}',
+      });
+      const done = new Promise(resolve => setTimeout(resolve, 200)).then(() => store.saveSession(...args));
+      saveDone = done.catch(() => undefined);
+      return done;
+    },
+  };
+  const server = await startServer({ runner: pairOfSixTurns, env: ADMIN, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: wipedDuringSave } });
+  base = server.base;
+  try {
+    const a = server.cookied();
+    const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+    assert.equal(res.status, 200, await res.text());
+    await waitFor(() => wipe, 'the wipe to be sent while the run is saved', 5000);
+    const wiped = await wipe!;
+    assert.equal(wiped.status, 200, await wiped.clone().text());
+    await saveDone;
+    assert.equal(await store.count(), 0, 'a saved session is left after the wipe');
+  } finally {
+    await server.close();
+    rmSync(server.appDir, { recursive: true, force: true });
+  }
+});
+
+test('a finished run whose complete frame its buffer of one trimmed, its save failed, is saved after a restart', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-complete-trimmed-'));
+  const env = { PARACOSM_EVENT_BUFFER_MAX: '1' };
+  try {
+    const failing: SessionStore = { ...memoryStore(), saveSession: async () => { throw new Error('the session store is busy'); } };
+    const first = await startServer({ appDir, runner: pairOfSixTurns, env, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: failing } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    try {
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(a)).some(f => f.event === 'sim_saved' && f.data.status === 'failed'), 'the failed save', 5000);
+    } finally {
+      await first.close();
+    }
+
+    const second = await startServer({ appDir, runner: pairOfSixTurns, env, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore() } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      const rows = await waitFor(async () => { const r = await listSessions(again); return r.length > 0 && r; }, 'the run to be saved after the restart', 5000);
+      assert.equal(rows.length, 1);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('a local server keeps one ring of ten saved runs, whoever saved them', async () => {
   const titles = titleStub();
   await withVisitors(async ({ visitor, cookied }) => {
