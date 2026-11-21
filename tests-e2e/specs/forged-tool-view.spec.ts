@@ -66,10 +66,15 @@
  *   toolbox opens on its counted first screen, every header row and row of
  *   keys stays one row at the sweep widths with nothing scrolling sideways,
  *   and WCAG 1.4.12's text spacing cuts and overlaps nothing.
+ * - Component captures: the toolbox, a tool's trace in each of its states, a
+ *   station's key in each of its states, and the toolbox and the actor picker
+ *   at 24 and 300 actors, each at a phone and a desktop in both looks. They
+ *   are pictures for a reader to judge, saved into after/ with the place of
+ *   every line of words each one shows; they assert nothing.
  *
  * Each picture is saved into test-pictures/forged-tool-view/, which CI uploads.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import {
   COHORT_SERVER, LINE_PARTS, LOOKS, PAIR_SERVER, PICTURES, RUNS, SWEEP_WIDTHS, WIDTHS,
@@ -81,6 +86,7 @@ import { LONG_NAME, pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
 import {
   FIGURES, TEXT_SPACING, failures, firstScreen, keyRows, measureGlyphs, measureTargets, measureText, saidOf, settle, spacingFaults, targetFailures,
+  wordBoxes,
 } from '../support/readability.js';
 import { buildToolRegistry } from '../../src/dashboard/src/hooks/toolRegistry.helpers.js';
 import { computeGameState, getActorColorVar } from '../../src/dashboard/src/hooks/useGameState.js';
@@ -3931,6 +3937,184 @@ test.describe('readability and one row', () => {
       await page.setViewportSize(WIDTHS[0]);
       const toolbox = await openToolbox(page, 12);
       await spaced(toolbox, 'the pair\'s toolbox', ['[data-toolbox-header]']);
+    }
+  });
+});
+
+// ── Component captures ────────────────────────────────────────────────────
+
+/** Where the component captures go: the pictures of the built screens, beside before/ from the screens they replace. */
+const AFTER = 'after';
+
+/** Rests the pointer off every control, so no key is drawn under it. */
+const restPointer = (page: Page) => page.mouse.move(1, 1);
+
+/**
+ * Saves one component capture: a picture of the window as it stands, and
+ * beside it the place of every line of words the surface shows, in per cent
+ * of the window, with the size and contrast the page computes for it. A
+ * reader of the picture's pixels boxes each line where it stands.
+ */
+async function capture(page: Page, surface: Locator, name: string): Promise<void> {
+  await settle(surface);
+  await picture(page, `${AFTER}/${name}`);
+  writeFileSync(`${PICTURES}/${AFTER}/${name}.words.json`, `${JSON.stringify(await wordBoxes(surface))}\n`);
+}
+
+/** Scrolls a trace, which scrolls inside its own dialog, back to its top. */
+const toTop = (surface: Locator) => surface.evaluate((el) => { el.scrollTop = 0; });
+
+test.describe('component captures', () => {
+  // Pictures of the built page, with no assertion beyond reaching each state; one retry is kept for a slow runner.
+  test.describe.configure({ retries: 1 });
+
+  test('the pair\'s toolbox and a tool\'s trace in each of its states, at a phone and a desktop in both looks', async ({ page, request }) => {
+    test.setTimeout(360_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const at = `${size.width}-${look}`;
+        await openPairSim(page, request, size, look);
+        await forgetOpenStations(page);
+
+        // The toolbox, as the Sim footer opens it.
+        const toolbox = await openToolbox(page, 12);
+        await restPointer(page);
+        await capture(page, toolbox, `${at}-toolbox`);
+        await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+        await expect(toolbox).toBeHidden();
+
+        // A passed tool's trace as it opens: its deciding station open, the others closed to one line.
+        await pressInspect(inspectKey(page, LANDING));
+        const landing = traceOf(page, LANDING, 1);
+        await expect(landing).toBeVisible();
+        await restPointer(page);
+        await capture(page, landing, `${at}-trace-passed`);
+
+        // Record open, its key at the top of what the trace shows.
+        await openRecord(landing);
+        await recordKey(landing).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+        await restPointer(page);
+        await capture(page, landing, `${at}-trace-record`);
+        await recordKey(landing).click();
+        await expect(recordKey(landing)).toHaveAttribute('aria-expanded', 'false');
+
+        // The same trace with every station open.
+        await landing.getByRole('button', { name: 'Open all stations', exact: true }).click();
+        await expectOpen(landing, { request: true, judge: true, added: true });
+        await toTop(landing);
+        await restPointer(page);
+        await capture(page, landing, `${at}-trace-open-all`);
+
+        // A fresh page, so the stations opened above are not kept open on the next tools.
+        await openPairSim(page, request, size, look);
+        await forgetOpenStations(page);
+
+        // A tool that did not pass, with the reason its forge recorded.
+        await pressInspect(inspectKey(page, RADIATION));
+        const radiation = traceOf(page, RADIATION);
+        await expect(radiation.getByText(RADIATION_REASON)).toBeVisible();
+        await restPointer(page);
+        await capture(page, radiation, `${at}-trace-did-not-pass`);
+        await closeTrace(radiation);
+
+        // The tool forged twice: its latest attempt with the spur of attempt 1, then attempt 1 with its branch to attempt 2.
+        await pressInspect(inspectKey(page, RATION).first());
+        const ration = traceOf(page, RATION);
+        await expect(attemptKeys(ration).line).toHaveText('2 of 2');
+        await restPointer(page);
+        await capture(page, ration, `${at}-trace-spur`);
+        await attemptKeys(ration).previous.click();
+        await expect(attemptKeys(ration).line).toHaveText('Attempt 1 of 2');
+        await toTop(ration);
+        await restPointer(page);
+        await capture(page, ration, `${at}-trace-branch`);
+      });
+    }
+  });
+
+  test('a station\'s key at rest, under the pointer, pressed and focused, and an inactive station, at a phone and a desktop in both looks', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const at = `${size.width}-${look}`;
+        await openPairSim(page, request, size, look);
+        await forgetOpenStations(page);
+        // Dietrich Voss's passed tool: Judge opens with it, Request and Added have evidence to open, Code and Tests have none.
+        await pressInspect(inspectKey(page, OXYGEN));
+        const trace = traceOf(page, OXYGEN);
+        await expect(trace).toBeVisible();
+        const key = stationKey(trace, 'request');
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+
+        // At rest.
+        await restPointer(page);
+        await capture(page, trace, `${at}-keys-rest`);
+
+        // Under the pointer.
+        await key.hover();
+        await capture(page, trace, `${at}-keys-hover`);
+
+        // An inactive station, with the pointer on it: Code has nothing to open on the run's record.
+        const code = stationKey(trace, 'code');
+        await expect(code).toHaveAttribute('aria-disabled', 'true');
+        await code.hover();
+        await capture(page, trace, `${at}-keys-inactive`);
+
+        // Focused from the keyboard: Shift+Tab and Tab leave and come back to the key.
+        await key.focus();
+        await page.keyboard.press('Shift+Tab');
+        await page.keyboard.press('Tab');
+        await expect(key).toBeFocused();
+        await restPointer(page);
+        await capture(page, trace, `${at}-keys-focus`);
+
+        // Pressed: the pointer held down on the key, then let go off it, on the outcome sentence, so the press opens nothing.
+        await key.hover();
+        await page.mouse.down();
+        await capture(page, trace, `${at}-keys-pressed`);
+        await trace.locator('[data-forge-outcome]').hover();
+        await page.mouse.up();
+      });
+    }
+  });
+
+  test('the 24-actor toolbox grouped with a fold open, and its actor picker open, at a phone and a desktop in both looks', async ({ page, request }) => {
+    test.setTimeout(360_000);
+    for (const { size, look } of WALKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const at = `${size.width}-${look}`;
+        const toolbox = await openCohortToolbox(page, request, RUNS.dozens, DOZENS.tools, size, look, 60_000);
+        await expect(groupKey(toolbox)).toHaveAccessibleName('Group: Actor');
+        const a1 = foldHead(toolbox, 'A1').getByRole('button');
+        await a1.click();
+        await expect(a1).toHaveAttribute('aria-expanded', 'true');
+        await restPointer(page);
+        await capture(page, toolbox, `${at}-toolbox-24-fold-open`);
+
+        // The picker opens inside the toolbox: a sheet on a phone, a popover under its key on a desktop.
+        await openPicker(page, toolbox);
+        await restPointer(page);
+        await capture(page, toolbox, `${at}-picker-24`);
+      });
+    }
+  });
+
+  test('the 300-actor toolbox scrolled to its end, at a desktop and a phone in both looks', async ({ page, request }) => {
+    test.setTimeout(600_000);
+    for (const look of LOOKS) {
+      // A run of this size plays in once a look, at the desktop's width; the window then takes the phone's with the toolbox open.
+      const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], look, 150_000);
+      await expect(toolbox.locator('[data-toolbox-rows]')).toHaveAttribute('data-line-count', '300', { timeout: 60_000 });
+      for (const size of [WIDTHS[1], WIDTHS[0]]) {
+        await test.step(`${size.width} in the ${look} look`, async () => {
+          await page.setViewportSize(size);
+          await expect(toolbox).toBeVisible();
+          // The list's last line is A300's head: reading it scrolls the list to its end.
+          await readLinesFrom(toolbox, 'end', 1);
+          await restPointer(page);
+          await capture(page, toolbox, `${size.width}-${look}-toolbox-300-end`);
+        });
+      }
     }
   });
 });

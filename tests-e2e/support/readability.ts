@@ -2,8 +2,8 @@
  * The readability figures of the forged tool view, measured on the built
  * page from computed styles: the contrast and size of every word, the
  * contrast of every glyph and edge, the size of every control, the rows of
- * keys, the first screen's counts, and what the text spacing of WCAG 1.4.12
- * does to the layout.
+ * keys, the first screen's counts, what the text spacing of WCAG 1.4.12
+ * does to the layout, and where a picture of the page shows each word.
  *
  * A component marks its body text and headings with data-text="body" or
  * data-text="heading", and its code's line numbers with
@@ -30,6 +30,27 @@ export interface TextMeasure {
 }
 
 export interface GlyphMeasure { ratio: number; selector: string }
+
+/**
+ * One line of words a picture of the window shows: where it is drawn, and
+ * what the page computes for it. A reader of the picture's pixels boxes the
+ * line where it stands and holds it to the figure its role names.
+ */
+export interface WordBox {
+  /** The words of the text this line belongs to. */
+  text: string;
+  role: TextRole;
+  /** Words on an inactive key or item. */
+  inactive?: boolean;
+  /** This line's place among the lines its text is drawn on, from 1, and how many they are. */
+  line: number;
+  of: number;
+  /** Left, top, width and height, each in per cent of the window. */
+  box: [number, number, number, number];
+  /** The computed font size, and the computed contrast against the ground the words are drawn on. */
+  px: number;
+  ratio: number;
+}
 
 /** One control a person presses, as the page lays it out. */
 export interface Target {
@@ -89,7 +110,7 @@ export const TEXT_SPACING = [
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-type Op = 'text' | 'glyphs' | 'targets' | 'first' | 'rows' | 'spacing';
+type Op = 'text' | 'glyphs' | 'targets' | 'first' | 'rows' | 'spacing' | 'words';
 
 interface ReadArg {
   op: Op;
@@ -244,6 +265,19 @@ function readSurface(root: Element, arg: ReadArg): unknown {
   const outlineOf = (cs: CSSStyleDeclaration): string | null =>
     (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && parse(cs.outlineColor)[3] > 0 ? cs.outlineColor : null);
   const pseudoDrawn = (cs: CSSStyleDeclaration): boolean => cs.content !== 'none' && cs.content !== 'normal' && cs.display !== 'none';
+  // A menu or a field draws its value in its own box, which scrolls.
+  const field = (el: Element): boolean => el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+  /** Where a part's own words are drawn: the line boxes of its own text nodes, not its box. */
+  const drawnWords = (el: Element): DOMRect[] => {
+    const out: DOMRect[] = [];
+    el.childNodes.forEach((n) => {
+      if (n.nodeType !== Node.TEXT_NODE || (n.textContent ?? '').trim() === '') return;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      out.push(...Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0));
+    });
+    return out;
+  };
 
   if (arg.op === 'text') {
     const out: Array<{ text: string; role: string; px: number; ratio: number; selector: string; inactive?: boolean }> = [];
@@ -311,6 +345,54 @@ function readSurface(root: Element, arg: ReadArg): unknown {
         if (bg[3] > 0) add(ps.backgroundColor, el, el, `${which} ground`);
         for (const edge of new Set(edgesOf(ps))) add(edge, el, el, `${which} edge`);
       }
+    }
+    return out;
+  }
+
+  if (arg.op === 'words') {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pct = (n: number, of: number): number => Math.round((n / of) * 100000) / 1000;
+    const out: Array<{
+      text: string; role: string; inactive?: boolean; line: number; of: number;
+      box: [number, number, number, number]; px: number; ratio: number;
+    }> = [];
+    for (const el of parts()) {
+      if (field(el)) continue;
+      const text = ownText(el);
+      // A character with no letter or digit (a dot between words, a key's mark) is a glyph, not a word.
+      if (!/[\p{L}\p{N}]/u.test(text) || !drawn(el)) continue;
+      const cs = getComputedStyle(el);
+      const ratio = contrast(parse(cs.color), el, el);
+      const off = inactive(el);
+      const rects = drawnWords(el);
+      rects.forEach((r, i) => {
+        // Whole in the window, and whole inside every part above it that clips or scrolls what it holds.
+        if (r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh) return;
+        for (let a = el.parentElement; a; a = a.parentElement) {
+          const s = getComputedStyle(a);
+          if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+          const ar = a.getBoundingClientRect();
+          if (r.left < ar.left - 0.5 || r.right > ar.right + 0.5 || r.top < ar.top - 0.5 || r.bottom > ar.bottom + 0.5) return;
+        }
+        // On top: at its middle and near both ends the page's topmost part is the words' own, or one that holds them.
+        const y = (r.top + r.bottom) / 2;
+        const onTop = [r.left + 1, (r.left + r.right) / 2, r.right - 1].every((x) => {
+          const hit = document.elementFromPoint(x, y);
+          return hit !== null && (hit === el || el.contains(hit) || hit.contains(el));
+        });
+        if (!onTop) return;
+        out.push({
+          text,
+          role: roleOf(el),
+          ...(off ? { inactive: true } : {}),
+          line: i + 1,
+          of: rects.length,
+          box: [pct(r.left, vw), pct(r.top, vh), pct(r.width, vw), pct(r.height, vh)],
+          px: parseFloat(cs.fontSize),
+          ratio,
+        });
+      });
     }
     return out;
   }
@@ -469,21 +551,8 @@ function readSurface(root: Element, arg: ReadArg): unknown {
   // spacing: every word drawn whole, and none drawn over another word or another control.
   const cut: string[] = [];
   const overlaps: string[] = [];
-  // A menu or a field draws its value in its own box, which scrolls.
-  const field = (el: Element): boolean => el instanceof HTMLSelectElement || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
   const words = parts().filter((el) => !field(el) && ownText(el) !== '' && drawn(el));
   const clips = (value: string): boolean => value === 'hidden' || value === 'clip';
-  /** Where a part's own words are drawn: the line boxes of its own text nodes, not its box. */
-  const drawnWords = (el: Element): DOMRect[] => {
-    const out: DOMRect[] = [];
-    el.childNodes.forEach((n) => {
-      if (n.nodeType !== Node.TEXT_NODE || (n.textContent ?? '').trim() === '') return;
-      const range = document.createRange();
-      range.selectNodeContents(n);
-      out.push(...Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0));
-    });
-    return out;
-  };
   const meets = (p: DOMRect, q: DOMRect): boolean =>
     Math.min(p.right, q.right) - Math.max(p.left, q.left) > 2 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 2;
   const lines = words.map((el) => ({ el, text: ownText(el), rects: drawnWords(el) }));
@@ -581,6 +650,15 @@ export async function keyRows(root: Locator, rows: string[]): Promise<KeyRow[]> 
  */
 export async function spacingFaults(root: Locator): Promise<{ cut: string[]; overlaps: string[] }> {
   return read<{ cut: string[]; overlaps: string[] }>(root, { op: 'spacing' });
+}
+
+/**
+ * Each line of words a picture of the window shows now, inside one surface:
+ * drawn whole in the window, with no part over it. A field's or a menu's own
+ * value is left out, since its words are not text of the page.
+ */
+export async function wordBoxes(root: Locator): Promise<WordBox[]> {
+  return read<WordBox[]>(root, { op: 'words' });
 }
 
 /**
