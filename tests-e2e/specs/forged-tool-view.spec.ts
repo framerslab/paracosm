@@ -940,6 +940,28 @@ test.describe('the stations on the run\'s record', () => {
     }
   });
 
+  test('a re-forge that passes while the trace is open opens the station that decided it', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const id = await pairSessionId(request);
+    const replay = await holdReplayAtTurn2(page, id);
+    await page.setViewportSize(WIDTHS[1]);
+    await useLook(page, 'dark');
+    await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
+    await lookShown(page, 'dark');
+    // Turn 1 holds the first forge of water_ration_index, which did not pass: Request decided it.
+    await pressInspect(inspectKey(page, RATION).first());
+    const trace = traceOf(page, RATION);
+    await expect(trace.getByText('Did not pass. The run\'s record does not say where the forge stopped.', { exact: true })).toBeVisible();
+    await expect(stationKey(trace, 'request')).toHaveAttribute('aria-expanded', 'true');
+
+    // The run goes on with the trace open: the second forge passes, and the trace follows it.
+    replay.release();
+    await expect(trace.getByRole('group', { name: 'Attempt 2 of 2', exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(trace.getByText('Passed. The judge approved it.', { exact: true })).toBeVisible();
+    await expect(stationKey(trace, 'judge'), 'Judge, which decided the pass, opens').toHaveAttribute('aria-expanded', 'true');
+    await expect(stationKey(trace, 'request'), 'Request, open before, stays open').toHaveAttribute('aria-expanded', 'true');
+  });
+
   test('at 24 actors, Request names the actor by its tile\'s label and draws its rule in the actor\'s run colour', async ({ page, request }) => {
     test.setTimeout(240_000);
     const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
@@ -1363,6 +1385,39 @@ function withParams(address: string, params: Record<string, string>): string {
   return url.toString();
 }
 
+/**
+ * Serves the pair run's replay without its second turn and its end, so the
+ * page plays in turn 1 and waits for more. `release` serves the whole run
+ * on the stream's next connection, which brings the rest as a run that goes
+ * on does; the page drops the frames it holds already.
+ */
+async function holdReplayAtTurn2(page: Page, id: string): Promise<{ release: () => void }> {
+  let held = true;
+  await page.route(`**/sessions/${id}/replay**`, async (route) => {
+    if (!held) {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const frames = (await response.text()).split(/(?<=\n\n)/);
+    const turnOf = (chunk: string): number | null => {
+      const data = /^data: (.*)$/m.exec(chunk)?.[1];
+      if (!data) return null;
+      try {
+        const turn = (JSON.parse(data) as { data?: { turn?: unknown } }).data?.turn;
+        return typeof turn === 'number' ? turn : null;
+      } catch {
+        return null;
+      }
+    };
+    const cut = frames.findIndex(chunk => turnOf(chunk) === 2);
+    expect(cut, 'the pair run holds a second turn').toBeGreaterThan(0);
+    const body = frames.slice(0, cut).filter(chunk => !/^event: complete$/m.test(chunk)).join('');
+    await route.fulfill({ response, body });
+  });
+  return { release: () => { held = false; } };
+}
+
 /** Records the name of every forged tool's dialog the page shows, from before its first script runs. */
 async function recordTraceNames(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -1450,6 +1505,24 @@ test.describe('a link to one tool', () => {
         }
       });
     }
+  });
+
+  test('while the replay plays in, the trace offers no link to copy, and offers it once the run is complete', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const id = await pairSessionId(request);
+    const replay = await holdReplayAtTurn2(page, id);
+    await page.setViewportSize(WIDTHS[1]);
+    await useLook(page, 'dark');
+    await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
+    await lookShown(page, 'dark');
+    await pressInspect(inspectKey(page, RATION).first());
+    const trace = traceOf(page, RATION);
+    await expect(trace).toBeVisible();
+    // A tool's number is fixed once the run is complete: a link copied before then could name another tool.
+    await expect(copyLinkKey(trace)).toHaveCount(0);
+    replay.release();
+    await replayComplete(page, 60_000);
+    await expect(copyLinkKey(trace)).toBeVisible();
   });
 
   test('f1 q14: offline, the key copies and says "You are offline"', async ({ page, context, request }) => {

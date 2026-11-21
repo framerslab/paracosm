@@ -492,9 +492,25 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
     );
   };
 
-  // The lines rendered, in order, and the room kept for the ones left out above and below.
+  // The lines rendered, in order, and the room kept for the ones left out
+  // above and below. A line that holds focus far from the view renders apart
+  // from the lines in view, above or below them, with the room of the lines
+  // between kept before the later of the two.
   const shown: number[] = [];
+  const keptAbove = win.kept !== undefined && win.kept < win.first;
+  if (win.kept !== undefined && keptAbove) shown.push(win.kept);
   for (let at = win.first; at <= win.last; at += 1) shown.push(at);
+  if (win.kept !== undefined && !keptAbove) shown.push(win.kept);
+  const gapAt = win.kept === undefined || !win.gap ? -1 : keptAbove ? win.first : win.kept;
+  /** The room of the lines between, drawn only, before the line it stands before. */
+  const gapBefore = (at: number, inList: boolean) => {
+    if (at !== gapAt) return null;
+    const style: CSSProperties = { height: win.gap };
+    return inList
+      ? <li key="gap" role="presentation" aria-hidden="true" data-lines-gap style={style} />
+      : <div key="gap" aria-hidden="true" data-lines-gap style={style} />;
+  };
+  const rowsWithGap = (at: number[]) => at.flatMap((i) => [gapBefore(i, true), renderRow(i)]);
   const pads: CSSProperties | undefined = win.windowed ? { paddingTop: win.padTop, paddingBottom: win.padBottom } : undefined;
   // Grouped, the rendered lines by their fold, and within an actor's fold by department.
   const foldsShown: Array<{ fold: number; at: number[] }> = [];
@@ -655,7 +671,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                   data-windowed={win.windowed}
                   style={pads}
                 >
-                  {shown.map(renderRow)}
+                  {rowsWithGap(shown)}
                 </ol>
               ) : (
                 <div
@@ -685,6 +701,7 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                         className={styles.fold}
                         data-fold={head.kind === 'actor' ? head.actor.label : head.name}
                       >
+                        {headAt !== undefined && gapBefore(headAt, false)}
                         {headAt !== undefined && (
                           <div className={styles.foldTop} data-line={headAt}>
                             <FoldHead
@@ -701,15 +718,16 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                             const rowsAt = part.filter((i) => lines[i].kind === 'row');
                             return (
                               <div key={dept} className={styles.department}>
+                                {deptAt !== undefined && gapBefore(deptAt, false)}
                                 {deptAt !== undefined && (
                                   <h4 className={styles.deptLine} data-dept-line data-line={deptAt}>{dept}</h4>
                                 )}
-                                {rowsAt.length > 0 && <ol className={styles.items}>{rowsAt.map(renderRow)}</ol>}
+                                {rowsAt.length > 0 && <ol className={styles.items}>{rowsWithGap(rowsAt)}</ol>}
                               </div>
                             );
                           })
                         ) : (
-                          body.length > 0 && <ol className={styles.items}>{body.map(renderRow)}</ol>
+                          body.length > 0 && <ol className={styles.items}>{rowsWithGap(body)}</ol>
                         )}
                       </div>
                     );

@@ -32,9 +32,21 @@ export const RUNS = {
   noForgePair: 'Mars Genesis · no forge',
 } as const;
 
+/** How many times useLook has been called in this worker: each call's number orders its script. */
+let lookCalls = 0;
+
 /** Opens every page of the test in one look. */
 export async function useLook(page: Page, look: Look): Promise<void> {
-  await page.addInitScript((t) => { window.localStorage.setItem('paracosm-theme', t); }, look);
+  // Each call adds a script the page runs before its own on every load, and
+  // Playwright runs a page's scripts in no set order: the latest call's
+  // number is the highest, so its look is the one the page keeps.
+  lookCalls += 1;
+  await page.addInitScript(({ t, n }) => {
+    const w = window as unknown as { __lookCall?: number };
+    if ((w.__lookCall ?? 0) > n) return;
+    w.__lookCall = n;
+    window.localStorage.setItem('paracosm-theme', t);
+  }, { t: look, n: lookCalls });
 }
 
 interface StoredSession { id: string; scenarioName?: string }

@@ -32,18 +32,29 @@ export interface WindowInput {
 }
 
 export interface WindowRange {
-  /** The first and the last line to render, both included; for an empty list, last is first - 1. */
+  /** The first and the last line of the run around the view, both included; for an empty list, last is first - 1. */
   first: number;
   last: number;
-  /** The height of the lines above `first` and below `last`, which the list keeps as room. */
+  /**
+   * A line rendered apart from that run, above or below it: the kept line
+   * when it stands further from the run than the next line. Absent when
+   * the kept line is in the run or there is none.
+   */
+  kept?: number;
+  /** The height of the lines between the kept line and the run, which the list keeps as room between them. */
+  gap?: number;
+  /** The height of the lines above the first line rendered and below the last, which the list keeps as room. */
   padTop: number;
   padBottom: number;
 }
 
 /**
- * The lines to render: every line the view shows, `overscan` more past each
- * end, and `keep` with the lines between it and the view, so the range is
- * one run of lines. A view past the list's end shows its last line.
+ * The lines to render: every line the view shows and `overscan` more past
+ * each end, one run of lines. A `keep` in that run or next to it joins the
+ * run; one further away renders apart from it as `kept`, and the lines
+ * between them keep their room as `gap`, so a line that holds focus stays
+ * rendered without rendering every line between it and the view. A view
+ * past the list's end shows its last line.
  */
 export function windowRange({ count, lineHeights, scrollTop, viewport, overscan, keep }: WindowInput): WindowRange {
   if (count <= 0) return { first: 0, last: -1, padTop: 0, padBottom: 0 };
@@ -73,16 +84,20 @@ export function windowRange({ count, lineHeights, scrollTop, viewport, overscan,
   const margin = Math.max(0, Math.floor(overscan));
   let first = Math.max(0, firstSeen - margin);
   let last = Math.min(count - 1, lastSeen + margin);
+  const sumOf = (from: number, to: number): number => {
+    let total = 0;
+    for (let i = from; i < to; i += 1) total += heightOf(i);
+    return total;
+  };
   if (keep !== undefined && Number.isInteger(keep) && keep >= 0 && keep < count) {
-    first = Math.min(first, keep);
-    last = Math.max(last, keep);
+    if (keep >= first - 1 && keep <= last + 1) {
+      first = Math.min(first, keep);
+      last = Math.max(last, keep);
+    } else if (keep < first) {
+      return { first, last, kept: keep, gap: sumOf(keep + 1, first), padTop: sumOf(0, keep), padBottom: sumOf(last + 1, count) };
+    } else {
+      return { first, last, kept: keep, gap: sumOf(last + 1, keep), padTop: sumOf(0, first), padBottom: sumOf(keep + 1, count) };
+    }
   }
-
-  let padTop = 0;
-  let padBottom = 0;
-  for (let i = 0; i < count; i += 1) {
-    if (i < first) padTop += heightOf(i);
-    else if (i > last) padBottom += heightOf(i);
-  }
-  return { first, last, padTop, padBottom };
+  return { first, last, padTop: sumOf(0, first), padBottom: sumOf(last + 1, count) };
 }

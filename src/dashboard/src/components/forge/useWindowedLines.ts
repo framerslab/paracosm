@@ -72,8 +72,9 @@ function readView(listEl: HTMLElement): View {
 /**
  * The lines to render of a list held by `listEl`: every line up to 50, and
  * past 50 the lines in view, eight more past each end, and the line at
- * `focusIndex` wherever it stands. The list keeps `padTop` and `padBottom`
- * as room for the lines it leaves out.
+ * `focusIndex` wherever it stands, apart from them as `kept` when it is
+ * further away. The list keeps `padTop` and `padBottom` as room for the
+ * lines it leaves out, and `gap` between the kept line and the others.
  */
 export function useWindowedLines(lines: readonly WindowLine[], listEl: HTMLElement | null, focusIndex: number | null): WindowedLines {
   const windowed = lines.length > WINDOW_PAST;
@@ -107,7 +108,7 @@ export function useWindowedLines(lines: readonly WindowLine[], listEl: HTMLEleme
     if (!listEl || !now.windowed) return;
     const next = readView(listEl);
     const nextRange = windowRange({ count: now.heights.length, lineHeights: now.heights, scrollTop: next.scrollTop, viewport: next.viewport, overscan: OVERSCAN, keep: now.keep });
-    if (nextRange.first !== now.range.first || nextRange.last !== now.range.last) setView(next);
+    if (nextRange.first !== now.range.first || nextRange.last !== now.range.last || nextRange.kept !== now.range.kept) setView(next);
   }, [listEl]);
 
   // The view follows every scroll (the toolbox's own, or the page's in Reports) and every change of size.
