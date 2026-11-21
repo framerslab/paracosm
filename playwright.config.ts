@@ -34,13 +34,13 @@ export default defineConfig({
     // many runs it holds.
     // So does the dashboard display spec, whose Library server counts the
     // replays its tests run. The toolbox log and share link spec, the forged
-    // tool view spec and the Viz living grid spec set each width they check
-    // themselves, so one project runs them.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // tool view spec, the Viz living grid spec and the phone rows and grid
+    // window spec set each width they check themselves, so one project runs them.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
