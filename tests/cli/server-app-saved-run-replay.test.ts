@@ -16,6 +16,8 @@
  *   runs no frame the trim took; its saved session holds every frame, in
  *   order, also when it is saved after a restart, and once its save is
  *   decided, or the run is dropped, no file holds a frame of its recording.
+ *   A run read back after a restart keeps the actor-turn count it had
+ *   live, so a turn one actor reported twice counts once.
  * - The saved cost is each actor's final artifact cost, summed, also when
  *   two artifacts share a run id.
  * - `?speed=` paces a replay; the replay of another visitor's run carries no
@@ -27,6 +29,8 @@
  *   saved once after the restart, with no title from a model, since the
  *   restart let go of the key that paid for the run, and its Library records
  *   link to it. A run's end is on disk as it ends, before its save starts.
+ *   A Library link that fails once the save commits is tried again, in the
+ *   same process and at the next start.
  * - A local server keeps one ring of ten saved runs, whoever saved them.
  *
  * Every test goes through createMarsServer over HTTP with stub runners and
@@ -35,7 +39,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSessionStore, type SessionStore, type TimestampedEvent } from '../../src/server/stores/session.js';
@@ -318,7 +322,9 @@ test('a run past its live buffer cap holds no more frames in memory than the cap
     assert.deepEqual(recording.frames.slice(1).map(frame => (JSON.parse(frame.split('\n')[1].slice('data: '.length)) as { seq: number }).seq), Array.from({ length: frames }, (_, i) => i), 'every frame, in the order it was written');
     assert.ok(framesHeld(run).size <= Math.ceil(cap * 1.1), 'reading the recording keeps none of it on the run');
 
-    // The save is decided: nothing of the recording stays on disk.
+    // The trimmed frames are on disk, then the save is decided: nothing of
+    // the recording stays on disk.
+    assert.equal(filesHolding(dir, 'first-frame-of-the-spooled-run').length, 1, 'one file holds the first frame the trim took');
     registry.settleSave(run);
     assert.deepEqual(filesHolding(dir, 'first-frame-of-the-spooled-run'), [], 'no file holds a frame the trim took once the save is decided');
 
@@ -328,6 +334,7 @@ test('a run past its live buffer cap holds no more frames in memory than the cap
     for (let seq = 0; seq < 200; seq++) {
       otherBroadcast('sim', { type: 'turn_done', leader: 'Ada', seq, data: { turn: seq + 1 }, ...(seq === 0 ? { mark: 'first-frame-of-the-dropped-run' } : {}) }, 'Ada');
     }
+    assert.equal(filesHolding(dir, 'first-frame-of-the-dropped-run').length, 1, "one file holds the first frame the second run's trim took");
     registry.clear(other);
     assert.deepEqual(filesHolding(dir, 'first-frame-of-the-dropped-run'), [], 'no file holds a frame of a run that was dropped');
   } finally {
@@ -448,6 +455,41 @@ test('a long run that finished before a restart, its save not committed, saves e
       assert.deepEqual(filesHolding(runsDir, 'first-frame-of-the-long-run'), [], 'nothing of the recording is on disk once the save commits');
     } finally {
       await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a run read back after a restart counts its actor-turns as it counted them live: a turn one actor reported twice counts once', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-restart-turn-count-'));
+  const key = randomUUID();
+  const frame = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  // One actor, two turns: turn 1 reported twice under its tag, turn 2 never.
+  // Live, that is one actor-turn of the two expected.
+  const events = [
+    frame('active_scenario', { id: mars.id, name: 'Mars Genesis', runKey: key, kind: 'pair' }),
+    frame('turn_done', { turn: 1 }),
+    frame('turn_done', { turn: 1 }),
+    frame('complete', { timestamp: '2026-11-21T00:00:00.000Z' }),
+  ];
+  const dir = join(appDir, '.live-runs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${key}.json`), JSON.stringify({
+    version: 1, key, visitorId: 'anonymous', kind: 'pair', scenarioId: mars.id, scenarioName: 'Mars Genesis', seedText: null,
+    aborted: false, errored: false, saved: false,
+    events, timestamps: events.map(() => Date.now()), actorIds: [null, 'Ada', 'Ada', null],
+    expectedActorTurns: 2, actorTurnsDone: 1,
+  }));
+  const store = memoryStore();
+  try {
+    const server = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store } });
+    try {
+      const decision = (await waitFor(async () => (await readReplay(server.base)).find(f => f.event === 'sim_saved'), 'the save decision after the restart', 5000)).data;
+      assert.deepEqual([decision.status, decision.reason, decision.turnDoneCount], ['skipped', 'partial_completion', 1], JSON.stringify(decision));
+      assert.equal(await store.count(), 0, 'the run is not saved');
+    } finally {
+      await server.close();
     }
   } finally {
     rmSync(appDir, { recursive: true, force: true });
@@ -795,6 +837,77 @@ test('a run saved after a restart links its Library records to its saved session
         return listed.length === 2 && listed.every(r => r.sessionId !== undefined) && listed;
       }, "the Library records' session links", 3000);
       assert.deepEqual(runs.map(r => r.sessionId), [rows[0].id, rows[0].id]);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+/** A run-history store whose session links fail while `failing` says so, counting each try. */
+function flakyLinks(failing: () => boolean) {
+  const store = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  const tries = { n: 0 };
+  return {
+    tries,
+    store: {
+      ...store,
+      linkSessionId: async (runIds: readonly string[], sessionId: string) => {
+        tries.n += 1;
+        if (failing()) throw new Error('the run-history store is busy');
+        await store.linkSessionId!(runIds, sessionId);
+      },
+    },
+  };
+}
+
+async function linkedSessions(v: Visitor, what: string, ms: number): Promise<Array<string | undefined>> {
+  const runs = await waitFor(async () => {
+    const { runs: listed } = await v.json<{ runs: Array<{ runId: string; sessionId?: string }> }>('/api/v1/runs');
+    return listed.length === 2 && listed.every(r => r.sessionId !== undefined) && listed;
+  }, what, ms);
+  return runs.map(r => r.sessionId);
+}
+
+test("a run's Library records are linked to its saved session when the first link fails", async () => {
+  let fails = 1;
+  const links = flakyLinks(() => fails-- > 0);
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+    assert.equal(res.status, 200, await res.text());
+    const saved = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved' && f.data.status === 'saved'), 'the save', 5000)).data;
+    assert.deepEqual(await linkedSessions(a, "the Library records' session links after the failed link", 5000), [saved.id, saved.id]);
+    assert.ok(links.tries.n >= 2, `the link was tried ${links.tries.n} time(s)`);
+  }, { extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore(), runHistoryStore: links.store, runPairSimulations: pairWithArtifacts([]) } });
+});
+
+test('a run whose Library link failed after its save committed is linked at the next start', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-link-at-restart-'));
+  let failing = true;
+  const links = flakyLinks(() => failing);
+  // One session store and one run-history store across both starts, as a server's database files are.
+  const sessions = memoryStore();
+  try {
+    const first = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: sessions, runHistoryStore: links.store, runPairSimulations: pairWithArtifacts([]) } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    let savedId: unknown;
+    try {
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      savedId = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved' && f.data.status === 'saved'), 'the save', 5000)).data.id;
+      assert.ok(links.tries.n >= 1, 'the link was tried');
+    } finally {
+      await first.close();
+    }
+
+    failing = false;
+    const second = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: sessions, runHistoryStore: links.store, runPairSimulations: pairWithArtifacts([]) } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      assert.deepEqual(await linkedSessions(again, "the Library records' session links after the restart", 3000), [savedId, savedId]);
     } finally {
       await second.close();
     }
