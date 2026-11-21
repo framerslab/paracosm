@@ -1,7 +1,7 @@
 /**
  * The Run tab's first screen: the input phase of the Quickstart view, as a
- * first-time visitor meets it. It opens with the scenario line (the
- * scenario's name, what the run does and its figures).
+ * first-time visitor meets it. In order: the scenario line (the scenario's
+ * name, what the run does and its figures) and the leaders.
  *
  * The parts kept from the earlier screen (the launch error, the replay link,
  * the scenario and paste forms and the digital twin card) come in as
@@ -11,6 +11,7 @@
  * @module paracosm/dashboard/quickstart/first-screen/RunFirstScreen
  */
 import type { ReactNode } from 'react';
+import { LeaderPair } from './LeaderPair';
 import { ScenarioLine } from './ScenarioLine';
 import { ServerFactsProvider } from './useServerFacts';
 import styles from './RunFirstScreen.module.scss';
@@ -25,6 +26,7 @@ export function RunFirstScreen({ children }: RunFirstScreenProps) {
     <ServerFactsProvider>
       <div className={styles.screen} data-testid="run-first-screen">
         <ScenarioLine />
+        <LeaderPair />
       </div>
       {children}
     </ServerFactsProvider>

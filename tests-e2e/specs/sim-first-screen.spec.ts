@@ -592,6 +592,12 @@ async function barOf(holder: Locator): Promise<{ track: number; fill: number; co
   });
 }
 
+/** A score's row in the pair's score table, by its place in the order the scores are drawn. */
+const scoreRow = (table: Locator, index: number): Locator => table.locator('tbody tr').nth(index);
+
+/** A part's words as they are shown: a soft hyphen, which shows only where a word wraps, left out. */
+const shownText = (part: Locator): Promise<string> => part.evaluate((el) => (el.textContent ?? '').replace(/\u00ad/g, '').replace(/\s+/g, ' ').trim());
+
 screenTest('feature 5: two cards at a pair', async ({ page }) => {
   test.setTimeout(180_000);
   const written = writtenOf(await serverScenario(page));
@@ -735,7 +741,7 @@ screenTest('feature 5: the middle band', async ({ page }) => {
       await expect(leaders.getByTestId('middle-band')).toHaveText([MIDDLE_BAND]);
       const table = leaders.getByRole('table');
       for (const [t, trait] of TRAITS.entries()) {
-        const cells = table.getByRole('row', { name: new RegExp(`^${trait}\\b`) }).getByRole('cell');
+        const cells = scoreRow(table, t).getByRole('cell');
         for (const [c, who] of PAIR.entries()) {
           const score = Number(who.scores[t]);
           const bar = await barOf(cells.nth(c));
@@ -790,8 +796,8 @@ screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
         const table = card.getByRole('table');
         await expect(table.getByRole('columnheader')).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
         for (const [t, trait] of TRAITS.entries()) {
-          const row = table.getByRole('row', { name: new RegExp(`^${trait}\\b`) });
-          await expect(row.getByRole('rowheader')).toHaveText(trait);
+          const row = scoreRow(table, t);
+          expect(await shownText(row.getByRole('rowheader'))).toBe(trait);
           await expect(row.getByRole('cell')).toHaveText([ARIA.scores[t], DIETRICH.scores[t]]);
         }
         await expectNoSidewaysScroll(page, root);
@@ -812,7 +818,7 @@ screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
         expect(Math.abs(after.key.y - before.key.y)).toBeLessThanOrEqual(1);
         // The table is the same whichever card shows.
         await expect(card.getByRole('table').getByRole('columnheader')).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
-        await expect(card.getByRole('table').getByRole('row', { name: /^Openness\b/ }).getByRole('cell')).toHaveText(['0.95', '0.25']);
+        await expect(scoreRow(card.getByRole('table'), 0).getByRole('cell')).toHaveText(['0.95', '0.25']);
         await picture(page, `leaders-phone-${width}-${look}-leader-2`);
 
         // The arrow keys move between the two keys.
@@ -950,6 +956,9 @@ async function openColony(page: Page, size: { width: number; height: number }, l
   return { root, colony, canvas };
 }
 
+/** The panel's field: the grid's own canvas area, or the frame that stands for it while no grid is drawn. */
+const fieldOf = (colony: Locator): Locator => colony.locator('[data-testid="living-colony-field-a"], [data-testid="colony-field"]');
+
 /** The people set over the field as text, each with its box. */
 async function nameBoxes(colony: Locator): Promise<Array<{ name: string; left: number; top: number; right: number; bottom: number; size: number; colour: string; opacity: number }>> {
   return colony.locator('[data-person][data-featured="true"]').evaluateAll((els) => els.map((el) => {
@@ -968,6 +977,8 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
   for (const size of [PHONE, WIDE]) {
     for (const look of LOOKS) {
       await test.step(`${size.width} in the ${look} look`, async () => {
+        // The pointer rests away from the panel, so no person is hovered.
+        await page.mouse.move(0, 0);
         const { root, colony, canvas } = await openColony(page, size, look);
         // Exactly one colony field on the screen, inside the panel; no card carries one.
         await expect(root.locator('canvas')).toHaveCount(1);
@@ -986,7 +997,8 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
 
         // Each featured person's name is text at 15 px or more in the ink, inside the field, and no two overlap.
         const ink = await tokenColour(page, '--text-1');
-        const field = await box(colony.getByTestId('colony-field'));
+        await expect(fieldOf(colony)).toHaveCount(1);
+        const field = await box(fieldOf(colony));
         const names = await nameBoxes(colony);
         expect(names.map((n) => n.name)).toEqual(people.filter((p) => p.featured).map((p) => p.name));
         for (const n of names) {
@@ -1041,7 +1053,7 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
           await root.getByTestId('leaders').getByRole('tab', { name: 'Show Dietrich Voss' }).click();
           await expect(root.getByTestId('leaders').getByTestId('leader-head')).toHaveText(DIETRICH.title);
           expect(await frameOf(canvas)).toBe(first);
-          const still = await box(colony.getByTestId('colony-field'));
+          const still = await box(fieldOf(colony));
           expect(Math.abs(still.height - field.height)).toBeLessThanOrEqual(1);
           expect(Math.abs(still.width - field.width)).toBeLessThanOrEqual(1);
         }
@@ -1068,10 +1080,11 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
   }
 
   // Feature 14, QA step 13 at a pair: the field's height at each width, with no sideways scroll.
+  await page.mouse.move(0, 0);
   for (const [width, height] of FIELD_HEIGHTS) {
     await test.step(`the field at ${width}`, async () => {
       const { root, colony } = await openColony(page, sizeAt(width), 'dark');
-      const field = await box(colony.getByTestId('colony-field'));
+      const field = await box(fieldOf(colony));
       expect(Math.abs(field.height - height)).toBeLessThanOrEqual(1);
       expect(Math.abs(field.width - (await box(root)).width)).toBeLessThanOrEqual(1);
       await expectNoSidewaysScroll(page, root);
@@ -1081,6 +1094,7 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
 
   // A person who is not featured shows no name at rest; the name shows on focus.
   await test.step('a person who is not featured, 1440 in the dark look', async () => {
+    await page.mouse.move(0, 0);
     await routeScenario(page, (scenario) => {
       const preset = scenario.presets.find((p) => p.id === 'default') ?? scenario.presets[0];
       if (preset?.personnel?.[1]) preset.personnel[1].featured = false;

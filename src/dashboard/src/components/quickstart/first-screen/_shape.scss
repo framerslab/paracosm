@@ -1,0 +1,39 @@
+// The loading shape: a word drawn over by a bar of its own line, the word
+// itself unseen, so a part keeps the size its words will take. The bar fades
+// between two tones every 1.5 seconds for 4.5 seconds, then holds one tone;
+// under reduced motion it holds it from the start.
+@mixin loading-shape {
+  color: transparent;
+  background-color: var(--edge-control);
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  opacity: 0.3;
+  animation: loadingShapeTone 1.5s ease-in-out 3 alternate;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@mixin loading-shape-keyframes {
+  @keyframes loadingShapeTone {
+    from {
+      opacity: 0.3;
+    }
+
+    to {
+      opacity: 0.55;
+    }
+  }
+}
+
+// The quiet tone: the live tone in each look that clears 7 to 1 on every
+// ground of the screen (--text-2 in the dark look, --text-3 in the light).
+@mixin quiet-tone {
+  color: var(--text-2);
+
+  :global(.light) & {
+    color: var(--text-3);
+  }
+}
