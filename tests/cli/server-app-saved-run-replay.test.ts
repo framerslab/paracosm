@@ -1038,6 +1038,39 @@ test('a Wipe All that arrives while a finished run is being saved leaves no save
   }
 });
 
+test('a wipe that keeps the saved sessions leaves a run that finished while it ran saved, though the held-run cap let go of the run', async () => {
+  let release: () => void = () => {};
+  const held = new Promise<void>(resolve => { release = () => resolve(); });
+  let wipeStarted = false;
+  const history = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  // The wipe of the Library records waits until the test lets it end.
+  const runHistoryStore = { ...history, wipeAll: async () => { wipeStarted = true; await held; return 0; } };
+  const store = memoryStore();
+  const server = await startServer({ runner: pairOfSixTurns, maxHeldRuns: 1, env: ADMIN, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store, runHistoryStore } });
+  try {
+    const wipe = fetch(`${server.base}/admin/data/wipe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN.ADMIN_TOKEN },
+      body: JSON.stringify({ wipeSessions: false, wipeEventBuffer: false }),
+    });
+    await waitFor(() => wipeStarted, 'the wipe to start');
+    // Two visitors' runs finish while the wipe runs; with one held run, the second lets go of the first.
+    for (const v of [server.cookied(), server.cookied()]) {
+      const res = await v.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(v)).some(f => f.event === 'complete'), 'the run to finish');
+    }
+    release();
+    const wiped = await wipe;
+    assert.equal(wiped.status, 200, await wiped.clone().text());
+    await waitFor(async () => (await store.count()) === 2, 'both runs to be saved', 3000);
+  } finally {
+    release();
+    await server.close();
+    rmSync(server.appDir, { recursive: true, force: true });
+  }
+});
+
 test('a finished run whose complete frame its buffer of one trimmed, its save failed, is saved after a restart', async () => {
   const appDir = mkdtempSync(join(tmpdir(), 'paracosm-complete-trimmed-'));
   const env = { PARACOSM_EVENT_BUFFER_MAX: '1' };
