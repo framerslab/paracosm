@@ -1996,10 +1996,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       skipForGood('run_errored');
       return;
     }
-    // Every frame the run broadcast: the live buffer's trim never shortens
-    // the saved session.
-    const recording = runRecording(run);
-    if (recording.frames.length === 0) {
+    if (run.buffer.length === 0 && run.spooled === 0) {
       console.log('[sessions] auto-save skipped: empty event buffer');
       skipForGood('empty_buffer');
       return;
@@ -2008,7 +2005,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // Completed actor-turns, each counted once, as the run broadcast them
     // (the buffer's trim does not lower the count). A frame that names no
     // actor or turn counts once by itself.
-    const turnDoneCount = run.completedActorTurns.size;
+    const turnDoneCount = run.actorTurnsDone;
     if (turnDoneCount < AUTO_SAVE_MIN_TURNS) {
       console.log(`[sessions] auto-save skipped: turn_done count ${turnDoneCount} below AUTO_SAVE_MIN_TURNS (${AUTO_SAVE_MIN_TURNS})`);
       skipForGood('below_min_turns', { turnDoneCount, minTurns: AUTO_SAVE_MIN_TURNS });
@@ -2042,6 +2039,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // run after its restart, under the run's key, so it is saved once.
     run.saving = true;
     try {
+      // Every frame the run broadcast: the frames its live buffer trimmed
+      // are read back once, from the run's recording file, so the trim never
+      // shortens the saved session.
+      const recording = await runRecording(run);
+      if (!recording) {
+        console.log(`[sessions] auto-save skipped: the recording of run ${run.key} is not whole`);
+        skipForGood('recording_incomplete');
+        return;
+      }
       const now = Date.now();
       const events: TimestampedEvent[] = recording.frames.map((sse, i) => ({
         ts: recording.timestamps[i] || now,
@@ -2126,7 +2132,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       });
     } catch (err) {
       // Not decided: the run stays unsaved, so a restart saves it.
-      run.saving = false;
+      liveRuns.abandonSave(run);
       const message = err instanceof Error ? err.message : String(err);
       console.warn('[sessions] auto-save failed:', err);
       emitSaveStatus('failed', { error: message });
@@ -3966,11 +3972,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         // Build the timestamped event array from the run's recording (the
         // buffer, with any frames its trim took before the run's save was
-        // decided). For events whose timestamp is 0 (rehydrated from disk
-        // pre-timestamp-tracking), use the next known timestamp so replay
-        // pacing stays monotonic instead of bunching at the start.
+        // decided, read back from its recording file). For events whose
+        // timestamp is 0 (rehydrated from disk pre-timestamp-tracking), use
+        // the next known timestamp so replay pacing stays monotonic instead
+        // of bunching at the start.
         const now = Date.now();
-        const recording = runRecording(run);
+        const recording = await runRecording(run);
+        if (!recording) {
+          res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ error: "the run's recording is not whole: a frame its buffer trimmed could not be read back" }));
+          return;
+        }
         const events: TimestampedEvent[] = recording.frames.map((sse, i) => ({
           ts: recording.timestamps[i] || now,
           sse,
