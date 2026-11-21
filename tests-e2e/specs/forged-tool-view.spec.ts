@@ -1273,6 +1273,37 @@ test.describe('Record and the attempts on the run\'s record', () => {
     }
   });
 
+  test('a link to an earlier attempt that leaves no row for the attempt left keeps focus in the trace', async ({ page, request }) => {
+    test.setTimeout(240_000);
+    // A tool of the 24-actor run forged three times or more: at its latest
+    // attempt the line holds a spur for each earlier one, and attempt 1's view
+    // holds a row to attempt 2 alone.
+    const entry = registryOf(generateCohortRun(DOZENS)).list.find(e => e.attempts.length >= 3);
+    if (!entry) throw new Error('the 24-actor run holds no tool forged three times');
+    const total = entry.attempts.length;
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
+    await page.setViewportSize(WIDTHS[1]);
+    await useLook(page, 'dark');
+    await page.goto(withParams(replayUrl(COHORT_SERVER, id, 'sim'), { tool: String(entry.n) }));
+    await lookShown(page, 'dark');
+    await replayComplete(page, 90_000);
+    const trace = traceOf(page, entry.name, entry.n);
+    await expect(trace).toBeVisible();
+    await expect(trace.getByRole('group', { name: `Attempt ${total} of ${total}`, exact: true })).toBeVisible();
+
+    // From the keyboard, the spur of attempt 1 swaps the trace to attempt 1.
+    const spur = trace.getByRole('link', { name: /^Attempt 1 · / });
+    await spur.focus();
+    await page.keyboard.press('Enter');
+    await expect(trace.getByRole('group', { name: `Attempt 1 of ${total}`, exact: true })).toBeVisible();
+    await expect(trace.getByRole('link', { name: new RegExp(`^Attempt ${total} · `) })).toHaveCount(0);
+    // Focus stays in the trace, and Tab moves on inside it.
+    const inTrace = () => trace.evaluate(dialog => dialog.contains(document.activeElement));
+    await expect.poll(inTrace, 'focus stays in the trace after the swap').toBe(true);
+    await page.keyboard.press('Tab');
+    await expect.poll(inTrace, 'Tab keeps focus in the trace').toBe(true);
+  });
+
   test('at 24 actors, a re-forged tool opens at its latest attempt with its spur, and Record holds that actor\'s frames alone', async ({ page, request }) => {
     test.setTimeout(240_000);
     const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
@@ -3143,6 +3174,33 @@ test.describe('one actor picker for the toolbox', () => {
     }
   });
 
+  test('with actors chosen, an empty Did not pass filter says nothing of the whole run and offers All', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const registry = registryOf(generateCohortRun(DOZENS));
+    expect(registry.list.some(e => e.outcome === 'did_not_pass'), 'the run holds tools that did not pass').toBe(true);
+    // An actor whose every tool passed.
+    const clean = registry.actors.findIndex((_, i) => {
+      const own = registry.list.filter(e => e.actorIndex === i);
+      return own.length > 0 && own.every(e => e.outcome === 'passed');
+    });
+    if (clean < 0) throw new Error('every actor of the 24-actor run holds a tool that did not pass');
+    const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
+    await page.setViewportSize(WIDTHS[1]);
+    await useLook(page, 'dark');
+    await page.goto(withParams(replayUrl(COHORT_SERVER, id, 'sim'), { toolbox: '1', show: 'did_not_pass', actors: String(clean + 1) }));
+    await lookShown(page, 'dark');
+    await replayComplete(page, 90_000);
+    const toolbox = toolboxOf(page);
+    await expect(toolbox).toBeVisible();
+    await expect(toolbox.locator('[data-toolbox-count]')).toContainText('Showing 1 of 24 actors');
+    await expect(rowsOf(toolbox)).toHaveCount(0);
+    // Other actors' tools did not pass, so the run-wide sentence is not said.
+    await expect(toolbox.getByText('Every tool in this run passed.', { exact: true })).toHaveCount(0);
+    // All is the way forward.
+    await toolbox.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(toolbox.locator('[data-toolbox-empty]')).toHaveCount(0);
+  });
+
   test('f19 q6: sorting by most forges that did not pass', async ({ page, request }) => {
     test.setTimeout(180_000);
     const registry = registryOf(generateCohortRun(DOZENS));
@@ -3617,6 +3675,33 @@ test.describe('the Viz tab opens the forge view over the living grid', () => {
     await expect(strip.locator('[data-cell]')).toHaveCount(0);
     await expectGridDimmedBeside(leftGrid(page), toolbox);
     await picture(page, '1100-dark-f10-viz-forge-toolbox-empty');
+  });
+
+  test('over the Viz tab, Space presses the forge view\'s keys', async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await openViz(page, request, 'pair', WIDTHS[1], 'dark', 60_000);
+    // FORGE mode's key opens the toolbox on Space, as any button does.
+    await chooseForgeMode(page);
+    const key = vizToolboxKey(page, 12);
+    await key.focus();
+    await page.keyboard.press('Space');
+    const toolbox = toolboxOf(page, 12);
+    await expect(toolbox, 'Space on the key opens the toolbox').toBeVisible();
+    await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+    await expect(toolbox).toBeHidden();
+
+    // A forge mark's trace: Space on a station's key opens that station.
+    const mark = (await forgeMarks(page)).find(m => m.tool === RATION && m.side === 'a' && m.turn === 2);
+    if (!mark) throw new Error('the event strip holds no mark of Aria Chen\'s second forge of water_ration_index');
+    await markOf(page, mark.label).click();
+    const trace = traceOf(page, RATION);
+    await expect(trace).toBeVisible();
+    const request1 = stationKey(trace, 'request');
+    await expect(request1).toHaveAttribute('aria-expanded', 'false');
+    await request1.focus();
+    await page.keyboard.press('Space');
+    await expect(request1, 'Space on the station\'s key opens it').toHaveAttribute('aria-expanded', 'true');
+    await expect(request1).toBeFocused();
   });
 
   test('the living grids are all there with the dialogs open and after they close', async ({ page, request }) => {

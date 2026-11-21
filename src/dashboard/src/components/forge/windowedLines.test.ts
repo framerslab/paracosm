@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OVERSCAN, windowRange, type WindowInput } from './windowedLines';
+import { OVERSCAN, windowRange, type WindowInput, type WindowRange } from './windowedLines';
 
 /** A fold head at 1440 px, and rows whose words wrap to one, two or three lines. */
 const HEAD = 56;
@@ -71,20 +71,56 @@ test('the range moves with scrollTop, and the pads hold the lines left out', () 
   assert.equal(at(44 * 5000).last, 3911);
 });
 
-test('the kept line stays in the range, however far it is from the view', () => {
+/** The line a range renders apart from its run, and the room between them, where it has one. */
+const keptOf = (r: WindowRange): { kept?: number; gap?: number } => r as WindowRange & { kept?: number; gap?: number };
+
+test('a kept line far from the view renders apart from the lines in view, and the lines between keep their room', () => {
   const heights = maximumRunHeights();
-  const base = { count: heights.length, lineHeights: heights, viewport: 900, overscan: OVERSCAN };
-  const below = windowRange({ ...base, scrollTop: 0, keep: 3900 });
-  assert.equal(below.first, 0);
-  assert.equal(below.last, 3900);
-  assert.equal(below.padBottom, sum(heights, 3901, heights.length));
   const total = sum(heights, 0, heights.length);
+  const base = { count: heights.length, lineHeights: heights, viewport: 900, overscan: OVERSCAN };
+
+  // Focus on line 3,900 with the view at the top: the view's lines render, and line 3,900 beside them.
+  const top = windowRange({ ...base, scrollTop: 0 });
+  const below = windowRange({ ...base, scrollTop: 0, keep: 3900 });
+  assert.equal(below.first, top.first);
+  assert.equal(below.last, top.last, 'the lines between the view and the kept line are not rendered');
+  assert.equal(keptOf(below).kept, 3900);
+  assert.equal(below.padTop, 0);
+  assert.equal(keptOf(below).gap, sum(heights, below.last + 1, 3900));
+  assert.equal(below.padBottom, sum(heights, 3901, heights.length));
+
+  // Focus on line 3 with the view at the end: line 3 renders above the view's lines.
+  const end = windowRange({ ...base, scrollTop: total - 900 });
   const above = windowRange({ ...base, scrollTop: total - 900, keep: 3 });
-  assert.equal(above.first, 3);
-  assert.equal(above.last, 3911);
+  assert.equal(above.first, end.first, 'the lines between the kept line and the view are not rendered');
+  assert.equal(above.last, end.last);
+  assert.equal(keptOf(above).kept, 3);
   assert.equal(above.padTop, sum(heights, 0, 3));
+  assert.equal(keptOf(above).gap, sum(heights, 4, above.first));
+  assert.equal(above.padBottom, 0);
+
+  // The pads, the room between and the lines rendered keep the list's whole height.
+  for (const r of [below, above]) {
+    const { kept, gap } = keptOf(r);
+    assert.equal(r.padTop + (gap ?? 0) + sum(heights, r.first, r.last + 1) + heights[kept ?? 0] + r.padBottom, total);
+  }
+
+  // However far the kept line stands, the range renders no more than 61 lines.
+  for (const keep of [0, 1955, 3911]) {
+    for (let scrollTop = 0; scrollTop <= total; scrollTop += 4567) {
+      const r = windowRange({ ...base, scrollTop, keep });
+      const rendered = r.last - r.first + 1 + (keptOf(r).kept === undefined ? 0 : 1);
+      assert.ok(rendered <= 61, `${rendered} lines with line ${keep} kept at ${scrollTop}`);
+    }
+  }
+
+  // A kept line in the view's range or next to it joins the range, and nothing renders apart.
+  const next = windowRange({ ...base, scrollTop: 0, keep: top.last + 1 });
+  assert.equal(next.last, top.last + 1);
+  assert.equal(keptOf(next).kept, undefined);
+  assert.deepEqual(windowRange({ ...base, scrollTop: 0, keep: 2 }), top);
   // A keep the list does not hold changes nothing.
-  assert.deepEqual(windowRange({ ...base, scrollTop: 0, keep: 9000 }), windowRange({ ...base, scrollTop: 0 }));
+  assert.deepEqual(windowRange({ ...base, scrollTop: 0, keep: 9000 }), top);
 });
 
 test('heights that differ (heads and rows) sum to the pads', () => {
