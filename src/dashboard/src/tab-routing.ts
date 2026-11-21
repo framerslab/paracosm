@@ -63,17 +63,23 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
 
 /**
  * The Settings tab's Event Log filtered to one forged tool: `sub=log`
- * opens the Event Log sub-tab and the `#log=<tool name>` hash is the
- * filter EventLogPanel reads when it mounts (parseFiltersFromUrl).
+ * opens the Event Log sub-tab and the `#log=<tool name>&logExact=1` hash
+ * is the filter EventLogPanel reads when it mounts (parseFiltersFromUrl):
+ * the tool's events by its whole name, so a tool whose name holds another
+ * tool's name does not bring that tool's events with it. Given an actor's
+ * name, the log shows that actor's events alone (`logLeader`), since two
+ * actors of a run can forge tools of one name. An empty tool name writes no
+ * hash, so the log shows every event of that actor.
  * Event Log filters an earlier visit left in the address are dropped,
  * so they cannot hide the tool's events; other parameters (the replay
  * session) stay.
  */
-export function createToolLogHref(currentHref: string, toolName: string): string {
+export function createToolLogHref(currentHref: string, toolName: string, actorName?: string): string {
   const url = new URL(createDashboardTabHref(currentHref, 'settings'));
   for (const key of LOG_FILTER_PARAMS) url.searchParams.delete(key);
   url.searchParams.set('sub', 'log');
-  url.hash = `log=${encodeURIComponent(toolName)}`;
+  if (actorName) url.searchParams.set('logLeader', actorName);
+  url.hash = toolName ? `log=${encodeURIComponent(toolName)}&logExact=1` : '';
   return url.toString();
 }
 

@@ -61,7 +61,8 @@ export function TurnRow({ entry, eventsA, eventsB, runTerminal, runAborted }: Tu
       className={rowClass}
       aria-labelledby={`turn-row-${entry.turn}-h`}
     >
-      <h3 id={`turn-row-${entry.turn}-h`} className={styles.header}>
+      {/* A forged tool's trace links to its event and moves focus here. */}
+      <h3 id={`turn-row-${entry.turn}-h`} className={styles.header} tabIndex={-1}>
         <span className={styles.headerTurn}>T{entry.turn}</span>
         <DiffBadge classification={entry.classification} />
         {sameTitle ? (

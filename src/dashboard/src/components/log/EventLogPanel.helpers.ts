@@ -22,6 +22,12 @@ export interface LogFilters {
   turnRange: [number, number] | null;
   /** Legacy `#log=<substring>` hash filter (tool-name substring). */
   toolHash: string;
+  /**
+   * Whether `toolHash` names one tool by its whole name (`#log=<name>&logExact=1`,
+   * the hash Show in Event Log writes) rather than a part of a name typed into
+   * the address by hand.
+   */
+  toolExact: boolean;
 }
 
 /** Canonical empty filter — matches every event. */
@@ -32,6 +38,7 @@ export function emptyFilters(): LogFilters {
     leader: null,
     turnRange: null,
     toolHash: '',
+    toolExact: false,
   };
 }
 
@@ -62,7 +69,7 @@ export function applyLogFilters(
       if (t === undefined || t < range[0] || t > range[1]) return false;
     }
 
-    if (hash && !matchesToolHash(e, hash)) return false;
+    if (hash && !matchesToolHash(e, hash, filters.toolExact)) return false;
 
     if (q && !matchesQuery(e, q)) return false;
 
@@ -86,17 +93,24 @@ function matchesQuery(e: SimEvent, query: string): boolean {
   return false;
 }
 
-function matchesToolHash(e: SimEvent, substring: string): boolean {
+/**
+ * Whether an event names the tool: a forge's own `name`, or an entry of a
+ * report's `forgedTools`. `wanted` is lower-cased; a whole name matches only
+ * that name, and a part of a name matches every name that holds it.
+ */
+function matchesToolHash(e: SimEvent, wanted: string, whole: boolean): boolean {
+  const matches = (name: string) => (whole ? name === wanted : name.includes(wanted));
   const d = (e.data ?? {}) as Record<string, unknown>;
-  const name = typeof d.name === 'string' ? d.name.toLowerCase() : '';
-  if (name && name.includes(substring)) return true;
+  // Names are read trimmed, as the toolbox's registry reads them.
+  const name = typeof d.name === 'string' ? d.name.trim().toLowerCase() : '';
+  if (name && matches(name)) return true;
   const tools = Array.isArray(d.forgedTools) ? d.forgedTools : [];
   for (const t of tools) {
     const tn =
       t && typeof t === 'object' && typeof (t as Record<string, unknown>).name === 'string'
-        ? ((t as Record<string, unknown>).name as string).toLowerCase()
+        ? ((t as Record<string, unknown>).name as string).trim().toLowerCase()
         : '';
-    if (tn && tn.includes(substring)) return true;
+    if (tn && matches(tn)) return true;
   }
   return false;
 }
@@ -208,6 +222,7 @@ export function parseFiltersFromUrl(
     } catch {
       filters.toolHash = hashMatch[1];
     }
+    filters.toolExact = /(?:^|&)logExact=1(?:&|$)/.test(hashBody);
   }
   return filters;
 }

@@ -59,7 +59,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: '.sim-columns',
     tab: 'sim',
     title: 'Event streams',
-    description: 'Each turn, both leaders face events the Director generated based on accumulated state. Departments analyze in parallel and may forge new tools. Commanders decide. Tools tint by side. Every forged tool card gets a "↗ LOG" button that jumps to the Event Log filtered to that tool.',
+    description: 'Each turn, both leaders face events the Director generated based on accumulated state. Departments analyze in parallel and may forge new tools. Commanders decide. Tools tint by side. INSPECT on a forged tool opens it on its line of five stations, and its Record holds Show in Event Log.',
   },
   {
     target: '[aria-label="Divergence rail"]',
@@ -83,7 +83,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: '.reports-content',
     tab: 'reports',
     title: 'Reports',
-    description: 'Turn-by-turn rollup: commander decisions, department analyses, forged toolbox across both sides, agent reactions, verdict comparison. Every forged tool has a "↗ LOG" button that scopes the Event Log sub-tab to just that tool\'s history.',
+    description: 'Turn-by-turn rollup: commander decisions, department analyses, forged toolbox across both sides, agent reactions, verdict comparison. Each forged tool opens from its row, and its Record holds Show in Event Log for that tool\'s events.',
   },
   {
     target: '[role="group"][aria-label="View mode"]',
@@ -95,7 +95,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: '[role="tablist"][aria-label="Settings sub-navigation"]',
     tab: 'settings',
     title: 'Settings + event log',
-    description: 'Configure actors with HEXACO sliders, pick a scenario, set turns and population, and drop in your own OpenAI or Anthropic key to bypass the hosted-demo caps. The Event Log sub-tab shows the raw SSE stream (status, turn_start, specialist_done, decision_made, outcome, reaction, forge_attempt) and is what the "↗ LOG" buttons elsewhere link into.',
+    description: 'Configure actors with HEXACO sliders, pick a scenario, set turns and population, and drop in your own OpenAI or Anthropic key to bypass the hosted-demo caps. The Event Log sub-tab shows the raw SSE stream (status, turn_start, specialist_done, decision_made, outcome, reaction, forge_attempt) and is where a forged tool\'s Show in Event Log leads.',
   },
   {
     target: '.topbar',

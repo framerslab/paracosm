@@ -212,6 +212,19 @@
     --side-a: var(--vis);
     --side-b: var(--eng);
 
+    /* === FORGED TOOL VIEW ===
+       The quiet tone and the edge tone of the forge's line, its cells and
+       its words, the glyph colour of a forge that did not pass, and the
+       view's three text sizes. --problem is a lighter rust for this view's
+       glyphs; --rust keeps its value for every other screen. The light
+       look sets its own colours below. */
+    --forge-quiet: var(--text-2);
+    --forge-edge: var(--text-3);
+    --problem: #f2946a;
+    --forge-text-meta: 15px;
+    --forge-text-body: 18px;
+    --forge-text-title: 22px;
+
     /* === STATES === */
     --color-success: var(--green);
     --color-warning: var(--amber);
@@ -337,6 +350,12 @@
        --vis from #7a5200 (4.28:1) to #6b4700 to clear the threshold. */
     --vis: #6b4700;
     --eng: #186060;
+
+    /* The forged tool view's tones. The light look's --text-2 sits too
+       near the ink to be a second tone, so the quiet tone is --text-3. */
+    --forge-quiet: var(--text-3);
+    --forge-edge: var(--text-4);
+    --problem: #8e2c0c;
 
     /* Shadows — warm-tinted */
     --shadow-sm: 0 1px 2px rgba(60, 40, 10, 0.1);

@@ -1,0 +1,338 @@
+// The forge's line. Its stations are the living grid's square cells with
+// sharp corners (viz/grid/GameOfLifeLayer.ts) on a 2 px line: 20 px cells
+// down the trace, 10 px cells across a toolbox row. --line is set inline: the
+// actor's run colour on a run of two actors, the quiet tone from three.
+//
+// - reached: a cell filled in the line's colour
+// - not reached: a dead cell, its 1.5 px edge in the edge tone, on a dashed line
+// - unknown: a dashed cell
+// - stopped: the outcome's glyph in the cell (OutcomeGlyph)
+
+.cell {
+  box-sizing: border-box;
+  display: block;
+  flex-shrink: 0;
+  border-radius: 0;
+}
+
+.cell[data-cell='reached'] { background: var(--line); }
+
+.cell[data-cell='notReached'] {
+  background: transparent;
+  border: 1.5px solid var(--forge-edge);
+}
+
+.cell[data-cell='unknown'] {
+  background: transparent;
+  border: 1.5px dashed var(--forge-edge);
+}
+
+// ── The trace: the line down the left side, one station a row ──────────────
+
+.trace {
+  // The line's column, and the height of a station's key: 44 px on a phone.
+  --rail-col: 40px;
+  --row-h: 44px;
+
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace .cell {
+  width: 20px;
+  height: 20px;
+}
+
+.station {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--rail-col) minmax(0, 1fr);
+  align-items: start;
+}
+
+// The rail from this station's cell to the next one's.
+.station[data-rail]::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--rail-col) / 2 - 1px);
+  top: calc(var(--row-h) / 2 + 10px);
+  bottom: calc((var(--row-h) - 20px) / -2);
+  width: 0;
+  border-left: 2px solid var(--line);
+  pointer-events: none;
+}
+
+.station[data-rail='dashed']::after {
+  border-left-style: dashed;
+  border-left-color: var(--forge-edge);
+}
+
+.stationKey {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: var(--rail-col) minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-height: var(--row-h);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  &[aria-disabled='true'] { cursor: default; }
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--rail-col);
+  height: var(--row-h);
+}
+
+.name {
+  justify-self: start;
+  border-bottom: 2px solid transparent;
+  font-family: var(--sans);
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+// Hover: a ring round the mark. Open: a ring in the line's colour, and the
+// name over a 2 px bar in the line's colour. Pressed: the bar in the edge tone.
+.stationKey:not([aria-disabled='true']):hover .mark > * {
+  outline: 2px solid var(--forge-edge);
+  outline-offset: 2px;
+}
+
+.station[data-open] .mark > * {
+  outline: 2px solid var(--line);
+  outline-offset: 2px;
+}
+
+.station[data-open] .name { border-bottom-color: var(--line); }
+
+.stationKey:not([aria-disabled='true']):active .name { border-bottom-color: var(--forge-edge); }
+
+.result,
+.evidence {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.result {
+  padding-bottom: 8px;
+  font-family: var(--sans);
+  font-size: var(--forge-text-body);
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// "Not reached" and "Unknown": other words, in the quiet tone.
+.result[data-quiet] {
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--forge-quiet);
+}
+
+.evidence { padding-bottom: 12px; }
+
+// ── Another attempt where it leaves the line ──────────────────────────────
+// One quiet row in the ink under its station. An elbow in the line's colour
+// leaves the rail at the station's mark and runs into the row: a short spur
+// to an earlier attempt, the branch to the next one.
+.fork {
+  // How far the elbow reaches back to the rail, and the room before the row's link.
+  --fork-reach: calc(var(--rail-col) / 2);
+  --fork-indent: 12px;
+
+  position: relative;
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 0 8px var(--fork-indent);
+}
+
+.fork::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--fork-reach) - 1px);
+  top: 0;
+  width: calc(var(--fork-reach) + var(--fork-indent) - 4px);
+  height: calc(50% - 4px);
+  border-left: 2px solid var(--line);
+  border-bottom: 2px solid var(--line);
+  pointer-events: none;
+}
+
+// The row's link: the attempt's glyph, its words and a chevron, in the ink.
+// A phone's row is 44 px tall and as wide as the column.
+.forkLink {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--row-h);
+  padding: 0 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  > svg { flex-shrink: 0; }
+}
+
+.forkWords {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.chevron { color: var(--text-1); }
+
+// Tablet: each station's name and result on one row, its evidence under them.
+@media (min-width: 600px) {
+  .trace {
+    --rail-col: 48px;
+    --names-col: 200px;
+  }
+
+  .fork { grid-column: 2 / -1; }
+
+  .station { grid-template-columns: var(--rail-col) 200px minmax(0, 1fr); }
+
+  .stationKey { grid-column: 1 / 3; }
+
+  .result {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: center;
+    padding-bottom: 0;
+  }
+
+  .evidence { grid-column: 2 / -1; }
+}
+
+// Desktop: keys 32 px tall with 8 px between; a closed station's result or an
+// open station's evidence in the column right of the names, 72 characters wide.
+@media (min-width: 900px) {
+  .trace { --row-h: 32px; }
+
+  .station { padding-bottom: 8px; }
+
+  .result,
+  .evidence {
+    grid-column: 3;
+    grid-row: 1;
+    max-width: 72ch;
+  }
+
+  .evidence {
+    align-self: start;
+    padding-bottom: 0;
+  }
+
+  // The row stands in the evidence column, the elbow reaching back across the names.
+  .fork {
+    --fork-reach: calc(var(--rail-col) / 2 + var(--names-col));
+
+    grid-column: 3;
+    padding-top: 4px;
+  }
+
+  .forkLink { flex: 0 1 auto; }
+}
+
+@media (min-width: 1440px) {
+  .trace { --names-col: 240px; }
+
+  .station { grid-template-columns: var(--rail-col) 240px minmax(0, 1fr); }
+}
+
+// ── A toolbox row: the same line in small ──────────────────────────────────
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+// A tool forged again carries its earlier attempts under the line.
+.row:has(.spur) { padding-bottom: 14px; }
+
+.rowStation {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.row .cell {
+  width: 10px;
+  height: 10px;
+}
+
+.segment {
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 0;
+  border-top: 2px solid var(--line);
+}
+
+.segment[data-rail='dashed'] {
+  border-top-style: dashed;
+  border-top-color: var(--forge-edge);
+}
+
+// The fork: an elbow in the line's colour from under the station where the
+// earlier attempts left the line, then each earlier attempt's glyph.
+.spur {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 4px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px 0 0 6px;
+}
+
+.spur::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 8px;
+  border-left: 2px solid var(--line);
+  border-bottom: 2px solid var(--line);
+}

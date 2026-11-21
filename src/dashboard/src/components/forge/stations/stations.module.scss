@@ -1,0 +1,388 @@
+// What a station opens in place, on the dashboard's own tokens. Every colour
+// and size is a live token of theme/tokens.css or one of the forge view's
+// named tokens (--forge-quiet, --forge-edge and the three text sizes).
+//
+// Parts are set apart by space, and a list's rows by one 1 px hairline in the
+// edge tone. The only boxes are the code-face blocks that hold what the run
+// recorded: the raw schemas and each recorded output.
+
+.open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+  padding-top: 4px;
+  font-family: var(--sans);
+  color: var(--text-1);
+}
+
+.part {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// Body text: what the tool does, the confidence.
+.body {
+  margin: 0;
+  font-size: var(--forge-text-body);
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// Other words, in the ink.
+.meta {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// Other words that say what the record does not hold, in the quiet tone.
+.quiet {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--forge-quiet);
+}
+
+// The code-face block of what the run recorded, on the code ground.
+.code {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+// ── Request: the actor's line beside a 2 px rule in the actor's run colour ──
+.actor {
+  display: grid;
+  grid-template-columns: 2px minmax(0, 1fr);
+  column-gap: 12px;
+}
+
+// --actor is set inline: the actor's run colour, on a run of any size.
+.rule {
+  display: block;
+  width: 2px;
+  background: var(--actor);
+}
+
+.actorText {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  min-width: 0;
+}
+
+// The link to the event the tool was made for: underlined, in the ink.
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+
+  &:hover { text-decoration-thickness: 2px; }
+  &:active { color: var(--forge-quiet); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+    border-radius: var(--radius-md);
+  }
+}
+
+// ── Request: the declared fields ──────────────────────────────────────────
+.fieldsBar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+// Raw JSON: a switch, its track drawn in the edge tone and in the accent when on.
+.switch {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.switchTrack {
+  position: relative;
+  box-sizing: border-box;
+  width: 28px;
+  height: 16px;
+  border: 1.5px solid var(--forge-edge);
+  border-radius: 8px;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 2.5px;
+    left: 2.5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--forge-edge);
+  }
+}
+
+.switch[aria-checked='true'] .switchTrack {
+  border-color: var(--amber);
+
+  &::after {
+    left: auto;
+    right: 2.5px;
+    background: var(--amber);
+  }
+}
+
+.caption {
+  margin: 0;
+  padding: 0 0 6px;
+  caption-side: top;
+  text-align: left;
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The fields: one hairline under the column names, and space between the rows.
+.fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+
+  th {
+    padding: 6px 12px 6px 0;
+    border-bottom: 1px solid var(--forge-edge);
+    font-weight: 600;
+    text-align: left;
+    vertical-align: bottom;
+  }
+
+  td {
+    padding: 8px 12px 0 0;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+
+  // A field's name and type are identifiers, in the code face.
+  td[data-code] { font-family: var(--mono); }
+
+  // A type the record does not hold: "Not recorded", in the quiet tone.
+  td[data-quiet] { color: var(--forge-quiet); }
+}
+
+// Below 600 px each field is a card: the column names stand beside the values,
+// and the table's own column row is kept for screen readers alone.
+@media (max-width: 599.98px) {
+  .fields {
+    thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    & {
+      display: block;
+    }
+
+    caption,
+    tbody,
+    tr {
+      display: block;
+    }
+
+    tr {
+      padding: 8px 0;
+    }
+
+    tr + tr { border-top: 1px solid var(--forge-edge); }
+
+    td {
+      display: grid;
+      grid-template-columns: 7em minmax(0, 1fr);
+      column-gap: 12px;
+      padding: 2px 0;
+    }
+
+    // The column's name beside the value: seen, and left out of what a screen reader reads.
+    td::before {
+      content: attr(data-label);
+      content: attr(data-label) #{'/'} '';
+      font-family: var(--sans);
+      font-weight: 600;
+      color: var(--text-1);
+    }
+
+    td:empty {
+      padding: 0;
+
+      &::before { content: none; }
+    }
+  }
+}
+
+// ── Judge: the confidence and its meter ───────────────────────────────────
+.confidence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+
+  > :first-child {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+// A meter 120 px wide: its fill the accent on a track in the edge tone.
+.meter {
+  position: relative;
+  flex: none;
+  width: 120px;
+  height: 8px;
+  overflow: hidden;
+  background: var(--forge-edge);
+}
+
+.meterFill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--amber);
+}
+
+// ── Added: each history row ───────────────────────────────────────────────
+.uses {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.use {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.use + .use {
+  padding-top: 12px;
+  border-top: 1px solid var(--forge-edge);
+}
+
+// ── Record: the raw record, its keys and what they say ────────────────────
+// The three keys share one row at every width: on a phone a key's words
+// take a second line inside it before the row would wrap. What a key says
+// stands under them.
+.recordKeys {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  align-items: stretch;
+  column-gap: 8px;
+  min-width: 0;
+
+  > .switch {
+    justify-content: center;
+    text-align: center;
+  }
+
+  // The status stays in place, empty, until a key has something to say.
+  > .recordSaid { grid-column: 1 / -1; }
+  > .recordSaid:not(:empty) { margin-top: 8px; }
+}
+
+@media (max-width: 599.98px) {
+  .recordKeys > .switch { padding: 0 8px; }
+}
+
+// What a key says beside it: "Copied", or what failed and the way forward.
+.recordSaid {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// The raw record: the frames as JSON on the code ground, in a box that
+// scrolls inside itself, sideways and down, so the sheet never does.
+.record {
+  max-height: 60vh;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  white-space: pre;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+@media (min-width: 900px) {
+  .link,
+  .switch {
+    min-height: 32px;
+  }
+}

@@ -2,7 +2,7 @@
  * Event Log tab content. Scrollable list of every SSE event with
  * per-type color coding, a rich filter bar (F15) covering text search,
  * event-type toggles, per-leader filter, and turn range. Legacy
- * `#log=<toolName>` hash filter (set by the ToolboxSection CTA) is
+ * `#log=<toolName>` hash filter (set by a forged tool's Show in Event Log) is
  * preserved and surfaced as a chip in the bar. Auto-pin-to-bottom
  * stays live as events stream in.
  */
@@ -49,7 +49,7 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
   const [filters, setFilters] = useState<LogFilters>(readFiltersFromWindow);
 
   // Listen for hash changes so the legacy `#log=` chip updates when
-  // ToolboxSection clicks set the hash.
+  // a forged tool's Show in Event Log sets the hash.
   useEffect(() => {
     const onHash = () => setFilters(readFiltersFromWindow());
     window.addEventListener('hashchange', onHash);
@@ -73,7 +73,7 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
   // state. Only the log parameters change; the replay, tab and sub view
   // stay in the address. The legacy `#log=<tool>` hash is stripped when the
   // user clears `toolHash` via the chip's × button; otherwise the hash is
-  // preserved (toolbox-section clicks can still drive it).
+  // preserved (a forged tool's Show in Event Log can still drive it).
   const handleFiltersChange = useCallback(
     (next: LogFilters) => {
       setFilters((prev) => {
