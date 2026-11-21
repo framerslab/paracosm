@@ -215,7 +215,11 @@ export function TraceDialog({
 
   // Another attempt swaps the trace in place: the stations open on this one
   // stay open where that one holds evidence, beside its own deciding station.
-  /** After a row's link swaps the attempt, focus goes to the row now in its place: the attempt just left. */
+  /**
+   * After a row's link swaps the attempt, focus goes to the row now in its
+   * place, the attempt just left, or to the tool's name where the attempt now
+   * on show draws no row for it, so focus stays in the trace.
+   */
   const focusRowRef = useRef<number | null>(null);
   const showAttempt = (n: number, fromRow: boolean) => {
     const next = attemptNumber(entry, n);
@@ -225,11 +229,23 @@ export function TraceDialog({
     focusRowRef.current = fromRow ? shownAt : null;
     setChosen(next);
   };
+  // A re-forge that arrives while the trace follows the latest attempt swaps
+  // it in place as a key does: the stations open stay open where the new
+  // attempt holds evidence, beside its own deciding station.
+  const followedRef = useRef(shownAt);
+  useEffect(() => {
+    if (followedRef.current === shownAt) return;
+    followedRef.current = shownAt;
+    if (chosen !== undefined) return;
+    setOpenSet((now) => initialOpen(model, [...now], hasEvidence));
+  }, [shownAt, chosen, model, hasEvidence]);
   useEffect(() => {
     const row = focusRowRef.current;
     focusRowRef.current = null;
     if (row === null) return;
-    dialogRef.current?.querySelector<HTMLElement>(`[data-fork-attempt="${row}"]`)?.focus();
+    const target = dialogRef.current?.querySelector<HTMLElement>(`[data-fork-attempt="${row}"]`)
+      ?? [rowNameRef.current, headNameRef.current].find((el) => el !== null && el.offsetParent !== null);
+    target?.focus();
   }, [shownAt, dialogRef]);
 
   // The attempt on show and the open stations, for the page's address.

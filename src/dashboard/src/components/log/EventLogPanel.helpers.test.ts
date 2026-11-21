@@ -166,6 +166,16 @@ test('applyLogFilters: a whole tool name keeps that tool\'s rows alone', () => {
   assert.deepEqual(out, [twoNames[0], twoNames[2]]);
 });
 
+test('applyLogFilters: a whole tool name keeps a forge and a report whose name has spaces at its ends, as the toolbox reads that name', () => {
+  const spaced: SimEvent[] = [
+    mk('forge_attempt', { leader: 'Aria', data: { turn: 1, name: ' habitat_pressure_check ' } }),
+    mk('specialist_done', { leader: 'Aria', data: { turn: 1, forgedTools: [{ name: 'habitat_pressure_check ' }] } }),
+    mk('forge_attempt', { leader: 'Aria', data: { turn: 1, name: ' habitat_pressure_check_backup' } }),
+  ];
+  const out = applyLogFilters(spaced, { ...emptyFilters(), toolHash: 'habitat_pressure_check', toolExact: true });
+  assert.deepEqual(out, [spaced[0], spaced[1]]);
+});
+
 test('applyLogFilters: the same name as a part keeps every tool whose name holds it', () => {
   const out = applyLogFilters(twoNames, { ...emptyFilters(), toolHash: 'habitat_pressure_check', toolExact: false });
   assert.deepEqual(out, twoNames);

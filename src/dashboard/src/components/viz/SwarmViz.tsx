@@ -95,6 +95,9 @@ function hasEcologyReadings(snap: TurnSnapshot | undefined): boolean {
   return [snap.foodReserve, snap.waterLitersPerDay, snap.powerKw, snap.pressurizedVolumeM3].some(v => typeof v === 'number');
 }
 
+/** A control Space presses: the tab's playback shortcut leaves Space to it. */
+const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"]';
+
 /**
  * VIZ tab composition root. Owns playhead state, grid mode, palette,
  * chronicle filter, focused-side, and timelapse recording. Delegates
@@ -731,8 +734,14 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   useEffect(() => {
     const useNewGridFlag = import.meta.env.VITE_NEW_GRID !== '0';
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
+      const target = e.target instanceof Element ? e.target : null;
+      const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      // A dialog over the tab keeps its own keys, the forge view's trace and
+      // toolbox among them; Escape still closes the help.
+      if (e.key !== 'Escape' && target?.closest('[role="dialog"]')) return;
+      // Space presses the control that holds focus, as it does on any page.
+      if ((e.key === ' ' || e.key === 'Spacebar') && target?.closest(PRESSABLE)) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); handleStepBack(); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); handleStepForward(); }
       else if (e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); handlePlayPause(); }

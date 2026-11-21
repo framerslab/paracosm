@@ -57,6 +57,18 @@ test('with a yes to measure alone, Google Analytics gets the event and its field
   assert.deepEqual(p.clarity, []);
 });
 
+test('Google Analytics gets the page by its address with no query, so a search or a tool named in the address stays on the page', () => {
+  const p = page(['measure']);
+  // Google's tag sends the page's address with every event unless the event names one: the address here holds a search and a tool.
+  (p.window as unknown as Record<string, unknown>).location = new URL('https://demo.example/sim?replay=r1&toolbox=1&find=radiation_dose&tool=3&open=judge');
+  sendForgeEvent(STATION_OPEN, p.window);
+  assert.equal(p.gtag.length, 1);
+  const params = p.gtag[0][2] as Record<string, unknown>;
+  assert.equal(params.page_location, 'https://demo.example/sim');
+  assert.equal(params.station, 'judge');
+  assert.ok(!JSON.stringify(p.gtag).includes('radiation_dose'), 'the search reaches no vendor');
+});
+
 test('with a yes to record alone, Clarity gets the event by its name alone, and Google Analytics nothing', () => {
   const p = page(['record']);
   sendForgeEvent(STATION_OPEN, p.window);

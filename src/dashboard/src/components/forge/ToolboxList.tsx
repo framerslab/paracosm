@@ -639,7 +639,8 @@ export function ToolboxList({ inPage = false }: ToolboxListProps) {
                 </>
               ) : (
                 <>
-                  {show === 'did_not_pass' && <p className={styles.emptyWords} data-text="body">{TOOLBOX_EMPTY.everyToolPassed}</p>}
+                  {/* The sentence speaks of the whole run, so it stands only while every actor is shown. */}
+                  {show === 'did_not_pass' && picked === null && <p className={styles.emptyWords} data-text="body">{TOOLBOX_EMPTY.everyToolPassed}</p>}
                   <button type="button" className={styles.key} onClick={showAll}>{SHOW_WORDS.all}</button>
                 </>
               )}

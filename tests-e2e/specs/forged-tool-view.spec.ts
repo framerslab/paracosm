@@ -1511,7 +1511,10 @@ test.describe('a link to one tool', () => {
         const other = await browser.newContext({ viewport: size, deviceScaleFactor: 2 });
         try {
           const visitor = await other.newPage();
+          // The look alone is set, so the picture shows the look its name says; the stations come from the link.
+          await useLook(visitor, look);
           await visitor.goto(link);
+          await lookShown(visitor, look);
           await replayComplete(visitor, 60_000);
           const shared = traceOf(visitor, LANDING, 1);
           await expect(shared).toBeVisible();

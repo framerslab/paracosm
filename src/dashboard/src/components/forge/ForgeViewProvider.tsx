@@ -108,6 +108,8 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
   const afterBackRef = useRef<(() => void) | null>(null);
   const registryRef = useRef(registry);
   registryRef.current = registry;
+  const completeRef = useRef(state.isComplete);
+  completeRef.current = state.isComplete;
   const currentRef = useRef(current);
   currentRef.current = current;
   /** The page's address when the open dialog added its history entry: the address the page shows once it closes. */
@@ -247,7 +249,19 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
         }
         return;
       }
-      if (!entryRef.current) return;
+      if (!entryRef.current) {
+        // Forward onto an entry a dialog added: the dialog its address names
+        // opens again on that entry, and Close and Back leave it as before.
+        if ((window.history.state as { forgeView?: unknown } | null)?.forgeView !== true) return;
+        const { state: linked } = parseForgeUrl(window.location.href, registryRef.current, completeRef.current);
+        if (!linked.trace && !linked.toolbox.open) return;
+        entryRef.current = true;
+        baseHrefRef.current = withToolbox(withoutForgeParams(window.location.href, TRACE_PARAMS), { open: false, ...filterRef.current });
+        toolboxOpenRef.current = linked.toolbox.open;
+        setShown(null);
+        setCurrent({ trace: linked.trace ?? null, toolbox: linked.toolbox.open });
+        return;
+      }
       if (currentRef.current.trace && toolboxOpenRef.current) {
         // Back over a row's trace closes the trace alone. The step back took
         // the entry the two shared, so the toolbox takes a new one.
@@ -394,7 +408,7 @@ export function ForgeViewProvider({ state, runKey, sessionId, showToolLog, child
             open={target.open}
             actorCount={state.actorIds.length}
             runKey={runKey}
-            sessionId={sessionId}
+            sessionId={complete ? sessionId : null}
             events={actorEvents}
             onShown={setShown}
             onClose={closeTrace}
