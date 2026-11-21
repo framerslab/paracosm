@@ -26,6 +26,16 @@ export const TRAIT_ORDER: readonly HexacoTrait[] = [
   'honestyHumility',
 ];
 
+/**
+ * A score's name as it is drawn: the longest name carries a soft hyphen,
+ * which shows only where the name wraps in a narrow column, so the name
+ * never sets a column wider than a 320 px window holds and never breaks
+ * without a hyphen.
+ */
+export function traitShown(trait: HexacoTrait): string {
+  return trait === 'conscientiousness' ? 'Conscien\u00adtiousness' : TRAIT_NAMES[trait];
+}
+
 /** The middle band's two edges, where a bar's ticks stand. */
 export const MIDDLE_BAND_EDGES = { low: 0.35, high: 0.65 } as const;
 
@@ -88,7 +98,7 @@ export function ScoreRows({ scores, label, stackWide }: ScoreRowsProps) {
         const score = scores?.[trait];
         return (
           <li key={trait} className={styles.row} data-score={trait}>
-            <span className={styles.name} data-testid="score-name">{TRAIT_NAMES[trait]}</span>
+            <span className={styles.name} data-testid="score-name">{traitShown(trait)}</span>
             {score !== undefined && <span className="sr-only">, </span>}
             <ScoreBar score={score} />
             {score !== undefined && <span className={styles.figure} data-testid="score-figure">{scoreFigure(score)}</span>}

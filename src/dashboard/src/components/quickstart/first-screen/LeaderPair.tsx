@@ -24,7 +24,7 @@ import { useScenarioContext, useScenarioReady } from '../../../App';
 import type { ScenarioClientPayload } from '../../../hooks/useScenario';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import { SectionMark } from './marks';
-import { ScoreBar, ScoreRows, TRAIT_ORDER, readScores, scoreFigure, type HexacoTrait } from './ScoreRows';
+import { ScoreBar, ScoreRows, TRAIT_ORDER, readScores, scoreFigure, traitShown, type HexacoTrait } from './ScoreRows';
 import {
   HEXACO_NOTE,
   LEADERS_SPOKEN,
@@ -33,7 +33,6 @@ import {
   NO_WRITTEN_LEADERS,
   ORDERS_MARK,
   SCORES_MARK,
-  TRAIT_NAMES,
   placeSpoken,
   showLeader,
   unnamedLeader,
@@ -42,15 +41,6 @@ import styles from './LeaderPair.module.scss';
 
 /** From this width the two cards stand side by side. */
 const SIDE_BY_SIDE_QUERY = '(min-width: 1100px)';
-
-/**
- * Where a score's name may break in the table's narrow first column: a soft
- * hyphen, shown only when the name wraps. Without it the longest name sets
- * the column's least width and the table is wider than a 320 px window.
- */
-const TABLE_TRAIT_BREAKS: Partial<Record<HexacoTrait, string>> = {
-  conscientiousness: 'Conscien\u00adtiousness',
-};
 
 /** One of the pair, as its card shows it. */
 interface PairLeader {
@@ -211,7 +201,7 @@ export function PairScoreTable({ pair, shape = false }: { pair: PairLeader[]; sh
         <tbody>
           {TRAIT_ORDER.map((trait) => (
             <tr key={trait} data-score={trait}>
-              <th scope="row" className={styles.rowHead}>{word(TABLE_TRAIT_BREAKS[trait] ?? TRAIT_NAMES[trait])}</th>
+              <th scope="row" className={styles.rowHead}>{word(traitShown(trait))}</th>
               {pair.map((leader) => {
                 const score = leader.scores?.[trait];
                 return (

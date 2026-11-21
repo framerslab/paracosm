@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import type { TurnSnapshot, ClusterMode, CellSnapshot } from '../viz-types.js';
 import styles from './LivingSwarmGrid.module.scss';
 import { computeGridPositions } from './gridPositions.js';
@@ -35,6 +35,7 @@ import { DEFAULT_GRID_SETTINGS, type GridSettings } from './GridSettingsDrawer.j
 import { RosterDrawer } from './RosterDrawer.js';
 import { FeaturedSpotlight } from './FeaturedSpotlight.js';
 import { useScenarioLabels } from '../../../hooks/useScenarioLabels.js';
+import { nearestPointOnLabel, placeNameLabels, type NameLabelPlace } from './nameLabelLayout.js';
 
 interface HexacoShape { O: number; C: number; E: number; A: number; Em: number; HH: number }
 
@@ -112,7 +113,44 @@ interface LivingSwarmGridProps {
    * directly connected to the canvas.
    */
   chronicleHover?: { kind: 'birth' | 'death' | 'forge' | 'crisis'; side: 'a' | 'b'; turn: number } | null;
+  /**
+   * Drawn in place of the leader strip above the canvas. The strip is what
+   * names the panel's leader, so with a header the canvas's own corner
+   * readout of the leader (name, archetype, turn and population) is left out
+   * too, and `actorName` is the panel's whole spoken name: the canvas, an
+   * image, is named by it alone, and the panel is no named region of its
+   * own. Omitted, the strip and the readout draw as they do on the Viz tab.
+   */
+  header?: ReactNode;
+  /**
+   * `'featured'` sets the people's names as text over the field in place of
+   * the names the canvas paints: each featured person's name stands by its
+   * ring at 15 px in the ink, no two overlapping, and every other person's
+   * name shows on focus, on hover or on a press. Each name is a key that
+   * opens the person's popover, and the arrow keys move between them, so the
+   * panel is one stop. The spotlight pills, the roster key and the hover
+   * cards, which name the same people at the Viz tab's sizes, are left out.
+   * Omitted, the canvas paints the names as it does on the Viz tab.
+   */
+  nameLabels?: 'featured';
+  /**
+   * True for a panel at rest, before a run: the Game of Life layer is seeded
+   * once from the people's places and moods and no later generation is
+   * drawn, no frame loop runs, and nothing fades in under reduced motion.
+   * The cells draw at the side colour's full strength on a flat field edged
+   * in the control edge, with none of a run's morale border and glow, and
+   * the canvas takes the height its holder sets in `--grid-field-height`.
+   * Omitted, the panel plays as it does on the Viz tab.
+   */
+  resting?: boolean;
 }
+
+/** The live tile strength of a playing panel, by look; see the note where the tiles draw. */
+const PLAYING_TILE_STRENGTH = { light: 0.22, dark: 0.65 } as const;
+/** A resting panel's cells draw at the side colour itself: drawGol scales a fresh cell by 0.9. */
+const RESTING_TILE_STRENGTH = 1 / 0.9;
+/** How far a name may stand from its ring before a line joins the two. */
+const NAME_LINE_FROM = 18;
 
 /**
  * The readings ECOLOGY tints its quadrants by, as the canvas's accessible
@@ -176,8 +214,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     onOpenChat,
     eventFilter = 'all',
     chronicleHover = null,
+    header,
+    nameLabels,
+    resting = false,
   } = props;
   const isFocused = focusedSide === side;
+  const hasHeader = header !== undefined;
+  const domNames = nameLabels === 'featured';
 
   const narrow = useMediaQuery(NARROW_QUERY);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
@@ -218,7 +261,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
    * the tab a smooth "curtain rise" on mount without requiring any
    * per-frame redraw. Reduced-motion users get instant reveal.
    */
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useState(reducedMotion);
   useEffect(() => {
     if (reducedMotion) {
       setRevealed(true);
@@ -241,6 +284,10 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // The commander the grid was last seeded for. A cohort run's pair view
   // changes a panel's commander on the same turn, mode and filter.
   const lastGolActorRef = useRef<string | null>(null);
+  // The canvas size a resting panel was last seeded at. The people's places
+  // follow the canvas's size, and a resting panel draws the seed itself, so
+  // it seeds again when its size changes.
+  const lastGolSizeRef = useRef<string>('');
   const lastFlareSignatureRef = useRef<string | null>(null);
   // Timestamp (performance.now) when the GoL tile fade started, or
   // -Infinity when no fade is active. Set on the first seed, on a jump of
@@ -337,11 +384,73 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       forgeAttempts,
       reuseCalls,
       eventCategories: snapshot?.eventCategories,
+      still: resting,
     },
     canvasWrapRef,
     () => positions,
     () => deptCentersOverlay,
   );
+
+  // A resting panel has no frame loop to pick up a change of look, so it
+  // repaints when the page's look changes: the canvas reads its colours from
+  // the look's tokens each time it draws.
+  const [lookTick, setLookTick] = useState(0);
+  useEffect(() => {
+    if (!resting || typeof MutationObserver === 'undefined') return;
+    const observer = new MutationObserver(() => setLookTick(tick => tick + 1));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [resting]);
+
+  // The people's names as text over the field (`nameLabels`): each name's
+  // own size is read from the page once it is laid out, and again when the
+  // served faces load, and the names are then placed so no two overlap.
+  const peopleRef = useRef<HTMLDivElement | null>(null);
+  const [nameSizes, setNameSizes] = useState<Map<string, { w: number; h: number }>>(() => new Map());
+  const [rovingId, setRovingId] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!domNames) return;
+    const layer = peopleRef.current;
+    if (!layer) return;
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const next = new Map<string, { w: number; h: number }>();
+      // A name's whole width, whatever box it stands in now (scrollWidth is
+      // a whole number, so one more pixel covers its rounding), and no wider
+      // than the field less its margins.
+      const widest = Math.max(0, layer.clientWidth - 4);
+      layer.querySelectorAll<HTMLElement>('[data-person]').forEach(el => {
+        const id = el.dataset.person;
+        if (id) next.set(id, { w: Math.min(el.scrollWidth + 1, widest), h: el.offsetHeight });
+      });
+      setNameSizes(prev => {
+        if (prev.size === next.size && [...next].every(([id, s]) => prev.get(id)?.w === s.w && prev.get(id)?.h === s.h)) return prev;
+        return next;
+      });
+    };
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => { cancelled = true; };
+  }, [domNames, snapshot, size.w, size.h]);
+
+  const namePlaces = useMemo(() => {
+    const none = new Map<string, NameLabelPlace>();
+    if (!domNames || !snapshot || size.w === 0 || size.h === 0) return none;
+    const alive = snapshot.cells.filter(c => c.alive && positions.has(c.agentId));
+    const rings = alive.map(c => {
+      const pos = positions.get(c.agentId)!;
+      return { x: pos.x, y: pos.y, r: c.featured ? 12 : 6 };
+    });
+    const items = alive
+      .filter(c => c.featured && nameSizes.has(c.agentId))
+      .map(c => {
+        const pos = positions.get(c.agentId)!;
+        const s = nameSizes.get(c.agentId)!;
+        return { id: c.agentId, x: pos.x, y: pos.y, w: s.w, h: s.h };
+      });
+    return placeNameLabels(items, { w: size.w, h: size.h }, rings);
+  }, [domNames, snapshot, positions, nameSizes, size.w, size.h]);
 
   // Mode-driven glyph intensity. Forge dims glyphs slightly so forge
   // flare pulses dominate visually; ecology hides them so the metrics
@@ -461,8 +570,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const turnChanged = snapshot.turn !== lastGolTurnRef.current;
     const filterChanged = eventFilter !== lastGolFilterRef.current;
     const actorChanged = actorName !== lastGolActorRef.current;
+    const sizeKey = `${size.w}x${size.h}`;
+    const restingSizeChanged = resting && sizeKey !== lastGolSizeRef.current;
     const prevGolTurn = lastGolTurnRef.current;
-    if (turnChanged || modeChanged || filterChanged || actorChanged) {
+    if (turnChanged || modeChanged || filterChanged || actorChanged || restingSizeChanged) {
+      lastGolSizeRef.current = sizeKey;
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
       lastGolFilterRef.current = eventFilter;
@@ -474,7 +586,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       // = over-evolved (8 ticks, gliders escape), ECOLOGY = minimal
       // (2 ticks), DIVERGENCE = extreme (12 ticks, chaos).
       let warmup: number;
-      if (reducedMotion) {
+      if (resting) {
+        // At rest the seed itself is drawn: each person's own pattern at its
+        // place, and no generation after it.
+        warmup = 0;
+      } else if (reducedMotion) {
         warmup = 3;
       } else if (mode === 'mood') {
         warmup = 0;
@@ -492,7 +608,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       // on this panel: ease the tile layer in instead of painting the full
       // steady state in one frame. Single-turn advances (a live run,
       // playback) reseed in place.
-      if (!reducedMotion && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
+      if (!reducedMotion && !resting && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
         golRevealStartRef.current = performance.now();
       }
       lastFlareSignatureRef.current = visibleFlares.length
@@ -525,13 +641,31 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       && document.documentElement.classList.contains('light');
     // The tile layer draws on every run, live, finished or replayed. On a
     // jump it eases in over GOL_REVEAL_MS (see golRevealStartRef above).
-    const golAlpha = golRevealAlpha(
-      isLightTheme ? 0.22 : 0.65,
-      performance.now() - golRevealStartRef.current,
-      GOL_REVEAL_MS,
-      reducedMotion,
-    );
+    const golAlpha = resting
+      ? RESTING_TILE_STRENGTH
+      : golRevealAlpha(
+          isLightTheme ? PLAYING_TILE_STRENGTH.light : PLAYING_TILE_STRENGTH.dark,
+          performance.now() - golRevealStartRef.current,
+          GOL_REVEAL_MS,
+          reducedMotion,
+        );
     drawGol(ctx, gol, size.w, size.h, resolvedSide, golAlpha);
+    if (resting) {
+      // A resting panel's cells are the colour of its rings, so each ring
+      // gets a clear disc of the field under it and never stands on a cell.
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000';
+      for (const c of snapshot.cells) {
+        if (!c.alive) continue;
+        const pos = positions.get(c.agentId);
+        if (!pos) continue;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, c.featured ? 14 : 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     // DEATHS filter: gray hollow tombstone squares with an X at each
     // dead colonist's historical position. BIRTHS filter: green filled
     // squares with a "+" glyph at each native-born colonist's position.
@@ -572,7 +706,9 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         mode === 'divergence',
         reducedMotion ? 0 : performance.now(),
         searchQuery,
-        true, // always-on labels for featured + diverged
+        // Always-on labels for featured + diverged, unless the names are
+        // set as text over the field.
+        !domNames,
         textMuted,
         // labelChipBg — theme-aware bg-deep at 55% opacity. Was
         // hardcoded near-black in GlyphLayer which stamped dark
@@ -609,22 +745,25 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         resolvedSide,
       );
     }
-    drawHud(ctx, snapshot, {
-      actorName,
-      actorArchetype,
-      startTime,
-      sideColor: resolvedSide,
-      width: size.w,
-      height: size.h,
-      lagTurns,
-      cells: snapshot.cells,
-      positions,
-      previousSnapshot,
-      labelBg,
-      textMuted,
-      deptLabels: settings.deptLabels,
-      timeUnitShort: scenarioLabels.Time,
-    });
+    // The corner readout names the panel's leader; a header given in the
+    // strip's place says what the panel is, so the readout is left out.
+    if (!hasHeader)
+      drawHud(ctx, snapshot, {
+        actorName,
+        actorArchetype,
+        startTime,
+        sideColor: resolvedSide,
+        width: size.w,
+        height: size.h,
+        lagTurns,
+        cells: snapshot.cells,
+        positions,
+        previousSnapshot,
+        labelBg,
+        textMuted,
+        deptLabels: settings.deptLabels,
+        timeUnitShort: scenarioLabels.Time,
+      });
 
     // Hover ring on top of HUD so it reads as "selected".
     if (hovered) {
@@ -727,6 +866,10 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     startTime,
     forgeAttempts,
     eventFilter,
+    resting,
+    hasHeader,
+    domNames,
+    lookTick,
   ]);
 
   const onMouseMove = useCallback(
@@ -885,6 +1028,40 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     if (!popover) lastTouchIdRef.current = null;
   }, [popover]);
 
+  // The people as keys over the field (`nameLabels`): one stop, the arrow
+  // keys moving between them in the order the snapshot lists them.
+  const people = useMemo(
+    () => (domNames && snapshot ? snapshot.cells.filter(c => c.alive && positions.has(c.agentId)) : []),
+    [domNames, snapshot, positions],
+  );
+  const rovingPerson = people.find(c => c.agentId === rovingId)?.agentId ?? people[0]?.agentId ?? null;
+  const onPeopleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
+    const layer = peopleRef.current;
+    if (!layer) return;
+    const keys = Array.from(layer.querySelectorAll<HTMLButtonElement>('[data-person]'));
+    const at = keys.indexOf(document.activeElement as HTMLButtonElement);
+    if (at < 0 || keys.length === 0) return;
+    const last = keys.length - 1;
+    const to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (at === last ? 0 : at + 1)
+      : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (at === 0 ? last : at - 1)
+        : e.key === 'Home' ? 0
+          : e.key === 'End' ? last
+            : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    keys[to]?.focus();
+  }, []);
+  /** Where a name that is not standing shows when its person is focused, hovered or pressed: under its ring, inside the field. */
+  const quietPlace = (pos: { x: number; y: number }, s: { w: number; h: number } | undefined): NameLabelPlace => {
+    // Not measured yet: at the field's corner, unseen, where its whole width shows.
+    if (!s) return { left: 0, top: 0 };
+    const { w, h } = s;
+    return {
+      left: Math.max(2, Math.min(pos.x - w / 2, size.w - w - 2)),
+      top: pos.y + 14 + h > size.h - 2 ? Math.max(2, pos.y - 14 - h) : pos.y + 14,
+    };
+  };
+
   // Compute morale + chronicle-hover-driven border/glow once per render
   // so the canvas's hot path doesn't reflow on every animation frame.
   const tintColor = resolveCssColor(mode === 'mood' ? moodTintedSideColor : sideColor, containerRef.current);
@@ -922,14 +1099,17 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   return (
     <div
       ref={containerRef}
-      data-testid={`living-colony-grid-${side}`}
-      role="region"
-      aria-label={`${actorName} ${scenarioLabels.place} viz`}
-      className={[styles.region, narrow ? styles.narrow : ''].filter(Boolean).join(' ')}
+      // A resting panel is no leader's side: the Run tab keeps one mounted
+      // while another tab shows the leaders' own panels.
+      data-testid={`living-colony-grid-${resting ? 'rest' : side}`}
+      role={hasHeader ? undefined : 'region'}
+      aria-label={hasHeader ? undefined : `${actorName} ${scenarioLabels.place} viz`}
+      className={[styles.region, narrow ? styles.narrow : '', resting ? styles.resting : ''].filter(Boolean).join(' ')}
     >
-      {snapshot && <GridMetricsStrip snapshot={snapshot} sideColor={sideColor} />}
+      {hasHeader ? header : snapshot && <GridMetricsStrip snapshot={snapshot} sideColor={sideColor} />}
       <div
         ref={canvasWrapRef}
+        data-testid={`living-colony-field-${resting ? 'rest' : side}`}
         className={styles.canvasWrap}
         style={{
           '--tint-color': tintColor,
@@ -941,9 +1121,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           ref={overlayCanvasRef}
           role="img"
           aria-label={
-            snapshot
-              ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%${ecologyReadings(snapshot)}. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
-              : `${actorName} ${scenarioLabels.place} — waiting for first turn.`
+            hasHeader
+              ? actorName
+              : snapshot
+                ? `${actorName} ${scenarioLabels.place}, turn ${snapshot.turn}. ${snapshot.cells.filter(c => c.alive).length} alive, morale ${Math.round(snapshot.morale * 100)}%${ecologyReadings(snapshot)}. ${snapshot.births} births, ${snapshot.deaths} deaths this turn. Click a ${scenarioLabels.person} glyph for drilldown.`
+                : `${actorName} ${scenarioLabels.place} — waiting for first turn.`
           }
           onMouseMove={onMouseMove}
           onMouseLeave={onMouseLeave}
@@ -960,20 +1142,85 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           className={styles.revealCover}
           style={{ '--reveal-opacity': revealed ? '0' : '1' } as CSSProperties}
         />
-        <button
-          type="button"
-          onClick={() => setRosterOpen(v => !v)}
-          aria-label={rosterOpen ? 'Close roster' : 'Open roster'}
-          title={rosterOpen ? 'Close roster' : 'Open roster'}
-          className={styles.cornerBtn}
-          style={{
-            '--right-offset': onToggleFocus ? '36px' : '8px',
-            '--btn-color': rosterOpen ? 'var(--amber)' : 'var(--text-3)',
-            '--btn-border': rosterOpen ? 'var(--amber)' : 'var(--border)',
-          } as CSSProperties}
-        >
-          {'\u2630'}
-        </button>
+        {domNames && snapshot && (
+          <div ref={peopleRef} className={styles.people} onKeyDown={onPeopleKeyDown}>
+            <svg className={styles.nameLines} width={size.w} height={size.h} aria-hidden="true" focusable="false">
+              {people.map(cell => {
+                const pos = positions.get(cell.agentId);
+                const place = namePlaces.get(cell.agentId);
+                const s = nameSizes.get(cell.agentId);
+                if (!pos || !place || !s) return null;
+                const to = nearestPointOnLabel(place, s, pos);
+                if (to.distance < NAME_LINE_FROM) return null;
+                // From the ring's edge, not its middle.
+                const from = 13 / to.distance;
+                return (
+                  <line
+                    key={cell.agentId}
+                    x1={pos.x + (to.x - pos.x) * from}
+                    y1={pos.y + (to.y - pos.y) * from}
+                    x2={to.x}
+                    y2={to.y}
+                  />
+                );
+              })}
+            </svg>
+            {people.map(cell => {
+              const pos = positions.get(cell.agentId);
+              if (!pos) return null;
+              const standing = namePlaces.get(cell.agentId);
+              const measured = nameSizes.get(cell.agentId);
+              const at = standing ?? quietPlace(pos, measured);
+              const active = hovered?.cell.agentId === cell.agentId || popover?.cell.agentId === cell.agentId;
+              return (
+                <button
+                  key={cell.agentId}
+                  type="button"
+                  className={styles.person}
+                  data-person={cell.agentId}
+                  data-featured={cell.featured ? 'true' : 'false'}
+                  data-standing={standing ? 'true' : 'false'}
+                  data-measured={measured ? 'true' : 'false'}
+                  data-active={active ? 'true' : undefined}
+                  data-ring-x={pos.x}
+                  data-ring-y={pos.y}
+                  tabIndex={cell.agentId === rovingPerson ? 0 : -1}
+                  translate="no"
+                  style={{ '--name-left': `${at.left}px`, '--name-top': `${at.top}px` } as CSSProperties}
+                  onClick={() => {
+                    setPopover({ cell, x: pos.x, y: pos.y });
+                    setHoveredTile(null);
+                  }}
+                  onFocus={() => {
+                    setRovingId(cell.agentId);
+                    setHovered({ cell, x: pos.x, y: pos.y });
+                  }}
+                  onBlur={() => setHovered(prev => (prev?.cell.agentId === cell.agentId ? null : prev))}
+                  onMouseEnter={() => setHovered({ cell, x: pos.x, y: pos.y })}
+                  onMouseLeave={() => setHovered(prev => (prev?.cell.agentId === cell.agentId ? null : prev))}
+                >
+                  {cell.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {!domNames && (
+          <button
+            type="button"
+            onClick={() => setRosterOpen(v => !v)}
+            aria-label={rosterOpen ? 'Close roster' : 'Open roster'}
+            title={rosterOpen ? 'Close roster' : 'Open roster'}
+            className={styles.cornerBtn}
+            style={{
+              '--right-offset': onToggleFocus ? '36px' : '8px',
+              '--btn-color': rosterOpen ? 'var(--amber)' : 'var(--text-3)',
+              '--btn-border': rosterOpen ? 'var(--amber)' : 'var(--border)',
+            } as CSSProperties}
+          >
+            {'\u2630'}
+          </button>
+        )}
         {onToggleFocus && (
           <button
             type="button"
@@ -989,16 +1236,18 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
             {isFocused ? '\u2921' : '\u2922'}
           </button>
         )}
-        <FeaturedSpotlight
-          snapshot={snapshot}
-          previousSnapshot={previousSnapshot}
-          sideColor={resolveCssColor(sideColor, containerRef.current)}
-          onSelect={c => {
-            const pos = positions.get(c.agentId);
-            if (pos) setPopover({ cell: c, x: pos.x, y: pos.y });
-          }}
-        />
-        <RosterDrawer
+        {!domNames && (
+          <FeaturedSpotlight
+            snapshot={snapshot}
+            previousSnapshot={previousSnapshot}
+            sideColor={resolveCssColor(sideColor, containerRef.current)}
+            onSelect={c => {
+              const pos = positions.get(c.agentId);
+              if (pos) setPopover({ cell: c, x: pos.x, y: pos.y });
+            }}
+          />
+        )}
+        {!domNames && <RosterDrawer
           open={rosterOpen}
           cells={snapshot?.cells ?? []}
           actorName={actorName}
@@ -1023,7 +1272,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
             if (pos) setPopover({ cell: c, x: pos.x, y: pos.y });
           }}
           onClose={() => setRosterOpen(false)}
-        />
+        />}
         {mode === 'divergence' && snapshot && (divergedIds?.size ?? 0) === 0 && (
           <div className={styles.divergenceEmpty}>
             <div className={styles.divergenceEmptyMsg}>
@@ -1031,7 +1280,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
             </div>
           </div>
         )}
-        {hoveredTile && !hovered && !popover && (() => {
+        {!domNames && hoveredTile && !hovered && !popover && (() => {
           const ttW = 220;
           const margin = 8;
           const left = Math.min(
@@ -1112,7 +1361,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
             </div>
           );
         })()}
-        {hovered && !popover && (() => {
+        {!domNames && hovered && !popover && (() => {
           const ttW = 200;
           const ttH = 80;
           const margin = 8;

@@ -90,7 +90,8 @@
 // under them across the column.
 @media (min-width: 1440px) {
   .rows[data-stack-wide='true'] .row {
-    grid-template-columns: minmax(0, 1fr) 4ch;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 6px;
     row-gap: 4px;
     padding: 4px 0;
 

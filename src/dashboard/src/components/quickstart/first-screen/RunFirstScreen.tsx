@@ -1,7 +1,8 @@
 /**
  * The Run tab's first screen: the input phase of the Quickstart view, as a
  * first-time visitor meets it. In order: the scenario line (the scenario's
- * name, what the run does and its figures) and the leaders.
+ * name, what the run does and its figures), the shared colony panel (the
+ * living grid at turn 0, drawn once), and the leaders.
  *
  * The parts kept from the earlier screen (the launch error, the replay link,
  * the scenario and paste forms and the digital twin card) come in as
@@ -13,6 +14,7 @@
 import type { ReactNode } from 'react';
 import { LeaderPair } from './LeaderPair';
 import { ScenarioLine } from './ScenarioLine';
+import { SharedColonyPanel } from './SharedColonyPanel';
 import { ServerFactsProvider } from './useServerFacts';
 import styles from './RunFirstScreen.module.scss';
 
@@ -26,6 +28,7 @@ export function RunFirstScreen({ children }: RunFirstScreenProps) {
     <ServerFactsProvider>
       <div className={styles.screen} data-testid="run-first-screen">
         <ScenarioLine />
+        <SharedColonyPanel />
         <LeaderPair />
       </div>
       {children}

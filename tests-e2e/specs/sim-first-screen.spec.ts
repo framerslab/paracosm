@@ -660,7 +660,7 @@ screenTest('feature 5: two cards at a pair', async ({ page }) => {
           const rows = card.getByTestId('score-rows').getByRole('listitem');
           await expect(rows).toHaveCount(6);
           for (const [t, trait] of TRAITS.entries()) {
-            await expect(rows.nth(t).getByTestId('score-name')).toHaveText(trait);
+            expect(await shownText(rows.nth(t).getByTestId('score-name'))).toBe(trait);
             await expect(rows.nth(t).getByTestId('score-figure')).toHaveText(who.scores[t]);
             const bar = await barOf(rows.nth(t));
             expect(Math.abs(bar.fill - Number(who.scores[t]))).toBeLessThanOrEqual(0.03);
@@ -957,7 +957,7 @@ async function openColony(page: Page, size: { width: number; height: number }, l
 }
 
 /** The panel's field: the grid's own canvas area, or the frame that stands for it while no grid is drawn. */
-const fieldOf = (colony: Locator): Locator => colony.locator('[data-testid="living-colony-field-a"], [data-testid="colony-field"]');
+const fieldOf = (colony: Locator): Locator => colony.locator('[data-testid="living-colony-field-rest"], [data-testid="colony-field"]');
 
 /** The people set over the field as text, each with its box. */
 async function nameBoxes(colony: Locator): Promise<Array<{ name: string; left: number; top: number; right: number; bottom: number; size: number; colour: string; opacity: number }>> {
