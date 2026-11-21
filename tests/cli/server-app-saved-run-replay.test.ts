@@ -20,7 +20,7 @@
  * - A finished run whose save had not committed when the server stopped is
  *   saved once after the restart, with no title from a model, since the
  *   restart let go of the key that paid for the run, and its Library records
- *   link to it.
+ *   link to it. A run's end is on disk as it ends, before its save starts.
  * - A local server keeps one ring of ten saved runs, whoever saved them.
  *
  * Every test goes through createMarsServer over HTTP with stub runners and
@@ -29,7 +29,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSessionStore, type SessionStore, type TimestampedEvent } from '../../src/server/stores/session.js';
@@ -503,6 +503,34 @@ test("a run saved after a restart, on a visitor's key the restart let go of, get
       assert.equal((await listSessions(again))[0]?.title, undefined);
     } finally {
       await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test("a run's end is on disk the moment it ends, so a server stopped before the save commits saves the run after its restart", async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-run-end-on-disk-'));
+  const seen: { ended?: boolean } = {};
+  const endsOnDisk: Runner = async (config, broadcast, scenario, signal) => {
+    await pairOfSixTurns(config, broadcast, scenario, signal);
+    // Still in the tick that broadcast `complete`, so no write delay has run.
+    const dir = join(appDir, '.live-runs');
+    seen.ended = existsSync(dir) && readdirSync(dir).some(name => {
+      const persisted = JSON.parse(readFileSync(join(dir, name), 'utf-8')) as { events?: string[] };
+      return (persisted.events ?? []).some(frame => frame.startsWith('event: complete\n'));
+    });
+  };
+  try {
+    const server = await startServer({ appDir, runner: endsOnDisk, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore() } });
+    try {
+      const a = server.cookied();
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(a)).some(f => f.event === 'sim_saved'), 'the save decision');
+      assert.equal(seen.ended, true, "the run's file holds its complete frame before its save starts");
+    } finally {
+      await server.close();
     }
   } finally {
     rmSync(appDir, { recursive: true, force: true });
