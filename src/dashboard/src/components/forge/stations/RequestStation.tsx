@@ -59,6 +59,16 @@ function fieldRows(schema: unknown, names: string[]): FieldRow[] {
 }
 
 /**
+ * A schema for the attempt on show: the tool's schema where the attempt names
+ * no fields of its own or the schema declares exactly those fields, else none.
+ */
+function schemaFor(schema: unknown, attemptFields: string[]): unknown {
+  if (attemptFields.length === 0 || !isObject(schema) || !isObject(schema.properties)) return schema;
+  const declared = Object.keys(schema.properties);
+  return declared.length === attemptFields.length && attemptFields.every((name) => declared.includes(name)) ? schema : undefined;
+}
+
+/**
  * Where the run view shows the event a tool was made for: the actor's row for
  * that event when its turn holds several events, else the turn row's heading.
  * Null when the run view draws neither (another tab, or a run of more than 50
@@ -145,7 +155,11 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
 
   const inputNames = attempt && attempt.inputFields.length > 0 ? attempt.inputFields : entry.inputFields;
   const outputNames = attempt && attempt.outputFields.length > 0 ? attempt.outputFields : entry.outputFields;
-  const hasSchema = entry.inputSchema != null || entry.outputSchema != null;
+  // The schema is the tool's first report's: it speaks for the attempt on show
+  // only where it declares that attempt's fields, else the attempt's own names stand alone.
+  const inputSchema = schemaFor(entry.inputSchema, attempt ? attempt.inputFields : []);
+  const outputSchema = schemaFor(entry.outputSchema, attempt ? attempt.outputFields : []);
+  const hasSchema = inputSchema != null || outputSchema != null;
 
   return (
     <div className={styles.open}>
@@ -183,12 +197,12 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
         )}
         {raw ? (
           <pre className={styles.code} translate="no" data-raw-json>
-            {JSON.stringify({ input: entry.inputSchema ?? null, output: entry.outputSchema ?? null }, null, 2)}
+            {JSON.stringify({ input: inputSchema ?? null, output: outputSchema ?? null }, null, 2)}
           </pre>
         ) : (
           <>
-            <FieldsTable caption={REQUEST_WORDS.inputFields} rows={fieldRows(entry.inputSchema, inputNames)} none={REQUEST_WORDS.noInputFields} />
-            <FieldsTable caption={REQUEST_WORDS.outputFields} rows={fieldRows(entry.outputSchema, outputNames)} none={REQUEST_WORDS.noOutputFields} />
+            <FieldsTable caption={REQUEST_WORDS.inputFields} rows={fieldRows(inputSchema, inputNames)} none={REQUEST_WORDS.noInputFields} />
+            <FieldsTable caption={REQUEST_WORDS.outputFields} rows={fieldRows(outputSchema, outputNames)} none={REQUEST_WORDS.noOutputFields} />
           </>
         )}
       </div>
