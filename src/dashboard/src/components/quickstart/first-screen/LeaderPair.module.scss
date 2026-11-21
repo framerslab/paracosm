@@ -160,6 +160,16 @@
   text-wrap: pretty;
 }
 
+// Said over the two written leaders of a run of 3 or more.
+.writesAll {
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-1);
+  max-width: 68ch;
+  text-wrap: pretty;
+}
+
 // The switch: two keys in one row, each half the column, the shown leader's
 // in the 600 weight over the accent underline.
 .switch {

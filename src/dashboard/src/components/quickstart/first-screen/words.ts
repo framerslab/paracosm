@@ -146,3 +146,160 @@ export const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is d
 
 /** The key line under the field: each word beside its glyph. */
 export const COLONY_KEY = { department: 'Department', person: 'Person', featured: 'Featured person' } as const;
+
+/* The run's size. */
+
+/** The short capital mark over the leaders, beside the run's size. */
+export const LEADERS_MARK = 'LEADERS';
+
+/** The run's size in words: "2 leaders". */
+export const leadersCount = (n: number): string => countOf(n, 'leader', 'leaders');
+
+/** Said under the size of a run on the host's keys. */
+export const freeSizeLine = (o: { free: number; max: number }): string =>
+  `A free run has ${leadersCount(o.free)}. With your own API key, a run can have up to${NBSP}${o.max}.`;
+
+/** The spoken name of the field that holds the size. */
+export const NUMBER_OF_LEADERS = 'Number of leaders';
+
+/** The spoken names of the two keys beside the field. */
+export const FEWER_LEADERS = 'Fewer leaders';
+export const MORE_LEADERS = 'More leaders';
+
+/** Said while a typed size is out of range or not a whole number. */
+export const chooseSize = (o: { min: number; max: number }): string => `Choose ${o.min} to ${o.max}${NBSP}leaders.`;
+
+/** Said beside the fewer key at the fewest leaders a run takes. */
+export const fewestLine = (min: number): string => `${min} is the fewest a run takes.`;
+
+/** Said beside the more key at the most leaders a run takes. */
+export const mostLine = (max: number): string => `${max} is the most a run takes.`;
+
+/** Said under the size when the server's settings did not load. */
+export const SETTINGS_NOT_READ = 'The server’s settings could not be read. The server checks the size when you press Start.';
+
+/** Said over the two written leaders of a run of 3 or more. */
+export const writesAllLeaders = (n: number): string =>
+  `Paracosm writes all ${n}${NBSP}leaders from this scenario when the run starts, in place of these${NBSP}two.`;
+
+/* Start, its run line and its notice. */
+
+/** Who pays for a run: the host's keys, the visitor's own key, or the server it runs on. */
+type WhoPays = 'host' | 'own' | 'server';
+
+/** The first line of the Start key; set in capitals by its style. */
+export const START = 'Start';
+
+/** Half minutes as a figure: 3.5 reads "3½", 4 reads "4", 0.5 reads "½". */
+export function minutesFigure(minutes: number): string {
+  const whole = Math.floor(minutes);
+  const half = minutes - whole >= 0.5;
+  if (whole === 0) return half ? '½' : '0';
+  return half ? `${whole}½` : String(whole);
+}
+
+/** Half minutes as a screen reader says them, with their unit: "3 and a half minutes", "4 minutes", "half a minute". */
+export function minutesSpoken(minutes: number): string {
+  const whole = Math.floor(minutes);
+  const half = minutes - whole >= 0.5;
+  if (whole === 0) return half ? 'half a minute' : '0 minutes';
+  if (half) return `${whole} and a half minutes`;
+  return whole === 1 ? '1 minute' : `${whole} minutes`;
+}
+
+/** Whose keys a run is on, as Start's second line ends. */
+const onWhoseKeys = (who: 'own' | 'server'): string => (who === 'own' ? 'on your own API key' : 'on this server’s API keys');
+
+/**
+ * Start's second line: the run's length, and from 3 leaders its size. A run
+ * on the host's keys says about how long it takes; a run on the visitor's
+ * key or a self-hosted server, which has not been timed, says whose keys.
+ */
+export function startSecondLine(o: { who: WhoPays; size: number; turns: number; minutes: number }): string {
+  const turns = countOf(o.turns, 'turn', 'turns');
+  if (o.who === 'host') {
+    const unit = o.minutes <= 1 ? 'minute' : 'minutes';
+    return `${turns}, about ${minutesFigure(o.minutes)}${NBSP}${unit}`;
+  }
+  const leaders = o.size > 2 ? `${leadersCount(o.size)}, ` : '';
+  return `${leaders}${turns}, ${onWhoseKeys(o.who)}`;
+}
+
+/** Start's spoken name: "Start Mars Genesis: 6 turns, about 3 and a half minutes". Plain spaces, as a name is matched. */
+export function startSpoken(o: { scenario: string; who: WhoPays; size: number; turns: number; minutes: number }): string {
+  const turns = `${o.turns} ${o.turns === 1 ? 'turn' : 'turns'}`;
+  if (o.who === 'host') return `${START} ${o.scenario}: ${turns}, about ${minutesSpoken(o.minutes)}`;
+  const leaders = o.size > 2 ? `${o.size} leaders, ` : '';
+  return `${START} ${o.scenario}: ${leaders}${turns}, ${onWhoseKeys(o.who)}`;
+}
+
+/** The key while the day's count is read, and while nothing is known yet. */
+export const CHECKING_FREE_RUNS = 'Checking your free runs…';
+
+/** The key from the press until the page opens the run. */
+export const STARTING = 'Starting…';
+
+/** The key while Paracosm writes the run's leaders. */
+export const writingLeaders = (k: number): string => `Writing ${leadersCount(k)}…`;
+
+/** The key while the page is offline, and the words beside it. */
+export const YOU_ARE_OFFLINE = 'You are offline';
+export const START_WHEN_ONLINE = 'Start works when you are back online.';
+
+/** Said above Start when a run did not start and the page knows no nearer cause. */
+export const RUN_DID_NOT_START = 'The run did not start. Press Start again.';
+
+/** The run line's last word: a pair ends in a verdict, 3 to 300 leaders in a report. */
+export const RUN_END = { verdict: 'Verdict', report: 'Report' } as const;
+
+/** The notice's first sentence before a run on the host's keys. */
+export const NOTICE_FREE = 'This run is free: we pay for it.';
+
+/** The first sentence of the note that says what the leaders are. */
+export const AI_AGENTS = 'The leaders are AI agents.';
+
+/**
+ * The day's count of free runs for this internet address, with the time
+ * they reset when the server gave one. The clock time stays on one line.
+ */
+export function noticeCount(o: { remaining: number; limit: number; resetTime?: string }): string {
+  const reset = o.resetTime ? ` They reset at ${o.resetTime.replace(/ /g, NBSP)}.` : '';
+  return `Free runs left today on your internet address: ${o.remaining}${NBSP}of${NBSP}${o.limit}, shared by everyone using it.${reset} A new run or a fork uses one.`;
+}
+
+/** The count when it could not be read. */
+export const NOTICE_COUNT_UNAVAILABLE = 'Free runs left today: unavailable.';
+
+/** What comes after the day's free runs; the replay clause shows only while the saved-run list holds a run. */
+export const noticeAfter = (hasSavedRun: boolean): string => (hasSavedRun
+  ? 'After that, you can replay your runs for free, or add your own API key in Settings to run again today. Your provider bills you for those runs.'
+  : 'After that, add your own API key in Settings to run again today. Your provider bills you for those runs.');
+
+/** The first sentence of the notice before a run on the visitor's own key; the provider is named when the saved key tells which. */
+export const ownKeyPays = (provider?: string): string =>
+  `This run uses your ${provider ? `${provider} ` : ''}API key, and your provider bills you.`;
+
+/** The notice before a run on the visitor's own key. */
+export const noticeOwnKey = (provider?: string): string =>
+  `${ownKeyPays(provider)} Runs on your key skip the daily limit and do not use your free runs. They are not held to this demo’s size, so they can be larger than the free run.`;
+
+/** The notice on a server that is not the hosted demo. */
+export const NOTICE_SERVER = 'This run uses this server’s API keys.';
+
+/**
+ * The estimate of what a run of 3 or more leaders costs, and what it rests
+ * on. On the visitor's key it names the provider and models they saved,
+ * where they saved both.
+ */
+export function estimateLine(o: { who: 'own' | 'server'; usd: string; provider?: string; models?: string }): string {
+  if (o.who === 'server') {
+    return `Estimated cost: about ${o.usd}${NBSP}USD on this server’s keys, from the mean cost of four pair runs measured on the hosted demo’s economy models. The server’s models set the real price.`;
+  }
+  const uses = o.provider && o.models ? ` Your run uses ${o.provider} (${o.models}) from your Settings, which set the real price.` : '';
+  return `Estimated cost: about ${o.usd}${NBSP}USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.${uses}`;
+}
+
+/** Said in Start's place while this internet address has no free run left today. */
+export const atLimitReset = (resetTime?: string): string => (resetTime
+  ? `Your internet address has no free runs left today. They reset at ${resetTime.replace(/ /g, NBSP)}.`
+  : 'Your internet address has no free runs left today.');

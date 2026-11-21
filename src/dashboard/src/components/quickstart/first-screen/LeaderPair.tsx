@@ -36,6 +36,7 @@ import {
   placeSpoken,
   showLeader,
   unnamedLeader,
+  writesAllLeaders,
 } from './words';
 import styles from './LeaderPair.module.scss';
 
@@ -261,8 +262,13 @@ function CardShape({ sideBySide }: { sideBySide: boolean }) {
   );
 }
 
+export interface LeaderPairProps {
+  /** How many leaders the run takes: from 3, one row says Paracosm writes them all when the run starts. */
+  size?: number;
+}
+
 /** The pair of leaders: two cards side by side from 1,100 px, one card under a switch below it. */
-export function LeaderPair() {
+export function LeaderPair({ size = 2 }: LeaderPairProps) {
   const scenario = useScenarioContext();
   const ready = useScenarioReady();
   const sideBySide = useMediaQuery(SIDE_BY_SIDE_QUERY);
@@ -296,10 +302,15 @@ export function LeaderPair() {
 
   const pair = pairOf(scenario);
   const noneWritten = pair.every((leader) => !leader.written);
+  // A run of 3 or more keeps the two written leaders on the screen and says what the run does with them.
+  const writesAll = size > 2
+    ? <p className={styles.writesAll} data-text="body" data-testid="writes-all">{writesAllLeaders(size)}</p>
+    : null;
 
   if (sideBySide) {
     return (
       <section className={styles.leaders} data-testid="leaders" aria-label={LEADERS_SPOKEN}>
+        {writesAll}
         <div className={styles.pair}>
           {pair.map((leader) => <LeaderCard key={leader.place} leader={leader} noneWritten={noneWritten} />)}
         </div>
@@ -311,6 +322,7 @@ export function LeaderPair() {
   const leader = pair[at];
   return (
     <section className={styles.leaders} data-testid="leaders" aria-label={LEADERS_SPOKEN}>
+      {writesAll}
       <LeaderSwitch pair={pair} shown={at} onShow={setShown} tabId={tabId} panelId={panelId} />
       <div className={`${styles.card} ${styles.shown}`} role="tabpanel" id={panelId} aria-label={leader.name}>
         {leader.title && (
