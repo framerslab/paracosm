@@ -29,6 +29,9 @@
  *   on a screen too short for it below its key, every action stays inside
  *   the window. On a phone the turn's outcomes below the grid are a status
  *   region of their own, so a screen reader reads them as the turn changes.
+ * - From 481 to 899 px, where the mode tabs stand in the Viz toolbar, the
+ *   toolbar is one row and every key in it, each mode tab included, is 44 px
+ *   tall, at 600 px and on a phone on its side (844 x 390).
  *
  * The stored runs are the real server's: the pair run that forged tools
  * (tests-e2e/support/shared-run-server.ts), the 24-actor run
@@ -375,6 +378,25 @@ for (const look of LOOKS) {
     }
   });
 }
+
+test('from 481 to 899 px the Viz toolbar is one row of 44 px keys, its mode tabs among them, in LIVING and FORGE, at 600 and on a phone on its side', async ({ page, request }) => {
+  test.setTimeout(240_000);
+  await openViz(page, request, 'pair', 'dark', 60_000);
+  for (const size of [{ width: 600, height: 900 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(size);
+    await painted(page);
+    for (const mode of ['living', 'forge'] as const) {
+      await test.step(`${mode} at ${size.width} x ${size.height}`, async () => {
+        await chooseMode(page, mode);
+        // The mode tabs stand in the row at these widths, not the menu.
+        await expect(page.locator(`[data-grid-mode="${mode}"]`)).toBeVisible();
+        const where = `${size.width} x ${size.height}, dark, ${mode}, the toolbar`;
+        const read = await expectOneRow(page, vizToolbar(page), where, size.width);
+        if (read.scrolls) await expectScrollKeys(page, vizToolbar(page), where);
+      });
+    }
+  }
+});
 
 // ── The Sim tab's evidence row ───────────────────────────────────────────
 
