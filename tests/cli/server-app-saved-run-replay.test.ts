@@ -483,10 +483,14 @@ test('a finished run whose save had not committed when the server stopped is sav
       await second.close();
     }
 
-    // A third start finds the run saved and saves it no second time.
-    const third = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: store } });
+    // A third start finds the run saved and saves it no second time: it
+    // calls no save at all, which a run-key match alone would hide.
+    let saveCalls = 0;
+    const counting: SessionStore = { ...store, saveSession: (...args) => { saveCalls += 1; return store.saveSession(...args); } };
+    const third = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: counting } });
     try {
       await new Promise(resolve => setTimeout(resolve, 300));
+      assert.equal(saveCalls, 0, 'the third start calls no save');
       assert.equal(await store.count(), 1);
     } finally {
       await third.close();
