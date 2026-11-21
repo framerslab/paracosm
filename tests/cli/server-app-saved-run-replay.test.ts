@@ -1038,7 +1038,7 @@ test('a Wipe All that arrives while a finished run is being saved leaves no save
   }
 });
 
-test('a wipe that keeps the saved sessions leaves a run that finished while it ran saved, though the held-run cap let go of the run', async () => {
+test('a wipe that keeps the saved sessions leaves both runs that finished while it ran saved, the one the held-run cap let go of included', async () => {
   let release: () => void = () => {};
   const held = new Promise<void>(resolve => { release = () => resolve(); });
   let wipeStarted = false;
@@ -1046,7 +1046,9 @@ test('a wipe that keeps the saved sessions leaves a run that finished while it r
   // The wipe of the Library records waits until the test lets it end.
   const runHistoryStore = { ...history, wipeAll: async () => { wipeStarted = true; await held; return 0; } };
   const store = memoryStore();
-  const server = await startServer({ runner: pairOfSixTurns, maxHeldRuns: 1, env: ADMIN, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store, runHistoryStore } });
+  let finished = 0;
+  const countsFinished: Runner = async (...args) => { await pairOfSixTurns(...args); finished += 1; };
+  const server = await startServer({ runner: countsFinished, maxHeldRuns: 1, env: ADMIN, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store, runHistoryStore } });
   try {
     const wipe = fetch(`${server.base}/admin/data/wipe`, {
       method: 'POST',
@@ -1054,11 +1056,11 @@ test('a wipe that keeps the saved sessions leaves a run that finished while it r
       body: JSON.stringify({ wipeSessions: false, wipeEventBuffer: false }),
     });
     await waitFor(() => wipeStarted, 'the wipe to start');
-    // Two visitors' runs finish while the wipe runs; with one held run, the second lets go of the first.
-    for (const v of [server.cookied(), server.cookied()]) {
+    // Two visitors' runs finish while the wipe runs; with one held run, the cap lets go of one of them.
+    for (const [i, v] of [server.cookied(), server.cookied()].entries()) {
       const res = await v.post('/setup', { ...settingsBody(mars), turns: TURNS });
       assert.equal(res.status, 200, await res.text());
-      await waitFor(async () => (await readReplay(v)).some(f => f.event === 'complete'), 'the run to finish');
+      await waitFor(() => finished === i + 1, 'the run to finish');
     }
     release();
     const wiped = await wipe;
