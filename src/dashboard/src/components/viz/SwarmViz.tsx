@@ -1467,8 +1467,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             chronicleHover={hoveredChronicleEvent}
           />
           </div>
+          {/* A status region of its own: the outcomes stand outside the
+              banner's, and a screen reader reads them as the turn changes. */}
           {linesBelowGrid && (
-            <section ref={setTurnLinesSlot} aria-label="Turn outcomes" className={styles.turnLinesSlot} />
+            <section ref={setTurnLinesSlot} role="status" aria-label="Turn outcomes" className={styles.turnLinesSlot} />
           )}
         </div>
         )}

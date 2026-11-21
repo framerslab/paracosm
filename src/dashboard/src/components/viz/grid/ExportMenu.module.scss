@@ -34,10 +34,12 @@
   animation: paracosm-rec-pulse 1.2s ease-in-out infinite;
 }
 
-// Drawn on the page's body and fixed under its key; ExportMenu.tsx sets
-// where (top, and right or left).
+// Drawn on the page's body and fixed by its key; ExportMenu.tsx sets where
+// (top or bottom, right or left) and its greatest height, past which its
+// actions scroll.
 .menu {
   position: fixed;
+  overflow-y: auto;
   min-width: 180px;
   padding: 4px;
   background: var(--bg-panel);
