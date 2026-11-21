@@ -49,7 +49,7 @@ process.env.PARACOSM_OUTPUT_DIR = RUNS_DIR;
 
 const TOKEN = 'run-history-per-visitor-test-token';
 const ROUTES_ON = { PARACOSM_ENABLE_RUN_HISTORY_ROUTES: 'true' };
-const HOSTED = { ...ROUTES_ON, PARACOSM_HOSTED_DEMO: 'true', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN };
+const HOSTED = { ...ROUTES_ON, PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN };
 const LOCAL = { ...ROUTES_ON };
 
 /** A finished run is titled by a model call; this stands in for it. */

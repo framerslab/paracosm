@@ -20,6 +20,7 @@ import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '..
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { compileScenarioWithPolling } from './compile-poll';
+import { sessionProviderKeys } from '../settings/sessionProviderKeys';
 import { markScenarioSwitched } from '../../scenario-sync';
 import styles from './QuickstartView.module.scss';
 
@@ -186,9 +187,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // field names (apiKey, anthropicKey, provider, models, economics).
     const overrides = typeof window !== 'undefined' ? readKeyOverrides(window.localStorage) : {};
     const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
-    const settingsSpread: Record<string, unknown> = {};
-    if (overrides.openai) settingsSpread.apiKey = overrides.openai;
-    if (overrides.anthropic) settingsSpread.anthropicKey = overrides.anthropic;
+    // The provider keys as the server reads them: also sent to actor
+    // generation, so the leaders are written on the visitor's key too.
+    const providerKeys = sessionProviderKeys(overrides);
+    const settingsSpread: Record<string, unknown> = { ...providerKeys };
     if (overrides.serper) settingsSpread.serperKey = overrides.serper;
     if (overrides.firecrawl) settingsSpread.firecrawlKey = overrides.firecrawl;
     if (overrides.tavily) settingsSpread.tavilyKey = overrides.tavily;
@@ -283,7 +285,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenarioId: scenario.id, count: actorCount }),
+        body: JSON.stringify({ scenarioId: scenario.id, count: actorCount, ...providerKeys }),
       });
       if (!actorsRes.ok) {
         const body = await actorsRes.json().catch(() => ({} as { error?: string }));
@@ -445,7 +447,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       // sub-second. The 5-min timeout in the helper covers the
       // worst-case slow compile; beyond that the server keeps the
       // resolved scenario in its 10-min TTL cache for a clean retry.
-      const { scenario, scenarioId } = await compileScenarioWithPolling(payload);
+      // The visitor's own provider keys from Settings go to every step that
+      // calls a model (the draft and its compile, the actors, the run), so
+      // each runs on the visitor's key when they saved one.
+      const providerKeys = typeof window !== 'undefined' ? sessionProviderKeys(readKeyOverrides(window.localStorage)) : {};
+      const { scenario, scenarioId } = await compileScenarioWithPolling({ ...payload, ...providerKeys });
       setPhase({ kind: 'progress', stage: 'research', scenario });
       // Real grounding pass: hits Serper for 3 derived queries, attaches
       // citations to the scenario's metadata server-side. Returns
@@ -478,7 +484,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenarioId, count: requestedCount }),
+        body: JSON.stringify({ scenarioId, count: requestedCount, ...providerKeys }),
       });
       if (!actorsRes.ok) {
         const body = await actorsRes.json().catch(() => ({} as { error?: string }));
@@ -499,6 +505,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ...providerKeys,
           actors,
           turns: scenario.setup.defaultTurns,
           seed: scenario.setup.defaultSeed ?? 42,

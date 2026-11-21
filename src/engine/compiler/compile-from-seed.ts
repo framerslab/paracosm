@@ -241,6 +241,7 @@ export async function compileFromSeed(
       prompt,
       maxRetries: 3,
       apiKey: apiKeyForProvider(provider, options),
+      stayOnProvider: options.stayOnProvider,
     });
   } catch (err) {
     const rawText = (err as { rawText?: string }).rawText;

@@ -28,6 +28,7 @@ import type { CompileOptions, GenerateTextFn } from './types.js';
 import { resolveProviderWithFallback } from '../provider/resolver.js';
 import {
   apiKeyForProvider,
+  fallbackProvidersFor,
   resolveProviderFromCredentials,
 } from '../provider/credentials.js';
 import { readCache, writeCache, readSeedBundleCache, writeSeedBundleCache, seedSignature } from './cache.js';
@@ -52,8 +53,11 @@ export type { SeedIngestionOptions } from './seed-ingestion.js';
  * legacy string form (no cache) and the cache-aware `{ system, prompt }`
  * form used by the schema/code/prose wrappers.
  */
-async function buildDefaultGenerateText(provider: LlmProvider, model: string, apiKey?: string): Promise<GenerateTextFn> {
+async function buildDefaultGenerateText(provider: LlmProvider, model: string, apiKey?: string, stayOnProvider?: boolean): Promise<GenerateTextFn> {
   const { generateText } = await import('@framers/agentos');
+  // No fallback to another provider on an explicit key, or when the compile
+  // stays on its provider (`stayOnProvider`, the hosted demo).
+  const fallbackProviders = fallbackProvidersFor(apiKey, stayOnProvider);
   return async (promptOrOptions) => {
     if (typeof promptOrOptions === 'string') {
       const r = await generateText({
@@ -61,7 +65,7 @@ async function buildDefaultGenerateText(provider: LlmProvider, model: string, ap
         model,
         prompt: promptOrOptions,
         apiKey,
-        fallbackProviders: apiKey ? [] : undefined,
+        fallbackProviders,
       });
       return r.text;
     }
@@ -72,7 +76,7 @@ async function buildDefaultGenerateText(provider: LlmProvider, model: string, ap
       prompt: promptOrOptions.prompt,
       maxTokens: promptOrOptions.maxTokens,
       apiKey,
-      fallbackProviders: apiKey ? [] : undefined,
+      fallbackProviders,
     });
     return r.text;
   };
@@ -225,7 +229,7 @@ export async function compileScenario(
   const requestedProviderApiKey = apiKeyForProvider(requestedProvider, options);
   const resolved = options.generateText
     ? { provider: requestedProvider, fellBack: false, requested: requestedProvider }
-    : resolveProviderWithFallback(requestedProvider, { apiKey: requestedProviderApiKey });
+    : resolveProviderWithFallback(requestedProvider, { apiKey: requestedProviderApiKey, stayOnProvider: options.stayOnProvider });
   const provider = resolved.provider;
   // When fallback kicked in, the caller's model (if any) was chosen for
   // the requested provider and will not work on the fallback. Force the
@@ -245,6 +249,7 @@ export async function compileScenario(
     provider,
     model,
     apiKeyForProvider(provider, options),
+    options.stayOnProvider,
   );
   const json = scenarioJson as Record<string, any>;
   const hooks: ScenarioHooks = {};

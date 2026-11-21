@@ -231,6 +231,8 @@ export async function generateAgentReactions(
     model?: string;
     /** Explicit provider API key for this run. */
     apiKey?: string;
+    /** Keep every reaction call on `provider`, also without an explicit key: the run's `stayOnProvider`. */
+    stayOnProvider?: boolean;
     maxConcurrent?: number;
     reactionContextHook?: (agent: any, ctx: any) => string;
     onUsage?: (result: { usage?: { totalTokens?: number; promptTokens?: number; completionTokens?: number; costUSD?: number } }) => void;
@@ -328,6 +330,7 @@ export async function generateAgentReactions(
           // stops at the natural JSON close.
           maxTokens: 4500,
           apiKey: options.apiKey,
+          stayOnProvider: options.stayOnProvider,
           _generateObjectImpl: options.generateObjectImpl,
           onUsage: options.onUsage,
           onProviderError: options.onProviderError,
