@@ -22,6 +22,13 @@
  * - At 390 x 844, on every turn of the stored Mars Genesis pair run and so on
  *   the turn with the longest words, the living grid's window with the turn's
  *   words open is at least as tall as with them folded.
+ * - The More panel's Export menu, drawn over the page so a row that scrolls
+ *   cannot clip it: opened, it holds focus on its first action, the arrow
+ *   keys move through its actions, and Escape and Tab hand focus back to the
+ *   panel's keys; it closes when the panel scrolls its key out of view; and
+ *   on a screen too short for it below its key, every action stays inside
+ *   the window. On a phone the turn's outcomes below the grid are a status
+ *   region of their own, so a screen reader reads them as the turn changes.
  *
  * The stored runs are the real server's: the pair run that forged tools
  * (tests-e2e/support/shared-run-server.ts), the 24-actor run
@@ -478,3 +485,147 @@ for (const look of LOOKS) {
     expect(longest.words, 'the run has turn words to read').toBeGreaterThan(0);
   });
 }
+
+// ── The Export menu in the More panel, and the turn's outcomes on a phone ─
+
+const exportKey = (page: Page) => morePanel(page).getByRole('button', { name: 'Export options', exact: true });
+const exportMenu = (page: Page) => page.getByRole('menu');
+const exportItem = (page: Page, name: RegExp) => page.getByRole('menuitem', { name });
+
+/** Opens the More panel at a phone's width on the stored pair run, in the dark look. */
+async function openMorePanel(page: Page, request: APIRequestContext, width: number): Promise<void> {
+  await openViz(page, request, 'pair', 'dark', 60_000);
+  await page.setViewportSize(sizeOf(width));
+  await painted(page);
+  await moreKey(page).click();
+  await expect(morePanel(page)).toBeVisible();
+}
+
+/**
+ * Puts the Export key outside the More panel's window by scrolling the panel
+ * to one end or the other. True when one end hides the key.
+ */
+const scrollExportKeyAway = (page: Page) => morePanel(page).evaluate((row) => {
+  const key = row.querySelector('[aria-label="Export options"]');
+  if (!key) return false;
+  for (const left of [0, row.scrollWidth]) {
+    row.scrollLeft = left;
+    const r = key.getBoundingClientRect();
+    const b = row.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    if (x < b.left || x > b.right) return true;
+  }
+  return false;
+});
+
+test('the Export menu takes focus, moves with the arrow keys, and hands focus back on Escape and Tab, at 320', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openMorePanel(page, request, 320);
+  const key = exportKey(page);
+  await key.scrollIntoViewIfNeeded();
+
+  // Opened from the keyboard, the menu holds focus on its first action.
+  await key.focus();
+  await page.keyboard.press('Enter');
+  await expect(exportMenu(page)).toBeVisible();
+  await expect(exportItem(page, /^PNG/)).toBeFocused();
+
+  // The arrow keys move through the actions and wrap at the ends.
+  await page.keyboard.press('ArrowDown');
+  await expect(exportItem(page, /^(REC|STOP)/)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(exportItem(page, /^JSON/)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(exportItem(page, /^PNG/)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(exportItem(page, /^JSON/)).toBeFocused();
+
+  // Escape closes it and gives focus back to the Export key.
+  await page.keyboard.press('Escape');
+  await expect(exportMenu(page)).toBeHidden();
+  await expect(key).toBeFocused();
+
+  // Tab from the menu closes it and goes on to the key after Export.
+  await page.keyboard.press('Enter');
+  await expect(exportItem(page, /^PNG/)).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(exportMenu(page)).toBeHidden();
+  await expect(morePanel(page).getByRole('button', { name: 'Open grid settings', exact: true })).toBeFocused();
+
+  // Shift+Tab from the menu closes it and goes back to the Export key.
+  await key.focus();
+  await page.keyboard.press('Enter');
+  await expect(exportItem(page, /^PNG/)).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(exportMenu(page)).toBeHidden();
+  await expect(key).toBeFocused();
+});
+
+test('the Export menu closes when the More panel scrolls its key out of view, at 320', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openMorePanel(page, request, 320);
+  const key = exportKey(page);
+  // Open, then the panel scrolls the Export key out of its window: the menu
+  // closes rather than float over the page with no key under it.
+  await key.scrollIntoViewIfNeeded();
+  await key.click();
+  await expect(exportMenu(page)).toBeVisible();
+  expect(await scrollExportKeyAway(page), 'the More panel scrolls the Export key out of its window at 320').toBe(true);
+  await expect(exportMenu(page)).toBeHidden();
+});
+
+test('on a screen too short for the Export menu below its key, every action stands inside the window, at 390', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openMorePanel(page, request, 390);
+  const key = exportKey(page);
+  await key.scrollIntoViewIfNeeded();
+  const keyBottom = (await key.boundingBox())!.y + (await key.boundingBox())!.height;
+  // A window that ends 40 px under the Export key.
+  await page.setViewportSize({ width: 390, height: Math.ceil(keyBottom + 40) });
+  await painted(page);
+  await key.scrollIntoViewIfNeeded();
+  await key.click();
+  await expect(exportMenu(page)).toBeVisible();
+  await painted(page);
+  const read = await page.evaluate(() => {
+    const key = document.querySelector('[aria-label="Export options"]')!.getBoundingClientRect();
+    const menu = document.querySelector('[role="menu"]') as HTMLElement;
+    const box = menu.getBoundingClientRect();
+    return {
+      height: window.innerHeight,
+      keyTop: key.top,
+      keyBottom: key.bottom,
+      menuHeight: menu.scrollHeight,
+      menu: { top: box.top, bottom: box.bottom },
+      items: Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => {
+        const r = item.getBoundingClientRect();
+        return { name: (item.textContent ?? '').trim(), top: r.top, bottom: r.bottom };
+      }),
+    };
+  });
+  await page.screenshot({ path: `${PICTURES}/390-dark-export-menu-short-screen.png` });
+  // The test's own ground: the key is in the window and the menu does not fit under it.
+  expect(read.keyTop, 'the Export key stands in the window').toBeGreaterThanOrEqual(0);
+  expect(read.keyBottom, 'the Export key stands in the window').toBeLessThanOrEqual(read.height);
+  expect(read.height - read.keyBottom, 'the room under the Export key is less than the menu needs').toBeLessThan(read.menuHeight);
+  expect.soft(read.menu.top, 'the menu starts inside the window').toBeGreaterThanOrEqual(0);
+  expect.soft(read.menu.bottom, 'the menu ends inside the window').toBeLessThanOrEqual(read.height);
+  for (const item of read.items) {
+    expect.soft(item.top >= 0 && item.bottom <= read.height, `the ${item.name} action stands inside the window (${item.top.toFixed(1)} to ${item.bottom.toFixed(1)} of ${read.height})`).toBe(true);
+  }
+});
+
+test('on a phone the turn outcomes below the grid are read out as the turn changes, and stand only once', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openViz(page, request, 'pair', 'dark', 60_000);
+  // Wider, the outcomes stand in the banner's own status region.
+  await expect(page.getByRole('status', { name: 'Current turn narrative' }).locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) })).toHaveCount(1);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await painted(page);
+  const outcomes = page.getByRole('status', { name: 'Turn outcomes' });
+  await expect(outcomes, 'on a phone the outcomes below the grid are a status region').toBeAttached();
+  await expect(outcomes.locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) })).toHaveCount(1);
+  await expect(outcomes.locator('div').filter({ hasText: new RegExp(`^B: ${DIETRICH}`) })).toHaveCount(1);
+  await expect(page.getByRole('status', { name: 'Current turn narrative' }).locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) }), 'the banner no longer holds the outcomes').toHaveCount(0);
+});
