@@ -17,9 +17,9 @@ import {
   readLastLaunchConfig,
   type KeyOverrides,
 } from '../../../hooks/useLastLaunchConfig.js';
-import { hasSessionProviderKey, type SavedProviderKeys } from '../../settings/sessionProviderKeys.js';
+import { hasSessionProviderKey, sessionProviderKeys, type SavedProviderKeys } from '../../settings/sessionProviderKeys.js';
 import type { ServerFacts } from './useServerFacts.js';
-import { NBSP, countOf } from './words.js';
+import { NBSP, countOf, minutesFigure } from './words.js';
 
 /** Who pays for the run: the host's keys, the visitor's own key, or the server it runs on. */
 export type Payer = 'host' | 'own' | 'server';
@@ -148,4 +148,167 @@ export function figuresLine(f: RunFigures): string {
 /** The figures as a screen reader reads them, as one sentence: "30 people, 3 departments, 6 turns, up to 2 events a turn". */
 export function figuresSpoken(f: RunFigures): string {
   return figureParts(f).join(', ');
+}
+
+/* The launch: one set of figures for the words on the screen and for the body Start posts. */
+
+/** The body POST /setup takes. */
+export type SetupBody = Record<string, unknown>;
+
+/** How a launch request failed: the server's status and parsed answer, or no answer at all. Never a message string. */
+export interface LaunchFailureInput {
+  status?: number;
+  body?: Record<string, unknown>;
+  networkError?: boolean;
+}
+
+/** What the first screen gives the launch, so the screen stays in view and says each stage and failure itself. */
+export interface LoadedRunOptions {
+  /** The body to post to /setup; the launch adds the leaders it wrote. */
+  body?: SetupBody;
+  /** Called before the leaders are written, with how many, and before the run is posted. */
+  onStage?: (stage: 'writing' | 'starting', count?: number) => void;
+  /** Called when a request fails. */
+  onFailure?: (failure: LaunchFailureInput) => void;
+}
+
+/** The scenario's parts a launch is worked out from. */
+export type LaunchScenarioWithLeaders = LaunchScenario & Pick<ScenarioClientPayload, 'presets'>;
+
+/** The run Start launches. */
+export interface EffectiveLaunch {
+  payer: Payer;
+  /** How many leaders the run takes. */
+  size: number;
+  turns: number;
+  people: number;
+  departments?: number;
+  events: number;
+  /** The provider the visitor last launched with, on their own key or a self-hosted server. */
+  provider?: string;
+  /** The models the visitor last launched with, by the role each plays. */
+  models?: Record<string, string>;
+  /** How many leaders run at a time, where the visitor's last launch set it. */
+  batch?: number;
+  /** What POST /setup is sent. */
+  body: SetupBody;
+}
+
+/** The seed a scenario that names none runs on. */
+const DEFAULT_SEED = 42;
+/** The measured seconds a turn of a pair's run on the host's keys takes. */
+const SECONDS_A_TURN = 34;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The leaders a scenario writes: its first preset's, as the launch reads them. */
+export function writtenLeaders(scenario: Pick<ScenarioClientPayload, 'presets'>): NonNullable<ScenarioClientPayload['presets'][number]['leaders']> {
+  return scenario.presets[0]?.leaders ?? scenario.presets[0]?.actors ?? [];
+}
+
+/** The saved models that are named, by role; undefined when none is. */
+function namedModels(models: unknown): Record<string, string> | undefined {
+  if (!isRecord(models)) return undefined;
+  const named: Record<string, string> = {};
+  for (const [role, id] of Object.entries(models)) {
+    if (typeof id === 'string' && id.trim()) named[role] = id;
+  }
+  return Object.keys(named).length > 0 ? named : undefined;
+}
+
+/**
+ * The run Start launches, worked out once. Its body is what the launch has
+ * always posted, with the run's own turns: the visitor's provider keys and
+ * search keys, the provider, models and economics of their last launch, the
+ * scenario's written leaders when they fill the run, the scenario's seed,
+ * snapshots on, and the scenario's id.
+ */
+export function effectiveLaunch(
+  facts: ServerFacts,
+  scenario: LaunchScenarioWithLeaders,
+  settings: LaunchSettings,
+  size: number,
+  who: Payer,
+): EffectiveLaunch {
+  const turns = effectiveTurns(facts, scenario, settings, who);
+  const last = settings.lastLaunch;
+  const { overrides } = settings;
+
+  const body: SetupBody = { ...sessionProviderKeys(overrides) };
+  if (overrides.serper) body.serperKey = overrides.serper;
+  if (overrides.firecrawl) body.firecrawlKey = overrides.firecrawl;
+  if (overrides.tavily) body.tavilyKey = overrides.tavily;
+  if (overrides.cohere) body.cohereKey = overrides.cohere;
+  const lastProvider: unknown = last?.provider;
+  const lastModels: unknown = last?.models;
+  const lastEconomics: unknown = last?.economics;
+  if (lastProvider) body.provider = lastProvider;
+  if (isRecord(lastModels)) body.models = lastModels;
+  if (isRecord(lastEconomics)) body.economics = lastEconomics;
+  const written = writtenLeaders(scenario);
+  if (written.length >= size) {
+    body.actors = written.slice(0, size).map((leader) => ({
+      name: leader.name,
+      archetype: leader.archetype,
+      hexaco: leader.hexaco,
+      instructions: leader.instructions,
+    }));
+  }
+  body.turns = turns;
+  body.seed = scenario.setup.defaultSeed ?? DEFAULT_SEED;
+  body.captureSnapshots = true;
+  body.quickstart = { scenarioId: scenario.id };
+
+  // The words name a provider and models only for a run the visitor's last launch shapes.
+  const shaped = who !== 'host';
+  const provider = shaped && typeof lastProvider === 'string' && lastProvider.trim() ? lastProvider : undefined;
+  const models = shaped ? namedModels(lastModels) : undefined;
+  const lastBatch: unknown = isRecord(lastEconomics) ? lastEconomics.batch : undefined;
+  const batchSet: unknown = isRecord(lastBatch) ? lastBatch.maxConcurrency : undefined;
+
+  return {
+    payer: who,
+    size,
+    turns,
+    people: effectivePeople(facts, scenario, who),
+    departments: effectiveDepartments(facts, scenario, who),
+    events: eventsPerTurn(scenario),
+    ...(provider ? { provider } : {}),
+    ...(models ? { models } : {}),
+    ...(isCount(batchSet) ? { batch: batchSet } : {}),
+    body,
+  };
+}
+
+/** About how long a run of this many turns takes on the host's keys, in minutes, to the nearest half. */
+export function minutesForTurns(turns: number): number {
+  return Math.round((turns * SECONDS_A_TURN) / 60 * 2) / 2;
+}
+
+/** Half minutes as a figure: 3.5 gives "3½", 4 gives "4", 0.5 gives "½". */
+export const formatMinutes = minutesFigure;
+
+/** A provider's id as its name is written. */
+export function providerName(id: string): string {
+  const known: Record<string, string> = { openai: 'OpenAI', anthropic: 'Anthropic' };
+  return known[id.trim().toLowerCase()] ?? id;
+}
+
+/** The saved models as one list of their ids, each once, in the order they were saved. */
+export function modelNames(models: Record<string, string>): string {
+  return [...new Set(Object.values(models))].join(', ');
+}
+
+/**
+ * The provider whose key the visitor saved, by name, when the saved keys
+ * tell which: the one provider with a key, or with a key for both, the
+ * provider of their last launch.
+ */
+export function keyProviderName(settings: LaunchSettings): string | undefined {
+  const keys = sessionProviderKeys(settings.overrides);
+  if (keys.apiKey && !keys.anthropicKey) return providerName('openai');
+  if (keys.anthropicKey && !keys.apiKey) return providerName('anthropic');
+  const last = settings.lastLaunch?.provider;
+  if (keys.apiKey && keys.anthropicKey && (last === 'openai' || last === 'anthropic')) return providerName(last);
+  return undefined;
 }

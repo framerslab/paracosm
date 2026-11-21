@@ -3,7 +3,9 @@
 .screen {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  // Read by the Start band, whose bar follows the part before it.
+  --screen-gap: 24px;
+  gap: var(--screen-gap);
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;

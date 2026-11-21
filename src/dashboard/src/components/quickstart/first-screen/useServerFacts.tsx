@@ -30,11 +30,12 @@ export interface DemoCaps {
 /** A saved run as the list names it. */
 export type SessionRow = StoredSessionMeta & { pinned?: boolean };
 
-type RateLimitState = { status: 'loading' | 'ready' | 'unlimited' | 'error'; answer?: RateLimitAnswer };
+export type RateLimitState = { status: 'loading' | 'ready' | 'unlimited' | 'error'; answer?: RateLimitAnswer };
 type AdminConfigState = { status: 'loading' | 'ready' | 'error'; hostedDemo?: boolean; demoCaps?: DemoCaps };
 
 export interface ServerFacts {
-  rateLimit: RateLimitState & { refresh(): Promise<void> };
+  /** `refresh` asks again and answers what the server said, so a press of Start reads the count it acts on. */
+  rateLimit: RateLimitState & { refresh(): Promise<RateLimitState> };
   adminConfig: AdminConfigState;
   sessions: { status: SessionsStatus; rows: SessionRow[]; refresh(): void };
 }
@@ -77,13 +78,16 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const [adminConfig, setAdminConfig] = useState<AdminConfigState>({ status: 'loading' });
   const sessions = useSessions();
 
-  const refreshRateLimit = useCallback(async (): Promise<void> => {
+  const refreshRateLimit = useCallback(async (): Promise<RateLimitState> => {
+    let next: RateLimitState;
     try {
       const res = await fetch('/rate-limit', { cache: 'no-store' });
-      setRateLimit(res.ok ? parseRateLimit(await res.json()) : { status: 'error' });
+      next = res.ok ? parseRateLimit(await res.json()) : { status: 'error' };
     } catch {
-      setRateLimit({ status: 'error' });
+      next = { status: 'error' };
     }
+    setRateLimit(next);
+    return next;
   }, []);
 
   useEffect(() => {

@@ -10,6 +10,7 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
+import type { LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
 import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
@@ -168,8 +169,15 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
    * fewer presets (or none), route through generate-actors first, then
    * /setup. The CTA stays visible in both cases; only the wait time
    * differs (~0s vs ~30s).
+   *
+   * The first screen's Start passes `opts`: the body it worked out, and
+   * two callbacks. With them the first screen stays in view until the page
+   * moves to the run: no progress panel, no toast and no banner. Each stage
+   * (writing the leaders, starting) and each failed request (its status and
+   * parsed answer, or no answer at all) goes to the callbacks, and the first
+   * screen says it in its own words. Without `opts` nothing here changes.
    */
-  const handleLoadedScenarioRun = useCallback(async (actorCount: number) => {
+  const handleLoadedScenarioRun = useCallback(async (actorCount: number, opts?: LoadedRunOptions) => {
     setErrorBanner(null);
     onRunStarted?.();
     // Reset the local SSE buffer up front so the Progress panel never
@@ -211,7 +219,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // actor count. Skip compile + actor generation; post directly to
     // /setup with the preset's leader configs.
     if (presetCount >= actorCount) {
-      setPhase({ kind: 'progress', stage: 'running' });
+      if (!opts) setPhase({ kind: 'progress', stage: 'running' });
       const actors: ActorConfig[] = presetActors.slice(0, actorCount).map(p => ({
         name: p.name,
         archetype: p.archetype,
@@ -233,11 +241,12 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
+      opts?.onStage?.('starting');
       try {
         const setupRes = await fetch('/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
             ...settingsSpread,
             actors,
             turns: scenario.setup.defaultTurns,
@@ -248,6 +257,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         });
         if (!setupRes.ok) {
           const body = await setupRes.json().catch(() => ({} as { error?: string }));
+          if (opts) {
+            opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
+            return;
+          }
           throw new Error(body.error ?? `Setup failed: HTTP ${setupRes.status}`);
         }
         // /setup returns { redirect: '/sim', ... } so the dashboard
@@ -266,7 +279,13 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
           window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
           return;
         }
+        // An answer that opens no run is a run that did not start.
+        opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
       } catch (err) {
+        if (opts) {
+          opts.onFailure?.({ networkError: true });
+          return;
+        }
         setPhase({ kind: 'input' });
         const raw = (err as Error)?.message ?? String(err);
         const friendly = mapLaunchErrorToMessage(raw);
@@ -281,7 +300,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // Fallback: scenario has fewer presets than requested. Use the
     // existing /api/quickstart/generate-actors endpoint with the
     // loaded scenario's id, then /setup.
-    setPhase({ kind: 'progress', stage: 'actors' });
+    if (!opts) setPhase({ kind: 'progress', stage: 'actors' });
+    opts?.onStage?.('writing', actorCount);
     try {
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
@@ -290,6 +310,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       });
       if (!actorsRes.ok) {
         const body = await actorsRes.json().catch(() => ({} as { error?: string }));
+        if (opts) {
+          opts.onFailure?.({ status: actorsRes.status, body: body as Record<string, unknown> });
+          return;
+        }
         throw new Error(body.error ?? `Actor generation failed: HTTP ${actorsRes.status}`);
       }
       const actorsData = (await actorsRes.json().catch(() => null)) as { actors?: ActorConfig[] } | null;
@@ -300,18 +324,23 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       // that error if the user picked an invalid count rather than
       // pre-filtering valid 1-actor responses out at this layer.
       if (!actors || actors.length === 0) {
+        if (opts) {
+          opts.onFailure?.({ status: actorsRes.status });
+          return;
+        }
         throw new Error('Actor generation returned no actors');
       }
-      setPhase({ kind: 'progress', stage: 'running' });
+      if (!opts) setPhase({ kind: 'progress', stage: 'running' });
 
       await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
+      opts?.onStage?.('starting');
       const setupRes = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
           ...settingsSpread,
           actors,
           turns: scenario.setup.defaultTurns,
@@ -322,6 +351,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       });
       if (!setupRes.ok) {
         const body = await setupRes.json().catch(() => ({} as { error?: string }));
+        if (opts) {
+          opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
+          return;
+        }
         throw new Error(body.error ?? `Setup failed: HTTP ${setupRes.status}`);
       }
       const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string };
@@ -333,7 +366,12 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
         return;
       }
+      opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
     } catch (err) {
+      if (opts) {
+        opts.onFailure?.({ networkError: true });
+        return;
+      }
       setPhase({ kind: 'input' });
       const raw = (err as Error)?.message ?? String(err);
       const friendly = mapLaunchErrorToMessage(raw);
@@ -620,7 +658,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   return (
     <div className={styles.view}>
       {phase.kind === 'input' && (
-        <RunFirstScreen>
+        <RunFirstScreen onStart={handleLoadedScenarioRun}>
           {errorBanner && <p className={styles.errorBanner} role="alert">{errorBanner}</p>}
           <ReplayLastRunCTA />
           <SeedInput

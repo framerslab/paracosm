@@ -12,7 +12,7 @@
  *
  * @module paracosm/dashboard/quickstart/first-screen/ScenarioLine
  */
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
 import { BrokenLinkMark, SectionMark } from './marks';
 import {
@@ -27,6 +27,7 @@ import {
   safeLocalStorage,
   type RunFigures,
 } from './effectiveLaunch';
+import { useOnline } from './useOnline';
 import { useServerFacts } from './useServerFacts';
 import {
   LOADING_NAME,
@@ -41,22 +42,6 @@ import styles from './ScenarioLine.module.scss';
 
 /** The figures the loading shapes are drawn over: a free run's, about as long as any run's. */
 const LOADING_FIGURES: RunFigures = { people: 30, departments: 3, turns: 6, events: 2 };
-
-/** Whether the browser says it is online, kept current by its online and offline events. */
-function useOnline(): boolean {
-  const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
-  useEffect(() => {
-    const up = () => setOnline(true);
-    const down = () => setOnline(false);
-    window.addEventListener('online', up);
-    window.addEventListener('offline', down);
-    return () => {
-      window.removeEventListener('online', up);
-      window.removeEventListener('offline', down);
-    };
-  }, []);
-  return online;
-}
 
 /** The figures as a grid of cells on a phone and one line from the tablet up, read as one sentence. */
 function Figures({ figures, loading }: { figures: RunFigures; loading: boolean }) {

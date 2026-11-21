@@ -8,32 +8,44 @@
  * that scenario. Storage that throws or holds corrupt JSON reads as nothing
  * saved, never as a throw. The scenarios are the bundled ones, read from
  * scenarios/*.json.
+ *
+ * The launch is worked out once (effectiveLaunch), so the words on the
+ * screen and the body Start posts come from the same figures: the body is
+ * what the launch has always posted, with the run's own turns.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   effectiveDepartments,
+  effectiveLaunch,
   effectivePeople,
   effectiveTurns,
   eventsPerTurn,
   figuresLine,
   figuresSpoken,
+  formatMinutes,
+  keyProviderName,
+  minutesForTurns,
+  modelNames,
   payer,
+  providerName,
   readLaunchSettings,
   type LaunchScenario,
+  type LaunchScenarioWithLeaders,
 } from '../../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
+import { startSecondLine, startSpoken } from '../../../src/dashboard/src/components/quickstart/first-screen/words.js';
 import type { ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
 
-const scenarioFile = (name: string): LaunchScenario =>
-  JSON.parse(readFileSync(new URL(`../../../scenarios/${name}`, import.meta.url), 'utf-8')) as LaunchScenario;
+const scenarioFile = (name: string): LaunchScenarioWithLeaders =>
+  JSON.parse(readFileSync(new URL(`../../../scenarios/${name}`, import.meta.url), 'utf-8')) as LaunchScenarioWithLeaders;
 const mars = scenarioFile('mars.json');
 const lunar = scenarioFile('lunar.json');
 
 /** The server's answers as the hosted demo gives them (caps of 6 turns, 30 people, 3 departments), or as a self-hosted server does. */
 function facts(hostedDemo: boolean): ServerFacts {
   return {
-    rateLimit: { status: 'ready', refresh: async () => {} },
+    rateLimit: { status: 'ready', refresh: async () => ({ status: 'ready' as const }) },
     adminConfig: { status: 'ready', hostedDemo, demoCaps: { maxTurns: 6, maxPopulation: 30, maxActiveDepartments: 3 } },
     sessions: { status: 'ready', rows: [], refresh: () => {} },
   };
@@ -117,4 +129,114 @@ test('figuresLine: each figure kept with its unit, the parts set apart by middle
   );
   // A scenario with no departments leaves that figure out.
   assert.equal(figuresLine({ people: 1, turns: 1, events: 1 }), `1${NBSP}person · 1${NBSP}turn · up to 1${NBSP}event a turn`);
+});
+
+test('effectiveLaunch: the body Start posts on the host\'s keys', () => {
+  const none = { overrides: {}, lastLaunch: null };
+  const launch = effectiveLaunch(facts(true), lunar, none, 2, 'host');
+  // Lunar Outpost runs 8 turns; a run on the host's keys is cut to 6, in the words and in the body alike.
+  assert.equal(launch.turns, 6);
+  assert.equal(launch.body.turns, effectiveTurns(facts(true), lunar, none, 'host'));
+  assert.equal(launch.body.seed, lunar.setup.defaultSeed);
+  assert.equal(launch.body.captureSnapshots, true);
+  assert.deepEqual(launch.body.quickstart, { scenarioId: 'lunar-outpost' });
+  // The scenario's two written leaders, as it wrote them.
+  const written = lunar.presets[0].leaders ?? [];
+  assert.equal(written.length, 2);
+  assert.deepEqual(launch.body.actors, written.map((l) => ({ name: l.name, archetype: l.archetype, hexaco: l.hexaco, instructions: l.instructions })));
+  // No key saved, so none is posted; the words name no provider or models.
+  assert.equal('apiKey' in launch.body, false);
+  assert.equal('anthropicKey' in launch.body, false);
+  assert.equal(launch.provider, undefined);
+  assert.equal(launch.models, undefined);
+  assert.equal(launch.batch, undefined);
+  assert.deepEqual(
+    { payer: launch.payer, size: launch.size, people: launch.people, departments: launch.departments, events: launch.events },
+    { payer: 'host', size: 2, people: 30, departments: 3, events: 2 },
+  );
+});
+
+test('effectiveLaunch: the visitor\'s keys, provider, models and economics go into the body', () => {
+  const settings = {
+    overrides: { openai: 'sk-test', anthropic: 'test-anthropic-key', serper: 'serper-key' },
+    lastLaunch: {
+      scenarioId: 'mars-genesis',
+      turns: 12,
+      provider: 'anthropic',
+      models: { commander: 'model-a', departments: 'model-b', judge: 'model-a' },
+      economics: { profileId: 'balanced', batch: { maxConcurrency: 5 } },
+    },
+  };
+  const launch = effectiveLaunch(facts(true), mars, settings, 2, 'own');
+  assert.equal(launch.body.apiKey, 'sk-test');
+  assert.equal(launch.body.anthropicKey, 'test-anthropic-key');
+  assert.equal(launch.body.serperKey, 'serper-key');
+  assert.equal(launch.body.provider, 'anthropic');
+  assert.deepEqual(launch.body.models, settings.lastLaunch.models);
+  assert.deepEqual(launch.body.economics, settings.lastLaunch.economics);
+  assert.equal(launch.body.turns, 12);
+  assert.equal(launch.turns, 12);
+  assert.equal(launch.body.seed, 950);
+  // The words read the same launch.
+  assert.equal(launch.provider, 'anthropic');
+  assert.deepEqual(launch.models, settings.lastLaunch.models);
+  assert.equal(launch.batch, 5);
+  assert.equal(providerName(launch.provider ?? ''), 'Anthropic');
+  assert.equal(modelNames(launch.models ?? {}), 'model-a, model-b');
+
+  // The same last launch on the host's keys: the body is the same, and the words name no provider or models.
+  const hosted = effectiveLaunch(facts(true), mars, { overrides: {}, lastLaunch: settings.lastLaunch }, 2, 'host');
+  assert.equal(hosted.provider, undefined);
+  assert.equal(hosted.models, undefined);
+  assert.equal(hosted.body.turns, 6);
+
+  // No economics, or a batch size that is no whole number above 0: no batch.
+  for (const economics of [undefined, {}, { batch: {} }, { batch: { maxConcurrency: 0 } }, { batch: { maxConcurrency: 2.5 } }, { batch: { maxConcurrency: '8' } }]) {
+    const last = { ...settings.lastLaunch, economics };
+    assert.equal(effectiveLaunch(facts(false), mars, { overrides: {}, lastLaunch: last }, 2, 'server').batch, undefined, JSON.stringify(economics));
+  }
+});
+
+test('effectiveLaunch: a run larger than the written leaders posts none, so the launch writes them', () => {
+  const settings = { overrides: { openai: 'sk-test' }, lastLaunch: null };
+  const three = effectiveLaunch(facts(true), mars, settings, 3, 'own');
+  assert.equal(three.size, 3);
+  assert.equal('actors' in three.body, false);
+  assert.deepEqual(three.body, { apiKey: 'sk-test', turns: 6, seed: 950, captureSnapshots: true, quickstart: { scenarioId: 'mars-genesis' } });
+  // A scenario that writes no leaders posts none at a pair either.
+  const unwritten = effectiveLaunch(facts(true), { ...mars, presets: [] }, settings, 2, 'own');
+  assert.equal('actors' in unwritten.body, false);
+});
+
+test('keyProviderName: the provider whose key is saved, where the saved keys tell which', () => {
+  assert.equal(keyProviderName({ overrides: { openai: 'sk-test' }, lastLaunch: null }), 'OpenAI');
+  assert.equal(keyProviderName({ overrides: { anthropic: 'test-anthropic-key' }, lastLaunch: null }), 'Anthropic');
+  assert.equal(keyProviderName({ overrides: { openai: 'sk-test', anthropic: 'test-anthropic-key' }, lastLaunch: null }), undefined);
+  assert.equal(keyProviderName({ overrides: { openai: 'sk-test', anthropic: 'test-anthropic-key' }, lastLaunch: { provider: 'anthropic' } }), 'Anthropic');
+  assert.equal(keyProviderName({ overrides: {}, lastLaunch: null }), undefined);
+});
+
+test('minutesForTurns and formatMinutes: 34 seconds a turn, to the nearest half minute', () => {
+  assert.equal(minutesForTurns(6), 3.5);
+  assert.equal(minutesForTurns(8), 4.5);
+  assert.equal(minutesForTurns(12), 7);
+  assert.equal(formatMinutes(3.5), '3½');
+  assert.equal(formatMinutes(4), '4');
+  assert.equal(formatMinutes(0.5), '½');
+});
+
+test('Start\'s second line and spoken name follow who pays and the run\'s size', () => {
+  const free = { who: 'host' as const, size: 2, turns: 6, minutes: minutesForTurns(6) };
+  assert.equal(startSecondLine(free), `6${NBSP}turns, about 3½${NBSP}minutes`);
+  assert.equal(startSpoken({ ...free, scenario: 'Mars Genesis' }), 'Start Mars Genesis: 6 turns, about 3 and a half minutes');
+  assert.equal(startSpoken({ ...free, turns: 7, minutes: minutesForTurns(7), scenario: 'Mars Genesis' }), 'Start Mars Genesis: 7 turns, about 4 minutes');
+  assert.equal(startSecondLine({ who: 'host', size: 2, turns: 1, minutes: minutesForTurns(1) }), `1${NBSP}turn, about ½${NBSP}minute`);
+  assert.equal(startSpoken({ who: 'host', size: 2, turns: 1, minutes: minutesForTurns(1), scenario: 'Mars Genesis' }), 'Start Mars Genesis: 1 turn, about half a minute');
+
+  const own = { who: 'own' as const, size: 2, turns: 6, minutes: 0 };
+  assert.equal(startSecondLine(own), `6${NBSP}turns, on your own API key`);
+  assert.equal(startSecondLine({ ...own, size: 24 }), `24${NBSP}leaders, 6${NBSP}turns, on your own API key`);
+  assert.equal(startSpoken({ ...own, size: 24, scenario: 'Mars Genesis' }), 'Start Mars Genesis: 24 leaders, 6 turns, on your own API key');
+  assert.equal(startSecondLine({ ...own, who: 'server', size: 300 }), `300${NBSP}leaders, 6${NBSP}turns, on this server’s API keys`);
+  assert.equal(startSpoken({ ...own, who: 'server', scenario: 'Mars Genesis' }), 'Start Mars Genesis: 6 turns, on this server’s API keys');
 });
