@@ -38,7 +38,7 @@ import {
 } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
 
-const HOSTED = { PARACOSM_HOSTED_DEMO: 'true' };
+const HOSTED = { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' };
 const TURNS = 6;
 
 interface SessionRow { id: string; turnCount?: number; title?: string; totalCostUSD?: number }
