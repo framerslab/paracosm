@@ -3361,10 +3361,16 @@ test.describe('one actor picker for the toolbox', () => {
     await first.focus();
     await expect(first).toBeFocused();
     // The list scrolls to its end, as a wheel moves it, while focus stays on A1.
-    await expect.poll(async () => {
-      await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-      return optionOf(picker, 'A300').isVisible();
-    }, { message: 'the list scrolls to A300' }).toBe(true);
+    // Rows measured on the way change the list's height, so it scrolls again
+    // until A300 stands whole in the list's view.
+    await expect.poll(() => list.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+      const last = el.querySelector('[data-actor="A300"]');
+      if (!last) return false;
+      const row = last.getBoundingClientRect();
+      const view = el.getBoundingClientRect();
+      return row.top >= view.top - 1 && row.bottom <= view.bottom + 1;
+    }), { message: 'the list scrolls to A300' }).toBe(true);
     await expect(optionOf(picker, 'A300')).toBeInViewport();
     await expect(first, 'A1 keeps focus').toBeFocused();
     expect(await optionsOf(picker).count(), 'the options between A1 and the view are not rendered').toBeLessThanOrEqual(MOST_LINES + 1);
