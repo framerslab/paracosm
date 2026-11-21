@@ -82,6 +82,14 @@
   > * { flex: 1 0 auto; }
 }
 
+// Below 900 px every key in the toolbar's row is 44 px tall, as the forged
+// toolbox key is: the mode tabs (from 481 px, where they stand in the row),
+// More, Diff and Help.
+@media (max-width: 899.98px) {
+  .toolbarTopRow > * { min-height: 44px; }
+  .modePillsWrap [role='tab'] { min-height: 44px; }
+}
+
 .overflowToggle {
   padding: 0 12px;
   background: var(--bg-card);
