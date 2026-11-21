@@ -69,8 +69,14 @@ export const placeSpoken = (place: number): string => `Leader ${place}`;
 /** The name a leader's card takes while the scenario writes no leaders: "Leader 1". */
 export const unnamedLeader = (place: number): string => `Leader ${place}`;
 
-/** A switch key's spoken name: "Show Aria Chen". */
-export const showLeader = (name: string): string => `Show ${name}`;
+/**
+ * A switch key's spoken name. It holds the words the key shows, the place
+ * figure and the name, so a person who says what they see is understood:
+ * "Show leader 1 Aria Chen". A leader named by its place alone, whose key
+ * shows no separate figure: "Show Leader 1".
+ */
+export const showLeader = (name: string, place?: number): string =>
+  (place === undefined ? `Show ${name}` : `Show leader ${place} ${name}`);
 
 /** The spoken name of the two leaders' part of the screen. */
 export const LEADERS_SPOKEN = 'Leaders';

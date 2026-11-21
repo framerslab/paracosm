@@ -109,7 +109,8 @@ export function LeaderCard({ leader, noneWritten }: { leader: PairLeader; noneWr
   return (
     <article className={styles.card} aria-labelledby={nameId}>
       <header className={styles.head} data-testid="leader-head">
-        <span className={styles.place} data-testid="leader-place" aria-hidden="true">{leader.place}</span>
+        {/* A leader named by its place alone shows no separate figure; the column stays, so every name starts at the same line. */}
+        <span className={styles.place} data-testid="leader-place" aria-hidden="true">{leader.written ? leader.place : ''}</span>
         {leader.written && <span className="sr-only">{placeSpoken(leader.place)}</span>}
         <h2 id={nameId} className={styles.name} data-text="heading" translate="no">{leader.name}</h2>
         {leader.title && <p className={styles.title} data-testid="leader-title">{leader.title}</p>}
@@ -159,13 +160,13 @@ export function LeaderSwitch({ pair, shown, onShow, tabId, panelId }: {
           className={styles.key}
           aria-selected={shown === i}
           aria-controls={panelId}
-          aria-label={showLeader(leader.name)}
+          aria-label={showLeader(leader.name, leader.written ? leader.place : undefined)}
           data-shown={shown === i ? 'true' : 'false'}
           onClick={() => onShow(i)}
           onKeyDown={(event) => move(event, i)}
         >
-          <span className={styles.keyPlace}>{leader.place}</span>
-          {' '}
+          {leader.written && <span className={styles.keyPlace}>{leader.place}</span>}
+          {leader.written && ' '}
           <span className={styles.keyName} translate="no">{leader.name}</span>
         </button>
       ))}
@@ -191,8 +192,8 @@ export function PairScoreTable({ pair, shape = false }: { pair: PairLeader[]; sh
             <td className={styles.corner} />
             {pair.map((leader) => (
               <th key={leader.place} scope="col" className={styles.colHead}>
-                {!shape && <span className={styles.headPlace}>{leader.place}</span>}
-                {!shape && ' '}
+                {!shape && leader.written && <span className={styles.headPlace}>{leader.place}</span>}
+                {!shape && leader.written && ' '}
                 <span translate="no">{word(leader.name)}</span>
               </th>
             ))}

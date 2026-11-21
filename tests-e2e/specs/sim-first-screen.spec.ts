@@ -81,6 +81,9 @@ const TITLE = 'Watch AI leaders run the same scenario | Paracosm';
 const ARIA = { place: '1', name: 'Aria Chen', title: 'The Visionary', scores: ['0.95', '0.35', '0.85', '0.55', '0.30', '0.65'] };
 const DIETRICH = { place: '2', name: 'Dietrich Voss', title: 'The Engineer', scores: ['0.25', '0.97', '0.30', '0.60', '0.70', '0.90'] };
 const PAIR = [ARIA, DIETRICH] as const;
+/** The spoken names of the two switch keys: each holds the words its key shows, "1 Aria Chen" and "2 Dietrich Voss". */
+const SHOW_ARIA = 'Show leader 1 Aria Chen';
+const SHOW_DIETRICH = 'Show leader 2 Dietrich Voss';
 const TRAITS = ['Openness', 'Conscientiousness', 'Extraversion', 'Agreeableness', 'Emotionality', 'Honesty-humility'];
 const MIDDLE_BAND = 'Middle band 0.35 to 0.65';
 const HEXACO_NOTE = 'HEXACO is a six-trait personality model. The six scores above are this leader’s.';
@@ -592,6 +595,18 @@ async function barOf(holder: Locator): Promise<{ track: number; fill: number; co
   });
 }
 
+/**
+ * Where a part stands on the page, whatever is scrolled: its top in the
+ * window, the same top with every scroll offset above it added back, and
+ * those offsets themselves (the window's, then each part's above it).
+ */
+const placeOf = (part: Locator): Promise<{ viewTop: number; top: number; scrolls: string }> => part.evaluate((el) => {
+  const viewTop = el.getBoundingClientRect().top;
+  const offsets = [window.scrollY];
+  for (let above = el.parentElement; above; above = above.parentElement) offsets.push(above.scrollTop);
+  return { viewTop, top: viewTop + offsets.reduce((sum, n) => sum + n, 0), scrolls: offsets.join(',') };
+});
+
 /** A score's row in the pair's score table, by its place in the order the scores are drawn. */
 const scoreRow = (table: Locator, index: number): Locator => table.locator('tbody tr').nth(index);
 
@@ -765,8 +780,8 @@ screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
         // The switch: two keys in one row, each half the column and 48 px high or more.
         const tabs = leaders.getByRole('tablist').getByRole('tab');
         await expect(tabs).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
-        const showAria = leaders.getByRole('tab', { name: 'Show Aria Chen' });
-        const showDietrich = leaders.getByRole('tab', { name: 'Show Dietrich Voss' });
+        const showAria = leaders.getByRole('tab', { name: SHOW_ARIA, exact: true });
+        const showDietrich = leaders.getByRole('tab', { name: SHOW_DIETRICH, exact: true });
         await expect(showAria).toHaveAttribute('aria-selected', 'true');
         await expect(showDietrich).toHaveAttribute('aria-selected', 'false');
         const [k1, k2] = await Promise.all([box(tabs.nth(0)), box(tabs.nth(1))]);
@@ -804,21 +819,17 @@ screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
         await tabs.nth(0).scrollIntoViewIfNeeded();
         await picture(page, `leaders-phone-${width}-${look}-leader-1`);
 
-        // Pressing the second key changes the card and leaves the page where it was.
-        await showDietrich.scrollIntoViewIfNeeded();
-        const before = { scroll: await page.evaluate(() => window.scrollY), key: await box(showDietrich) };
+        // Pressing the second key shows the second leader's card.
         await showDietrich.click();
         await expect(showDietrich).toHaveAttribute('aria-selected', 'true');
         await expect(showAria).toHaveAttribute('aria-selected', 'false');
         await expect(card).toHaveCount(1);
         await expect(card.getByTestId('leader-head')).toHaveText(DIETRICH.title);
         expect(await card.getByTestId('leader-orders').evaluate((el) => el.textContent)).toBe(written[1].instructions);
-        const after = { scroll: await page.evaluate(() => window.scrollY), key: await box(showDietrich) };
-        expect(after.scroll).toBe(before.scroll);
-        expect(Math.abs(after.key.y - before.key.y)).toBeLessThanOrEqual(1);
         // The table is the same whichever card shows.
         await expect(card.getByRole('table').getByRole('columnheader')).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
         await expect(scoreRow(card.getByRole('table'), 0).getByRole('cell')).toHaveText(['0.95', '0.25']);
+        await showDietrich.scrollIntoViewIfNeeded();
         await picture(page, `leaders-phone-${width}-${look}-leader-2`);
 
         // The arrow keys move between the two keys.
@@ -826,6 +837,17 @@ screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
         await expect(showAria).toBeFocused();
         await expect(showAria).toHaveAttribute('aria-selected', 'true');
         await expect(card.getByTestId('leader-head')).toHaveText(ARIA.title);
+
+        // A press changes the card and leaves the page where it was: nothing
+        // scrolls and the switch stays put. The press is made in the page, so
+        // the only movement read is the page's own.
+        const before = await placeOf(showDietrich);
+        await showDietrich.evaluate((el) => (el as HTMLElement).click());
+        await expect(showDietrich).toHaveAttribute('aria-selected', 'true');
+        await expect(card.getByTestId('leader-head')).toHaveText(DIETRICH.title);
+        const after = await placeOf(showDietrich);
+        expect(after.scrolls).toBe(before.scrolls);
+        expect(Math.abs(after.viewTop - before.viewTop)).toBeLessThanOrEqual(1);
       });
     }
   }
@@ -893,9 +915,9 @@ screenTest('feature 5: loading shapes', async ({ page }) => {
         expect(await shapes.first().locator('[data-shape]').count()).toBeGreaterThanOrEqual(3);
         await expect(leaders.getByRole('article')).toHaveCount(0);
         await expect(leaders.getByRole('tab')).toHaveCount(0);
-        const before = await box(leaders);
         await leaders.scrollIntoViewIfNeeded();
         await picture(page, `leaders-loading-${size.width}-${look}`);
+        const before = { height: (await box(leaders)).height, place: await placeOf(leaders) };
 
         release();
         await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
@@ -903,10 +925,10 @@ screenTest('feature 5: loading shapes', async ({ page }) => {
         if (size.width >= 1100) await expect(leaders.getByRole('article')).toHaveCount(2);
         else await expect(leaders.getByRole('tabpanel')).toHaveCount(1);
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        const after = await box(leaders);
+        const after = { height: (await box(leaders)).height, place: await placeOf(leaders) };
         // The cards replace the shapes with no jump: under a tenth of the window, and a shift score under 0.1.
         expect(Math.abs(after.height - before.height)).toBeLessThan(size.height * 0.1);
-        expect(Math.abs(after.y - before.y)).toBeLessThan(size.height * 0.1);
+        expect(Math.abs(after.place.top - before.place.top)).toBeLessThan(size.height * 0.1);
         expect(await shiftOf(page)).toBeLessThan(0.1);
         await page.unroute('**/scenario');
       });
@@ -1050,7 +1072,7 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
 
         if (size.width < 1100) {
           // Feature 14, QA step 4: switching the leader leaves the panel as it was.
-          await root.getByTestId('leaders').getByRole('tab', { name: 'Show Dietrich Voss' }).click();
+          await root.getByTestId('leaders').getByRole('tab', { name: SHOW_DIETRICH, exact: true }).click();
           await expect(root.getByTestId('leaders').getByTestId('leader-head')).toHaveText(DIETRICH.title);
           expect(await frameOf(canvas)).toBe(first);
           const still = await box(fieldOf(colony));
