@@ -22,6 +22,27 @@
  * - A scenario that did not load, or a page gone offline, says so beside
  *   the broken-link mark with a Try now key, and no Start is active.
  * - The title and description say what the page does.
+ *
+ * The leaders at a pair (feature 5):
+ * - From 1,100 px two cards stand side by side, each with the leader's place
+ *   figure, name, title, six scores as bars with their figures and its
+ *   written orders whole, each score at the same height on both cards.
+ * - Under 1,100 px one card shows at a time under a switch of two keys, and
+ *   one table holds both leaders' scores, a column a leader.
+ * - A score outside 0.35 to 0.65 fills in the accent; one inside the band or
+ *   on its edge fills in the control edge.
+ * - A scenario with no written leaders shows two cards named Leader 1 and
+ *   Leader 2 with empty score tracks, and shapes of the cards' size stand
+ *   until the scenario answers.
+ *
+ * The shared colony panel (feature 14 before Start):
+ * - Exactly one colony field: the living grid drawing the scenario's key
+ *   people at turn 0, at rest, with each featured person's name set over the
+ *   field as text and no two names overlapping.
+ * - It waits for the scenario, and a scenario that names no key people keeps
+ *   the panel's frame with a sentence and no canvas.
+ * - On the light look's canvas ground the grid's tones read 4.5 to 1.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -55,6 +76,24 @@ const OWN_KEY_FIGURES = '100 people · 5 departments · 6 turns · up to 2 event
 const DID_NOT_LOAD = 'The scenario did not load. Trying again.';
 const OFFLINE = 'You are offline. The scenario loads when you are back online.';
 const TITLE = 'Watch AI leaders run the same scenario | Paracosm';
+
+/** Mars Genesis's two written leaders, with their six scores to two places in the order the cards draw them. */
+const ARIA = { place: '1', name: 'Aria Chen', title: 'The Visionary', scores: ['0.95', '0.35', '0.85', '0.55', '0.30', '0.65'] };
+const DIETRICH = { place: '2', name: 'Dietrich Voss', title: 'The Engineer', scores: ['0.25', '0.97', '0.30', '0.60', '0.70', '0.90'] };
+const PAIR = [ARIA, DIETRICH] as const;
+const TRAITS = ['Openness', 'Conscientiousness', 'Extraversion', 'Agreeableness', 'Emotionality', 'Honesty-humility'];
+const MIDDLE_BAND = 'Middle band 0.35 to 0.65';
+const HEXACO_NOTE = 'HEXACO is a six-trait personality model. The six scores above are this leader’s.';
+const NO_WRITTEN_LEADERS = 'This scenario has no written leaders. Paracosm writes them when you press Start.';
+
+/** The shared colony panel on a free run of Mars Genesis: its five key people stand in four departments. */
+const COLONY_FIGURES = '5 key people · 4 departments';
+const COLONY_CAPTION = 'Both colonies start with the same 30 people, these 5 among them. Each leader’s decisions make them diverge.';
+const COLONY_SPOKEN = 'The colony at turn 0: 5 of its 30 people, in 4 departments, the same for every leader';
+const COLONY_KEY = ['Department', 'Person', 'Featured person'];
+const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is drawn when the run starts.';
+/** The field's height at each width the panel is laid out for. */
+const FIELD_HEIGHTS: ReadonlyArray<readonly [number, number]> = [[320, 170], [390, 190], [600, 200], [1100, 250], [1440, 280]];
 const DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare leaders side by side, then watch 2 to 300 of them run the same scenario turn by turn.';
 
 let defined = 0;
@@ -450,6 +489,422 @@ screenTest('feature 3: what a screen reader reads', async ({ page }) => {
       expect(read).not.toContain('SCENARIO');
       expect(read).not.toContain('·');
     });
+  }
+});
+
+/** A written leader as GET /scenario sends it. */
+interface WrittenLeader { name: string; archetype: string; hexaco: Record<string, number>; instructions: string }
+/** A key person as GET /scenario sends it. */
+interface KeyPerson { name: string; department: string; role: string; specialization: string; age: number; featured: boolean }
+interface ScenarioAnswer {
+  id: string;
+  labels: Record<string, unknown>;
+  presets: Array<{ id: string; leaders?: WrittenLeader[]; actors?: WrittenLeader[]; personnel?: KeyPerson[] }>;
+}
+
+/** The scenario as the server answers it for this test's visitor. */
+async function serverScenario(page: Page): Promise<ScenarioAnswer> {
+  const res = await page.request.get(`${SERVER}/scenario`);
+  expect(res.ok(), 'the server answers GET /scenario').toBe(true);
+  return await res.json() as ScenarioAnswer;
+}
+
+const writtenOf = (scenario: ScenarioAnswer): WrittenLeader[] => scenario.presets[0]?.leaders ?? scenario.presets[0]?.actors ?? [];
+const keyPeopleOf = (scenario: ScenarioAnswer): KeyPerson[] =>
+  (scenario.presets.find((p) => p.id === 'default') ?? scenario.presets[0])?.personnel ?? [];
+
+/** Answers GET /scenario with the server's own answer after `change` has edited it. */
+async function routeScenario(page: Page, change: (scenario: ScenarioAnswer) => void): Promise<void> {
+  await page.route('**/scenario', async (route: Route) => {
+    const response = await route.fetch();
+    const scenario = await response.json() as ScenarioAnswer;
+    change(scenario);
+    await route.fulfill({ response, json: scenario });
+  });
+}
+
+/** Holds GET /scenario's answer until `release` is called. */
+async function holdScenario(page: Page): Promise<() => void> {
+  let release: () => void = () => {};
+  const answered = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/scenario', async (route: Route) => {
+    const response = await route.fetch();
+    await answered;
+    await route.fulfill({ response });
+  });
+  return release;
+}
+
+/** Before any page script runs: adds up the layout shifts of parts inside the first screen. */
+async function watchShift(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as { firstScreenShift: number };
+    w.firstScreenShift = 0;
+    new PerformanceObserver((list) => {
+      const root = document.querySelector('[data-testid="run-first-screen"]');
+      for (const entry of list.getEntries() as unknown as Array<{ value: number; hadRecentInput: boolean; sources?: Array<{ node?: Node | null }> }>) {
+        if (entry.hadRecentInput || !root) continue;
+        if ((entry.sources ?? []).some((s) => s.node && root.contains(s.node))) w.firstScreenShift += entry.value;
+      }
+    }).observe({ type: 'layout-shift', buffered: true });
+  });
+}
+const shiftOf = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as { firstScreenShift: number }).firstScreenShift);
+
+/** A token's colour as the page computes it in the look it shows. */
+const tokenColour = (page: Page, token: string): Promise<string> => page.evaluate((t) => {
+  const probe = document.createElement('span');
+  probe.style.color = `var(${t})`;
+  document.body.appendChild(probe);
+  const colour = getComputedStyle(probe).color;
+  probe.remove();
+  return colour;
+}, token);
+
+const styleOf = (part: Locator) => part.evaluate((el) => {
+  const cs = getComputedStyle(el);
+  return { size: parseFloat(cs.fontSize), face: cs.fontFamily, colour: cs.color, ground: cs.backgroundColor, align: cs.textAlign, weight: cs.fontWeight };
+});
+
+/** No sideways scroll: neither the first screen nor the page is wider than its box. */
+async function expectNoSidewaysScroll(page: Page, root: Locator): Promise<void> {
+  expect(await root.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'the first screen has no sideways scroll').toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'the page has no sideways scroll').toBe(true);
+}
+
+/** A score's bar inside a row or a cell: its track, its fill and the two ticks of the middle band. */
+async function barOf(holder: Locator): Promise<{ track: number; fill: number; colour: string; ticks: number[] }> {
+  return holder.evaluate((el) => {
+    const track = el.querySelector('[data-score-track]');
+    if (!track) throw new Error('no score track');
+    const t = track.getBoundingClientRect();
+    const fill = track.querySelector('[data-meter-fill]');
+    const ticks = Array.from(track.querySelectorAll('[data-band-tick]')).map((tick) => {
+      const r = tick.getBoundingClientRect();
+      return ((r.left + r.right) / 2 - t.left) / t.width;
+    });
+    return {
+      track: t.width,
+      fill: fill ? fill.getBoundingClientRect().width / t.width : 0,
+      colour: fill ? getComputedStyle(fill).backgroundColor : '',
+      ticks,
+    };
+  });
+}
+
+screenTest('feature 5: two cards at a pair', async ({ page }) => {
+  test.setTimeout(180_000);
+  const written = writtenOf(await serverScenario(page));
+  expect(written.map((l) => l.name)).toEqual([ARIA.name, DIETRICH.name]);
+  for (const width of [1100, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(`${width} in the ${look} look`, async () => {
+        const root = await openReady(page, sizeAt(width), look);
+        const leaders = root.getByTestId('leaders');
+        const cards = leaders.getByRole('article');
+        await expect(cards).toHaveCount(2);
+        // No switch from the desktop width: both cards show.
+        await expect(leaders.getByRole('tab')).toHaveCount(0);
+        const ink = await tokenColour(page, '--text-1');
+
+        const nameStarts: number[] = [];
+        for (const [i, who] of PAIR.entries()) {
+          const card = leaders.getByRole('article', { name: who.name });
+          const name = card.getByRole('heading', { level: 2 });
+          await expect(name).toHaveText(who.name);
+          await expect(card.getByTestId('leader-title')).toHaveText(who.title);
+
+          // The place figure: plain figures in JetBrains Mono at 15 px in the ink, no box, right-aligned in a column three figures wide.
+          const place = card.getByTestId('leader-place');
+          await expect(place).toHaveText(who.place);
+          const mark = await place.evaluate((el) => {
+            const cs = getComputedStyle(el);
+            return {
+              size: parseFloat(cs.fontSize),
+              face: cs.fontFamily,
+              colour: cs.color,
+              align: cs.textAlign,
+              width: el.getBoundingClientRect().width,
+              edges: ['top', 'right', 'bottom', 'left'].map((side) => parseFloat(cs.getPropertyValue(`border-${side}-width`))),
+              ground: cs.backgroundColor,
+            };
+          });
+          expect(mark.size).toBe(15);
+          expect(mark.face).toContain('JetBrains Mono');
+          expect(mark.colour).toBe(ink);
+          expect(mark.align).toBe('right');
+          expect(mark.width).toBeGreaterThanOrEqual(24);
+          expect(mark.width).toBeLessThanOrEqual(32);
+          expect(mark.edges).toEqual([0, 0, 0, 0]);
+          expect(mark.ground).toBe('rgba(0, 0, 0, 0)');
+          // The figure is read as "Leader 1": the figure itself is hidden from a screen reader, and the words stand beside it.
+          await expect(place).toHaveAttribute('aria-hidden', 'true');
+          await expect(card.getByText(`Leader ${who.place}`, { exact: true })).toHaveCount(1);
+          nameStarts.push((await box(name)).x - (await box(card)).x);
+
+          // The orders whole, byte for byte, and the note under them; no temperament line yet.
+          const orders = card.getByTestId('leader-orders');
+          expect(await orders.evaluate((el) => el.textContent)).toBe(written[i].instructions);
+          expect(await orders.evaluate((el) => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1), 'the orders are not cut').toBe(true);
+          await expect(card.getByTestId('hexaco-note')).toHaveText(HEXACO_NOTE);
+          expect((await box(card.getByTestId('hexaco-note'))).y).toBeGreaterThanOrEqual((await box(orders)).y + (await box(orders)).height - 1);
+          await expect(card.getByTestId('leader-temperament')).toHaveCount(0);
+
+          // Six scores, each its whole name, a bar and a figure to two places.
+          const rows = card.getByTestId('score-rows').getByRole('listitem');
+          await expect(rows).toHaveCount(6);
+          for (const [t, trait] of TRAITS.entries()) {
+            await expect(rows.nth(t).getByTestId('score-name')).toHaveText(trait);
+            await expect(rows.nth(t).getByTestId('score-figure')).toHaveText(who.scores[t]);
+            const bar = await barOf(rows.nth(t));
+            expect(Math.abs(bar.fill - Number(who.scores[t]))).toBeLessThanOrEqual(0.03);
+          }
+
+          // Feature 5, QA step 25: the sizes.
+          expect((await styleOf(orders)).size).toBe(18);
+          expect((await styleOf(name)).size).toBe(20);
+          expect((await styleOf(card.getByTestId('leader-title'))).size).toBe(15);
+          expect((await styleOf(rows.nth(0).getByTestId('score-name'))).size).toBe(15);
+          expect((await styleOf(rows.nth(0).getByTestId('score-figure'))).size).toBe(15);
+        }
+        // Every name starts at the same line.
+        expect(Math.abs(nameStarts[0] - nameStarts[1])).toBeLessThanOrEqual(1);
+
+        // Side by side in two equal columns of one height, each score at the same height on both.
+        const [a, b] = await Promise.all([box(cards.nth(0)), box(cards.nth(1))]);
+        expect(Math.abs(a.y - b.y)).toBeLessThanOrEqual(1);
+        expect(b.x).toBeGreaterThanOrEqual(a.x + a.width);
+        expect(Math.abs(a.width - b.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(a.height - b.height)).toBeLessThanOrEqual(1);
+        for (let t = 0; t < TRAITS.length; t += 1) {
+          const [ra, rb] = await Promise.all([0, 1].map((c) => box(cards.nth(c).getByTestId('score-rows').getByRole('listitem').nth(t))));
+          expect(Math.abs(ra.y - rb.y), `${TRAITS[t]} reads across both cards`).toBeLessThanOrEqual(1);
+        }
+
+        // At the wide width each card stands in two columns, the orders beside the scores; at the desktop width the orders stand under them.
+        const scores = await box(cards.nth(0).getByTestId('score-rows'));
+        const orders = await box(cards.nth(0).getByTestId('leader-orders'));
+        if (width >= 1440) expect(orders.x).toBeGreaterThanOrEqual(scores.x + scores.width - 1);
+        else expect(orders.y).toBeGreaterThanOrEqual(scores.y + scores.height - 1);
+
+        // No picture of a leader, and no colony field on a card.
+        await expect(leaders.locator('img, canvas, svg[role="img"]')).toHaveCount(0);
+        await expectNoSidewaysScroll(page, root);
+        await leaders.scrollIntoViewIfNeeded();
+        await picture(page, `leaders-pair-${width}-${look}`);
+      });
+    }
+  }
+});
+
+screenTest('feature 5: the middle band', async ({ page }) => {
+  test.setTimeout(150_000);
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const root = await openReady(page, WIDE, look);
+      const leaders = root.getByTestId('leaders');
+      const amber = await tokenColour(page, '--amber');
+      const edge = await tokenColour(page, '--edge-control');
+      // One quiet line over each block of six score rows.
+      await expect(leaders.getByTestId('middle-band')).toHaveText([MIDDLE_BAND, MIDDLE_BAND]);
+      for (const who of PAIR) {
+        const rows = leaders.getByRole('article', { name: who.name }).getByTestId('score-rows').getByRole('listitem');
+        for (const [t, figure] of who.scores.entries()) {
+          const score = Number(figure);
+          const bar = await barOf(rows.nth(t));
+          // Outside 0.35 to 0.65 the bar fills in the accent; inside the band or on its edge, in the control edge.
+          expect(bar.colour, `${who.name}, ${TRAITS[t]} ${figure}`).toBe(score < 0.35 || score > 0.65 ? amber : edge);
+          // The two ticks mark the band's edges.
+          expect(bar.ticks).toHaveLength(2);
+          expect(Math.abs(bar.ticks[0] - 0.35)).toBeLessThanOrEqual(0.02);
+          expect(Math.abs(bar.ticks[1] - 0.65)).toBeLessThanOrEqual(0.02);
+        }
+      }
+      // Aria Chen's Openness (0.95) and Conscientiousness (0.35), named.
+      const aria = leaders.getByRole('article', { name: ARIA.name }).getByTestId('score-rows').getByRole('listitem');
+      expect((await barOf(aria.nth(0))).colour).toBe(amber);
+      expect((await barOf(aria.nth(1))).colour).toBe(edge);
+    });
+
+    await test.step(`390 in the ${look} look`, async () => {
+      const root = await openReady(page, PHONE, look);
+      const leaders = root.getByTestId('leaders');
+      const amber = await tokenColour(page, '--amber');
+      const edge = await tokenColour(page, '--edge-control');
+      // One table of both leaders' scores, so one line over it.
+      await expect(leaders.getByTestId('middle-band')).toHaveText([MIDDLE_BAND]);
+      const table = leaders.getByRole('table');
+      for (const [t, trait] of TRAITS.entries()) {
+        const cells = table.getByRole('row', { name: new RegExp(`^${trait}\\b`) }).getByRole('cell');
+        for (const [c, who] of PAIR.entries()) {
+          const score = Number(who.scores[t]);
+          const bar = await barOf(cells.nth(c));
+          expect(bar.colour, `${who.name}, ${trait} ${who.scores[t]}`).toBe(score < 0.35 || score > 0.65 ? amber : edge);
+          expect(Math.abs(bar.track - 48)).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+  }
+});
+
+screenTest('feature 5: one card at a time on a phone', async ({ page }) => {
+  test.setTimeout(240_000);
+  const written = writtenOf(await serverScenario(page));
+  for (const width of [320, 390, 600]) {
+    for (const look of LOOKS) {
+      await test.step(`${width} in the ${look} look`, async () => {
+        const root = await openReady(page, sizeAt(width), look);
+        const leaders = root.getByTestId('leaders');
+
+        // The switch: two keys in one row, each half the column and 48 px high or more.
+        const tabs = leaders.getByRole('tablist').getByRole('tab');
+        await expect(tabs).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
+        const showAria = leaders.getByRole('tab', { name: 'Show Aria Chen' });
+        const showDietrich = leaders.getByRole('tab', { name: 'Show Dietrich Voss' });
+        await expect(showAria).toHaveAttribute('aria-selected', 'true');
+        await expect(showDietrich).toHaveAttribute('aria-selected', 'false');
+        const [k1, k2] = await Promise.all([box(tabs.nth(0)), box(tabs.nth(1))]);
+        expect(Math.abs(k1.y - k2.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(k1.width - k2.width)).toBeLessThanOrEqual(1);
+        expect(k1.height).toBeGreaterThanOrEqual(48);
+        expect(Math.abs(k1.height - k2.height)).toBeLessThanOrEqual(1);
+        const column = await box(leaders);
+        expect(k1.width + k2.width).toBeGreaterThanOrEqual(column.width - 16);
+        // The shown leader's key: the 600 weight over the accent underline.
+        expect((await styleOf(tabs.nth(0))).weight).toBe('600');
+        expect(await tabs.nth(0).evaluate((el) => getComputedStyle(el).borderBottomColor)).toBe(await tokenColour(page, '--amber'));
+        expect(await tabs.nth(0).evaluate((el) => parseFloat(getComputedStyle(el).borderBottomWidth))).toBe(3);
+
+        // One card, which does not repeat the leader's place and name: the switch key carries them.
+        const card = leaders.getByRole('tabpanel');
+        await expect(card).toHaveCount(1);
+        await expect(leaders.getByRole('article')).toHaveCount(0);
+        await expect(card.getByRole('heading', { level: 2 })).toHaveCount(0);
+        await expect(card.getByTestId('leader-place')).toHaveCount(0);
+        await expect(card.getByTestId('leader-head')).toHaveText(ARIA.title);
+        expect(await card.getByTestId('leader-orders').evaluate((el) => el.textContent)).toBe(written[0].instructions);
+        await expect(card.getByTestId('hexaco-note')).toHaveText(HEXACO_NOTE);
+        expect((await styleOf(card.getByTestId('leader-orders'))).size).toBe(18);
+
+        // One table of the six scores, a column a leader, so the pair compares with no press.
+        const table = card.getByRole('table');
+        await expect(table.getByRole('columnheader')).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
+        for (const [t, trait] of TRAITS.entries()) {
+          const row = table.getByRole('row', { name: new RegExp(`^${trait}\\b`) });
+          await expect(row.getByRole('rowheader')).toHaveText(trait);
+          await expect(row.getByRole('cell')).toHaveText([ARIA.scores[t], DIETRICH.scores[t]]);
+        }
+        await expectNoSidewaysScroll(page, root);
+        await tabs.nth(0).scrollIntoViewIfNeeded();
+        await picture(page, `leaders-phone-${width}-${look}-leader-1`);
+
+        // Pressing the second key changes the card and leaves the page where it was.
+        await showDietrich.scrollIntoViewIfNeeded();
+        const before = { scroll: await page.evaluate(() => window.scrollY), key: await box(showDietrich) };
+        await showDietrich.click();
+        await expect(showDietrich).toHaveAttribute('aria-selected', 'true');
+        await expect(showAria).toHaveAttribute('aria-selected', 'false');
+        await expect(card).toHaveCount(1);
+        await expect(card.getByTestId('leader-head')).toHaveText(DIETRICH.title);
+        expect(await card.getByTestId('leader-orders').evaluate((el) => el.textContent)).toBe(written[1].instructions);
+        const after = { scroll: await page.evaluate(() => window.scrollY), key: await box(showDietrich) };
+        expect(after.scroll).toBe(before.scroll);
+        expect(Math.abs(after.key.y - before.key.y)).toBeLessThanOrEqual(1);
+        // The table is the same whichever card shows.
+        await expect(card.getByRole('table').getByRole('columnheader')).toHaveText(['1 Aria Chen', '2 Dietrich Voss']);
+        await expect(card.getByRole('table').getByRole('row', { name: /^Openness\b/ }).getByRole('cell')).toHaveText(['0.95', '0.25']);
+        await picture(page, `leaders-phone-${width}-${look}-leader-2`);
+
+        // The arrow keys move between the two keys.
+        await showDietrich.press('ArrowLeft');
+        await expect(showAria).toBeFocused();
+        await expect(showAria).toHaveAttribute('aria-selected', 'true');
+        await expect(card.getByTestId('leader-head')).toHaveText(ARIA.title);
+      });
+    }
+  }
+});
+
+screenTest('feature 5: no written leaders', async ({ page }) => {
+  test.setTimeout(150_000);
+  // A scenario a visitor compiled has no written leaders and names no key people.
+  await routeScenario(page, (scenario) => {
+    scenario.id = 'harbour-trial';
+    scenario.labels = { ...scenario.labels, name: 'Harbour Trial' };
+    scenario.presets = [];
+  });
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const root = await openReady(page, WIDE, look, 'Harbour Trial');
+      const leaders = root.getByTestId('leaders');
+      await expect(leaders.getByRole('article')).toHaveCount(2);
+      for (const name of ['Leader 1', 'Leader 2']) {
+        const card = leaders.getByRole('article', { name, exact: true });
+        await expect(card.getByRole('heading', { level: 2 })).toHaveText(name);
+        await expect(card.locator('[data-score-track]')).toHaveCount(6);
+        await expect(card.locator('[data-meter-fill]')).toHaveCount(0);
+        await expect(card.getByTestId('score-figure')).toHaveCount(0);
+        await expect(card.getByTestId('no-written-leaders')).toHaveText(NO_WRITTEN_LEADERS);
+        await expect(card.getByTestId('leader-orders')).toHaveCount(0);
+        await expect(card.getByRole('button')).toHaveCount(0);
+      }
+      await leaders.scrollIntoViewIfNeeded();
+      await picture(page, `leaders-none-written-1440-${look}`);
+    });
+
+    await test.step(`390 in the ${look} look`, async () => {
+      const root = await openReady(page, PHONE, look, 'Harbour Trial');
+      const leaders = root.getByTestId('leaders');
+      await expect(leaders.getByRole('tab', { name: 'Show Leader 1' })).toHaveAttribute('aria-selected', 'true');
+      await expect(leaders.getByRole('tab', { name: 'Show Leader 2' })).toHaveAttribute('aria-selected', 'false');
+      const card = leaders.getByRole('tabpanel');
+      await expect(card).toHaveCount(1);
+      // Six empty tracks a leader, in the one table.
+      await expect(card.locator('[data-score-track]')).toHaveCount(12);
+      await expect(card.locator('[data-meter-fill]')).toHaveCount(0);
+      await expect(card.getByTestId('no-written-leaders')).toHaveText(NO_WRITTEN_LEADERS);
+      await expect(card.getByTestId('leader-orders')).toHaveCount(0);
+      await leaders.scrollIntoViewIfNeeded();
+      await picture(page, `leaders-none-written-390-${look}`);
+    });
+  }
+});
+
+screenTest('feature 5: loading shapes', async ({ page }) => {
+  test.setTimeout(150_000);
+  await watchShift(page);
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const release = await holdScenario(page);
+        const root = await openRun(page, size, look);
+        const leaders = root.getByTestId('leaders');
+        // Card shapes of the final size: two side by side from the desktop width, one under the switch's shape below it.
+        const shapes = leaders.locator('[data-leader-shape]');
+        await expect(shapes).toHaveCount(size.width >= 1100 ? 2 : 1);
+        await expect(shapes.first()).toBeVisible();
+        expect(await shapes.first().locator('[data-score-track]').count()).toBeGreaterThanOrEqual(6);
+        expect(await shapes.first().locator('[data-shape]').count()).toBeGreaterThanOrEqual(3);
+        await expect(leaders.getByRole('article')).toHaveCount(0);
+        await expect(leaders.getByRole('tab')).toHaveCount(0);
+        const before = await box(leaders);
+        await leaders.scrollIntoViewIfNeeded();
+        await picture(page, `leaders-loading-${size.width}-${look}`);
+
+        release();
+        await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+        await expect(shapes).toHaveCount(0);
+        if (size.width >= 1100) await expect(leaders.getByRole('article')).toHaveCount(2);
+        else await expect(leaders.getByRole('tabpanel')).toHaveCount(1);
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        const after = await box(leaders);
+        // The cards replace the shapes with no jump: under a tenth of the window, and a shift score under 0.1.
+        expect(Math.abs(after.height - before.height)).toBeLessThan(size.height * 0.1);
+        expect(Math.abs(after.y - before.y)).toBeLessThan(size.height * 0.1);
+        expect(await shiftOf(page)).toBeLessThan(0.1);
+        await page.unroute('**/scenario');
+      });
+    }
   }
 });
 
