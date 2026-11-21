@@ -146,10 +146,17 @@ export interface LiveRun {
   trimmedAt: number;
   /**
    * The actor-turns the run's `turn_done` frames reported, each counted
-   * once: `<actor>\u0000<turn>`, or a key of its own for a frame that
-   * names no actor or turn. The buffer's trim never shortens it.
+   * once: `<actor>\u0000<turn>` (one key for each actor of that name, see
+   * `actorNameCounts`), or a key of its own for a frame that names no actor
+   * or turn. The buffer's trim never shortens it.
    */
   readonly completedActorTurns: Set<string>;
+  /**
+   * How many of the run's actors bear each name that more than one of them
+   * bears. A turn_done frame names its actor by name, so two actors of one
+   * name report each turn under one name, and each counts.
+   */
+  readonly actorNameCounts: Map<string, number>;
   /**
    * The actor-turns a finished run reports: its actors times the turns it
    * runs (a fork runs the turns after the one it forked at). Null for a
@@ -294,6 +301,15 @@ interface PersistedRun {
   trimmedAt?: number;
   expectedActorTurns?: number | null;
   artifactCosts?: Array<[string, number]>;
+  actorNameCounts?: Array<[string, number]>;
+}
+
+/** How many of `names` bear each name that more than one of them bears. */
+function sharedNameCounts(names: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  for (const [name, n] of counts) if (n < 2) counts.delete(name);
+  return counts;
 }
 
 /**
@@ -315,9 +331,16 @@ export function runRecording(run: LiveRun): { frames: string[]; timestamps: numb
  * The orchestrator's frame is `sim` with `{type: 'turn_done', leader,
  * data: {turn}}`; an older frame is `turn_done` with the turn at its top
  * and the actor as `leader` or `actorIndex`. A frame that names no actor
- * or turn gets a key no other frame has, so it counts once.
+ * or turn gets a key no other frame has, so it counts once. A name that
+ * `shared` says n actors bear has n keys for each turn, one per actor.
  */
-function completedActorTurn(event: string, data: unknown, actorId: string | null, counted: Set<string>): string | null {
+function completedActorTurn(
+  event: string,
+  data: unknown,
+  actorId: string | null,
+  counted: Set<string>,
+  shared: ReadonlyMap<string, number>,
+): string | null {
   if (!data || typeof data !== 'object') return null;
   const payload = data as { type?: unknown; leader?: unknown; actorIndex?: unknown; turn?: unknown; data?: unknown };
   if (event === 'sim' ? payload.type !== 'turn_done' : event !== 'turn_done') return null;
@@ -329,7 +352,13 @@ function completedActorTurn(event: string, data: unknown, actorId: string | null
     ? payload.leader
     : typeof payload.actorIndex === 'number' ? `#${payload.actorIndex}` : actorId;
   if (actor === null || turn === null) return `\u0001${counted.size}`;
-  return `${actor}\u0000${turn}`;
+  const key = `${actor}\u0000${turn}`;
+  const actors = shared.get(actor) ?? 1;
+  for (let i = 0; i < actors; i++) {
+    const candidate = i === 0 ? key : `${key}\u0000${i}`;
+    if (!counted.has(candidate)) return candidate;
+  }
+  return key;
 }
 
 /** Parses an SSE frame written by {@link sseFrame} back into its event and data. */
@@ -512,6 +541,7 @@ export class LiveRunRegistry {
       trimmedTimestamps: [],
       trimmedAt: 0,
       completedActorTurns: new Set(),
+      actorNameCounts: sharedNameCounts(input.config?.actors.map(actor => actor.name) ?? []),
       expectedActorTurns: input.config
         ? input.config.actors.length * Math.max(0, input.config.turns - (input.forkedFrom?.atTurn ?? 0))
         : null,
@@ -579,7 +609,7 @@ export class LiveRunRegistry {
       run.timestamps.push(now);
       run.actorIds.push(tag);
       run.bytes += msg.length;
-      const done = completedActorTurn(event, data, tag, run.completedActorTurns);
+      const done = completedActorTurn(event, data, tag, run.completedActorTurns, run.actorNameCounts);
       if (done !== null) run.completedActorTurns.add(done);
       this.trim(run);
       run.lastActivity = now;
@@ -926,6 +956,7 @@ export class LiveRunRegistry {
       actorIds: run.actorIds,
       expectedActorTurns: run.expectedActorTurns,
       ...(run.artifactCosts.size > 0 ? { artifactCosts: [...run.artifactCosts] } : {}),
+      ...(run.actorNameCounts.size > 0 ? { actorNameCounts: [...run.actorNameCounts] } : {}),
       ...(run.trimmed.length > 0
         ? { trimmed: run.trimmed, trimmedTimestamps: run.trimmedTimestamps, trimmedAt: run.trimmedAt }
         : {}),
@@ -1069,12 +1100,18 @@ export class LiveRunRegistry {
         if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number') artifactCosts.set(entry[0], entry[1]);
       }
     }
+    const actorNameCounts = new Map<string, number>();
+    if (Array.isArray(p.actorNameCounts)) {
+      for (const entry of p.actorNameCounts) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] > 1) actorNameCounts.set(entry[0], entry[1]);
+      }
+    }
     // The actor-turns are counted again from every frame the run recorded.
     const completedActorTurns = new Set<string>();
     for (const msg of [...events.slice(0, trimmedAt), ...trimmed, ...events.slice(trimmedAt)]) {
       const frame = parseFrame(msg);
       if (!frame) continue;
-      const done = completedActorTurn(frame.event, frame.data, null, completedActorTurns);
+      const done = completedActorTurn(frame.event, frame.data, null, completedActorTurns, actorNameCounts);
       if (done !== null) completedActorTurns.add(done);
     }
     return {
@@ -1097,6 +1134,7 @@ export class LiveRunRegistry {
       trimmedTimestamps,
       trimmedAt,
       completedActorTurns,
+      actorNameCounts,
       expectedActorTurns: typeof p.expectedActorTurns === 'number' && p.expectedActorTurns >= 0 ? p.expectedActorTurns : null,
       artifactCosts,
       aborted: p.aborted === true,
