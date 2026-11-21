@@ -342,8 +342,12 @@ export interface QuickstartDeps {
    * progress while the synchronous fetch is still in flight, and calls
    * `finish` once the engine has returned or thrown. Without it the run still
    * works, but the user sees nothing until the artifact returns.
+   *
+   * `calls` is the routing of the request the run is for. A run on the
+   * caller's own key counts for its address under the run cap, as a /setup
+   * run on one does, and keeps its provider and keys for its chats.
    */
-  openRun?: (scenario: ScenarioPackage, runKey?: string) => OpenedRun | Promise<OpenedRun>;
+  openRun?: (scenario: ScenarioPackage, runKey?: string, calls?: QuickstartModelCalls) => OpenedRun | Promise<OpenedRun>;
   /**
    * True when a run has already opened with this key. Pages tell runs apart
    * by key and read each key off the stream, so a request naming a used key
@@ -919,7 +923,7 @@ export async function handleSimulateIntervention(
   // gameState does not interleave it with whatever run came before.
   let run: OpenedRun | null = null;
   try {
-    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey) : null;
+    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls) : null;
   } catch (err) {
     hostLimits?.run.refund();
     if (err instanceof RunCapacityError) {

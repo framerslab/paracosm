@@ -1643,9 +1643,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // A compile in flight serves only the requests the same key pays for
   // (the provider and a fingerprint of its key, `env` for the host's); a
   // request another key pays for starts a compile of its own. A compile
-  // that fails is not kept, so it fails no later request.
+  // that fails is not kept, so it fails no later request, and its own
+  // request runs in the world another request's compile has left meanwhile,
+  // when one has. At most MAX_DIGITAL_TWIN_COMPILES compiles run at once,
+  // whoever pays: a request past them starts none, waits for them to end
+  // and runs in the world they leave.
   let digitalTwinWorld: WorldModel | null = null;
   const digitalTwinCompiles = new Map<string, Promise<WorldModel | null>>();
+  const MAX_DIGITAL_TWIN_COMPILES = 4;
   const compileDigitalTwinWorld = async (calls: QuickstartModelCalls | undefined): Promise<WorldModel | null> => {
     const scenarioPath = resolve(scenarioDir, 't2d-glp1-protocol.json');
     if (!existsSync(scenarioPath)) {
@@ -1670,7 +1675,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return digitalTwinWorld;
     } catch (err) {
       console.error('  [digital-twin] Compile failed:', err);
-      return null;
+      // The world a compile on another key left while this one ran, if any.
+      return digitalTwinWorld;
     }
   };
   const getDigitalTwinWorld = (calls?: QuickstartModelCalls): Promise<WorldModel | null> => {
@@ -1685,6 +1691,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       : 'server';
     const inFlight = digitalTwinCompiles.get(payer);
     if (inFlight) return inFlight;
+    // Each key could otherwise start a compile of its own with no bound.
+    if (digitalTwinCompiles.size >= MAX_DIGITAL_TWIN_COMPILES) {
+      return Promise.all([...digitalTwinCompiles.values()]).then(() => digitalTwinWorld);
+    }
     const compile = compileDigitalTwinWorld(routed);
     digitalTwinCompiles.set(payer, compile);
     // `compile` never rejects. It leaves the map once it has ended, whatever
@@ -3039,7 +3049,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // alone, and it holds a capacity slot until `finish`. Its events go
           // through the broadcast bound to it, so a late event of a twin its
           // visitor has since replaced is discarded.
-          openRun: (scenario, runKey) => {
+          openRun: (scenario, runKey, calls) => {
+            // A twin on the caller's own key skips the day limit, as a /setup
+            // run on one does, so its address holds all but one of the run
+            // slots; and it has no config to hold its keys, so the run keeps
+            // them, in memory alone, for a chat that brings none.
+            const ownKeys = calls && !calls.hostPaid
+              ? {
+                  provider: calls.provider,
+                  ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+                  ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+                }
+              : null;
             const run = liveRuns.open({
               visitorId: runVisitorFor(req).visitorId,
               kind: 'intervention',
@@ -3047,6 +3068,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
               runKey,
+              ownKeyAddress: ownKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
+              ownKeys,
             });
             return {
               runKey: run.key,
@@ -3569,10 +3592,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // provider: the run is the visitor's (their cookie names it) and its
         // people are the run's, so the chat is billed as the run was. A chat
         // on a host-paid run is host-paid. Elsewhere a chat runs on the keys
-        // it brings, else the environment's.
+        // it brings, else the environment's. A /setup run's keys are in its
+        // config; a Digital Twin run, which has none, keeps its own.
+        const runOwnKeys = chatRun?.config ?? chatRun?.ownKeys;
         const runChatCredentials = {
-          apiKey: normalizeCredential(chatRun?.config?.apiKey),
-          anthropicKey: normalizeCredential(chatRun?.config?.anthropicKey),
+          apiKey: normalizeCredential(runOwnKeys?.apiKey),
+          anthropicKey: normalizeCredential(runOwnKeys?.anthropicKey),
         };
         const chatCredentials = serverMode === 'hosted_demo'
           && !hasProviderCredentials(ownChatCredentials)
@@ -3586,7 +3611,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           hostedDemo: serverMode === 'hosted_demo',
           env,
           credentials: chatCredentials,
-          requestedProvider: chatRun?.config?.provider,
+          requestedProvider: runOwnKeys?.provider,
         });
         if (chatRouting?.payer === 'refused') {
           console.log('  [demo-mode] /chat refused: a host-paid chat needs the host OpenAI key');
