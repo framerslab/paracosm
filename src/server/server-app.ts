@@ -2455,7 +2455,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // their own, the anonymous visitor's, so the browser that opened the
       // CLI's dashboard sees the CLI's run). /events?run=<key> follows one
       // run instead; a key reaches the public only through a saved session,
-      // whose replay discloses the run already.
+      // whose replay discloses the run already. On the hosted demo such a
+      // stream of another visitor's run carries none of the brief that
+      // visitor compiled, as the saved replay and GET /sessions/:id do.
       //
       // Per-actor channel: /events?actor=<leaderName> filters the stream to
       // events tagged with that leader plus all global events (status,
@@ -2500,11 +2502,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // The replay and the attach run on one Node turn, with no `await`
       // between them, so no event of the run falls between the replay and
       // the stream's first live frame.
-      if (run) liveRuns.replay(res, run, actorFilter);
+      const hideBrief = serverMode === 'hosted_demo' && runKey !== null && run !== undefined && run.visitorId !== visitorId;
+      if (run) liveRuns.replay(res, run, actorFilter, hideBrief);
       try { res.write('event: replay_done\ndata: {}\n\n'); } catch {}
       // Attaching disarms the watchdog of the run the stream watches, so a
       // returning viewer keeps the run going.
-      liveRuns.attach(res, { visitorId, runKey, actorFilter });
+      liveRuns.attach(res, { visitorId, runKey, actorFilter, hideBrief });
       // A run whose last viewer leaves starts its grace-period countdown; if
       // no viewer comes back before it fires, the watchdog stops that run.
       req.on('close', () => liveRuns.detach(res));

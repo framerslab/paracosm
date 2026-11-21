@@ -25,7 +25,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { publicResultFrame } from './services/run-record.js';
+import { publicResultFrame, withoutBrief } from './services/run-record.js';
 import type { BroadcastFn } from '../cli/pair-runner.js';
 import type { NormalizedSimulationConfig } from '../cli/sim-config.js';
 import type { LlmProvider, ScenarioPackage } from '../engine/types.js';
@@ -277,6 +277,11 @@ interface StreamInfo {
    * reach a page with no opening and over what it shows.
    */
   ownOnly?: boolean;
+  /**
+   * The stream reads none of the brief its run was compiled from: set on
+   * the hosted demo for a stream that names another visitor's run by key.
+   */
+  hideBrief?: boolean;
 }
 
 /** How many run keys are remembered, so no request opens a run under a key another run has had. */
@@ -624,7 +629,7 @@ export class LiveRunRegistry {
         // (untagged) and that actor's.
         if (info.actorFilter !== null && tag !== null && tag !== info.actorFilter) continue;
         try {
-          res.write(msg);
+          res.write(info.hideBrief ? withoutBrief(msg) : msg);
         } catch {
           this.streams.delete(res);
         }
@@ -673,13 +678,17 @@ export class LiveRunRegistry {
       && run.buffer.some(msg => msg.startsWith('event: complete\n')));
   }
 
-  /** Writes a run's buffer to a stream, the frames of other actors left out for a stream subscribed to one. */
-  replay(res: ServerResponse, run: LiveRun, actorFilter: string | null): void {
+  /**
+   * Writes a run's buffer to a stream, the frames of other actors left out
+   * for a stream subscribed to one, and the brief left out with `hideBrief`.
+   */
+  replay(res: ServerResponse, run: LiveRun, actorFilter: string | null, hideBrief = false): void {
     for (let i = 0; i < run.buffer.length; i++) {
       const tag = run.actorIds[i] ?? null;
       if (actorFilter !== null && tag !== null && tag !== actorFilter) continue;
       try {
-        res.write(publicResultFrame(run.buffer[i]));
+        const frame = publicResultFrame(run.buffer[i]);
+        res.write(hideBrief ? withoutBrief(frame) : frame);
       } catch {
         break;
       }
