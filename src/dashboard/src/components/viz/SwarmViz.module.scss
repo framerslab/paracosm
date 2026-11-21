@@ -68,15 +68,18 @@
 }
 
 .toolbarTopRow {
-  display: flex;
   gap: 8px;
   align-items: stretch;
-  flex-wrap: wrap;
 }
 
+// The mode pills, or on a phone the mode menu: never narrower than their
+// words, and they take the row's free space.
 .modePillsWrap {
-  flex: 1;
+  display: flex;
+  flex: 1 0 auto;
   min-width: 0;
+
+  > * { flex: 1 0 auto; }
 }
 
 .overflowToggle {
@@ -147,13 +150,16 @@
   @media (min-width: 900px) { min-height: 32px; }
 }
 
+// The More panel's row of tools, under the toolbar. Each key is 44 px tall
+// below 900 px; the Export menu's holder lets its key fill that height.
 .toolsRow {
-  display: flex;
   gap: 6px;
   align-items: stretch;
-  width: 100%;
-  flex-wrap: wrap;
-  padding-top: 4px;
+
+  @media (max-width: 899.98px) {
+    > * { min-height: 44px; }
+    > div { display: flex; }
+  }
 }
 
 .paletteBtn {
@@ -300,6 +306,25 @@
 }
 
 .sideWrapHidden { display: none; }
+
+// On a phone the pair view's grid fills the scroll window whether the turn's
+// lines are open or folded; the lines stand below it, a scroll away.
+.leadersRowLinesBelow > .sideWrap { flex: 0 0 100%; }
+
+// The turn's lines below the grid, in the turn banner's own type and ground.
+.turnLinesSlot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 12px;
+  font-size: var(--font-xs);
+  font-family: var(--mono);
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+
+  &:empty { display: none; }
+}
 
 .footerKeys {
   padding: 2px 10px 4px;

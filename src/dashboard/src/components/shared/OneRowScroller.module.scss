@@ -1,0 +1,93 @@
+// A row of keys that stays one row: it scrolls sideways when its keys are
+// wider than it, with a fade at each edge that hides keys and a Previous and
+// a Next key at its ends (OneRowScroller.tsx).
+
+.scroller {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row {
+  --one-row-fade: 24px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  // Room for a key's focus ring inside the scrolling box, given back so the
+  // row stands where it would without it.
+  padding: 4px;
+  margin: -4px;
+
+  &::-webkit-scrollbar { display: none; }
+
+  // A key keeps its own width: the row scrolls rather than squeezing it.
+  > * { flex-shrink: 0; }
+
+  // The fade lies over the edge that hides keys, on whatever ground the row
+  // is drawn on: it masks the keys, not the ground.
+  &[data-fade-start='true'] {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--one-row-fade));
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--one-row-fade));
+  }
+
+  &[data-fade-end='true'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 0, #000 var(--one-row-fade));
+    mask-image: linear-gradient(to left, transparent 0, #000 var(--one-row-fade));
+  }
+
+  &[data-fade-start='true'][data-fade-end='true'] {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--one-row-fade), #000 calc(100% - var(--one-row-fade)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--one-row-fade), #000 calc(100% - var(--one-row-fade)), transparent 100%);
+  }
+}
+
+// The Previous and Next keys, in the toolbar's own key look: 44 px on a phone,
+// 32 px from 900 px.
+.arrow {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 8px;
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--mono);
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: default;
+    color: var(--text-3);
+    opacity: 0.6;
+  }
+
+  @media (min-width: 900px) {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}
