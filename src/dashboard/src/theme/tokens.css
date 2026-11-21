@@ -125,6 +125,14 @@
     --font-2xl: 20px;
     --font-3xl: 24px;
 
+    /* Reading sizes of the Run tab's first screen: body text, every other
+       word, and the page's one heading, which grows with the window (the
+       media queries after this block). Nothing on that screen is smaller
+       than --font-read. */
+    --font-read-body: 18px;
+    --font-read: 15px;
+    --font-display: 28px;
+
     /* === BACKGROUNDS — warm deep blacks === */
     --bg-deep: #0a0806;
     --bg-panel: #14110e;
@@ -202,6 +210,9 @@
     /* === BORDERS === */
     --border: #302a22;
     --border-hl: #4a3f30;
+    /* The edge of a key, a field, a row or a track that must be seen: the
+       --border tones are too faint against the page's grounds. */
+    --edge-control: var(--text-3);
     --border-primary: var(--border);
     --border-subtle: #242018;
     --border-interactive: var(--border-hl);
@@ -271,6 +282,18 @@
     /* Select caret. Data URLs cannot read CSS variables, so each theme
        gets its own encoded chevron matching the theme's text-2 tone. */
     --select-caret-url: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' stroke='%23d8ccb0' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  }
+
+  /* The page's one heading grows with the window: 28 px on a phone, then
+     32, 36 and 40 px from the tablet, desktop and wide widths. */
+  @media (min-width: 600px) {
+    :root { --font-display: 32px; }
+  }
+  @media (min-width: 1100px) {
+    :root { --font-display: 36px; }
+  }
+  @media (min-width: 1440px) {
+    :root { --font-display: 40px; }
   }
 
   /* === LIGHT MODE — warm sepia, aged parchment, WCAG AA compliant === */
@@ -343,6 +366,7 @@
     /* Borders — warm and defined */
     --border: #b8a888;
     --border-hl: #9a8868;
+    --edge-control: var(--text-4);
     --border-subtle: #c8bca0;
     --border-interactive: var(--border-hl);
 

@@ -256,20 +256,25 @@ screenTest('feature 3: never paints another scenario first', async ({ page }) =>
       if (root?.textContent?.includes('Mars Genesis')) w.marsPainted = true;
     }).observe(document, { subtree: true, childList: true, characterData: true });
   });
-  let release: () => void = () => {};
-  const answered = new Promise<void>((resolve) => { release = resolve; });
-  await page.route('**/scenario', async (route: Route) => {
-    const response = await route.fetch();
-    await answered;
-    await route.fulfill({ response });
-  });
-  const root = await openRun(page, PHONE, 'dark');
-  await expect(root.locator('[aria-busy="true"]')).toBeVisible();
-  await expect(root).not.toContainText('Mars Genesis');
-  release();
-  await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost' })).toBeVisible();
-  await expect(root.getByTestId('scenario-figures')).toHaveText(FREE_FIGURES);
-  expect(await page.evaluate(() => (window as unknown as { marsPainted: boolean }).marsPainted)).toBe(false);
+  for (const look of LOOKS) {
+    await test.step(`390 in the ${look} look`, async () => {
+      let release: () => void = () => {};
+      const answered = new Promise<void>((resolve) => { release = resolve; });
+      await page.route('**/scenario', async (route: Route) => {
+        const response = await route.fetch();
+        await answered;
+        await route.fulfill({ response });
+      });
+      const root = await openRun(page, PHONE, look);
+      await expect(root.locator('[aria-busy="true"]')).toBeVisible();
+      await expect(root).not.toContainText('Mars Genesis');
+      release();
+      await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost' })).toBeVisible();
+      await expect(root.getByTestId('scenario-figures')).toHaveText(FREE_FIGURES);
+      expect(await page.evaluate(() => (window as unknown as { marsPainted: boolean }).marsPainted)).toBe(false);
+      await page.unroute('**/scenario');
+    });
+  }
 });
 
 screenTest('feature 3: did not load, retry, offline', async ({ page, context }) => {
@@ -352,7 +357,9 @@ screenTest('feature 3: a scenario with no place phrase and no events cap', async
       await test.step(`${size.width} in the ${look} look`, async () => {
         const root = await openReady(page, size, look, 'Harbour Trial');
         await expect(root.getByTestId('scenario-sentences')).toHaveText(PAIR_SENTENCES);
-        await expect(root.getByTestId('scenario-figures')).toHaveText(/ · up to 2 events a turn$/);
+        // A pattern is matched against the text as the page holds it, where a
+        // no-break space joins the figure to its unit.
+        await expect(root.getByTestId('scenario-figures')).toHaveText(/ · up to 2\sevents a turn$/);
       });
     }
   }
@@ -417,25 +424,33 @@ screenTest('feature 3: no line ends on a single word', async ({ page }) => {
 });
 
 screenTest('feature 3: title and description', async ({ page }) => {
-  await openReady(page, WIDE, 'dark');
-  expect(await page.evaluate(() => document.title)).toBe(TITLE);
-  await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', DESCRIPTION);
-  await expect(page.locator('h1')).toHaveCount(1);
-  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      await openReady(page, WIDE, look);
+      expect(await page.evaluate(() => document.title)).toBe(TITLE);
+      await expect(page.locator('meta[name="description"]')).toHaveAttribute('content', DESCRIPTION);
+      await expect(page.locator('h1')).toHaveCount(1);
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    });
+  }
 });
 
 screenTest('feature 3: what a screen reader reads', async ({ page }) => {
-  const root = await openReady(page, WIDE, 'dark');
-  const read = (await root.ariaSnapshot()).replace(/ /g, ' ');
-  const heading = read.indexOf('heading "Mars Genesis" [level=1]');
-  const sentences = read.indexOf(PAIR_SENTENCES);
-  const figures = read.indexOf(FREE_FIGURES_SPOKEN);
-  expect(heading, read).toBeGreaterThanOrEqual(0);
-  expect(sentences, read).toBeGreaterThan(heading);
-  expect(figures, read).toBeGreaterThan(sentences);
-  // The mark is hidden, so the heading reads once; the figures read as a sentence, not as dots.
-  expect(read).not.toContain('SCENARIO');
-  expect(read).not.toContain('·');
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const root = await openReady(page, WIDE, look);
+      const read = (await root.ariaSnapshot()).replace(/\u00a0/g, ' ');
+      const heading = read.indexOf('heading "Mars Genesis" [level=1]');
+      const sentences = read.indexOf(PAIR_SENTENCES);
+      const figures = read.indexOf(FREE_FIGURES_SPOKEN);
+      expect(heading, read).toBeGreaterThanOrEqual(0);
+      expect(sentences, read).toBeGreaterThan(heading);
+      expect(figures, read).toBeGreaterThan(sentences);
+      // The mark is hidden, so the heading reads once; the figures read as a sentence, not as dots.
+      expect(read).not.toContain('SCENARIO');
+      expect(read).not.toContain('·');
+    });
+  }
 });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
@@ -453,11 +468,13 @@ screenTest('readability: the first screen at five widths', async ({ page }) => {
 screenTest('rows: one row at six widths', async ({ page }) => {
   test.setTimeout(120_000);
   for (const width of [320, 360, 390, 430, 480, 768]) {
-    await test.step(`${width}`, async () => {
-      await openReady(page, sizeAt(width), 'dark');
-      expect(await page.locator(`${FIRST_SCREEN} [data-row]`).count()).toBeGreaterThan(0);
-      expect(await rowsOnOneRow(page)).toEqual([]);
-    });
+    for (const look of LOOKS) {
+      await test.step(`${width} in the ${look} look`, async () => {
+        await openReady(page, sizeAt(width), look);
+        expect(await page.locator(`${FIRST_SCREEN} [data-row]`).count()).toBeGreaterThan(0);
+        expect(await rowsOnOneRow(page)).toEqual([]);
+      });
+    }
   }
 });
 

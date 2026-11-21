@@ -9,6 +9,7 @@ import { SeedInput } from './SeedInput';
 import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
+import { RunFirstScreen } from './first-screen/RunFirstScreen';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
 import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
@@ -619,25 +620,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   return (
     <div className={styles.view}>
       {phase.kind === 'input' && (
-        <>
-          <header className={styles.header}>
-            <h2>Quickstart</h2>
-            <p>Paste a what-if scenario. Paracosm compiles it into a typed world and runs LLM-driven decision-makers with measurable personalities against it, returning a replayable trajectory you can fork and compare.</p>
-            {/* Collapsed by default so the input form sits closer to the
-                fold. First-time users open it for the glossary; repeat
-                visitors keep it folded and skip the wall of definitions. */}
-            <details className={styles.howItWorks}>
-              <summary className={styles.howItWorksSummary}>How it works</summary>
-              <ul className={styles.glossary} aria-label="Key terms">
-                <li><strong>Scenario</strong> — the world Paracosm compiles from your prompt: departments, agents, events, starting state.</li>
-                <li><strong>Actor</strong> — an LLM decision-maker driving the scenario, weighted by a HEXACO personality vector.</li>
-                <li><strong>Run</strong> — one actor playing the scenario turn by turn. Paracosm runs N actors in parallel against the same world so you can compare divergent outcomes.</li>
-              </ul>
-              <p className={styles.timingHint}>
-                <strong>Heads-up:</strong> a fresh run takes <strong>2-5 minutes</strong> (compile, ground with citations, generate actors, simulate). For instant results, replay a cached run below.
-              </p>
-            </details>
-          </header>
+        <RunFirstScreen>
           {errorBanner && <p className={styles.errorBanner} role="alert">{errorBanner}</p>}
           <ReplayLastRunCTA />
           <SeedInput
@@ -663,8 +646,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
               }}
             />
           )}
-        </>
+        </RunFirstScreen>
       )}
+      {/* The first screen's h1 is the scenario's name; while a run starts
+          or shows its results, the tab's name is the page's h1. */}
+      {phase.kind !== 'input' && <h1 className="sr-only">Run</h1>}
       {phase.kind === 'progress' && (
         <QuickstartProgress
           stage={phase.stage}

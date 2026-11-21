@@ -8,6 +8,11 @@
   height: 100%;
   overflow-y: auto;
   background: var(--bg-deep);
+
+  // A phone's column is the screen's width less 16 px at each side.
+  @media (max-width: 599.98px) {
+    padding: 20px 16px;
+  }
 }
 
 .header {

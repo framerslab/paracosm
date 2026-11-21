@@ -1,0 +1,10 @@
+// The first screen's column: the window's width less the view's padding on a
+// phone, 1,200 px at most from the wide width.
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}

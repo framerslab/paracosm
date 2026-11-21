@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
+import { PAGE_TITLE } from './components/quickstart/first-screen/words';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
 import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
@@ -90,6 +91,23 @@ const ScenarioReadyContext = createContext(true);
  */
 export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
+}
+
+/** Whether GET /scenario has failed since its last answer, and a way to ask again at once. */
+export interface ScenarioLoad {
+  failed: boolean;
+  /** Asks for the scenario now; settles when that answer is in. */
+  retryNow(): Promise<void>;
+}
+const ScenarioLoadContext = createContext<ScenarioLoad>({ failed: false, retryNow: () => Promise.resolve() });
+
+/**
+ * The scenario's load state: `failed` is true from a failed GET /scenario
+ * until one succeeds, while the page retries by itself. Outside App the
+ * scenario never failed.
+ */
+export function useScenarioLoad(): ScenarioLoad {
+  return useContext(ScenarioLoadContext);
 }
 
 /**
@@ -203,7 +221,8 @@ function tabHeadingFor(tab: DashboardTab): string {
 const NO_EVENTS: SimEvent[] = [];
 
 function AppContent() {
-  const { scenario, ready: scenarioReady } = useScenario();
+  const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
+  const scenarioLoad = useMemo<ScenarioLoad>(() => ({ failed: scenarioFailed, retryNow: retryScenario }), [scenarioFailed, retryScenario]);
   const replaySessionId = useReplaySessionId();
   // The live feed shows a run only in the page's scenario: the server holds
   // one run for every visitor, whichever scenario each one picked.
@@ -231,18 +250,11 @@ function AppContent() {
     return () => window.removeEventListener('keydown', onKey);
   }, [verdictModalOpen]);
 
-  // Dynamic page title. The scenario fallback shipped with the dashboard
-  // happens to be the Mars Genesis demo, but using its name as the title
-  // outside of an actually-loaded Mars run leaks scenario-specific
-  // branding onto every fresh visit. Show a universal Paracosm title
-  // until the user has actually loaded a named scenario from a Quickstart
-  // run, a Library bundle, or the Studio drop zone.
+  // The page's title says what the page does, in the words of its
+  // description (src/dashboard/index.html), whichever scenario is loaded.
   useEffect(() => {
-    const isFallbackName = scenario.id === 'mars-genesis' && scenario.labels.name === 'Mars Genesis';
-    document.title = isFallbackName
-      ? 'Paracosm \u2014 Structured World Model for AI Agents'
-      : `${scenario.labels.name} \u2014 Paracosm`;
-  }, [scenario.id, scenario.labels.name]);
+    document.title = PAGE_TITLE;
+  }, []);
 
   // When tour is active, use demo events; otherwise use live SSE events.
   // Event Log pin-to-bottom scroll logic lives inside EventLogPanel.
@@ -1092,6 +1104,7 @@ function AppContent() {
      <RunStartContext.Provider value={leaveDigitalTwin}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
+      <ScenarioLoadContext.Provider value={scenarioLoad}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
@@ -1187,7 +1200,9 @@ function AppContent() {
                 reads "Paracosm > <Tab Name>" instead of "no h1 found".
                 Per-tab views can still emit their own h2/h3 for
                 section structure. */}
-            <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>
+            {/* The Run tab's first screen shows its own visible h1, the
+                scenario's name, so the page keeps one h1 there. */}
+            {activeTab !== 'quickstart' && <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>}
             {/* QuickstartView stays mounted across tab switches so an in-
                 flight compile/research/actors run survives navigation. The
                 handleSeedReady pipeline is a chain of long fetches (compile
@@ -1434,6 +1449,7 @@ function AppContent() {
         </ForgeViewProvider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
+      </ScenarioLoadContext.Provider>
       </ScenarioReadyContext.Provider>
       </ScenarioContext.Provider>
      </RunStartContext.Provider>
