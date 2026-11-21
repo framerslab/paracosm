@@ -34,13 +34,13 @@ export default defineConfig({
     // many runs it holds.
     // So does the dashboard display spec, whose Library server counts the
     // replays its tests run. The toolbox log and share link spec, the forged
-    // tool view spec and the Viz living grid spec set each width they check
-    // themselves, so one project runs them.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // tool view spec, the Viz living grid spec and the Run tab's first screen
+    // spec set each width they check themselves, so one project runs them.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -132,6 +132,16 @@ export default defineConfig({
         {
           command: 'PORT=3466 npx tsx tests-e2e/support/viz-replay-server.ts',
           url: 'http://127.0.0.1:3466/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The hosted demo's server, with one run a day for each internet
+        // address and a stub pair runner, for the Run tab's first screen spec.
+        {
+          command: 'PORT=3470 npx tsx tests-e2e/support/first-screen-server.ts',
+          url: 'http://127.0.0.1:3470/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',
