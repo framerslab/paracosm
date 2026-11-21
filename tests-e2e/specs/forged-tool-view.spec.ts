@@ -376,6 +376,28 @@ test.describe('feature 1 on the run\'s record', () => {
     }
   });
 
+  test('after Back closes the toolbox or a trace, Forward opens it again', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    await openPairSim(page, request, WIDTHS[1], 'dark');
+    const toolbox = await openToolbox(page, 12);
+    await page.goBack();
+    await expect(toolbox).toBeHidden();
+    await page.goForward();
+    await expect(toolbox, 'Forward opens the toolbox again').toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.get('toolbox')).toBe('1');
+    await toolbox.getByRole('button', { name: 'Close the toolbox', exact: true }).click();
+    await expect(toolbox).toBeHidden();
+
+    await pressInspect(inspectKey(page, LANDING));
+    const trace = traceOf(page, LANDING);
+    await expect(trace).toBeVisible();
+    await page.goBack();
+    await expect(trace).toBeHidden();
+    await page.goForward();
+    await expect(trace, 'Forward opens the trace again').toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.has('tool')).toBe(true);
+  });
+
   test('f1 q8: focus stays inside the open trace and no focused key sits under its header', async ({ page, request }) => {
     test.setTimeout(180_000);
     for (const { size, look } of WALKS) {
