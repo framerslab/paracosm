@@ -195,6 +195,12 @@ export interface LiveRun {
    * Written with the run, so a save after a restart links them too.
    */
   readonly insertedRunIds: string[];
+  /**
+   * The saved session whose Library link (`insertedRunIds` to its id) is
+   * still to be written, after a link failed once the save committed; null
+   * otherwise. Written with the run, so the next start tries it again.
+   */
+  pendingLink: string | null;
   capWarned: boolean;
   /** True until the run's runner settles; the run holds a capacity slot until then. */
   inFlight: boolean;
@@ -326,6 +332,7 @@ interface PersistedRun {
   trimmedAt?: number;
   recordingLost?: boolean;
   actorTurnsDone?: number;
+  pendingLink?: string;
   expectedActorTurns?: number | null;
   artifactCosts?: Array<[string, number]>;
   actorNameCounts?: Array<[string, number]>;
@@ -623,6 +630,7 @@ export class LiveRunRegistry {
       saved: false,
       saving: false,
       insertedRunIds: [],
+      pendingLink: null,
       capWarned: false,
       inFlight: true,
       stoppedByVisitor: false,
@@ -743,6 +751,22 @@ export class LiveRunRegistry {
   abandonSave(run: LiveRun): void {
     run.saving = false;
     if (run.dropped) this.removeRecording(run);
+  }
+
+  /**
+   * Records the saved session whose Library link is still to be written,
+   * or null once it is, and writes it with the run, so the next start
+   * tries the link again.
+   */
+  setPendingLink(run: LiveRun, sessionId: string | null): void {
+    if (run.pendingLink === sessionId) return;
+    run.pendingLink = sessionId;
+    this.persistNow(run);
+  }
+
+  /** The runs read back at boot whose saved session's Library link is still to be written. */
+  pendingLinks(): LiveRun[] {
+    return [...this.runs.values()].filter(run => run.saved && run.pendingLink !== null && run.insertedRunIds.length > 0);
   }
 
   /**
@@ -1108,6 +1132,7 @@ export class LiveRunRegistry {
       // says how many, so no write serializes them again.
       ...(run.spooled > 0 ? { spooled: run.spooled, trimmedAt: run.trimmedAt } : {}),
       ...(run.recordingLost ? { recordingLost: true } : {}),
+      ...(run.pendingLink !== null ? { pendingLink: run.pendingLink } : {}),
     };
     try {
       if (!this.dirReady) {
@@ -1264,16 +1289,18 @@ export class LiveRunRegistry {
         if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'number' && Number.isInteger(entry[1]) && entry[1] > 1) actorNameCounts.set(entry[0], entry[1]);
       }
     }
-    // The actor-turns are counted again from the buffer; the count written
-    // with the run holds those of the frames in its recording file too.
+    // The buffer's actor-turns, under the actor tags they were broadcast
+    // with. The count is the one written with the run, which the run kept
+    // as it broadcast every frame, those in its recording file included;
+    // a run written without it counts its buffer.
     const completedActorTurns = new Set<string>();
-    for (const msg of events) {
-      const frame = parseFrame(msg);
+    for (let i = 0; i < events.length; i++) {
+      const frame = parseFrame(events[i]);
       if (!frame) continue;
-      const done = completedActorTurn(frame.event, frame.data, null, completedActorTurns, actorNameCounts);
+      const done = completedActorTurn(frame.event, frame.data, actorIds[i] ?? null, completedActorTurns, actorNameCounts);
       if (done !== null) completedActorTurns.add(done);
     }
-    const writtenTurnsDone = typeof p.actorTurnsDone === 'number' && Number.isInteger(p.actorTurnsDone) && p.actorTurnsDone > 0 ? p.actorTurnsDone : 0;
+    const writtenTurnsDone = typeof p.actorTurnsDone === 'number' && Number.isInteger(p.actorTurnsDone) && p.actorTurnsDone >= 0 ? p.actorTurnsDone : null;
     return {
       key: p.key,
       visitorId: p.visitorId,
@@ -1295,7 +1322,7 @@ export class LiveRunRegistry {
       recordingLost: p.recordingLost === true,
       trimmedAt,
       completedActorTurns,
-      actorTurnsDone: Math.max(completedActorTurns.size, writtenTurnsDone),
+      actorTurnsDone: writtenTurnsDone ?? completedActorTurns.size,
       actorNameCounts,
       expectedActorTurns: typeof p.expectedActorTurns === 'number' && p.expectedActorTurns >= 0 ? p.expectedActorTurns : null,
       artifactCosts,
@@ -1304,6 +1331,7 @@ export class LiveRunRegistry {
       saved: p.saved === true,
       saving: false,
       insertedRunIds: Array.isArray(p.insertedRunIds) ? p.insertedRunIds.filter((id): id is string => typeof id === 'string') : [],
+      pendingLink: typeof p.pendingLink === 'string' && p.pendingLink.length > 0 ? p.pendingLink : null,
       capWarned: false,
       inFlight: false,
       stoppedByVisitor: false,

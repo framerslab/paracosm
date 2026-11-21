@@ -1938,6 +1938,35 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   };
 
   /**
+   * Links a saved run's Library records (the RunRecords onArtifactPersist
+   * inserted for it) to its saved session. A link that fails is written
+   * with the run as still to do and tried again after 1, 5 and 30 seconds,
+   * and at the next start, so the records get their replay link once the
+   * run-history store answers. Never rejects.
+   */
+  const LINK_RETRY_DELAYS_MS = [1_000, 5_000, 30_000];
+  const linkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
+  let linkRetriesStopped = false;
+  const linkLibraryRecords = async (run: LiveRun, sessionId: string, attempt = 0): Promise<void> => {
+    if (run.insertedRunIds.length === 0 || !runHistoryStore.linkSessionId) return;
+    try {
+      await runHistoryStore.linkSessionId([...run.insertedRunIds], sessionId);
+      liveRuns.setPendingLink(run, null);
+    } catch (error) {
+      console.warn(`[run-history] linkSessionId failed for run ${run.key} (try ${attempt + 1}):`, error);
+      liveRuns.setPendingLink(run, sessionId);
+      const delay = LINK_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || linkRetriesStopped) return;
+      const timer = setTimeout(() => {
+        linkRetryTimers.delete(timer);
+        void linkLibraryRecords(run, sessionId, attempt + 1);
+      }, delay);
+      timer.unref?.();
+      linkRetryTimers.add(timer);
+    }
+  };
+
+  /**
    * Persist a run to the session ring when it completes cleanly. Called
    * from the run's broadcast on an `event: complete` frame. Silent no-op
    * when conditions aren't met. Errors are logged but never propagate: a
@@ -2073,18 +2102,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
       console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} actor-turns (store count: ${storeCount ?? 'unknown'})`);
       // Backfill session_id onto every RunRecord that onArtifactPersist
-      // inserted for this broadcast. Wrapped in try/catch because a
-      // link failure must not abort the save broadcast — the run is
-      // already in the session store and replayable by sessionId; the
-      // missing column just hides the Library row's Share button until
-      // the next time this same broadcast saves (idempotent UPDATE).
-      if (run.insertedRunIds.length > 0 && runHistoryStore.linkSessionId) {
-        try {
-          await runHistoryStore.linkSessionId([...run.insertedRunIds], result.id);
-        } catch (error) {
-          console.warn('[run-history] linkSessionId failed:', error);
-        }
-      }
+      // inserted for this broadcast. A link failure does not abort the save
+      // broadcast: the run is already in the session store and replayable
+      // by sessionId, and the link is tried again (linkLibraryRecords).
+      await linkLibraryRecords(run, result.id);
       emitSaveStatus('saved', {
         id: result.id,
         evictedId: result.evictedId,
@@ -5209,6 +5230,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   (server as Server).on('close', () => {
     clearInterval(importCleanupTimer);
     if (rateLimiter) rateLimiter.destroy();
+    linkRetriesStopped = true;
+    for (const timer of linkRetryTimers) clearTimeout(timer);
+    linkRetryTimers.clear();
     liveRuns.close();
   });
 
@@ -5217,6 +5241,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   for (const run of liveRuns.finishedUnsaved()) {
     console.log(`[sessions] saving run ${run.key}, which finished before the restart`);
     autoSaveOnComplete(run).catch((err) => console.warn('[sessions] save after restart failed:', err));
+  }
+  // A run saved before the restart whose Library link had failed is linked now.
+  for (const run of liveRuns.pendingLinks()) {
+    console.log(`[run-history] linking the Library records of run ${run.key}, saved before the restart`);
+    void linkLibraryRecords(run, run.pendingLink!);
   }
 
   const marsServer = Object.assign(server, {
