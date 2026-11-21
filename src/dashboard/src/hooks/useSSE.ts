@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateLegacyEventShape } from './migrateLegacyEventShape';
 import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
+import { refreshOnSimSaved, savedSessions } from './useSessions';
 import type { RunArtifact } from '../../../engine/schema/index.js';
 
 /**
@@ -939,6 +940,9 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));
+          // A save or a title that landed refreshes the saved-run list every
+          // mounted picker reads (Quickstart, Load Prior Run, the Run menu).
+          void refreshOnSimSaved(savedSessions, data);
         } catch {}
       });
 

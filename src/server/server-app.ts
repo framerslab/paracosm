@@ -55,7 +55,7 @@ import {
   type PerRunProviderErrors,
 } from './retry-stats.js';
 import { createCompilerTelemetry, type CompilerTelemetry } from '../engine/compiler/telemetry.js';
-import { openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
+import { DEFAULT_MAX_SESSIONS, openSessionStore, type SessionStore, type TimestampedEvent } from './stores/session.js';
 import { generateSessionTitle } from './session-title.js';
 import { resolveServerMode } from './server-mode.js';
 import {
@@ -71,7 +71,7 @@ import {
   withSiteAnalytics,
   type SiteAnalyticsIds,
 } from './site-analytics.js';
-import { createRunRecord, hashActorConfig, publicResultFrame } from './services/run-record.js';
+import { createRunRecord, hashActorConfig, publicResultFrame, withoutBrief } from './services/run-record.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -89,6 +89,7 @@ import {
   RUN_CAPACITY_RETRY_AFTER_SECONDS,
   RunCapacityError,
   readVisitorId,
+  runRecording,
   visitorCookie,
   type LiveRun,
 } from './live-runs.js';
@@ -537,6 +538,8 @@ export interface CreateMarsServerOptions {
   ) => Promise<void>;
   /** Runs a fork's branch (a `/setup` body with `forkFrom`); defaults to the pair runner's `runForkSimulation`. */
   runForkSimulation?: typeof runForkSimulation;
+  /** Runs a run of three or more actors; defaults to the pair runner's `runBatchSimulations`. */
+  runBatchSimulations?: typeof runBatchSimulations;
   /**
    * The model call behind a saved run's title; defaults to AgentOS's
    * `generateText`. `apiKey` is the run's own key for the title's provider,
@@ -842,6 +845,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const sessionOwner = (visitorId: string): string | null => visitorId === ANONYMOUS_VISITOR
     ? null
     : createHash('sha256').update(`paracosm-session-owner:${visitorId}`).digest('hex');
+  /**
+   * Whether a saved session's brief is kept from this request: on the
+   * hosted demo, for a session no admin saved, from every caller but the
+   * visitor whose run it was. A session saved with no visitor shows its
+   * brief to no caller there.
+   */
+  const briefHiddenFrom = (session: { meta: { pinned?: boolean }; owner: string | null }, req: IncomingMessage): boolean =>
+    serverMode === 'hosted_demo' && !session.meta.pinned
+    && (session.owner === null || session.owner !== sessionOwner(readVisitorId(req)));
   /**
    * The visitor a run a request opens belongs to: the request's own
    * visitor, except that on the hosted demo a caller that sent no cookie
@@ -1741,13 +1753,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   // Persistent storage for completed sim runs. Lives at
   // `${APP_DIR}/data/sessions.db`; the directory is created on first
-  // open. Cap of 10 saved sessions; oldest evicts when an admin saves
-  // an 11th. The store is opened once at server start so the SQLite
-  // handle and prepared statements stay warm across requests.
+  // open. On the hosted demo each visitor keeps their 10 newest saved runs
+  // and the server keeps at most 50 unpinned runs in all: past that, the
+  // save evicts the oldest run of the visitor holding the most, and when
+  // every visitor holds one, the oldest run in the store, another
+  // visitor's included. Runs an admin saved are never evicted. A local
+  // server keeps one ring of 10, whoever saved them (stores/session.ts).
+  // The store is opened once at server start so the SQLite handle and
+  // prepared statements stay warm across requests.
   let sessionStore: SessionStore | null = options.sessionStore ?? null;
   const sessionsDbPath = resolve(env.APP_DIR || '.', 'data', 'sessions.db');
   if (!sessionStore) try {
-    sessionStore = openSessionStore(sessionsDbPath);
+    sessionStore = openSessionStore(sessionsDbPath, DEFAULT_MAX_SESSIONS, { ownerRings: serverMode === 'hosted_demo' });
     // The store opens its underlying adapter lazily — fire-and-forget
     // an initial count() so we surface the stored-rows hint at boot
     // without forcing createMarsServer itself to be async.
@@ -1761,6 +1778,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     console.log(`  [sessions] Failed to open session store: ${err}`);
   }
   const runHistoryStore = options.runHistoryStore ?? resolveRunHistoryStore(env);
+  /**
+   * The session ids the session store holds; with no store, or a store that
+   * cannot be read, none, since no replay link could be checked. Run
+   * records are then listed without their session links, never refused.
+   */
+  const savedSessionIds = async (ids: readonly string[]): Promise<ReadonlySet<string>> => {
+    if (!sessionStore) return new Set<string>();
+    try {
+      return await sessionStore.existingIds(ids);
+    } catch (err) {
+      console.warn('[sessions] could not read which sessions the store holds; run records go out without session links:', err);
+      return new Set<string>();
+    }
+  };
 
   // The landing-page waitlist is closed (routes/waitlist.ts answers
   // 410), so the server leaves the signups it collected in
@@ -1914,7 +1945,6 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
    */
   const autoSaveOnComplete = async (run: LiveRun) => {
     const broadcast = liveRuns.broadcastFor(run);
-    const eventBuffer = run.buffer;
     // Every branch logs a single [sessions] line so production can see
     // in server stderr/stdout WHY a run did or did not make it into the
     // ring. Without these, a save silently failing on a writable-but-
@@ -1932,101 +1962,110 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // sees whether the prior run saved.
       try { broadcast('sim_saved', { status, ...detail }); } catch { /* never fail the server on telemetry */ }
     };
+    // A run whose save is decided, or in flight here, is not saved again: a
+    // doubled `complete` returns here.
+    if (run.saved || run.saving) {
+      console.log('[sessions] auto-save skipped: already saved for this run');
+      return;
+    }
+    /** The run will never be saved: says why, and lets go of its recording. */
+    const skipForGood = (reason: string, detail: Record<string, unknown> = {}) => {
+      liveRuns.settleSave(run);
+      emitSaveStatus('skipped', { reason, ...detail });
+    };
     // A digital-twin run's artifact comes back in its answer, and a saved
     // session replays in the two-column layout, which has no place for it.
     if (run.kind === 'intervention') {
       console.log('[sessions] auto-save skipped: digital-twin run');
-      emitSaveStatus('skipped', { reason: 'digital_twin' });
+      skipForGood('digital_twin');
       return;
     }
     if (!sessionStore) {
+      // Not decided: a restart that opens the store saves the run.
       console.log('[sessions] auto-save skipped: session store not initialized');
       emitSaveStatus('skipped', { reason: 'store_not_initialized' });
       return;
     }
     if (run.aborted) {
       console.log('[sessions] auto-save skipped: run was aborted');
-      emitSaveStatus('skipped', { reason: 'run_aborted' });
+      skipForGood('run_aborted');
       return;
     }
     if (run.errored) {
       console.log('[sessions] auto-save skipped: run had sim_error events');
-      emitSaveStatus('skipped', { reason: 'run_errored' });
+      skipForGood('run_errored');
       return;
     }
-    if (run.saved) {
-      console.log('[sessions] auto-save skipped: already saved for this run');
-      return;
-    }
-    if (eventBuffer.length === 0) {
+    // Every frame the run broadcast: the live buffer's trim never shortens
+    // the saved session.
+    const recording = runRecording(run);
+    if (recording.frames.length === 0) {
       console.log('[sessions] auto-save skipped: empty event buffer');
-      emitSaveStatus('skipped', { reason: 'empty_buffer' });
+      skipForGood('empty_buffer');
       return;
     }
 
-    // Count completed turns. Two shapes are in play:
-    //   1. Legacy / test shape: `broadcast('turn_done', ...)` → frame
-    //      line `event: turn_done\n...`.
-    //   2. Real production shape: the orchestrator wraps every engine
-    //      event in `broadcast('sim', {type: 'turn_done', ...})` →
-    //      frame line `event: sim\ndata: {"type":"turn_done",...}`.
-    // The prior check only matched shape (1), so every prod run
-    // silently skipped with `below_min_turns`. Match either shape.
-    const turnDoneCount = eventBuffer.reduce((n, msg) => {
-      if (msg.startsWith('event: turn_done\n')) return n + 1;
-      if (msg.startsWith('event: sim\n') && msg.includes('"type":"turn_done"')) return n + 1;
-      return n;
-    }, 0);
+    // Completed actor-turns, each counted once, as the run broadcast them
+    // (the buffer's trim does not lower the count). A frame that names no
+    // actor or turn counts once by itself.
+    const turnDoneCount = run.completedActorTurns.size;
     if (turnDoneCount < AUTO_SAVE_MIN_TURNS) {
       console.log(`[sessions] auto-save skipped: turn_done count ${turnDoneCount} below AUTO_SAVE_MIN_TURNS (${AUTO_SAVE_MIN_TURNS})`);
-      emitSaveStatus('skipped', { reason: 'below_min_turns', turnDoneCount, minTurns: AUTO_SAVE_MIN_TURNS });
+      skipForGood('below_min_turns', { turnDoneCount, minTurns: AUTO_SAVE_MIN_TURNS });
       return;
     }
 
     // Full-completion gate: only cache runs that played every actor
-    // through every scheduled turn. A pair run with `turns: 6` and 2
-    // actors should emit 12 turn_done events; if it emits 10 the run
-    // bailed early (orchestrator timeout, watchdog disconnect, mid-run
-    // crash that did not raise sim_error/sim_aborted) and the cached
-    // session would replay a half-finished trajectory. Skip those so
-    // the LoadMenu / Replay-Last-Run only ever surfaces full plays.
-    //
-    // A run's config is null for a run read back after a restart, which
-    // never broadcasts again; guard anyway to keep the type checker honest.
-    const cfg = run.config;
-    if (cfg) {
-      const expectedTurnDone = cfg.actors.length * cfg.turns;
-      if (expectedTurnDone > 0 && turnDoneCount < expectedTurnDone) {
-        console.log(`[sessions] auto-save skipped: turn_done count ${turnDoneCount} below expected ${expectedTurnDone} (${cfg.actors.length} actors × ${cfg.turns} turns) — partial run`);
-        emitSaveStatus('skipped', {
-          reason: 'partial_completion',
-          turnDoneCount,
-          expectedTurnDone,
-          actors: cfg.actors.length,
-          turns: cfg.turns,
-        });
-        return;
-      }
+    // through every turn they ran. A pair run of six turns reports 12
+    // actor-turns, a run of 300 actors 1,800, and a fork from turn 4 of a
+    // six-turn run 2 for its one actor; fewer means the run bailed early
+    // (orchestrator timeout, watchdog disconnect, mid-run crash that did
+    // not raise sim_error/sim_aborted) and the cached session would replay
+    // a half-finished trajectory. The expected count is written with the
+    // run, so the gate holds for a run read back after a restart; it is
+    // null only for a run with no config (a Digital Twin run, or one
+    // written before the count was).
+    const expectedTurnDone = run.expectedActorTurns;
+    if (expectedTurnDone !== null && expectedTurnDone > 0 && turnDoneCount < expectedTurnDone) {
+      console.log(`[sessions] auto-save skipped: ${turnDoneCount} actor-turns completed, below the ${expectedTurnDone} expected — partial run`);
+      skipForGood('partial_completion', {
+        turnDoneCount,
+        expectedTurnDone,
+        ...(run.config ? { actors: run.config.actors.length, turns: run.config.turns } : {}),
+      });
+      return;
     }
 
     // Claim the save BEFORE the first await so a synchronous double
-    // `complete` broadcast doesn't race past the `run.saved`
-    // guard above. The sync better-sqlite3 implementation got this for
-    // free because saveSession returned before the next event landed;
-    // the async sql-storage-adapter version has to flip the flag up
-    // front so re-entrant calls early-return. Stays true on failure
-    // (matches sync behavior — throws bubble out of saveSession either
-    // way and a doubled `complete` shouldn't trigger a retry).
-    run.saved = true;
+    // `complete` broadcast doesn't race past the guard above. The save is
+    // decided only once it commits: a server stopped before then saves the
+    // run after its restart, under the run's key, so it is saved once.
+    run.saving = true;
     try {
       const now = Date.now();
-      const events: TimestampedEvent[] = eventBuffer.map((sse, i) => ({
-        ts: run.timestamps[i] || now,
+      const events: TimestampedEvent[] = recording.frames.map((sse, i) => ({
+        ts: recording.timestamps[i] || now,
         sse,
       }));
-      const result = await sessionStore.saveSession(events, undefined, { owner: sessionOwner(run.visitorId) });
-      const storeCount = await sessionStore.count();
-      console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} turns (store count: ${storeCount})`);
+      // Each actor's final artifact cost, once each, summed; the verdict
+      // and title calls are not an actor's. A run with no artifact costs
+      // (a runner that hands none back) takes the cost its frames carry.
+      const artifactCosts = [...run.artifactCosts.values()];
+      const override = artifactCosts.length > 0
+        ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) }
+        : undefined;
+      const result = await sessionStore.saveSession(events, override, { owner: sessionOwner(run.visitorId), runKey: run.key });
+      liveRuns.settleSave(run);
+      // The row count is for the log line and the status alone: a store
+      // that cannot count once the save committed still reports the save,
+      // links the run's Library records and titles it.
+      let storeCount: number | null = null;
+      try {
+        storeCount = await sessionStore.count();
+      } catch (err) {
+        console.warn(`[sessions] saved run ${result.id}, but could not count the saved runs:`, err);
+      }
+      console.log(`[sessions] auto-saved run ${result.id}: ${events.length} events, ${turnDoneCount} actor-turns (store count: ${storeCount ?? 'unknown'})`);
       // Backfill session_id onto every RunRecord that onArtifactPersist
       // inserted for this broadcast. Wrapped in try/catch because a
       // link failure must not abort the save broadcast — the run is
@@ -2045,7 +2084,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         evictedId: result.evictedId,
         eventCount: events.length,
         turnCount: turnDoneCount,
-        totalStored: storeCount,
+        ...(storeCount !== null ? { totalStored: storeCount } : {}),
       });
       // Title-generation pipeline: fire-and-forget nano-tier LLM call
       // off the save hot path. A failed / slow title call must not
@@ -2053,6 +2092,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // unawaited. Emits a second `sim_saved` event when the title
       // lands so the dashboard can patch its in-memory session list
       // without a round-trip to /sessions.
+      // A run read back after a restart holds no config, so the key that
+      // paid for it is gone: it gets no title from a model, since the call
+      // would bill the host's key or reach a provider the visitor did not
+      // pick.
+      if (run.config === null) {
+        console.log(`[sessions] saved run ${result.id} gets no title: the key that paid for it is gone after a restart`);
+        return;
+      }
       // The title call bills whoever pays for the run: the run's own key
       // when the request brought one (the provider that key belongs to, as
       // each leader's run picks it), the environment's key on a host-paid
@@ -2078,6 +2125,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         }
       });
     } catch (err) {
+      // Not decided: the run stays unsaved, so a restart saves it.
+      run.saving = false;
       const message = err instanceof Error ? err.message : String(err);
       console.warn('[sessions] auto-save failed:', err);
       emitSaveStatus('failed', { error: message });
@@ -2086,6 +2135,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
   const startSimulations = options.runPairSimulations ?? runPairSimulations;
   const startFork = options.runForkSimulation ?? runForkSimulation;
+  const startBatch = options.runBatchSimulations ?? runBatchSimulations;
 
   const runGenerateText = options.generateText ?? (async args => {
     const { generateText } = await import('@framers/agentos');
@@ -2380,7 +2430,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const runScope = runScopeFor(req);
       try {
         if (isAggregate) await handleBundleAggregate(bundleId, res, { runHistoryStore, runScope });
-        else await handleListBundle(bundleId, res, { runHistoryStore, runScope });
+        else await handleListBundle(bundleId, res, { runHistoryStore, runScope, savedSessionIds });
       } catch (err) {
         writeJsonError(res, err);
       }
@@ -2394,6 +2444,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       runsDir,
       scenarioLookup: (id) => lookupScenario(req, id),
       runScope: runScopeFor(req),
+      savedSessionIds,
     })) {
       return;
     }
@@ -2404,7 +2455,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // their own, the anonymous visitor's, so the browser that opened the
       // CLI's dashboard sees the CLI's run). /events?run=<key> follows one
       // run instead; a key reaches the public only through a saved session,
-      // whose replay discloses the run already.
+      // whose replay discloses the run already. On the hosted demo such a
+      // stream of another visitor's run carries none of the brief that
+      // visitor compiled, as the saved replay and GET /sessions/:id do.
       //
       // Per-actor channel: /events?actor=<leaderName> filters the stream to
       // events tagged with that leader plus all global events (status,
@@ -2449,11 +2502,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // The replay and the attach run on one Node turn, with no `await`
       // between them, so no event of the run falls between the replay and
       // the stream's first live frame.
-      if (run) liveRuns.replay(res, run, actorFilter);
+      const hideBrief = serverMode === 'hosted_demo' && runKey !== null && run !== undefined && run.visitorId !== visitorId;
+      if (run) liveRuns.replay(res, run, actorFilter, hideBrief);
       try { res.write('event: replay_done\ndata: {}\n\n'); } catch {}
       // Attaching disarms the watchdog of the run the stream watches, so a
       // returning viewer keeps the run going.
-      liveRuns.attach(res, { visitorId, runKey, actorFilter });
+      liveRuns.attach(res, { visitorId, runKey, actorFilter, hideBrief });
       // A run whose last viewer leaves starts its grace-period countdown; if
       // no viewer comes back before it fires, the watchdog stops that run.
       req.on('close', () => liveRuns.detach(res));
@@ -3910,13 +3964,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         return;
       }
       try {
-        // Build the timestamped event array from the parallel buffers.
-        // For events whose timestamp is 0 (rehydrated from disk pre-
-        // timestamp-tracking), use the next known timestamp so replay
+        // Build the timestamped event array from the run's recording (the
+        // buffer, with any frames its trim took before the run's save was
+        // decided). For events whose timestamp is 0 (rehydrated from disk
+        // pre-timestamp-tracking), use the next known timestamp so replay
         // pacing stays monotonic instead of bunching at the start.
         const now = Date.now();
-        const events: TimestampedEvent[] = run.buffer.map((sse, i) => ({
-          ts: run.timestamps[i] || now,
+        const recording = runRecording(run);
+        const events: TimestampedEvent[] = recording.frames.map((sse, i) => ({
+          ts: recording.timestamps[i] || now,
           sse,
         }));
         // An admin save is pinned: listed to every visitor, never evicted.
@@ -4068,7 +4124,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    if (req.url === '/sessions' && req.method === 'GET') {
+    // The session routes match on the parsed path, so a query (`?speed=`)
+    // never sends a replay request to the metadata route.
+    const sessionsPath = req.url?.startsWith('/sessions') ? new URL(req.url, 'http://localhost').pathname : null;
+    const sessionMetaId = sessionsPath !== null ? /^\/sessions\/([^/]+)$/.exec(sessionsPath)?.[1] ?? null : null;
+    const sessionReplayId = sessionsPath !== null ? /^\/sessions\/([^/]+)\/replay$/.exec(sessionsPath)?.[1] ?? null : null;
+
+    if (sessionsPath === '/sessions' && req.method === 'GET') {
       if (!sessionStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'session store unavailable' }));
@@ -4094,14 +4156,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // so the client can validate a replay id before opening an
     // EventSource. Without this, a bogus ?replay=X URL produced an
     // invisible 404-retry loop on the SSE layer with no user signal.
-    if (req.url?.startsWith('/sessions/') && !req.url.endsWith('/replay') && req.method === 'GET') {
+    if (sessionsPath?.startsWith('/sessions/') && sessionReplayId === null && req.method === 'GET') {
       if (!sessionStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'session store unavailable' }));
         return;
       }
-      const id = req.url.replace(/^\/sessions\//, '').split('?')[0];
-      if (!id || id.includes('/')) {
+      const id = sessionMetaId;
+      if (!id) {
         res.writeHead(400, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'invalid session id' }));
         return;
@@ -4114,8 +4176,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       }
       // The brief a run started from goes only to the visitor whose run it
       // was, or with an admin-saved session, on the hosted demo.
-      const meta = serverMode === 'hosted_demo' && !session.meta.pinned
-        && (session.owner === null || session.owner !== sessionOwner(readVisitorId(req)))
+      const meta = briefHiddenFrom(session, req)
         ? { ...session.meta, seedText: undefined }
         : session.meta;
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders, ...PER_VISITOR_HEADERS });
@@ -4123,14 +4184,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
-    if (req.url?.startsWith('/sessions/') && req.url.endsWith('/replay') && req.method === 'GET') {
+    if (sessionReplayId !== null && req.method === 'GET') {
       if (!sessionStore) {
         res.writeHead(503, { 'Content-Type': 'application/json', ...corsHeaders });
         res.end(JSON.stringify({ error: 'session store unavailable' }));
         return;
       }
-      const url = new URL(req.url, 'http://localhost');
-      const id = url.pathname.replace(/^\/sessions\//, '').replace(/\/replay$/, '');
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const id = sessionReplayId;
       const speedRaw = url.searchParams.get('speed');
       // Default replay mode is INSTANT (no pacing) — when the user clicks
       // a cached run from the Library / Load menu, they want to scrub
@@ -4163,6 +4224,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       let cancelled = false;
       req.on('close', () => { cancelled = true; });
       res.on('close', () => { cancelled = true; });
+      // A replay is shared by its link, but the brief the run started from
+      // follows the metadata route's rule: only the visitor whose run it
+      // was reads it, on the hosted demo.
+      const hideBrief = briefHiddenFrom(session, req);
       void (async () => {
         let prevTs = session.events[0]?.ts ?? 0;
         for (const ev of session.events) {
@@ -4176,7 +4241,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // A frame the reader has not taken yet waits for 'drain', so
             // a reader that does not read holds a buffer's worth of the
             // session, never the whole of it.
-            if (!res.write(publicResultFrame(ev.sse))) await waitForDrain(res);
+            const frame = publicResultFrame(ev.sse);
+            if (!res.write(hideBrief ? withoutBrief(frame) : frame)) await waitForDrain(res);
           } catch {
             return;
           }
@@ -4437,6 +4503,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           artifact: import('../engine/schema/index.js').RunArtifact,
           leader: import('../runtime/orchestrator/index.js').ActorConfig,
         ) => {
+          // The actor's final cost, kept with the run for its saved
+          // session whatever happens to the run-history insert below. It is
+          // kept under the actor's place in the launch: an artifact's run id
+          // is `<scenario>-<archetype>-<ms>`, which two actors of one
+          // archetype that finish in one millisecond share.
+          const actorCost = (artifact as { cost?: { totalUSD?: unknown } }).cost?.totalUSD;
+          const run = liveRuns.get(launchRunKey);
+          const actorIndex = (launchConfig.actors as readonly unknown[]).indexOf(leader);
+          const costKey = actorIndex >= 0
+            ? `actor:${actorIndex}`
+            : typeof artifact.metadata?.runId === 'string' ? artifact.metadata.runId : null;
+          if (run && costKey !== null && typeof actorCost === 'number' && Number.isFinite(actorCost)) {
+            run.artifactCosts.set(costKey, actorCost);
+          }
           try {
             const perArtifactBase = {
               ...runRecord,
@@ -5120,6 +5200,13 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     liveRuns.close();
   });
 
+  // A run that finished before the server last stopped, with its save not
+  // yet committed, is saved now, under its run key, so it is saved once.
+  for (const run of liveRuns.finishedUnsaved()) {
+    console.log(`[sessions] saving run ${run.key}, which finished before the restart`);
+    autoSaveOnComplete(run).catch((err) => console.warn('[sessions] save after restart failed:', err));
+  }
+
   const marsServer = Object.assign(server, {
     startWithConfig(config: NormalizedSimulationConfig, hooks?: StartConfigHooks): Promise<void> {
       // Opening the run is synchronous: admission (RunCapacityError when the
@@ -5172,7 +5259,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           } else if (config.actors.length >= 3) {
             // Tier 5 Quickstart dispatches N >= 3 leaders to the batch
             // runner (same SSE contract per leader, no verdict).
-            await runBatchSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
+            await startBatch(config, runBroadcast, signal, runScenario, hooks?.onArtifact, undefined, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           } else {
             await startSimulations(config, runBroadcast, signal, runScenario, hooks?.onArtifact, { outputDir: runsDir, searchEnv: hooks?.searchEnv });
           }

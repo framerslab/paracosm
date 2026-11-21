@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useScenarioReady } from '../../App';
 import { useSessions, type StoredSessionMeta } from '../../hooks/useSessions';
-import { resolveSetupRedirectHref } from '../../tab-routing';
 import { buildReplayHref, cacheExpandedBody } from './LoadMenu.helpers';
 import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import { Tooltip } from '../shared/Tooltip';
@@ -143,8 +142,9 @@ export function RunMenu({
   };
 
   const handlePickSession = (id: string) => {
-    const href = buildReplayHref(window.location.href, id);
-    window.location.assign(resolveSetupRedirectHref(href, 'sim'));
+    // The replay link keeps the current path and sets ?replay=<id>&tab=sim,
+    // as the Load menu and Quickstart's replay link do.
+    window.location.assign(buildReplayHref(window.location.href, id));
   };
 
   const handleFile = () => {
