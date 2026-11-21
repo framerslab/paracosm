@@ -365,8 +365,17 @@ function readSurface(root: Element, arg: ReadArg): unknown {
       const cs = getComputedStyle(el);
       const ratio = contrast(parse(cs.color), el, el);
       const off = inactive(el);
-      const rects = drawnWords(el);
-      rects.forEach((r, i) => {
+      // One box a line: the pieces of a line (its words, and the space a wrapped line ends on) share a top.
+      const rows: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+      for (const r of drawnWords(el)) {
+        const row = rows.find((q) => Math.abs(q.top - r.top) < 1);
+        if (row) {
+          row.left = Math.min(row.left, r.left);
+          row.right = Math.max(row.right, r.right);
+          row.bottom = Math.max(row.bottom, r.bottom);
+        } else rows.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+      }
+      rows.forEach((r, i) => {
         // Whole in the window, and whole inside every part above it that clips or scrolls what it holds.
         if (r.left < 0 || r.top < 0 || r.right > vw || r.bottom > vh) return;
         for (let a = el.parentElement; a; a = a.parentElement) {
@@ -375,20 +384,21 @@ function readSurface(root: Element, arg: ReadArg): unknown {
           const ar = a.getBoundingClientRect();
           if (r.left < ar.left - 0.5 || r.right > ar.right + 0.5 || r.top < ar.top - 0.5 || r.bottom > ar.bottom + 0.5) return;
         }
-        // On top: at its middle and near both ends the page's topmost part is the words' own, or one that holds them.
-        const y = (r.top + r.bottom) / 2;
-        const onTop = [r.left + 1, (r.left + r.right) / 2, r.right - 1].every((x) => {
-          const hit = document.elementFromPoint(x, y);
-          return hit !== null && (hit === el || el.contains(hit) || hit.contains(el));
-        });
+        // On top: from its top to its foot, at its middle and near both ends, the page's topmost part is the
+        // words' own or one that holds them, so a line partly under a fixed header row is left out.
+        const onTop = [r.top + 1, (r.top + r.bottom) / 2, r.bottom - 1].every((y) =>
+          [r.left + 1, (r.left + r.right) / 2, r.right - 1].every((x) => {
+            const hit = document.elementFromPoint(x, y);
+            return hit !== null && (hit === el || el.contains(hit) || hit.contains(el));
+          }));
         if (!onTop) return;
         out.push({
           text,
           role: roleOf(el),
           ...(off ? { inactive: true } : {}),
           line: i + 1,
-          of: rects.length,
-          box: [pct(r.left, vw), pct(r.top, vh), pct(r.width, vw), pct(r.height, vh)],
+          of: rows.length,
+          box: [pct(r.left, vw), pct(r.top, vh), pct(r.right - r.left, vw), pct(r.bottom - r.top, vh)],
           px: parseFloat(cs.fontSize),
           ratio,
         });

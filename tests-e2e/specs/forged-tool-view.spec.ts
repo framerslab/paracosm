@@ -4025,7 +4025,9 @@ test.describe('component captures', () => {
         await capture(page, ration, `${at}-trace-spur`);
         await attemptKeys(ration).previous.click();
         await expect(attemptKeys(ration).line).toHaveText('Attempt 1 of 2');
+        // The branch leaves the line after Request's evidence: on a phone it is brought into view.
         await toTop(ration);
+        await stationOf(ration, 'request').getByRole('link', { name: 'Attempt 2 · Passed', exact: true }).scrollIntoViewIfNeeded();
         await restPointer(page);
         await capture(page, ration, `${at}-trace-branch`);
       });
@@ -4060,6 +4062,15 @@ test.describe('component captures', () => {
         await code.hover();
         await capture(page, trace, `${at}-keys-inactive`);
 
+        // Pressed: the pointer held down on the key, then let go off it, on the outcome sentence, so the press opens nothing.
+        // It comes before the keyboard's focus, so the pressed key carries no focus ring.
+        await key.hover();
+        await page.mouse.down();
+        await capture(page, trace, `${at}-keys-pressed`);
+        await trace.locator('[data-forge-outcome]').hover();
+        await page.mouse.up();
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+
         // Focused from the keyboard: Shift+Tab and Tab leave and come back to the key.
         await key.focus();
         await page.keyboard.press('Shift+Tab');
@@ -4067,13 +4078,6 @@ test.describe('component captures', () => {
         await expect(key).toBeFocused();
         await restPointer(page);
         await capture(page, trace, `${at}-keys-focus`);
-
-        // Pressed: the pointer held down on the key, then let go off it, on the outcome sentence, so the press opens nothing.
-        await key.hover();
-        await page.mouse.down();
-        await capture(page, trace, `${at}-keys-pressed`);
-        await trace.locator('[data-forge-outcome]').hover();
-        await page.mouse.up();
       });
     }
   });
