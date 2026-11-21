@@ -1778,9 +1778,20 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     console.log(`  [sessions] Failed to open session store: ${err}`);
   }
   const runHistoryStore = options.runHistoryStore ?? resolveRunHistoryStore(env);
-  /** The session ids the session store holds; with no store, none, since no replay link would answer. */
-  const savedSessionIds = async (ids: readonly string[]): Promise<ReadonlySet<string>> =>
-    sessionStore ? sessionStore.existingIds(ids) : new Set<string>();
+  /**
+   * The session ids the session store holds; with no store, or a store that
+   * cannot be read, none, since no replay link could be checked. Run
+   * records are then listed without their session links, never refused.
+   */
+  const savedSessionIds = async (ids: readonly string[]): Promise<ReadonlySet<string>> => {
+    if (!sessionStore) return new Set<string>();
+    try {
+      return await sessionStore.existingIds(ids);
+    } catch (err) {
+      console.warn('[sessions] could not read which sessions the store holds; run records go out without session links:', err);
+      return new Set<string>();
+    }
+  };
 
   // The landing-page waitlist is closed (routes/waitlist.ts answers
   // 410), so the server leaves the signups it collected in
@@ -2073,6 +2084,14 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // unawaited. Emits a second `sim_saved` event when the title
       // lands so the dashboard can patch its in-memory session list
       // without a round-trip to /sessions.
+      // A run read back after a restart holds no config, so the key that
+      // paid for it is gone: it gets no title from a model, since the call
+      // would bill the host's key or reach a provider the visitor did not
+      // pick.
+      if (run.config === null) {
+        console.log(`[sessions] saved run ${result.id} gets no title: the key that paid for it is gone after a restart`);
+        return;
+      }
       // The title call bills whoever pays for the run: the run's own key
       // when the request brought one (the provider that key belongs to, as
       // each leader's run picks it), the environment's key on a host-paid
@@ -4474,11 +4493,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           leader: import('../runtime/orchestrator/index.js').ActorConfig,
         ) => {
           // The actor's final cost, kept with the run for its saved
-          // session whatever happens to the run-history insert below.
+          // session whatever happens to the run-history insert below. It is
+          // kept under the actor's place in the launch: an artifact's run id
+          // is `<scenario>-<archetype>-<ms>`, which two actors of one
+          // archetype that finish in one millisecond share.
           const actorCost = (artifact as { cost?: { totalUSD?: unknown } }).cost?.totalUSD;
           const run = liveRuns.get(launchRunKey);
-          if (run && typeof actorCost === 'number' && Number.isFinite(actorCost) && typeof artifact.metadata?.runId === 'string') {
-            run.artifactCosts.set(artifact.metadata.runId, actorCost);
+          const actorIndex = (launchConfig.actors as readonly unknown[]).indexOf(leader);
+          const costKey = actorIndex >= 0
+            ? `actor:${actorIndex}`
+            : typeof artifact.metadata?.runId === 'string' ? artifact.metadata.runId : null;
+          if (run && costKey !== null && typeof actorCost === 'number' && Number.isFinite(actorCost)) {
+            run.artifactCosts.set(costKey, actorCost);
           }
           try {
             const perArtifactBase = {

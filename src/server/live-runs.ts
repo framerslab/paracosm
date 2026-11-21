@@ -164,7 +164,7 @@ export interface LiveRun {
    * disk before this count was written.
    */
   readonly expectedActorTurns: number | null;
-  /** Each actor's final artifact cost, by the artifact's run id. */
+  /** Each actor's final artifact cost, by the actor's place in the launch (`actor:<index>`), else the artifact's run id. */
   readonly artifactCosts: Map<string, number>;
   aborted: boolean;
   errored: boolean;
