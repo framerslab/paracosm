@@ -984,6 +984,32 @@ test.describe('the stations on the run\'s record', () => {
     await expect(stationKey(trace, 'request'), 'Request, open before, stays open').toHaveAttribute('aria-expanded', 'true');
   });
 
+  test('Raw JSON gives way to the fields on an attempt the first report\'s schema does not declare', async ({ page, request }) => {
+    test.setTimeout(120_000);
+    const id = await pairSessionId(request);
+    await rationReforgedWithOtherFields(page, id);
+    await page.setViewportSize(WIDTHS[1]);
+    await useLook(page, 'dark');
+    await page.goto(replayUrl(PAIR_SERVER, id, 'sim'));
+    await lookShown(page, 'dark');
+    await replayComplete(page, 60_000);
+    await pressInspect(inspectKey(page, RATION).first());
+    const trace = traceOf(page, RATION);
+    const keys = attemptKeys(trace);
+    // Attempt 1: its report's schema declares its two fields, so Raw JSON is one switch away.
+    await keys.previous.click();
+    await expect(keys.line).toHaveText('Attempt 1 of 2');
+    const request1 = await openStation(trace, 'request');
+    await request1.getByRole('switch', { name: 'Raw JSON', exact: true }).click();
+    await expect(request1.locator('[data-raw-json]')).toContainText('radiation_msv_per_day');
+    // Attempt 2 declares two other fields: Request shows them, and no schema stands for them.
+    await keys.next.click();
+    await expect(keys.line).toHaveText('2 of 2');
+    await expect(request1.locator('[data-raw-json]')).toHaveCount(0);
+    await expect(request1.getByText('crew_count', { exact: true })).toBeVisible();
+    await expect(request1.getByText('days_left', { exact: true })).toBeVisible();
+  });
+
   test('at 24 actors, Request names the actor by its tile\'s label and draws its rule in the actor\'s run colour', async ({ page, request }) => {
     test.setTimeout(240_000);
     const id = await sessionIdByName(request, COHORT_SERVER, RUNS.dozens);
@@ -1405,6 +1431,49 @@ function withParams(address: string, params: Record<string, string>): string {
   const url = new URL(address);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return url.toString();
+}
+
+/** A schema of the two fields the pair run's tools declare. */
+const TWO_FIELD_SCHEMA = {
+  type: 'object',
+  properties: {
+    radiation_msv_per_day: { type: 'number', description: 'Radiation at the site, in millisieverts a day.' },
+    ice_index: { type: 'number', description: 'How much ice lies under the site.' },
+  },
+  required: ['radiation_msv_per_day', 'ice_index'],
+};
+
+/**
+ * Serves the pair run's replay with water_ration_index's first report
+ * holding a schema of its two fields, and its second forge and report
+ * declaring two other fields.
+ */
+async function rationReforgedWithOtherFields(page: Page, id: string): Promise<void> {
+  await page.route(`**/sessions/${id}/replay**`, async (route) => {
+    const response = await route.fetch();
+    const edit = (chunk: string): string => chunk.replace(/^data: (.*)$/m, (line, json: string) => {
+      let f: { type?: string; data?: Record<string, unknown> };
+      try {
+        f = JSON.parse(json) as typeof f;
+      } catch {
+        return line;
+      }
+      const d = f.data;
+      if (!d) return line;
+      const tools = Array.isArray(d.forgedTools) ? d.forgedTools as Array<Record<string, unknown>> : null;
+      if (f.type === 'specialist_done' && d.turn === 1 && tools?.some(t => t.name === RATION)) {
+        d.forgedTools = tools.map(t => (t.name === RATION ? { ...t, inputSchema: TWO_FIELD_SCHEMA } : t));
+      } else if (f.type === 'forge_attempt' && d.turn === 2 && d.name === RATION) {
+        d.inputFields = ['crew_count', 'days_left'];
+      } else if (f.type === 'specialist_done' && d.turn === 2 && tools?.some(t => t.name === RATION)) {
+        d.forgedTools = tools.map(t => (t.name === RATION ? { ...t, inputFields: ['crew_count', 'days_left'] } : t));
+      } else {
+        return line;
+      }
+      return `data: ${JSON.stringify(f)}`;
+    });
+    await route.fulfill({ response, body: (await response.text()).split(/(?<=\n\n)/).map(edit).join('') });
+  });
 }
 
 /**
