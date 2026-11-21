@@ -37,7 +37,7 @@ import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createEmergentEngine } from '../../src/runtime/orchestrator/emergent-setup.js';
 import { openSessionStore } from '../../src/server/stores/session.js';
 import { mars, settingsBody, waitFor, withVisitors, type RunServer, type RunServerOptions } from './helpers/run-server.js';
-import { describeCalls, modelCalls, setHostKeys, withProviderWire, type WireCall, type WireReply } from './helpers/provider-wire.js';
+import { OVERLOADED, describeCalls, modelCalls, setHostKeys, withProviderWire, type WireCall, type WireReply } from './helpers/provider-wire.js';
 
 const HOST_OPENAI_KEY = 'host-openai-key-for-this-test';
 const HOST_ANTHROPIC_KEY = 'host-anthropic-key-for-this-test';
@@ -346,6 +346,56 @@ test('a host-paid Digital Twin run on a hosted demo with no host OpenAI key is r
   }, { env: ANTHROPIC_ONLY_ENV, maxSimsPerDay: 1, extra: { getDigitalTwinWorld: twin.getDigitalTwinWorld } });
 });
 
+test('one address with its own key cannot hold every run slot with Digital Twin runs', async () => {
+  // A Digital Twin world whose runs stay in flight until released.
+  const started: Array<Record<string, unknown>> = [];
+  const releases: Array<() => void> = [];
+  const world = {
+    scenario: marsScenario,
+    intervene: async (opts: Record<string, unknown>) => {
+      started.push(opts);
+      await new Promise<void>(resolve => { releases.push(resolve); });
+      return { metadata: { runId: `twin-${started.length}` }, finalState: { metrics: {} } } as unknown as RunArtifact;
+    },
+  } as unknown as WorldModel;
+  await hosted(async api => {
+    const answers: Array<Promise<{ status: number; text: string }>> = [];
+    const twinRun = (address: string, body: Record<string, unknown>): Promise<{ status: number; text: string }> => {
+      const answer = api.cookied({ 'cf-connecting-ip': address }).post('/api/quickstart/simulate-intervention', body)
+        .then(async res => ({ status: res.status, text: await res.text() }));
+      answers.push(answer);
+      return answer;
+    };
+    try {
+      const ownKey = { ...TWIN_BODY, apiKey: VISITOR_OPENAI_KEY };
+      void twinRun('198.51.100.7', ownKey);
+      void twinRun('198.51.100.7', ownKey);
+      await waitFor(() => started.length === 2, "the address's first two Twin runs to start", 10_000);
+
+      // Two of the three slots are the address's; its third run waits.
+      const third: Array<{ status: number; text: string }> = [];
+      void twinRun('198.51.100.7', ownKey).then(answer => { third.push(answer); });
+      await waitFor(() => third.length > 0 || started.length === 3, "the address's third Twin run to be refused or to start", 10_000);
+      assert.equal(started.length, 2, "the address's third run on its own key did not start");
+      assert.equal(third[0]?.status, 503, `the third run is refused for capacity: ${third[0]?.text}`);
+
+      // The slot it left is another address's.
+      void twinRun('198.51.100.8', TWIN_BODY);
+      await waitFor(() => started.length === 3, "another address's Twin run to start", 10_000);
+    } finally {
+      // Runs still held are let go, here and as they start, before the server closes.
+      const letGo = setInterval(() => { for (const release of releases.splice(0)) release(); }, 10);
+      await Promise.allSettled(answers);
+      clearInterval(letGo);
+    }
+  }, {
+    env: { ...HOST_ENV, PARACOSM_CLIENT_IP_HEADER: 'cf-connecting-ip' },
+    maxRuns: 3,
+    maxSimsPerDay: 10,
+    extra: { getDigitalTwinWorld: async () => world },
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The Digital Twin's world
 // ---------------------------------------------------------------------------
@@ -389,6 +439,8 @@ interface TwinServerSetup {
    * and with the text from then on.
    */
   compiles?: 'fails' | 'fails at the start';
+  /** The most runs the server holds in flight at once. Absent: the server's own. */
+  maxRuns?: number;
 }
 
 /** A hosted demo server that compiles the Digital Twin's world itself, once its start is over. */
@@ -442,7 +494,7 @@ async function twinServer(body: (twin: TwinServer) => Promise<void>, setup: Twin
         } finally {
           await callsToEnd(wire);
         }
-      }, { env: setup.env, scenarioDir, extra: { getDigitalTwinWorld: undefined } });
+      }, { env: setup.env, scenarioDir, ...(setup.maxRuns !== undefined ? { maxRuns: setup.maxRuns } : {}), extra: { getDigitalTwinWorld: undefined } });
     }, reply, reply);
   } finally {
     restore();
@@ -454,11 +506,32 @@ async function twinServer(body: (twin: TwinServer) => Promise<void>, setup: Twin
 
 /** Asserts a Twin request got past the world's preparation and its run began: it ended, or the stubbed model failed it. */
 async function assertTwinRunBegan(res: Response, what: string): Promise<void> {
-  const text = await res.text();
+  assertRunBegan({ status: res.status, text: await res.text() }, what);
+}
+
+/** The same, for an answer whose text is already read. */
+function assertRunBegan(answer: { status: number; text: string }, what: string): void {
   assert.ok(
-    res.status === 200 || (res.status === 500 && text.includes('Intervention run failed')),
-    `${what} began: ${res.status} ${text.slice(0, 300)}`,
+    answer.status === 200 || (answer.status === 500 && answer.text.includes('Intervention run failed')),
+    `${what} began: ${answer.status} ${answer.text.slice(0, 300)}`,
   );
+}
+
+/** The host a provider request goes to, and the key it carries. */
+function providerRequest(input: string | URL | Request, init?: RequestInit): { hostname: string; pathname: string; key: string | undefined } {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const { hostname, pathname } = new URL(url);
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+  const bearer = headers.get('authorization');
+  return { hostname, pathname, key: headers.get('x-api-key') ?? (bearer?.startsWith('Bearer ') ? bearer.slice('Bearer '.length) : undefined) };
+}
+
+function toAnthropic(hostname: string): boolean {
+  return hostname === 'api.anthropic.com' || hostname.endsWith('.anthropic.com');
+}
+
+function toOpenAi(hostname: string): boolean {
+  return hostname === 'api.openai.com' || hostname.endsWith('.openai.com');
 }
 
 /** The calls on a key of the host. */
@@ -598,6 +671,101 @@ test('two Digital Twin requests on different keys, the second sent while the com
   }, { env: HOST_ENV, hostKeys: BOTH_HOST_KEYS, compiles: 'fails at the start' });
 });
 
+test("a Digital Twin request whose own compile fails after another request's compile left a world runs in that world", async () => {
+  await twinServer(async twin => {
+    // Every request to Anthropic waits at this gate and is then answered with
+    // the stub's error, so the compile for the first request is still running
+    // when the second request's compile ends in a world, and fails after it.
+    const wire = globalThis.fetch;
+    let open: () => void = () => {};
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    let held = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (toAnthropic(providerRequest(input, init).hostname)) {
+        held += 1;
+        await gate;
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: OVERLOADED } }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return wire(input, init);
+    }) as typeof fetch;
+    const compilesFailed = (): number => twin.twinLines().filter(line => line.includes('Compile failed')).length;
+    const failedBefore = compilesFailed();
+    const first = twin.api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, anthropicKey: VISITOR_ANTHROPIC_KEY })
+      .then(async res => ({ status: res.status, text: await res.text() }));
+    try {
+      await waitFor(() => held > 0, "the first request's compile to reach Anthropic", 10_000);
+      const second = await twin.api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, apiKey: VISITOR_OPENAI_KEY });
+      await assertTwinRunBegan(second, "the second request's Twin run, in the world its own compile left");
+      assert.equal(compilesFailed(), failedBefore, "the first request's compile is still running");
+    } finally {
+      open();
+      await first.catch(() => undefined);
+      globalThis.fetch = wire;
+    }
+
+    assert.equal(compilesFailed(), failedBefore + 1, "the first request's compile failed");
+    assertRunBegan(await first, "the first request's Twin run, in the world the other request's compile left");
+    const calls = twin.calls();
+    assert.ok(
+      compileCalls(calls).some(c => c.provider === 'openai' && c.key === VISITOR_OPENAI_KEY),
+      `the world was compiled on the second request's key. The stub received:\n${describeCalls(calls)}`,
+    );
+    assert.deepEqual(onHostKeys(calls), [], `the requests made no model call on a key of the host. The stub received:\n${describeCalls(calls)}`);
+  }, { env: HOST_ENV, hostKeys: BOTH_HOST_KEYS, compiles: 'fails at the start' });
+});
+
+test('at most four compiles of the Digital Twin world run at once, and a request past them runs in the world they leave', async () => {
+  const keys = [1, 2, 3, 4, 5, 6].map(n => `${VISITOR_OPENAI_KEY}-${n}`);
+  await twinServer(async twin => {
+    // Every completion request to OpenAI waits at this gate, so each compile
+    // that starts is still running when the next request arrives.
+    const wire = globalThis.fetch;
+    let open: () => void = () => {};
+    const gate = new Promise<void>(resolve => { open = resolve; });
+    const compiling = new Set<string>();
+    let held = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const request = providerRequest(input, init);
+      if (toOpenAi(request.hostname) && !request.pathname.endsWith('/models')) {
+        if (request.key) compiling.add(request.key);
+        held += 1;
+        await gate;
+      }
+      return wire(input, init);
+    }) as typeof fetch;
+    const answers = [] as Array<Promise<{ status: number; text: string }>>;
+    const twinRun = (key: string): void => {
+      answers.push(twin.api.cookied().post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, apiKey: key })
+        .then(async res => ({ status: res.status, text: await res.text() })));
+    };
+    try {
+      for (const key of keys.slice(0, 4)) twinRun(key);
+      await waitFor(() => compiling.size === 4, 'four compiles to reach OpenAI, each on its own key', 10_000);
+      for (const key of keys.slice(4)) twinRun(key);
+      // A fifth and a sixth compile, if they start, reach the gate within this wait.
+      let seen = -1;
+      while (seen !== held) {
+        seen = held;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      assert.deepEqual([...compiling].sort(), keys.slice(0, 4), 'four compiles run at once: the fifth and the sixth request started none');
+    } finally {
+      open();
+      await Promise.allSettled(answers);
+      globalThis.fetch = wire;
+    }
+
+    for (const [i, answer] of (await Promise.all(answers)).entries()) {
+      assertRunBegan(answer, `the Twin run of request ${i + 1}`);
+    }
+    const compiled = new Set(compileCalls(twin.calls()).map(c => c.key));
+    assert.deepEqual([...compiled].sort(), keys.slice(0, 4), 'the world was compiled on the first four keys alone');
+  }, { env: HOST_ENV, hostKeys: BOTH_HOST_KEYS, compiles: 'fails at the start', maxRuns: 8 });
+});
+
 // ---------------------------------------------------------------------------
 // POST /compile
 // ---------------------------------------------------------------------------
@@ -690,6 +858,39 @@ test('a host-paid chat on the hosted demo runs on OpenAI and does not fall back 
   assert.equal(opts.provider, 'openai', 'the chat is on OpenAI');
   assert.equal(opts.apiKey, undefined);
   assert.equal(opts.anthropicKey, undefined);
+  assert.equal(opts.stayOnProvider, true, 'the chat does not fall back to another provider');
+});
+
+test("a chat with no key of its own on a Digital Twin run made with the visitor's Anthropic key runs on that run's key", async () => {
+  const agents: ChatAgentOptions[] = [];
+  // A Digital Twin world whose run plays the saved pair's events, so the run holds people to chat with.
+  const world = {
+    scenario: marsScenario,
+    intervene: async (opts: { onEvent?: (event: SimEvent) => void }) => {
+      for (const e of pair.events) opts.onEvent?.(e);
+      return { metadata: { runId: 'twin-with-people' }, finalState: { metrics: {} } } as unknown as RunArtifact;
+    },
+  } as unknown as WorldModel;
+  await hosted(async api => {
+    const page = api.cookied();
+    const run = await page.post('/api/quickstart/simulate-intervention', { ...TWIN_BODY, anthropicKey: VISITOR_ANTHROPIC_KEY });
+    assert.equal(run.status, 200, `the Twin run: ${await run.text()}`);
+    const res = await page.post('/chat', { agentId: PERSON, leader: 'Aria Chen', message: 'What happened?' });
+    assert.equal(res.status, 200, `POST /chat: ${await res.clone().text()}`);
+  }, {
+    extra: {
+      getDigitalTwinWorld: async () => world,
+      chatAgent: async (_profile: ColonistProfile, _memories: ColonistMemoryEntry[], opts: ChatAgentOptions) => {
+        agents.push(opts);
+        return { session: { send: async () => ({ text: 'Stub reply.', usage: {} }) }, isNew: true };
+      },
+    },
+  });
+  assert.equal(agents.length, 1, 'one chat agent');
+  const [opts] = agents;
+  assert.equal(opts.provider, 'anthropic', "the chat is on the run's provider");
+  assert.equal(opts.anthropicKey, VISITOR_ANTHROPIC_KEY, "the chat carries the run's own key, not the host's");
+  assert.equal(opts.apiKey, undefined);
   assert.equal(opts.stayOnProvider, true, 'the chat does not fall back to another provider');
 });
 
