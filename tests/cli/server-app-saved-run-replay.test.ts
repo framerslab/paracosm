@@ -11,12 +11,15 @@
  *   visitor's saved run in that visitor's list.
  * - A run of 300 actors whose live buffer was trimmed, and a fork that runs
  *   turns 5 and 6 of a parent run, are finished runs and save in full.
- * - The saved cost is each actor's final artifact cost, summed.
+ * - The saved cost is each actor's final artifact cost, summed, also when
+ *   two artifacts share a run id.
  * - `?speed=` paces a replay; the replay of another visitor's run carries no
  *   brief that visitor compiled; the Library offers no session link the
- *   store no longer holds.
+ *   store no longer holds, and lists its runs with no links when the store
+ *   cannot be read.
  * - A finished run whose save had not committed when the server stopped is
- *   saved once after the restart.
+ *   saved once after the restart, with no title from a model, since the
+ *   restart let go of the key that paid for the run.
  * - A local server keeps one ring of ten saved runs, whoever saved them.
  *
  * Every test goes through createMarsServer over HTTP with stub runners and
@@ -269,9 +272,12 @@ test('a fork from turn 4 that runs turns 5 and 6 is a finished run and saves', a
 /**
  * A pair runner whose actors' final artifacts cost 0.20 and 0.30. The
  * cumulative cost each actor's frames carry stops short of the artifact's
- * (0.18 and 0.27), and the verdict carries a cost of its own.
+ * (0.18 and 0.27), and the verdict carries a cost of its own. With
+ * `sharedRunId` both artifacts carry one run id, as the orchestrator's
+ * `<scenario>-<archetype>-<ms>` gives two actors of one archetype that
+ * finish in the same millisecond.
  */
-function pairWithArtifacts(runIds: string[]): StubRunner {
+function pairWithArtifacts(runIds: string[], options: { sharedRunId?: boolean } = {}): StubRunner {
   let run = 0;
   return async (config, broadcast, _signal, _scenario, onArtifact) => {
     run += 1;
@@ -284,7 +290,7 @@ function pairWithArtifacts(runIds: string[]): StubRunner {
       });
     }
     for (const [i, actor] of config.actors.entries()) {
-      const runId = `run-${run}-${i}`;
+      const runId = options.sharedRunId ? `run-${run}` : `run-${run}-${i}`;
       runIds.push(runId);
       await onArtifact?.({
         metadata: { runId, scenario: { id: mars.id, name: 'Mars Genesis' }, mode: 'turn-loop', startedAt: '2026-11-18T00:00:00.000Z', completedAt: '2026-11-18T00:01:00.000Z' },
@@ -307,6 +313,17 @@ test("a saved pair run's cost is the sum of its two actors' final artifact costs
     const cost = (await listSessions(a))[0]?.totalCostUSD;
     assert.ok(cost !== undefined && Math.abs(cost - 0.5) < 1e-9, `0.20 + 0.30, got ${cost}`);
   }, { extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runPairSimulations: pairWithArtifacts([]) } });
+});
+
+test("a saved pair run's cost counts both actors when their artifacts share a run id", async () => {
+  const titles = titleStub();
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const saved = await finishRun(a);
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    const cost = (await listSessions(a))[0]?.totalCostUSD;
+    assert.ok(cost !== undefined && Math.abs(cost - 0.5) < 1e-9, `0.20 + 0.30, got ${cost}`);
+  }, { extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runPairSimulations: pairWithArtifacts([], { sharedRunId: true }) } });
 });
 
 test("the Library offers no session link for a run whose saved session the store no longer holds", async () => {
@@ -336,6 +353,30 @@ test("the Library offers no session link for a run whose saved session the store
       sessionStore: memoryStore(2),
       runHistoryStore: createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } }),
       runPairSimulations: pairWithArtifacts(runIds),
+    },
+  });
+});
+
+test('the Library lists its runs, with no session links, when the session store cannot be read', async () => {
+  const titles = titleStub();
+  const store = memoryStore();
+  const unreadable: SessionStore = { ...store, existingIds: async () => { throw new Error('database is locked'); } };
+  await withVisitors(async ({ cookied }) => {
+    const a = cookied();
+    const saved = await finishRun(a);
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    const res = await a.get('/api/v1/runs');
+    assert.equal(res.status, 200, await res.clone().text());
+    const { runs } = await res.json() as { runs: Array<{ runId: string; sessionId?: string }> };
+    assert.deepEqual(runs.map(r => r.runId).sort(), ['run-1-0', 'run-1-1']);
+    assert.ok(runs.every(r => r.sessionId === undefined), 'no link the server could not check');
+  }, {
+    extra: {
+      ...NO_TWIN,
+      generateText: titles.generateText,
+      sessionStore: unreadable,
+      runHistoryStore: createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } }),
+      runPairSimulations: pairWithArtifacts([]),
     },
   });
 });
@@ -425,6 +466,42 @@ test('a finished run whose save had not committed when the server stopped is sav
       assert.equal(await store.count(), 1);
     } finally {
       await third.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test("a run saved after a restart, on a visitor's key the restart let go of, gets no title from a model", async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-save-restart-title-'));
+  try {
+    const stalled = memoryStore();
+    const neverSaves: SessionStore = { ...stalled, saveSession: () => new Promise(() => {}) };
+    const first = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: neverSaves } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    try {
+      // The run is paid for with the visitor's own Anthropic key, which the
+      // server holds in memory alone.
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS, provider: 'anthropic', anthropicKey: 'visitor-anthropic-key-of-this-test' });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(a)).some(f => f.event === 'complete'), 'the run to finish');
+    } finally {
+      await first.close();
+    }
+
+    const store = memoryStore();
+    const titles = titleStub();
+    const second = await startServer({ appDir, runner: pairOfSixTurns, env: HOSTED, extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: store } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      const rows = await waitFor(async () => { const r = await listSessions(again); return r.length > 0 && r; }, 'the run to be saved after the restart', 5000);
+      assert.equal(rows.length, 1);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      assert.equal(titles.calls.n, 0, 'no title call on the host key or another provider');
+      assert.equal((await listSessions(again))[0]?.title, undefined);
+    } finally {
+      await second.close();
     }
   } finally {
     rmSync(appDir, { recursive: true, force: true });
