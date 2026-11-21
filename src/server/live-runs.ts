@@ -636,7 +636,13 @@ export class LiveRunRegistry {
       if (event === 'sim_aborted' || simType === 'sim_aborted') run.aborted = true;
       if (event === 'complete' && data && typeof data === 'object' && (data as { aborted?: unknown }).aborted === true) run.aborted = true;
       if (event === 'sim_error' || simType === 'provider_error') run.errored = true;
-      if (event === 'complete') this.options.onComplete?.(run);
+      if (event === 'complete') {
+        // The run's end goes to disk now, before its save starts: a server
+        // stopped before the save commits reads the run back finished and
+        // saves it after its restart.
+        this.persistNow(run);
+        this.options.onComplete?.(run);
+      }
     };
     this.broadcasts.set(run, broadcast);
     return broadcast;
@@ -929,6 +935,16 @@ export class LiveRunRegistry {
   }
 
   /** Coalesces a burst of events into one write, at most half a second late. */
+  /** Writes a run now, in place of its pending delayed write. */
+  private persistNow(run: LiveRun): void {
+    if (this.closed || run.dropped) return;
+    if (run.persistTimer) {
+      clearTimeout(run.persistTimer);
+      run.persistTimer = null;
+    }
+    this.writeRun(run);
+  }
+
   private persistSoon(run: LiveRun): void {
     if (this.closed || run.dropped || run.persistTimer) return;
     run.persistTimer = setTimeout(() => {
