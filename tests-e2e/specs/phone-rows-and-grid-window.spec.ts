@@ -148,12 +148,34 @@ const previousKey = (row: Locator) => row.locator('xpath=..').getByRole('button'
 const nextKey = (row: Locator) => row.locator('xpath=..').getByRole('button', { name: /^Show next / });
 
 /**
+ * Puts back any box around a row that a pointer action scrolled sideways.
+ * At phone widths the Viz tab's play controls stand wider than the tab (a
+ * fault of their own), so the tab's clipped box can be scrolled sideways,
+ * and a click Playwright retries scrolls it to bring its key into view,
+ * moving every row on the tab with it. Each box put back is named in the
+ * test's annotations.
+ */
+async function unshift(row: Locator): Promise<void> {
+  const moved = await row.evaluate((el) => {
+    const out: string[] = [];
+    for (let box = el.parentElement; box; box = box.parentElement) {
+      if (box.scrollLeft === 0) continue;
+      out.push(`${box.tagName.toLowerCase()}${box.id ? `#${box.id}` : ''}.${String(box.className).split(/\s+/).filter(Boolean)[0] ?? ''} at ${box.scrollLeft} px`);
+      box.scrollLeft = 0;
+    }
+    return out;
+  });
+  if (moved.length) test.info().annotations.push({ type: 'scrolled sideways, put back', description: moved.join('; ') });
+}
+
+/**
  * One row of keys at one width: one row, inside the window, keys 44 px tall
  * on a phone, and, when its keys are wider than its window, a row that
  * scrolls with an edge fade and its Previous and Next keys. Soft checks, so
  * one run names every row that misses.
  */
 async function expectOneRow(page: Page, row: Locator, where: string, width: number): Promise<RowRead> {
+  await unshift(row);
   const read = await readRow(row);
   expect.soft(read.parts, `${where}: the row draws its keys`).toBeGreaterThan(0);
   expect.soft(read.oneRow, `${where}: the row is one row`).toBe(true);
@@ -302,6 +324,7 @@ async function expectToolbar(page: Page, mode: Mode, width: number, where: strin
   const panel = morePanel(page);
   await expect(panel).toBeVisible();
   await painted(page);
+  await unshift(row);
   const toolbarOpen = await readRow(row);
   expect.soft(toolbarOpen.oneRow, `${where}: the toolbar stays one row with its More panel open`).toBe(true);
   const panelRead = await expectOneRow(page, panel, `${where}, the More panel`, width);
