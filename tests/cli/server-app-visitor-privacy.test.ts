@@ -41,7 +41,8 @@ const TOKEN = 'visitor-privacy-test-token';
 interface SetupAnswer { runKey?: string; visitorId?: string; error?: string }
 interface SessionRow { id: string; seedText?: string }
 
-const memoryStore = (max = 10): SessionStore => openSessionStore(':memory:', max, { databaseOptions: { type: 'memory' } });
+/** A store keeping `max` saved runs a visitor and, with `maxTotalSessions`, at most that many in all. */
+const memoryStore = (max = 10, maxTotalSessions?: number): SessionStore => openSessionStore(':memory:', max, { databaseOptions: { type: 'memory' }, maxTotalSessions });
 
 async function setup(v: Visitor, body: unknown): Promise<{ status: number; answer: SetupAnswer }> {
   const res = await v.post('/setup', body);
@@ -111,26 +112,36 @@ test("on the hosted demo a visitor's saved run is listed to them and to no other
 
 test('a session the admin saved stays when visitors fill the ring', async () => {
   const held = heldRun();
+  // Two unpinned rows in all, so the visitors' runs push rows out of the store.
+  const store = memoryStore(2, 2);
   await withVisitors(async ({ cookied }) => {
     const admin = cookied({ 'X-Admin-Token': TOKEN });
     assert.equal((await setup(admin, oneTurn())).status, 200);
-    await finish(admin, await waitFor(() => held.runs[0], "the admin's run"));
+    const adminRun = await finish(admin, await waitFor(() => held.runs[0], "the admin's run"));
+    assert.equal(adminRun.status, 'saved', JSON.stringify(adminRun));
     const pinned = await admin.get('/admin/sessions/save', { method: 'POST' });
     assert.equal(pinned.status, 200);
     const { id } = await pinned.json() as { id: string };
 
+    const visitorRuns: string[] = [];
     for (let i = 1; i <= 2; i++) {
       const v = cookied();
       assert.equal((await setup(v, oneTurn())).status, 200);
       const saved = await finish(v, await waitFor(() => held.runs[i], `visitor run ${i}`));
       assert.equal(saved.status, 'saved', JSON.stringify(saved));
+      visitorRuns.push(String(saved.id));
     }
+    // Three unpinned saves over a bound of two: the oldest, the admin's own
+    // run, is the one evicted, and the pinned copy is not counted.
+    const rows = await store.listSessions();
+    assert.deepEqual(rows.filter(r => !r.pinned).map(r => r.id), [visitorRuns[1], visitorRuns[0]], 'two unpinned rows, the newest');
+    assert.equal(await store.getSession(String(adminRun.id)), null, "the admin's unpinned run was the one evicted");
     assert.equal((await admin.get(`/sessions/${id}`)).status, 200, 'the admin-saved session is still stored');
     assert.ok((await listSessions(cookied())).some(s => s.id === id), 'and listed to every visitor');
   }, {
     runner: held.runner,
     env: { ...HOSTED, ADMIN_WRITE: 'true', ADMIN_TOKEN: TOKEN },
-    extra: { ...NO_MODEL, sessionStore: memoryStore(2) },
+    extra: { ...NO_MODEL, sessionStore: store },
   });
 });
 

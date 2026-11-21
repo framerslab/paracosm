@@ -1,10 +1,13 @@
 /**
  * Compact "Replay last successful run" affordance shown above the
- * loaded-scenario CTA on the Quickstart input phase. Fetches
- * `/sessions` (the auto-saved replayable session ring), surfaces a
- * one-click link to the replay surface (`?replay=<sessionId>`) when
- * there's a recent saved session. Renders nothing when there's no
- * eligible session — no visual noise on a fresh install.
+ * loaded-scenario CTA on the Quickstart input phase. Reads the page's
+ * saved-run list (`/sessions`, the auto-saved replayable session ring,
+ * shared with Load Prior Run and the Run menu) and surfaces a one-click
+ * link to the replay surface (`?replay=<sessionId>`) when there's a
+ * recent saved session. The list refreshes when a run's save lands, so a
+ * run saved while Quickstart stays mounted shows here without a reload.
+ * Renders nothing when there's no eligible session — no visual noise on
+ * a fresh install.
  *
  * Why /sessions and not /api/v1/runs: the replay query parameter is
  * resolved against the session store (server-app `/sessions/:id/replay`),
@@ -20,50 +23,17 @@
  * @module paracosm/dashboard/quickstart/ReplayLastRunCTA
  */
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useSessions } from '../../hooks/useSessions';
 import { buildReplayHref } from '../layout/LoadMenu.helpers';
 import { formatRoster } from '../layout/ReplayBanner';
 import styles from './ReplayLastRunCTA.module.scss';
 
 void React;
 
-interface SessionRecord {
-  id: string;
-  title?: string;
-  scenarioName?: string;
-  leaderA?: string;
-  leaderB?: string;
-  /** Full roster for 3+ actor runs; undefined on pair runs. */
-  leaders?: string[];
-  eventCount?: number;
-  durationMs?: number;
-  createdAt?: number;
-  seedText?: string;
-}
-
 export function ReplayLastRunCTA() {
-  const [session, setSession] = useState<SessionRecord | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/sessions');
-        if (!res.ok) return;
-        const body = (await res.json().catch(() => null)) as { sessions?: SessionRecord[] } | null;
-        // `sessions` is returned newest-first by the server's
-        // listSessions implementation. Pick the head.
-        const first = body?.sessions?.[0];
-        if (cancelled || !first?.id) return;
-        setSession(first);
-      } catch {
-        // Server / network unavailable — render nothing.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // `sessions` is newest-first, as the server's listSessions returns it.
+  const { sessions } = useSessions();
+  const session = sessions[0]?.id ? sessions[0] : null;
 
   if (!session) return null;
   const href = typeof window !== 'undefined'
