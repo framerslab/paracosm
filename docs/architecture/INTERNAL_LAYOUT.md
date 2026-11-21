@@ -70,9 +70,9 @@ The `bin/paracosm` command. Entry points (run, run-a, run-b, compile, init, serv
 
 The HTTP server backing the `bin/paracosm-dashboard` command. Subfolders:
 
-- `routes/` — HTTP route handlers (simulate, bundle, quickstart, library-import, waitlist, platform-api, public-demo)
-- `stores/` — run-history, sqlite-run-history, session, waitlist
-- `services/` — deep-research, email, email-templates, bundle-id, enrich-run-record, run-record, run-summary-trajectory
+- `routes/` — HTTP route handlers (simulate, bundle, quickstart, library-import, waitlist, unsubscribe, platform-api, public-demo)
+- `stores/` — run-history, sqlite-run-history, session, waitlist, mail-suppression
+- `services/` — deep-research, email, email-templates, optional-mail, bundle-id, enrich-run-record, run-record, run-summary-trajectory
 
 Top-level files: `server-app.ts`, `router.ts`, `server-mode.ts`, `rate-limiter.ts`, `retry-stats.ts`, `session-title.ts`, `fork-preconditions.ts`.
 

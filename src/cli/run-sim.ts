@@ -6,8 +6,7 @@
  * @module paracosm/cli/run-sim
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { loadDotEnvFromCwd } from './dotenv.js';
 import { runSimulation } from '../runtime/orchestrator/index.js';
 import { parseCliRunOptions } from './cli-run-options.js';
 import { DEFAULT_KEY_PERSONNEL } from './sim-config.js';
@@ -20,16 +19,7 @@ import type { ActorConfig } from './types.js';
  * package-relative). Existing process.env values always win.
  */
 function loadEnv(): void {
-  const envPath = resolve(process.cwd(), '.env');
-  if (!existsSync(envPath)) return;
-  let loaded = 0;
-  for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
-    const match = line.match(/^\s*([^#=]+?)\s*=\s*(.+?)\s*$/);
-    if (match && !process.env[match[1]]) {
-      process.env[match[1]] = match[2];
-      loaded += 1;
-    }
-  }
+  const { path: envPath, loaded } = loadDotEnvFromCwd();
   if (loaded > 0) {
     process.stdout.write(`  [env] loaded ${loaded} var${loaded === 1 ? '' : 's'} from ${envPath}\n`);
   }
