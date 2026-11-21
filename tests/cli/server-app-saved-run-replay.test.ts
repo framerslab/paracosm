@@ -11,6 +11,11 @@
  *   visitor's saved run in that visitor's list.
  * - A run of 300 actors whose live buffer was trimmed, and a fork that runs
  *   turns 5 and 6 of a parent run, are finished runs and save in full.
+ * - A run past its live buffer cap (`PARACOSM_EVENT_BUFFER_MAX`) holds in
+ *   memory no more frames than the buffer, and its file written while it
+ *   runs no frame the trim took; its saved session holds every frame, in
+ *   order, also when it is saved after a restart, and once its save is
+ *   decided, or the run is dropped, no file holds a frame of its recording.
  * - The saved cost is each actor's final artifact cost, summed, also when
  *   two artifacts share a run id.
  * - `?speed=` paces a replay; the replay of another visitor's run carries no
@@ -30,11 +35,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSessionStore, type SessionStore, type TimestampedEvent } from '../../src/server/stores/session.js';
 import { createSqliteRunHistoryStore } from '../../src/server/stores/sqlite-run-history.js';
+import { ANONYMOUS_VISITOR, LiveRunRegistry, runRecording } from '../../src/server/live-runs.js';
+import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { BroadcastFn } from '../../src/cli/pair-runner.js';
 import {
@@ -249,6 +256,202 @@ test('a run of 300 actors whose live buffer was trimmed saves every turn of ever
     env: { PARACOSM_EVENT_BUFFER_MAX: '1000' },
     extra: { ...NO_TWIN, generateText: titles.generateText, sessionStore: memoryStore(), runBatchSimulations: batchRunner },
   });
+});
+
+/** The live buffer's cap in these tests, far below the frames a run writes. */
+const SMALL_BUFFER = 20;
+
+/**
+ * Every SSE frame `value` holds, once each, through its arrays, maps, sets
+ * and plain objects: the frames a run keeps in the server's memory.
+ */
+function framesHeld(value: unknown, found = new Set<string>(), seen = new Set<object>()): Set<string> {
+  if (typeof value === 'string') {
+    if (value.startsWith('event: ')) found.add(value);
+    return found;
+  }
+  if (value === null || typeof value !== 'object' || seen.has(value)) return found;
+  seen.add(value);
+  const proto = Object.getPrototypeOf(value);
+  const children = Array.isArray(value) ? value
+    : value instanceof Map ? [...value.keys(), ...value.values()]
+    : value instanceof Set ? [...value]
+    : proto === Object.prototype || proto === null ? Object.values(value)
+    : [];
+  for (const child of children) framesHeld(child, found, seen);
+  return found;
+}
+
+/** The files under `dir`, at any depth, whose text holds `text`. */
+function filesHolding(dir: string, text: string): string[] {
+  if (!existsSync(dir)) return [];
+  return (readdirSync(dir, { recursive: true }) as string[])
+    .map(name => join(dir, name))
+    .filter(file => statSync(file).isFile() && readFileSync(file, 'utf-8').includes(text));
+}
+
+test('a run past its live buffer cap holds no more frames in memory than the cap, and its recording reads back every frame in order', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-live-run-spool-'));
+  const cap = 50;
+  const registry = new LiveRunRegistry({
+    dir, maxRuns: 2, maxHeldRuns: 10, maxHeldRunBytes: 67_108_864, staleMs: 3_600_000, disconnectGraceMs: 3_600_000, bufferMaxEntries: cap,
+  });
+  try {
+    const run = registry.open({ visitorId: ANONYMOUS_VISITOR, kind: 'pair', scenario: marsScenario, seedText: null, config: null });
+    const broadcast = registry.broadcastFor(run);
+    const frames = 1000;
+    for (let seq = 0; seq < frames; seq++) {
+      broadcast('sim', { type: 'turn_done', leader: 'Ada', seq, data: { turn: seq + 1 }, ...(seq === 0 ? { mark: 'first-frame-of-the-spooled-run' } : {}) }, 'Ada');
+      // Every tenth frame and the last: the trim runs once per tenth of the cap.
+      if ((seq + 1) % 10 !== 0 && seq + 1 !== frames) continue;
+      const held = framesHeld(run);
+      const bytes = [...held].reduce((n, frame) => n + frame.length, 0);
+      assert.ok(held.size <= Math.ceil(cap * 1.1), `after ${seq + 1} frames the run holds ${held.size} frames in memory, past its buffer cap of ${cap}`);
+      assert.equal(bytes, run.bytes, `after ${seq + 1} frames the run holds ${bytes} bytes of frames in memory, and the held-run byte cap counts ${run.bytes}`);
+    }
+
+    const recording = await runRecording(run);
+    assert.ok(recording, 'the recording reads back');
+    assert.equal(recording.frames.length, frames + 1, 'the opening frame and every frame the run wrote');
+    assert.equal(recording.timestamps.length, frames + 1);
+    assert.ok(recording.frames[0].startsWith('event: active_scenario\n'));
+    assert.deepEqual(recording.frames.slice(1).map(frame => (JSON.parse(frame.split('\n')[1].slice('data: '.length)) as { seq: number }).seq), Array.from({ length: frames }, (_, i) => i), 'every frame, in the order it was written');
+    assert.ok(framesHeld(run).size <= Math.ceil(cap * 1.1), 'reading the recording keeps none of it on the run');
+
+    // The save is decided: nothing of the recording stays on disk.
+    registry.settleSave(run);
+    assert.deepEqual(filesHolding(dir, 'first-frame-of-the-spooled-run'), [], 'no file holds a frame the trim took once the save is decided');
+
+    // A run dropped before its save leaves nothing of its recording on disk either.
+    const other = registry.open({ visitorId: randomUUID(), kind: 'pair', scenario: marsScenario, seedText: null, config: null });
+    const otherBroadcast = registry.broadcastFor(other);
+    for (let seq = 0; seq < 200; seq++) {
+      otherBroadcast('sim', { type: 'turn_done', leader: 'Ada', seq, data: { turn: seq + 1 }, ...(seq === 0 ? { mark: 'first-frame-of-the-dropped-run' } : {}) }, 'Ada');
+    }
+    registry.clear(other);
+    assert.deepEqual(filesHolding(dir, 'first-frame-of-the-dropped-run'), [], 'no file holds a frame of a run that was dropped');
+  } finally {
+    registry.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A pair runner of many frames: per actor and turn a `turn_start`, three
+ * department frames and a `turn_done`, each `sim` frame numbered in the
+ * order it is written (`seq`), the first marked. `midRun` runs after the
+ * turns, before the results, the verdict and `complete`.
+ */
+function longPair(sent: number[], midRun?: () => Promise<void>): Runner {
+  return async (config, broadcast) => {
+    broadcast('status', { phase: 'parallel', maxTurns: config.turns, actors: config.actors.map(a => ({ name: a.name, archetype: a.archetype })) });
+    const sim = (type: string, actor: string, turn: number) => {
+      const seq = sent.length;
+      sent.push(seq);
+      broadcast('sim', { type, leader: actor, seq, data: { turn, time: turn }, ...(seq === 0 ? { mark: 'first-frame-of-the-long-run' } : {}) }, actor);
+    };
+    for (let turn = 1; turn <= config.turns; turn++) {
+      for (const actor of config.actors) {
+        sim('turn_start', actor.name, turn);
+        for (let d = 0; d < 3; d++) sim('dept_done', actor.name, turn);
+        sim('turn_done', actor.name, turn);
+      }
+    }
+    await midRun?.();
+    for (const actor of config.actors) broadcast('result', { leader: actor.name, summary: { population: 10 } }, actor.name);
+    broadcast('verdict', { winner: 'A', winnerName: config.actors[0].name, headline: `${config.actors[0].name} wins` });
+    broadcast('complete', { timestamp: new Date().toISOString() });
+  };
+}
+
+test("a long run's file written while it runs holds only its live buffer, and its saved session holds every frame in order with nothing of its recording left on disk", async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-long-run-file-'));
+  const runsDir = join(appDir, '.live-runs');
+  const sent: number[] = [];
+  const midRun: { events?: number; holdsFirstFrame?: boolean } = {};
+  // The run's file as the half-second write leaves it once the turns are written.
+  const runner = longPair(sent, async () => {
+    const last = `"seq":${sent.length - 1},`;
+    const text = await waitFor(() => {
+      const files = existsSync(runsDir) ? readdirSync(runsDir).filter(name => name.endsWith('.json')) : [];
+      if (files.length !== 1) return false;
+      try {
+        const written = readFileSync(join(runsDir, files[0]), 'utf-8');
+        return (JSON.parse(written) as { events: string[] }).events.some(frame => frame.includes(last)) && written;
+      } catch {
+        return false; // read while it was being written
+      }
+    }, "the run's file written with its turns", 5000);
+    midRun.events = (JSON.parse(text) as { events: string[] }).events.length;
+    midRun.holdsFirstFrame = text.includes('first-frame-of-the-long-run');
+  });
+  try {
+    const server = await startServer({ appDir, runner, env: { PARACOSM_EVENT_BUFFER_MAX: String(SMALL_BUFFER) }, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: memoryStore() } });
+    try {
+      const a = server.cookied();
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      const saved = (await waitFor(async () => (await readReplay(a)).find(f => f.event === 'sim_saved'), 'the save decision', 10000)).data;
+      assert.ok(sent.length > SMALL_BUFFER * 2, `the run wrote ${sent.length} frames, past its buffer of ${SMALL_BUFFER}`);
+      assert.ok(midRun.events !== undefined && midRun.events <= Math.ceil(SMALL_BUFFER * 1.1), `the run's file held ${midRun.events} frames while it ran, past its buffer of ${SMALL_BUFFER}`);
+      assert.equal(midRun.holdsFirstFrame, false, "the run's file written while it ran holds a frame the trim took");
+
+      assert.equal(saved.status, 'saved', JSON.stringify(saved));
+      const replay = await readAll(await a.get(`/sessions/${String(saved.id)}/replay`));
+      assert.equal(replay[0]?.event, 'active_scenario');
+      assert.deepEqual(replay.filter(f => typeof f.data.seq === 'number').map(f => f.data.seq), sent, 'the saved session holds every frame, in the order the run wrote it');
+      assert.ok(replay.some(f => f.event === 'verdict'));
+      assert.equal(replay.at(-1)?.event, 'complete');
+      assert.deepEqual(filesHolding(runsDir, 'first-frame-of-the-long-run'), [], 'nothing of the recording is on disk once the save commits');
+    } finally {
+      await server.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a long run that finished before a restart, its save not committed, saves every frame in order after it, and leaves nothing of its recording on disk', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-long-run-restart-'));
+  const runsDir = join(appDir, '.live-runs');
+  const env = { ...HOSTED, PARACOSM_EVENT_BUFFER_MAX: String(SMALL_BUFFER) };
+  const sent: number[] = [];
+  try {
+    const stalled = memoryStore();
+    const neverSaves: SessionStore = { ...stalled, saveSession: () => new Promise(() => {}) };
+    const first = await startServer({ appDir, runner: longPair(sent), env, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: neverSaves } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    try {
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(a)).some(f => f.event === 'complete'), 'the run to finish');
+    } finally {
+      await first.close();
+    }
+    assert.ok(sent.length > SMALL_BUFFER * 2, `the run wrote ${sent.length} frames, past its buffer of ${SMALL_BUFFER}`);
+    // The run's file, written as the server stopped, holds its live buffer alone.
+    const runFiles = readdirSync(runsDir).filter(name => name.endsWith('.json'));
+    assert.equal(runFiles.length, 1);
+    assert.equal(readFileSync(join(runsDir, runFiles[0]), 'utf-8').includes('first-frame-of-the-long-run'), false, "the run's file written as the server stopped holds a frame the trim took");
+
+    const store = memoryStore();
+    const second = await startServer({ appDir, runner: longPair([]), env, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      const rows = await waitFor(async () => { const r = await listSessions(again); return r.length > 0 && r; }, 'the run to be saved after the restart', 5000);
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].turnCount, TURNS);
+      const replay = await readAll(await again.get(`/sessions/${rows[0].id}/replay`));
+      assert.deepEqual(replay.filter(f => typeof f.data.seq === 'number').map(f => f.data.seq), sent, 'the saved session holds every frame, in the order the run wrote it');
+      assert.equal(replay.at(-1)?.event, 'complete');
+      assert.deepEqual(filesHolding(runsDir, 'first-frame-of-the-long-run'), [], 'nothing of the recording is on disk once the save commits');
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
 });
 
 test('a fork from turn 4 that runs turns 5 and 6 is a finished run and saves', async () => {
