@@ -1947,14 +1947,18 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   const LINK_RETRY_DELAYS_MS = [1_000, 5_000, 30_000];
   /**
    * The saves whose session is not committed yet, and the Wipe All in
-   * progress. A wipe waits for each save in flight to commit before it
-   * deletes the sessions; a save whose recording was still being read when
-   * a wipe began is not committed, and a save that starts during a wipe
-   * waits for it to end; so no session the wipe deleted comes back.
+   * progress that deletes the saved sessions. Such a wipe waits for each
+   * save in flight to commit before it deletes the sessions; a save whose
+   * recording was still being read when it began is not committed, and a
+   * save that starts during it waits for it to end and is not made for a
+   * run it let go of (`runsWiped`); so no session the wipe deleted comes
+   * back. A wipe that keeps the sessions changes no save, and neither does
+   * a held run's eviction.
    */
   const savesCommitting = new Set<Promise<void>>();
   let wipeGeneration = 0;
   let wipeInProgress: Promise<void> | null = null;
+  const runsWiped = new WeakSet<LiveRun>();
   const linkRetryTimers = new Set<ReturnType<typeof setTimeout>>();
   let linkRetriesStopped = false;
   const linkLibraryRecords = async (run: LiveRun, sessionId: string, attempt = 0): Promise<void> => {
@@ -2080,8 +2084,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     try {
       if (wipeInProgress) {
         await wipeInProgress;
-        // The wipe let go of the finished runs it found, this one among them.
-        if (run.dropped) {
+        // The wipe deleted the saved sessions and let go of this run.
+        if (runsWiped.has(run)) {
           console.log(`[sessions] auto-save skipped: a Wipe All let go of run ${run.key} before its save`);
           skipForGood('wiped');
           return;
@@ -4173,15 +4177,19 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       const wipeEventBuffer = body.wipeEventBuffer !== false;
 
       const result: { runs: number; sessions: number; outputFiles: number; eventBuffer: boolean; runsKept?: number } = { runs: 0, sessions: 0, outputFiles: 0, eventBuffer: false };
-      // A save whose recording is still being read is not committed; one
-      // already committing is waited for, so the wipe deletes it; a save
-      // that starts now waits for the wipe.
-      wipeGeneration += 1;
+      // A wipe that deletes the saved sessions: a save whose recording is
+      // still being read is not committed; one already committing is waited
+      // for, so the wipe deletes it; a save that starts now waits for the
+      // wipe.
+      const wipesSessions = Boolean(wipeSessions && sessionStore);
       let finishWipe: () => void = () => {};
       const wipe = new Promise<void>(resolve => { finishWipe = () => resolve(); });
-      wipeInProgress = wipe;
+      if (wipesSessions) {
+        wipeGeneration += 1;
+        wipeInProgress = wipe;
+      }
       try {
-        await Promise.all([...savesCommitting]);
+        if (wipesSessions) await Promise.all([...savesCommitting]);
         if (wipeRuns && runHistoryStore?.wipeAll) {
           result.runs = await runHistoryStore.wipeAll();
         }
@@ -4191,7 +4199,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (wipeEventBuffer) {
           // Every visitor's finished runs go, with their files under
           // .live-runs/; their pages are told with run_cleared.
-          result.runsKept = liveRuns.dropFinished();
+          result.runsKept = liveRuns.dropFinished(wipesSessions ? run => runsWiped.add(run) : undefined);
           result.eventBuffer = true;
         }
         if (wipeOutput) {

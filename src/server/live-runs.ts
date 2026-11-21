@@ -887,10 +887,12 @@ export class LiveRunRegistry {
     if (wasInFlight) this.stopForVisitor(run, 'user_aborted');
   }
 
-  /** Drops every finished run, files included; returns how many runs in flight were kept. */
-  dropFinished(): number {
+  /** Drops every finished run, files included, naming each to `onDrop`; returns how many runs in flight were kept. */
+  dropFinished(onDrop?: (run: LiveRun) => void): number {
     for (const run of [...this.runs.values()]) {
-      if (!run.inFlight) this.evict(run, 'wiped', 'client_disconnected');
+      if (run.inFlight) continue;
+      onDrop?.(run);
+      this.evict(run, 'wiped', 'client_disconnected');
     }
     return this.unsettled.size;
   }
