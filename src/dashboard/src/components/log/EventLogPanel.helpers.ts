@@ -101,13 +101,14 @@ function matchesQuery(e: SimEvent, query: string): boolean {
 function matchesToolHash(e: SimEvent, wanted: string, whole: boolean): boolean {
   const matches = (name: string) => (whole ? name === wanted : name.includes(wanted));
   const d = (e.data ?? {}) as Record<string, unknown>;
-  const name = typeof d.name === 'string' ? d.name.toLowerCase() : '';
+  // Names are read trimmed, as the toolbox's registry reads them.
+  const name = typeof d.name === 'string' ? d.name.trim().toLowerCase() : '';
   if (name && matches(name)) return true;
   const tools = Array.isArray(d.forgedTools) ? d.forgedTools : [];
   for (const t of tools) {
     const tn =
       t && typeof t === 'object' && typeof (t as Record<string, unknown>).name === 'string'
-        ? ((t as Record<string, unknown>).name as string).toLowerCase()
+        ? ((t as Record<string, unknown>).name as string).trim().toLowerCase()
         : '';
     if (tn && matches(tn)) return true;
   }

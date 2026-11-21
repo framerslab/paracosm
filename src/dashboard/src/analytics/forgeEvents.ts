@@ -79,6 +79,16 @@ function allows(page: AnalyticsPage, purpose: 'measure' | 'record'): boolean {
   }
 }
 
+/** The page's address with no query or fragment, or null where the page has none to read. */
+function pageLocation(w: Window): string | null {
+  try {
+    const { origin, pathname } = w.location;
+    return typeof origin === 'string' && typeof pathname === 'string' ? origin + pathname : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Sends one forge view event to the vendors whose purpose has the visitor's
  * yes. It never throws: an analytics failure leaves the page as it was.
@@ -102,8 +112,13 @@ export function sendForgeEvent(event: ForgeEvent, w?: Window): void {
   }
 
   if (measure && typeof page.gtag === 'function') {
+    // Google's tag sends the page's address with every event unless the event
+    // names one, and the address can hold a search typed into Find a tool:
+    // the event names the page by its address with no query, as the page
+    // view does.
+    const where = pageLocation(target);
     try {
-      page.gtag('event', event.name, sent);
+      page.gtag('event', event.name, where === null ? sent : { ...sent, page_location: where });
     } catch {
       // Google's tag refused the event; the page carries on.
     }
