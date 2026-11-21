@@ -3352,6 +3352,28 @@ test.describe('one actor picker for the toolbox', () => {
     await expect.poll(() => optionLabels(picker)).toEqual(['A250']);
   });
 
+  test('at 300 actors, a focused option stays focused and rendered when the list scrolls far from it', async ({ page, request }) => {
+    test.setTimeout(300_000);
+    const toolbox = await openCohortToolbox(page, request, RUNS.maximum, MAXIMUM.tools, WIDTHS[1], 'dark', 150_000);
+    const picker = await openPicker(page, toolbox);
+    const list = actorList(picker);
+    const first = optionOf(picker, 'A1');
+    await first.focus();
+    await expect(first).toBeFocused();
+    // The list scrolls to its end, as a wheel moves it, while focus stays on A1.
+    await expect.poll(async () => {
+      await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+      return optionOf(picker, 'A300').isVisible();
+    }, { message: 'the list scrolls to A300' }).toBe(true);
+    await expect(optionOf(picker, 'A300')).toBeInViewport();
+    await expect(first, 'A1 keeps focus').toBeFocused();
+    expect(await optionsOf(picker).count(), 'the options between A1 and the view are not rendered').toBeLessThanOrEqual(MOST_LINES + 1);
+    // Down from A1 moves focus to A2 and brings it into view.
+    await page.keyboard.press('ArrowDown');
+    await expect(optionOf(picker, 'A2')).toBeFocused();
+    await expect(optionOf(picker, 'A2')).toBeInViewport();
+  });
+
   test('f19 q9: Escape closes the picker and returns focus to the Actors key', async ({ page, request }) => {
     test.setTimeout(120_000);
     const registry = registryOf(pairRunFrames());
