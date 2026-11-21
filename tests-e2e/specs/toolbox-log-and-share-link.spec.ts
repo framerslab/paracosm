@@ -1,14 +1,15 @@
 /**
- * A finished run's forged tool "↗ LOG" key and its "Share viz link" controls.
+ * A finished run's forged tool "Show in Event Log" key and its "Share viz link" controls.
  *
  * The page talks to the real server over HTTP (tests-e2e/support/shared-run-server.ts):
  * one Mars Genesis pair run is stored there as the server stores a finished
  * run, so /sim?replay=<id> plays it through the server's own replay route,
  * and the Library lists Aria Chen's run with its session beside it.
  *
- * - The "↗ LOG" key of a tool, in the Reports tab's toolbox and in the Sim
- *   tab's toolbox dialog, opens the Event Log filtered to that tool's forge
- *   and use events, as the guided tour says it does.
+ * - "Show in Event Log", in the Record of a forged tool's trace, which opens
+ *   from the tool's row in the Reports tab's toolbox and in the Sim tab's
+ *   toolbox dialog, opens the Event Log filtered to that tool's forge and
+ *   use events, as the guided tour says it does.
  * - "Share viz link", in a run's drawer and in the run actions menu, shows the
  *   link, says whether it was copied, and says who can open it; a refused or
  *   unanswered clipboard says what failed and leaves the link to copy by hand.
@@ -31,7 +32,7 @@
  * Each width and look saves a picture of what the press shows into
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
  */
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type Locator, type Page, type APIRequestContext } from '@playwright/test';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored run lives on a local server of its own.');
 
@@ -64,7 +65,42 @@ async function useLook(page: Page, look: 'light' | 'dark'): Promise<void> {
 }
 
 const shareUrl = (id: string) => `${SERVER}/sim?replay=${encodeURIComponent(id)}&tab=viz`;
-const logKey = (page: Page, tool: string) => page.getByRole('button', { name: `Open ${tool} in simulation log` });
+/** The Sim tab's toolbox dialog, named for the run's count of tools. */
+const toolboxDialog = (page: Page) => page.getByRole('dialog', { name: /^Forged toolbox, \d+ tools?$/ });
+/** The Reports tab's toolbox, in its page. */
+const reportsToolbox = (page: Page) => page.locator('#toolbox');
+/** A tool's row in a toolbox: the key that opens the tool's trace. */
+const toolRow = (toolbox: Locator, tool: string) => toolbox.locator(`[data-tool-row][data-tool-name="${tool}"]`).getByRole('button');
+
+/** Presses a tool's "Show in Event Log": its row opens its trace, whose Record holds the key. */
+async function showInEventLog(page: Page, toolbox: Locator, tool: string): Promise<void> {
+  await toolRow(toolbox, tool).click();
+  const trace = page.getByRole('dialog', { name: new RegExp(`^${tool}, forged tool \\d+$`) });
+  await expect(trace).toBeVisible();
+  await trace.getByRole('button', { name: 'Record', exact: true }).click();
+  await trace.getByRole('button', { name: 'Show in Event Log', exact: true }).click();
+  await expect(trace).toBeHidden();
+}
+
+/** Opens the Reports tab's toolbox, folded until it is opened. */
+async function openReportsToolbox(page: Page, tool: string): Promise<Locator> {
+  const toolbox = reportsToolbox(page);
+  const fold = toolbox.locator('summary').first();
+  await expect(fold).toBeVisible();
+  // The row is in the page once the replay has played the tool in, shown or folded away.
+  const row = toolbox.locator(`[data-tool-row][data-tool-name="${tool}"]`);
+  await expect(row).toBeAttached();
+  if (!(await row.isVisible())) await fold.click();
+  return toolbox;
+}
+
+/** Opens the Sim tab's toolbox dialog from the footer's key. */
+async function openSimToolbox(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
+  const toolbox = toolboxDialog(page);
+  await expect(toolbox).toBeVisible();
+  return toolbox;
+}
 const eventLog = (page: Page) => page.getByRole('log', { name: 'Event log' });
 
 /** The Event Log shows the three events of Aria Chen's tool and nothing of the other tool. */
@@ -115,19 +151,15 @@ async function pictureOfPress(page: Page, path: string): Promise<void> {
   await page.screenshot({ path });
 }
 
-/** Presses Aria Chen's tool's "↗ LOG" key: in the Sim tab's toolbox dialog at 390, in the Reports tab's toolbox at 1440. */
-async function pressLandingLogKey(page: Page, id: string, width: number): Promise<void> {
+/** Presses "Show in Event Log" for Aria Chen's tool: from the Sim tab's toolbox dialog at 390, from the Reports tab's toolbox at 1440. */
+async function pressLandingShowInEventLog(page: Page, id: string, width: number): Promise<void> {
   if (width === 390) {
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-    await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
-    await expect(page.getByRole('dialog', { name: /^Forged Toolbox/ })).toBeVisible();
+    await showInEventLog(page, await openSimToolbox(page), LANDING);
   } else {
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
-    const fold = page.locator('#toolbox summary').first();
-    await expect(fold).toBeVisible();
-    if (!(await logKey(page, LANDING).isVisible())) await fold.click();
+    await showInEventLog(page, await openReportsToolbox(page, LANDING), LANDING);
   }
-  await logKey(page, LANDING).click();
 }
 
 /** The address holds the replay, the Settings tab and its Event Log sub view. */
@@ -278,25 +310,14 @@ for (const size of WIDTHS) {
     test.describe(`at ${size.width} in ${look}`, () => {
       test.use({ viewport: size });
 
-      test('a forged tool\'s log key opens the Event Log filtered to that tool', async ({ page, request }) => {
+      test('a forged tool\'s Show in Event Log opens the Event Log filtered to that tool', async ({ page, request }) => {
         const id = await storedSessionId(request);
         await useLook(page, look);
-        if (size.width === 390) {
-          // The Sim tab's toolbox dialog.
-          await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=sim`);
-          await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
-          await expect(page.getByRole('dialog', { name: /^Forged Toolbox/ })).toBeVisible();
-        } else {
-          // The Reports tab's toolbox, folded until it is opened.
-          await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
-          const fold = page.locator('#toolbox summary').first();
-          await expect(fold).toBeVisible();
-          if (!(await logKey(page, LANDING).isVisible())) await fold.click();
-        }
-        await logKey(page, LANDING).click();
+        // The Sim tab's toolbox dialog at 390; the Reports tab's toolbox, folded until it is opened, at 1440.
+        await pressLandingShowInEventLog(page, id, size.width);
 
         await expectLogFilteredToLandingTool(page);
-        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-key-opens-event-log.png` });
+        await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-show-in-event-log-opens-event-log.png` });
       });
 
       test('"Share viz link" in a run\'s drawer shows the copied link and who can open it', async ({ page, context, request }) => {
@@ -326,7 +347,7 @@ for (const size of WIDTHS) {
       test('clearing an Event Log filter keeps the replay, tab and sub view, and a refresh reopens them with the filter', async ({ page, request }) => {
         const id = await storedSessionId(request);
         await useLook(page, look);
-        await pressLandingLogKey(page, id, size.width);
+        await pressLandingShowInEventLog(page, id, size.width);
         await expectLogFilteredToLandingTool(page);
         expectAddressOnReplayLog(page, id);
 
@@ -344,10 +365,12 @@ for (const size of WIDTHS) {
         const reopened = eventLog(page);
         await expect(reopened).toBeVisible();
         await expect(reopened.getByRole('searchbox', { name: /^Filter log by text/ })).toHaveValue('forge_attempt');
-        // The replay's two forge events, one for each tool.
-        await expect(reopened.locator('summary')).toHaveCount(2);
+        // Show in Event Log keeps the log to the tool's actor, and clearing the tool leaves that:
+        // of the replay's 13 forge events, the 6 of Aria Chen and none of Dietrich Voss's 7.
+        expect(new URL(page.url()).searchParams.get('logLeader')).toBe('Aria Chen');
+        await expect(reopened.locator('summary')).toHaveCount(6);
         await expect(reopened).toContainText(/forge_attempt\s*Aria Chen/);
-        await expect(reopened).toContainText(/forge_attempt\s*Dietrich Voss/);
+        await expect(reopened).not.toContainText(/forge_attempt\s*Dietrich Voss/);
         await page.screenshot({ path: `${PICTURES}/${size.width}-${look}-log-filter-kept-after-refresh.png` });
       });
 
@@ -580,14 +603,11 @@ test.describe('the other copy keys and the Library\'s address', () => {
 test.describe('filters left from an earlier visit', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test('a log key shows its tool\'s events whatever Event Log filters the address still holds', async ({ page, request }) => {
+  test('Show in Event Log shows its tool\'s events whatever Event Log filters the address still holds', async ({ page, request }) => {
     const id = await storedSessionId(request);
     // An earlier visit to the Event Log left a type filter that matches none of the tool's events.
     await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports&logTypes=decision_made&logLeader=${encodeURIComponent('Dietrich Voss')}`);
-    const fold = page.locator('#toolbox summary').first();
-    await expect(fold).toBeVisible();
-    if (!(await logKey(page, LANDING).isVisible())) await fold.click();
-    await logKey(page, LANDING).click();
+    await showInEventLog(page, await openReportsToolbox(page, LANDING), LANDING);
 
     await expectLogFilteredToLandingTool(page);
   });
@@ -600,18 +620,12 @@ for (const size of WIDTHS) {
     test('the Reports toolbox and the Sim toolbox dialog each open the Event Log on the tool pressed', async ({ page, request }) => {
       const id = await storedSessionId(request);
       await page.goto(`/sim?replay=${encodeURIComponent(id)}&tab=reports`);
-      const fold = page.locator('#toolbox summary').first();
-      await expect(fold).toBeVisible();
-      if (!(await logKey(page, LANDING).isVisible())) await fold.click();
-      await logKey(page, LANDING).click();
+      await showInEventLog(page, await openReportsToolbox(page, LANDING), LANDING);
       await expectLogFilteredToLandingTool(page);
 
-      // A second press, in the other toolbox, replaces the first tool's filter with its own.
+      // A second press, from the other toolbox, replaces the first tool's filter with its own.
       await page.locator('#tab-sim').click();
-      await page.getByRole('button', { name: /^Open Forged Toolbox/ }).click();
-      const dialog = page.getByRole('dialog', { name: /^Forged Toolbox/ });
-      await expect(dialog).toBeVisible();
-      await logKey(page, WATER).click();
+      await showInEventLog(page, await openSimToolbox(page), WATER);
 
       const log = eventLog(page);
       await expect(log).toBeVisible();
@@ -624,7 +638,7 @@ for (const size of WIDTHS) {
       ]);
       await expect(log).not.toContainText(LANDING);
       // The dialog left with its tab.
-      await expect(dialog).toHaveCount(0);
+      await expect(toolboxDialog(page)).toHaveCount(0);
     });
   });
 }

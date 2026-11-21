@@ -31,7 +31,7 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -144,7 +144,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Forged tool view end-to-end test
+        run: npx playwright test tests-e2e/specs/forged-tool-view.spec.ts --project=chromium-desktop
+
+      # The pictures that spec takes at 390 and 1440 in both looks, at 2, 24 and 300 actors.
+      - name: Upload the forged tool view pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: forged-tool-view-pictures
+          path: test-pictures/forged-tool-view/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # The checks below run when an earlier step has failed too, so a failing
+      # browser spec does not hide what they would report. The job still fails
+      # on that step.
       - name: Viz living grid end-to-end test
+        if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/viz-living-grid.spec.ts --project=chromium-desktop
 
       # The pictures that spec takes of a replay at 390 and 1440 in both looks:
@@ -160,12 +177,15 @@ jobs:
           retention-days: 14
 
       - name: Check doc examples compile against package
+        if: ${{ !cancelled() }}
         run: npm run check:doc-examples
 
       - name: Build API docs (TypeDoc)
+        if: ${{ !cancelled() }}
         run: npm run docs
 
       - name: Check the sitemap against the API docs
+        if: ${{ !cancelled() }}
         run: npm run check:sitemap
 
       # The hosted demo's consent bar on the landing page, the dashboard and
@@ -173,6 +193,7 @@ jobs:
       # hosted_demo mode with made-up analytics ids. It writes pictures of the
       # bar into test-results/consent-bar-captures.
       - name: Consent bar end-to-end test
+        if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/consent-bar.spec.ts --project=chromium-desktop
 
       - name: Upload the consent bar pictures

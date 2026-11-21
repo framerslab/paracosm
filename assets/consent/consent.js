@@ -34,6 +34,11 @@
  * Any element with data-consent-open (the footers' Analytics choices)
  * reopens the choices. Turning recordings off ends Clarity on the page
  * without reloading it (withdrawRecord).
+ *
+ * window.paracosmConsent.allows(purpose), read-only, tells the dashboard
+ * whether measure or record runs on the page now, so its own events go to
+ * Google Analytics and Clarity only under their purposes' yes
+ * (src/dashboard/src/analytics/forgeEvents.ts).
  */
 (function () {
   'use strict';
@@ -242,6 +247,26 @@
   /** Whether each tool's script was added to this page, and whether it runs now. */
   var loaded = { measure: false, record: false };
   var active = { measure: false, record: false };
+
+  /*
+   * What the dashboard reads before it sends an event of its own: whether a
+   * purpose has the visitor's yes on this page now. Measure and record follow
+   * what runs, so a withdrawal answers no at once; the count, which takes
+   * page views alone, and any purpose the bar does not offer answer no.
+   * Other code on the page can neither replace it nor change its answer.
+   */
+  try {
+    Object.defineProperty(window, 'paracosmConsent', {
+      value: Object.freeze({
+        allows: function (purpose) {
+          return purpose === 'measure' ? active.measure : purpose === 'record' ? active.record : false;
+        },
+      }),
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+  } catch (error) { /* already defined: the page keeps the first */ }
 
   function gtag() {
     window.dataLayer = window.dataLayer || [];

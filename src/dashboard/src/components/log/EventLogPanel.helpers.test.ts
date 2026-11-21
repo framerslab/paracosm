@@ -151,6 +151,48 @@ test('applyLogFilters: tool hash substring match on forgedTools entries', () => 
   assert.equal(out[0].type, 'outcome');
 });
 
+// -- applyLogFilters: a tool by its whole name ----------------------------
+
+/** A forge and a report of a tool, beside a forge and a report of a tool whose name holds the first one's. */
+const twoNames: SimEvent[] = [
+  mk('forge_attempt', { leader: 'Aria', data: { turn: 2, name: 'habitat_pressure_check' } }),
+  mk('forge_attempt', { leader: 'Aria', data: { turn: 2, name: 'habitat_pressure_check_backup' } }),
+  mk('specialist_done', { leader: 'Aria', data: { turn: 2, forgedTools: [{ name: 'habitat_pressure_check' }] } }),
+  mk('specialist_done', { leader: 'Aria', data: { turn: 2, forgedTools: [{ name: 'habitat_pressure_check_backup' }] } }),
+];
+
+test('applyLogFilters: a whole tool name keeps that tool\'s rows alone', () => {
+  const out = applyLogFilters(twoNames, { ...emptyFilters(), toolHash: 'habitat_pressure_check', toolExact: true });
+  assert.deepEqual(out, [twoNames[0], twoNames[2]]);
+});
+
+test('applyLogFilters: a whole tool name keeps a forge and a report whose name has spaces at its ends, as the toolbox reads that name', () => {
+  const spaced: SimEvent[] = [
+    mk('forge_attempt', { leader: 'Aria', data: { turn: 1, name: ' habitat_pressure_check ' } }),
+    mk('specialist_done', { leader: 'Aria', data: { turn: 1, forgedTools: [{ name: 'habitat_pressure_check ' }] } }),
+    mk('forge_attempt', { leader: 'Aria', data: { turn: 1, name: ' habitat_pressure_check_backup' } }),
+  ];
+  const out = applyLogFilters(spaced, { ...emptyFilters(), toolHash: 'habitat_pressure_check', toolExact: true });
+  assert.deepEqual(out, [spaced[0], spaced[1]]);
+});
+
+test('applyLogFilters: the same name as a part keeps every tool whose name holds it', () => {
+  const out = applyLogFilters(twoNames, { ...emptyFilters(), toolHash: 'habitat_pressure_check', toolExact: false });
+  assert.deepEqual(out, twoNames);
+});
+
+test('parseFiltersFromUrl: logExact=1 beside log= names the tool by its whole name', () => {
+  const f = parseFiltersFromUrl('', '#log=habitat_pressure_check&logExact=1');
+  assert.equal(f.toolHash, 'habitat_pressure_check');
+  assert.equal(f.toolExact, true);
+});
+
+test('parseFiltersFromUrl: a #log= typed by hand is a part of a name', () => {
+  const f = parseFiltersFromUrl('', '#log=habitat');
+  assert.equal(f.toolHash, 'habitat');
+  assert.equal(f.toolExact, false);
+});
+
 // -- applyLogFilters: combined -------------------------------------------
 
 test('applyLogFilters: combined filters AND together', () => {
@@ -214,6 +256,7 @@ test('serializeFiltersToUrl: round-trips via parse', () => {
     leader: 'Aria Chen',
     turnRange: [2, 5],
     toolHash: '',
+    toolExact: false,
   };
   const qs = serializeFiltersToUrl(original);
   const reparsed = parseFiltersFromUrl(qs, '');

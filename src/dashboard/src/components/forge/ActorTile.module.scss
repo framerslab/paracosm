@@ -1,0 +1,40 @@
+// The living grid's tile (viz/Tile.module.scss): a 1 px edge, 6 px corners and
+// a 3 px band in the actor's run colour across the top, here holding the
+// actor's slot label in the code face. --tile-size and --tile-band are set
+// inline by ActorTile.tsx.
+
+.tile {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: var(--tile-size, 28px);
+  height: var(--tile-size, 28px);
+  // The band takes the top 3 px, so the label centres in what is left.
+  padding: 3px 1px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--tile-band, var(--forge-edge));
+}
+
+.label {
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--text-1);
+  white-space: nowrap;
+}

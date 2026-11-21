@@ -19,6 +19,9 @@
  *   drawn alike, with text of 14 px or more and keys 44 px tall;
  * - Reject all ends the count; Accept all loads Google Analytics and
  *   Clarity; Choose turns on one purpose alone;
+ * - the dashboard reads each purpose's answer from window.paracosmConsent,
+ *   which says no before an answer and after Reject all, and which other
+ *   code on the page cannot replace;
  * - a privacy signal (the Sec-GPC header, the DNT header alone, or
  *   navigator.globalPrivacyControl) shows no bar and loads nothing optional,
  *   and the footer's control then explains the signal instead of the bar;
@@ -365,6 +368,44 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.waitForTimeout(SETTLE_MS);
       expect(watch.vendor.filter(url => new URL(url).hostname.endsWith('clarity.ms')), 'no request to Microsoft without the recordings yes').toEqual([]);
       expect((await stored(page))?.purposes).toEqual({ count: true, measure: true, record: false });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('the dashboard reads each purpose\'s answer from paracosmConsent: measure is false before an answer, true after Accept all and false after Reject all', async ({ browser }) => {
+    const { context, page } = await open(browser, 'allows');
+    try {
+      const allows = (purpose: string) => page.evaluate(name => {
+        const consent = (window as unknown as { paracosmConsent?: { allows?: (purpose: string) => unknown } }).paracosmConsent;
+        return typeof consent?.allows === 'function' ? consent.allows(name) : 'paracosmConsent.allows is missing';
+      }, purpose);
+      await page.goto('/sim');
+      await expect(bar(page)).toBeVisible();
+      expect(await allows('measure'), 'measure before any answer').toBe(false);
+      expect(await allows('record'), 'record before any answer').toBe(false);
+
+      await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+      await expect(bar(page)).toBeHidden();
+      expect(await allows('measure'), 'measure after Accept all').toBe(true);
+      expect(await allows('record'), 'record after Accept all').toBe(true);
+      expect(await allows('count'), 'the count purpose takes page views alone, never an event').toBe(false);
+      expect(await allows('anything'), 'a purpose the bar does not offer').toBe(false);
+
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+      await expect(bar(page)).toBeVisible();
+      await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+      await expect(bar(page)).toBeHidden();
+      expect(await allows('measure'), 'measure after Reject all').toBe(false);
+      expect(await allows('record'), 'record after Reject all').toBe(false);
+
+      // Other code on the page cannot turn the answer into a yes.
+      await page.evaluate(() => {
+        const page = window as unknown as { paracosmConsent: { allows: (purpose: string) => boolean } };
+        try { page.paracosmConsent = { allows: () => true }; } catch { /* a read-only property refuses */ }
+        try { page.paracosmConsent.allows = () => true; } catch { /* a frozen object refuses */ }
+      });
+      expect(await allows('measure'), 'measure after other code tried to replace the answer').toBe(false);
     } finally {
       await context.close();
     }

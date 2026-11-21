@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, type MouseEvent, type ReactNode } from 'react';
 import type { CitationRegistry } from '../../hooks/useCitationRegistry';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
+import { useForgeView } from '../forge/ForgeViewProvider';
 import { ReferencesList } from '../shared/ReferencesSection';
-import { ToolboxSection } from '../shared/ToolboxSection';
 import styles from './SimFooterBar.module.scss';
 
 interface SimFooterBarProps {
@@ -20,10 +20,15 @@ interface SimFooterBarProps {
  * modal CTAs instead of inline blocks. Keeps the events column tall
  * (the user reported that the inline sections were eating vertical
  * space and making timeline events hard to scan).
+ *
+ * References opens in this bar's own modal. The Forged Toolbox key opens
+ * the forge view's toolbox dialog, which returns focus to the key when it
+ * closes.
  */
 export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: SimFooterBarProps) {
-  const [open, setOpen] = useState<null | 'refs' | 'tools'>(null);
+  const [open, setOpen] = useState<null | 'refs'>(null);
   const close = useCallback(() => setOpen(null), []);
+  const { openToolbox } = useForgeView();
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +62,7 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
           <FooterCta
             label="Forged Toolbox"
             count={toolsCount}
-            onClick={() => setOpen('tools')}
+            onClick={(e) => openToolbox(e.currentTarget, 'sim')}
             ariaLabel={`Open Forged Toolbox (${toolsCount} tools)`}
           />
         )}
@@ -88,37 +93,6 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
           <ReferencesList registry={citationRegistry} />
         </Modal>
       )}
-      {open === 'tools' && (
-        <Modal
-          title={`Forged Toolbox · ${toolsCount}`}
-          onClose={close}
-          extraActions={
-            <ExportButton
-              label="EXPORT JSON"
-              filename="paracosm-toolbox.json"
-              data={toolRegistry.list.map(e => ({
-                n: e.n,
-                name: e.name,
-                description: e.description,
-                mode: e.mode,
-                firstForgedTurn: e.firstForgedTurn,
-                firstForgedDepartment: e.firstForgedDepartment,
-                departments: [...e.departments],
-                reuseCount: e.reuseCount,
-                approved: e.approved,
-                confidence: e.confidence,
-                inputSchema: e.inputSchema,
-                outputSchema: e.outputSchema,
-                sampleOutput: e.sampleOutput,
-                inputFields: e.inputFields,
-                outputFields: e.outputFields,
-              }))}
-            />
-          }
-        >
-          <ToolboxSection registry={toolRegistry} title="" collapsible={false} />
-        </Modal>
-      )}
     </>
   );
 }
@@ -142,7 +116,7 @@ function ExportButton({ label, filename, data }: { label: string; filename: stri
   );
 }
 
-function FooterCta({ label, count, onClick, ariaLabel }: { label: string; count: number; onClick: () => void; ariaLabel: string }) {
+function FooterCta({ label, count, onClick, ariaLabel }: { label: string; count: number; onClick: (e: MouseEvent<HTMLButtonElement>) => void; ariaLabel: string }) {
   return (
     <button onClick={onClick} aria-label={ariaLabel} className={styles.cta}>
       <span>{label.toUpperCase()}</span>

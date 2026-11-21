@@ -1,0 +1,309 @@
+// The actor picker, on the dashboard's own tokens: every colour and size is
+// a live token of theme/tokens.css or one of the forge view's named tokens.
+// Its keys, its search field and its Sort menu's select are the toolbox's own
+// (ToolboxList.module.scss), sized by --key-h, set here.
+//
+// - below 600 px: a full-screen sheet; Find an actor and Sort on one row at
+//   the top, the list under them, Select shown, Clear and Done at the foot,
+//   each 44 px tall; each actor a row of two lines, 56 px tall
+// - 600 to 899 px: a sheet from the bottom, 70 per cent of the window tall,
+//   with the phone's rows
+// - from 900 px: a popover 480 px wide and up to 560 px tall under the
+//   Actors key (placed by ActorPicker.tsx), keys 32 px tall, rows 40 px,
+//   and no Done
+// - from 1440 px: the popover 560 px wide
+//
+// Rows part by one hairline in the edge tone, with no box round a row.
+
+.picker {
+  --key-h: 44px;
+
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding:
+    calc(12px + env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    calc(12px + env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  overflow: hidden;
+  border-top: 2px solid var(--amber);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-family: var(--sans);
+}
+
+// The sheet slides up in 200 ms, moving transform alone; under reduced
+// motion it appears at once.
+@media (prefers-reduced-motion: no-preference) and (max-width: 899px) {
+  .picker { animation: picker-up 200ms ease-out both; }
+}
+
+@keyframes picker-up {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+
+// ── The top row: Find an actor and Sort ───────────────────────────────────
+
+.top {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+// Find an actor: its label over its field below 600 px, beside it from 600 px.
+.find {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+// Sort: a one-row menu, "Sort:" and the order chosen, in one key.
+.sort {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  // Find an actor keeps the larger part of a phone's row.
+  max-width: 55%;
+  min-height: var(--key-h);
+  padding-left: 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:has(select:focus-visible) {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// ── The list ──────────────────────────────────────────────────────────────
+
+.list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--forge-edge);
+}
+
+.rows { min-width: 0; }
+
+// An actor's row: the box, the tile, then the name and archetype over the
+// counts and the forge strip.
+.option {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 20px auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  min-height: 56px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--forge-edge);
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 12%, transparent); }
+
+  &:focus { outline: none; }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+
+  &[aria-disabled='true'] { cursor: default; }
+}
+
+// The box that says an actor is chosen, drawn only: the option says so.
+// Its edge in the edge tone, and once chosen its edge and its check in the accent.
+.box {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  color: var(--amber);
+
+  &[data-checked='true'] { border-color: var(--amber); }
+}
+
+.tile {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+}
+
+.who {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.dot,
+.archetype {
+  font-weight: 400;
+  color: var(--forge-quiet);
+}
+
+.second {
+  grid-column: 3;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.counts {
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+.strip {
+  display: inline-flex;
+  min-width: 0;
+}
+
+// ── No actor to list: one line and its way forward ────────────────────────
+// It takes the list's room in a sheet, so the foot keeps its place at the
+// sheet's foot.
+
+.empty {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  justify-items: start;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.emptyWords {
+  margin: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+// The polite status: read out, not shown.
+.said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+// ── The foot: Select shown, Clear and Done, one row ───────────────────────
+
+.foot {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+
+  > button {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  > button[aria-disabled='true'] {
+    border-color: var(--forge-edge);
+    color: var(--forge-edge);
+    cursor: default;
+
+    &:hover,
+    &:active { background: transparent; }
+  }
+}
+
+// ── By the window's width ─────────────────────────────────────────────────
+
+@media (min-width: 600px) {
+  .picker {
+    top: auto;
+    height: 70vh;
+    padding: 16px max(32px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  .find {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+}
+
+@media (min-width: 900px) {
+  .picker {
+    --key-h: 32px;
+
+    inset: auto;
+    width: 480px;
+    height: auto;
+    max-height: 560px;
+    padding: 12px;
+    border-radius: var(--radius-md);
+  }
+
+  .option {
+    min-height: 40px;
+    padding: 4px 8px;
+  }
+
+  .done { display: none; }
+
+  .foot > button { flex: 0 0 auto; }
+}
+
+@media (min-width: 1440px) {
+  .picker { width: 560px; }
+}
