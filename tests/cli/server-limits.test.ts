@@ -89,7 +89,7 @@ const brief = (n: number) => `${'A coastal town weighs a seawall against managed
 test('compile-from-seed on the hosted demo counts against the daily compile limit', async () => {
   // A compile that never settles stands in for the model, so no model is called whatever keys the shell holds.
   const compileFromSeed = (() => new Promise(() => {})) as unknown as NonNullable<CreateMarsServerOptions['compileFromSeed']>;
-  await withServer({ maxSimsPerDay: 1, compileFromSeed, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
+  await withServer({ maxSimsPerDay: 1, compileFromSeed, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' } }, async base => {
     const statuses: number[] = [];
     for (let i = 0; i < 6; i++) {
       const res = await post(base, '/api/quickstart/compile-from-seed', { seedText: brief(i) });
@@ -108,7 +108,7 @@ test('ground-scenario on the hosted demo has a daily limit per caller', async ()
   const saved = searchKeys.map(key => [key, process.env[key]] as const);
   for (const key of searchKeys) delete process.env[key];
   try {
-    await withServer({ maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true' } }, async base => {
+    await withServer({ maxSimsPerDay: 1, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' } }, async base => {
       const statuses: number[] = [];
       for (let i = 0; i < 25; i++) {
         const res = await post(base, '/api/quickstart/ground-scenario', { scenarioId: 'mars-genesis' });
@@ -143,7 +143,7 @@ test('a Digital Twin run on the hosted demo takes the day\'s run and runs on the
   };
   await withServer({
     maxSimsPerDay: 1,
-    env: { PARACOSM_HOSTED_DEMO: 'true' },
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
     getDigitalTwinWorld: async () => ({ scenario: twinScenario, intervene }) as unknown as WorldModel,
   }, async base => {
     const pending = [0, 1, 2].map(() => post(base, '/api/quickstart/simulate-intervention', twinBody()));
@@ -294,7 +294,7 @@ test('/compile on the hosted demo bounds the searches a compile runs, with or wi
   const captured: Array<Record<string, unknown>> = [];
   await withServer({
     maxSimsPerDay: 1,
-    env: { PARACOSM_HOSTED_DEMO: 'true' },
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
     // The compile answers with the id it was sent, as the compiler does.
     compileScenario: async (json, options) => {
       captured.push(options);
@@ -331,7 +331,7 @@ test('a hosted run on the caller\'s own model key searches only on search keys t
   const runs: Array<{ config: { liveSearch: boolean; serperKey?: string }; runnerOptions?: { searchEnv?: NodeJS.ProcessEnv } }> = [];
   await withServer({
     maxSimsPerDay: 1,
-    env: { PARACOSM_HOSTED_DEMO: 'true', ...HOST_SEARCH_KEYS },
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', ...HOST_SEARCH_KEYS },
     runPairSimulations: async (config, _broadcast, _signal, _scenario, _onArtifact, runnerOptions) => {
       runs.push({ config, runnerOptions: runnerOptions as { searchEnv?: NodeJS.ProcessEnv } | undefined });
     },
@@ -433,7 +433,7 @@ test('a hosted /compile with no seed to search for uses none of the caller\'s se
   const captured: Array<Record<string, unknown>> = [];
   await withServer({
     maxSimsPerDay: 1,
-    env: { PARACOSM_HOSTED_DEMO: 'true' },
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
     compileScenario: async (json, options) => {
       captured.push(options);
       return { ...marsScenario, id: String(json.id) } as never;
@@ -490,7 +490,7 @@ test('a page\'s entities are decoded once', () => {
 test('a hosted /compile from a seed URL on the caller\'s own model key counts against the compile limit, web search or not', async () => {
   await withServer({
     maxSimsPerDay: 1,
-    env: { PARACOSM_HOSTED_DEMO: 'true', FIRECRAWL_API_KEY: 'host-firecrawl-key' },
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', FIRECRAWL_API_KEY: 'host-firecrawl-key' },
     compileScenario: async json => ({ ...marsScenario, id: String(json.id) }) as never,
   }, async base => {
     const statuses: number[] = [];

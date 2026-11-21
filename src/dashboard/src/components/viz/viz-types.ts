@@ -53,6 +53,13 @@ export interface TurnSnapshot {
   morale: number;
   /** Months of food, in a run whose scenario carries a food store. */
   foodReserve?: number;
+  /** Litres of water a day, from the turn's `turn_done` metrics when the scenario carries them. */
+  waterLitersPerDay?: number;
+  /** Kilowatts of power, from the turn's `turn_done` metrics when the scenario carries them. */
+  powerKw?: number;
+  /** Cubic metres of pressurized volume, from the turn's `turn_done` metrics when the scenario carries them. */
+  pressurizedVolumeM3?: number;
+  /** This turn's deaths: the engine counts each turn's own. */
   deaths: number;
   births: number;
   /** Categories of events that occurred this turn (for event flash overlay). */

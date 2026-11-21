@@ -17,7 +17,20 @@ export interface SearchCredentialOptions {
   cohereKey?: string;
 }
 
-export type RuntimeCredentialOptions = ProviderCredentialOptions & SearchCredentialOptions;
+/** How a model call that runs on the environment's keys picks its provider. */
+export interface ProviderRoutingOptions {
+  /**
+   * Keep every model call on the resolved provider: AgentOS's fallback
+   * chain to another provider is off (`fallbackProviders: []`), and a
+   * provider with no key of its own is not swapped for another provider's
+   * environment key. The hosted demo sets it on every call it runs. Default
+   * false: a call on the environment's keys falls back as AgentOS's default
+   * chain does.
+   */
+  stayOnProvider?: boolean;
+}
+
+export type RuntimeCredentialOptions = ProviderCredentialOptions & SearchCredentialOptions & ProviderRoutingOptions;
 
 /**
  * Return a usable secret or undefined for empty and masked placeholder
@@ -68,6 +81,16 @@ export function apiKeyForProvider(
   return provider === 'anthropic'
     ? normalizeCredential(credentials.anthropicKey)
     : normalizeCredential(credentials.apiKey);
+}
+
+/**
+ * The fallback chain a model call passes AgentOS: none (`[]`) on an
+ * explicit key, so the call never moves to the environment's key of
+ * another provider, and none when the call stays on its provider;
+ * otherwise `undefined`, AgentOS's default chain.
+ */
+export function fallbackProvidersFor(apiKey: string | undefined, stayOnProvider?: boolean): [] | undefined {
+  return apiKey || stayOnProvider ? [] : undefined;
 }
 
 /** Stable non-secret identity for cache keys that must vary by credential. */

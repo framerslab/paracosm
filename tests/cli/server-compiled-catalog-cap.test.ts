@@ -177,7 +177,7 @@ test("one address's Quickstart compiles on the hosted demo leave the other saved
     assert.deepEqual(await compiledIds(v), expected);
     assert.deepEqual(savedIds(scenarioDir), expected);
     await api.close();
-    const restarted = await startServer({ scenarioDir, env: { PARACOSM_HOSTED_DEMO: 'true' }, compileScenario: async sc => ({ ...sc, hooks: {} }) as never });
+    const restarted = await startServer({ scenarioDir, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' }, compileScenario: async sc => ({ ...sc, hooks: {} }) as never });
     try {
       await hydrated(restarted.cookied());
       assert.deepEqual(await compiledIds(restarted.cookied()), expected);
@@ -185,7 +185,7 @@ test("one address's Quickstart compiles on the hosted demo leave the other saved
       await restarted.close();
       rmSync(restarted.appDir, { recursive: true, force: true });
     }
-  }, { drafts: true, env: { PARACOSM_HOSTED_DEMO: 'true' }, extra: { compileFromSeed: async () => station(`q-${++calls}`) } });
+  }, { drafts: true, env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' }, extra: { compileFromSeed: async () => station(`q-${++calls}`) } });
 });
 
 test('a scenario a held run is in stays', async () => {

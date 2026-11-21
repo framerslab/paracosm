@@ -147,6 +147,21 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Viz living grid end-to-end test
+        run: npx playwright test tests-e2e/specs/viz-living-grid.spec.ts --project=chromium-desktop
+
+      # The pictures that spec takes of a replay at 390 and 1440 in both looks:
+      # two frames two seconds apart, the turn banner, the highlight strip,
+      # ECOLOGY and the grid settings.
+      - name: Upload the Viz living grid pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viz-living-grid-pictures
+          path: test-pictures/viz-living-grid/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Check doc examples compile against package
         run: npm run check:doc-examples
 

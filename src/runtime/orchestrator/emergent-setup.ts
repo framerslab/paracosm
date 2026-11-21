@@ -34,6 +34,7 @@ import {
 // sites continue to import from this module without churn.
 export { validateForgeShape, inferSchemaFromTestCases };
 import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
+import { fallbackProvidersFor } from '../../engine/provider/credentials.js';
 import { refusedWordIn } from '../../engine/compiler/own-context.js';
 import {
   searchCredential,
@@ -153,7 +154,13 @@ export function createEmergentEngine(
   forgedExecutables?: Map<string, ITool>,
   /** Explicit provider API key for this run. */
   apiKey?: string,
+  /**
+   * Keep every judge call on `provider`, also without an explicit key: the
+   * run's `stayOnProvider`.
+   */
+  stayOnProvider?: boolean,
 ) {
+  const fallbackProviders = fallbackProvidersFor(apiKey, stayOnProvider);
   const llmCb = async (model: string, prompt: string) => {
     try {
       const r = await generateText({
@@ -161,7 +168,7 @@ export function createEmergentEngine(
         model: model || judgeModel,
         prompt,
         apiKey,
-        fallbackProviders: apiKey ? [] : undefined,
+        fallbackProviders,
       });
       onUsage?.(r);
       return r.text;
@@ -184,7 +191,7 @@ export function createEmergentEngine(
         system: [{ text: system, cacheBreakpoint: true }],
         prompt: user,
         apiKey,
-        fallbackProviders: apiKey ? [] : undefined,
+        fallbackProviders,
       });
       onUsage?.(r);
       return r.text;

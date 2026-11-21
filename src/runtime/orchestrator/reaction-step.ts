@@ -76,6 +76,8 @@ export interface RunReactionStepArgs {
   provider: LlmProvider;
   /** Explicit provider API key for this run. */
   apiKey?: string;
+  /** Keep every reaction call on `provider`, also without an explicit key: the run's `stayOnProvider`. */
+  stayOnProvider?: boolean;
   modelConfig: SimulationModelConfig;
   execution?: Partial<SimulationExecutionConfig>;
   trackUsage: (result: { usage?: CallUsage }, site?: 'reactions') => void;
@@ -112,7 +114,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
   const {
     kernel, scenario, turn, time, seed,
     turnEvents, turnEventTitles, lastEventCategory, lastOutcome,
-    provider, apiKey, modelConfig, execution,
+    provider, apiKey, stayOnProvider, modelConfig, execution,
     trackUsage, reportProviderError, recordSchemaAttempt, emit, generateObjectImpl,
   } = args;
 
@@ -177,6 +179,7 @@ export async function runReactionStep(args: RunReactionStepArgs): Promise<Reacti
       {
         provider,
         apiKey,
+        stayOnProvider,
         model: modelConfig.agentReactions || 'gpt-4o-mini',
         maxConcurrent: 25,
         reactionContextHook: scenario.hooks.reactionContextHook,

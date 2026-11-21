@@ -33,13 +33,15 @@ export default defineConfig({
     // other's runs. So does the run-per-visitor spec, whose server caps how
     // many runs it holds.
     // So does the dashboard display spec, whose Library server counts the
-    // replays its tests run. The toolbox log and share link spec sets each
-    // width it checks itself, so one project runs it.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|saved-run-replay/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // replays its tests run. The toolbox log and share link spec and the Viz
+    // living grid spec set each width they check themselves, so one project
+    // runs them. So does the saved run replay spec, which reads the one
+    // shared-run server.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|viz-living-grid|saved-run-replay/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|saved-run-replay/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|viz-living-grid|saved-run-replay/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -111,6 +113,17 @@ export default defineConfig({
         {
           command: 'PORT=3462 npx tsx tests-e2e/support/shared-run-server.ts',
           url: 'http://127.0.0.1:3462/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with one finished Mars Genesis pair run stored as a
+        // session, built from the engine's kernel and the hosted demo's
+        // recorded words, for the spec that opens it in the Viz tab.
+        {
+          command: 'PORT=3466 npx tsx tests-e2e/support/viz-replay-server.ts',
+          url: 'http://127.0.0.1:3466/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',
