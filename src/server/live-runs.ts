@@ -176,7 +176,10 @@ export interface LiveRun {
   saved: boolean;
   /** True while the run's save is in flight in this process. */
   saving: boolean;
-  /** The RunRecord ids inserted for this run, linked to its saved session. */
+  /**
+   * The RunRecord ids inserted for this run, linked to its saved session.
+   * Written with the run, so a save after a restart links them too.
+   */
   readonly insertedRunIds: string[];
   capWarned: boolean;
   /** True until the run's runner settles; the run holds a capacity slot until then. */
@@ -302,6 +305,7 @@ interface PersistedRun {
   expectedActorTurns?: number | null;
   artifactCosts?: Array<[string, number]>;
   actorNameCounts?: Array<[string, number]>;
+  insertedRunIds?: string[];
 }
 
 /** How many of `names` bear each name that more than one of them bears. */
@@ -957,6 +961,7 @@ export class LiveRunRegistry {
       expectedActorTurns: run.expectedActorTurns,
       ...(run.artifactCosts.size > 0 ? { artifactCosts: [...run.artifactCosts] } : {}),
       ...(run.actorNameCounts.size > 0 ? { actorNameCounts: [...run.actorNameCounts] } : {}),
+      ...(run.insertedRunIds.length > 0 ? { insertedRunIds: run.insertedRunIds } : {}),
       ...(run.trimmed.length > 0
         ? { trimmed: run.trimmed, trimmedTimestamps: run.trimmedTimestamps, trimmedAt: run.trimmedAt }
         : {}),
@@ -1141,7 +1146,7 @@ export class LiveRunRegistry {
       errored: p.errored === true,
       saved: p.saved === true,
       saving: false,
-      insertedRunIds: [],
+      insertedRunIds: Array.isArray(p.insertedRunIds) ? p.insertedRunIds.filter((id): id is string => typeof id === 'string') : [],
       capWarned: false,
       inFlight: false,
       stoppedByVisitor: false,
