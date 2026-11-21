@@ -19,7 +19,8 @@
  *   cannot be read.
  * - A finished run whose save had not committed when the server stopped is
  *   saved once after the restart, with no title from a model, since the
- *   restart let go of the key that paid for the run.
+ *   restart let go of the key that paid for the run, and its Library records
+ *   link to it.
  * - A local server keeps one ring of ten saved runs, whoever saved them.
  *
  * Every test goes through createMarsServer over HTTP with stub runners and
@@ -500,6 +501,42 @@ test("a run saved after a restart, on a visitor's key the restart let go of, get
       await new Promise(resolve => setTimeout(resolve, 300));
       assert.equal(titles.calls.n, 0, 'no title call on the host key or another provider');
       assert.equal((await listSessions(again))[0]?.title, undefined);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('a run saved after a restart links its Library records to its saved session', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-save-restart-links-'));
+  // One run-history store across both starts, as a server's database file is.
+  const runHistoryStore = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  try {
+    const stalled = memoryStore();
+    const neverSaves: SessionStore = { ...stalled, saveSession: () => new Promise(() => {}) };
+    const first = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: neverSaves, runHistoryStore, runPairSimulations: pairWithArtifacts([]) } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    try {
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      await waitFor(async () => (await readReplay(a)).some(f => f.event === 'complete'), 'the run to finish');
+    } finally {
+      await first.close();
+    }
+
+    const store = memoryStore();
+    const second = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: store, runHistoryStore, runPairSimulations: pairWithArtifacts([]) } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      const rows = await waitFor(async () => { const r = await listSessions(again); return r.length > 0 && r; }, 'the run to be saved after the restart', 5000);
+      const runs = await waitFor(async () => {
+        const { runs: listed } = await again.json<{ runs: Array<{ runId: string; sessionId?: string }> }>('/api/v1/runs');
+        return listed.length === 2 && listed.every(r => r.sessionId !== undefined) && listed;
+      }, "the Library records' session links", 3000);
+      assert.deepEqual(runs.map(r => r.sessionId), [rows[0].id, rows[0].id]);
     } finally {
       await second.close();
     }
