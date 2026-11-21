@@ -195,7 +195,8 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
             </button>
           </div>
         )}
-        {raw ? (
+        {/* Raw JSON stands while a schema stands for the attempt on show; on another attempt the fields come back. */}
+        {raw && hasSchema ? (
           <pre className={styles.code} translate="no" data-raw-json>
             {JSON.stringify({ input: inputSchema ?? null, output: outputSchema ?? null }, null, 2)}
           </pre>
