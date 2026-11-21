@@ -916,6 +916,48 @@ test('a run whose Library link failed after its save committed is linked at the 
   }
 });
 
+test('a run whose server stopped while its first Library link was in flight, its save committed, is linked at the next start', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-link-in-flight-'));
+  // One session store and one run-history store across both starts, as a server's database files are.
+  const sessions = memoryStore();
+  const history = createSqliteRunHistoryStore({ dbPath: ':memory:', databaseOptions: { type: 'memory' } });
+  const tries = { n: 0 };
+  let answers = false;
+  const runHistoryStore = {
+    ...history,
+    // The first start's link never answers: the server stops while it waits.
+    linkSessionId: (runIds: readonly string[], sessionId: string): Promise<void> => {
+      tries.n += 1;
+      return answers ? history.linkSessionId!(runIds, sessionId) : new Promise<void>(() => {});
+    },
+  };
+  try {
+    const first = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: sessions, runHistoryStore, runPairSimulations: pairWithArtifacts([]) } });
+    const a = first.cookied();
+    const visitorId = a.cookies.get(VISITOR_COOKIE)!;
+    let savedId = '';
+    try {
+      const res = await a.post('/setup', { ...settingsBody(mars), turns: TURNS });
+      assert.equal(res.status, 200, await res.text());
+      savedId = (await waitFor(async () => { const r = await listSessions(a); return r.length > 0 && r; }, 'the save to commit', 5000))[0].id;
+      await waitFor(async () => tries.n >= 1, 'the first link to be tried', 5000);
+    } finally {
+      await first.close();
+    }
+
+    answers = true;
+    const second = await startServer({ appDir, extra: { ...NO_TWIN, generateText: titleStub().generateText, sessionStore: sessions, runHistoryStore, runPairSimulations: pairWithArtifacts([]) } });
+    try {
+      const again = second.visitor({ [VISITOR_COOKIE]: visitorId });
+      assert.deepEqual(await linkedSessions(again, "the Library records' session links after the restart", 3000), [savedId, savedId]);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('a local server keeps one ring of ten saved runs, whoever saved them', async () => {
   const titles = titleStub();
   await withVisitors(async ({ visitor, cookied }) => {
