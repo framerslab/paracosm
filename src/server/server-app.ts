@@ -2090,7 +2090,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) }
         : undefined;
       const result = await sessionStore.saveSession(events, override, { owner: sessionOwner(run.visitorId), runKey: run.key });
-      liveRuns.settleSave(run);
+      // The Library link is written as still to do with the decision, before
+      // any await, so a server stopped during the count or the first link
+      // links the records at its next start; the link clears it once written.
+      liveRuns.settleSave(run, run.insertedRunIds.length > 0 && runHistoryStore.linkSessionId ? result.id : null);
       // The row count is for the log line and the status alone: a store
       // that cannot count once the save committed still reports the save,
       // links the run's Library records and titles it.

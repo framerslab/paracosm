@@ -730,13 +730,17 @@ export class LiveRunRegistry {
   /**
    * Marks a run's save decided: its session committed, or it will never be
    * saved. The decision is written with the run now, so a restart does not
-   * save it again, and then its recording file goes. A server already
-   * closed cannot write the decision: the file stays, and the restart saves
-   * the run again under its key, which the store holds once.
+   * save it again, and then its recording file goes. A committed session
+   * whose Library records are still to be linked is written as the run's
+   * pending link in the same write, so a server stopped before the link
+   * answers links them at its next start. A server already closed cannot
+   * write the decision: the file stays, and the restart saves the run
+   * again under its key, which the store holds once.
    */
-  settleSave(run: LiveRun): void {
+  settleSave(run: LiveRun, pendingLink: string | null = null): void {
     run.saved = true;
     run.saving = false;
+    if (pendingLink !== null) run.pendingLink = pendingLink;
     if (this.closed && !run.dropped) return;
     run.spooled = 0;
     this.persistNow(run);
