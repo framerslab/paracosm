@@ -51,6 +51,14 @@
  *   says Paracosm writes all the leaders when the run starts, and writes the
  *   scenario line and the panel's caption for that size.
  *
+ * Start, the notice and the launch (feature 10):
+ * - One filled key says the run's length and who pays, with the run line
+ *   beside it and the notice in the page. It stays at the bottom edge until
+ *   its place in the page is reached, above the consent bar when that shows.
+ * - One press reads the day's count again, writes the leaders a larger run
+ *   needs, posts exactly one /setup and opens Watch; the first screen stays
+ *   until then.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -1786,6 +1794,547 @@ screenTest('scale: the first screen at 24 and 300', async ({ page }) => {
       await expect(part.getByTestId('run-size-error')).toHaveCount(0);
       await expect(root.getByTestId('scenario-sentences')).toHaveText(PAIR_SENTENCES);
     }
+  });
+});
+
+screenTest('feature 10: Start on a free run', async ({ page }) => {
+  test.setTimeout(180_000);
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`${size.width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        const { key, notice } = startParts(root);
+        // The one filled key, named for the scenario and the run's length.
+        await expect(root.getByRole('button', { name: START_FREE, exact: true })).toHaveCount(1);
+        await expect(key).toHaveAccessibleName(START_FREE);
+        await expect(key).toBeEnabled();
+        const first = key.getByTestId('start-first');
+        const second = key.getByTestId('start-second');
+        await expect(first).toHaveText('Start');
+        await expect(second).toHaveText(FREE_SECOND_LINE);
+        expect(await key.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await tokenColour(page, '--rust'));
+        expect((await styleOf(first)).colour).toBe(await tokenColour(page, '--text-contrast'));
+        // Feature 10, QA step 19: the sizes.
+        const firstStyle = await styleOf(first);
+        expect(firstStyle.size).toBeGreaterThanOrEqual(18);
+        expect(firstStyle.face).toContain('JetBrains Mono');
+        expect(await first.evaluate((el) => getComputedStyle(el).textTransform)).toBe('uppercase');
+        expect((await styleOf(second)).size).toBe(15);
+        expect((await box(key)).height).toBeGreaterThanOrEqual(size.width < 600 ? 64 : 56);
+        if (size.width < 600) expect((await box(key)).width).toBeGreaterThanOrEqual((await box(root)).width - 1);
+        else expect((await box(key)).width).toBeGreaterThanOrEqual(320);
+
+        // The notice: who pays, the day's count with its reset time, and what comes after.
+        await scrollToBandPlace(root);
+        const count = await dayCount(page);
+        expect(count.limit).toBe(1);
+        expect(count.remaining).toBe(1);
+        const ink = await tokenColour(page, '--text-1');
+        const pays = notice.getByTestId('notice-pays');
+        await expect(pays).toHaveText(FREE_RUN);
+        expect(await styleOf(pays)).toMatchObject({ size: 18, colour: ink });
+        const counted = notice.getByTestId('notice-count');
+        await expect(counted).toHaveText(`Free runs left today on your internet address: 1 of 1, shared by everyone using it. They reset at ${await clockTime(page, count.resetAt)}. A new run or a fork uses one.`);
+        await expect(counted).toHaveAttribute('role', 'status');
+        await expect(notice.getByTestId('notice-after')).toHaveText(AFTER_NO_SAVED_RUN);
+        // No sentence names a provider yet, and no dollar or token figure shows on a free run.
+        await expect(notice).not.toContainText('It runs on');
+        await expect(root).not.toContainText('USD');
+        await expect(root).not.toContainText('$');
+        await expect(root.getByTestId('start-estimate')).toHaveCount(0);
+        await picture(page, `start-free-${size.width}-${look}`);
+      });
+    }
+  }
+});
+
+screenTest('feature 10: one press, three stages, then Watch', async ({ page, context }, info) => {
+  test.setTimeout(180_000);
+  const written = writtenOf(await serverScenario(page));
+  try {
+    await test.step('390 in the dark look: checking, starting, one request, then Watch', async () => {
+      let holdCheck = false;
+      const check = gate();
+      const setup = gate();
+      await page.route('**/rate-limit', async (route: Route) => { if (holdCheck) await check.opened; await route.continue(); });
+      await page.route('**/setup', async (route: Route) => { await setup.opened; await route.continue(); });
+      const posted: Array<Record<string, unknown>> = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === '/setup') posted.push(request.postDataJSON() as Record<string, unknown>);
+      });
+
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      holdCheck = true;
+      await key.click();
+      // The day's count is read again before anything is posted.
+      await expect(key).toHaveText(CHECKING);
+      await expect(key).toBeDisabled();
+      await pressInPage(key);
+      expect(posted).toHaveLength(0);
+      holdCheck = false;
+      check.open();
+      await expect(key).toHaveText(STARTING);
+      await expect(key).toBeDisabled();
+      // A second press while the run starts posts nothing.
+      await pressInPage(key);
+      await pressInPage(key);
+      // The first screen stays, with its colony field, until the page moves to Watch.
+      await expect(root.getByTestId('shared-colony').locator('canvas')).toBeVisible();
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+      expect(new URL(page.url()).searchParams.get('tab')).not.toBe('sim');
+      await picture(page, 'start-starting-390-dark');
+      setup.open();
+      await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+      expect(posted).toHaveLength(1);
+
+      const body = posted[0];
+      expect(body.turns).toBe(6);
+      expect(body.seed).toBe(950);
+      expect(body.captureSnapshots).toBe(true);
+      expect(body.quickstart).toEqual({ scenarioId: 'mars-genesis' });
+      expect(body.actors).toEqual(written.map((l) => ({ name: l.name, archetype: l.archetype, hexaco: l.hexaco, instructions: l.instructions })));
+      // A run on the host's keys posts no key.
+      expect(body.apiKey).toBeUndefined();
+      expect(body.anthropicKey).toBeUndefined();
+      await page.unroute('**/rate-limit');
+      await page.unroute('**/setup');
+    });
+
+    await test.step('1440 in the dark look: one press, then Watch', async () => {
+      await page.request.post(`${SERVER}/clear`);
+      await secondAddress(context, info, 0);
+      const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await key.click();
+      await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+    });
+  } finally {
+    // The stub run holds a run slot until its visitor clears it.
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
+
+screenTest('feature 10: checking and offline', async ({ page, context }) => {
+  test.setTimeout(180_000);
+  for (const look of LOOKS) {
+    await test.step(`checking, 390 in the ${look} look`, async () => {
+      const held = gate();
+      await page.route('**/rate-limit', async (route: Route) => { await held.opened; await route.continue(); });
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { key, runLine } = startParts(root);
+      // An inactive Start has no fill: the control edge, its words in the quiet tone, and it says what it waits for.
+      await expect(key).toHaveText(CHECKING);
+      await expect(key).toBeDisabled();
+      const quiet = await tokenColour(page, look === 'light' ? '--text-3' : '--text-2');
+      const edge = await tokenColour(page, '--edge-control');
+      const drawn = await key.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { ground: cs.backgroundColor, edge: cs.borderTopColor, edgeWidth: parseFloat(cs.borderTopWidth) };
+      });
+      expect(drawn.ground).not.toBe(await tokenColour(page, '--rust'));
+      expect(drawn.edge).toBe(edge);
+      expect(drawn.edgeWidth).toBeGreaterThanOrEqual(1);
+      expect((await styleOf(key.getByTestId('start-words'))).colour).toBe(quiet);
+      // The wait is drawn too: the run line's six marks as empty outlines in the control edge.
+      await scrollToBandPlace(root);
+      const marks = runLine.locator('[data-run-mark]');
+      await expect(marks).toHaveCount(6);
+      for (const mark of await marks.evaluateAll((els) => els.map((el) => {
+        const cs = getComputedStyle(el);
+        return { ground: cs.backgroundColor, edge: cs.borderTopColor, edgeWidth: parseFloat(cs.borderTopWidth) };
+      }))) {
+        expect(mark.ground).toBe('rgba(0, 0, 0, 0)');
+        expect(mark.edge).toBe(edge);
+        expect(mark.edgeWidth).toBeGreaterThanOrEqual(1);
+      }
+      expect(await measureReadability(page)).toEqual([]);
+      await picture(page, `start-checking-390-${look}`);
+
+      held.open();
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+      // At rest the marks are filled in the control edge.
+      expect(await marks.first().evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(edge);
+      await page.unroute('**/rate-limit');
+    });
+
+    await test.step(`offline, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await context.setOffline(true);
+      await expect(key).toHaveText('You are offline');
+      await expect(key).toBeDisabled();
+      const beside = root.getByTestId('start-offline');
+      await expect(beside).toHaveText('Start works when you are back online.');
+      await expect(beside.locator('[data-mark="broken-link"]')).toBeVisible();
+      // The leaders' orders stay readable.
+      await expect(root.getByTestId('leaders').getByTestId('leader-orders')).toBeVisible();
+      await picture(page, `start-offline-390-${look}`);
+      await context.setOffline(false);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+    });
+  }
+});
+
+screenTest('feature 10: own key and self-hosted', async ({ page }) => {
+  test.setTimeout(240_000);
+  await test.step('a self-hosted server, with no key', async () => {
+    const config = await (await page.request.get(`${SELF_HOSTED}/admin-config`)).json() as { hostedDemo?: unknown };
+    expect(config.hostedDemo).toBe(false);
+    for (const look of LOOKS) {
+      const root = await openReadyAt(page, `${SELF_HOSTED}/sim`, WIDE, look, null);
+      const name = (await root.getByRole('heading', { level: 1 }).textContent() ?? '').trim();
+      const { key, notice } = startParts(root);
+      await expect(key.getByTestId('start-second')).toHaveText('6 turns, on this server’s API keys');
+      await expect(key).toHaveAccessibleName(`Start ${name}: 6 turns, on this server’s API keys`);
+      await scrollToBandPlace(root);
+      await expect(notice.getByTestId('notice-pays')).toHaveText(SERVER_NOTICE);
+      await expect(notice.getByTestId('notice-count')).toHaveCount(0);
+      await expect(root.getByTestId('start-estimate')).toHaveCount(0);
+      await picture(page, `start-self-hosted-1440-${look}`);
+    }
+    // From 3 leaders up the estimate names this server's keys and its models.
+    const root = await openReadyAt(page, `${SELF_HOSTED}/sim?size=24`, WIDE, 'dark', null);
+    await expect(startParts(root).key.getByTestId('start-second')).toHaveText('24 leaders, 6 turns, on this server’s API keys');
+    await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on this server’s keys, from the mean cost of four pair runs measured on the hosted demo’s economy models. The server’s models set the real price.');
+  });
+
+  await saveKey(page);
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`own key at a pair, ${size.width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        const { key, notice, runLine } = startParts(root);
+        await expect(key.getByTestId('start-first')).toHaveText('Start');
+        await expect(key.getByTestId('start-second')).toHaveText('6 turns, on your own API key');
+        await expect(key).toHaveAccessibleName('Start Mars Genesis: 6 turns, on your own API key');
+        await expect(key).toBeEnabled();
+        await scrollToBandPlace(root);
+        await expect(notice.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE);
+        // A run on the visitor's key counts no free run, and a pair shows no estimate.
+        await expect(notice.getByTestId('notice-count')).toHaveCount(0);
+        await expect(notice).not.toContainText('Free runs left');
+        await expect(root.getByTestId('start-estimate')).toHaveCount(0);
+        await expect(runLine.getByTestId('run-end')).toHaveText('Verdict');
+        expect(await measureReadability(page)).toEqual([]);
+        await picture(page, `start-own-key-${size.width}-${look}`);
+      });
+
+      await test.step(`own key at 24, ${size.width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim?size=24', size, look);
+        const { key } = startParts(root);
+        await expect(key.getByTestId('start-second')).toHaveText('24 leaders, 6 turns, on your own API key');
+        await expect(key).toHaveAccessibleName('Start Mars Genesis: 24 leaders, 6 turns, on your own API key');
+        await scrollToBandPlace(root);
+        // With no provider and models saved, the estimate leaves the sentence that names them out.
+        const estimate = root.getByTestId('start-estimate');
+        await expect(estimate).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.');
+        expect((await styleOf(estimate)).size).toBe(18);
+        await picture(page, `start-own-key-24-${size.width}-${look}`);
+      });
+    }
+  }
+
+  await test.step('own key at 300', async () => {
+    const root = await openReadyAt(page, '/sim?size=300', WIDE, 'dark');
+    await expect(startParts(root).key.getByTestId('start-second')).toHaveText('300 leaders, 6 turns, on your own API key');
+    await expect(root.getByTestId('start-estimate')).toContainText('about 180.10 USD on your key');
+  });
+
+  await test.step('the estimate names the provider and models the visitor saved', async () => {
+    await saveLastLaunch(page, { scenarioId: 'mars-genesis', provider: 'openai', models: { commander: 'model-a', departments: 'model-b' } });
+    const root = await openReadyAt(page, '/sim?size=24', WIDE, 'dark');
+    await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models. Your run uses OpenAI (model-a, model-b) from your Settings, which set the real price.');
+  });
+});
+
+screenTest('feature 10: a keyed run of 3 writes its leaders, then starts', async ({ page }) => {
+  test.setTimeout(120_000);
+  await saveKey(page);
+  const three = ['One', 'Two', 'Three'].map((word, i) => ({
+    name: `Leader ${word}`,
+    archetype: `The ${word}`,
+    unit: `Unit ${i + 1}`,
+    hexaco: { openness: 0.2 + i * 0.3, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, emotionality: 0.5, honestyHumility: 0.5 },
+    instructions: `You are Leader ${word}.`,
+  }));
+  const writing = gate();
+  const setup = gate();
+  const asked: Array<Record<string, unknown>> = [];
+  const posted: Array<Record<string, unknown>> = [];
+  // The model that writes the leaders is stood in for; the page's own requests are recorded.
+  await page.route('**/api/quickstart/generate-actors', async (route: Route) => {
+    asked.push(route.request().postDataJSON() as Record<string, unknown>);
+    await writing.opened;
+    await route.fulfill({ json: { actors: three } });
+  });
+  await page.route('**/setup', async (route: Route) => {
+    posted.push(route.request().postDataJSON() as Record<string, unknown>);
+    await setup.opened;
+    await route.fulfill({ json: { redirect: '/sim' } });
+  });
+
+  const root = await openReadyAt(page, '/sim?size=3', WIDE, 'dark');
+  const { key } = startParts(root);
+  const { field, fewer, more } = sizeParts(root);
+  await expect(key.getByTestId('start-second')).toHaveText('3 leaders, 6 turns, on your own API key');
+  await key.click();
+  await expect(key).toHaveText('Writing 3 leaders…');
+  await expect(key).toBeDisabled();
+  // The size is locked while the leaders are written.
+  await expect(field).toBeDisabled();
+  await expect(fewer).toBeDisabled();
+  await expect(more).toBeDisabled();
+  expect(posted).toHaveLength(0);
+  await picture(page, 'start-writing-1440-dark');
+  writing.open();
+  await expect(key).toHaveText(STARTING);
+  await pressInPage(key);
+  setup.open();
+  await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+
+  expect(asked).toEqual([{ scenarioId: 'mars-genesis', count: 3, apiKey: 'sk-test' }]);
+  expect(posted).toHaveLength(1);
+  // The three leaders as they were written, and every other field as the launch works it out.
+  expect(posted[0]).toEqual({
+    apiKey: 'sk-test',
+    actors: three,
+    turns: 6,
+    seed: 950,
+    captureSnapshots: true,
+    quickstart: { scenarioId: 'mars-genesis' },
+  });
+});
+
+screenTest('feature 10: the run line', async ({ page }) => {
+  test.setTimeout(240_000);
+  for (const width of [320, 390, 600, 1100, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(`a pair at ${width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', sizeAt(width), look);
+        const { key, runLine } = startParts(root);
+        await scrollToBandPlace(root);
+        await expect(runLine).toHaveCount(1);
+        // One mark a turn, in one row, to the plain word Verdict; nothing on the line is pressed.
+        const marks = runLine.locator('[data-run-mark]');
+        await expect(marks).toHaveCount(6);
+        const end = runLine.getByTestId('run-end');
+        await expect(end).toHaveText('Verdict');
+        expect(await end.evaluate((el) => {
+          const cs = getComputedStyle(el);
+          return ['top', 'right', 'bottom', 'left'].map((side) => parseFloat(cs.getPropertyValue(`border-${side}-width`)));
+        })).toEqual([0, 0, 0, 0]);
+        await expect(runLine.locator('button, a, [tabindex]')).toHaveCount(0);
+        await expect(runLine).toHaveAttribute('aria-hidden', 'true');
+        const boxes = await marks.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+        for (const top of boxes) expect(Math.abs(top - boxes[0])).toBeLessThanOrEqual(1);
+        const [line, word, start] = await Promise.all([box(runLine), box(end), box(key)]);
+        expect(word.x).toBeGreaterThanOrEqual((await box(marks.last())).x);
+        if (width < 600) {
+          // On a phone the line stands in the page, directly above Start's place.
+          expect(line.y + line.height).toBeLessThanOrEqual(start.y + 1);
+        } else {
+          // From the tablet width the line runs from the key's side to its end word, in the key's row.
+          expect(line.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+          expect(line.y).toBeLessThan(start.y + start.height);
+          expect(line.y + line.height).toBeGreaterThan(start.y);
+        }
+        await picture(page, `run-line-pair-${width}-${look}`);
+      });
+    }
+  }
+
+  await saveKey(page);
+  await test.step('a cohort ends in a report', async () => {
+    for (const size of [PHONE, WIDE]) {
+      const root = await openReadyAt(page, '/sim?size=24', size, 'dark');
+      const { runLine } = startParts(root);
+      await scrollToBandPlace(root);
+      await expect(runLine.locator('[data-run-mark]')).toHaveCount(6);
+      await expect(runLine.getByTestId('run-end')).toHaveText('Report');
+    }
+  });
+
+  await test.step('past 20 turns, a ruler with a tick every 10 turns', async () => {
+    await saveLastLaunch(page, { scenarioId: 'mars-genesis', turns: 40 });
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        const root = await openReadyAt(page, '/sim?size=24', size, look);
+        const { key, runLine } = startParts(root);
+        await expect(key.getByTestId('start-second')).toHaveText('24 leaders, 40 turns, on your own API key');
+        await scrollToBandPlace(root);
+        await expect(runLine.locator('[data-run-mark]')).toHaveCount(0);
+        await expect(runLine.getByTestId('run-ruler')).toBeVisible();
+        await expect(runLine.locator('[data-run-tick]')).toHaveCount(4);
+        await expect(runLine.getByTestId('run-first-turn')).toHaveText('1');
+        await expect(runLine.getByTestId('run-last-turn')).toHaveText('40');
+        await expect(runLine.getByTestId('run-end')).toHaveText('Report');
+        expect(await rowsOnOneRow(page)).toEqual([]);
+        expect(await measureReadability(page)).toEqual([]);
+        await picture(page, `run-line-ruler-${size.width}-${look}`);
+      }
+    }
+  });
+});
+
+screenTest('feature 10: the bar and the band', async ({ page }) => {
+  test.setTimeout(300_000);
+  const windowHeight = () => page.evaluate(() => window.innerHeight);
+
+  await test.step('a first visit on a phone: the Start bar stands whole above the consent bar', async () => {
+    const root = await openReady(page, PHONE, 'dark');
+    const consent = page.locator('#pcc');
+    await expect(consent).toBeVisible();
+    const { key, bar } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(bar).toHaveAttribute('data-stuck', 'true');
+    await expect.poll(async () => (await box(bar)).y + (await box(bar)).height - (await box(consent)).y, { message: 'the Start bar ends where the consent bar starts' }).toBeLessThanOrEqual(1);
+    const [b, c] = await Promise.all([box(bar), box(consent)]);
+    expect(b.y).toBeGreaterThanOrEqual(0);
+    expect(c.y + c.height).toBeLessThanOrEqual(await windowHeight() + 1);
+    // Reached by keyboard, Start is in view above both bars.
+    await key.focus();
+    await expect(key).toBeFocused();
+    const k = await box(key);
+    expect(k.y).toBeGreaterThanOrEqual(0);
+    expect(k.y + k.height).toBeLessThanOrEqual((await box(consent)).y + 1);
+    await picture(page, 'start-bar-with-consent-390-dark');
+  });
+
+  for (const look of LOOKS) {
+    await test.step(`390 by 844 in the ${look} look: stuck, then resting in its place`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { key, bar, barLines, notice, runLine } = startParts(root);
+      // Before any scroll: the bar at the bottom edge, its two lines over Start.
+      await expect(bar).toHaveAttribute('data-stuck', 'true');
+      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      for (const line of await barLines.locator('p').all()) expect((await styleOf(line)).size).toBe(15);
+      const quiet = await tokenColour(page, look === 'light' ? '--text-3' : '--text-2');
+      expect((await styleOf(barLines.locator('p').first())).colour).toBe(quiet);
+      const [lines, start, held] = await Promise.all([box(barLines), box(key), box(bar)]);
+      expect(lines.y + lines.height).toBeLessThanOrEqual(start.y + 1);
+      expect(held.y + held.height).toBeLessThanOrEqual(await windowHeight() + 1);
+      expect(start.height).toBeGreaterThanOrEqual(64);
+      // The bar is solid, on the card ground, and its lines are not a live region.
+      expect(await bar.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await tokenColour(page, '--bg-card'));
+      await expect(barLines).not.toHaveAttribute('role', 'status');
+      await picture(page, `start-bar-stuck-390-${look}`);
+
+      // A control reached by keyboard is never under the bar, whose two lines are its top.
+      const tab = root.getByTestId('leaders').getByRole('tab').first();
+      await tab.focus();
+      const [focused, over] = await Promise.all([box(tab), box(barLines)]);
+      expect(focused.y + focused.height).toBeLessThanOrEqual(over.y + 1);
+
+      // Scrolled to its place, the bar rests there holding the key alone, the whole notice and the run line directly above it.
+      await scrollToBandPlace(root);
+      await expect(bar).toHaveAttribute('data-stuck', 'false');
+      await expect(barLines).toHaveCount(0);
+      await expect(key).toBeVisible();
+      const [resting, said, line] = await Promise.all([box(bar), box(notice), box(runLine)]);
+      expect(said.y + said.height).toBeLessThanOrEqual(line.y + 1);
+      expect(line.y + line.height).toBeLessThanOrEqual(resting.y + 1);
+      await expect(notice.getByTestId('notice-pays')).toHaveText(FREE_RUN);
+      await picture(page, `start-bar-resting-390-${look}`);
+    });
+  }
+
+  await test.step('Start is on screen at first paint in four windows', async () => {
+    for (const size of [{ width: 1440, height: 900 }, { width: 1100, height: 800 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
+      for (const look of LOOKS) {
+        const root = await openReadyAt(page, '/sim', size, look);
+        const { key } = startParts(root);
+        await expect(key).toHaveAccessibleName(START_FREE);
+        const k = await box(key);
+        expect(k.y, `Start at ${size.width} by ${size.height}`).toBeGreaterThanOrEqual(0);
+        expect(k.y + k.height, `Start at ${size.width} by ${size.height}`).toBeLessThanOrEqual(await windowHeight());
+        expect(k.x).toBeGreaterThanOrEqual(0);
+        expect(k.x + k.width).toBeLessThanOrEqual(size.width);
+        await picture(page, `start-first-paint-${size.width}x${size.height}-${look}`);
+      }
+    }
+  });
+
+  for (const look of LOOKS) {
+    await test.step(`600 in the ${look} look`, async () => {
+      // The bar's two lines over a row of the 320 px key and the run line to Verdict.
+      const root = await openReadyAt(page, '/sim', sizeAt(600), look);
+      const { key, bar, barLines, runLine } = startParts(root);
+      await expect(bar).toHaveAttribute('data-stuck', 'true');
+      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      const [lines, start, line] = await Promise.all([box(barLines), box(key), box(runLine)]);
+      expect(Math.abs(start.width - 320)).toBeLessThanOrEqual(1);
+      expect(lines.y + lines.height).toBeLessThanOrEqual(start.y + 1);
+      expect(line.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+      await expect(runLine.getByTestId('run-end')).toHaveText('Verdict');
+      await picture(page, `start-bar-600-${look}`);
+    });
+
+    await test.step(`768 in the ${look} look`, async () => {
+      // One row 72 px high, the key at the left and the two lines at its right.
+      const root = await openReadyAt(page, '/sim', { width: 768, height: 1024 }, look);
+      const { key, bar, barLines } = startParts(root);
+      await expect(bar).toHaveAttribute('data-stuck', 'true');
+      const held = await box(bar);
+      expect(Math.abs(held.height - 72)).toBeLessThanOrEqual(2);
+      const [lines, start] = await Promise.all([box(barLines), box(key)]);
+      expect(lines.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+      expect(lines.y).toBeLessThan(start.y + start.height);
+      expect(lines.y + lines.height).toBeGreaterThan(start.y);
+      expect(start.height).toBeGreaterThanOrEqual(56);
+      await picture(page, `start-bar-768-${look}`);
+    });
+
+    await test.step(`1440 by 900 in the ${look} look: the band held at the bottom edge, then in its place`, async () => {
+      const root = await openReadyAt(page, '/sim', WIDE, look);
+      const { key, bar, barLines, notice, runLine } = startParts(root);
+      // Held: Start with its second line, six marks to Verdict, and the two first sentences.
+      await expect(bar).toHaveAttribute('data-stuck', 'true');
+      await expect(key.getByTestId('start-second')).toHaveText(FREE_SECOND_LINE);
+      await expect(runLine.locator('[data-run-mark]')).toHaveCount(6);
+      await expect(runLine.getByTestId('run-end')).toHaveText('Verdict');
+      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      const held = await box(bar);
+      expect(held.y + held.height).toBeLessThanOrEqual(await windowHeight() + 1);
+      for (const part of [key, runLine, barLines]) {
+        const b = await box(part);
+        expect(b.y).toBeGreaterThanOrEqual(held.y - 1);
+        expect(b.y + b.height).toBeLessThanOrEqual(held.y + held.height + 1);
+      }
+      await picture(page, `start-band-held-1440-${look}`);
+
+      // In its place: the key at the left, the run line in the middle, the whole notice in a 420 px column at the right.
+      await scrollToBandPlace(root);
+      await expect(bar).toHaveAttribute('data-stuck', 'false');
+      await expect(barLines).toHaveCount(0);
+      const [start, line, said] = await Promise.all([box(key), box(runLine), box(notice)]);
+      expect(Math.abs(start.width - 360)).toBeLessThanOrEqual(1);
+      expect(line.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+      expect(said.x).toBeGreaterThanOrEqual(line.x + line.width - 1);
+      expect(Math.abs(said.width - 420)).toBeLessThanOrEqual(1);
+      expect(Math.abs(said.y - start.y)).toBeLessThanOrEqual(24);
+      await expect(notice.getByTestId('notice-after')).toHaveText(AFTER_NO_SAVED_RUN);
+      expect(await measureReadability(page)).toEqual([]);
+      await picture(page, `start-band-resting-1440-${look}`);
+    });
+  }
+
+  await test.step('1100: the key 340 px wide, the run line to its end word, the whole notice under the run line', async () => {
+    const root = await openReadyAt(page, '/sim', sizeAt(1100), 'dark');
+    const { key, bar, notice, runLine } = startParts(root);
+    await scrollToBandPlace(root);
+    await expect(bar).toHaveAttribute('data-stuck', 'false');
+    const [start, line, said] = await Promise.all([box(key), box(runLine), box(notice)]);
+    expect(Math.abs(start.width - 340)).toBeLessThanOrEqual(1);
+    expect(line.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+    expect(said.y).toBeGreaterThanOrEqual(line.y + line.height - 1);
+    expect(said.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
+    await picture(page, 'start-band-resting-1100-dark');
   });
 });
 
