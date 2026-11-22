@@ -107,9 +107,10 @@ function cacheDir(scenarioId: unknown, version: unknown, baseDir: string): strin
 
 /**
  * The model the cache holds hooks of this exact scenario JSON under, or
- * null when it holds none for it. The cache keeps one model for a
- * scenario's id and version, so a restore reads the hooks back under the
- * model that wrote them (`CompileOptions.restore`, ./index.ts).
+ * null when it holds none for it: no manifest for this JSON, or none of
+ * the hook files its manifest names is on disk. The cache keeps one model
+ * for a scenario's id and version, so a restore reads the hooks back under
+ * the model that wrote them (`CompileOptions.restore`, ./index.ts).
  */
 export function cachedHooksModel(
   scenarioJson: Record<string, unknown>,
@@ -117,13 +118,16 @@ export function cachedHooksModel(
 ): string | null {
   const id = (scenarioJson as any).id ?? 'unknown';
   const ver = (scenarioJson as any).version ?? '0.0.0';
-  const manifestPath = join(cacheDir(id, ver, baseDir), 'manifest.json');
+  const dir = cacheDir(id, ver, baseDir);
+  const manifestPath = join(dir, 'manifest.json');
   if (!existsSync(manifestPath)) return null;
   try {
     const manifest: CacheManifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
     if (manifest.scenarioHash !== hashScenario(scenarioJson)) return null;
     if (typeof manifest.model !== 'string' || manifest.model === '') return null;
-    if (!manifest.hooks || typeof manifest.hooks !== 'object' || Object.keys(manifest.hooks).length === 0) return null;
+    if (!manifest.hooks || typeof manifest.hooks !== 'object') return null;
+    const files = Object.values(manifest.hooks).filter((file): file is string => typeof file === 'string');
+    if (!files.some(file => existsSync(join(dir, file)))) return null;
     return manifest.model;
   } catch {
     return null;
