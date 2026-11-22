@@ -90,6 +90,21 @@
  *   run and no tour.
  * - No tour opens by itself on a first visit.
  *
+ * How it works (feature 11):
+ * - The header's key opens one card on every tab: six lines that state the
+ *   rules of a run, with three drawings of one sample turn, each inside its
+ *   own line. The fourth line names the run's turns and the scenario's word
+ *   for a settlement, and reads "After the last turn" and "each side" until
+ *   the scenario has loaded. The card asks the server for nothing, so it
+ *   opens whole offline.
+ * - Close and Escape close it and return focus to the key; from a tablet up
+ *   a press outside closes it and reaches the page. On a phone it is a
+ *   sheet from the bottom edge that holds focus; from 600 px it is a panel
+ *   under the key, 480 px wide, then 760 px from 1,100 px and 960 px from
+ *   1,440 px, where the drawings stand in one band over two columns of
+ *   lines. At 200 per cent text it scrolls inside its own height with Close
+ *   in view.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -3144,6 +3159,433 @@ screenTest('no tour', async ({ page }) => {
       expect(new URL(page.url()).searchParams.get('tab') ?? 'quickstart').toBe('quickstart');
     });
   }
+});
+
+/* How it works (feature 11): the header's key opens one card, on every tab. */
+
+const HOW_TITLE = 'How it works';
+const HOW_CARD = '[data-testid="how-it-works-card"]';
+/**
+ * The card's six lines. The fourth names the run's turns and the scenario's
+ * word for a settlement; with neither, it reads as it does before the
+ * scenario has loaded.
+ */
+const howLines = (o: { turns?: number; settlement?: string } = {}): string[] => [
+  'Each leader follows its own orders, shown on its card. “See the full prompt” shows everything it was given.',
+  'On each turn an AI leader reads the event and its departments’ reports, picks a bold or a safe option and writes why. Its rule is to take the bold option when that option’s chance reaches the leader’s bar, a number set by its personality. It breaks the rule only for a fact the odds leave out, and names that fact.',
+  'RISKY or SAFE says which option it took. WIN or LOSS says whether it paid off.',
+  `After ${o.turns === undefined ? 'the last turn' : `turn ${o.turns}`} a verdict names the winner or a tie, says why, and scores each ${o.settlement ?? 'side'} 0 to 10 for survival, prosperity, morale and innovation.`,
+  'With two leaders, picking a winner is optional and changes nothing in the run.',
+  'With 3 or more leaders, each runs the scenario on its own. The report ranks them in quarters on morale, population and deaths, with no single winner.',
+];
+/** The three drawings of one sample turn, in the order of their lines (the second, third and fourth): what each says to a screen reader, and the words drawn on it. */
+const HOW_DRAWINGS = [
+  { alt: 'A sample turn: a bar set at 36 with a chance of 80, which reaches it', words: ['Sample turn', 'Bar 36', 'Chance 80'] },
+  { alt: 'The stamp that turn earns: RISKY WIN, the bold option taken, and it paid off', words: ['Sample turn', 'RISKY WIN'] },
+  { alt: 'Four sample scores out of 10: survival 7, prosperity 6, morale 8, innovation 5', words: ['Sample turn', 'Survival 7', 'Prosperity 6', 'Morale 8', 'Innovation 5'] },
+] as const;
+const MARS_LINES = howLines({ turns: 6, settlement: 'colony' });
+
+/** The header's key that opens the card. */
+const howKey = (page: Page): Locator => page.getByRole('banner').getByRole('button', { name: HOW_TITLE, exact: true });
+const howCard = (page: Page): Locator => page.getByTestId('how-it-works-card');
+const howClose = (page: Page): Locator => howCard(page).getByRole('button', { name: 'Close', exact: true });
+
+/**
+ * The open card: a dialog named How it works, its six lines word for word as
+ * one numbered list, its three drawings, each inside its own line's item and
+ * marked Sample turn, and a Close key.
+ */
+async function expectHowCard(page: Page, lines: string[]): Promise<Locator> {
+  const card = howCard(page);
+  await expect(card).toBeVisible();
+  await expect(card).toHaveRole('dialog');
+  await expect(card).toHaveAccessibleName(HOW_TITLE);
+  await expect(card.getByRole('heading', { level: 2, name: HOW_TITLE, exact: true })).toBeVisible();
+  await expect(card.locator('ol')).toHaveCount(1);
+  const items = card.locator('ol > li');
+  await expect(items).toHaveCount(6);
+  await expect(card.getByTestId('how-line')).toHaveText(lines);
+  await expect(card.getByRole('img')).toHaveCount(3);
+  for (const [i, drawing] of HOW_DRAWINGS.entries()) {
+    const drawn = items.nth(i + 1).getByRole('img');
+    await expect(drawn).toHaveCount(1);
+    await expect(drawn).toHaveAccessibleName(drawing.alt);
+    for (const word of drawing.words) await expect(drawn).toContainText(word);
+  }
+  await expect(howClose(page)).toBeVisible();
+  return card;
+}
+
+/** Whether the page's focus is inside a part. */
+const holdsFocus = (part: Locator): Promise<boolean> => part.evaluate((el) => el.contains(document.activeElement));
+
+/** Moves focus with Tab until it is on a key, in at most `presses` presses. */
+async function tabTo(page: Page, key: Locator, presses: number): Promise<void> {
+  for (let i = 0; i < presses; i += 1) {
+    await page.keyboard.press('Tab');
+    if (await key.evaluate((el) => el === document.activeElement)) return;
+  }
+  await expect(key).toBeFocused();
+}
+
+screenTest('feature 11: the card', async ({ page }) => {
+  test.setTimeout(300_000);
+
+  // Feature 11, QA steps 1 and 12, and feature 1, QA step 4.
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`the card at ${size.width} in the ${look} look`, async () => {
+        await openReadyAt(page, '/sim', size, look);
+        const key = howKey(page);
+        await expect(key).toBeVisible();
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+        await expect(howCard(page)).toHaveCount(0);
+        await key.click();
+        const card = await expectHowCard(page, MARS_LINES);
+        await expect(key).toHaveAttribute('aria-expanded', 'true');
+
+        // The six lines are body text at 18 px, and Close a key a thumb can press.
+        for (const line of await card.getByTestId('how-line').all()) expect((await styleOf(line)).size).toBe(18);
+        const [cardBox, closeBox] = await Promise.all([box(card), box(howClose(page))]);
+        if (size === PHONE) {
+          expect(closeBox.height).toBeGreaterThanOrEqual(48);
+          expect(closeBox.width, 'Close goes across the sheet').toBeGreaterThanOrEqual(cardBox.width - 48);
+        } else {
+          expect(closeBox.height).toBeGreaterThanOrEqual(44);
+          expect(closeBox.width).toBeGreaterThanOrEqual(96);
+        }
+        expect(await measureReadability(page, HOW_CARD)).toEqual([]);
+        expect(await axeFindings(page, HOW_CARD)).toEqual([]);
+        await picture(page, `how-it-works-${size.width}-${look}`);
+
+        // The same press closes it. On a phone the sheet is modal, so the
+        // press lands on the page behind it, which closes the sheet.
+        if (size === PHONE) {
+          const at = await box(key);
+          await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+        } else {
+          await key.click();
+        }
+        await expect(howCard(page)).toHaveCount(0);
+        await expect(key).toHaveAttribute('aria-expanded', 'false');
+      });
+    }
+  }
+
+  // Feature 11, QA step 2: Close, the key again, Escape; focus is on the key after each close.
+  await test.step('Close and Escape return focus to the key, 1440 in the dark look', async () => {
+    await openReadyAt(page, '/sim', WIDE, 'dark');
+    const key = howKey(page);
+    await key.click();
+    const card = howCard(page);
+    await expect(card).toBeVisible();
+    // From a tablet up the panel is not modal: the page behind it stays usable.
+    await expect(card).not.toHaveAttribute('aria-modal', 'true');
+    // Opening moves focus to the card's title, and Tab reaches Close.
+    await expect(card.getByRole('heading', { level: 2, name: HOW_TITLE, exact: true })).toBeFocused();
+    await tabTo(page, howClose(page), 2);
+    await page.keyboard.press('Enter');
+    await expect(card).toHaveCount(0);
+    await expect(key).toBeFocused();
+    await expect(key).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press('Enter');
+    await expect(card).toBeVisible();
+    await expect(key).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(card).toHaveCount(0);
+    await expect(key).toBeFocused();
+  });
+
+  // Feature 11, QA step 6: a press outside the panel closes it and reaches the page.
+  await test.step('a press outside closes it and reaches the page, 1440 in the light look', async () => {
+    await openReadyAt(page, '/sim', WIDE, 'light');
+    await howKey(page).click();
+    await expect(howCard(page)).toBeVisible();
+    await page.getByRole('banner').getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+    await expect(howCard(page)).toHaveCount(0);
+    // The press reached the key it was made on: the page changed its look.
+    await page.waitForFunction(() => !document.documentElement.classList.contains('light'));
+    await expect(howKey(page)).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // Feature 11, QA step 7: on a phone the sheet holds focus until it closes.
+  await test.step('Tab stays inside the sheet, 390 in the dark look', async () => {
+    await openReadyAt(page, '/sim', PHONE, 'dark');
+    await howKey(page).click();
+    const card = howCard(page);
+    await expect(card).toBeVisible();
+    await expect(card).toHaveAttribute('aria-modal', 'true');
+    await expect(card.getByRole('heading', { level: 2, name: HOW_TITLE, exact: true })).toBeFocused();
+    await tabTo(page, howClose(page), 2);
+    for (let i = 0; i < 4; i += 1) {
+      await page.keyboard.press('Tab');
+      expect(await holdsFocus(card), `focus is inside the sheet after Tab ${i + 1} past Close`).toBe(true);
+    }
+    for (let i = 0; i < 4; i += 1) {
+      await page.keyboard.press('Shift+Tab');
+      expect(await holdsFocus(card), `focus is inside the sheet after Shift+Tab ${i + 1}`).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(card).toHaveCount(0);
+    await expect(howKey(page)).toBeFocused();
+  });
+
+  // Feature 11, QA step 15: with the day's free run used, the same card, and no word about limits.
+  await routeNoRunLeft(page);
+  for (const look of LOOKS) {
+    await test.step(`no free run left, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      await expect(root.getByTestId('at-limit-reset')).toBeVisible();
+      await howKey(page).click();
+      const card = await expectHowCard(page, MARS_LINES);
+      await expect(card).not.toContainText(/free run|limit|reset/i);
+      await page.keyboard.press('Escape');
+      await expect(card).toHaveCount(0);
+    });
+  }
+  await page.unroute('**/rate-limit');
+
+  // Feature 11, QA step 16: on the visitor's own key at 24 leaders the card
+  // reads the same; the sixth line says nothing of how many run at a time,
+  // which no answer of the server gives yet.
+  await saveKey(page);
+  for (const [size, look] of [[PHONE, 'dark'], [WIDE, 'light']] as const) {
+    await test.step(`own key at 24 leaders, ${size.width} in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim?size=24', size, look);
+      await expect(sizeParts(root).field).toHaveValue('24');
+      await howKey(page).click();
+      const card = await expectHowCard(page, MARS_LINES);
+      await expect(card).not.toContainText('at a time');
+      await picture(page, `how-it-works-own-key-24-${size.width}-${look}`);
+    });
+  }
+});
+
+screenTest('feature 11: from Watch and Reports, offline, Lunar Outpost', async ({ page, context }) => {
+  test.setTimeout(240_000);
+
+  // Feature 11, QA step 3: the same card from the Watch tab and the Reports tab.
+  for (const tab of ['sim', 'reports']) {
+    await test.step(`from ?tab=${tab}, 390 in the dark look`, async () => {
+      await page.setViewportSize(PHONE);
+      await useLook(page, 'dark');
+      await page.goto(`/sim?tab=${tab}`);
+      await expect(page.locator(`#tabpanel-${tab}`)).toBeVisible();
+      await answerConsent(page);
+      const key = howKey(page);
+      await key.click();
+      await expectHowCard(page, MARS_LINES);
+      await picture(page, `how-it-works-from-${tab}-390-dark`);
+      await howClose(page).click();
+      await expect(howCard(page)).toHaveCount(0);
+      await expect(key).toBeFocused();
+      // The tab the card was opened from is still the one on screen.
+      await expect(page.locator(`#tabpanel-${tab}`)).toBeVisible();
+    });
+  }
+
+  // Feature 11, QA step 8: the card asks the server for nothing, so it opens whole offline.
+  for (const look of LOOKS) {
+    await test.step(`offline, 390 in the ${look} look`, async () => {
+      await openReadyAt(page, '/sim', PHONE, look);
+      await context.setOffline(true);
+      try {
+        await howKey(page).click();
+        await expectHowCard(page, MARS_LINES);
+        await picture(page, `how-it-works-offline-390-${look}`);
+      } finally {
+        await context.setOffline(false);
+      }
+    });
+  }
+
+  // Feature 11, QA step 13: until the scenario has loaded, the fourth line names no turn and no settlement.
+  await page.route('**/scenario', (route: Route) => route.abort('failed'));
+  for (const look of LOOKS) {
+    await test.step(`the scenario did not load, 390 in the ${look} look`, async () => {
+      const root = await openRun(page, PHONE, look);
+      await expect(root.getByTestId('scenario-line').getByRole('status')).toHaveText(DID_NOT_LOAD);
+      await answerConsent(page);
+      await howKey(page).click();
+      await expectHowCard(page, howLines());
+      await picture(page, `how-it-works-no-scenario-390-${look}`);
+    });
+  }
+  await page.unroute('**/scenario');
+
+  // Feature 11, QA step 5: with Lunar Outpost loaded the fourth line names
+  // its run's turns and its word for a settlement. A free run is cut to the
+  // host's 6 turns; on the visitor's own key the run takes the scenario's 8.
+  await switchScenario(page, 'lunar-outpost');
+  await test.step('Lunar Outpost on a free run, 1440 in the dark look', async () => {
+    await openReadyAt(page, '/sim', WIDE, 'dark', 'Lunar Outpost');
+    await howKey(page).click();
+    await expectHowCard(page, howLines({ turns: 6, settlement: 'outpost' }));
+  });
+  await saveKey(page);
+  await test.step('Lunar Outpost on the visitor’s own key, 1440 in the dark look', async () => {
+    await openReadyAt(page, '/sim', WIDE, 'dark', 'Lunar Outpost');
+    await howKey(page).click();
+    await expectHowCard(page, howLines({ turns: 8, settlement: 'outpost' }));
+    await picture(page, 'how-it-works-lunar-outpost-1440-dark');
+  });
+});
+
+screenTest('feature 11: layouts', async ({ page }) => {
+  test.setTimeout(300_000);
+  type Box = { left: number; top: number; right: number; bottom: number; width: number; height: number };
+  /** The open card's parts as the page lays them out. */
+  const layoutOf = (card: Locator) => card.evaluate((el) => {
+    const boxOf = (part: Element): Box => {
+      const b = part.getBoundingClientRect();
+      return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height };
+    };
+    const body = el.querySelector('[data-testid="how-it-works-body"]');
+    const close = el.querySelector('[data-testid="how-it-works-close"]');
+    if (!body || !close) throw new Error('the card has no body or no Close key');
+    return {
+      card: boxOf(el),
+      lines: Array.from(el.querySelectorAll('[data-testid="how-line"]')).map(boxOf),
+      drawings: Array.from(el.querySelectorAll('[role="img"]')).map(boxOf),
+      close: boxOf(close),
+      /** How far the card's words reach past its own height: above 0, the card scrolls. */
+      scrolls: body.scrollHeight - body.clientHeight,
+      sideways: Math.max(el.scrollWidth - el.clientWidth, body.scrollWidth - body.clientWidth),
+      overscroll: getComputedStyle(body).overscrollBehaviorY,
+      view: { width: window.innerWidth, height: window.innerHeight },
+      pageSideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  /** Opens the card at one width; the key is pressed in the page, since under 360 px the header row is wider than the window. */
+  const openCardAt = async (width: number, look: Look) => {
+    await openReadyAt(page, '/sim', sizeAt(width), look);
+    await pressInPage(howKey(page));
+    const card = await expectHowCard(page, MARS_LINES);
+    // The card has come to rest: its fade and rise are over.
+    await card.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))));
+    return card;
+  };
+
+  for (const look of LOOKS) {
+    // Feature 11, QA step 9, on a phone: a sheet from the bottom edge, each drawing under its line.
+    await test.step(`a sheet at 320 in the ${look} look`, async () => {
+      const card = await openCardAt(320, look);
+      await expect(card).toHaveAttribute('aria-modal', 'true');
+      const at = await layoutOf(card);
+      expect(Math.abs(at.card.left), 'the sheet starts at the window’s left edge').toBeLessThanOrEqual(1);
+      expect(Math.abs(at.card.width - at.view.width), 'the sheet is the window’s width').toBeLessThanOrEqual(1);
+      expect(Math.abs(at.card.bottom - at.view.height), 'the sheet stands on the window’s bottom edge').toBeLessThanOrEqual(1);
+      expect(at.card.height, 'the sheet is at most four fifths of the window’s height').toBeLessThanOrEqual(at.view.height * 0.8 + 1);
+      at.drawings.forEach((drawing, i) => {
+        expect(drawing.top, `drawing ${i + 1} stands under its line`).toBeGreaterThanOrEqual(at.lines[i + 1].bottom - 1);
+        expect(drawing.width, `drawing ${i + 1} is the sheet’s width`).toBeGreaterThanOrEqual(at.card.width - 48);
+      });
+      expect(at.close.height).toBeGreaterThanOrEqual(48);
+      expect(at.sideways, 'the sheet does not scroll sideways').toBeLessThanOrEqual(1);
+      expect(at.pageSideways, 'the page does not scroll sideways').toBeLessThanOrEqual(1);
+      // The sheet's own scroll never moves the page behind it.
+      expect(at.overscroll).toBe('contain');
+      await picture(page, `how-it-works-320-${look}`);
+    });
+
+    // From a tablet up: a panel under the key at the right edge, each of lines 2, 3 and 4 beside its drawing.
+    for (const [width, panel, column] of [[600, 480, 140], [1100, 760, 240]] as const) {
+      await test.step(`a ${panel} px panel at ${width} in the ${look} look`, async () => {
+        const card = await openCardAt(width, look);
+        await expect(card).not.toHaveAttribute('aria-modal', 'true');
+        const at = await layoutOf(card);
+        const key = await box(howKey(page));
+        expect(Math.abs(at.card.width - panel), `the panel is ${panel} px wide`).toBeLessThanOrEqual(1);
+        expect(at.card.top, 'the panel stands under the key').toBeGreaterThanOrEqual(key.y + key.height - 1);
+        expect(at.card.right, 'the panel is inside the window').toBeLessThanOrEqual(at.view.width);
+        expect(at.card.right, 'the panel stands at the right edge').toBeGreaterThanOrEqual(at.view.width - 32);
+        at.drawings.forEach((drawing, i) => {
+          const line = at.lines[i + 1];
+          expect(Math.abs(drawing.width - column), `drawing ${i + 1} has a ${column} px column`).toBeLessThanOrEqual(1);
+          expect(drawing.left, `drawing ${i + 1} stands at its line’s right`).toBeGreaterThanOrEqual(line.right - 1);
+          expect(drawing.top, `drawing ${i + 1} starts beside its line`).toBeLessThan(line.bottom);
+          expect(drawing.bottom, `drawing ${i + 1} ends beside its line`).toBeGreaterThan(line.top);
+        });
+        expect(at.close.height).toBeGreaterThanOrEqual(44);
+        expect(at.close.width).toBeGreaterThanOrEqual(96);
+        expect(at.sideways).toBeLessThanOrEqual(1);
+        await picture(page, `how-it-works-${width}-${look}`);
+      });
+    }
+
+    // At the wide width: three drawings in one band over the six lines in two columns of three, the whole card in view.
+    await test.step(`a 960 px panel at 1440 in the ${look} look`, async () => {
+      const card = await openCardAt(1440, look);
+      const at = await layoutOf(card);
+      const key = await box(howKey(page));
+      expect(Math.abs(at.card.width - 960), 'the panel is 960 px wide').toBeLessThanOrEqual(1);
+      expect(at.card.top, 'the panel stands under the key').toBeGreaterThanOrEqual(key.y + key.height - 1);
+      expect(at.card.right).toBeLessThanOrEqual(at.view.width);
+      const [bar, stamp, scores] = at.drawings;
+      expect(Math.abs(bar.top - stamp.top), 'the bar and the stamp share a band').toBeLessThanOrEqual(1);
+      expect(Math.abs(stamp.top - scores.top), 'the stamp and the scores share a band').toBeLessThanOrEqual(1);
+      expect(stamp.left, 'the stamp stands after the bar').toBeGreaterThanOrEqual(bar.right - 1);
+      expect(scores.left, 'the scores stand after the stamp').toBeGreaterThanOrEqual(stamp.right - 1);
+      const firstLineTop = Math.min(...at.lines.map((line) => line.top));
+      for (const drawing of at.drawings) expect(drawing.bottom, 'the band stands over the lines').toBeLessThanOrEqual(firstLineTop + 1);
+      const [one, two, three, four, five, six] = at.lines;
+      for (const line of [two, three]) expect(Math.abs(line.left - one.left), 'lines 1 to 3 share a column').toBeLessThanOrEqual(1);
+      for (const line of [five, six]) expect(Math.abs(line.left - four.left), 'lines 4 to 6 share a column').toBeLessThanOrEqual(1);
+      expect(four.left, 'the second column stands at the first one’s right').toBeGreaterThanOrEqual(one.right - 1);
+      expect(Math.abs(four.top - one.top), 'the two columns start at one height').toBeLessThanOrEqual(1);
+      expect(two.top).toBeGreaterThan(one.top);
+      expect(three.top).toBeGreaterThan(two.top);
+      expect(at.scrolls, 'the whole card shows without scrolling').toBeLessThanOrEqual(1);
+      expect(at.card.bottom, 'the card ends inside the window').toBeLessThanOrEqual(at.view.height);
+      expect(at.sideways).toBeLessThanOrEqual(1);
+      await picture(page, `how-it-works-1440-${look}-wide`);
+    });
+  }
+
+  // Feature 11, QA step 10: at 200 per cent text a 320 px window lays the
+  // page out in half its width and height. The card scrolls inside its own
+  // height and Close stays in view at its foot.
+  await test.step('200 per cent text at 320 in the light look', async () => {
+    await openReadyAt(page, '/sim', sizeAt(320), 'light');
+    await page.setViewportSize({ width: 160, height: 422 });
+    await pressInPage(howKey(page));
+    const card = await expectHowCard(page, MARS_LINES);
+    await card.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))));
+    const at = await layoutOf(card);
+    expect(at.scrolls, 'the card scrolls inside its own height').toBeGreaterThan(0);
+    expect(at.card.height).toBeLessThanOrEqual(at.view.height * 0.8 + 1);
+    expect(at.close.top, 'Close is in view').toBeGreaterThanOrEqual(at.card.top);
+    expect(at.close.bottom, 'Close is in view at the card’s foot').toBeLessThanOrEqual(at.view.height + 1);
+    expect(at.close.height).toBeGreaterThanOrEqual(44);
+    expect(at.sideways, 'no word is cut: the card does not scroll sideways').toBeLessThanOrEqual(1);
+    await picture(page, 'how-it-works-200-per-cent-320-light');
+    await page.keyboard.press('Escape');
+    await expect(howCard(page)).toHaveCount(0);
+  });
+
+  // The card opens and closes with a 150 ms fade, at once under reduced motion.
+  await test.step('motion, and its reduced form, 390 in the dark look', async () => {
+    await openReadyAt(page, '/sim', PHONE, 'dark');
+    const motionOf = (card: Locator) => card.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { name: cs.animationName, seconds: parseFloat(cs.animationDuration) };
+    });
+    await howKey(page).click();
+    const moving = await motionOf(howCard(page));
+    expect(moving.name).not.toBe('none');
+    expect(moving.seconds).toBeCloseTo(0.15, 3);
+    await page.keyboard.press('Escape');
+    await expect(howCard(page)).toHaveCount(0);
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await howKey(page).click();
+    await expect(howCard(page)).toBeVisible();
+    expect((await motionOf(howCard(page))).name).toBe('none');
+    await page.keyboard.press('Escape');
+    await expect(howCard(page)).toHaveCount(0);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+  });
 });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
