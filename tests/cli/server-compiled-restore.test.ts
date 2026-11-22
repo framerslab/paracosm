@@ -210,6 +210,25 @@ function assertNoModelCall(calls: readonly WireCall[], what: string): void {
   );
 }
 
+/** The lines a scenario's department prompt hook gives for a state holding `metrics`. */
+function departmentLines(hooks: ScenarioHooks | undefined, metrics: Record<string, number>): string {
+  const lines = hooks?.departmentPromptHook?.({
+    department: 'any',
+    state: { agents: [], metrics, politics: {}, metadata: {} },
+    scenario: {},
+    researchPacket: { canonicalFacts: [], counterpoints: [], departmentNotes: {} },
+  } as never);
+  return JSON.stringify(lines);
+}
+
+/** Starts a host-paid run in `scenarioId` and returns the scenario the server handed the runner. */
+async function runIn(api: RunServer, scenarioId: string) {
+  const res = await api.cookied().post('/setup', { ...settingsBody(mars), scenarioId });
+  assert.equal(res.status, 200, `POST /setup: ${await res.text()}`);
+  const launch = await waitFor(() => api.launches.find(l => l.scenario?.id === scenarioId), `the run in ${scenarioId}`);
+  return launch.scenario;
+}
+
 test('a restart on a hosted demo with no OpenAI key lists every saved compiled scenario and calls no model', async () => {
   await withSavedScenarios(async ({ scenarioDir, listed }) => {
     for (const [host, keys] of [['an Anthropic key only', { ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY }], ['no key', {}]] as const) {
@@ -226,6 +245,11 @@ test('a restart on a hosted demo with the host OpenAI key lists every saved comp
     await restart(scenarioDir, { OPENAI_API_KEY: HOST_OPENAI_KEY }, async (api, calls) => {
       assert.deepEqual(await restored(api), listed);
       assertNoModelCall(calls, 'the restore on a host with an OpenAI key');
+
+      // Saltmere's file carries no hooks: a run in it holds the hooks the
+      // first boot compiled, read back from the disk cache.
+      const saltmere = await runIn(api, SALTMERE);
+      assert.equal(departmentLines(saltmere?.hooks, { 'fresh-water': 1 }), JSON.stringify(['Compiled with: fresh-water']), 'the run holds the department prompt the first boot compiled');
     });
   });
 });
@@ -239,21 +263,18 @@ test('a saved scenario compiled on a model the host cannot serve is listed after
       const entries = await restored(api);
       assert.deepEqual(entries.find(e => e.id === ORCHARD), listed.find(e => e.id === ORCHARD));
 
-      const res = await api.cookied().post('/setup', { ...settingsBody(mars), scenarioId: ORCHARD });
-      assert.equal(res.status, 200, `POST /setup: ${await res.text()}`);
-      const launch = await waitFor(() => api.launches[0], 'the run in the restored scenario');
-      assert.equal(launch.scenario?.id, ORCHARD);
-      const hooks = (launch.scenario?.hooks ?? {}) as ScenarioHooks & Record<string, unknown>;
+      const orchard = await runIn(api, ORCHARD);
+      const hooks = (orchard?.hooks ?? {}) as ScenarioHooks & Record<string, unknown>;
       for (const name of ['progressionHook', 'directorInstructions', 'departmentPromptHook', 'getMilestoneEvent', 'fingerprintHook', 'politicsHook', 'reactionContextHook']) {
         assert.equal(typeof hooks[name], 'function', `the restored scenario holds its ${name}`);
       }
-      const lines = hooks.departmentPromptHook?.({
-        department: 'orchard-ops',
-        state: { agents: [], metrics: { harvest: 420, 'soil-health': 62 }, politics: {}, metadata: {} },
-        scenario: {},
-        researchPacket: { canonicalFacts: [], counterpoints: [], departmentNotes: {} },
-      } as never);
-      assert.equal(JSON.stringify(lines), JSON.stringify(['Compiled with: harvest, soil-health']), 'the run holds the department prompt the scenario was compiled with');
+      assert.equal(departmentLines(hooks, { harvest: 420, 'soil-health': 62 }), JSON.stringify(['Compiled with: harvest, soil-health']), 'the run holds the department prompt the scenario was compiled with');
+      assert.equal(hooks.reactionContextHook?.({ core: {} } as never, {} as never), 'Steady after the last turn.', 'the run holds the reaction context the scenario was compiled with');
+      assert.equal(
+        JSON.stringify(hooks.fingerprintHook?.({ metrics: { harvest: 420, 'soil-health': 62, water: 3 } } as never, [], {} as never, {}, 6)),
+        JSON.stringify({ breadth: 'broad', summary: 'broad (3 scores held)' }),
+        'the run holds the fingerprint the scenario was compiled with',
+      );
     });
   });
 });
