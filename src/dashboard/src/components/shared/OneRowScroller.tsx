@@ -94,6 +94,9 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     // key was disabled: a control the person moved to keeps its focus.
     const active = document.activeElement;
     if (active && active !== document.body && active !== previousRef.current && active !== nextRef.current) return;
+    // And only while the key it leaves is disabled as drawn: a row that came
+    // back from its end before the keys were drawn keeps focus where it is.
+    if ((to === 'previous' ? nextRef : previousRef).current?.disabled !== true) return;
     (to === 'previous' ? previousRef : nextRef).current?.focus();
   }, [edges]);
 
