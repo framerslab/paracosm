@@ -4,12 +4,12 @@
  * and starts none: a new run starts from the Run tab's Start.
  *
  * Menu items, in order:
- *   1. ↻ Run Saved Simulation — expands into a scrollable grid of
+ *   1. ↻ Run Saved Simulation: expands into a scrollable grid of
  *      server-cached runs (same card layout the old LoadMenu used).
  *      Disabled when the /sessions catalog is empty.
- *   2. 🕘 Local history — the runs cached in this browser, when it holds
+ *   2. 🕘 Local history: the runs cached in this browser, when it holds
  *      any.
- *   3. 📁 Load from file — delegates to onLoadFromFile (pulls a
+ *   3. 📁 Load from file: delegates to onLoadFromFile (pulls a
  *      previously-Saved JSON off the user's disk).
  *
  * @module paracosm/cli/dashboard/components/layout/RunMenu
