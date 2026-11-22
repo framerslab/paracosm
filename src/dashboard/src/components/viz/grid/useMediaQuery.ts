@@ -28,4 +28,7 @@ export function useMediaQuery(query: string, initial = false): boolean {
  *  stay in sync about what "narrow" means. */
 export const NARROW_QUERY = '(max-width: 768px)';
 export const PHONE_QUERY = '(max-width: 480px)';
+/** Below 900 px a key is a phone's: 44 px wide and tall, and the Viz
+ *  toolbar keeps its diff and help keys in its More panel. */
+export const TOUCH_KEYS_QUERY = '(max-width: 899.98px)';
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';

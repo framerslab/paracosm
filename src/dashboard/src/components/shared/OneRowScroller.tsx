@@ -27,8 +27,10 @@ const VIEW_SHARE = 0.8;
  * A row of keys that stays one row at every width. When its keys are wider
  * than the row, the row scrolls sideways: the edge that hides keys fades, and
  * a Previous and a Next key stand at its ends. Each press moves the row about
- * one view, gliding, or in one step under reduced motion; a key is disabled
- * at its end, and a key that reaches its end hands focus to the other. While
+ * one view, gliding, or in one step under reduced motion. The keys follow
+ * where the row stands, read as it moves: a key is disabled once the row
+ * reaches its end, and a focused key the row reaches the end of hands focus
+ * to the other, whether a press, a swipe or a trackpad moved the row. While
  * the keys fit, the row shows no arrow keys and no fade.
  */
 export function OneRowScroller({ label, children, className, rowClassName, role, ariaLabel }: OneRowScrollerProps) {
@@ -51,6 +53,12 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     const end = row.scrollWidth - row.clientWidth;
     const previous = scrolls && row.scrollLeft > 1;
     const next = scrolls && row.scrollLeft < end - 1;
+    // A focused key about to be disabled hands focus to the other key rather
+    // than to the page. Its own disabled state is the one drawn now, so the
+    // keys change and the hand-over runs once they are drawn.
+    const active = document.activeElement;
+    if (active === nextRef.current && !nextRef.current?.disabled && !next && previous) handFocusTo.current = 'previous';
+    else if (active === previousRef.current && !previousRef.current?.disabled && !previous && next) handFocusTo.current = 'next';
     setEdges(e => (e.scrolls === scrolls && e.previous === previous && e.next === next ? e : { scrolls, previous, next }));
   }, []);
 
@@ -82,6 +90,13 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     const to = handFocusTo.current;
     if (!to) return;
     handFocusTo.current = null;
+    // Only while focus is still on an arrow key, or fell to the page when the
+    // key was disabled: a control the person moved to keeps its focus.
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== previousRef.current && active !== nextRef.current) return;
+    // And only while the key it leaves is disabled as drawn: a row that came
+    // back from its end before the keys were drawn keeps focus where it is.
+    if ((to === 'previous' ? nextRef : previousRef).current?.disabled !== true) return;
     (to === 'previous' ? previousRef : nextRef).current?.focus();
   }, [edges]);
 
@@ -91,14 +106,9 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     const end = row.scrollWidth - row.clientWidth;
     const left = Math.max(0, Math.min(end, row.scrollLeft + direction * row.clientWidth * VIEW_SHARE));
     const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const pressed = direction > 0 ? nextRef.current : previousRef.current;
-    const next = { scrolls: true, previous: left > 1, next: left < end - 1 };
-    // The pressed key is disabled at its end; focus moves to the other key
-    // rather than to the page.
-    if (document.activeElement === pressed && !(direction > 0 ? next.next : next.previous)) {
-      handFocusTo.current = direction > 0 ? 'previous' : 'next';
-    }
-    setEdges(next);
+    // The keys follow the row as it scrolls (measure): the pressed key stays
+    // enabled while the row glides and is disabled when the row arrives at
+    // its end, which is when focus goes on to the other key.
     row.scrollTo({ left, behavior: reduced ? 'auto' : 'smooth' });
   };
 
