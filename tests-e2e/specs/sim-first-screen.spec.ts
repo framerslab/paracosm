@@ -347,7 +347,8 @@ screenTest('feature 3: did not load, retry, offline', async ({ page, context }) 
       });
       const root = await openRun(page, PHONE, look);
       await expect(root.getByRole('status')).toHaveText(DID_NOT_LOAD);
-      await expect(root.locator('[data-mark="broken-link"]')).toBeVisible();
+      // The scenario line's own mark: Start's band draws one beside its offline sentence too.
+      await expect(root.getByTestId('scenario-line').locator('[data-mark="broken-link"]')).toBeVisible();
       const tryNow = root.getByRole('button', { name: 'Try now' });
       await expect(tryNow).toBeVisible();
       await expect(activeStart(root)).toHaveCount(0);
@@ -385,7 +386,7 @@ screenTest('feature 3: did not load, retry, offline', async ({ page, context }) 
       await context.setOffline(true);
       await first.route?.abort('internetdisconnected');
       await expect(root.getByRole('status')).toHaveText(OFFLINE);
-      await expect(root.locator('[data-mark="broken-link"]')).toBeVisible();
+      await expect(root.getByTestId('scenario-line').locator('[data-mark="broken-link"]')).toBeVisible();
       await expect(root.getByRole('button', { name: 'Try now' })).toBeVisible();
       await expect(activeStart(root)).toHaveCount(0);
       await picture(page, `scenario-line-offline-390-${look}`);
