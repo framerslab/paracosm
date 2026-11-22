@@ -478,3 +478,103 @@ for (const look of LOOKS) {
     }
   });
 }
+
+// ── Review findings: the row's room, the turn's time, the "+N more" line ──
+
+test('the event row shows its Previous and Next keys as soon as its parts are wider than the room inside its padding', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openViz(page, request, 'pair', 'dark', sizeOf(1440), 60_000);
+  const row = eventRow(page);
+  await expect(row).toBeVisible();
+  // What the row needs for its parts and its own padding; the strip's
+  // padding and the row's margins; the strip's width in the window.
+  const measure = () => row.evaluate((el) => {
+    el.scrollLeft = 0;
+    const box = el.parentElement!;
+    const cs = getComputedStyle(el);
+    const bs = getComputedStyle(box);
+    const rects = Array.from(el.children).map(c => c.getBoundingClientRect()).filter(r => r.width > 0);
+    const parts = Math.max(...rects.map(r => r.right)) - Math.min(...rects.map(r => r.left));
+    return {
+      needed: Math.ceil(parts + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)),
+      inside: parseFloat(bs.paddingLeft) + parseFloat(bs.paddingRight) + parseFloat(cs.marginLeft) + parseFloat(cs.marginRight),
+      box: box.clientWidth,
+      viewport: window.innerWidth,
+    };
+  });
+  // A strip whose room inside its padding is 8 px short of what the row
+  // needs: its own width is the parts' width less 8 px, plus its padding
+  // and the row's margins.
+  const first = await measure();
+  const target = first.needed - 8 + first.inside;
+  let at = first;
+  for (let i = 0; i < 3 && Math.abs(at.box - target) > 0.5; i += 1) {
+    await page.setViewportSize({ width: Math.round(at.viewport + target - at.box), height: 844 });
+    await painted(page);
+    at = await measure();
+  }
+  // The test's own ground: the strip stands at that width, and the row's parts do not fit in it.
+  expect(Math.abs(at.box - target), `the strip is ${at.box} px wide, the ${target} px that leaves the row 8 px short (window ${at.viewport} px)`).toBeLessThanOrEqual(0.5);
+  await picture(page, `${at.viewport}-dark-viz-event-row-8px-short`, row, 220);
+  const read = await readRow(row);
+  expect(read.scrollWidth, `the row's parts (${read.scrollWidth} px) are wider than the row (${read.clientWidth} px)`).toBeGreaterThan(read.clientWidth + 1);
+  const where = `${at.viewport}, dark, the event row 8 px short of room`;
+  if (await expectScrollParts(row, read, where, at.viewport)) await expectScrollKeys(page, row, where);
+});
+
+test('on a phone the play controls keep the turn\'s time when the turn has no title and the banner above it is not drawn', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const id = await pairSessionId(request);
+  // The stored pair run as the server replays it, with turn 2's title taken
+  // out, as the orchestrator sends a turn that has no events.
+  await page.route(url => url.pathname === `/sessions/${id}/replay`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).split('\n\n').map((chunk) => {
+      if (!/^event: sim$/m.test(chunk)) return chunk;
+      return chunk.replace(/^data: (.+)$/m, (_line, json: string) => {
+        const frame = JSON.parse(json) as { type?: string; data?: { turn?: number; title?: string } };
+        if ((frame.type === 'turn_start' || frame.type === 'event_start') && frame.data?.turn === 2) frame.data.title = '';
+        return `data: ${JSON.stringify(frame)}`;
+      });
+    }).join('\n\n');
+    await route.fulfill({ response, body });
+  });
+  await openViz(page, request, 'pair', 'dark', sizeOf(1440), 60_000);
+  // The test's own ground: on turn 2 the banner is not drawn, and the play
+  // controls name the turn and its time at 1440.
+  await expect(page.getByRole('img', { name: /^Aria Chen colony, turn 2\./ })).toBeAttached();
+  await expect(page.getByRole('status', { name: 'Current turn narrative' }), 'turn 2 has no title, so its banner is not drawn').toHaveCount(0);
+  const wide = (await readRow(playRow(page))).text;
+  const label = /T2\/2 · \S+/.exec(wide)?.[0];
+  expect(label, `the play controls name turn 2 and its time at 1440 ("${wide}")`).toBeTruthy();
+
+  for (const width of [390, 320] as const) {
+    await page.setViewportSize(sizeOf(width));
+    await painted(page);
+    await picture(page, `${width}-dark-viz-play-row-untitled-turn`);
+    const read = await readRow(playRow(page));
+    expect.soft(read.text, `${width}: with no banner above, the play controls still give the turn's time ("${label}")`).toContain(label!);
+  }
+});
+
+test('on a phone the turn words of the 24-actor run point to the rest of its actors in the view that shows them', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openViz(page, request, RUNS.dozens, 'dark', { width: 390, height: 844 }, 90_000);
+  const more = page.locator('[role="status"] div').filter({ hasText: /^\+\d+ more/ });
+
+  // The cohort view: the words stand below the cohort grid, so the rest are above them.
+  await openKey(page).click();
+  await expect(more).toHaveCount(1);
+  expect.soft(await more.textContent(), 'in the cohort view the rest of the actors are in the cohort grid above the words').toMatch(/cohort grid above/);
+  await foldKey(page).click();
+
+  // Focus pair: no cohort grid is on screen, so the line names the view that shows every actor.
+  await page.getByRole('tab', { name: 'Focus pair', exact: true }).click();
+  await expect(page.getByRole('region', { name: /^Cohort swarm grid/ })).toHaveCount(0);
+  await openKey(page).click();
+  await expect(more).toHaveCount(1);
+  const words = await more.textContent();
+  await picture(page, '390-dark-focus-pair-more-line');
+  expect.soft(words, `under Focus pair no cohort grid is on screen ("${words}")`).not.toMatch(/cohort grid (above|below)/);
+  expect.soft(words, `under Focus pair the line names the view with every actor ("${words}")`).toMatch(/All 24 actors/);
+});
