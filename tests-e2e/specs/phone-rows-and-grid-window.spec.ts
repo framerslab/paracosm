@@ -766,11 +766,12 @@ test('below 900 px the Viz toolbar holds its diff and help keys in its More pane
           .map(b => b.getAttribute('aria-label') ?? '')
           .filter(name => /^(Show|Hide) A-vs-B diff overlay|^Open help overlay/.test(name)));
         if (read.scrolls) expect.soft(inRow, `${size.width} x ${size.height}, ${mode}: the toolbar scrolls (${read.scrollWidth} of ${read.clientWidth} px) with keys its More panel holds`).toEqual([]);
-        // Every key the toolbar has stays in reach, in its row or its More panel.
+        // Below 900 px the diff and help keys stand in the More panel, whether
+        // or not the row would have room for them.
         await moreKey(page).click();
         await expect(morePanel(page)).toBeVisible();
-        await expect.soft(page.getByRole('button', { name: /^(Show|Hide) A-vs-B diff overlay/ }), `${size.width} x ${size.height}, ${mode}: the diff key is in reach`).toBeVisible();
-        await expect.soft(page.getByRole('button', { name: 'Open help overlay (shortcut: ?)', exact: true }), `${size.width} x ${size.height}, ${mode}: the help key is in reach`).toBeVisible();
+        await expect.soft(morePanel(page).getByRole('button', { name: /^(Show|Hide) A-vs-B diff overlay/ }), `${size.width} x ${size.height}, ${mode}: the diff key is in the More panel`).toBeVisible();
+        await expect.soft(morePanel(page).getByRole('button', { name: 'Open help overlay (shortcut: ?)', exact: true }), `${size.width} x ${size.height}, ${mode}: the help key is in the More panel`).toBeVisible();
         await moreKey(page).click();
         await expect(morePanel(page)).toBeHidden();
       });

@@ -90,6 +90,10 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     const to = handFocusTo.current;
     if (!to) return;
     handFocusTo.current = null;
+    // Only while focus is still on an arrow key, or fell to the page when the
+    // key was disabled: a control the person moved to keeps its focus.
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== previousRef.current && active !== nextRef.current) return;
     (to === 'previous' ? previousRef : nextRef).current?.focus();
   }, [edges]);
 
