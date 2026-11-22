@@ -31,7 +31,16 @@ import {
   fallbackProvidersFor,
   resolveProviderFromCredentials,
 } from '../provider/credentials.js';
-import { readCache, writeCache, readSeedBundleCache, writeSeedBundleCache, seedSignature } from './cache.js';
+import {
+  COMPILE_SCHEMA_VERSION,
+  cachedHooksModel,
+  readCache,
+  writeCache,
+  readSeedBundleCache,
+  writeSeedBundleCache,
+  seedSignature,
+} from './cache.js';
+import { HOOK_NAMES, recordHookSources, type CompiledHookSources, type HookName } from './hook-sources.js';
 import { generateProgressionHook, parseResponse as parseProgression } from './generate-progression.js';
 import { generateDirectorInstructions } from './generate-director.js';
 import { generateMilestones, parseMilestones } from './generate-milestones.js';
@@ -45,6 +54,7 @@ import { removedBuiltInNamedIn } from './own-context.js';
 import type { MilestoneEventDef } from '../types.js';
 
 export type { CompileOptions, GenerateTextFn };
+export type { CompiledHookSources } from './hook-sources.js';
 export { ingestSeed, ingestFromUrl } from './seed-ingestion.js';
 export type { SeedIngestionOptions } from './seed-ingestion.js';
 
@@ -82,16 +92,33 @@ async function buildDefaultGenerateText(provider: LlmProvider, model: string, ap
   };
 }
 
-/** Hook names in generation order. */
-const HOOK_NAMES = [
-  'progression',
-  'director',
-  'prompts',
-  'milestones',
-  'fingerprint',
-  'politics',
-  'reactions',
-] as const;
+/**
+ * The text function of a restore. It calls no model and answers every
+ * request with nothing, so a hook that neither the saved sources nor the
+ * cache hold gets its generator's own fallback, as it did in the compile
+ * whose model calls for it failed.
+ */
+const callsNoModel: GenerateTextFn = async () => '';
+
+/**
+ * Where a restore takes its hooks from: the saved sources, when they were
+ * generated under the current compile schema version; else the disk cache,
+ * when it holds hooks of this exact scenario JSON, under the model that
+ * wrote them. Null when neither holds a hook. Sources of an older schema
+ * version are not used: raising the version generates the hooks again.
+ */
+function restoreFrom(
+  json: Record<string, unknown>,
+  saved: CompiledHookSources | undefined,
+  cache: boolean,
+  cacheDir: string,
+): { model: string; saved?: Partial<Record<HookName, string>> } | null {
+  if (saved && saved.schemaVersion === COMPILE_SCHEMA_VERSION && Object.keys(saved.hooks).length > 0) {
+    return { model: saved.model, saved: saved.hooks };
+  }
+  const cachedModel = cache ? cachedHooksModel(json, cacheDir) : null;
+  return cachedModel === null ? null : { model: cachedModel };
+}
 
 /**
  * Derive a runId-friendly shortName from a scenario id when the seed
@@ -220,39 +247,59 @@ export async function compileScenario(
     onProgress,
   } = options;
 
-  // Preflight: if the requested provider has no API key in env, fall
-  // through to another supported provider that does. This turns the
-  // silent retry-forever failure mode (seen on the landing-page example
-  // when ANTHROPIC_API_KEY was not set) into either a clean fallback
-  // or a loud ProviderKeyMissingError at the top of the run.
-  const requestedProvider = resolveProviderFromCredentials(requestedProviderRaw, options, 'openai');
-  const requestedProviderApiKey = apiKeyForProvider(requestedProvider, options);
-  const resolved = options.generateText
-    ? { provider: requestedProvider, fellBack: false, requested: requestedProvider }
-    : resolveProviderWithFallback(requestedProvider, { apiKey: requestedProviderApiKey, stayOnProvider: options.stayOnProvider });
-  const provider = resolved.provider;
-  // When fallback kicked in, the caller's model (if any) was chosen for
-  // the requested provider and will not work on the fallback. Force the
-  // fallback provider's default model in that case and log the swap.
-  const fallbackDefaultModel = provider === 'openai' ? 'gpt-5.4-mini' : 'claude-sonnet-4-6';
-  const model = resolved.fellBack
-    ? fallbackDefaultModel
-    : (requestedModel ?? fallbackDefaultModel);
-  if (resolved.fellBack && requestedModel && requestedModel !== model) {
-    console.warn(
-      `[paracosm] Requested model '${requestedModel}' was for provider '${resolved.requested}'; ` +
-      `using '${model}' on the fallback provider '${provider}'.`,
+  const json = scenarioJson as Record<string, any>;
+
+  // A restore of a saved compiled scenario (`options.restore`) rebuilds the
+  // hooks from its saved sources, or from the disk cache, under the model
+  // that generated them: no provider is resolved and no model is called, so
+  // a host restores it whatever keys it holds. When neither holds a hook,
+  // the scenario compiles as the other options say.
+  const restoring = options.restore
+    ? restoreFrom(json, options.restore.hookSources, cache, cacheDir)
+    : null;
+
+  let model: string;
+  let genText: GenerateTextFn;
+  if (restoring) {
+    model = restoring.model;
+    genText = callsNoModel;
+  } else {
+    // Preflight: if the requested provider has no API key in env, fall
+    // through to another supported provider that does. This turns the
+    // silent retry-forever failure mode (seen on the landing-page example
+    // when ANTHROPIC_API_KEY was not set) into either a clean fallback
+    // or a loud ProviderKeyMissingError at the top of the run.
+    const requestedProvider = resolveProviderFromCredentials(requestedProviderRaw, options, 'openai');
+    const requestedProviderApiKey = apiKeyForProvider(requestedProvider, options);
+    const resolved = options.generateText
+      ? { provider: requestedProvider, fellBack: false, requested: requestedProvider }
+      : resolveProviderWithFallback(requestedProvider, { apiKey: requestedProviderApiKey, stayOnProvider: options.stayOnProvider });
+    const provider = resolved.provider;
+    // When fallback kicked in, the caller's model (if any) was chosen for
+    // the requested provider and will not work on the fallback. Force the
+    // fallback provider's default model in that case and log the swap.
+    const fallbackDefaultModel = provider === 'openai' ? 'gpt-5.4-mini' : 'claude-sonnet-4-6';
+    model = resolved.fellBack
+      ? fallbackDefaultModel
+      : (requestedModel ?? fallbackDefaultModel);
+    if (resolved.fellBack && requestedModel && requestedModel !== model) {
+      console.warn(
+        `[paracosm] Requested model '${requestedModel}' was for provider '${resolved.requested}'; ` +
+        `using '${model}' on the fallback provider '${provider}'.`,
+      );
+    }
+
+    genText = options.generateText ?? await buildDefaultGenerateText(
+      provider,
+      model,
+      apiKeyForProvider(provider, options),
+      options.stayOnProvider,
     );
   }
-
-  const genText = options.generateText ?? await buildDefaultGenerateText(
-    provider,
-    model,
-    apiKeyForProvider(provider, options),
-    options.stayOnProvider,
-  );
-  const json = scenarioJson as Record<string, any>;
   const hooks: ScenarioHooks = {};
+  // The source of each hook restored or generated here (never a fallback's),
+  // recorded with the scenario so the server's writer can save them.
+  const sources: Partial<Record<HookName, string>> = {};
 
   // Generate each hook in parallel, using cache when available.
   //
@@ -271,6 +318,19 @@ export async function compileScenario(
   // `'// No-op: generation failed'` was cached for `progression`, then
   // crashed the sandbox at parse on every subsequent simulate.
   await Promise.all(HOOK_NAMES.map(async (hookName) => {
+    // A restore takes the hook's saved source first, checked as a cached
+    // source is (`restoreHookFromCache`).
+    const savedSource = restoring?.saved?.[hookName];
+    if (savedSource !== undefined) {
+      const restored = restoreHookFromCache(hookName, savedSource);
+      if (restored) {
+        onProgress?.(hookName, 'cached');
+        Object.assign(hooks, restored);
+        sources[hookName] = savedSource;
+        return;
+      }
+    }
+
     // Try to restore from cache first.
     //
     // `restoreHookFromCache` validates the cached source via the same
@@ -288,54 +348,61 @@ export async function compileScenario(
         if (restored) {
           onProgress?.(hookName, 'cached');
           Object.assign(hooks, restored);
+          sources[hookName] = cached;
           return;
         }
       }
     }
 
     onProgress?.(hookName, 'generating');
+    // A generated source is kept, and cached, unless it is the fallback's.
+    const keep = (result: { source: string; fromFallback: boolean }): void => {
+      if (result.fromFallback) return;
+      sources[hookName] = result.source;
+      if (cache) writeCache(json, hookName, result.source, model, cacheDir);
+    };
 
     switch (hookName) {
       case 'progression': {
         const result = await generateProgressionHook(json, genText, { telemetry: options.telemetry });
         hooks.progressionHook = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'director': {
         const result = await generateDirectorInstructions(json, genText, { telemetry: options.telemetry });
         hooks.directorInstructions = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'prompts': {
         const result = await generateDepartmentPromptHook(json, genText, { telemetry: options.telemetry });
         hooks.departmentPromptHook = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'milestones': {
         const result = await generateMilestones(json, genText, { telemetry: options.telemetry });
         hooks.getMilestoneEvent = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'fingerprint': {
         const result = await generateFingerprintHook(json, genText, { telemetry: options.telemetry });
         hooks.fingerprintHook = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'politics': {
         const result = await generatePoliticsHook(json, genText, { telemetry: options.telemetry });
         hooks.politicsHook = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
       case 'reactions': {
         const result = await generateReactionContextHook(json, genText, { telemetry: options.telemetry });
         hooks.reactionContextHook = result.hook;
-        if (cache && !result.fromFallback) writeCache(json, hookName, result.source, model, cacheDir);
+        keep(result);
         break;
       }
     }
@@ -347,8 +414,9 @@ export async function compileScenario(
   // Cached on disk by seed signature (text/URL + maxSearches + webSearch flag)
   // so re-running a compile with the same seed never re-fetches pages or
   // re-runs the extraction LLM call.
+  // A restore reads no seed: the saved scenario's knowledge is in its JSON.
   let knowledge = json.knowledge ?? { topics: {}, categoryMapping: {} };
-  if (options.seedUrl || options.seedText) {
+  if (!restoring && (options.seedUrl || options.seedText)) {
     const sig = seedSignature({
       seedText: options.seedText,
       seedUrl: options.seedUrl,
@@ -424,7 +492,7 @@ export async function compileScenario(
     ),
   };
 
-  return {
+  const scenario = {
     id: json.id ?? 'compiled-scenario',
     version: json.version ?? '1.0.0',
     engineArchetype: json.engineArchetype ?? 'closed_turn_based_settlement',
@@ -468,6 +536,8 @@ export async function compileScenario(
     presets: json.presets ?? [],
     hooks,
   } as ScenarioPackage;
+  recordHookSources(hooks, { schemaVersion: COMPILE_SCHEMA_VERSION, model, hooks: sources });
+  return scenario;
 }
 
 /** Merge two knowledge bundles, combining topics and category mappings. */

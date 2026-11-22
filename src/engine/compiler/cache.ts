@@ -105,6 +105,31 @@ function cacheDir(scenarioId: unknown, version: unknown, baseDir: string): strin
   return join(baseDir, `${readable}-${digest}`);
 }
 
+/**
+ * The model the cache holds hooks of this exact scenario JSON under, or
+ * null when it holds none for it. The cache keeps one model for a
+ * scenario's id and version, so a restore reads the hooks back under the
+ * model that wrote them (`CompileOptions.restore`, ./index.ts).
+ */
+export function cachedHooksModel(
+  scenarioJson: Record<string, unknown>,
+  baseDir = DEFAULT_CACHE_DIR,
+): string | null {
+  const id = (scenarioJson as any).id ?? 'unknown';
+  const ver = (scenarioJson as any).version ?? '0.0.0';
+  const manifestPath = join(cacheDir(id, ver, baseDir), 'manifest.json');
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const manifest: CacheManifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    if (manifest.scenarioHash !== hashScenario(scenarioJson)) return null;
+    if (typeof manifest.model !== 'string' || manifest.model === '') return null;
+    if (!manifest.hooks || typeof manifest.hooks !== 'object' || Object.keys(manifest.hooks).length === 0) return null;
+    return manifest.model;
+  } catch {
+    return null;
+  }
+}
+
 /** Read a cached hook result. Returns null on cache miss. */
 export function readCache(
   scenarioJson: Record<string, unknown>,

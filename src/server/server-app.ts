@@ -1449,13 +1449,16 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     return false;
   };
 
-  // Boot-time hydration of persisted compile-from-seed scenarios.
-  // Drafts on disk get lazy-compiled in the background — server boot
-  // doesn't await this so a cold cache (50 drafts × 30s LLM each)
-  // never blocks the listen() port. As each compile resolves the
-  // scenario lands in the catalog and shows up in subsequent
-  // /scenarios responses; the picker is eventually-consistent within
-  // a few seconds on warm cache, a few minutes on cold.
+  // Boot-time restore of persisted compile-from-seed scenarios, in the
+  // background: server boot doesn't await it, so the listen() port never
+  // waits on it. Each saved scenario's hooks are rebuilt from the sources
+  // saved with it, or for a file written before files carried them, from
+  // the compiler's disk cache under the model that wrote them, with no
+  // model call and on any host, whatever provider keys it holds
+  // (`restore` in CompileOptions). Only a saved draft whose hooks neither
+  // holds is compiled again, at the going rate (50 drafts x 30s LLM each
+  // when every one is cold). As each one resolves the scenario lands in
+  // the catalog and shows up in subsequent /scenarios responses.
   void (async () => {
     let saved;
     try {
@@ -1477,7 +1480,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       hydratingScenarioIds.add(id);
       compiledEntryInfo.set(id, { enteredAt: Date.parse(meta.compiledAt) || 0, address: null });
     }
-    console.log(`[scenarios] re-compiling ${drafts.length} persisted compiled draft(s) from disk…`);
+    console.log(`[scenarios] restoring ${drafts.length} persisted compiled draft(s) from disk…`);
     // Wrap the dynamic import + per-draft loop in its own try-catch
     // so a module-resolution failure (deploy with broken compiler
     // bundle, fs hiccup) doesn't surface as an unhandled promise
@@ -1489,22 +1492,26 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // in a stub compiler that returns a fixture without LLM cost).
     // Fallback dynamically-imports the real compileScenario for
     // the production happy path.
-    // On the hosted demo the host's keys pay for this compile, so it runs on
-    // OpenAI and falls back to no other provider (hosted-model-policy.ts).
+    // On the hosted demo the host's keys pay for a compile here, which runs
+    // only for a draft whose hooks are neither saved nor cached, so it runs
+    // on OpenAI and falls back to no other provider (hosted-model-policy.ts);
+    // a host with no OpenAI key leaves such a draft out. A restore resolves
+    // no provider, so the routing does not touch it.
     const hostedCompileRouting = serverMode === 'hosted_demo' ? { provider: 'openai' as const, stayOnProvider: true } : {};
     try {
       const compileScenario = options.compileScenario
         ?? (await import('../engine/compiler/index.js')).compileScenario;
-      for (const { id, draft, meta } of drafts) {
+      for (const { id, draft, meta, hookSources } of drafts) {
         try {
           if (!hydratingScenarioIds.has(id)) {
             console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog while boot re-compiled it`);
             continue;
           }
-          // Cache: true means we hit the local hook-source cache. With
-          // a warm cache this is ~10ms per draft; with a cold cache the
-          // hooks regenerate via LLM at the going rate.
-          const compiled = await compileScenario(draft as Record<string, unknown>, { cache: true, ...hostedCompileRouting });
+          const compiled = await compileScenario(draft as Record<string, unknown>, {
+            cache: true,
+            ...hostedCompileRouting,
+            restore: hookSources ? { hookSources } : {},
+          });
           if (!hydratingScenarioIds.has(id)) {
             console.log(`[scenarios] left out the persisted compiled draft ${id}: it left the catalog while boot re-compiled it`);
             continue;
