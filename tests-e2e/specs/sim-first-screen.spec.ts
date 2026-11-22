@@ -2964,6 +2964,8 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
           const canvas = panel.locator('canvas');
           await expect(canvas).toHaveCount(1);
           await panel.scrollIntoViewIfNeeded();
+          // The field keeps a height its cells can be read at, under the figures strip, at every width.
+          expect((await box(panel.locator('[data-testid^="living-colony-field-"]'))).height, `panel ${place + 1}'s field`).toBeGreaterThanOrEqual(189);
           await expect.poll(() => canvas.evaluate(countTiles), { message: `panel ${place + 1} draws its Game of Life cells`, timeout: 30_000 }).toBeGreaterThan(0);
           // The cells ease in, so the colours are read until they show: how far the panel's own colour leads the other's.
           await expect
