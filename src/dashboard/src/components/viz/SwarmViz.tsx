@@ -8,6 +8,7 @@ import { useVizSnapshots } from './useVizSnapshots.js';
 import { CohortSwarmGrid } from './CohortSwarmGrid.js';
 import { TurnBanner, turnHeadline } from './TurnBanner.js';
 import { VizControls } from './VizControls.js';
+import { KeyLegend, type KeyHint } from './KeyLegend.js';
 import { LivingSwarmGrid } from './grid/LivingSwarmGrid.js';
 import { GridModePills, gridModeHint, type GridMode } from './grid/GridModePills.js';
 import { GridHelpOverlay } from './grid/GridHelpOverlay.js';
@@ -69,14 +70,6 @@ function aggregateByDept(snap: TurnSnapshot | undefined): DiffCell[] {
   return out;
 }
 
-function Kbd({ k, v }: { k: string; v: string }) {
-  return (
-    <span className={styles.kbd}>
-      <kbd className={styles.kbdKey}>{k}</kbd>
-      <span className={styles.kbdLabel}>{v}</span>
-    </span>
-  );
-}
 import {
   computeDivergence,
   type CellSnapshot,
@@ -1024,6 +1017,17 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     return computeCellDiff(aCells, bCells);
   }, [diffOverlayOn, snapsA, snapsB, currentTurn]);
 
+  // The keyboard legend's hints, most useful first: a narrow row keeps the
+  // first ones and a key to the help overlay's full list.
+  const legendHints = useMemo<KeyHint[]>(() => [
+    { k: '?', v: 'help' },
+    { k: '1-5', v: 'mode' },
+    { k: '\u2190 \u2192', v: 'scrub turn' },
+    { k: 'space', v: 'play / pause' },
+    { k: 'click', v: `${scenarioLabels.person} drilldown` },
+    { k: 'esc', v: 'close popover' },
+  ], [scenarioLabels.person]);
+
   if (maxTurn === 0) {
     // Running but no first-turn snapshot yet: the run starts with
     // research + commander prompts that take ~10-30s before the first
@@ -1107,9 +1111,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       ? Help
     </button>
   );
-  // On a phone the turn's lines stand below the living grid in its scroll
-  // window, in the pair view (one grid at a time) and in the cohort view, so
-  // opening them never shrinks the grid's window.
+  // On a phone the turn's lines stand below the living grid, in the pair
+  // view (one grid at a time) and in the cohort view, so opening them never
+  // moves the grid or covers it.
   const linesBelowGrid = phone;
   // The banner names the turn and its time only on a turn with a title; on a
   // phone the play controls leave the time to it only then.
@@ -1120,6 +1124,12 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         ref={vizRootRef}
         className={`viz-content ${styles.root}`}
       >
+        {/* The panel's parts in their order. Above 480 px this box lays out as
+            if absent. On a phone it scrolls as one, so the living grid shows
+            whole under the controls and, on a short screen, every control and
+            the turn's outcomes stay a scroll away; the drawers and notices
+            after it keep their places over the panel. */}
+        <div className={styles.body}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
@@ -1500,39 +1510,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
-        <VizControls
-          currentTurn={currentTurn}
-          maxTurn={maxTurn}
-          time={snapA?.time ?? snapB?.time ?? 0}
-          timeInBanner={timeInBanner}
-          playing={playing}
-          speed={speed}
-          onTurnChange={handleTurnChange}
-          onPlayPause={handlePlayPause}
-          onStepBack={handleStepBack}
-          onStepForward={handleStepForward}
-          onSpeedChange={setSpeed}
-        />
-        <div className={styles.footerKeys}>
-          <Kbd k="?" v="help" />
-          <Kbd k="1-5" v="mode" />
-          <Kbd k="← →" v="scrub turn" />
-          <Kbd k="space" v="play / pause" />
-          <Kbd k="click" v={`${scenarioLabels.person} drilldown`} />
-          <Kbd k="esc" v="close popover" />
-        </div>
-        {/* Off-screen aria-live region announces turn deltas to
-            screen readers without visual change. Only updates when
-            the turn index changes. */}
-        <div
-          aria-live="polite"
-          aria-atomic="true"
-          className={styles.srOnly}
-        >
-          {snapA && snapB
-            ? `Turn ${Math.max(snapA.turn, snapB.turn)}. ${leaderA?.name ?? 'A'} ${scenarioLabels.place}: ${snapA.cells.filter(c => c.alive).length} alive, ${snapA.births} born, ${snapA.deaths} died, morale ${Math.round(snapA.morale * 100)}%. ${leaderB?.name ?? 'B'} ${scenarioLabels.place}: ${snapB.cells.filter(c => c.alive).length} alive, ${snapB.births} born, ${snapB.deaths} died, morale ${Math.round(snapB.morale * 100)}%.`
-            : ''}
-        </div>
+        {/* Over the panel's foot wider than a phone; on a phone it stands in
+            the flow above the play controls, never over the grid. */}
         {maxTurn > 1 && currentTurn < maxTurn - 1 && (
           <button
             type="button"
@@ -1546,6 +1525,33 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             </span>
           </button>
         )}
+        <VizControls
+          currentTurn={currentTurn}
+          maxTurn={maxTurn}
+          time={snapA?.time ?? snapB?.time ?? 0}
+          timeInBanner={timeInBanner}
+          playing={playing}
+          speed={speed}
+          onTurnChange={handleTurnChange}
+          onPlayPause={handlePlayPause}
+          onStepBack={handleStepBack}
+          onStepForward={handleStepForward}
+          onSpeedChange={setSpeed}
+        />
+        <KeyLegend hints={legendHints} onShowAll={() => setHelpOpen(true)} />
+        {/* Off-screen aria-live region announces turn deltas to
+            screen readers without visual change. Only updates when
+            the turn index changes. */}
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          className={styles.srOnly}
+        >
+          {snapA && snapB
+            ? `Turn ${Math.max(snapA.turn, snapB.turn)}. ${leaderA?.name ?? 'A'} ${scenarioLabels.place}: ${snapA.cells.filter(c => c.alive).length} alive, ${snapA.births} born, ${snapA.deaths} died, morale ${Math.round(snapA.morale * 100)}%. ${leaderB?.name ?? 'B'} ${scenarioLabels.place}: ${snapB.cells.filter(c => c.alive).length} alive, ${snapB.births} born, ${snapB.deaths} died, morale ${Math.round(snapB.morale * 100)}%.`
+            : ''}
+        </div>
+        </div>
         <GridHelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
         <GridSettingsDrawer
           open={settingsOpen}

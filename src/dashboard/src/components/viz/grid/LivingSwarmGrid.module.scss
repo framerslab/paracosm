@@ -42,6 +42,14 @@
   transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
+// On a phone the grid comes first in its box and the colony's stats card
+// stands under it, so the grid is in view as soon as the Viz panel is,
+// never below the card. The grid keeps the height it has wider: the box's
+// height less the card's.
+@media (max-width: 480px) {
+  .canvasWrap { order: -1; }
+}
+
 .canvas {
   position: absolute;
   inset: 0;
