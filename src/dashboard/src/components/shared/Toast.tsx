@@ -75,6 +75,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
+      {/* What a screen reader hears: a polite status region, on the page
+          before any toast shows, that holds the words of each toast shown.
+          It is not atomic, so a toast added beside another is read alone,
+          and words leave it with their toast. The stack below is what the
+          eye sees, with each toast's Dismiss key. */}
+      <div role="status" aria-label="Notifications" aria-atomic="false" className="sr-only">
+        {toasts.map(t => (
+          <p key={t.id}>{t.message ? `${t.title}. ${t.message}` : t.title}</p>
+        ))}
+      </div>
       <div style={{
         position: 'fixed', top: 56, right: 16, zIndex: 100000,
         display: 'flex', flexDirection: 'column', gap: 8,
