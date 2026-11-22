@@ -318,12 +318,12 @@
 
 // On a phone the pair view's grid fills the scroll window whether the turn's
 // lines are open or folded; the lines stand below it, a scroll away. The
-// grid's box is never shorter than the grid (420 px at least on a phone,
-// LivingSwarmGrid.module.scss), so the lines start below the grid's end
-// rather than over its lower part.
+// grid's box takes the grid's own height (420 px at least on a phone,
+// LivingSwarmGrid.module.scss) and at least the window's, so the lines start
+// below the grid's end rather than over its lower part.
 .leadersRowLinesBelow > .sideWrap {
-  flex: 0 0 100%;
-  min-height: auto;
+  flex: 0 0 auto;
+  min-height: 100%;
 }
 
 // The turn's lines below the grid, in the turn banner's own type and ground.
