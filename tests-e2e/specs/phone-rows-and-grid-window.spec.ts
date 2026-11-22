@@ -205,6 +205,20 @@ async function expectOneRow(page: Page, row: Locator, where: string, width: numb
 }
 
 /**
+ * Presses a scroll key and waits until the row has moved and then stands
+ * still across two frames, so the next read sees the glide's end. The keys
+ * are enabled only while more than 1 px is left, so every press moves the row.
+ */
+async function pressAndSettle(row: Locator, key: Locator, message: string): Promise<void> {
+  const from = await row.evaluate(el => el.scrollLeft);
+  await key.click();
+  await expect.poll(() => row.evaluate((el, start) => new Promise<boolean>((resolve) => {
+    const at = el.scrollLeft;
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(Math.abs(at - start) > 0.25 && el.scrollLeft === at)));
+  }), from), { message }).toBe(true);
+}
+
+/**
  * The Previous and Next keys of a row that scrolls: disabled at their ends,
  * each press about one view, a glide with motion and one step without.
  */
@@ -226,17 +240,15 @@ async function expectScrollKeys(page: Page, row: Locator, where: string): Promis
     w.__rowCounter = { el, count };
     return { view: el.clientWidth, end: el.scrollWidth - el.clientWidth };
   });
-  await next.click();
+  await pressAndSettle(row, next, `${where}: Next moves the row and it comes to rest`);
   await expect.poll(() => row.evaluate(el => el.scrollLeft), { message: `${where}: Next moves about one view` })
     .toBeGreaterThanOrEqual(Math.min(counted.view * 0.5, counted.end) - 1);
-  await page.waitForTimeout(600);
   expect.soft(await page.evaluate(() => (window as unknown as { __rowScrolls: number }).__rowScrolls), `${where}: the press glides through several frames`).toBeGreaterThan(1);
   await expect.soft(previous, `${where}: Previous is enabled once the row has moved`).toBeEnabled();
 
   // To the end: Next is disabled there.
   for (let i = 0; i < 12 && !(await next.isDisabled()); i += 1) {
-    await next.click();
-    await page.waitForTimeout(500);
+    await pressAndSettle(row, next, `${where}: Next press ${i + 2} moves the row and it comes to rest`);
   }
   await expect.soft(next, `${where}: Next is disabled at the end`).toBeDisabled();
   expect.soft(await row.evaluate(el => el.scrollWidth - el.clientWidth - el.scrollLeft), `${where}: Next brought the row to its end`).toBeLessThanOrEqual(1);
@@ -488,9 +500,10 @@ for (const look of LOOKS) {
     await lookShown(page, look);
     await expect(page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${run.turns}\\.`) })).toBeAttached({ timeout: 30_000 });
 
-    // Each turn from the last back to the first: the words' length, and the
-    // grid's window with them open and folded.
-    const turns: Array<{ turn: number; words: number; open: number; folded: number }> = [];
+    // Each turn from the last back to the first: the words' length, how much
+    // of the grid shows with them open and folded, and the scroll window's own
+    // height in both states.
+    const turns: Array<{ turn: number; words: number; open: number; folded: number; openWindow: number; foldedWindow: number }> = [];
     for (let turn = run.turns; turn >= 1; turn -= 1) {
       if (turn < run.turns) {
         await stepBack(page).click();
@@ -507,7 +520,7 @@ for (const look of LOOKS) {
       const folded = await gridWindow(page);
       await openKey(page).click();
       await expect(foldKey(page)).toBeVisible();
-      turns.push({ turn, words, open: open.shown, folded: folded.shown });
+      turns.push({ turn, words, open: open.shown, folded: folded.shown, openWindow: open.window, foldedWindow: folded.window });
     }
 
     // Pictures of the turn with the longest words, open and folded, at 390 and at 1440.
@@ -527,6 +540,7 @@ for (const look of LOOKS) {
     for (const t of turns) {
       expect.soft(t.folded, `T${t.turn}: the grid shows in its window with the words folded`).toBeGreaterThan(0);
       expect.soft(t.open, `T${t.turn} (${t.words} characters of words): with the words open the grid keeps a window of ${t.open.toFixed(1)} px, at least the ${t.folded.toFixed(1)} px it has with them folded`).toBeGreaterThanOrEqual(t.folded - 0.5);
+      expect.soft(t.openWindow, `T${t.turn}: with the words open the grid's scroll window is ${t.openWindow.toFixed(1)} px tall, at least the ${t.foldedWindow.toFixed(1)} px it is with them folded`).toBeGreaterThanOrEqual(t.foldedWindow - 0.5);
     }
     expect(longest.words, 'the run has turn words to read').toBeGreaterThan(0);
   });
