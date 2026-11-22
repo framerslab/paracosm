@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { GameState, ActorSideState } from '../../hooks/useGameState.js';
 import { humanizeOutcome } from './humanize-outcome.js';
 import styles from './TurnBanner.module.scss';
@@ -6,6 +7,13 @@ import styles from './TurnBanner.module.scss';
 interface TurnBannerProps {
   state: GameState;
   currentTurn: number;
+  /**
+   * Where the per-actor lines stand when not in the banner: on a phone, an
+   * element below the living grid inside the grid's own scroll window, so
+   * opening the lines never shrinks the grid's window. The banner keeps the
+   * headline and the key that folds the lines.
+   */
+  linesTarget?: HTMLElement | null;
 }
 
 interface LeaderTurnSummary {
@@ -102,7 +110,7 @@ const MAX_INLINE_OUTCOMES = 6;
  * `MAX_INLINE_OUTCOMES` lines and trail with a count chip for the rest
  * so the banner stays under a screen on large cohort runs.
  */
-export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
+export function TurnBanner({ state, currentTurn, linesTarget }: TurnBannerProps) {
   // Cohort runs (3+ actors) render all per-actor outcome lines which
   // can eat 6+ rows of vertical space on the viz tab, squeezing the
   // cohort grid below to just its column headers with the bodies
@@ -133,6 +141,31 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
   const showLines = !collapsed;
   const canCollapse = populated.length > 0;
 
+  const lines = showLines ? (
+    <>
+      {visible.map((entry, idx) => (
+        <div
+          key={entry.actorId}
+          // For 2-actor pair runs, keep the legacy `.lineA` / `.lineB`
+          // class names so the existing SCSS gradient/color rules still
+          // apply. Cohort runs use the generic `.line` class which
+          // styles with --actor-color (set by the per-row chip below).
+          className={populated.length <= 2 ? (idx === 0 ? styles.lineA : styles.lineB) : styles.line}
+        >
+          <span className={styles.lineLabel}>
+            {populated.length <= 2 ? (idx === 0 ? 'A' : 'B') : entry.summary.actorName}
+          </span>
+          <span className={styles.lineBody}>: {humanizeOutcome(entry.summary)}</span>
+        </div>
+      ))}
+      {hidden > 0 && (
+        <div className={styles.lineMore}>
+          +{hidden} more {'\u00b7'} see cohort grid below for the rest
+        </div>
+      )}
+    </>
+  ) : null;
+
   return (
     <div role="status" aria-label="Current turn narrative" className={styles.banner}>
       <div className={styles.headline}>
@@ -151,26 +184,7 @@ export function TurnBanner({ state, currentTurn }: TurnBannerProps) {
           </button>
         )}
       </div>
-      {showLines && visible.map((entry, idx) => (
-        <div
-          key={entry.actorId}
-          // For 2-actor pair runs, keep the legacy `.lineA` / `.lineB`
-          // class names so the existing SCSS gradient/color rules still
-          // apply. Cohort runs use the generic `.line` class which
-          // styles with --actor-color (set by the per-row chip below).
-          className={populated.length <= 2 ? (idx === 0 ? styles.lineA : styles.lineB) : styles.line}
-        >
-          <span className={styles.lineLabel}>
-            {populated.length <= 2 ? (idx === 0 ? 'A' : 'B') : entry.summary.actorName}
-          </span>
-          <span className={styles.lineBody}>: {humanizeOutcome(entry.summary)}</span>
-        </div>
-      ))}
-      {showLines && hidden > 0 && (
-        <div className={styles.lineMore}>
-          +{hidden} more \u00b7 see cohort grid below for the rest
-        </div>
-      )}
+      {lines && (linesTarget ? createPortal(lines, linesTarget) : lines)}
     </div>
   );
 }
