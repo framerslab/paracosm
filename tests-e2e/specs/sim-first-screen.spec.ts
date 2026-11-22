@@ -127,11 +127,28 @@
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
+ * The sweep, 200 per cent text and the pictures (every feature above):
+ * - Every state (ready at a pair, starting, no free run left, the visitor's
+ *   own key at 24 and at 300, and a self-hosted server) at 320, 390, 600,
+ *   768, 1,100 and 1,440 px in both looks meets every figure, keeps every
+ *   row one row and scrolls nothing sideways, and the automated check finds
+ *   nothing at the ready and no-run-left states.
+ * - At 200 per cent text (every type size doubled, as a browser's text-only
+ *   zoom does, in a 320 px window) nothing is cut and nothing scrolls
+ *   sideways: the scenario line's sentences and figures wrap, the figures in
+ *   one column; Start holds both of its lines; each row of Other scenarios
+ *   holds its lines; the notes wrap; and the foot's row holds Privacy and a
+ *   More links key, whose menu holds Docs, GitHub and npm.
+ * - The pictures of the pull request: the whole Run tab at 390 and 1,440 px
+ *   in both looks, ready, with no free run left and on the visitor's own key
+ *   at 24, the How it works card, and Watch on the stub pair.
+ *
  * Each width and look saves pictures into test-pictures/sim-first-screen/,
  * which CI uploads.
  */
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
 import { FIRST_SCREEN, axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
+import { spacingFaults } from '../support/readability.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The hosted demo server lives on a local port of its own.');
 
@@ -4299,5 +4316,400 @@ screenTest('accessibility: ready state', async ({ page }) => {
         expect(await axeFindings(page)).toEqual([]);
       });
     }
+  }
+});
+
+/* The sweep, 200 per cent text and the pictures (every feature this screen builds). */
+
+/** The sweep's widths: a small phone, a phone, a tablet, a wider tablet, a desktop and the wide width. */
+const SWEEP_WIDTHS = [320, 390, 600, 768, 1100, 1440] as const;
+
+/** The type tokens of the page, every size a word of it is set in. */
+const TYPE_SIZES = ['--font-3xs', '--font-2xs', '--font-xs', '--font-sm', '--font-md', '--font-lg', '--font-xl', '--font-2xl', '--font-3xl', '--font-read-body', '--font-read', '--font-display'];
+
+/**
+ * Sets the page's text to 200 per cent, as a browser's text-only zoom does:
+ * every type size twice the size it computes to at this width, with the
+ * window and every other length as they were. Every size on the first
+ * screen and its foot is one of these tokens, so every word of them grows.
+ */
+async function doubleText(page: Page): Promise<void> {
+  await page.evaluate((names) => {
+    const computed = getComputedStyle(document.documentElement);
+    const sizes = names
+      .map((name) => ({ name, px: parseFloat(computed.getPropertyValue(name)) }))
+      .filter((s) => Number.isFinite(s.px))
+      .map((s) => `${s.name}: ${s.px * 2}px !important;`);
+    const style = document.createElement('style');
+    style.setAttribute('data-double-text', '');
+    style.textContent = `:root { ${sizes.join(' ')} }`;
+    document.head.append(style);
+  }, TYPE_SIZES);
+  // The new sizes are laid out in the served faces, and painted twice, before anything is read.
+  await page.evaluate(() => document.fonts.ready.then(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  })));
+}
+
+/**
+ * How far each part scrolls sideways, in px: the first screen, the nearest
+ * part around it that scrolls (the tab's own scroll area), the page's foot,
+ * and the page.
+ */
+const sidewaysOf = (page: Page, root: Locator): Promise<{ screen: number; view: number; foot: number; page: number }> => root.evaluate((el) => {
+  let view = 0;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const s = getComputedStyle(a);
+    if (s.overflowX !== 'visible' || s.overflowY !== 'visible') { view = a.scrollWidth - a.clientWidth; break; }
+  }
+  const foot = document.querySelector('[data-testid="page-foot"]');
+  return {
+    screen: el.scrollWidth - el.clientWidth,
+    view,
+    foot: foot ? foot.scrollWidth - foot.clientWidth : 0,
+    page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  };
+});
+
+/** No part scrolls sideways by more than a pixel's rounding. */
+async function expectSoftNoSideways(page: Page, root: Locator, where: string): Promise<void> {
+  const s = await sidewaysOf(page, root);
+  expect.soft(Math.max(s.screen, s.view, s.foot, s.page), `no sideways scroll ${where} (${JSON.stringify(s)})`).toBeLessThanOrEqual(1);
+}
+
+/** Each part named inside a holder that stands outside the holder's box. */
+const outside = (holder: Locator, parts: string): Promise<string[]> => holder.evaluate((el, selector) => {
+  const h = el.getBoundingClientRect();
+  return Array.from(el.querySelectorAll(selector))
+    .map((p) => ({ p, r: p.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 0 && r.height > 0)
+    .filter(({ r }) => r.left < h.left - 1 || r.right > h.right + 1 || r.top < h.top - 1 || r.bottom > h.bottom + 1)
+    .map(({ p, r }) => `${(p.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 40)} at ${Math.round(r.left)} to ${Math.round(r.right)}, ${Math.round(r.top)} to ${Math.round(r.bottom)}`);
+}, parts);
+
+/** One state of the first screen the sweep reads, and how the page reaches it. */
+interface SweepState {
+  name: string;
+  /** Whether the automated check runs at this state. */
+  axe: boolean;
+  /** Readies the page once, before the first width. */
+  prepare?: (page: Page) => Promise<void>;
+  /** Opens the state at one size and look, and resolves with the first screen's root. */
+  open: (page: Page, size: { width: number; height: number }, look: Look) => Promise<Locator>;
+}
+
+/** The states of the sweep. Each call makes its own, so a held request belongs to one test. */
+function sweepStates(): SweepState[] {
+  // Starting: every POST /setup is held until the next state opens, then dropped, so no run starts.
+  let release: () => void = () => undefined;
+  const own = (size: number) => async (page: Page, at: { width: number; height: number }, look: Look) => {
+    const root = await openReadyAt(page, `/sim?size=${size}`, at, look);
+    await expect(startParts(root).key.getByTestId('start-second')).toHaveText(`${size} leaders, 6 turns, on your own API key`);
+    return root;
+  };
+  return [
+    {
+      name: 'ready, a pair',
+      axe: true,
+      open: async (page, size, look) => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        await expect(activeStart(root)).toHaveCount(1);
+        return root;
+      },
+    },
+    {
+      name: 'starting',
+      axe: false,
+      prepare: (page) => page.route('**/setup', async (route: Route) => {
+        await new Promise<void>((resolve) => { release = resolve; });
+        await route.abort('failed').catch(() => undefined);
+      }),
+      open: async (page, size, look) => {
+        release();
+        const root = await openReadyAt(page, '/sim', size, look);
+        const { key } = startParts(root);
+        await key.click();
+        await expect(key).toHaveText(STARTING);
+        return root;
+      },
+    },
+    {
+      name: 'no free run left',
+      axe: true,
+      prepare: routeNoRunLeft,
+      open: async (page, size, look) => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        await expect(root.getByTestId('at-limit-reset')).toHaveText(atLimitReset(await clockTime(page, RESET_AT)));
+        return root;
+      },
+    },
+    { name: 'own key at 24', axe: false, prepare: saveKey, open: own(24) },
+    { name: 'own key at 300', axe: false, prepare: saveKey, open: own(300) },
+    {
+      name: 'self-hosted',
+      axe: false,
+      open: async (page, size, look) => {
+        const root = await openReadyAt(page, `${SELF_HOSTED}/sim`, size, look, null);
+        await expect(activeStart(root)).toHaveCount(1);
+        return root;
+      },
+    },
+  ];
+}
+
+// The sweep: every state at every width in both looks, each word and glyph
+// at its figure, every row one row, no sideways scroll, the automated check
+// at the ready and no-run-left states, and at 200 per cent text nothing cut
+// and nothing scrolling sideways. A state's figures are read in full before
+// its case fails, so one run names every part under its figure.
+for (const [index, state] of sweepStates().entries()) {
+  screenTest(`sweep: every state at every width in both looks (${state.name})`, async ({ page }) => {
+    test.setTimeout(360_000);
+    const current = sweepStates()[index];
+    if (current.prepare) await current.prepare(page);
+    for (const width of SWEEP_WIDTHS) {
+      for (const look of LOOKS) {
+        await test.step(`${width} in the ${look} look`, async () => {
+          const at = `at ${width} in the ${look} look`;
+          const root = await current.open(page, sizeAt(width), look);
+          expect.soft(await measureReadability(page), `every word and glyph at its figure ${at}`).toEqual([]);
+          expect.soft(await rowsOnOneRow(page), `every row one row ${at}`).toEqual([]);
+          if (current.axe) expect.soft(await axeFindings(page), `no WCAG 2.2 A or AA failure ${at}`).toEqual([]);
+          await expectSoftNoSideways(page, root, at);
+        });
+      }
+    }
+    await test.step('200 per cent text at 320 in the light look', async () => {
+      const root = await current.open(page, sizeAt(320), 'light');
+      await doubleText(page);
+      expect.soft((await spacingFaults(root)).cut, 'no word of the first screen is cut at 200 per cent text').toEqual([]);
+      expect.soft((await spacingFaults(page.getByTestId('page-foot'))).cut, 'no word of the foot is cut at 200 per cent text').toEqual([]);
+      await expectSoftNoSideways(page, root, 'at 200 per cent text');
+    });
+  });
+}
+
+screenTest('200 per cent text: the scenario line, Start, the rows of Other scenarios and the foot', async ({ page }) => {
+  test.setTimeout(240_000);
+  const DOUBLE = sizeAt(320);
+
+  // Feature 3, QA step 13: the sentences and the figures wrap, the figures
+  // stand in one column, and nothing is cut.
+  await test.step('the scenario line, 320 in the light look', async () => {
+    const root = await openReadyAt(page, '/sim', DOUBLE, 'light');
+    await doubleText(page);
+    const line = root.getByTestId('scenario-line');
+    const faults = await spacingFaults(line);
+    expect.soft(faults.cut, 'no word of the scenario line is cut').toEqual([]);
+    expect.soft(faults.overlaps, 'no word of the scenario line stands over another').toEqual([]);
+    expect.soft(await lineCount(root.getByTestId('scenario-sentences')), 'the sentences wrap').toBeGreaterThan(1);
+    const cells = await root.getByTestId('scenario-figures').locator('[data-figure]').evaluateAll((els) => els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left, top: r.top, bottom: r.bottom };
+    }));
+    expect(cells).toHaveLength(4);
+    expect.soft(cells.every((c) => Math.abs(c.left - cells[0].left) <= 1), `the figures stand in one column (${JSON.stringify(cells)})`).toBe(true);
+    expect.soft(cells.every((c, i) => i === 0 || c.top >= cells[i - 1].bottom - 1), 'each figure under the one before it').toBe(true);
+    expect.soft(await outside(line, '[data-figure], [data-testid="scenario-sentences"], h1'), 'the words stand inside the block').toEqual([]);
+    await expectSoftNoSideways(page, root, 'at 200 per cent text');
+    await picture(page, 'scenario-line-200-per-cent-320-light');
+  });
+
+  // Feature 10, QA step 17: Start holds both of its lines, and the bar grows
+  // with it up to half the window's height, past which it rests in the page.
+  await test.step('Start, 320 in the light look, a free run left', async () => {
+    const root = await openReadyAt(page, '/sim', DOUBLE, 'light');
+    await doubleText(page);
+    const { key, bar } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    const faults = await spacingFaults(key);
+    expect.soft(faults.cut, 'no word of Start is cut').toEqual([]);
+    expect.soft(faults.overlaps, 'Start’s two lines do not overlap').toEqual([]);
+    expect.soft(await outside(key, '[data-testid="start-first"], [data-testid="start-second"]'), 'Start holds both of its lines').toEqual([]);
+    if ((await bar.getAttribute('data-stuck')) === 'true') {
+      expect.soft((await box(bar)).height, 'the stuck bar is at most half the window high').toBeLessThanOrEqual(DOUBLE.height / 2 + 1);
+      expect.soft((await spacingFaults(bar)).cut, 'no word of the stuck bar is cut').toEqual([]);
+    }
+    await picture(page, 'start-200-per-cent-320-light');
+    await scrollToBandPlace(root);
+    expect.soft(await outside(key, '[data-testid="start-first"], [data-testid="start-second"]'), 'Start holds both of its lines in its place').toEqual([]);
+    expect.soft((await spacingFaults(root.getByTestId('start-band'))).cut, 'no word of the Start band is cut').toEqual([]);
+  });
+
+  // Feature 12, QA step 14: each row of Other scenarios holds its lines whole.
+  await test.step('the rows of Other scenarios, 320 in the light look', async () => {
+    const root = await openReadyAt(page, '/sim', DOUBLE, 'light');
+    await doubleText(page);
+    const rows = root.getByTestId('scenario-row');
+    await expect(rows.first()).toBeVisible();
+    for (const row of await rows.all()) {
+      if (!(await row.isVisible())) continue;
+      const name = (await row.getByTestId('row-name').textContent()) ?? '';
+      const faults = await spacingFaults(row);
+      expect.soft(faults.cut, `no word of the ${name} row is cut`).toEqual([]);
+      expect.soft(faults.overlaps, `no line of the ${name} row stands over another`).toEqual([]);
+      expect.soft(await outside(row, '[data-testid^="row-"]'), `the ${name} row holds its lines`).toEqual([]);
+    }
+    await root.getByTestId('other-scenarios').scrollIntoViewIfNeeded();
+    await picture(page, 'other-scenarios-200-per-cent-320-light');
+  });
+
+  // Feature 13, QA step 10: the notes wrap; the foot's row holds Privacy and
+  // More links on one line, with Docs, GitHub and npm in that key's menu.
+  for (const look of LOOKS) {
+    await test.step(`the notes and the foot, 320 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', DOUBLE, look);
+      const foot = page.getByTestId('page-foot');
+      const nav = foot.getByRole('navigation', { name: 'Site links', exact: true });
+      const more = nav.getByRole('button', { name: 'More links', exact: true });
+      // At 100 per cent text the four links fit one row and there is no More links key.
+      await expect(nav.getByRole('link')).toHaveText(['Docs', 'GitHub', 'npm', 'Privacy']);
+      await expect(more).toHaveCount(0);
+
+      await doubleText(page);
+      const notes = root.getByTestId('first-screen-notes');
+      expect.soft(await lineCount(notes.getByTestId('note-ai')), 'the AI note wraps').toBeGreaterThan(1);
+      const noteFaults = await spacingFaults(notes);
+      expect.soft(noteFaults.cut, 'no word of the notes is cut').toEqual([]);
+      expect.soft(noteFaults.overlaps, 'no note stands over another').toEqual([]);
+
+      await foot.scrollIntoViewIfNeeded();
+      await expect(more).toBeVisible();
+      await expect(more).toHaveAttribute('aria-haspopup', 'menu');
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(nav.getByRole('link').filter({ visible: true })).toHaveText(['Privacy']);
+      const [privacy, key] = await Promise.all([box(nav.getByRole('link', { name: 'Privacy', exact: true })), box(more)]);
+      expect.soft(Math.abs(privacy.y + privacy.height / 2 - (key.y + key.height / 2)), 'Privacy and More links stand on one line').toBeLessThanOrEqual(2);
+      expect.soft(key.height).toBeGreaterThanOrEqual(44);
+      expect.soft(key.width).toBeGreaterThanOrEqual(96);
+      const footFaults = await spacingFaults(foot);
+      expect.soft(footFaults.cut, 'no word of the foot is cut').toEqual([]);
+      expect.soft(footFaults.overlaps, 'no word of the foot stands over another').toEqual([]);
+      await expectSoftNoSideways(page, root, `at 200 per cent text in the ${look} look`);
+      await picture(page, `page-foot-200-per-cent-320-${look}`);
+
+      // The key opens a menu of the three links it holds, and Escape closes it with focus back on the key.
+      await more.click();
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+      const menu = foot.getByRole('menu');
+      await expect(menu).toBeVisible();
+      const items = menu.getByRole('menuitem');
+      await expect(items).toHaveText(['Docs', 'GitHub', 'npm']);
+      await expect(items.nth(0)).toHaveAttribute('href', '/docs');
+      await expect(items.nth(1)).toHaveAttribute('href', 'https://github.com/framerslab/paracosm');
+      await expect(items.nth(2)).toHaveAttribute('href', 'https://www.npmjs.com/package/paracosm');
+      await expect(items.nth(0)).toBeFocused();
+      expect.soft((await spacingFaults(menu)).cut, 'no word of the menu is cut').toEqual([]);
+      await picture(page, `page-foot-more-links-200-per-cent-320-${look}`);
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+      await expect(more).toHaveAttribute('aria-expanded', 'false');
+      await expect(more).toBeFocused();
+    });
+  }
+});
+
+/**
+ * A picture of a whole tab, at a device scale factor of 2: the window grows
+ * to the height of everything its scroll area holds, so the picture shows
+ * the tab from its top to its foot, then the window returns to its size.
+ */
+async function wholePicture(page: Page, anchor: Locator, name: string): Promise<void> {
+  const size = page.viewportSize() ?? WIDE;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const hidden = await anchor.evaluate((el) => {
+      for (let a: Element | null = el; a; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && a.scrollHeight > a.clientHeight + 1) return a.scrollHeight - a.clientHeight;
+      }
+      return 0;
+    });
+    if (hidden <= 0) break;
+    const now = page.viewportSize() ?? size;
+    await page.setViewportSize({ width: now.width, height: Math.min(now.height + hidden, 7000) });
+  }
+  await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+  await page.screenshot({ path: `${PICTURES}/${name}.png`, fullPage: true, animations: 'disabled' });
+  await page.setViewportSize(size);
+}
+
+// The pull request's pictures: the whole Run tab at 390 and 1,440 in both
+// looks, ready, with no free run left and on the visitor's own key at 24,
+// and the How it works card over the window.
+screenTest('pictures: the first screen at 390 and 1,440 in both looks', async ({ page }) => {
+  test.setTimeout(300_000);
+  const shoot = async (state: string, path: string, ready: (root: Locator) => Promise<void>) => {
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        await test.step(`${state}, ${size.width} in the ${look} look`, async () => {
+          const root = await openReadyAt(page, path, size, look);
+          await ready(root);
+          await expect(root.getByTestId('shared-colony').locator('canvas')).toBeVisible();
+          await wholePicture(page, root, `${size.width}-${look}-${state}`);
+        });
+      }
+    }
+  };
+  await shoot('ready', '/sim', async (root) => { await expect(activeStart(root)).toHaveCount(1); });
+
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`how-it-works, ${size.width} in the ${look} look`, async () => {
+        await openReadyAt(page, '/sim', size, look);
+        await pressInPage(howKey(page));
+        const card = await expectHowCard(page, MARS_LINES);
+        await card.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined))));
+        await picture(page, `${size.width}-${look}-how-it-works`);
+        await page.keyboard.press('Escape');
+        await expect(howCard(page)).toHaveCount(0);
+      });
+    }
+  }
+
+  await routeNoRunLeft(page);
+  await shoot('no-free-run-left', '/sim', async (root) => {
+    await expect(root.getByTestId('at-limit-reset')).toBeVisible();
+  });
+  await page.unroute('**/rate-limit');
+
+  await saveKey(page);
+  await shoot('own-key-24', '/sim?size=24', async (root) => {
+    await expect(startParts(root).key.getByTestId('start-second')).toHaveText('24 leaders, 6 turns, on your own API key');
+  });
+});
+
+// The pull request's pictures of Watch: the stub pair's run on the Sim tab,
+// its two colonies in the living grid, at 390 and 1,440 in both looks. Each
+// run is a visitor of its own, since the day holds one run an address.
+screenTest('pictures: Watch on the stub pair at 390 and 1,440 in both looks', async ({ page, context }, info) => {
+  test.setTimeout(300_000);
+  let step = 0;
+  try {
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        await test.step(`${size.width} in the ${look} look`, async () => {
+          if (step > 0) {
+            await page.request.post(`${SERVER}/clear`);
+            await context.setExtraHTTPHeaders({ 'x-real-ip': `198.18.0.${1 + step * 3 + info.retry}` });
+          }
+          step += 1;
+          const root = await openReadyAt(page, '/sim', size, look);
+          await startAndWatch(page, root);
+          await page.mouse.move(0, 0);
+          const panels = watchPanels(page);
+          await expect(panels).toHaveCount(2);
+          const [first, second] = await Promise.all([tokenColour(page, '--vis'), tokenColour(page, '--eng')]);
+          for (const panel of [panels.nth(0), panels.nth(1)]) {
+            await expect
+              .poll(async () => (await drawingOf(panel.locator('canvas'), first, second)).drawn, { message: 'the panel has drawn its colony' })
+              .toBeGreaterThan(0);
+          }
+          await wholePicture(page, panels.nth(0), `${size.width}-${look}-watch`);
+        });
+      }
+    }
+  } finally {
+    // The stub run holds a run slot until its visitor clears it.
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
   }
 });
