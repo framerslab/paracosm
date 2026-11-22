@@ -136,7 +136,7 @@ Single run record plus the full RunArtifact loaded from disk.
 }
 ```
 
-`sessionId` is the session-store id the run's events were saved under. Populated for runs whose broadcast `autoSaveOnComplete` pass succeeded; omitted on legacy rows (runs persisted before the link wire-up), runs whose save was skipped (`below_min_turns` / `partial_completion`), and runs persisted by code paths that bypass the broadcast handler (CLI batch runs, replay-only flows). Consumers can build a deep link to the live SSE replay endpoint with `https://<host>/sim?replay=<sessionId>&tab=viz` when this field is set.
+`sessionId` is the session-store id the run's events were saved under. Populated for runs whose broadcast `autoSaveOnComplete` pass succeeded and whose saved session the store still holds; omitted on legacy rows (runs persisted before the link wire-up), runs whose save was skipped (`below_min_turns` / `partial_completion`), runs whose saved session the store has since evicted, every run while the session store cannot be read, and runs persisted by code paths that bypass the broadcast handler (CLI batch runs, replay-only flows). Consumers can build a deep link to the live SSE replay endpoint with `https://<host>/sim?replay=<sessionId>&tab=viz` when this field is set.
 
 **Status codes**
 

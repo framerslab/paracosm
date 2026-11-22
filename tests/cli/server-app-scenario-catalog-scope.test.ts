@@ -24,6 +24,8 @@
  * - One address holds at most 20 stored scenarios, whatever visitor ids it
  *   sends, and a stored scenario left unused for the idle time (24 hours by
  *   default) is dropped, so a full store does not stay full until a restart.
+ * - On the hosted demo a run opened by its key (`/events?run=<key>`) carries
+ *   the brief its visitor compiled to that visitor alone.
  *
  * Every test goes through createMarsServer over HTTP with a scenarios folder
  * of its own that holds scenarios/atlas-lab.json, one cookie jar per visitor,
@@ -36,7 +38,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { atlasLab, mars, settingsBody, startServer, waitFor, type RunServer } from './helpers/run-server.js';
+import { atlasLab, mars, readReplay, settingsBody, startServer, waitFor, type RunServer } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
@@ -471,4 +473,27 @@ test('a stored scenario left unused for the idle time is dropped, and one in use
     assert.deepEqual((await storedIds(a)).sort(), ['idle-one-more', 'idle-s4']);
     assert.equal((await a.get('/scenario?id=idle-s0')).status, 404);
   }, { extra: { memoryScenarioIdleMs: IDLE_MS } });
+});
+
+test("on the hosted demo a run's stream opened by its key carries the brief its visitor compiled to that visitor alone", async () => {
+  await withCatalog(async ({ api }) => {
+    const a = api.cookied();
+    const id = await quickstartCompile(a, seed('scope-marker-brief-stream'));
+    const run = await a.post('/setup', { ...settingsBody(mars), scenarioId: id });
+    assert.equal(run.status, 200, await run.clone().text());
+    const { runKey } = await run.json() as { runKey: string };
+    const openingOf = async (v: string | Visitor) =>
+      (await readReplay(v, `?run=${encodeURIComponent(runKey)}`)).find(f => f.event === 'active_scenario')?.data;
+    assert.match(String((await openingOf(a))?.seedText), /scope-marker-brief-stream/, 'the visitor who compiled it reads their brief');
+    for (const b of [api.cookied(), api.base]) {
+      const opening = await openingOf(b);
+      assert.equal(opening?.id, id, "the run's opening frame");
+      assert.equal(opening?.seedText ?? null, null, 'another caller reads no brief');
+    }
+  }, {
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test' },
+    extra: {
+      compileFromSeed: async () => station('brief-stream-station', 'Brief Stream') as unknown as ScenarioPackage,
+    },
+  });
 });

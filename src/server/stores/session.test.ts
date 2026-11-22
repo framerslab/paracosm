@@ -4,6 +4,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createDatabase } from '@framers/sql-storage-adapter';
 import { openSessionStore, type TimestampedEvent } from './session.js';
 
 function makeEvent(eventName: string, data: Record<string, unknown>, ts: number): TimestampedEvent {
@@ -64,6 +68,157 @@ test('saveSession returns evictedId only when capacity is exceeded', async () =>
   const c = await store.saveSession(baseEvents);
   assert.equal(c.evictedId, a.id);
   assert.equal(b.evictedId, undefined);
+});
+
+test('past the bound on every owner\'s rows, the owner holding the most gives up their oldest row', async () => {
+  const store = openSessionStore(':memory:', 2, { maxTotalSessions: 3 });
+  // A visitor's single row is the oldest in the store, so a policy that
+  // evicted the oldest row of all would take it.
+  const first = await store.saveSession(baseEvents, undefined, { owner: 'first' });
+  const heavy1 = await store.saveSession(baseEvents, undefined, { owner: 'heavy' });
+  const heavy2 = await store.saveSession(baseEvents, undefined, { owner: 'heavy' });
+  const last = await store.saveSession(baseEvents, undefined, { owner: 'last' });
+  assert.equal(last.evictedId, heavy1.id, "the heavy owner's oldest row goes");
+  assert.deepEqual((await store.listSessions()).map(s => s.id), [last.id, heavy2.id, first.id]);
+  await store.close();
+});
+
+test('at the bound with every owner holding one row, the save evicts the oldest row in the store, another owner\'s', async () => {
+  const store = openSessionStore(':memory:', 2, { maxTotalSessions: 3 });
+  const a = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  const b = await store.saveSession(baseEvents, undefined, { owner: 'b' });
+  const c = await store.saveSession(baseEvents, undefined, { owner: 'c' });
+  const d = await store.saveSession(baseEvents, undefined, { owner: 'd' });
+  assert.equal(d.evictedId, a.id);
+  assert.deepEqual((await store.listSessions()).map(s => s.id), [d.id, c.id, b.id]);
+  assert.deepEqual(await store.listSessions({ owner: 'a' }), [], "owner a's only row went");
+  await store.close();
+});
+
+test('saves that finish together keep each owner to their ring and the store to its bound', async () => {
+  const store = openSessionStore(':memory:', 2, { maxTotalSessions: 4 });
+  const ones = await Promise.all(Array.from({ length: 6 }, () => store.saveSession(baseEvents, undefined, { owner: 'one' })));
+  assert.deepEqual(
+    (await store.listSessions({ owner: 'one' })).map(s => s.id),
+    [ones[5].id, ones[4].id],
+    "one owner's ring keeps the last two saves",
+  );
+  const others = await Promise.all(['a', 'b', 'c', 'd', 'e'].map(owner => store.saveSession(baseEvents, undefined, { owner })));
+  // c's save takes one's older row (one holds the most), d's takes one's
+  // last row and e's takes a's, each then the oldest row of all.
+  assert.equal(others[2].evictedId, ones[4].id);
+  assert.equal(others[3].evictedId, ones[5].id);
+  assert.equal(others[4].evictedId, others[0].id);
+  assert.deepEqual(
+    (await store.listSessions()).map(s => s.id),
+    [others[4].id, others[3].id, others[2].id, others[1].id],
+  );
+  await store.close();
+});
+
+test('eviction and newest-first order follow the order rows were saved in, whatever the clock says', async (t) => {
+  const store = openSessionStore(':memory:', 2);
+  let now = 10_000;
+  t.mock.method(Date, 'now', () => now);
+  const first = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  const second = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  // The clock moves back, as it can after a restart.
+  now = 5_000;
+  const third = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  assert.equal(third.evictedId, first.id, 'the first save goes, not the one just made');
+  assert.deepEqual((await store.listSessions({ owner: 'a' })).map(s => s.id), [third.id, second.id]);
+  assert.equal((await store.getSession(third.id))?.meta.createdAt, 5_000, 'createdAt keeps the clock time for display');
+  // Saves in the same millisecond keep the order they were made in.
+  const fourth = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  assert.equal(fourth.evictedId, second.id);
+  assert.deepEqual((await store.listSessions({ owner: 'a' })).map(s => s.id), [fourth.id, third.id]);
+  await store.close();
+});
+
+test('a save whose eviction fails leaves no row behind and both bounds kept', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-session-tx-'));
+  const file = join(dir, 'sessions.db');
+  try {
+    const store = openSessionStore(file, 2);
+    const a = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+    const b = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+    // Another connection makes every delete fail, as a disk error between
+    // the insert and the eviction would.
+    const raw = await createDatabase({ file });
+    await raw.exec("CREATE TRIGGER refuse_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'delete refused'); END;");
+    await raw.close();
+    await assert.rejects(store.saveSession(baseEvents, undefined, { owner: 'a' }), /delete refused/);
+    assert.equal(await store.count(), 2, 'the insert rolled back with the failed eviction');
+    assert.deepEqual((await store.listSessions({ owner: 'a' })).map(s => s.id), [b.id, a.id]);
+    await store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('opening a store brings every owner\'s rows back within the bounds', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-session-boot-'));
+  const file = join(dir, 'sessions.db');
+  try {
+    const wide = openSessionStore(file, 20);
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i++) ids.push((await wide.saveSession(baseEvents, undefined, { owner: 'a' })).id);
+    await wide.close();
+    const store = openSessionStore(file, 10);
+    assert.equal(await store.count(), 10, 'the bucket over its bound is trimmed at open, before any save');
+    assert.deepEqual((await store.listSessions({ owner: 'a' })).map(s => s.id), ids.slice(2).reverse());
+    await store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a save under a run key already saved returns the saved row and adds none', async () => {
+  const store = openSessionStore(':memory:');
+  const first = await store.saveSession(baseEvents, undefined, { owner: 'a', runKey: 'run-1' });
+  const again = await store.saveSession(baseEvents, undefined, { owner: 'a', runKey: 'run-1' });
+  assert.equal(again.id, first.id);
+  assert.equal(await store.count(), 1);
+  const other = await store.saveSession(baseEvents, undefined, { owner: 'a', runKey: 'run-2' });
+  assert.notEqual(other.id, first.id);
+  assert.equal(await store.count(), 2);
+  await store.close();
+});
+
+test('a store with one ring for every owner keeps the newest maxSessions rows of all', async () => {
+  const store = openSessionStore(':memory:', 10, { ownerRings: false });
+  const cli = await store.saveSession(baseEvents);
+  const browser: string[] = [];
+  for (let i = 0; i < 10; i++) browser.push((await store.saveSession(baseEvents, undefined, { owner: 'browser' })).id);
+  assert.equal(await store.count(), 10);
+  assert.equal(await store.getSession(cli.id), null, 'the oldest row goes, whoever saved it');
+  assert.deepEqual((await store.listSessions()).map(s => s.id), [...browser].reverse());
+  await store.close();
+});
+
+test('existingIds names the ids the store still holds', async () => {
+  const store = openSessionStore(':memory:', 1);
+  const a = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  const b = await store.saveSession(baseEvents, undefined, { owner: 'a' });
+  assert.deepEqual([...await store.existingIds([a.id, b.id, 'unknown'])], [b.id]);
+  assert.deepEqual([...await store.existingIds([])], []);
+  await store.close();
+});
+
+test('the saved cost sums each actor\'s last cumulative cost, read from inside the sim frame', async () => {
+  const store = openSessionStore(':memory:');
+  const pair: TimestampedEvent[] = [
+    makeEvent('active_scenario', { id: 'mars', name: 'Mars Genesis' }, 1000),
+    makeEvent('sim', { type: 'turn_done', leader: 'Aria', data: { turn: 1, _cost: { totalCostUSD: 0.1 } } }, 2000),
+    makeEvent('sim', { type: 'turn_done', leader: 'Voss', data: { turn: 1, _cost: { totalCostUSD: 0.15 } } }, 2100),
+    makeEvent('sim', { type: 'turn_done', leader: 'Aria', data: { turn: 2, _cost: { totalCostUSD: 0.2 } } }, 3000),
+    makeEvent('sim', { type: 'turn_done', leader: 'Voss', data: { turn: 2, _cost: { totalCostUSD: 0.3 } } }, 3100),
+    makeEvent('complete', {}, 4000),
+  ];
+  const { id } = await store.saveSession(pair);
+  const cost = (await store.getSession(id))?.meta.totalCostUSD;
+  assert.ok(cost !== undefined && Math.abs(cost - 0.5) < 1e-9, `0.2 + 0.3, got ${cost}`);
+  await store.close();
 });
 
 test('getSession returns null for unknown id', async () => {
