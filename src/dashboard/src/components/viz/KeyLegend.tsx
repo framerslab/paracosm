@@ -79,7 +79,7 @@ export function KeyLegend({ hints, onShowAll }: KeyLegendProps) {
           <button
             type="button"
             onClick={onShowAll}
-            aria-label={`Show all ${hints.length} keyboard keys`}
+            aria-label={`${ALL_KEYS}: the ${hints.length} keyboard keys, in the help overlay`}
             title="Every keyboard key, in the help overlay"
             className={styles.allKeys}
           >
