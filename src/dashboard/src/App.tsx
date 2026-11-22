@@ -245,7 +245,8 @@ function AppContent() {
   }, [scenario.id, scenario.labels.name]);
 
   // When tour is active, use demo events; otherwise use live SSE events.
-  // Event Log pin-to-bottom scroll logic lives inside EventLogPanel.
+  // How the Event Log scrolls (it opens at its top and follows new events
+  // once the visitor scrolls to its end) lives inside EventLogPanel.
   // Tour data swap. The tour ships with DEMO_EVENTS so first-time
   // visitors with no run loaded see realistic content while the
   // highlight walks through tabs. BUT — if the user already has real

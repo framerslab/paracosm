@@ -215,6 +215,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # The run view's toasts told to a screen reader, and the Event Log opening
+      # with its heading, search field and tool chip in view after a forged
+      # tool's Show in Event Log and after a reload, at 390 and 1440 in both looks.
+      - name: Run view toast and Event Log chip end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/run-view-toast-and-log-chip.spec.ts --project=chromium-desktop
+
+      # The pictures that spec takes of each press and reload.
+      - name: Upload the run view toast and Event Log chip pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: run-view-toast-and-log-chip-pictures
+          path: test-pictures/run-view-toast-and-log-chip/
+          if-no-files-found: ignore
+          retention-days: 14
+
       # On a phone the whole living grid is in view before any scroll; on a
       # short screen it keeps a usable window and the Viz panel scrolls as one
       # to the turn's outcomes and its controls; the keyboard legend is one
