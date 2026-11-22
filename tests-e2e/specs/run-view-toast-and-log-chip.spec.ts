@@ -11,9 +11,9 @@
  * leader picker and the turns range (tests-e2e/support/six-turn-run.ts).
  *
  * - A toast is told to a screen reader: the page holds a polite status region
- *   for its toasts before any shows, and a toast's words land in it. The run
- *   actions menu's Copy on a refused clipboard shows the toast "Copy Failed /
- *   Clipboard access denied.".
+ *   for its toasts before any shows, and a toast's words land in it, once on
+ *   the page. The run actions menu's Copy on a refused clipboard shows the
+ *   toast "Copy Failed / Clipboard access denied.".
  * - A forged tool's Show in Event Log opens the Event Log with its heading,
  *   its search field and the tool's chip in view, under no other element: the
  *   element at the centre of each is that element, and a press at the centre
@@ -148,7 +148,11 @@ for (const size of WIDTHS) {
 
         // There before any toast and empty, so a screen reader announces the words put in it.
         expect(beforePress, 'the toast region, present and empty before the press').toEqual(['']);
-        await expect(toastRegion(page)).toHaveText('Copy Failed. Clipboard access denied.');
+        await expect(toastRegion(page)).toContainText('Copy Failed');
+        await expect(toastRegion(page)).toContainText('Clipboard access denied.');
+        // The words are on the page once, in the toast the eye sees, so a
+        // search for them finds one element.
+        await expect(page.getByText('Clipboard access denied.')).toHaveCount(1);
       });
 
       test('Show in Event Log opens the Event Log with its heading, search field and tool chip in view', async ({ page, request }) => {

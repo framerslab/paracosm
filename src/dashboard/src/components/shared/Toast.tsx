@@ -75,21 +75,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      {/* What a screen reader hears: a polite status region, on the page
-          before any toast shows, that holds the words of each toast shown.
-          It is not atomic, so a toast added beside another is read alone,
-          and words leave it with their toast. The stack below is what the
-          eye sees, with each toast's Dismiss key. */}
-      <div role="status" aria-label="Notifications" aria-atomic="false" className="sr-only">
-        {toasts.map(t => (
-          <p key={t.id}>{t.message ? `${t.title}. ${t.message}` : t.title}</p>
-        ))}
-      </div>
-      <div style={{
-        position: 'fixed', top: 56, right: 16, zIndex: 100000,
-        display: 'flex', flexDirection: 'column', gap: 8,
-        pointerEvents: 'none', maxWidth: 380,
-      }}>
+      {/* The stack is also what a screen reader hears: a polite status
+          region, on the page before any toast shows, so the words of each
+          toast added to it are read. It is not atomic, so a toast added
+          beside another is read alone. A toast's words come before its
+          Dismiss key, so they are read first; the key sits at the toast's
+          top right all the same. The words are on the page once, in the
+          toast the eye sees. */}
+      <div
+        role="status"
+        aria-label="Notifications"
+        aria-live="polite"
+        aria-atomic="false"
+        aria-relevant="additions text"
+        style={{
+          position: 'fixed', top: 56, right: 16, zIndex: 100000,
+          display: 'flex', flexDirection: 'column', gap: 8,
+          pointerEvents: 'none', maxWidth: 380,
+        }}
+      >
         {toasts.map(t => (
           <div
             key={t.id}
@@ -109,6 +113,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               position: 'relative',
             }}
           >
+            <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)', marginBottom: 2, color: TITLE_COLORS[t.type], paddingRight: 16 }}>
+              {t.title}
+            </div>
+            {t.message && (
+              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-2)', lineHeight: 1.5 }}>
+                {t.message}
+              </div>
+            )}
             <button
               onClick={() => dismiss(t.id)}
               style={{
@@ -120,14 +132,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             >
               x
             </button>
-            <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)', marginBottom: 2, color: TITLE_COLORS[t.type], paddingRight: 16 }}>
-              {t.title}
-            </div>
-            {t.message && (
-              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-2)', lineHeight: 1.5 }}>
-                {t.message}
-              </div>
-            )}
           </div>
         ))}
       </div>
