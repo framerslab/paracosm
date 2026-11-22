@@ -6,7 +6,7 @@ import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
 import { useToast } from '../shared/Toast';
 import { useVizSnapshots } from './useVizSnapshots.js';
 import { CohortSwarmGrid } from './CohortSwarmGrid.js';
-import { TurnBanner } from './TurnBanner.js';
+import { TurnBanner, turnHeadline } from './TurnBanner.js';
 import { VizControls } from './VizControls.js';
 import { LivingSwarmGrid } from './grid/LivingSwarmGrid.js';
 import { GridModePills, gridModeHint, type GridMode } from './grid/GridModePills.js';
@@ -1109,6 +1109,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // window, in the pair view (one grid at a time) and in the cohort view, so
   // opening them never shrinks the grid's window.
   const linesBelowGrid = phone;
+  // The banner names the turn and its time only on a turn with a title; on a
+  // phone the play controls leave the time to it only then.
+  const timeInBanner = turnHeadline(state, currentTurn) !== '';
 
   return (
       <div
@@ -1176,7 +1179,12 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             )}
           </div>
         )}
-        <TurnBanner state={state} currentTurn={currentTurn} linesTarget={linesBelowGrid ? turnLinesSlot : null} />
+        <TurnBanner
+          state={state}
+          currentTurn={currentTurn}
+          linesTarget={linesBelowGrid ? turnLinesSlot : null}
+          cohortGridShown={vizMode === 'cohort'}
+        />
         <HighlightStrip text={highlightText} turn={currentTurn + 1} />
         <VizLegendBar departments={legendDepartments} />
         {diffOverlayOn && cellDiff && (
@@ -1493,6 +1501,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           currentTurn={currentTurn}
           maxTurn={maxTurn}
           time={snapA?.time ?? snapB?.time ?? 0}
+          timeInBanner={timeInBanner}
           playing={playing}
           speed={speed}
           onTurnChange={handleTurnChange}

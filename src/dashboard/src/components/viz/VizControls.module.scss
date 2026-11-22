@@ -1,9 +1,10 @@
 // The Viz tab's play controls: one row at every width from 320 px.
-// On a phone the turn reads "T6/6", leaving its time to the turn banner above,
-// and the scrub slider takes the room the keys leave, never under 44 px; below
-// 900 px every key is 44 px tall and wide (VizControls.tsx). Runs reach 100
-// turns: at 320 px "T100/100" leaves the slider less than 44 px, so there the
-// turn gives way, cut with an ellipsis, while the banner above still names it.
+// On a phone the turn reads "T6/6" and leaves its time to the turn banner
+// above when the banner shows it; the scrub slider takes the room the keys
+// leave, never under 44 px; below 900 px every key is 44 px tall and wide
+// (VizControls.tsx). Runs reach 100 turns: at 320 px "T100/100" leaves the
+// slider less than 44 px, so there the turn gives way, cut with an ellipsis,
+// and the slider still reads the turn to a screen reader.
 
 .row {
   display: flex;
@@ -54,8 +55,9 @@
   white-space: nowrap;
 }
 
-// The turn banner above shows the turn's time: on a phone the row leaves it out.
-.time {
+// When the turn banner above shows the turn's time, on a phone the row leaves
+// it out. A turn with no title has no banner, and then the row keeps it.
+.timeShownAbove {
   @media (max-width: 480px) {
     display: none;
   }

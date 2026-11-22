@@ -4,6 +4,8 @@ interface VizControlsProps {
   currentTurn: number;
   maxTurn: number;
   time: number;
+  /** The turn banner above shows the turn's time: on a phone the row leaves it out. */
+  timeInBanner?: boolean;
   playing: boolean;
   speed: number;
   onTurnChange: (turn: number) => void;
@@ -22,11 +24,11 @@ const SPEEDS = [0.5, 1, 2, 4];
  * shortcut.
  *
  * One row at every width from 320 px: on a phone the turn leaves its time to
- * the turn banner above and the slider takes the room the keys leave, and
- * below 900 px every key is 44 px tall and wide.
+ * the turn banner above when the banner shows it, the slider takes the room
+ * the keys leave, and below 900 px every key is 44 px tall and wide.
  */
 export function VizControls({
-  currentTurn, maxTurn, time, playing, speed,
+  currentTurn, maxTurn, time, timeInBanner = false, playing, speed,
   onTurnChange, onPlayPause, onStepBack, onStepForward, onSpeedChange,
 }: VizControlsProps) {
   return (
@@ -51,7 +53,7 @@ export function VizControls({
         aria-valuetext={`Turn ${currentTurn + 1} of ${maxTurn}`}
       />
       <span className={styles.turn}>
-        T{currentTurn + 1}/{maxTurn}{time ? <span className={styles.time}>{` \u00b7 ${time}`}</span> : null}
+        T{currentTurn + 1}/{maxTurn}{time ? <span className={timeInBanner ? styles.timeShownAbove : undefined}>{` \u00b7 ${time}`}</span> : null}
       </span>
       <select
         aria-label="Playback speed"
