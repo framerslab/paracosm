@@ -32,6 +32,16 @@
  * - From 481 to 899 px, where the mode tabs stand in the Viz toolbar, the
  *   toolbar is one row and every key in it, each mode tab included, is 44 px
  *   tall, at 600 px and on a phone on its side (844 x 390).
+ * - Below 900 px every key of the Viz toolbar, its More panel and the Sim
+ *   evidence row is 44 px wide as well as 44 px tall, at 320, 390, 600 and
+ *   844 x 390. Below 900 px the toolbar holds its diff and help keys in its
+ *   More panel, so its row scrolls only once its More panel holds them.
+ * - At 390 x 844 the turn's outcomes stand below the whole living grid, never
+ *   over its lower part.
+ * - The open Export menu stays by its key when the toolbar moves with nothing
+ *   scrolled or resized, as when a turn's words grow above it.
+ * - A focused Previous or Next key whose end the row reaches hands focus to
+ *   the other key, whether a press, a swipe or a trackpad moved the row.
  *
  * The stored runs are the real server's: the pair run that forged tools
  * (tests-e2e/support/shared-run-server.ts), the 24-actor run
@@ -688,4 +698,170 @@ test('on a phone the turn outcomes below the grid are read out as the turn chang
   await expect(outcomes.locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) })).toHaveCount(1);
   await expect(outcomes.locator('div').filter({ hasText: new RegExp(`^B: ${DIETRICH}`) })).toHaveCount(1);
   await expect(page.getByRole('status', { name: 'Current turn narrative' }).locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) }), 'the banner no longer holds the outcomes').toHaveCount(0);
+});
+
+// ── The review's follow-ups ──────────────────────────────────────────────
+
+/** Each key, menu and tab of a row and its arrow keys that is narrower or shorter than a phone's 44 px target. */
+const smallKeys = (box: Locator) => box.evaluate((el, target) => Array.from(el.querySelectorAll('button, select, [role="tab"]'))
+  .filter(c => getComputedStyle(c).display !== 'none' && c.getBoundingClientRect().width > 0)
+  .map((c) => {
+    const r = c.getBoundingClientRect();
+    return { name: (c.getAttribute('aria-label') ?? (c as HTMLElement).innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 48), width: r.width, height: r.height };
+  })
+  .filter(k => k.width < target - 0.5 || k.height < target - 0.5)
+  .map(k => `${k.name}: ${k.width.toFixed(1)} x ${k.height.toFixed(1)} px`), PHONE_TARGET);
+
+/** The sizes below 900 px the rows are read at: the narrowest phone, a phone, a small tablet and a phone on its side. */
+const BELOW_900 = [sizeOf(320), sizeOf(390), { width: 600, height: 900 }, { width: 844, height: 390 }];
+
+test('below 900 px every key of the Viz toolbar, its More panel and the Sim evidence row is 44 px wide as well as 44 px tall', async ({ page, request }) => {
+  test.setTimeout(300_000);
+  await openViz(page, request, 'pair', 'dark', 60_000);
+  for (const size of BELOW_900) {
+    for (const mode of ['living', 'forge'] as const) {
+      await test.step(`${mode} at ${size.width} x ${size.height}`, async () => {
+        await page.setViewportSize(size);
+        await painted(page);
+        await chooseMode(page, mode);
+        const where = `${size.width} x ${size.height}, ${mode}`;
+        if (mode === 'forge') await picture(page, `review-${size.width}x${size.height}-dark-viz-toolbar-forge`, vizToolbar(page), 200);
+        expect.soft(await smallKeys(vizToolbar(page).locator('xpath=..')), `${where}: every key of the toolbar is 44 by 44 px`).toEqual([]);
+        await moreKey(page).click();
+        await expect(morePanel(page)).toBeVisible();
+        await painted(page);
+        expect.soft(await smallKeys(morePanel(page).locator('xpath=..')), `${where}: every key of the More panel is 44 by 44 px`).toEqual([]);
+        await moreKey(page).click();
+        await expect(morePanel(page)).toBeHidden();
+      });
+    }
+  }
+  await page.setViewportSize(sizeOf(1440));
+  await page.goto(replayUrl(PAIR_SERVER, await pairSessionId(request), 'sim'));
+  await replayComplete(page, 60_000);
+  for (const size of BELOW_900) {
+    await test.step(`the evidence row at ${size.width} x ${size.height}`, async () => {
+      await page.setViewportSize(size);
+      await painted(page);
+      expect.soft(await smallKeys(evidenceRow(page).locator('xpath=..')), `${size.width} x ${size.height}: every key of the evidence row is 44 by 44 px`).toEqual([]);
+    });
+  }
+});
+
+test('below 900 px the Viz toolbar holds its diff and help keys in its More panel before its row scrolls, at 600 x 900 and 844 x 390 in LIVING and FORGE', async ({ page, request }) => {
+  test.setTimeout(240_000);
+  await openViz(page, request, 'pair', 'dark', 60_000);
+  for (const size of [{ width: 600, height: 900 }, { width: 844, height: 390 }]) {
+    for (const mode of ['living', 'forge'] as const) {
+      await test.step(`${mode} at ${size.width} x ${size.height}`, async () => {
+        await page.setViewportSize(size);
+        await painted(page);
+        await chooseMode(page, mode);
+        const row = vizToolbar(page);
+        await unshift(row);
+        const read = await readRow(row);
+        // Fewer keys first, then the More panel, then a row that scrolls:
+        // while the row scrolls, it holds no key the More panel holds.
+        const inRow = await row.evaluate(el => Array.from(el.querySelectorAll('button'))
+          .map(b => b.getAttribute('aria-label') ?? '')
+          .filter(name => /^(Show|Hide) A-vs-B diff overlay|^Open help overlay/.test(name)));
+        if (read.scrolls) expect.soft(inRow, `${size.width} x ${size.height}, ${mode}: the toolbar scrolls (${read.scrollWidth} of ${read.clientWidth} px) with keys its More panel holds`).toEqual([]);
+        // Below 900 px the diff and help keys stand in the More panel, whether
+        // or not the row would have room for them.
+        await moreKey(page).click();
+        await expect(morePanel(page)).toBeVisible();
+        await expect.soft(morePanel(page).getByRole('button', { name: /^(Show|Hide) A-vs-B diff overlay/ }), `${size.width} x ${size.height}, ${mode}: the diff key is in the More panel`).toBeVisible();
+        await expect.soft(morePanel(page).getByRole('button', { name: 'Open help overlay (shortcut: ?)', exact: true }), `${size.width} x ${size.height}, ${mode}: the help key is in the More panel`).toBeVisible();
+        await moreKey(page).click();
+        await expect(morePanel(page)).toBeHidden();
+      });
+    }
+  }
+});
+
+test('at 390 x 844 the turn outcomes stand below the whole living grid, never over its lower part', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const run = await pairRun(request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await useLook(page, 'dark');
+  await page.goto(`${VIZ_SERVER}/sim?replay=${encodeURIComponent(run.id)}&tab=viz`);
+  await lookShown(page, 'dark');
+  await expect(page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${run.turns}\\.`) })).toBeAttached({ timeout: 30_000 });
+  await expect(foldKey(page)).toBeVisible();
+  const outcomes = page.getByRole('status', { name: 'Turn outcomes' });
+  await expect(outcomes.locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) })).toHaveCount(1);
+  await painted(page);
+  // The grid and the outcomes stand in one scroll window, so their places on
+  // the page compare as they are.
+  const read = await page.evaluate(() => {
+    const grid = Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"]'))
+      .find(g => g.getBoundingClientRect().height > 0)!.getBoundingClientRect();
+    const slot = document.querySelector('[role="status"][aria-label="Turn outcomes"]')!.getBoundingClientRect();
+    const row = document.querySelector('.viz-content .leaders-row') as HTMLElement;
+    return { gridTop: grid.top, gridBottom: grid.bottom, outcomesTop: slot.top, window: row.clientHeight };
+  });
+  // A picture with the outcomes in the middle of the grids' window.
+  await page.evaluate(() => {
+    const row = document.querySelector('.viz-content .leaders-row') as HTMLElement;
+    const slot = document.querySelector('[role="status"][aria-label="Turn outcomes"]')!.getBoundingClientRect();
+    const box = row.getBoundingClientRect();
+    row.scrollTop += slot.top - (box.top + row.clientHeight / 2);
+  });
+  await painted(page);
+  await picture(page, 'review-390-dark-viz-outcomes-below-grid');
+  expect(read.outcomesTop, `the outcomes start at ${read.outcomesTop.toFixed(1)} px, at or below the grid's end at ${read.gridBottom.toFixed(1)} px (the grid is ${(read.gridBottom - read.gridTop).toFixed(1)} px tall in a ${read.window} px window)`).toBeGreaterThanOrEqual(read.gridBottom - 0.5);
+});
+
+test('the open Export menu stays by its key when the toolbar moves with nothing scrolled or resized, as when a turn\'s words grow, at 390', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openMorePanel(page, request, 390);
+  await exportKey(page).click();
+  await expect(exportMenu(page)).toBeVisible();
+  await painted(page);
+  const where = () => page.evaluate(() => {
+    const key = document.querySelector('[aria-label="Export options"]')!.getBoundingClientRect();
+    const menu = document.querySelector('[role="menu"]')!.getBoundingClientRect();
+    return { keyTop: key.top, keyBottom: key.bottom, menuTop: menu.top, menuBottom: menu.bottom };
+  });
+  const before = await where();
+  const below = before.menuTop >= before.keyBottom - 0.5;
+  const gapOf = (r: typeof before) => (below ? r.menuTop - r.keyBottom : r.keyTop - r.menuBottom);
+  // The banner above the toolbar grows by 96 px, as when a live turn's
+  // words come in: nothing scrolls and the window keeps its size.
+  const moved = await page.evaluate(() => {
+    const banner = document.querySelector('[role="status"][aria-label="Current turn narrative"]') as HTMLElement;
+    const key = document.querySelector('[aria-label="Export options"]')!;
+    const top = key.getBoundingClientRect().top;
+    banner.style.paddingBottom = '96px';
+    return key.getBoundingClientRect().top - top;
+  });
+  expect(moved, 'the taller banner moves the Export key down').toBeGreaterThan(40);
+  await expect(exportMenu(page), 'the menu stays open while its key stays in view').toBeVisible();
+  await expect.poll(async () => Math.abs(gapOf(await where()) - gapOf(before)), {
+    message: `the menu keeps its ${gapOf(before).toFixed(1)} px gap to its key after the key moved ${moved.toFixed(1)} px`,
+    timeout: 3_000,
+  }).toBeLessThanOrEqual(1);
+});
+
+test('a focused arrow key whose end the row reaches hands focus to the other key, however the row got there, at 320', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openMorePanel(page, request, 320);
+  const panel = morePanel(page);
+  await unshift(panel);
+  expect((await readRow(panel)).scrolls, 'the More panel scrolls at 320').toBe(true);
+  const previous = previousKey(panel);
+  const next = nextKey(panel);
+  await panel.evaluate((el) => { el.scrollLeft = 0; });
+  await painted(page);
+  await expect(previous).toBeDisabled();
+  await next.focus();
+  await expect(next).toBeFocused();
+  // The row reaches its end by a swipe or a trackpad, not by the key.
+  await panel.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  await expect(next, 'Next is disabled at the end').toBeDisabled();
+  await expect(previous, 'focus goes on to Previous rather than to the page').toBeFocused();
+  // And back to the start the same way: focus goes on to Next.
+  await panel.evaluate((el) => { el.scrollLeft = 0; });
+  await expect(previous, 'Previous is disabled at the start').toBeDisabled();
+  await expect(next, 'focus goes on to Next rather than to the page').toBeFocused();
 });

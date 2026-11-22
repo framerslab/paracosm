@@ -49,7 +49,9 @@ interface ExportMenuProps {
  * that scrolls sideways or fades at its edge neither clips nor fades it. It
  * stands under its key, or above it when it does not fit under it and there
  * is more room above, and is never taller than its room. It follows its key
- * while the page or the row scrolls, and closes once the key is out of view.
+ * wherever the key moves (the page or the row scrolling, the window resizing,
+ * the toolbar moving as the words above it grow), and closes once the key is
+ * out of view.
  *
  * Opened, it holds focus on its first action. The arrow keys, Home and End
  * move through its actions; Escape and Shift+Tab close it and give focus back
@@ -108,7 +110,26 @@ export function ExportMenu({
     placeMenu();
     window.addEventListener('resize', placeMenu);
     document.addEventListener('scroll', placeMenu, true);
+    // The key can also move with nothing scrolled or resized, as when a
+    // turn's words above the toolbar grow: each frame the menu is open it
+    // reads where its key stands, and places itself again once that moved.
+    const keyAt = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      return r ? `${r.left} ${r.top} ${r.right} ${r.bottom}` : '';
+    };
+    let at = keyAt();
+    let frame = 0;
+    const follow = () => {
+      const now = keyAt();
+      if (now !== at) {
+        at = now;
+        placeMenu();
+      }
+      frame = requestAnimationFrame(follow);
+    };
+    frame = requestAnimationFrame(follow);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('resize', placeMenu);
       document.removeEventListener('scroll', placeMenu, true);
     };
