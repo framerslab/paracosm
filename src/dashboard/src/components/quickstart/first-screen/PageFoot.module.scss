@@ -64,7 +64,10 @@
   }
 }
 
+// The navigation takes the column's whole width, the room the links are measured against.
 .nav {
+  position: relative;
+  align-self: stretch;
   min-width: 0;
 }
 
@@ -106,6 +109,95 @@
   &:focus-visible {
     outline: 2px solid var(--amber);
     outline-offset: 2px;
+  }
+}
+
+// The full row of links, unseen and clipped to nothing, at the links' own
+// size: PageFoot reads its width to know whether the four fit one row.
+.measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fullRow {
+  width: max-content;
+}
+
+// More links: the key that holds Docs, GitHub and npm when the four links do
+// not fit one row, and the menu it opens above itself.
+.more {
+  position: relative;
+}
+
+.moreKey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 96px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  box-sizing: border-box;
+  min-width: 100%;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
   }
 }
 

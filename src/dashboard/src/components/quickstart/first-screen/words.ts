@@ -473,6 +473,9 @@ export const NOTE_ADULTS = 'For adults. Under 18? Use it with a parent’s or gu
 /** The foot's navigation, for a screen reader. */
 export const SITE_LINKS = 'Site links';
 
+/** The key that holds Docs, GitHub and npm when the foot's links do not fit one row. */
+export const MORE_LINKS = 'More links';
+
 /** The foot's links. */
 export const FOOT_LINKS = [
   { label: 'Docs', href: '/docs' },

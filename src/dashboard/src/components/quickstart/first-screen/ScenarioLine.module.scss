@@ -72,6 +72,8 @@
   font-weight: 400;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
+  // The grid below reads the room it has in its own type size.
+  container-type: inline-size;
 }
 
 :global(.light) .figures {
@@ -93,6 +95,20 @@
 
 .dot {
   display: none;
+}
+
+// The two columns need about 16 em, their widest figures and the gap. With
+// less room in the figures' own size, which is 200 per cent text in a phone's
+// column, the grid becomes one column of the four figures, each free to wrap,
+// so no figure is cut.
+@container (max-width: 17em) {
+  .cells {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cell {
+    white-space: normal;
+  }
 }
 
 // The failure: the broken-link mark in the heading's place, the sentence

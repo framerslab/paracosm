@@ -403,8 +403,9 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   }, [resting]);
 
   // The people's names as text over the field (`nameLabels`): each name's
-  // own size is read from the page once it is laid out, and again when the
-  // served faces load, and the names are then placed so no two overlap.
+  // own size is read from the page once it is laid out, again when the
+  // served faces load, and again whenever a name's box changes size (a
+  // larger text setting), and the names are then placed so no two overlap.
   const peopleRef = useRef<HTMLDivElement | null>(null);
   const [nameSizes, setNameSizes] = useState<Map<string, { w: number; h: number }>>(() => new Map());
   const [rovingId, setRovingId] = useState<string | null>(null);
@@ -431,7 +432,14 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     };
     measure();
     void document.fonts?.ready.then(measure);
-    return () => { cancelled = true; };
+    // A name's box does not depend on where it stands, so reading it again
+    // when it changes size cannot start a loop.
+    const boxes = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    layer.querySelectorAll<HTMLElement>('[data-person]').forEach(el => boxes?.observe(el));
+    return () => {
+      cancelled = true;
+      boxes?.disconnect();
+    };
   }, [domNames, snapshot, size.w, size.h]);
 
   const namePlaces = useMemo(() => {
