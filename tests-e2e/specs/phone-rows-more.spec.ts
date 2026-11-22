@@ -267,12 +267,14 @@ async function expectScrollKeys(page: Page, row: Locator, where: string): Promis
   await pressAndSettle(row, previous, `${where}: Previous moves the row back and it comes to rest`);
   await expect.soft(next, `${where}: Next is enabled once the row has moved back`).toBeEnabled();
 
-  // Under reduced motion a press moves the row in one step.
+  // Under reduced motion a press moves the row in one step: Previous, or
+  // Next when the row stands at its start again.
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  const key = (await previous.isEnabled()) ? previous : next;
   const before = await row.evaluate(el => el.scrollLeft);
-  await previous.click();
+  await key.click();
   const afterPress = await row.evaluate(el => el.scrollLeft);
-  expect.soft(afterPress, `${where}: under reduced motion Previous moves the row at once`).toBeLessThan(before - 1);
+  expect.soft(Math.abs(afterPress - before), `${where}: under reduced motion ${await key.getAttribute('aria-label')} moves the row at once`).toBeGreaterThan(1);
   await painted(page);
   expect.soft(await row.evaluate(el => el.scrollLeft), `${where}: under reduced motion the row does not glide on`).toBe(afterPress);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -363,7 +365,12 @@ interface CohortRead {
   window: number;
   /** How much of the first actor's living grid shows on the screen, inside every box that clips it. */
   shown: number;
-  /** The bottom of the first actor's living grid. */
+  /**
+   * The bottom of the part of the first actor's living grid that shows, or
+   * its top when none shows. The grid can be taller than its window, which
+   * then scrolls: the words stand below the grid when they stand below what
+   * the window shows of it.
+   */
   gridBottom: number;
   /** The top of the first actor's words for the turn, or null when they are not on the page. */
   wordsTop: number | null;
@@ -396,7 +403,7 @@ async function readCohort(page: Page): Promise<CohortRead> {
     return {
       window: track.clientHeight,
       shown: Math.max(0, bottom - top),
-      gridBottom: c.bottom,
+      gridBottom: bottom > top ? bottom : c.top,
       wordsTop: words ? words.getBoundingClientRect().top : null,
     };
   }, FIRST_ACTOR);
@@ -456,7 +463,7 @@ for (const look of LOOKS) {
       expect.soft(folded.shown, `T${turn}: the grid shows in its window with the words folded`).toBeGreaterThan(0);
       expect.soft(open.wordsTop, `T${turn}: the words are on the page once opened`).not.toBeNull();
       if (open.wordsTop !== null) {
-        expect.soft(open.wordsTop, `T${turn}: the words open below the living grid (words from ${open.wordsTop.toFixed(1)} px, grid to ${open.gridBottom.toFixed(1)} px)`).toBeGreaterThanOrEqual(open.gridBottom - 0.5);
+        expect.soft(open.wordsTop, `T${turn}: the words open below the living grid (words from ${open.wordsTop.toFixed(1)} px, the grid shown to ${open.gridBottom.toFixed(1)} px)`).toBeGreaterThanOrEqual(open.gridBottom - 0.5);
       }
       expect.soft(open.window, `T${turn}: with the words open the grid's window is ${open.window.toFixed(1)} px tall, at least the ${folded.window.toFixed(1)} px it is with them folded`).toBeGreaterThanOrEqual(folded.window - 0.5);
       expect.soft(open.shown, `T${turn}: with the words open ${open.shown.toFixed(1)} px of the grid shows, at least the ${folded.shown.toFixed(1)} px with them folded`).toBeGreaterThanOrEqual(folded.shown - 0.5);
