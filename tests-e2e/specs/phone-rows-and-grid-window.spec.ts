@@ -390,6 +390,7 @@ test('from 481 to 899 px the Viz toolbar is one row of 44 px keys, its mode tabs
         await chooseMode(page, mode);
         // The mode tabs stand in the row at these widths, not the menu.
         await expect(page.locator(`[data-grid-mode="${mode}"]`)).toBeVisible();
+        await picture(page, `${size.width}x${size.height}-dark-viz-toolbar-${mode}`, vizToolbar(page), 200);
         const where = `${size.width} x ${size.height}, dark, ${mode}, the toolbar`;
         const read = await expectOneRow(page, vizToolbar(page), where, size.width);
         if (read.scrolls) await expectScrollKeys(page, vizToolbar(page), where);
