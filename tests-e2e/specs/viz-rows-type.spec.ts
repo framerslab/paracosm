@@ -25,10 +25,16 @@
  * - At 320, 390, 600 and 1440 the keyboard legend is one row inside the
  *   window. Where it shows fewer than its six keys, one key opens the help
  *   overlay, whose Keyboard section lists them all.
- * - At 320, 390 and 1440 every word on the Viz toolbar's keys, in LIVING and
- *   FORGE, on its More panel's keys, on the play controls and in the legend
- *   computes to 15 px or more; each of those rows is one row inside the
- *   window; and below 900 px every key in them is 44 px tall and wide.
+ * - At 844 x 339 (a phone on its side with its browser's bars) the grids
+ *   stand side by side under the same controls: the grid keeps the same
+ *   usable window, and the turn's outcomes, the play controls and the
+ *   legend scroll into view.
+ * - At 320, 390, 600 and 1440 every word on the Viz toolbar's keys, in
+ *   LIVING and FORGE, on its More panel's keys, on the play controls and in
+ *   the legend computes to 15 px or more; each of those rows is one row
+ *   inside the window; and below 900 px every key in them is 44 px tall and
+ *   wide. On a phone the Latest key, in the flow above the play controls, is
+ *   44 px tall and wide, inside the window, its words at 15 px.
  *
  * The stored runs are tests-e2e/support/viz-replay-server.ts's, served with
  * VIZ_REPLAY_EVENT_STARTS=1 on a port of their own: the hosted demo's six
@@ -38,7 +44,7 @@
  * grid as many rows above it as the live replays had; the other stored runs
  * draw no event row.
  *
- * Pictures at 390 x 844, 390 x 339, 320, 600 and 1440 in both looks go to
+ * Pictures at 390 x 844, 390 x 339, 844 x 339, 320, 600 and 1440 in both looks go to
  * test-pictures/viz-rows-type/, which CI uploads. Each is taken before its
  * checks, so a failing run leaves them too.
  */
@@ -56,6 +62,8 @@ const ARIA = 'Aria Chen';
 
 const PHONE = { width: 390, height: 844 };
 const SHORT = { width: 390, height: 339 };
+/** A phone on its side with its browser's bars: as wide as the rows' 844 x 390, as short as the short screen. */
+const SIDE = { width: 844, height: 339 };
 /** Below this width a key is a phone's: 44 px tall and wide or more. */
 const PHONE_BELOW = 900;
 const PHONE_TARGET = 44;
@@ -126,6 +134,11 @@ const eventRow = (page: Page) => page.locator('[aria-label="Event filter"]');
 /** The turn's outcomes below the grid on a phone, and their first commander's line. */
 const outcomes = (page: Page) => page.getByRole('status', { name: 'Turn outcomes' });
 const ariaLine = (page: Page) => outcomes(page).locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) }).first();
+/** The first commander's line wherever the turn's words stand: below the grid on a phone, in the turn banner wider. */
+const ariaLineAnywhere = (page: Page) => page.getByRole('status', { name: /^(Turn outcomes|Current turn narrative)$/ })
+  .locator('div').filter({ hasText: new RegExp(`^A: ${ARIA}`) }).first();
+/** The key back to the run's last turn, shown on an earlier turn. */
+const latestKey = (page: Page) => page.getByRole('button', { name: /^Jump to latest turn/ });
 /** The Viz toolbar's row: the row that holds its More key. */
 const moreKey = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) (advanced|more) tools/ });
 const vizToolbar = (page: Page) => moreKey(page).locator('xpath=..');
@@ -383,6 +396,52 @@ for (const look of LOOKS) {
   });
 }
 
+// A phone on its side is wider than a phone, so the pair view draws both
+// grids side by side and the turn's words stand in the turn banner; the
+// controls above the grids are as tall as on the short screen.
+for (const look of LOOKS) {
+  test(`on a phone on its side (844 x 339) the living grid keeps a usable window, and the turn's outcomes, the play controls and the legend scroll into view, in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const run = await pairRun(request);
+    await openRun(page, run, look, SIDE);
+    await setWords(page, 'open');
+    await scrollBack(page);
+    await painted(page);
+    await picture(page, `844x339-${look}-first-sight`);
+
+    // The grid's window: the grid scrolled to the top of its view.
+    await gridOf(page, run.turns).evaluate((el) => { el.scrollIntoView({ block: 'start', inline: 'nearest' }); });
+    await painted(page);
+    await picture(page, `844x339-${look}-grid-scrolled-to`);
+    const grid = await readGrid(page);
+
+    // The outcomes: the mouse wheel over the panel brings them into view.
+    await scrollBack(page);
+    await painted(page);
+    const outcomesReached = await wheelUntil(page, () => inView(ariaLineAnywhere(page)));
+    const line = await ariaLineAnywhere(page).textContent().catch(() => null);
+
+    // The panel's end: the play controls and the legend.
+    await wheelUntil(page, async () => false);
+    await painted(page);
+    await picture(page, `844x339-${look}-panel-end`);
+    const playInView = await inView(playRow(page));
+    const legendInView = await inView(legend(page));
+
+    expect.soft(grid, 'the living grid is drawn with a window of its own').not.toBeNull();
+    if (grid) {
+      test.info().annotations.push({ type: 'the grid on a phone on its side, 844 x 339', description: `${grid.shownHeight.toFixed(1)} of ${grid.height.toFixed(1)} px in view, in a Viz panel ${grid.panelHeight.toFixed(1)} px tall` });
+      expect.soft(grid.shownHeight, `the grid has a usable window: ${grid.shownHeight.toFixed(1)} px of it in view, at least ${USABLE} px`).toBeGreaterThanOrEqual(USABLE - 0.5);
+      expect.soft(grid.shownHeight, `the grid fills the Viz panel's ${grid.panelHeight.toFixed(1)} px view (${grid.shownHeight.toFixed(1)} px of it in view)`).toBeGreaterThanOrEqual(Math.min(grid.height, grid.panelHeight) - 0.5);
+      expect.soft(grid.over, 'nothing is drawn over the grid').toEqual([]);
+    }
+    expect.soft(outcomesReached, 'the mouse wheel over the Viz panel brings the turn\'s outcomes into view, with nothing over them').toBe(true);
+    expect.soft(line ?? '', 'the outcomes name the turn\'s first commander').toMatch(new RegExp(`^A: ${ARIA}`));
+    expect.soft(playInView, 'at the Viz panel\'s end the play controls are in view').toBe(true);
+    expect.soft(legendInView, 'at the Viz panel\'s end the keyboard legend is in view').toBe(true);
+  });
+}
+
 // ── The keyboard legend ──────────────────────────────────────────────────
 
 /** One row as the page lays it out: its drawn parts, its keys and the words in it. */
@@ -513,11 +572,11 @@ async function chooseMode(page: Page, mode: 'living' | 'forge'): Promise<void> {
 }
 
 for (const look of LOOKS) {
-  test(`every word on the Viz toolbar, its More panel, the play controls and the legend is 15 px or more at 320, 390 and 1440, each row one row with 44 px keys on a phone, in the ${look} look`, async ({ page, request }) => {
+  test(`every word on the Viz toolbar, its More panel, the play controls and the legend is 15 px or more at 320, 390, 600 and 1440, each row one row with 44 px keys on a phone, and the Latest key a phone key, in the ${look} look`, async ({ page, request }) => {
     test.setTimeout(300_000);
     const run = await pairRun(request);
     await openRun(page, run, look, sizeAt(1440));
-    for (const width of [1440, 390, 320] as const) {
+    for (const width of [1440, 600, 390, 320] as const) {
       await test.step(`${width}`, async () => {
         await page.setViewportSize(sizeAt(width));
         await painted(page);
@@ -548,6 +607,34 @@ for (const look of LOOKS) {
         await picture(page, `${width}-${look}-play-controls-and-legend`, playRow(page), 160);
         expectReadable(await expectOneRow(page, playRow(page), `${width}, ${look}, the play controls`, width), `${width}, ${look}, the play controls`);
         expectReadable(await expectOneRow(page, legend(page), `${width}, ${look}, the keyboard legend`, width), `${width}, ${look}, the keyboard legend`);
+
+        // On a phone the Latest key stands in the flow above the play
+        // controls, so it is a phone key: 44 px tall and wide, inside the
+        // window, its words at 15 px. It shows on a turn before the last.
+        if (width <= 480) {
+          await stepBack(page).click();
+          await expect(latestKey(page)).toBeVisible();
+          await latestKey(page).evaluate((el) => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+          await painted(page);
+          await picture(page, `${width}-${look}-latest-key`);
+          const key = await latestKey(page).evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const words: Array<{ text: string; size: number }> = [];
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const text = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+              if (text && n.parentElement) words.push({ text: text.slice(0, 32), size: parseFloat(getComputedStyle(n.parentElement).fontSize) });
+            }
+            return { width: r.width, height: r.height, left: r.left, right: r.right, inner: document.documentElement.clientWidth, words };
+          });
+          const where = `${width}, ${look}, the Latest key`;
+          expect.soft(key.height, `${where}: 44 px tall or more on a phone (${key.height.toFixed(1)} px)`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
+          expect.soft(key.width, `${where}: 44 px wide or more on a phone (${key.width.toFixed(1)} px)`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
+          expect.soft(key.left >= -0.5 && key.right <= key.inner + 0.5, `${where}: inside the window (${key.left.toFixed(1)} to ${key.right.toFixed(1)} px of ${key.inner} px)`).toBe(true);
+          expect.soft(key.words.filter(w => w.size < READ_SIZE - 0.01).map(w => `"${w.text}": ${w.size} px`), `${where}: every word is ${READ_SIZE} px or more`).toEqual([]);
+          await stepOn(page).click();
+          await expect(latestKey(page)).toHaveCount(0);
+        }
       });
     }
   });
