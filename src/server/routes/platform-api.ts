@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ListRunsFilters, RunHistoryStore } from '../stores/run-history.js';
-import { publicRunRecord, withoutOutputPath, type RunRecord } from '../services/run-record.js';
+import { publicRunRecord, withSavedSessionLinks, withoutOutputPath, type RunRecord } from '../services/run-record.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 import type { ScenarioPackage } from '../../engine/types.js';
 import { WorldModel, WorldModelReplayError } from '../../runtime/world-model/index.js';
@@ -82,6 +82,12 @@ export interface HandlePlatformApiOptions {
    * run the scope does not reach answers as it does for an id no run has.
    */
   runScope?: RunScope;
+  /**
+   * The session ids among those given that the session store holds. A run
+   * record whose saved session is gone is answered without its session
+   * link, so the Library offers no replay link that answers 404.
+   */
+  savedSessionIds?: (ids: readonly string[]) => Promise<ReadonlySet<string>>;
 }
 
 const OUTSIDE_RUNS_DIR_MESSAGE = 'The run\'s artifact file is outside the server\'s runs directory and is not read.';
@@ -174,11 +180,12 @@ export async function handlePlatformApiRoute(
         ? await options.runHistoryStore.countRuns(countFilters)
         : runs.length;
       const hasMore = (filters.offset ?? 0) + runs.length < total;
+      const linked = await withSavedSessionLinks(runs, options.savedSessionIds);
       res.writeHead(200, {
         'Content-Type': 'application/json',
         ...options.corsHeaders,
       });
-      res.end(JSON.stringify({ runs: runs.map(publicRunRecord), total, hasMore }));
+      res.end(JSON.stringify({ runs: linked.map(publicRunRecord), total, hasMore }));
       return true;
     }
 
@@ -354,9 +361,10 @@ export async function handlePlatformApiRoute(
         res.end(JSON.stringify(loaded.body));
         return true;
       }
+      const [linked] = await withSavedSessionLinks([record], options.savedSessionIds);
       res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
       res.end(JSON.stringify({
-        record: publicRunRecord(record),
+        record: publicRunRecord(linked),
         artifact: loaded.artifact && typeof loaded.artifact === 'object'
           ? withoutOutputPath(loaded.artifact as RunArtifact) : loaded.artifact,
       }));
