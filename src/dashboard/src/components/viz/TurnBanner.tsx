@@ -14,6 +14,12 @@ interface TurnBannerProps {
    * headline and the key that folds the lines.
    */
   linesTarget?: HTMLElement | null;
+  /**
+   * Whether the cohort grid is on screen, so the "+N more" line can point to
+   * it; when it is not (the Focus pair view of a larger run), the line names
+   * the view that shows every actor.
+   */
+  cohortGridShown?: boolean;
 }
 
 interface LeaderTurnSummary {
@@ -97,9 +103,23 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
   return { actorName, decision, outcome, deaths, dominantCause, dominantDeaths, moraleDelta, eventTitle, eventCategory, time };
 }
 
+/**
+ * The title the banner leads with on a turn: the first actor's, in run
+ * order, whose turn names one. The banner is drawn only when there is one,
+ * so the play controls know whether the turn's time stands above them.
+ */
+export function turnHeadline(state: GameState, currentTurn: number): string {
+  for (const actorId of state.actorIds) {
+    const side = state.actors[actorId];
+    const title = side ? summarize(side, currentTurn)?.eventTitle : '';
+    if (title) return title;
+  }
+  return '';
+}
+
 // Cap on inline humanized lines in the banner. Past this many actors
-// the per-actor lines fall off and we render a "+N more \u2014 see cohort
-// grid below" footer instead, keeping the banner under one screen.
+// the per-actor lines fall off and we render a "+N more" footer that points
+// to the rest instead, keeping the banner under one screen.
 const MAX_INLINE_OUTCOMES = 6;
 
 /**
@@ -110,7 +130,7 @@ const MAX_INLINE_OUTCOMES = 6;
  * `MAX_INLINE_OUTCOMES` lines and trail with a count chip for the rest
  * so the banner stays under a screen on large cohort runs.
  */
-export function TurnBanner({ state, currentTurn, linesTarget }: TurnBannerProps) {
+export function TurnBanner({ state, currentTurn, linesTarget, cohortGridShown = true }: TurnBannerProps) {
   // Cohort runs (3+ actors) render all per-actor outcome lines which
   // can eat 6+ rows of vertical space on the viz tab, squeezing the
   // cohort grid below to just its column headers with the bodies
@@ -160,7 +180,9 @@ export function TurnBanner({ state, currentTurn, linesTarget }: TurnBannerProps)
       ))}
       {hidden > 0 && (
         <div className={styles.lineMore}>
-          +{hidden} more {'\u00b7'} see cohort grid below for the rest
+          +{hidden} more {'\u00b7'} {cohortGridShown
+            ? `see cohort grid ${linesTarget ? 'above' : 'below'} for the rest`
+            : `open All ${state.actorIds.length} actors for the rest`}
         </div>
       )}
     </>

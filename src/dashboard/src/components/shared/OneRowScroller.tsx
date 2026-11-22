@@ -46,9 +46,13 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
     if (!row || !box) return;
     // The row scrolls only while its keys are wider than the whole box: the
     // width the row has without the arrow keys, whose own width would
-    // otherwise keep them shown once the keys fit again.
+    // otherwise keep them shown once the keys fit again. That width lies
+    // inside the box's own padding.
     const style = getComputedStyle(row);
-    const room = box.clientWidth - parseFloat(style.marginLeft) - parseFloat(style.marginRight);
+    const boxStyle = getComputedStyle(box);
+    const room = box.clientWidth
+      - parseFloat(boxStyle.paddingLeft) - parseFloat(boxStyle.paddingRight)
+      - parseFloat(style.marginLeft) - parseFloat(style.marginRight);
     const scrolls = row.scrollWidth > room + 1;
     const end = row.scrollWidth - row.clientWidth;
     const previous = scrolls && row.scrollLeft > 1;
