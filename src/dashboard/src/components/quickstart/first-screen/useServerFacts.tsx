@@ -2,14 +2,16 @@
  * What the server answers that the Run tab's first screen reads: the day's
  * free runs (GET /rate-limit), whether this is the hosted demo and its caps
  * (GET /admin-config), and the saved runs (GET /sessions, through
- * useSessions). Each is asked once a page. Every field of an answer is
+ * useSessions). Each is asked once a page. A press of Start that the server
+ * refuses at the day's limit is kept too, so the screen says the limit
+ * even when the count it last read said a run was left. Every field of an answer is
  * checked before it is used; a field that is missing or of the wrong kind is
  * left out, so the words that read it are left out rather than drawn blank.
  *
  * @module paracosm/dashboard/quickstart/first-screen/useServerFacts
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useSessions, type SessionsStatus, type StoredSessionMeta } from '../../../hooks/useSessions';
+import { savedSessions, useSessions, type SessionsStatus, type StoredSessionMeta } from '../../../hooks/useSessions';
 
 /** The day's count of free runs for this internet address. */
 export interface RateLimitAnswer {
@@ -37,7 +39,17 @@ export interface ServerFacts {
   /** `refresh` asks again and answers what the server said, so a press of Start reads the count it acts on. */
   rateLimit: RateLimitState & { refresh(): Promise<RateLimitState> };
   adminConfig: AdminConfigState;
-  sessions: { status: SessionsStatus; rows: SessionRow[]; refresh(): void };
+  /** `refresh` asks again and settles once the answer is in. */
+  sessions: { status: SessionsStatus; rows: SessionRow[]; refresh(): Promise<void> };
+  /** True once a press of Start was refused at the day's limit (POST /setup answered 429 with none left). */
+  limitMet: boolean;
+  /** Keeps that the day's limit was met, until the page leaves. */
+  markLimitMet(): void;
+}
+
+/** Whether this internet address has no free run left today: the count says none, or a press was refused at the limit. */
+export function noFreeRunLeft(facts: Pick<ServerFacts, 'rateLimit' | 'limitMet'>): boolean {
+  return facts.limitMet || (facts.rateLimit.status === 'ready' && facts.rateLimit.answer?.remaining === 0);
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -76,7 +88,10 @@ const ServerFactsContext = createContext<ServerFacts | null>(null);
 export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const [rateLimit, setRateLimit] = useState<RateLimitState>({ status: 'loading' });
   const [adminConfig, setAdminConfig] = useState<AdminConfigState>({ status: 'loading' });
+  const [limitMet, setLimitMet] = useState(false);
   const sessions = useSessions();
+  const markLimitMet = useCallback(() => setLimitMet(true), []);
+  const refreshSessions = useCallback(() => savedSessions.refresh(), []);
 
   const refreshRateLimit = useCallback(async (): Promise<RateLimitState> => {
     let next: RateLimitState;
@@ -110,8 +125,10 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ServerFacts>(() => ({
     rateLimit: { ...rateLimit, refresh: refreshRateLimit },
     adminConfig,
-    sessions: { status: sessions.status, rows: sessions.sessions as SessionRow[], refresh: sessions.refresh },
-  }), [rateLimit, refreshRateLimit, adminConfig, sessions.status, sessions.sessions, sessions.refresh]);
+    sessions: { status: sessions.status, rows: sessions.sessions as SessionRow[], refresh: refreshSessions },
+    limitMet,
+    markLimitMet,
+  }), [rateLimit, refreshRateLimit, adminConfig, sessions.status, sessions.sessions, refreshSessions, limitMet, markLimitMet]);
 
   return <ServerFactsContext.Provider value={value}>{children}</ServerFactsContext.Provider>;
 }

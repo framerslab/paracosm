@@ -303,3 +303,44 @@ export function estimateLine(o: { who: 'own' | 'server'; usd: string; provider?:
 export const atLimitReset = (resetTime?: string): string => (resetTime
   ? `Your internet address has no free runs left today. They reset at ${resetTime.replace(/ /g, NBSP)}.`
   : 'Your internet address has no free runs left today.');
+
+/** The second paragraph at the limit; its first sentence shows only while the saved-run list holds a run. */
+export const atLimitAfter = (hasSavedRun: boolean): string =>
+  `${hasSavedRun ? 'You can replay a saved run for free. ' : ''}To start a new run now, add your own API key in Settings: your provider bills you, and the run is not held to this demo’s size.`;
+
+/** The filled key in Start's place, and the link beside Start, that replays the visitor's own last run. */
+export const WATCH_LAST_RUN = 'Watch your last run again';
+
+/** The filled key in Start's place that replays the team's run, when this browser has none of its own. */
+export const WATCH_TEAM_RUN = 'Watch our team’s run';
+
+/** The team's run key's second line: its scenario and turn count, each written only when the run names it. */
+export function teamRunLine(o: { scenario?: string; turns?: number }): string {
+  const turns = o.turns === undefined ? '' : countOf(o.turns, 'turn', 'turns');
+  return [o.scenario, turns].filter(Boolean).join(', ');
+}
+
+/** The team's run key's spoken name: "Watch our team’s run: Mars Genesis, 6 turns". Plain spaces, as a name is matched. */
+export function teamRunSpoken(o: { scenario?: string; turns?: number }): string {
+  const turns = o.turns === undefined ? '' : `${o.turns} ${o.turns === 1 ? 'turn' : 'turns'}`;
+  const about = [o.scenario, turns].filter(Boolean).join(', ');
+  return about ? `${WATCH_TEAM_RUN}: ${about}` : WATCH_TEAM_RUN;
+}
+
+/** The link under the key at the limit, to Settings' API key field. */
+export const ADD_KEY_IN_SETTINGS = 'Add your API key in Settings';
+
+/** Said above Start when the request did not reach the server. */
+export const COULD_NOT_REACH = 'Could not reach the server. Check your connection and press Start again.';
+
+/** Said above Start when the server answered that it is busy. */
+export const SERVER_BUSY = 'The server is busy. Press Start again in a moment.';
+
+/** Said above Start when every run slot on the server is in use. */
+export const SLOTS_IN_USE = 'Every run slot on the server is in use. Press Start again in a minute.';
+
+/** Said at the limit, in the replay key's place, when the saved-run list did not load. */
+export const SAVED_RUNS_NOT_LOADED = 'Your saved runs did not load.';
+
+/** The key beside it that asks for the list again. */
+export const TRY_AGAIN = 'Try again';

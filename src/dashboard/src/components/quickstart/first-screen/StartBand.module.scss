@@ -292,8 +292,109 @@
   min-width: 0;
 }
 
+.problemWords {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+// At the limit: the two paragraphs in the page, the clock face beside the
+// first alone and the second across the column under them.
 .limit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
   max-width: 68ch;
+}
+
+.resetRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+
+  .sentence {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+.clock {
+  flex: none;
+  margin-top: 2px;
+}
+
+// The replay key in Start's place, with the link to Settings under it.
+.limitKeys {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+// The replay key: a link drawn as the primary key, with its label in the
+// primary key's own tone however the link was visited.
+.replay {
+  text-decoration: none;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-contrast);
+    text-decoration: none;
+  }
+}
+
+.replayFirst {
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+// A text link in the ink, its hit area 44 px high.
+.textLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-1);
+  }
+}
+
+// Try again beside the saved runs that did not load: 44 px high and 96 px wide or more.
+.tryAgain {
+  flex: none;
+  box-sizing: border-box;
+  min-width: 96px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  cursor: pointer;
+
+  &[aria-disabled='true'] {
+    cursor: default;
+    @include quiet-tone;
+  }
+}
+
+// The link beside Start that replays the visitor's own last run.
+.lastRun {
+  margin: 0;
 }
 
 // Narrow tablet: the two lines over a row of the 320 px key and the run line.
@@ -366,7 +467,9 @@
   .bar[data-stuck='false'] {
     pointer-events: none;
 
-    .key {
+    .key,
+    .textLink,
+    .tryAgain {
       pointer-events: auto;
     }
   }

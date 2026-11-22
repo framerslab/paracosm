@@ -10,6 +10,10 @@
  * without moving anything. A scenario that did not load is said beside the
  * broken-link mark with a Try now key, while the page keeps asking.
  *
+ * While no free run is left on the host's keys and Start is replaced, the
+ * middle sentence, which names Start, is left out: the limit is said once,
+ * with the key that takes Start's place.
+ *
  * @module paracosm/dashboard/quickstart/first-screen/ScenarioLine
  */
 import { Fragment, useState } from 'react';
@@ -28,7 +32,7 @@ import {
   type RunFigures,
 } from './effectiveLaunch';
 import { useOnline } from './useOnline';
-import { useServerFacts } from './useServerFacts';
+import { noFreeRunLeft, useServerFacts } from './useServerFacts';
 import {
   LOADING_NAME,
   SCENARIO_MARK,
@@ -140,6 +144,7 @@ export function ScenarioLine({ size = 2 }: ScenarioLineProps) {
   }
 
   const turns = effectiveTurns(facts, scenario, settings, who);
+  const atLimit = who === 'host' && noFreeRunLeft(facts);
   const figures: RunFigures = {
     people: effectivePeople(facts, scenario, who),
     departments: effectiveDepartments(facts, scenario, who),
@@ -154,7 +159,7 @@ export function ScenarioLine({ size = 2 }: ScenarioLineProps) {
       </div>
       <div className={styles.body}>
         <p className={styles.sentences} data-text="body" data-testid="scenario-sentences">
-          {scenarioSentences({ n: size, turns, atLimit: false })}
+          {scenarioSentences({ n: size, turns, atLimit })}
         </p>
         {figuresKnown && <Figures figures={figures} loading={false} />}
       </div>

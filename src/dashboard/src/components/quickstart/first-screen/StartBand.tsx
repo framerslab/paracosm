@@ -15,7 +15,19 @@
  * the press until the page opens the run, saying each stage in words:
  * checking, writing the leaders a larger run needs, starting. An inactive
  * key has no fill, and its reason is written in or beside it. A request
- * that fails is said above the key, which can then be pressed again.
+ * that fails is said above the key in one sentence beside its mark (no
+ * connection, a busy server, every run slot in use, or any other refusal),
+ * and the key can then be pressed again. A visitor with a saved run of
+ * their own has a link beside Start that replays it.
+ *
+ * With no free run left on the host's keys, as the count says or as a
+ * refused press finds, two paragraphs take the notice's place: the reset
+ * time with its zone beside a clock face whose hands show it, then what
+ * the visitor can do. A filled key in Start's place replays the visitor's
+ * last run, or the team's run of a pair when this browser has none, and
+ * calls no model; with neither, no filled key stands there. The link to
+ * Settings' API key field is under it. A saved-run list that did not load
+ * is said in the key's place with a Try again key.
  *
  * The key's bar stays at the bottom edge of the view while its place in
  * the page is below the visible area, above the consent bar when that
@@ -27,6 +39,8 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
+import { createDashboardTabHref } from '../../../tab-routing';
+import { buildReplayHref } from '../../layout/LoadMenu.helpers';
 import { estimateQuickstartCostUSD } from '../SeedInput.helpers';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import {
@@ -44,22 +58,39 @@ import {
   type LoadedRunOptions,
   type Payer,
 } from './effectiveLaunch';
-import { formatResetTime } from './launchFailure';
+import {
+  atLimitChoice,
+  classifyLaunchFailure,
+  clockHands,
+  formatResetTime,
+  resetClockTime,
+  type ClockTime,
+  type LaunchFailureKind,
+} from './launchFailure';
 import { BrokenLinkMark, WarningGlyph } from './marks';
 import { useOnline } from './useOnline';
-import { useServerFacts, type ServerFacts } from './useServerFacts';
+import { noFreeRunLeft, useServerFacts, type ServerFacts, type SessionRow } from './useServerFacts';
 import {
+  ADD_KEY_IN_SETTINGS,
   AI_AGENTS,
+  COULD_NOT_REACH,
   CHECKING_FREE_RUNS,
   NOTICE_COUNT_UNAVAILABLE,
   NOTICE_FREE,
   NOTICE_SERVER,
   RUN_DID_NOT_START,
   RUN_END,
+  SAVED_RUNS_NOT_LOADED,
+  SERVER_BUSY,
+  SLOTS_IN_USE,
   START,
   STARTING,
   START_WHEN_ONLINE,
+  TRY_AGAIN,
+  WATCH_LAST_RUN,
+  WATCH_TEAM_RUN,
   YOU_ARE_OFFLINE,
+  atLimitAfter,
   atLimitReset,
   estimateLine,
   noticeAfter,
@@ -68,6 +99,9 @@ import {
   ownKeyPays,
   startSecondLine,
   startSpoken,
+  teamRunLine,
+  teamRunSpoken,
+  trying as TRYING,
   writingLeaders,
 } from './words';
 import styles from './StartBand.module.scss';
@@ -89,6 +123,14 @@ type Stage = 'checking' | 'writing' | 'starting';
 type BandState = Stage | 'ready' | 'waiting' | 'unloaded' | 'offline' | 'limit';
 /** The band's layout: phone from 320 px, narrow from 600, tablet from 768, desktop from 1,100, wide from 1,440. */
 type Layout = 'phone' | 'narrow' | 'tablet' | 'desktop' | 'wide';
+
+/** The sentence above Start for each failure but the day's limit, which takes the band to its at-limit state. */
+const FAILURE_WORDS: Record<Exclude<LaunchFailureKind, 'limit'>, string> = {
+  offline: COULD_NOT_REACH,
+  busy: SERVER_BUSY,
+  slots: SLOTS_IN_USE,
+  other: RUN_DID_NOT_START,
+};
 
 /** Up to this many turns the run line draws one mark a turn; past it, a ruler. */
 const MARKS_UP_TO = 20;
@@ -174,6 +216,68 @@ function StartKey({ state, launch, scenarioName, writing, onPress }: {
     <button type="button" className={styles.key} data-testid="start-key" aria-disabled="true">
       <span className={styles.words} data-testid="start-words">{words}</span>
     </button>
+  );
+}
+
+/**
+ * A small clock face with its hands set to the time the day's free runs
+ * reset, in the visitor's own zone. It does not move. Hidden from a screen
+ * reader: the sentence beside it says the time in words.
+ */
+export function ClockFace({ time }: { time: ClockTime }) {
+  const hands = clockHands(time);
+  const shown = `${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
+  return (
+    <svg
+      className={styles.clock}
+      style={{ color: 'var(--text-1)' }}
+      width="40"
+      height="40"
+      viewBox="0 0 40 40"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      data-glyph="clock"
+      data-testid="reset-clock"
+      data-time={shown}
+    >
+      <circle cx="20" cy="20" r="18" stroke="currentColor" strokeWidth="2" />
+      {[0, 90, 180, 270].map((angle) => (
+        <line key={angle} x1="20" y1="4" x2="20" y2="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" transform={`rotate(${angle} 20 20)`} />
+      ))}
+      <line data-hand="hour" x1="20" y1="20" x2="20" y2="11" stroke="currentColor" strokeWidth="3" strokeLinecap="round" transform={`rotate(${hands.hour} 20 20)`} />
+      <line data-hand="minute" x1="20" y1="20" x2="20" y2="7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" transform={`rotate(${hands.minute} 20 20)`} />
+      <circle cx="20" cy="20" r="2" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** The address that replays a saved run on the Watch tab. */
+const replayHref = (id: string): string => buildReplayHref(window.location.href, id);
+
+/**
+ * The filled key in Start's place at the limit: a link, since it opens the
+ * run's replay, which calls no model. The visitor's own last run, or the
+ * team's run over its scenario and turn count, named from its content.
+ */
+function ReplayKey({ choice }: { choice: { kind: 'own' | 'team'; row: SessionRow } }) {
+  if (choice.kind === 'own') {
+    return (
+      <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)}>
+        <span className={styles.replayFirst} data-testid="replay-first" data-read-exception="primary-key-label">{WATCH_LAST_RUN}</span>
+      </a>
+    );
+  }
+  const about = { scenario: choice.row.scenarioName, turns: choice.row.turnCount };
+  const second = teamRunLine(about);
+  return (
+    <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)}>
+      <span className="sr-only">{teamRunSpoken(about)}</span>
+      <span className={styles.replayFirst} data-testid="replay-first" data-read-exception="primary-key-label" aria-hidden="true">{WATCH_TEAM_RUN}</span>
+      {second && (
+        <span className={styles.second} data-testid="replay-second" data-read-exception="primary-key-label" aria-hidden="true">{second}</span>
+      )}
+    </a>
   );
 }
 
@@ -316,7 +420,8 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
   const layout = useLayout();
   const [stage, setStage] = useState<Stage | null>(null);
   const [writing, setWriting] = useState(0);
-  const [failure, setFailure] = useState<LaunchFailureInput | null>(null);
+  const [failure, setFailure] = useState<Exclude<LaunchFailureKind, 'limit'> | null>(null);
+  const [trying, setTrying] = useState(false);
   const pressed = useRef(false);
 
   // Read on each render: the Settings tab may have saved a key since.
@@ -326,7 +431,7 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
   const payerKnown = who === 'own' || facts.adminConfig.status !== 'loading';
   const launch = ready && payerKnown ? effectiveLaunch(facts, scenario, settings, size, who) : null;
   const { rateLimit } = facts;
-  const noneLeft = who === 'host' && rateLimit.status === 'ready' && rateLimit.answer?.remaining === 0;
+  const noneLeft = who === 'host' && noFreeRunLeft(facts);
   const { bar, place, lines, held } = useHeldBar(layout, stage === null && online && launch !== null && noneLeft);
 
   const state: BandState = stage
@@ -375,22 +480,72 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
       outcome.failure = { networkError: true };
     }
     if (outcome.failure) {
-      setFailure(outcome.failure);
+      const { kind } = classifyLaunchFailure({ ...outcome.failure, online: navigator.onLine });
+      if (kind === 'limit' && who === 'host') {
+        // The day's limit was met since the count was read: say it as the limit, with the reset time read again.
+        facts.markLimitMet();
+        void rateLimit.refresh();
+      } else {
+        setFailure(kind === 'limit' ? 'other' : kind);
+      }
       setStage(null);
       onBusy?.(false);
     }
     // With no failure the page is on its way to the run: the key stays as it is until the page leaves.
   };
 
+  const { sessions } = facts;
+  const choice = sessions.status === 'ready' ? atLimitChoice(sessions.rows) : { kind: 'neither' as const };
+
   if (state === 'limit') {
-    const resetAt = rateLimit.answer?.resetAt;
+    // The reset time as the server last said it; none when the count could not be read again.
+    const resetAt = rateLimit.status === 'ready' ? rateLimit.answer?.resetAt : undefined;
+    const time = resetAt === undefined ? undefined : formatResetTime(resetAt) || undefined;
+    const clock = resetAt !== undefined && time ? resetClockTime(resetAt) : null;
+    const reset = atLimitReset(time);
+    const retry = () => {
+      if (trying) return;
+      setTrying(true);
+      void sessions.refresh().finally(() => setTrying(false));
+    };
+    const settingsHref = `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
     return (
       <div className={styles.band} data-testid="start-band" data-state={state} data-layout={layout}>
-        <span ref={place} className={styles.place} aria-hidden="true" />
-        <div ref={bar} className={styles.limit}>
-          <p className={styles.sentence} data-text="body" data-testid="at-limit-reset" role="status">
-            {atLimitReset(resetAt === undefined ? undefined : formatResetTime(resetAt) || undefined)}
+        <div className={styles.limit} data-testid="at-limit">
+          <div className={styles.resetRow}>
+            {clock && <ClockFace time={clock} />}
+            <p className={styles.sentence} data-text="body" data-testid="at-limit-reset" role="status">{reset}</p>
+          </div>
+          <p className={styles.sentence} data-text="body" data-testid="at-limit-after">
+            {atLimitAfter(sessions.status === 'ready' && sessions.rows.length > 0)}
           </p>
+        </div>
+        <span ref={place} className={styles.place} aria-hidden="true" />
+        <div ref={bar} className={styles.bar} data-testid="start-bar" data-stuck={held ? 'true' : 'false'}>
+          {held && (
+            <div ref={lines} className={`${styles.lines} ${styles.over}`} data-testid="start-bar-lines">
+              <p>{reset}</p>
+            </div>
+          )}
+          <div className={styles.limitKeys}>
+            {sessions.status === 'error'
+              ? (
+                <div className={styles.problem} data-testid="sessions-failed">
+                  <BrokenLinkMark className={styles.problemMark} />
+                  <span className={styles.problemWords} role="status">{SAVED_RUNS_NOT_LOADED}</span>
+                  <button
+                    type="button"
+                    className={styles.tryAgain}
+                    onClick={retry}
+                    aria-disabled={trying ? 'true' : undefined}
+                  >
+                    {trying ? TRYING : TRY_AGAIN}
+                  </button>
+                </div>
+              )
+              : choice.kind !== 'neither' && <ReplayKey choice={choice} />}
+            <a className={styles.textLink} data-testid="add-key-link" href={settingsHref}>{ADD_KEY_IN_SETTINGS}</a>
+          </div>
         </div>
       </div>
     );
@@ -420,11 +575,20 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
   } else if (failure && state === 'ready') {
     problem = (
       <p className={styles.problem} data-testid="start-failure" role="alert">
-        <WarningGlyph className={styles.problemMark} />
-        <span>{RUN_DID_NOT_START}</span>
+        {failure === 'offline' ? <BrokenLinkMark className={styles.problemMark} /> : <WarningGlyph className={styles.problemMark} />}
+        <span>{FAILURE_WORDS[failure]}</span>
       </p>
     );
   }
+
+  // With a free run left, a visitor with a saved run of their own can replay it from beside Start.
+  const lastRun = state === 'ready' && who === 'host' && choice.kind === 'own'
+    ? (
+      <p className={styles.lastRun}>
+        <a className={styles.textLink} data-testid="last-run-link" href={replayHref(choice.row.id)}>{WATCH_LAST_RUN}</a>
+      </p>
+    )
+    : null;
 
   // Held, the bar carries the notice's first sentence and what the leaders are; resting, the whole notice is beside it.
   const heldLines = held && firstSentence && !problem
@@ -471,6 +635,7 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
         </div>
       </div>
       {noticeAfterBar && notice}
+      {lastRun}
     </div>
   );
 }
