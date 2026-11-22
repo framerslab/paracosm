@@ -141,10 +141,22 @@ export default defineConfig({
           stderr: 'pipe',
         },
         // The hosted demo's server, with one run a day for each internet
-        // address and a stub pair runner, for the Run tab's first screen spec.
+        // address and a stub pair runner, for the Run tab's first screen spec;
+        // a second port, 3472, answers what each run's snapshots held.
         {
           command: 'PORT=3470 npx tsx tests-e2e/support/first-screen-server.ts',
           url: 'http://127.0.0.1:3470/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with stored Mars Genesis runs of 3, 24 and 300
+        // leaders, one turn each from the engine's kernel, for the first
+        // screen spec's cases that open a larger run on the Sim tab.
+        {
+          command: 'PORT=3471 npx tsx tests-e2e/support/cohort-replay-server.ts',
+          url: 'http://127.0.0.1:3471/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',

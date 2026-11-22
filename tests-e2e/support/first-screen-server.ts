@@ -13,9 +13,18 @@
  * `runPairSimulations` in src/cli/pair-runner.ts writes before its first
  * model call (`status` with `phase: 'starting'`, then `status` with
  * `phase: 'parallel'` and the leaders, then each leader's first
- * `turn_start`) and holds the run open until the server aborts it. The
- * Digital Twin world, which the server compiles with a model on boot, is
- * none here. Its folders are temporary ones and it keeps no run history.
+ * `turn_start`), then one `systems_snapshot` for each leader at turn 1, and
+ * holds the run open until the server aborts it. The Digital Twin world,
+ * which the server compiles with a model on boot, is none here. Its folders
+ * are temporary ones and it keeps no run history.
+ *
+ * Each snapshot is the engine's own: the run's kernel, built from the run's
+ * seed, key people, start time and population as the orchestrator builds
+ * it, advanced one turn and read as the turn loop reads it
+ * (tests-e2e/support/kernel-turn.ts). So the Sim tab's grid panels draw the
+ * people the run starts with. A second port answers GET /roster with the
+ * names each leader's snapshot held, one record a run, so a test can read
+ * what the server sent.
  *
  * The hosted demo refuses a run on the host's keys when it holds no OpenAI
  * key (hosted-model-policy.ts), so the server holds a stand-in one. No
@@ -23,10 +32,35 @@
  * test that has Paracosm write leaders answers that request itself.
  */
 import { mkdirSync, mkdtempSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SimulationKernel } from '../../src/engine/core/kernel.js';
+import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
+import { advanceKernelTurn, snapshotData } from './kernel-turn.js';
+
+const PORT = Number(process.env.PORT ?? 3470);
+const ROSTER_PORT = Number(process.env.FIRST_SCREEN_ROSTER_PORT ?? 3472);
+
+/** What one run's snapshots held: the run's population and, for each leader, the names in its roster. */
+interface RosterRecord {
+  population: number;
+  leaders: Record<string, string[]>;
+}
+
+const rosters: RosterRecord[] = [];
+const rosterServer = createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/roster') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(rosters));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+rosterServer.listen(ROSTER_PORT, '127.0.0.1');
 
 const root = mkdtempSync(join(tmpdir(), 'paracosm-e2e-first-screen-'));
 const appDir = join(root, 'app');
@@ -47,7 +81,7 @@ const server = createMarsServer({
   maxSimsPerDay: 1,
   runHistoryStore: createNoopRunHistoryStore(),
   getDigitalTwinWorld: async () => null,
-  runPairSimulations: async (config, broadcast, signal) => {
+  runPairSimulations: async (config, broadcast, signal, scenario) => {
     const { actors, turns, startTime, customEvents } = config;
     broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
     broadcast('status', {
@@ -57,10 +91,30 @@ const server = createMarsServer({
     for (const leader of actors) {
       broadcast('sim', { type: 'turn_start', leader: leader.name, data: { turn: 1, time: startTime, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: {} } }, leader.name);
     }
+    // Each leader's colony at the end of turn 1, from the run's own kernel.
+    // A snapshot that cannot be built is logged and left out: the run stays
+    // open all the same, as every other test of this server needs it to.
+    const world = scenario ?? marsScenario;
+    const record: RosterRecord = { population: config.initialPopulation, leaders: {} };
+    try {
+      for (const leader of actors) {
+        const kernel = new SimulationKernel(config.seed, leader.name, config.keyPersonnel, {
+          startTime: config.startTime,
+          initialPopulation: config.initialPopulation,
+          scenario: world,
+        });
+        const turn = advanceKernelTurn(kernel, 1, startTime, world);
+        record.leaders[leader.name] = turn.agents.map(agent => String(agent.name));
+        broadcast('sim', { type: 'systems_snapshot', leader: leader.name, data: snapshotData(turn) }, leader.name);
+      }
+      rosters.push(record);
+    } catch (err) {
+      console.error('[first-screen-server] the turn 1 snapshots were not built:', err);
+    }
     await new Promise<void>(resolve => {
       if (signal?.aborted) return resolve();
       signal?.addEventListener('abort', () => resolve(), { once: true });
     });
   },
 });
-server.listen(Number(process.env.PORT ?? 3470));
+server.listen(PORT);

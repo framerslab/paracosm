@@ -73,6 +73,23 @@
  *   refusal. A count that cannot be read leaves Start active, and a saved-run
  *   list that did not load at the limit is said with a Try again key.
  *
+ * The grid on the Sim tab, one Start, and no tour (feature 14 once the run
+ * starts; features 11 and 12):
+ * - Once Start opens the run, the Sim tab shows each leader's own colony in
+ *   the living grid: a pair's two panels side by side from a tablet up and
+ *   stacked on a phone, the first in the grid's amber and the second in its
+ *   teal, holding the people the shared panel showed. The stub runner sends
+ *   each leader's roster at turn 1 from the run's own kernel, and a second
+ *   port (3472) answers what it sent.
+ * - A run of 3, 24 or 300 leaders, replayed from a server of stored runs
+ *   (tests-e2e/support/cohort-replay-server.ts, port 3471), shows the track
+ *   of one panel a leader, and the page does not scroll sideways.
+ * - Under reduced motion a panel holds still between turns.
+ * - Start is the one control that starts a new run: the RUN menu keeps its
+ *   saved runs and Load from file, and the Sim tab's empty state offers no
+ *   run and no tour.
+ * - No tour opens by itself on a first visit.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -133,18 +150,23 @@ let defined = 0;
 /**
  * A test of this spec: before its body runs, its context sends an internet
  * address of its own (198.51.100.n, three a test so each retry has its own).
+ * With `firstVisit` the browser holds nothing of an earlier visit: no mark
+ * that a tour was seen.
  */
 function screenTest(
   title: string,
   body: (fixtures: { page: Page; context: BrowserContext; browser: Browser }, info: TestInfo) => Promise<void>,
+  options: { firstVisit?: boolean } = {},
 ): void {
   const index = defined++;
   test(title, async ({ page, context, browser }, info) => {
     await context.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${1 + index * 3 + info.retry}` });
-    await page.addInitScript(() => {
-      // The first visit's tour would cover the screen.
-      window.localStorage.setItem('paracosm:tourSeen', '1');
-    });
+    if (!options.firstVisit) {
+      await page.addInitScript(() => {
+        // A browser that has visited before: a tour that opened on a first visit would cover the screen.
+        window.localStorage.setItem('paracosm:tourSeen', '1');
+      });
+    }
     await body({ page, context, browser }, info);
   });
 }
@@ -2874,6 +2896,253 @@ screenTest('feature 10: count unavailable and saved runs did not load', async ({
     }
   }
 });
+
+/* The grid on the Sim tab once the run starts, one Start, and no tour. */
+
+/** The server of stored runs of 3, 24 and 300 leaders (tests-e2e/support/cohort-replay-server.ts). */
+const REPLAYS = 'http://127.0.0.1:3471';
+/** Where the first screen's server answers what each run's snapshots held. */
+const ROSTERS = 'http://127.0.0.1:3472';
+
+/** The Sim tab's grid panels of a pair, the first leader's first. */
+const watchPanels = (page: Page): Locator => page.getByTestId('watch-grid-panel');
+/** The Sim tab's track of one panel a leader, from 3 leaders. */
+const watchTrack = (page: Page): Locator => page.getByTestId('watch-grid-track');
+
+/**
+ * A canvas's drawing: how many of its sampled pixels hold any, and how many
+ * of those stand near each of two colours, given as the page computes them.
+ */
+const drawingOf = (canvas: Locator, first: string, second: string): Promise<{ drawn: number; first: number; second: number }> =>
+  canvas.evaluate((el, colours) => {
+    const c = el as HTMLCanvasElement;
+    const ctx = c.getContext('2d');
+    const out = { drawn: 0, first: 0, second: 0 };
+    if (!ctx || c.width === 0 || c.height === 0) return out;
+    const [a, b] = colours.map((colour) => (colour.match(/\d+/g) ?? []).slice(0, 3).map(Number));
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    const near = (i: number, to: number[]) => Math.abs(px[i] - to[0]) <= 24 && Math.abs(px[i + 1] - to[1]) <= 24 && Math.abs(px[i + 2] - to[2]) <= 24;
+    for (let i = 0; i < px.length; i += 4 * 7) {
+      // A pixel drawn faintly holds too little of its colour to tell.
+      if (px[i + 3] < 48) continue;
+      out.drawn += 1;
+      if (near(i, a)) out.first += 1;
+      if (near(i, b)) out.second += 1;
+    }
+    return out;
+  }, [first, second]);
+
+/** What one run's snapshots held, as the first screen's server answers it. */
+interface RosterRecord { population: number; leaders: Record<string, string[]> }
+
+/** Presses Start on the ready first screen and waits for the page to open the run on the Sim tab. */
+async function startAndWatch(page: Page, root: Locator): Promise<void> {
+  const { key } = startParts(root);
+  await expect(key).toHaveAccessibleName(START_FREE);
+  await key.click();
+  await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+}
+
+screenTest('feature 14: Watch shows the pair on the first frame', async ({ page, context }, info) => {
+  test.setTimeout(240_000);
+  const featured = keyPeopleOf(await serverScenario(page)).filter((p) => p.featured).map((p) => p.name);
+  expect(featured.length).toBeGreaterThan(0);
+  try {
+    for (const [index, size] of [WIDE, PHONE].entries()) {
+      await test.step(`${size.width} in the dark look`, async () => {
+        if (index > 0) {
+          // A second run needs a visitor of its own: the day holds one run for an internet address.
+          await page.request.post(`${SERVER}/clear`);
+          await secondAddress(context, info, index);
+        }
+        const root = await openReadyAt(page, '/sim', size, 'dark');
+        // The people the shared panel names before the press.
+        await expect
+          .poll(async () => (await nameBoxes(root.getByTestId('shared-colony'))).map((n) => n.name), { message: 'the shared panel names the featured key people' })
+          .toEqual(featured);
+        await startAndWatch(page, root);
+
+        // Feature 14, QA step 3: two panels, the first leader's in the amber and the second's in teal.
+        const panels = watchPanels(page);
+        await expect(panels).toHaveCount(2);
+        const vis = await tokenColour(page, '--vis');
+        const eng = await tokenColour(page, '--eng');
+        for (const [place, panel] of [panels.nth(0), panels.nth(1)].entries()) {
+          const canvas = panel.locator('canvas');
+          await expect(canvas).toHaveCount(1);
+          await panel.scrollIntoViewIfNeeded();
+          await expect.poll(() => canvas.evaluate(countTiles), { message: `panel ${place + 1} draws its Game of Life cells`, timeout: 30_000 }).toBeGreaterThan(0);
+          const drawing = await drawingOf(canvas, vis, eng);
+          if (place === 0) expect(drawing.first, 'the first leader\'s panel draws in the amber').toBeGreaterThan(drawing.second);
+          else expect(drawing.second, 'the second leader\'s panel draws in teal').toBeGreaterThan(drawing.first);
+          // Each panel names its leader.
+          await expect(panel.getByRole('img', { name: new RegExp(`^${PAIR[place].name} `) })).toHaveCount(1);
+        }
+        const [first, second] = await Promise.all([box(panels.nth(0)), box(panels.nth(1))]);
+        if (size.width >= 768) {
+          expect(Math.abs(first.y - second.y), 'the two panels stand side by side').toBeLessThanOrEqual(1);
+          expect(first.x + first.width).toBeLessThanOrEqual(second.x + 1);
+        } else {
+          expect(second.y, 'the two panels stack').toBeGreaterThanOrEqual(first.y + first.height - 1);
+          expect(Math.abs(first.x - second.x)).toBeLessThanOrEqual(1);
+        }
+        for (const b of [first, second]) {
+          expect(b.x).toBeGreaterThanOrEqual(-1);
+          expect(b.x + b.width).toBeLessThanOrEqual(size.width + 1);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'the page has no sideways scroll').toBe(true);
+        await panels.nth(0).scrollIntoViewIfNeeded();
+        await picture(page, `watch-pair-${size.width}-dark`);
+      });
+    }
+
+    // Feature 14, QA step 12 with the key people as the starting data: every
+    // name the shared panel showed is in both leaders' rosters at turn 1.
+    const answer = await page.request.get(`${ROSTERS}/roster`);
+    expect(answer.ok(), 'the roster port answers').toBe(true);
+    const records = (await answer.json() as RosterRecord[])
+      .filter((r) => r.population === 30 && PAIR.every((leader) => Array.isArray(r.leaders[leader.name])));
+    expect(records.length, 'a run of the pair at 30 people sent its rosters').toBeGreaterThan(0);
+    for (const record of records) {
+      for (const leader of PAIR) {
+        expect(record.leaders[leader.name].length, `${leader.name}'s colony holds its 30 people`).toBeGreaterThanOrEqual(30);
+        for (const name of featured) expect(record.leaders[leader.name], `${leader.name}'s colony holds ${name}`).toContain(name);
+      }
+    }
+  } finally {
+    // The stub run holds a run slot until its visitor clears it.
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
+
+screenTest('feature 14: Watch from 3, at 24 and at 300', async ({ page }) => {
+  test.setTimeout(420_000);
+  const listed = await page.request.get(`${REPLAYS}/sessions`);
+  expect(listed.ok(), 'the server of stored runs lists them').toBe(true);
+  const { sessions } = await listed.json() as { sessions: Array<{ id: string; scenarioName?: string }> };
+  for (const leaders of [3, 24, 300]) {
+    const run = sessions.find((row) => row.scenarioName === `Mars Genesis · ${leaders} leaders`);
+    expect(run, `a stored run of ${leaders} leaders`).toBeDefined();
+    for (const size of [WIDE, PHONE]) {
+      await test.step(`${leaders} leaders at ${size.width} in the dark look`, async () => {
+        await page.setViewportSize(size);
+        await useLook(page, 'dark');
+        await page.goto(`${REPLAYS}/sim?replay=${encodeURIComponent(run!.id)}&tab=sim`);
+        const track = watchTrack(page);
+        await expect(track).toBeVisible({ timeout: 60_000 });
+        // One panel a leader, the first ones drawn.
+        await expect(track.locator('[aria-label^="Living swarm grid for actor "]')).toHaveCount(leaders, { timeout: 60_000 });
+        await expect(track.getByText('Aria Chen', { exact: true }).first()).toBeVisible();
+        const canvas = track.locator('canvas').first();
+        await track.scrollIntoViewIfNeeded();
+        await expect.poll(() => canvas.evaluate(countTiles), { message: 'the first leader\'s panel draws its Game of Life cells', timeout: 30_000 }).toBeGreaterThan(0);
+        // The track keeps to the page's width, and the page does not scroll sideways.
+        const place = await box(track);
+        expect(place.x).toBeGreaterThanOrEqual(-1);
+        expect(place.x + place.width).toBeLessThanOrEqual(size.width + 1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), 'the page has no sideways scroll').toBe(true);
+        await picture(page, `watch-${leaders}-${size.width}-dark`);
+      });
+    }
+  }
+});
+
+screenTest('feature 14: still frames under reduced motion', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'light');
+    await startAndWatch(page, root);
+    const panels = watchPanels(page);
+    await expect(panels).toHaveCount(2);
+    const canvases = [panels.nth(0).locator('canvas'), panels.nth(1).locator('canvas')];
+    for (const canvas of canvases) {
+      await expect.poll(() => canvas.evaluate(countTiles), { message: 'the panel draws its Game of Life cells', timeout: 30_000 }).toBeGreaterThan(0);
+    }
+    // The run is live and its turn stands: each panel is a still frame.
+    await page.waitForTimeout(1_000);
+    const first = await Promise.all(canvases.map((canvas) => frameOf(canvas)));
+    await panels.nth(0).scrollIntoViewIfNeeded();
+    await picture(page, 'watch-reduced-motion-1440-light-f1');
+    await page.waitForTimeout(2_000);
+    expect(await Promise.all(canvases.map((canvas) => frameOf(canvas))), 'two frames two seconds apart are the same frame').toEqual(first);
+    await picture(page, 'watch-reduced-motion-1440-light-f2');
+  } finally {
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
+
+screenTest('one Start', async ({ page }) => {
+  test.setTimeout(180_000);
+  /** A control named for starting a run: its name begins Start, Run or Launch. */
+  const startsARun = /^\W*(start|run|launch)\b/i;
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`${size.width} in the dark look`, async () => {
+      // The Sim tab with no run: its empty state offers no run and no tour.
+      await page.setViewportSize(size);
+      await useLook(page, 'dark');
+      await page.goto('/sim?tab=sim');
+      const sim = page.locator('#tabpanel-sim');
+      await expect(sim.getByText('No simulation running', { exact: true })).toBeVisible();
+      await expect(sim.getByRole('button', { name: startsARun })).toHaveCount(0);
+      await expect(sim.getByText(/guided tour/i)).toHaveCount(0);
+      await expect(sim.getByRole('button', { name: 'Load Prior Run', exact: true })).toBeVisible();
+
+      // The RUN menu keeps its saved runs and Load from file, and starts no new run.
+      const header = page.getByRole('banner');
+      await pressInPage(header.getByRole('button', { name: 'RUN', exact: true }));
+      const menu = page.getByRole('menu', { name: 'Run actions' });
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole('menuitem', { name: /Run New Simulation/ })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: /Run Saved Simulation/ })).toHaveCount(1);
+      await expect(menu.getByRole('menuitem', { name: /Load from file/ })).toHaveCount(1);
+      await expect(menu.getByRole('menuitem')).toHaveCount(2);
+      await page.keyboard.press('Escape');
+      await expect(menu).toHaveCount(0);
+      // No key of the header opens a tour.
+      await expect(header.getByRole('button', { name: /tour/i })).toHaveCount(0);
+
+      // Feature 12, QA step 2: from the header down to the end of the first
+      // screen, one control starts a run, and it is Start.
+      const root = await openReadyAt(page, '/sim', size, 'dark');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      const named = await root.getByRole('button').or(root.getByRole('link')).evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim()));
+      expect(named.filter((name) => startsARun.test(name))).toHaveLength(1);
+      await expect(root.getByRole('button', { name: startsARun })).toHaveCount(1);
+      // The header's own RUN key opens the menu read above; nothing else in the header is named for a run.
+      await expect(header.getByRole('button', { name: startsARun })).toHaveCount(1);
+      await expect(header.getByRole('button', { name: startsARun })).toHaveAccessibleName('RUN');
+      await expect(page.getByText(/guided tour/i).filter({ visible: true })).toHaveCount(0);
+    });
+  }
+});
+
+screenTest('no tour', async ({ page }) => {
+  test.setTimeout(180_000);
+  // Feature 11, QA steps 4 and 11: a first visit, left alone for 30 seconds.
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`${size.width} in the dark look`, async () => {
+      await page.setViewportSize(size);
+      await useLook(page, 'dark');
+      await page.goto('/sim');
+      await page.evaluate(() => { window.localStorage.removeItem('paracosm:tourSeen'); });
+      await page.reload();
+      const root = page.locator(FIRST_SCREEN);
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+      const tour = page.locator('[data-tour-overlay], [role="dialog"][aria-label="Guided tour"]');
+      const began = Date.now();
+      while (Date.now() - began < 30_000) {
+        expect(await tour.count(), 'no part of the guided tour is on the page').toBe(0);
+        await page.waitForTimeout(1_000);
+      }
+      await expect(tour).toHaveCount(0);
+      // The first screen is still what the page shows.
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+      expect(new URL(page.url()).searchParams.get('tab') ?? 'quickstart').toBe('quickstart');
+    });
+  }
+}, { firstVisit: true });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
   test.setTimeout(180_000);
