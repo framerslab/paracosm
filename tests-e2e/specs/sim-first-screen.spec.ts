@@ -59,13 +59,27 @@
  *   needs, posts exactly one /setup and opens Watch; the first screen stays
  *   until then.
  *
+ * At the day's limit, and when Start fails (feature 10):
+ * - With no free run left and no key saved, two paragraphs take the
+ *   notice's place, the first with the reset time and zone beside a clock
+ *   face whose hands show it; a filled key in Start's place replays the
+ *   visitor's last run, or the team's run when this browser has none, with
+ *   no model call; with neither there is no filled key, only the link to
+ *   Settings. The scenario line leaves out the sentence that names Start.
+ * - A limit met between the page's read and the press is found by /setup's
+ *   refusal and said the same way, with no raw server text.
+ * - A failed /setup is one sentence above an active Start, beside its mark:
+ *   no connection, a busy server, every run slot in use, or any other
+ *   refusal. A count that cannot be read leaves Start active, and a saved-run
+ *   list that did not load at the limit is said with a Try again key.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
  * Each width and look saves pictures into test-pictures/sim-first-screen/,
  * which CI uploads.
  */
-import { test, expect, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
+import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
 import { FIRST_SCREEN, axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The hosted demo server lives on a local port of its own.');
@@ -122,16 +136,16 @@ let defined = 0;
  */
 function screenTest(
   title: string,
-  body: (fixtures: { page: Page; context: BrowserContext }, info: TestInfo) => Promise<void>,
+  body: (fixtures: { page: Page; context: BrowserContext; browser: Browser }, info: TestInfo) => Promise<void>,
 ): void {
   const index = defined++;
-  test(title, async ({ page, context }, info) => {
+  test(title, async ({ page, context, browser }, info) => {
     await context.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${1 + index * 3 + info.retry}` });
     await page.addInitScript(() => {
       // The first visit's tour would cover the screen.
       window.localStorage.setItem('paracosm:tourSeen', '1');
     });
-    await body({ page, context }, info);
+    await body({ page, context, browser }, info);
   });
 }
 
@@ -2384,6 +2398,481 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
     expect(said.x).toBeGreaterThanOrEqual(start.x + start.width - 1);
     await picture(page, 'start-band-resting-1100-dark');
   });
+});
+
+/* At the day's limit, the failures and the reset clock (feature 10). */
+
+/** Midnight UTC on 22 Nov 2026: 4:00 PM on the day before in Los Angeles, 01:00 in Berlin. */
+const RESET_AT = Date.UTC(2026, 10, 22);
+const AT_LIMIT_SENTENCES = 'Two AI leaders each run this scenario for 6 turns, each under its own orders. At the end, a verdict says who won and why.';
+const NO_RUN_LEFT = 'Your internet address has no free runs left today.';
+const atLimitReset = (time: string) => `${NO_RUN_LEFT} They reset at ${time}.`;
+const REPLAY_FREE = 'You can replay a saved run for free.';
+const ADD_KEY_PARAGRAPH = 'To start a new run now, add your own API key in Settings: your provider bills you, and the run is not held to this demo’s size.';
+const ADD_KEY_LINK = 'Add your API key in Settings';
+const WATCH_LAST = 'Watch your last run again';
+const WATCH_TEAM = 'Watch our team’s run';
+const WATCH_TEAM_SPOKEN = 'Watch our team’s run: Mars Genesis, 6 turns';
+const COULD_NOT_REACH = 'Could not reach the server. Check your connection and press Start again.';
+const SERVER_BUSY = 'The server is busy. Press Start again in a moment.';
+const SLOTS_IN_USE = 'Every run slot on the server is in use. Press Start again in a minute.';
+const DID_NOT_START = 'The run did not start. Press Start again.';
+const SAVED_RUNS_FAILED = 'Your saved runs did not load.';
+const COUNT_UNAVAILABLE = 'Free runs left today: unavailable.';
+const START_OWN_KEY = 'Start Mars Genesis: 6 turns, on your own API key';
+
+/** A saved Mars Genesis pair as GET /sessions lists it. */
+const savedRun = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  createdAt: Date.UTC(2026, 10, 21, 12),
+  scenarioId: 'mars-genesis',
+  scenarioName: 'Mars Genesis',
+  leaderA: 'Aria Chen',
+  leaderB: 'Dietrich Voss',
+  turnCount: 6,
+  eventCount: 40,
+  ...extra,
+});
+
+/** GET /sessions answers these rows. */
+const routeSessions = (page: Page, rows: unknown[]): Promise<void> =>
+  page.route('**/sessions', (route: Route) => route.fulfill({ json: { sessions: rows } }));
+
+/** GET /rate-limit answers that this internet address has no free run left. */
+const routeNoRunLeft = (page: Page): Promise<void> =>
+  page.route('**/rate-limit', (route: Route) => route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt: RESET_AT } }));
+
+/** The replay address the page builds for a saved run: this address with the run's id, on the Watch tab. */
+const replayAddress = (page: Page, id: string): string => {
+  const url = new URL(page.url());
+  url.searchParams.set('replay', id);
+  url.searchParams.set('tab', 'sim');
+  return url.toString();
+};
+
+/** How many links and keys of the first screen are filled in the primary key's rust. */
+async function filledKeys(page: Page, root: Locator): Promise<number> {
+  const rust = await tokenColour(page, '--rust');
+  return root.locator('a, button').evaluateAll((els, fill) => els.filter((el) => getComputedStyle(el).backgroundColor === fill).length, rust);
+}
+
+/** The clock face beside the reset sentence: hidden from a screen reader, its hands set to the reset time in the browser's own zone. */
+async function expectClockAt(page: Page, root: Locator, resetAt: number): Promise<void> {
+  const clock = root.getByTestId('reset-clock');
+  await expect(clock).toBeVisible();
+  await expect(clock).toHaveAttribute('aria-hidden', 'true');
+  const want = await page.evaluate((ms) => {
+    const parts: Record<string, string> = {};
+    for (const p of new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hourCycle: 'h23' }).formatToParts(new Date(ms))) parts[p.type] = p.value;
+    return { hour: Number(parts.hour), minute: Number(parts.minute) };
+  }, resetAt);
+  await expect(clock).toHaveAttribute('data-time', `${String(want.hour).padStart(2, '0')}:${String(want.minute).padStart(2, '0')}`);
+  const angle = (hand: string): Promise<number> => clock.locator(`[data-hand="${hand}"]`).evaluate((el) => Number(/rotate\(\s*([-\d.]+)/.exec(el.getAttribute('transform') ?? '')?.[1]));
+  expect(await angle('hour')).toBeCloseTo((want.hour % 12) * 30 + want.minute / 2, 3);
+  expect(await angle('minute')).toBeCloseTo(want.minute * 6, 3);
+}
+
+screenTest('feature 10: no free run left', async ({ page, browser }, info) => {
+  test.setTimeout(360_000);
+  try {
+    await test.step('a press takes the day’s one run', async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await key.click();
+      await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+      // The stub run holds a run slot until its visitor clears it; the day's count stays spent.
+      await page.request.post(`${SERVER}/clear`);
+      expect((await dayCount(page)).remaining).toBe(0);
+    });
+
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        await test.step(`${size.width} in the ${look} look`, async () => {
+          const root = await openReadyAt(page, '/sim', size, look);
+          const count = await dayCount(page);
+          expect(count.remaining).toBe(0);
+          const time = await clockTime(page, count.resetAt);
+          const { bar, barLines } = startParts(root);
+          await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'limit');
+          // Feature 3, QA step 15: the paragraph without the sentence that names Start.
+          await expect(root.getByTestId('scenario-sentences')).toHaveText(AT_LIMIT_SENTENCES);
+          // Feature 10, QA step 25: no saved run and no team's run, so no key stands in Start's place and no filled key asks for a key.
+          await expect(root.getByTestId('start-key')).toHaveCount(0);
+          await expect(root.getByTestId('replay-key')).toHaveCount(0);
+          expect(await filledKeys(page, root)).toBe(0);
+          const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+          await expect(addKey).toBeVisible();
+          expect(new URL((await addKey.getAttribute('href')) ?? '', page.url()).searchParams.get('tab')).toBe('settings');
+          expect((await box(addKey)).height).toBeGreaterThanOrEqual(44);
+          if (size.width < 600) {
+            // Feature 10, QA step 29: before any scroll the bar holds the reset sentence over the link.
+            await expect(bar).toHaveAttribute('data-stuck', 'true');
+            await expect(barLines).toHaveText(atLimitReset(time));
+            expect((await box(barLines)).y + (await box(barLines)).height).toBeLessThanOrEqual((await box(addKey)).y + 1);
+            await picture(page, `at-limit-bar-${size.width}-${look}`);
+          }
+
+          // Feature 10, QA step 4: the two paragraphs, the first beside a clock face set to the reset time.
+          await scrollToBandPlace(root);
+          const reset = root.getByTestId('at-limit-reset');
+          const after = root.getByTestId('at-limit-after');
+          await expect(reset).toHaveText(atLimitReset(time));
+          await expect(reset).toHaveAttribute('role', 'status');
+          await expect(after).toHaveText(ADD_KEY_PARAGRAPH);
+          await expectClockAt(page, root, count.resetAt);
+          // The clock sits beside the first paragraph alone; the second spans the column under them.
+          const [clock, said, rest] = await Promise.all([box(root.getByTestId('reset-clock')), box(reset), box(after)]);
+          expect(said.x).toBeGreaterThanOrEqual(clock.x + clock.width - 1);
+          expect(rest.y).toBeGreaterThanOrEqual(Math.max(clock.y + clock.height, said.y + said.height) - 1);
+          expect(rest.x).toBeLessThanOrEqual(clock.x + 1);
+          expect(await styleOf(reset)).toMatchObject({ size: 18, colour: await tokenColour(page, '--text-1') });
+          await expectNoSidewaysScroll(page, root);
+          expect(await measureReadability(page)).toEqual([]);
+          // Feature 3, QA step 17: the automated check at the no-run-left state.
+          expect(await axeFindings(page)).toEqual([]);
+          await picture(page, `at-limit-${size.width}-${look}`);
+
+          // Feature 5, QA step 27: the leaders read as with a free run left.
+          const leaders = root.getByTestId('leaders');
+          if (size.width < 1100) {
+            await leaders.getByRole('tab', { name: SHOW_DIETRICH, exact: true }).click();
+            await expect(leaders.getByRole('tabpanel').getByTestId('leader-head')).toHaveText(DIETRICH.title);
+            await expect(leaders.getByRole('tabpanel').getByTestId('leader-orders')).toBeVisible();
+          } else {
+            await expect(leaders.getByRole('article')).toHaveCount(2);
+            await expect(leaders.getByTestId('leader-orders')).toHaveCount(2);
+            for (const orders of await leaders.getByTestId('leader-orders').all()) await expect(orders).toBeVisible();
+          }
+        });
+      }
+    }
+
+    await test.step('with a key saved, Start and all three sentences return', async () => {
+      await saveKey(page);
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      await expect(startParts(root).key).toHaveAccessibleName(START_OWN_KEY);
+      await expect(root.getByTestId('scenario-sentences')).toHaveText(PAIR_SENTENCES);
+      await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+    });
+  } finally {
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+
+  // Feature 10, QA step 28: the reset time in the browser's own zone and format, and the clock face's hands with it.
+  for (const [i, [zone, locale, shown, zoneName]] of ([
+    ['America/Los_Angeles', 'en-US', '16:00', 'PST'],
+    ['Europe/Berlin', 'en-GB', '01:00', 'CET'],
+  ] as const).entries()) {
+    await test.step(`the reset time in ${zone}`, async () => {
+      const zoned = await browser.newContext({
+        baseURL: SERVER,
+        deviceScaleFactor: 2,
+        timezoneId: zone,
+        locale,
+        extraHTTPHeaders: { 'x-real-ip': `192.0.2.${1 + i + info.retry * 2}` },
+      });
+      try {
+        const zp = await zoned.newPage();
+        await zp.addInitScript(() => { window.localStorage.setItem('paracosm:tourSeen', '1'); });
+        await routeNoRunLeft(zp);
+        const root = await openReadyAt(zp, '/sim', PHONE, 'dark');
+        const time = await clockTime(zp, RESET_AT);
+        expect(time).toContain(zoneName);
+        await scrollToBandPlace(root);
+        await expect(root.getByTestId('at-limit-reset')).toHaveText(atLimitReset(time));
+        await expect(root.getByTestId('reset-clock')).toHaveAttribute('data-time', shown);
+        await expectClockAt(zp, root, RESET_AT);
+        await picture(zp, `at-limit-${zoneName}-390-dark`);
+      } finally {
+        await zoned.close();
+      }
+    });
+  }
+});
+
+screenTest('feature 10: at the limit with a saved run, with a team run, with neither', async ({ page }) => {
+  test.setTimeout(300_000);
+  // No press here starts a run or writes a leader: a replay calls no model.
+  const posted: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && (path === '/setup' || path.startsWith('/api/quickstart/'))) posted.push(path);
+  });
+  const own = savedRun('run-own-1');
+  const team = savedRun('run-team-1', { pinned: true, createdAt: Date.UTC(2026, 10, 20, 9) });
+  await routeNoRunLeft(page);
+
+  // Feature 10, QA step 4: the visitor's own run comes first, before the team's.
+  await routeSessions(page, [own, team]);
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`a saved run, ${size.width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        await scrollToBandPlace(root);
+        const replay = root.getByTestId('replay-key');
+        await expect(replay).toHaveText(WATCH_LAST);
+        await expect(replay).toHaveAccessibleName(WATCH_LAST);
+        expect(await replay.evaluate((el) => el.tagName)).toBe('A');
+        expect(await replay.getAttribute('href')).toBe(replayAddress(page, own.id));
+        // The filled key in Start's place, at Start's size.
+        expect(await replay.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await tokenColour(page, '--rust'));
+        expect((await box(replay)).height).toBeGreaterThanOrEqual(size.width < 600 ? 64 : 56);
+        await expect(root.getByTestId('start-key')).toHaveCount(0);
+        await expect(root.getByTestId('at-limit-reset')).toHaveText(atLimitReset(await clockTime(page, RESET_AT)));
+        await expect(root.getByTestId('at-limit-after')).toHaveText(`${REPLAY_FREE} ${ADD_KEY_PARAGRAPH}`);
+        // The link to Settings under the key.
+        const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+        const [k, link] = await Promise.all([box(replay), box(addKey)]);
+        expect(link.y).toBeGreaterThanOrEqual(k.y + k.height - 1);
+        expect(link.height).toBeGreaterThanOrEqual(44);
+        expect(await measureReadability(page)).toEqual([]);
+        expect(await axeFindings(page)).toEqual([]);
+        await picture(page, `at-limit-saved-run-${size.width}-${look}`);
+      });
+    }
+  }
+
+  await test.step('press it: the saved run replays, with no model call', async () => {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    await scrollToBandPlace(root);
+    await root.getByTestId('replay-key').click();
+    await page.waitForURL((url) => url.searchParams.get('replay') === own.id && url.searchParams.get('tab') === 'sim');
+    expect(posted).toEqual([]);
+  });
+
+  // Feature 10, QA step 5: with no run of its own, this browser is offered the team's run of a pair.
+  await page.unroute('**/sessions');
+  await routeSessions(page, [team]);
+  for (const look of LOOKS) {
+    await test.step(`the team's run, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      await scrollToBandPlace(root);
+      const replay = root.getByTestId('replay-key');
+      await expect(replay).toHaveAccessibleName(WATCH_TEAM_SPOKEN);
+      await expect(replay.getByTestId('replay-first')).toHaveText(WATCH_TEAM);
+      await expect(replay.getByTestId('replay-second')).toHaveText('Mars Genesis, 6 turns');
+      expect(await replay.getAttribute('href')).toBe(replayAddress(page, team.id));
+      expect(await replay.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(await tokenColour(page, '--rust'));
+      await expect(root.getByTestId('at-limit-after')).toHaveText(`${REPLAY_FREE} ${ADD_KEY_PARAGRAPH}`);
+      expect(await measureReadability(page)).toEqual([]);
+      expect(await axeFindings(page)).toEqual([]);
+      await picture(page, `at-limit-team-run-390-${look}`);
+    });
+  }
+
+  await test.step('press the team’s run: it replays, with no model call', async () => {
+    const root = await openReadyAt(page, '/sim', PHONE, 'light');
+    await scrollToBandPlace(root);
+    await root.getByTestId('replay-key').click();
+    await page.waitForURL((url) => url.searchParams.get('replay') === team.id && url.searchParams.get('tab') === 'sim');
+    expect(posted).toEqual([]);
+  });
+
+  // Feature 10, QA steps 25 and 40: neither, so the link to Settings alone and no replay sentence.
+  await page.unroute('**/sessions');
+  await routeSessions(page, []);
+  for (const look of LOOKS) {
+    await test.step(`neither, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      await scrollToBandPlace(root);
+      await expect(root.getByTestId('replay-key')).toHaveCount(0);
+      expect(await filledKeys(page, root)).toBe(0);
+      await expect(root.getByRole('link', { name: ADD_KEY_LINK, exact: true })).toBeVisible();
+      await expect(root.getByTestId('at-limit-after')).toHaveText(ADD_KEY_PARAGRAPH);
+    });
+  }
+
+  // Feature 10, QA step 7: with a free run left, a saved run's link beside Start.
+  await page.unroute('**/rate-limit');
+  await page.unroute('**/sessions');
+  await routeSessions(page, [own]);
+  await test.step('a free run left and a saved run: the link beside Start replays it', async () => {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await scrollToBandPlace(root);
+    const last = root.getByRole('link', { name: WATCH_LAST, exact: true });
+    await expect(last).toBeVisible();
+    expect(await last.getAttribute('href')).toBe(replayAddress(page, own.id));
+    expect((await box(last)).height).toBeGreaterThanOrEqual(44);
+    await picture(page, 'start-with-last-run-390-dark');
+    await last.click();
+    await page.waitForURL((url) => url.searchParams.get('replay') === own.id && url.searchParams.get('tab') === 'sim');
+    expect(posted).toEqual([]);
+  });
+});
+
+screenTest('feature 10: a limit met between the read and the press', async ({ page }) => {
+  test.setTimeout(300_000);
+  try {
+    await test.step('a first press spends the day’s one run', async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      await startParts(root).key.click();
+      await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
+      await page.request.post(`${SERVER}/clear`);
+    });
+
+    // The page's reads before the press still say one run is left, while the server's own count is spent.
+    for (const afterRefusal of ['let through', 'aborted', 'every read blocked'] as const) {
+      await test.step(`the read after the refusal ${afterRefusal}`, async () => {
+        let setupSent = false;
+        const onRequest = (request: { method(): string; url(): string }) => {
+          if (request.method() === 'POST' && new URL(request.url()).pathname === '/setup') setupSent = true;
+        };
+        page.on('request', onRequest);
+        await page.route('**/rate-limit', async (route: Route) => {
+          if (afterRefusal === 'every read blocked') return route.abort();
+          if (!setupSent) return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: RESET_AT } });
+          return afterRefusal === 'aborted' ? route.abort() : route.continue();
+        });
+        try {
+          const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+          const { key, notice } = startParts(root);
+          await expect(key).toHaveAccessibleName(START_FREE);
+          await expect(key).toBeEnabled();
+          if (afterRefusal === 'every read blocked') {
+            // Feature 10, QA step 9: a count that cannot be read leaves Start active, and the server checks the limit.
+            await expect(notice.getByTestId('notice-count')).toHaveText(COUNT_UNAVAILABLE);
+          }
+          const refusal = page.waitForResponse((res) => res.request().method() === 'POST' && new URL(res.url()).pathname === '/setup');
+          await key.click();
+          expect((await refusal).status()).toBe(429);
+          await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'limit');
+          await scrollToBandPlace(root);
+          const reset = root.getByTestId('at-limit-reset');
+          if (afterRefusal === 'let through') {
+            const count = await dayCount(page);
+            await expect(reset).toHaveText(atLimitReset(await clockTime(page, count.resetAt)));
+            await expectClockAt(page, root, count.resetAt);
+          } else {
+            await expect(reset).toHaveText(NO_RUN_LEFT);
+            await expect(root.getByTestId('reset-clock')).toHaveCount(0);
+          }
+          await expect(root.getByTestId('at-limit-after')).toHaveText(ADD_KEY_PARAGRAPH);
+          await expect(root.getByTestId('scenario-sentences')).toHaveText(AT_LIMIT_SENTENCES);
+          // The refusal is said in the page's own words: no raw server text and no failure sentence.
+          await expect(page.locator('body')).not.toContainText('Rate limit exceeded');
+          await expect(page.locator('body')).not.toContainText('simulations per day');
+          await expect(root.getByTestId('start-failure')).toHaveCount(0);
+          await picture(page, `at-limit-after-refusal-${afterRefusal.replace(/ /g, '-')}-390-dark`);
+        } finally {
+          page.off('request', onRequest);
+          await page.unroute('**/rate-limit');
+        }
+      });
+    }
+  } finally {
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
+
+screenTest('feature 10: failure sentences', async ({ page }) => {
+  test.setTimeout(240_000);
+  const answers: Array<{ name: string; answer: (route: Route) => Promise<void>; words: string; mark: string }> = [
+    { name: 'no-connection', answer: (route) => route.abort(), words: COULD_NOT_REACH, mark: 'broken-link' },
+    { name: 'busy', answer: (route) => route.fulfill({ status: 503, json: { error: 'x' } }), words: SERVER_BUSY, mark: 'warning' },
+    { name: 'run-slots', answer: (route) => route.fulfill({ status: 503, json: { error: 'x', runsInFlight: 3, maxRuns: 3 } }), words: SLOTS_IN_USE, mark: 'warning' },
+    { name: 'other', answer: (route) => route.fulfill({ status: 500, json: { error: 'x' } }), words: DID_NOT_START, mark: 'warning' },
+  ];
+  for (const look of LOOKS) {
+    await test.step(`390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { key } = startParts(root);
+      for (const a of answers) {
+        await page.route('**/setup', a.answer);
+        try {
+          await expect(key).toHaveAccessibleName(START_FREE);
+          await key.click();
+          // Feature 10, QA step 11: one sentence above the key, beside its drawn mark.
+          const said = root.getByTestId('start-failure');
+          await expect(said).toHaveText(a.words);
+          await expect(said.locator(`[data-mark="${a.mark}"]`)).toBeVisible();
+          await expect(page.locator('body')).not.toContainText('"error"');
+          // The key is back at rest, so the next press works.
+          await expect(key).toBeEnabled();
+          await expect(key).toHaveAccessibleName(START_FREE);
+          const [s, k] = await Promise.all([box(said), box(key)]);
+          expect(s.y + s.height).toBeLessThanOrEqual(k.y + 1);
+          expect(await styleOf(said)).toMatchObject({ size: 18, colour: await tokenColour(page, '--text-1') });
+          expect(await measureReadability(page)).toEqual([]);
+          await picture(page, `start-failure-${a.name}-390-${look}`);
+        } finally {
+          await page.unroute('**/setup');
+        }
+      }
+    });
+  }
+});
+
+screenTest('feature 10: count unavailable and saved runs did not load', async ({ page }) => {
+  test.setTimeout(300_000);
+  await test.step('a count that cannot be read leaves Start active', async () => {
+    await page.route('**/rate-limit', (route: Route) => route.abort());
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key, notice } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await scrollToBandPlace(root);
+    await expect(notice.getByTestId('notice-count')).toHaveText(COUNT_UNAVAILABLE);
+    await page.unroute('**/rate-limit');
+  });
+
+  await test.step('an empty list and a free run left: no replay clause', async () => {
+    await routeSessions(page, []);
+    const root = await openReadyAt(page, '/sim', PHONE, 'light');
+    await scrollToBandPlace(root);
+    await expect(startParts(root).notice.getByTestId('notice-after')).toHaveText(AFTER_NO_SAVED_RUN);
+    await page.unroute('**/sessions');
+  });
+
+  // Feature 10, QA step 39: at the limit, a saved-run list that did not load, then a press of Try again.
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`saved runs that did not load, ${size.width} in the ${look} look`, async () => {
+        await routeNoRunLeft(page);
+        let failing = true;
+        const held = gate();
+        await page.route('**/sessions', async (route: Route) => {
+          if (failing) return route.abort();
+          await held.opened;
+          return route.fulfill({ json: { sessions: [savedRun('run-own-1')] } });
+        });
+        try {
+          const root = await openReadyAt(page, '/sim', size, look);
+          await scrollToBandPlace(root);
+          const failed = root.getByTestId('sessions-failed');
+          await expect(failed).toContainText(SAVED_RUNS_FAILED);
+          await expect(failed.locator('[data-mark="broken-link"]')).toBeVisible();
+          const retry = failed.getByRole('button');
+          await expect(retry).toHaveText('Try again');
+          const r = await box(retry);
+          expect(r.height).toBeGreaterThanOrEqual(44);
+          expect(r.width).toBeGreaterThanOrEqual(96);
+          await expect(root.getByTestId('replay-key')).toHaveCount(0);
+          // Above the link to Settings, and the second paragraph without the replay sentence.
+          const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+          expect((await box(addKey)).y).toBeGreaterThanOrEqual(r.y + r.height - 1);
+          await expect(root.getByTestId('at-limit-after')).toHaveText(ADD_KEY_PARAGRAPH);
+          expect(await measureReadability(page)).toEqual([]);
+          await picture(page, `at-limit-saved-runs-failed-${size.width}-${look}`);
+
+          failing = false;
+          await retry.click();
+          await expect(retry).toHaveText('Trying…');
+          await expect(retry).toBeDisabled();
+          held.open();
+          await expect(root.getByTestId('replay-key')).toHaveText(WATCH_LAST);
+          await expect(failed).toHaveCount(0);
+        } finally {
+          held.open();
+          await page.unroute('**/sessions');
+          await page.unroute('**/rate-limit');
+        }
+      });
+    }
+  }
 });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
