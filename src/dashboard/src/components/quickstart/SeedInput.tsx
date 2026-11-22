@@ -5,7 +5,7 @@
  *
  * @module paracosm/dashboard/quickstart/SeedInput
  */
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { validateSeedText, validateSeedUrl } from './QuickstartView.helpers';
 import { extractPdfText } from './pdf-extract';
 import { ViewAsCodePanel } from './ViewAsCodePanel';
@@ -13,6 +13,9 @@ import { LoadedScenarioCTA } from './LoadedScenarioCTA';
 import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
 import { estimateQuickstartCostUSD } from './SeedInput.helpers';
+import type { Payer } from './first-screen/effectiveLaunch';
+import { createDashboardTabHref } from '../../tab-routing';
+import { ADD_KEY_IN_SETTINGS, GENERATE_AND_RUN, atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './SeedInput.module.scss';
 
 export interface SeedInputProps {
@@ -29,6 +32,28 @@ export interface SeedInputProps {
    *  omitted the catalog is hidden, same gate as the CTA. */
   onCatalogRunStart?: (scenarioId: string, actorCount: number) => void;
   disabled?: boolean;
+  /**
+   * 'pasteOnly' is the Run tab's Write your own scenario under the first
+   * screen: the paste form alone, with no loaded-scenario card, no catalog
+   * and no divider, its words held to the first screen's figures.
+   */
+  variant?: 'full' | 'pasteOnly';
+  /**
+   * Whose keys a run uses. On the host's keys the run is a pair: no Actors
+   * slider, no dollar figure, and the key reads Generate and run.
+   */
+  payer?: Payer;
+  /**
+   * No free run is left today on the host's keys: the at-limit sentences
+   * stand above the key, with the reset time when the server said it, and
+   * the key asks the server for nothing.
+   */
+  atLimit?: { resetTime?: string } | null;
+  /** The draft, when the page holds it: the first screen reads it to hold Start while a draft waits. */
+  seedText?: string;
+  onSeedTextChange?: (text: string) => void;
+  /** Hands the page a function that brings the draft into view and focuses it. */
+  registerGoToDraft?: (go: () => void) => void;
 }
 
 type Tab = 'paste' | 'url' | 'pdf';
@@ -39,7 +64,7 @@ type Tab = 'paste' | 'url' | 'pdf';
  * paste tab without an extra navigation step. Returns '' off the
  * happy path so the regular empty-state still renders.
  */
-function readPromptFromUrl(): string {
+export function readPromptFromUrl(): string {
   if (typeof window === 'undefined') return '';
   try {
     const raw = new URLSearchParams(window.location.search).get('prompt');
@@ -49,9 +74,42 @@ function readPromptFromUrl(): string {
   }
 }
 
-export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunStart, disabled = false }: SeedInputProps) {
+export function SeedInput({
+  onSeedReady,
+  onLoadedScenarioRunStart,
+  onCatalogRunStart,
+  disabled = false,
+  variant = 'full',
+  payer,
+  atLimit = null,
+  seedText: heldText,
+  onSeedTextChange,
+  registerGoToDraft,
+}: SeedInputProps) {
+  const pasteOnly = variant === 'pasteOnly';
+  // A run on the host's keys is a pair, and its cost is the host's.
+  const hostPaid = payer === 'host';
+  const limited = hostPaid && atLimit !== null;
   const [tab, setTab] = useState<Tab>('paste');
-  const [seedText, setSeedText] = useState(readPromptFromUrl);
+  const [ownText, setOwnText] = useState(readPromptFromUrl);
+  // The page holds the draft when it passes one; otherwise this form does.
+  const seedText = heldText ?? ownText;
+  const setSeedText = onSeedTextChange ?? setOwnText;
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [focusDraft, setFocusDraft] = useState(0);
+  useEffect(() => {
+    registerGoToDraft?.(() => {
+      setTab('paste');
+      setFocusDraft((n) => n + 1);
+    });
+  }, [registerGoToDraft]);
+  useEffect(() => {
+    if (focusDraft === 0) return;
+    const field = textareaRef.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView({ block: 'center' });
+  }, [focusDraft]);
   const [urlInput, setUrlInput] = useState('');
   const [sourceUrl, setSourceUrl] = useState<string | undefined>(undefined);
   const [domainHint, setDomainHint] = useState('');
@@ -71,6 +129,8 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const submit = useCallback(() => {
+    // No free run is left on the host's keys: the sentences above the key say so, and nothing is sent.
+    if (limited) return;
     const trimmedSeed = seedText.trim();
     const validation = validateSeedText(trimmedSeed);
     if (!validation.ok) {
@@ -86,9 +146,9 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
       seedText: trimmedSeed,
       sourceUrl,
       domainHint: domainHint.trim() || undefined,
-      actorCount,
+      actorCount: hostPaid ? 2 : actorCount,
     });
-  }, [seedText, sourceUrl, domainHint, actorCount, onSeedReady]);
+  }, [seedText, sourceUrl, domainHint, actorCount, onSeedReady, limited, hostPaid]);
 
   const fetchUrl = useCallback(async () => {
     const validation = validateSeedUrl(urlInput);
@@ -122,7 +182,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
     } finally {
       setFetching(false);
     }
-  }, [urlInput]);
+  }, [urlInput, setSeedText]);
 
   const handlePdfUpload = useCallback(async (file: File) => {
     const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -163,7 +223,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
     } finally {
       setFetching(false);
     }
-  }, []);
+  }, [setSeedText]);
 
   // Tab id stays 'paste' for backward compat with existing telemetry
   // and tests; the visible label is "WRITE" so the textarea reads as
@@ -181,8 +241,8 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
   const hasPendingSeed = seedText.trim().length >= 200;
 
   return (
-    <div className={styles.seedInput}>
-      {onLoadedScenarioRunStart && (
+    <div className={pasteOnly ? `${styles.seedInput} ${styles.pasteOnly}` : styles.seedInput}>
+      {!pasteOnly && onLoadedScenarioRunStart && (
         <>
           {hasPendingSeed && (
             <p className={styles.pendingSeedNotice} role="status" aria-live="polite">
@@ -257,6 +317,8 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
 
       {tab === 'paste' && (
         <textarea
+          ref={textareaRef}
+          id="quickstart-seed-field"
           data-quickstart-seed
           className={styles.textarea}
           placeholder="Type or paste a brief, article, meeting notes, or any domain-specific source material (at least 200 characters)."
@@ -352,6 +414,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
         {seedText.length.toLocaleString()} / 50,000 characters
       </div>
 
+      {!hostPaid && (
       <div className={styles.actorCountRow}>
         <label htmlFor="quickstart-actor-count" className={styles.actorCountLabel}>
           Actors: <strong>{actorCount}</strong>
@@ -371,6 +434,7 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
           ~${estimateQuickstartCostUSD(actorCount).toFixed(2)} · {wallTimeEstimate(actorCount)}
         </span>
       </div>
+      )}
 
       <ViewAsCodePanel
         seedText={seedText}
@@ -380,16 +444,33 @@ export function SeedInput({ onSeedReady, onLoadedScenarioRunStart, onCatalogRunS
         disabled={disabled}
       />
 
+      {limited && (
+        <div className={styles.atLimit} data-testid="paste-at-limit">
+          <p>{atLimitReset(atLimit?.resetTime)}</p>
+          <p>{atLimitAfter(false)}</p>
+          <a className={styles.settingsLink} href={settingsHref()}>{ADD_KEY_IN_SETTINGS}</a>
+        </div>
+      )}
+
       <button
         type="button"
         className={styles.runButton}
         onClick={submit}
-        disabled={disabled || seedText.trim().length < 200}
+        disabled={!limited && (disabled || seedText.trim().length < 200)}
+        aria-disabled={limited ? 'true' : undefined}
       >
-        Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${estimateQuickstartCostUSD(actorCount).toFixed(2)})
+        {hostPaid
+          ? GENERATE_AND_RUN
+          : <>Generate + Run {actorCount} {actorCount === 1 ? 'Actor' : 'Actors'} (~${estimateQuickstartCostUSD(actorCount).toFixed(2)})</>}
       </button>
     </div>
   );
+}
+
+/** Settings' API key field, where a visitor adds the key that runs past the day's free runs. */
+function settingsHref(): string {
+  if (typeof window === 'undefined') return '?tab=settings#key-openai';
+  return `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
 }
 
 /** Rough wall-time estimate for the cost-preview tile. The batch

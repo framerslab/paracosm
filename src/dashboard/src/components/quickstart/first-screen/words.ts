@@ -402,3 +402,84 @@ export const DRAWING_ALT = {
   stamp: `The stamp that turn earns: ${SAMPLE_STAMP}, the bold option taken, and it paid off`,
   scores: `Four sample scores out of 10: ${SAMPLE_SCORES.map(([name, value]) => `${name.toLowerCase()} ${value}`).join(', ')}`,
 } as const;
+
+/* Other scenarios: one list of the server's scenarios under Start. */
+
+/** The list's heading. */
+export const OTHER_SCENARIOS = 'Other scenarios';
+
+/** The heading over the scenarios compiled or stored in this browser, after the bundled ones. */
+export const YOURS = 'Yours';
+
+/** The row of the scenario the first screen shows. */
+export const ON_SCREEN_NOW = 'On screen now';
+
+/** The key that opens the rows past the first ones, with how many scenarios a press can load. */
+export const showAll = (count: number): string => `Show all ${count}`;
+
+/** The same key once every row is open. */
+export const SHOW_FEWER = 'Show fewer';
+
+/** A row's spoken name: what a press of it does. */
+export const loadScenario = (name: string): string => `Load ${name}`;
+
+/** The spoken name of the row whose scenario is on screen. */
+export const onScreenSpoken = (name: string): string => `${name}, on screen now, unavailable`;
+
+/** A row while its scenario loads. */
+export const loadingScenario = (name: string): string => `Loading ${name}…`;
+
+/** A row whose switch failed. */
+export const scenarioDidNotLoad = (name: string): string => `${name} did not load.`;
+
+/** Said under the heading when the list did not load. */
+export const SCENARIOS_DID_NOT_LOAD = 'The other scenarios did not load.';
+
+/** Said on a row chosen while the page is offline. */
+export const CHOOSE_WHEN_ONLINE = 'You are offline. Choose it again when you are back online.';
+
+/** A row's figures: the departments a run of it uses. */
+export const departmentsLine = (n: number): string => countOf(n, 'department', 'departments');
+
+/** The key on a row of Yours that opens its details, where a compiled scenario is renamed or deleted. */
+export const VIEW_DETAIL = 'View detail';
+export const viewDetailSpoken = (name: string): string => `View detail for ${name}`;
+
+/* Write your own scenario: the paste form, kept under the list. */
+
+/** The paste form's heading. */
+export const WRITE_YOUR_OWN = 'Write your own scenario';
+
+/** The paste form's key on a run on the host's keys. */
+export const GENERATE_AND_RUN = 'Generate and run';
+
+/** Start's sentence while a draft of 200 characters or more waits in the paste form. */
+export const heldDraft = (scenario: string): string =>
+  `You have a draft scenario below. Run it there, or clear it to play ${scenario}.`;
+
+/** The link to the draft, and the key that clears it. */
+export const GO_TO_DRAFT = 'Go to your draft';
+export const CLEAR_DRAFT = 'Clear your draft';
+
+/* The notes and the foot. */
+
+/** Under the leaders' heading row. */
+export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
+
+/** Above Start's notice, as two lines. */
+export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
+export const NOTE_ADULTS = 'For adults. Under 18? Use it with a parent’s or guardian’s permission.';
+
+/** The foot's navigation, for a screen reader. */
+export const SITE_LINKS = 'Site links';
+
+/** The foot's links. */
+export const FOOT_LINKS = [
+  { label: 'Docs', href: '/docs' },
+  { label: 'GitHub', href: 'https://github.com/framerslab/paracosm' },
+  { label: 'npm', href: 'https://www.npmjs.com/package/paracosm' },
+  { label: 'Privacy', href: '/#privacy' },
+] as const;
+
+/** The foot's licence line. */
+export const LICENCE_LINE = 'Paracosm · Apache-2.0 · Frame.dev';

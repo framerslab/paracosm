@@ -73,6 +73,8 @@ import { noFreeRunLeft, useServerFacts, type ServerFacts, type SessionRow } from
 import {
   ADD_KEY_IN_SETTINGS,
   AI_AGENTS,
+  CLEAR_DRAFT,
+  GO_TO_DRAFT,
   COULD_NOT_REACH,
   CHECKING_FREE_RUNS,
   NOTICE_COUNT_UNAVAILABLE,
@@ -93,6 +95,7 @@ import {
   atLimitAfter,
   atLimitReset,
   estimateLine,
+  heldDraft,
   noticeAfter,
   noticeCount,
   noticeOwnKey,
@@ -115,12 +118,17 @@ export interface StartBandProps {
   onStart: StartRun;
   /** Told true from the press until the run opens or fails: the size is locked meanwhile. */
   onBusy?: (busy: boolean) => void;
+  /**
+   * A draft scenario of 200 characters or more waits in Write your own
+   * scenario: Start is held, with a link to the draft and a key that clears it.
+   */
+  draft?: { onGo: () => void; onClear: () => void } | null;
 }
 
 /** What the key is doing between a press and the run's opening. */
 type Stage = 'checking' | 'writing' | 'starting';
 /** What the band shows. */
-type BandState = Stage | 'ready' | 'waiting' | 'unloaded' | 'offline' | 'limit';
+type BandState = Stage | 'ready' | 'waiting' | 'unloaded' | 'offline' | 'limit' | 'held';
 /** The band's layout: phone from 320 px, narrow from 600, tablet from 768, desktop from 1,100, wide from 1,440. */
 type Layout = 'phone' | 'narrow' | 'tablet' | 'desktop' | 'wide';
 
@@ -185,6 +193,9 @@ export function RunLine({ turns, end, outline }: { turns: number; end: string; o
   );
 }
 
+/** The id of the held sentence, which describes the held key. */
+const HELD_WORDS_ID = 'start-held-words';
+
 /** The key: Start over the run's length, or the words of what it waits for. */
 function StartKey({ state, launch, scenarioName, writing, onPress }: {
   state: BandState;
@@ -193,6 +204,14 @@ function StartKey({ state, launch, scenarioName, writing, onPress }: {
   writing: number;
   onPress: () => void;
 }) {
+  if (state === 'held') {
+    // Held by a waiting draft: no fill, and the sentence beside it says why.
+    return (
+      <button type="button" className={styles.key} data-testid="start-key" aria-disabled="true" aria-describedby={HELD_WORDS_ID}>
+        <span className={styles.words} data-testid="start-words">{START}</span>
+      </button>
+    );
+  }
   if (state === 'ready' && launch) {
     const line = { who: launch.payer, size: launch.size, turns: launch.turns, minutes: minutesForTurns(launch.turns) };
     // The key is named from its content, so its name starts with the word it shows: one line a screen reader reads,
@@ -411,7 +430,7 @@ function useHeldBar(layout: Layout, limited: boolean) {
   return { bar, place, lines, held };
 }
 
-export function StartBand({ size, onStart, onBusy }: StartBandProps) {
+export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProps) {
   const scenario = useScenarioContext();
   const ready = useScenarioReady();
   const { failed } = useScenarioLoad();
@@ -439,7 +458,8 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
       : !launch ? (failed && !ready ? 'unloaded' : 'waiting')
         : who === 'host' && rateLimit.status === 'loading' ? 'waiting'
           : noneLeft ? 'limit'
-            : 'ready');
+            : draft ? 'held'
+              : 'ready');
 
   // A press is over once the band can be pressed again.
   useEffect(() => {
@@ -551,7 +571,7 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
     );
   }
 
-  const waitingDrawn = state === 'waiting' || state === 'unloaded' || state === 'checking' || state === 'writing' || state === 'starting';
+  const waitingDrawn = state === 'waiting' || state === 'unloaded' || state === 'checking' || state === 'writing' || state === 'starting' || state === 'held';
   const runLine = (
     <RunLine
       turns={launch ? launch.turns : LOADING_TURNS}
@@ -571,6 +591,26 @@ export function StartBand({ size, onStart, onBusy }: StartBandProps) {
         <BrokenLinkMark className={styles.problemMark} />
         <span>{START_WHEN_ONLINE}</span>
       </p>
+    );
+  } else if (state === 'held' && draft) {
+    const keys = draft;
+    problem = (
+      <div className={styles.held} data-testid="start-held">
+        <p className={styles.heldWords} id={HELD_WORDS_ID}>{heldDraft(scenario.labels.name)}</p>
+        <div className={styles.heldKeys}>
+          <a
+            className={styles.textLink}
+            href="#quickstart-seed-field"
+            onClick={(event) => {
+              event.preventDefault();
+              keys.onGo();
+            }}
+          >
+            {GO_TO_DRAFT}
+          </a>
+          <button type="button" className={styles.clearDraft} onClick={keys.onClear}>{CLEAR_DRAFT}</button>
+        </div>
+      </div>
     );
   } else if (failure && state === 'ready') {
     problem = (

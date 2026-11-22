@@ -474,3 +474,46 @@
     }
   }
 }
+
+// Held by a waiting draft: the sentence over the link to the draft and the key that clears it.
+.held {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.heldWords {
+  margin: 0;
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-1);
+}
+
+.heldKeys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 24px;
+}
+
+.clearDraft {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}

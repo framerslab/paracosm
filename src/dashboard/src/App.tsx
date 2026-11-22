@@ -1343,7 +1343,8 @@ function AppContent() {
 
             {/* About tab redirects to the landing page */}
           </main>
-          <Footer
+          {/* The Run tab ends in its own foot (first-screen/PageFoot). */}
+          {activeTab !== 'quickstart' && <Footer
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
@@ -1363,7 +1364,7 @@ function AppContent() {
               abortReason: sse.abortReason,
               providerError: sse.providerError,
             }}
-          />
+          />}
           {verdictModalOpen && sse.verdict && (
             <VerdictModal
               verdict={sse.verdict as Record<string, unknown>}
