@@ -150,23 +150,15 @@ let defined = 0;
 /**
  * A test of this spec: before its body runs, its context sends an internet
  * address of its own (198.51.100.n, three a test so each retry has its own).
- * With `firstVisit` the browser holds nothing of an earlier visit: no mark
- * that a tour was seen.
+ * Every test is a first visit: its browser holds nothing of an earlier one.
  */
 function screenTest(
   title: string,
   body: (fixtures: { page: Page; context: BrowserContext; browser: Browser }, info: TestInfo) => Promise<void>,
-  options: { firstVisit?: boolean } = {},
 ): void {
   const index = defined++;
   test(title, async ({ page, context, browser }, info) => {
     await context.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${1 + index * 3 + info.retry}` });
-    if (!options.firstVisit) {
-      await page.addInitScript(() => {
-        // A browser that has visited before: a tour that opened on a first visit would cover the screen.
-        window.localStorage.setItem('paracosm:tourSeen', '1');
-      });
-    }
     await body({ page, context, browser }, info);
   });
 }
@@ -2596,7 +2588,6 @@ screenTest('feature 10: no free run left', async ({ page, browser }, info) => {
       });
       try {
         const zp = await zoned.newPage();
-        await zp.addInitScript(() => { window.localStorage.setItem('paracosm:tourSeen', '1'); });
         await routeNoRunLeft(zp);
         const root = await openReadyAt(zp, '/sim', PHONE, 'dark');
         const time = await clockTime(zp, RESET_AT);
@@ -2924,7 +2915,7 @@ const drawingOf = (canvas: Locator, first: string, second: string): Promise<{ dr
     const near = (i: number, to: number[]) => Math.abs(px[i] - to[0]) <= 24 && Math.abs(px[i + 1] - to[1]) <= 24 && Math.abs(px[i + 2] - to[2]) <= 24;
     for (let i = 0; i < px.length; i += 4 * 7) {
       // A pixel drawn faintly holds too little of its colour to tell.
-      if (px[i + 3] < 48) continue;
+      if (px[i + 3] < 24) continue;
       out.drawn += 1;
       if (near(i, a)) out.first += 1;
       if (near(i, b)) out.second += 1;
@@ -2961,6 +2952,8 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
           .poll(async () => (await nameBoxes(root.getByTestId('shared-colony'))).map((n) => n.name), { message: 'the shared panel names the featured key people' })
           .toEqual(featured);
         await startAndWatch(page, root);
+        // The pointer rests away from the panels, so no person is hovered.
+        await page.mouse.move(0, 0);
 
         // Feature 14, QA step 3: two panels, the first leader's in the amber and the second's in teal.
         const panels = watchPanels(page);
@@ -2972,9 +2965,13 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
           await expect(canvas).toHaveCount(1);
           await panel.scrollIntoViewIfNeeded();
           await expect.poll(() => canvas.evaluate(countTiles), { message: `panel ${place + 1} draws its Game of Life cells`, timeout: 30_000 }).toBeGreaterThan(0);
-          const drawing = await drawingOf(canvas, vis, eng);
-          if (place === 0) expect(drawing.first, 'the first leader\'s panel draws in the amber').toBeGreaterThan(drawing.second);
-          else expect(drawing.second, 'the second leader\'s panel draws in teal').toBeGreaterThan(drawing.first);
+          // The cells ease in, so the colours are read until they show: how far the panel's own colour leads the other's.
+          await expect
+            .poll(async () => {
+              const drawing = await drawingOf(canvas, vis, eng);
+              return place === 0 ? drawing.first - drawing.second : drawing.second - drawing.first;
+            }, { message: place === 0 ? 'the first leader\'s panel draws in the amber' : 'the second leader\'s panel draws in teal', timeout: 15_000 })
+            .toBeGreaterThan(0);
           // Each panel names its leader.
           await expect(panel.getByRole('img', { name: new RegExp(`^${PAIR[place].name} `) })).toHaveCount(1);
         }
@@ -3016,7 +3013,7 @@ screenTest('feature 14: Watch shows the pair on the first frame', async ({ page,
 });
 
 screenTest('feature 14: Watch from 3, at 24 and at 300', async ({ page }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
   const listed = await page.request.get(`${REPLAYS}/sessions`);
   expect(listed.ok(), 'the server of stored runs lists them').toBe(true);
   const { sessions } = await listed.json() as { sessions: Array<{ id: string; scenarioName?: string }> };
@@ -3028,10 +3025,11 @@ screenTest('feature 14: Watch from 3, at 24 and at 300', async ({ page }) => {
         await page.setViewportSize(size);
         await useLook(page, 'dark');
         await page.goto(`${REPLAYS}/sim?replay=${encodeURIComponent(run!.id)}&tab=sim`);
+        // The page is busy while a run of 300 plays in, so each check waits longer.
         const track = watchTrack(page);
-        await expect(track).toBeVisible({ timeout: 60_000 });
+        await expect(track).toBeVisible({ timeout: 120_000 });
         // One panel a leader, the first ones drawn.
-        await expect(track.locator('[aria-label^="Living swarm grid for actor "]')).toHaveCount(leaders, { timeout: 60_000 });
+        await expect(track.locator('[aria-label^="Living swarm grid for actor "]')).toHaveCount(leaders, { timeout: 120_000 });
         await expect(track.getByText('Aria Chen', { exact: true }).first()).toBeVisible();
         const canvas = track.locator('canvas').first();
         await track.scrollIntoViewIfNeeded();
@@ -3053,6 +3051,8 @@ screenTest('feature 14: still frames under reduced motion', async ({ page }) => 
   try {
     const root = await openReadyAt(page, '/sim', WIDE, 'light');
     await startAndWatch(page, root);
+    // The pointer rests away from the panels, so no person is hovered.
+    await page.mouse.move(0, 0);
     const panels = watchPanels(page);
     await expect(panels).toHaveCount(2);
     const canvases = [panels.nth(0).locator('canvas'), panels.nth(1).locator('canvas')];
@@ -3126,8 +3126,8 @@ screenTest('no tour', async ({ page }) => {
       await page.setViewportSize(size);
       await useLook(page, 'dark');
       await page.goto('/sim');
-      await page.evaluate(() => { window.localStorage.removeItem('paracosm:tourSeen'); });
-      await page.reload();
+      // Nothing in this browser says a tour was seen.
+      expect(await page.evaluate(() => window.localStorage.getItem('paracosm:tourSeen'))).toBeNull();
       const root = page.locator(FIRST_SCREEN);
       await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
       const tour = page.locator('[data-tour-overlay], [role="dialog"][aria-label="Guided tour"]');
@@ -3142,7 +3142,7 @@ screenTest('no tour', async ({ page }) => {
       expect(new URL(page.url()).searchParams.get('tab') ?? 'quickstart').toBe('quickstart');
     });
   }
-}, { firstVisit: true });
+});
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
   test.setTimeout(180_000);

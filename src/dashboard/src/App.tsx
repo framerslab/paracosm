@@ -66,7 +66,6 @@ import {
   createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
-  getDashboardTabFromHref,
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
@@ -695,59 +694,10 @@ function AppContent() {
   // launch-stalled, rate-limited, and simulation errors. The server's
   // `replay_done` SSE marker stays in place for future transient UX.
 
-  // Where the user was looking before the tour took over. Captured at
-  // tour-start time and restored at tour-end time so manually clicking
-  // HOW IT WORKS from (e.g.) Reports doesn't dump the user back on Sim
-  // when the tour finishes.
+  // Where the visitor was looking before the guided tour took over, put
+  // back when the tour ends. Nothing opens the tour: no key starts it and it
+  // never starts by itself, on a first visit or any other.
   const preTourTabRef = useRef<DashboardTab | null>(null);
-  const handleTourStart = useCallback(() => {
-    preTourTabRef.current = activeTab;
-    setTourActive(true);
-    // The tour's first step calls onTabChange('quickstart') itself, so
-    // there's no need to force-route through 'sim' here. Skipping that
-    // intermediate hop removes a wasted re-render of SimView (which is
-    // expensive when real run data is loaded).
-  }, [activeTab]);
-
-  // Auto-start the GuidedTour on the user's FIRST visit to the sim
-  // page so new viewers get oriented without having to find the
-  // HOW IT WORKS button. Gated on a localStorage flag
-  // (`paracosm:tourSeen`) so returning users don't get the tour
-  // replayed every time they open the app.
-  //
-  // We set the flag IMMEDIATELY on auto-start fire (not just when
-  // the tour ends). Reason: React 19's StrictMode double-runs
-  // effects in dev, SPA navigations / query-param changes can
-  // remount AppContent, and various dismissal paths (click-away,
-  // Escape, browser back) don't all reliably call handleTourEnd
-  // before the component unmounts. Pinning the flag at fire-time
-  // guarantees once-ever auto-start behavior regardless of how
-  // the user exits the tour. Manual re-play via HOW IT WORKS still
-  // works since that path bypasses this effect.
-  //
-  // Mobile gate: skip auto-start below 640px.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('paracosm:tourSeen') === '1') return;
-      localStorage.setItem('paracosm:tourSeen', '1');
-    } catch {
-      return;
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      const currentTab = getDashboardTabFromHref(window.location.href);
-      if (currentTab !== 'quickstart') {
-        return;
-      }
-      preTourTabRef.current = currentTab;
-      setTourActive(true);
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
 
   // Chat handoff from the VIZ drilldown. Sets the URL hash so
   // ChatPanel can read it on mount or on hashchange, then switches
@@ -760,19 +710,13 @@ function AppContent() {
 
   const handleTourEnd = useCallback(() => {
     setTourActive(false);
-    // Restore the tab the user was on before the tour started, so
-    // someone who clicked HOW IT WORKS from Reports / Library / etc.
-    // returns there instead of being dumped on Sim. Falls back to
-    // whatever the tour was last on if we never captured a pre-tour
-    // tab (e.g., auto-start path).
+    // Restore the tab the visitor was on before the tour started. Falls
+    // back to whatever tab the tour was last on when none was captured.
     if (preTourTabRef.current) {
       setActiveTab(preTourTabRef.current);
       preTourTabRef.current = null;
     }
-    // Mark the tour as seen so the auto-start useEffect above
-    // stops re-firing on every mount. Fires on both finish-flow
-    // and skip — either path means the user has been exposed to
-    // the walkthrough once.
+    // Mark the tour as seen, on both finish and skip.
     try {
       localStorage.setItem('paracosm:tourSeen', '1');
     } catch {
@@ -1036,12 +980,12 @@ function AppContent() {
 
   useSimSavedToast({ events: sse.events, tourActive, userTriggeredRun });
 
+  // The run the guided tour's last step starts, with the scenario's
+  // default settings. The Run tab's Start is the one control that starts a
+  // run; the tour, which nothing opens, is the only caller left here.
   const handleRun = useCallback(async () => {
-    // Guard against double-fire. The RUN button is also hidden
-    // visually when launching / isRunning (TopBar + SimView both
-    // check the flags) but a fast-click on the empty-state button
-    // between render ticks, or a kbd shortcut, could still slip
-    // through. An early return here is the authoritative gate.
+    // Guard against double-fire: an early return here is the
+    // authoritative gate.
     if (!scenarioReady) {
       toast('info', 'Loading scenario', 'The scenario is still loading. Run again in a moment.');
       return;
@@ -1136,8 +1080,6 @@ function AppContent() {
             onClear={handleClear}
             onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
             onRunActionsOpen={handleRunActionsOpen}
-            onRun={handleRun}
-            onTour={handleTourStart}
             onCopy={handleCopySummary}
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
@@ -1232,6 +1174,7 @@ function AppContent() {
                 sse={sse}
                 sessionId={replaySessionId ?? undefined}
                 onRunStarted={() => { leaveDigitalTwin(); setUserTriggeredRun(true); }}
+                showsDigitalTwin={interventionRunning !== null || interventionArtifact !== null}
                 onInterventionStart={handleInterventionStart}
                 onInterventionResult={handleInterventionResult}
                 onInterventionError={handleInterventionError}
@@ -1254,8 +1197,6 @@ function AppContent() {
                 <SimView
                   state={gameState}
                   sseStatus={sse.status}
-                  onRun={handleRun}
-                  onTour={handleTourStart}
                   verdict={sse.verdict}
                   shownRun={shownRun}
                   launching={launching}

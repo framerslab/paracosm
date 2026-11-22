@@ -71,6 +71,11 @@ export interface QuickstartViewProps {
    *  minutes and ends in a page load when /setup takes the run, and a twin
    *  answer during it would take the visitor to the SIM tab mid-launch. */
   onRunStarted?: () => void;
+  /** True while the SIM tab shows a Digital Twin's progress or result.
+   *  The first screen's Start then leaves those views, and the page's
+   *  events, as they are until the server takes the run it asks for: a run
+   *  the server refuses replaces nothing. */
+  showsDigitalTwin?: boolean;
   /** Forwarded to the InterventionDemoCard. When the digital-twin run
    *  completes, App.tsx receives the artifact, parks it in
    *  interventionArtifact state, and switches to the SIM tab so
@@ -135,7 +140,7 @@ function mapLaunchErrorToMessage(raw: string): string {
   return raw;
 }
 
-export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
+export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin = false, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const { toast } = useToast();
@@ -176,17 +181,26 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
    * (writing the leaders, starting) and each failed request (its status and
    * parsed answer, or no answer at all) goes to the callbacks, and the first
    * screen says it in its own words. Without `opts` nothing here changes.
+   *
+   * Start on a page that shows a Digital Twin keeps the twin until the
+   * server takes the run: the twin's views stay, and the page's events are
+   * not reset, so a run the server refuses replaces nothing. The run the
+   * server takes replaces the visitor's run there, and the page load that
+   * opens it leaves the twin.
    */
   const handleLoadedScenarioRun = useCallback(async (actorCount: number, opts?: LoadedRunOptions) => {
     setErrorBanner(null);
-    onRunStarted?.();
-    // Reset the local SSE buffer up front so the Progress panel never
-    // shows leftover events from a prior run while this one ramps up.
-    // The later sse.reset() right before the /setup fetch is kept as
-    // belt-and-suspenders for the brief window when actor-generation
-    // is still in flight. Each reset is awaited: an unawaited /clear can
-    // land after the /setup that follows and stop the new run.
-    await sse.reset();
+    const keepsTwin = Boolean(opts) && showsDigitalTwin;
+    if (!keepsTwin) {
+      onRunStarted?.();
+      // Reset the local SSE buffer up front so the Progress panel never
+      // shows leftover events from a prior run while this one ramps up.
+      // The later sse.reset() right before the /setup fetch is kept as
+      // belt-and-suspenders for the brief window when actor-generation
+      // is still in flight. Each reset is awaited: an unawaited /clear can
+      // land after the /setup that follows and stop the new run.
+      await sse.reset();
+    }
 
     // Inherit the user's Settings-tab choices (API keys, provider,
     // model picks, economics profile) so the CTA respects what the
@@ -231,7 +245,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
         instructions: p.instructions,
       } as ActorConfig));
-      await sse.reset();
+      if (!keepsTwin) await sse.reset();
       // Persist the actors we're about to launch so the SIM header
       // carries names through the SSE connect-and-replay window. Compiled
       // scenarios ship no preset leaders, so without this fallback the
@@ -332,7 +346,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       }
       if (!opts) setPhase({ kind: 'progress', stage: 'running' });
 
-      await sse.reset();
+      if (!keepsTwin) await sse.reset();
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
@@ -378,7 +392,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       setErrorBanner(friendly);
       toast('error', 'Launch failed', friendly, 8000);
     }
-  }, [scenario, sse, onRunStarted, toast]);
+  }, [scenario, sse, onRunStarted, showsDigitalTwin, toast]);
 
   /**
    * Catalog-grid handoff: clicking Run on a scenario card switches this
