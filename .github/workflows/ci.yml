@@ -215,6 +215,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # On a phone the whole living grid is in view before any scroll; on a
+      # short screen it keeps a usable window and the Viz panel scrolls as one
+      # to the turn's outcomes and its controls; the keyboard legend is one
+      # row; and the words of the Viz toolbar, the play controls and the
+      # legend are 15 px.
+      - name: Viz grid at first sight, legend and row type end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/viz-rows-type.spec.ts --project=chromium-desktop
+
+      # The pictures that spec takes at 390 x 844, 390 x 339, 320, 600 and
+      # 1440 in both looks.
+      - name: Upload the Viz grid at first sight, legend and row type pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viz-rows-type-pictures
+          path: test-pictures/viz-rows-type/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Check doc examples compile against package
         if: ${{ !cancelled() }}
         run: npm run check:doc-examples
