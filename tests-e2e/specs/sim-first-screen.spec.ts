@@ -368,12 +368,20 @@ screenTest('feature 3: shapes first, then the words with no jump', async ({ page
 
 screenTest('feature 3: never paints another scenario first', async ({ page }) => {
   await switchScenario(page, 'lunar-outpost');
+  // The screen's words, Other scenarios left out: once Lunar Outpost shows, that list
+  // names Mars Genesis as a scenario a press loads, which is no painting of it.
   await page.addInitScript(() => {
     const w = window as unknown as { marsPainted: boolean };
     w.marsPainted = false;
     new MutationObserver(() => {
       const root = document.querySelector('[data-testid="run-first-screen"]');
-      if (root?.textContent?.includes('Mars Genesis')) w.marsPainted = true;
+      if (!root) return;
+      let words = '';
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.parentElement?.closest('[data-testid="other-scenarios"]')) words += n.textContent ?? '';
+      }
+      if (words.includes('Mars Genesis')) w.marsPainted = true;
     }).observe(document, { subtree: true, childList: true, characterData: true });
   });
   for (const look of LOOKS) {
@@ -3639,6 +3647,20 @@ async function routeScenarios(page: Page, change: (rows: ScenarioRow[]) => Scena
   });
 }
 
+/**
+ * How many scenarios the server lists: the ones it can run. `scenarios/` holds one
+ * scenario file more, the Digital Twin's world, which is compiled when its run starts
+ * and is never listed. More than the four rows a wide window shows, so Show all stands at
+ * every width.
+ */
+async function listedScenarios(page: Page): Promise<number> {
+  const res = await page.request.get(`${SERVER}/scenarios`);
+  expect(res.ok(), 'the server lists its scenarios').toBe(true);
+  const listed = ((await res.json()) as { scenarios: ScenarioRow[] }).scenarios.length;
+  expect(listed).toBeGreaterThan(4);
+  return listed;
+}
+
 /** The parts of Other scenarios. */
 const otherParts = (root: Locator) => {
   const part = root.getByTestId('other-scenarios');
@@ -3677,6 +3699,8 @@ function countSetups(page: Page): () => number {
 screenTest('feature 12: the list loads, never runs', async ({ page }) => {
   test.setTimeout(300_000);
   const setups = countSetups(page);
+  // Every scenario the server lists has a row; Show all counts the ones a press can load, all but the one on screen.
+  const listed = await listedScenarios(page);
 
   // Feature 12, QA steps 5, 13, 15, 16 and 20: the rows under the heading.
   for (const [size, shown] of [[PHONE, 3], [WIDE, 4]] as const) {
@@ -3694,11 +3718,12 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
       await expect(part.locator('[data-shape]')).toHaveCount(3);
       await expect(rows).toHaveCount(0);
       held.open();
-      await page.unroute('**/scenarios');
 
       // The rows start with Lunar Outpost, each with its name and its departments as a free run uses them.
       await expect(rows).toHaveCount(shown);
       await expect(part.locator('[data-shape]')).toHaveCount(0);
+      // Unrouted once the held answer is on the page: an unroute while its handler waits sends the request on without it.
+      await page.unroute('**/scenarios');
       await expect(rows.first()).toHaveAttribute('data-scenario', LUNAR);
       await expect(rows.first().getByTestId('row-name')).toHaveText('Lunar Outpost');
       await expect(rows.first().getByTestId('row-figures')).toHaveText('3 departments');
@@ -3717,18 +3742,18 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
       await expect(onScreen).toContainText('Mars Genesis, on screen now, unavailable');
 
       // Show all opens the rest in place, counted as the scenarios a press can load, then reads Show fewer.
-      await expect(showAll).toHaveText('Show all 6');
+      await expect(showAll).toHaveText(`Show all ${listed - 1}`);
       const key = await box(showAll);
       expect(key.height).toBeGreaterThanOrEqual(44);
       expect(key.width).toBeGreaterThanOrEqual(120);
       await showAll.click();
-      await expect(rows).toHaveCount(7);
+      await expect(rows).toHaveCount(listed);
       await expect(showAll).toHaveText('Show fewer');
-      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(6);
+      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(listed - 1);
       await picture(page, `other-scenarios-all-${size.width}-dark`);
       await showAll.click();
       await expect(rows).toHaveCount(shown);
-      await expect(showAll).toHaveText('Show all 6');
+      await expect(showAll).toHaveText(`Show all ${listed - 1}`);
 
       // From the header down to the end of the list: no Actors slider, no search field, no source filter, no sort select.
       const controls = await root.evaluate((el) => {
@@ -3751,7 +3776,7 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
         const { rows, showAll } = otherParts(root);
         await expect(rows).toHaveCount(shown);
         await showAll.click();
-        await expect(rows).toHaveCount(7);
+        await expect(rows).toHaveCount(listed);
         expect(await rowsAcross(rows)).toBe(across);
         await expectNoSidewaysScroll(page, root);
       });
@@ -3817,28 +3842,28 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
   await page.unroute('**/rate-limit');
   expect(setups(), 'no run has started').toBe(0);
 
-  // Feature 12, QA steps 7 and 21: scenarios compiled in this browser are listed after the bundled ones under Yours.
+  // Feature 12, QA steps 7 and 21: scenarios compiled in this browser are listed after the bundled ones under Yours, five of them.
   await switchScenario(page, MARS);
   const mine = Array.from({ length: 5 }, (_, i) => ({ id: `my-scenario-${i + 1}`, name: `Harbour Town ${i + 1}`, description: 'Compiled', departments: 4, source: 'compiled' }));
   await routeScenarios(page, (listed) => [...mine, ...listed]);
   for (const size of [PHONE, WIDE]) {
-    await test.step(`twelve rows with five of Yours, ${size.width} in the dark look`, async () => {
+    await test.step(`the bundled rows and five of Yours, ${size.width} in the dark look`, async () => {
       const root = await openReadyAt(page, '/sim', size, 'dark');
       const { part, rows, showAll } = otherParts(root);
-      await expect(showAll).toHaveText('Show all 11');
+      await expect(showAll).toHaveText(`Show all ${listed + mine.length - 1}`);
       await expect(part.getByRole('heading', { level: 3, name: 'Yours', exact: true })).toHaveCount(0);
       await showAll.click();
-      await expect(rows).toHaveCount(12);
+      await expect(rows).toHaveCount(listed + mine.length);
       // The bundled ones first, in their order, then Yours in theirs.
       const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-scenario')));
       expect(ids.slice(0, 2)).toEqual([LUNAR, MARS]);
-      expect(ids.slice(7)).toEqual(mine.map((scenario) => scenario.id));
+      expect(ids.slice(listed)).toEqual(mine.map((scenario) => scenario.id));
       const yours = part.getByRole('heading', { level: 3, name: 'Yours', exact: true });
       await expect(yours).toBeVisible();
-      const [yoursBox, lastBundled, firstMine] = await Promise.all([box(yours), box(rows.nth(6)), box(rows.nth(7))]);
+      const [yoursBox, lastBundled, firstMine] = await Promise.all([box(yours), box(rows.nth(listed - 1)), box(rows.nth(listed))]);
       expect(yoursBox.y).toBeGreaterThanOrEqual(lastBundled.y + lastBundled.height - 1);
       expect(firstMine.y).toBeGreaterThanOrEqual(yoursBox.y + yoursBox.height - 1);
-      await expect(rows.nth(7).getByTestId('row-figures')).toHaveText('3 departments');
+      await expect(rows.nth(listed).getByTestId('row-figures')).toHaveText('3 departments');
       await expectNoSidewaysScroll(page, root);
       await picture(page, `other-scenarios-yours-${size.width}-dark`);
     });
@@ -3864,6 +3889,7 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
 screenTest('feature 12: failures', async ({ page, context }) => {
   test.setTimeout(240_000);
   const setups = countSetups(page);
+  const listed = await listedScenarios(page);
 
   // Feature 12, QA step 8: the list did not load; the first screen above works.
   for (const look of LOOKS) {
@@ -3905,8 +3931,8 @@ screenTest('feature 12: failures', async ({ page, context }) => {
       const key = await box(again);
       expect(key.height).toBeGreaterThanOrEqual(44);
       expect(key.width).toBeGreaterThanOrEqual(96);
-      // The five other scenarios can still be loaded, and the scenario above is as it was.
-      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(5);
+      // Every other scenario can still be loaded, and the scenario above is as it was.
+      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(listed - 2);
       await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis', exact: true })).toBeVisible();
       await expect(activeStart(root)).toHaveCount(1);
       await row(LUNAR).scrollIntoViewIfNeeded();
