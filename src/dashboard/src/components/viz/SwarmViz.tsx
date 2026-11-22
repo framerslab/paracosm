@@ -925,8 +925,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // state (hooks don't fire), producing React error #310.
   const narrow = useMediaQuery(NARROW_QUERY);
   const phone = useMediaQuery(PHONE_QUERY);
-  // On a phone the pair view's turn lines stand below the living grid,
-  // inside the grids' own scroll window: this is where TurnBanner draws them.
+  // On a phone the turn lines stand below the living grid, inside the grid's
+  // own scroll window, in the pair view and the cohort view alike: this is
+  // where TurnBanner draws them.
   const [turnLinesSlot, setTurnLinesSlot] = useState<HTMLElement | null>(null);
 
   // Highlight + legend + diff-overlay hooks. Same Rules-of-Hooks
@@ -1104,10 +1105,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       ? Help
     </button>
   );
-  // On a phone, where the pair view shows one grid at a time, the turn's
-  // lines stand below that grid in its scroll window, so opening them never
-  // shrinks the grid's window.
-  const linesBelowGrid = phone && vizMode === 'pair';
+  // On a phone the turn's lines stand below the living grid in its scroll
+  // window, in the pair view (one grid at a time) and in the cohort view, so
+  // opening them never shrinks the grid's window.
+  const linesBelowGrid = phone;
 
   return (
       <div
@@ -1359,7 +1360,17 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           </div>
         )}
         {vizMode === 'cohort' && (
+          // Wider than a phone this box lays out as if absent. On a phone it
+          // is the cohort grid's scroll window: the grid keeps the window's
+          // height and the turn's lines stand below it, a scroll away.
+          <div
+            className={[
+              styles.cohortWindow,
+              linesBelowGrid ? styles.cohortWindowLinesBelow : '',
+            ].filter(Boolean).join(' ')}
+          >
           <CohortSwarmGrid
+            className={linesBelowGrid ? styles.cohortTrackLinesBelow : undefined}
             state={state}
             snapshotMap={snapshotMap}
             currentTurn={currentTurn}
@@ -1373,6 +1384,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             startTime={scenario.setup?.defaultStartTime}
             onOpenChat={handleOpenChat}
           />
+          {linesBelowGrid && (
+            <section ref={setTurnLinesSlot} role="status" aria-label="Turn outcomes" className={styles.turnLinesSlot} />
+          )}
+          </div>
         )}
         {vizMode === 'pair' && (
         <div

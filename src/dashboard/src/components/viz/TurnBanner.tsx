@@ -160,7 +160,7 @@ export function TurnBanner({ state, currentTurn, linesTarget }: TurnBannerProps)
       ))}
       {hidden > 0 && (
         <div className={styles.lineMore}>
-          +{hidden} more {'\u00b7'} see cohort grid below for the rest
+          +{hidden} more {'\u00b7'} see cohort grid {linesTarget ? 'above' : 'below'} for the rest
         </div>
       )}
     </>

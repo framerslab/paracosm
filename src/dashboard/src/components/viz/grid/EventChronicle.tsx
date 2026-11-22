@@ -1,4 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
+import { OneRowScroller } from '../../shared/OneRowScroller';
 import styles from './EventChronicle.module.scss';
 
 interface ChronicleEvent {
@@ -161,8 +162,10 @@ export function EventChronicle({
   );
   if (chronicle.length === 0) return null;
 
+  // One row at every width (OneRowScroller): wider than the window, it
+  // scrolls sideways with an edge fade and its Previous and Next keys.
   return (
-    <div aria-label="Event filter" className={styles.bar}>
+    <OneRowScroller label="events" className={styles.bar} rowClassName={styles.barRow} role="group" ariaLabel="Event filter">
       <span className={styles.heading}>
         Events ({filtered.length}
         {filter !== 'all' ? `/${chronicle.length}` : ''})
@@ -241,6 +244,6 @@ export function EventChronicle({
           );
         })}
       </div>
-    </div>
+    </OneRowScroller>
   );
 }

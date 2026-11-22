@@ -319,6 +319,27 @@
 // lines are open or folded; the lines stand below it, a scroll away.
 .leadersRowLinesBelow > .sideWrap { flex: 0 0 100%; }
 
+// The cohort view's box. Wider than a phone it lays out as if absent, so the
+// cohort grid stands in the Viz tab's column as it always has.
+.cohortWindow { display: contents; }
+
+// On a phone it is the cohort grid's scroll window: the grid keeps the
+// window's height whether the turn's lines are open or folded, and the lines
+// stand below it, a scroll away.
+.cohortWindowLinesBelow {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+// The cohort grid in that window: as tall as its columns, up to the window.
+.cohortTrackLinesBelow {
+  flex: 0 0 auto;
+  max-height: 100%;
+}
+
 // The turn's lines below the grid, in the turn banner's own type and ground.
 .turnLinesSlot {
   flex: 0 0 auto;

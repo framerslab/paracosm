@@ -1,14 +1,18 @@
 // Migrated from inline `style={{}}`. Per-pill kind color and side
 // vertical offset flow in via CSS custom properties.
 
+// The strip's ground. Its row (OneRowScroller) holds the heading, the filter
+// keys and the marks on one line; wider than the window, the row scrolls
+// sideways with an edge fade and a Previous and a Next key at its ends.
 .bar {
   padding: 4px 10px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
-  display: flex;
+}
+
+.barRow {
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
 }
 
 .heading {
@@ -49,15 +53,16 @@
   box-shadow: 0 0 0 2px rgba(232, 180, 74, 0.2);
 }
 
+// The marks keep their own width: the row scrolls rather than squeezing them.
 .dotsRow {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 auto;
 }
 
 .dot {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
