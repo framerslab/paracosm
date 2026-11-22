@@ -35,14 +35,15 @@ export default defineConfig({
     // So does the dashboard display spec, whose Library server counts the
     // replays its tests run. The toolbox log and share link spec, the forged
     // tool view spec, the Viz living grid spec, the Run tab's first screen
-    // spec, the phone rows and grid window spec and the phone rows more spec
-    // set each width they check themselves, so one project runs them. So does
-    // the saved run replay spec, which reads the one shared-run server.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // spec, the phone rows and grid window spec, the phone rows more spec and
+    // the run view toast and Event Log chip spec set each width they check
+    // themselves, so one project runs them. So does the saved run replay
+    // spec, which reads the one shared-run server.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -157,6 +158,18 @@ export default defineConfig({
         {
           command: 'PORT=3471 npx tsx tests-e2e/support/cohort-replay-server.ts',
           url: 'http://127.0.0.1:3471/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with one finished Mars Genesis pair run of six turns
+        // stored as a session, for the spec that reads the run view's toasts
+        // and the Event Log as it opens after a forged tool's Show in Event
+        // Log and after a reload.
+        {
+          command: 'PORT=3468 npx tsx tests-e2e/support/six-turn-run-server.ts',
+          url: 'http://127.0.0.1:3468/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',
