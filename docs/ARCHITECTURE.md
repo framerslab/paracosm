@@ -572,6 +572,36 @@ This prevents the contradictions that plagued the old system. The colonist canno
 
 Agents are created lazily on first chat message (~2-3s init) and pooled (50 by default, `PARACOSM_CHAT_POOL_SIZE`, at least 10; LRU eviction), one per person, run and leader, and per whether the run had ended: the first chat after a run ends gets an agent made from the whole run, with no history of the chat before it.
 
+## The Dashboard's Run Tab
+
+The Run tab (`/sim`) opens on one screen a first-time visitor reads from the top: the scenario, its colony at turn 0, the run's size, the two leaders, Start, the other scenarios, and a form to write a scenario of one's own. `QuickstartView` renders it as its input phase from [`src/dashboard/src/components/quickstart/first-screen/`](../src/dashboard/src/components/quickstart/first-screen/); the run's progress and its results are the view's later phases.
+
+| Part | Files | What it does |
+|---|---|---|
+| The screen | `RunFirstScreen.tsx` | Lays the parts out in order inside `[data-testid="run-first-screen"]`, with the page's foot after it |
+| The server's answers | `useServerFacts.tsx` | `GET /rate-limit`, `GET /admin-config` and `GET /sessions`, each asked once a page and each field checked before it is used |
+| The launch | `effectiveLaunch.ts` | Who pays for the run and the turns, people and departments it takes |
+| The scenario line | `ScenarioLine.tsx` | The scenario's name as the page's one `h1`, three sentences written for the run's size, and the run's figures |
+| The colony at turn 0 | `SharedColonyPanel.tsx`, `startingColony.ts` | The living grid at rest, its cells the scenario's key people |
+| The run's size | `RunSize.tsx`, `runSize.helpers.ts`, `useRunSetup.ts` | A pair on the host's keys; 2 to 300 leaders on the visitor's own key or a self-hosted server, kept in `?size=` |
+| The leaders | `LeaderPair.tsx`, `ScoreRows.tsx` | Each leader's place, name, title, six HEXACO scores and written orders |
+| The notes | `FirstScreenNotes.tsx` | The leaders are fictional, they are AI and can be wrong, and the demo is for adults |
+| Start | `StartBand.tsx`, `launchFailure.ts` | The one key that starts a run, the run line, who pays, the day's limit and each failure |
+| Other scenarios | `OtherScenarios.tsx` | A list that loads a scenario through `POST /scenario/switch` and a reload, and runs none |
+| Write your own scenario | `SeedInput.tsx` (`variant="pasteOnly"`) | The paste, URL and PDF form, which compiles a scenario from a brief and runs it |
+| The foot | `PageFoot.tsx`, `layout/consentControl.ts` | The adults line, the site's links (Docs, GitHub and npm under More links when the four do not fit one row), Analytics choices and the licence line |
+| How it works | `HowItWorksCard.tsx` | The card the header's key opens on every tab |
+
+**One launch for the words and the request.** `effectiveLaunch` works out the run Start launches from the server's answers and what the visitor saved in Settings. `payer` is `own` when the visitor saved a provider key, `host` on the hosted demo with none, and `server` on a self-hosted server with none. A run on the host's keys is a pair at the host's caps (`demoCaps` from `GET /admin-config`); any other run takes the scenario's own figures and the turns the visitor last launched with. The scenario line's figures, Start's second line, the notice and the `POST /setup` body all read the same result, so the screen never says one run and starts another. Storage that throws, or holds a value that does not parse, reads as nothing saved.
+
+**The colony before the run.** `SharedColonyPanel` draws `LivingSwarmGrid` once, at rest, above the leaders, since every leader starts from the same people. Its cells are the scenario's key people: `GET /scenario` sends the presets whole, every run starts with those people (`scenarioKeyPersonnel` in `src/cli/sim-config.ts`), and the kernel gives each of them the same starting values (`generateInitialPopulation` in `src/engine/core/agent-generator.ts`), so each cell carries the run's own data at turn 0 (`startingColony.ts`). The rest of the population is generated when the run starts, and the panel's words say the colony holds the run's population with these people among them. Drawing every person at turn 0 needs the server to send the starting roster; [#323](https://github.com/framerslab/paracosm/issues/323) tracks it.
+
+**Watch.** Once Start opens the run, the Sim tab shows each leader's own colony in `WatchGridPanels` ([`src/dashboard/src/components/sim/WatchGridPanels.tsx`](../src/dashboard/src/components/sim/WatchGridPanels.tsx)) above the turn rows: at a pair, two panels in the grid's amber and teal, side by side from 768 px and stacked on a phone; from 3 leaders, a track of one compact panel a leader. Each panel is the Viz tab's grid in its LIVING mode on the newest turn its leader has reached, drawn from the rosters the run's `systems_snapshot` events carry, and under reduced motion each turn is one still frame.
+
+**One Start, and no tour.** Start is the one control that starts a new run. The RUN menu keeps saved runs, history and Load from file, the Sim tab's empty state offers no run, and a row of Yours in Other scenarios opens its details (`ScenarioDetailDrawer` with `showRun={false}`), where a compiled scenario is renamed or deleted with the admin token. The header's How it works key opens `HowItWorksCard`, mounted once at the app's root, on any tab, and nothing opens it by itself. The guided tour (`components/tour/`) has no way in: no key starts it, and a first visit does not start it.
+
+**Checked in CI.** [`tests-e2e/specs/sim-first-screen.spec.ts`](../tests-e2e/specs/sim-first-screen.spec.ts) drives the screen in Chromium against the hosted demo's server with a stub pair runner (`tests-e2e/support/first-screen-server.ts`, port 3470) and a server of stored runs of 3, 24 and 300 leaders (`tests-e2e/support/cohort-replay-server.ts`, port 3471). It reads every word and glyph against its contrast and size (`tests-e2e/support/first-screen-measure.ts`, over `readability.ts`), checks that every row stays one row, runs the automated WCAG 2.2 A and AA check, sweeps each state at 320, 390, 600, 768, 1,100 and 1,440 px in both looks and at 200 per cent text, and saves a picture of each state it reads.
+
 ## API
 
 ### Universal Schema (`paracosm/schema`)
