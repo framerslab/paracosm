@@ -180,8 +180,9 @@ jobs:
           retention-days: 14
 
       # Every row of keys is one row from 320 px (the Viz toolbar in each mode,
-      # its More panel and the Sim tab's evidence row), and on a phone the turn's
-      # words never shrink the living grid's window.
+      # its More panel and the Sim tab's evidence row), with keys 44 px wide and
+      # tall below 900 px; on a phone the turn's words never shrink the living
+      # grid's window and stand below the whole grid.
       - name: Phone rows and grid window end-to-end test
         if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/phone-rows-and-grid-window.spec.ts --project=chromium-desktop

@@ -11,7 +11,7 @@ import { VizControls } from './VizControls.js';
 import { LivingSwarmGrid } from './grid/LivingSwarmGrid.js';
 import { GridModePills, gridModeHint, type GridMode } from './grid/GridModePills.js';
 import { GridHelpOverlay } from './grid/GridHelpOverlay.js';
-import { useMediaQuery, NARROW_QUERY, PHONE_QUERY } from './grid/useMediaQuery.js';
+import { useMediaQuery, NARROW_QUERY, PHONE_QUERY, TOUCH_KEYS_QUERY } from './grid/useMediaQuery.js';
 import { TimelineSparkline } from './grid/TimelineSparkline.js';
 import { EventChronicle, type ChronicleFilter, type ChronicleEvent } from './grid/EventChronicle.js';
 import { TurnProgress } from './grid/TurnProgress.js';
@@ -925,6 +925,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // state (hooks don't fire), producing React error #310.
   const narrow = useMediaQuery(NARROW_QUERY);
   const phone = useMediaQuery(PHONE_QUERY);
+  // Below 900 px the toolbar's diff and help keys stand in its More panel.
+  const touchKeys = useMediaQuery(TOUCH_KEYS_QUERY);
   // On a phone the turn lines stand below the living grid, inside the grid's
   // own scroll window, in the pair view and the cohort view alike: this is
   // where TurnBanner draws them.
@@ -1080,8 +1082,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // tickClock bump ~30x/sec before this memo).
   const searchMatches: SearchMatch[] = searchMatchesMemo;
 
-  // The diff and help keys: in the toolbar's row from 481 px, in its More
-  // panel on a phone.
+  // The diff and help keys: in the toolbar's row from 900 px, in its More
+  // panel below 900 px, where the row's keys are 44 px wide and tall.
   const diffKey = (
     <button
       type="button"
@@ -1191,10 +1193,11 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           <DivergenceDetail diff={cellDiff} departmentLabels={departmentLabels} />
         )}
         <div className={styles.toolbarStrip}>
-          {/* One row at every width (OneRowScroller). On a phone the diff and
-              help keys stand in the More panel, so the mode menu keeps its
-              whole word beside FORGE mode's toolbox key; a row still wider
-              than the window scrolls sideways with its Previous and Next keys. */}
+          {/* One row at every width (OneRowScroller). Below 900 px the diff
+              and help keys stand in the More panel, so the mode menu or the
+              mode tabs keep their whole words beside FORGE mode's toolbox key;
+              a row still wider than the window scrolls sideways with its
+              Previous and Next keys. */}
           <OneRowScroller label="toolbar keys" rowClassName={styles.toolbarTopRow}>
             <div className={styles.modePillsWrap}>
               <GridModePills
@@ -1225,21 +1228,21 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
               type="button"
               onClick={() => setOverflowOpen(o => !o)}
               aria-label={overflowOpen
-                ? (phone ? 'Hide more tools' : 'Hide advanced tools')
-                : (phone ? 'Show more tools (diff, help, palette, stats, export, settings)' : 'Show advanced tools (palette, stats, export, settings)')}
+                ? (touchKeys ? 'Hide more tools' : 'Hide advanced tools')
+                : (touchKeys ? 'Show more tools (diff, help, palette, stats, export, settings)' : 'Show advanced tools (palette, stats, export, settings)')}
               aria-expanded={overflowOpen}
-              title={overflowOpen ? 'Hide tools' : phone ? 'Diff · Help · Palette · Stats · Export · Settings' : 'Palette · Stats · Export · Settings'}
+              title={overflowOpen ? 'Hide tools' : touchKeys ? 'Diff · Help · Palette · Stats · Export · Settings' : 'Palette · Stats · Export · Settings'}
               className={[styles.overflowToggle, overflowOpen ? styles.overflowToggleOpen : ''].filter(Boolean).join(' ')}
             >
               {'\u22ef'}
             </button>
-            {!phone && diffKey}
-            {!phone && helpKey}
+            {!touchKeys && diffKey}
+            {!touchKeys && helpKey}
           </OneRowScroller>
           {overflowOpen && (
             <OneRowScroller label="Viz tools" role="toolbar" ariaLabel="Viz tools" rowClassName={styles.toolsRow}>
-              {phone && diffKey}
-              {phone && helpKey}
+              {touchKeys && diffKey}
+              {touchKeys && helpKey}
               <button
                 type="button"
                 onClick={cyclePalette}
