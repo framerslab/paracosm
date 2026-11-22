@@ -372,7 +372,7 @@ for (const look of LOOKS) {
     expect.soft(grid, 'the living grid is drawn').not.toBeNull();
     if (grid) {
       test.info().annotations.push({ type: 'the grid on a short screen, 390 x 339', description: `${grid.shownHeight.toFixed(1)} of ${grid.height.toFixed(1)} px in view, in a Viz panel ${grid.panelHeight.toFixed(1)} px tall` });
-      expect.soft(grid.shownHeight, `the grid has a usable window: ${grid.shownHeight.toFixed(1)} px of it in view, at least ${USABLE} px`).toBeGreaterThanOrEqual(Math.min(grid.height, USABLE) - 0.5);
+      expect.soft(grid.shownHeight, `the grid has a usable window: ${grid.shownHeight.toFixed(1)} px of it in view, at least ${USABLE} px`).toBeGreaterThanOrEqual(USABLE - 0.5);
       expect.soft(grid.shownHeight, `the grid fills the Viz panel's ${grid.panelHeight.toFixed(1)} px view (${grid.shownHeight.toFixed(1)} px of it in view)`).toBeGreaterThanOrEqual(Math.min(grid.height, grid.panelHeight) - 0.5);
       expect.soft(grid.over, 'nothing is drawn over the grid').toEqual([]);
     }
