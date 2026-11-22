@@ -64,13 +64,13 @@
   .label { display: none; }
 }
 
-// Below 900 px each key in the row is 44 px tall, the layout switch's
-// included.
+// Below 900 px each key in the row is 44 px wide and 44 px tall, the layout
+// switch's included.
 @media (max-width: 899.98px) {
   .keysRow {
     align-items: stretch;
 
-    button { min-height: 44px; }
+    button { min-width: 44px; min-height: 44px; }
   }
 }
 

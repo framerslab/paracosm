@@ -82,12 +82,12 @@
   > * { flex: 1 0 auto; }
 }
 
-// Below 900 px every key in the toolbar's row is 44 px tall, as the forged
-// toolbox key is: the mode tabs (from 481 px, where they stand in the row),
-// More, Diff and Help.
+// Below 900 px every key in the toolbar's row is 44 px wide and 44 px tall,
+// as the forged toolbox key is: the mode tabs (from 481 px, where they stand
+// in the row) and More. The diff and help keys stand in the More panel there.
 @media (max-width: 899.98px) {
-  .toolbarTopRow > * { min-height: 44px; }
-  .modePillsWrap [role='tab'] { min-height: 44px; }
+  .toolbarTopRow > * { min-width: 44px; min-height: 44px; }
+  .modePillsWrap [role='tab'] { min-width: 44px; min-height: 44px; }
 }
 
 .overflowToggle {
@@ -158,14 +158,15 @@
   @media (min-width: 900px) { min-height: 32px; }
 }
 
-// The More panel's row of tools, under the toolbar. Each key is 44 px tall
-// below 900 px; the Export menu's holder lets its key fill that height.
+// The More panel's row of tools, under the toolbar. Each key is 44 px wide
+// and 44 px tall below 900 px; the Export menu's holder lets its key fill
+// that height.
 .toolsRow {
   gap: 6px;
   align-items: stretch;
 
   @media (max-width: 899.98px) {
-    > * { min-height: 44px; }
+    > * { min-width: 44px; min-height: 44px; }
     > div { display: flex; }
   }
 }
@@ -316,8 +317,14 @@
 .sideWrapHidden { display: none; }
 
 // On a phone the pair view's grid fills the scroll window whether the turn's
-// lines are open or folded; the lines stand below it, a scroll away.
-.leadersRowLinesBelow > .sideWrap { flex: 0 0 100%; }
+// lines are open or folded; the lines stand below it, a scroll away. The
+// grid's box is never shorter than the grid (420 px at least on a phone,
+// LivingSwarmGrid.module.scss), so the lines start below the grid's end
+// rather than over its lower part.
+.leadersRowLinesBelow > .sideWrap {
+  flex: 0 0 100%;
+  min-height: auto;
+}
 
 // The turn's lines below the grid, in the turn banner's own type and ground.
 .turnLinesSlot {
