@@ -135,7 +135,7 @@ function ScoresDrawing() {
 }
 
 /** The drawing that stands with a line, by the line's place from 0: the second, third and fourth lines have one. */
-const DRAWINGS: Record<number, () => ReactNode> = {
+const DRAWINGS: Partial<Record<number, () => ReactNode>> = {
   1: () => <BarDrawing />,
   2: () => <StampDrawing />,
   3: () => <ScoresDrawing />,
