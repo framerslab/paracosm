@@ -3137,7 +3137,8 @@ screenTest('one Start', async ({ page }) => {
 
 screenTest('no tour', async ({ page }) => {
   test.setTimeout(180_000);
-  // Feature 11, QA steps 4 and 11: a first visit, left alone for 30 seconds.
+  // Feature 11, QA steps 4 and 11: a first visit, left alone for 30 seconds:
+  // no tour, and no card, opens by itself.
   for (const size of [PHONE, WIDE]) {
     await test.step(`${size.width} in the dark look`, async () => {
       await page.setViewportSize(size);
@@ -3151,9 +3152,12 @@ screenTest('no tour', async ({ page }) => {
       const began = Date.now();
       while (Date.now() - began < 30_000) {
         expect(await tour.count(), 'no part of the guided tour is on the page').toBe(0);
+        expect(await howCard(page).count(), 'the How it works card does not open by itself').toBe(0);
         await page.waitForTimeout(1_000);
       }
       await expect(tour).toHaveCount(0);
+      await expect(howCard(page)).toHaveCount(0);
+      await expect(howKey(page)).toHaveAttribute('aria-expanded', 'false');
       // The first screen is still what the page shows.
       await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
       expect(new URL(page.url()).searchParams.get('tab') ?? 'quickstart').toBe('quickstart');

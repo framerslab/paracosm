@@ -60,6 +60,8 @@ import { Footer } from './components/layout/Footer';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
 import { GuidedTour } from './components/tour/GuidedTour';
+import { HowItWorksCard } from './components/quickstart/first-screen/HowItWorksCard';
+import { RunTurnsProvider } from './components/quickstart/first-screen/runTurns';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
@@ -231,6 +233,12 @@ function AppContent() {
   const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
   const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
   const [tourActive, setTourActive] = useState(false);
+  // The How it works card: the header's key opens and closes it on every
+  // tab. Nothing opens it by itself.
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const howItWorksKeyRef = useRef<HTMLButtonElement | null>(null);
+  const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
+  const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
   // Global verdict banner. Closable by the user; dismissal is keyed
   // to the verdict's headline so a fresh run with a new verdict
@@ -1080,6 +1088,9 @@ function AppContent() {
             onClear={handleClear}
             onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
             onRunActionsOpen={handleRunActionsOpen}
+            onHowItWorks={toggleHowItWorks}
+            howItWorksOpen={howItWorksOpen}
+            howItWorksKeyRef={howItWorksKeyRef}
             onCopy={handleCopySummary}
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
@@ -1386,6 +1397,7 @@ function AppContent() {
             />
           )}
           <ShortcutsOverlay />
+          <HowItWorksCard open={howItWorksOpen} onClose={closeHowItWorks} anchor={howItWorksKeyRef} />
         </div>
         </ForgeViewProvider>
         </ToolRegistryContext.Provider>
@@ -1434,7 +1446,9 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <ToastProvider>
-          <AppContent />
+          <RunTurnsProvider>
+            <AppContent />
+          </RunTurnsProvider>
         </ToastProvider>
       </ThemeProvider>
     </ErrorBoundary>

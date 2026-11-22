@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { useTheme } from '../../theme/ThemeProvider';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import type { GameState, ActorSideState } from '../../hooks/useGameState';
@@ -6,6 +6,7 @@ import type { useSSE } from '../../hooks/useSSE';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Tooltip } from '../shared/Tooltip';
 import { RunMenu } from './RunMenu';
+import { HOW_IT_WORKS } from '../quickstart/first-screen/words';
 import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import styles from './TopBar.module.scss';
 
@@ -36,7 +37,14 @@ interface TopBarProps {
    * request.
    */
   onRunActionsOpen?: () => void;
-  onTour?: () => void;
+  /**
+   * Opens and closes the How it works card. The key shows where this is
+   * given, says whether the card is open, and is reached through
+   * `howItWorksKeyRef`, which the card stands under and returns focus to.
+   */
+  onHowItWorks?: () => void;
+  howItWorksOpen?: boolean;
+  howItWorksKeyRef?: RefObject<HTMLButtonElement | null>;
   onCopy?: () => void;
   /**
    * Build + copy a deep link to the current run that opens on the viz
@@ -77,7 +85,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -398,15 +406,20 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
           <span className="topbar-github-label">GITHUB</span>
         </a>
 
-        {/* Tour button */}
-        {onTour && (
+        {/* How it works: opens the one card that states the rules of a
+            run, and closes it. Its words name it; where the row has no
+            room for them they give way to the question mark and stay as
+            the key's name. */}
+        {onHowItWorks && (
           <button
-            onClick={onTour}
+            ref={howItWorksKeyRef}
+            type="button"
+            onClick={onHowItWorks}
             className={`topbar-tour ${styles.tourBtn}`}
-            title="Interactive guided tour with sample data"
-            aria-label="Start guided tour"
+            aria-expanded={howItWorksOpen}
+            aria-haspopup="dialog"
           >
-            <span className="topbar-tour-label">HOW IT WORKS</span>
+            <span className="topbar-tour-label">{HOW_IT_WORKS}</span>
             <span className="topbar-tour-icon" aria-hidden="true" style={{ display: 'none' }}>{'?'}</span>
           </button>
         )}

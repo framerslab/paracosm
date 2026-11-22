@@ -9,6 +9,9 @@
  * that is not the hosted demo, and the address holds it; a run on the
  * host's keys is a pair. Every part is written for that one size.
  *
+ * The screen tells the page the run's turns, which the How it works card
+ * names from any tab.
+ *
  * The parts kept from the earlier screen (the launch error, the replay link,
  * the scenario and paste forms and the digital twin card) come in as
  * children and stand after the first screen, outside its root, until each
@@ -17,9 +20,11 @@
  * @module paracosm/dashboard/quickstart/first-screen/RunFirstScreen
  */
 import { useState, type ReactNode } from 'react';
-import { payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
+import { useScenarioContext, useScenarioReady } from '../../../App';
+import { effectiveTurns, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
 import { LeaderPair } from './LeaderPair';
 import { RunSize } from './RunSize';
+import { useTellRunTurns } from './runTurns';
 import { FREE_SIZE, sizeMode } from './runSize.helpers';
 import { ScenarioLine } from './ScenarioLine';
 import { SharedColonyPanel } from './SharedColonyPanel';
@@ -37,6 +42,8 @@ export interface RunFirstScreenProps {
 
 function FirstScreen({ onStart }: { onStart: StartRun }) {
   const facts = useServerFacts();
+  const scenario = useScenarioContext();
+  const scenarioReady = useScenarioReady();
   const { size, setSize } = useRunSetup();
   // From Start's press until the run opens or fails, the size cannot change.
   const [starting, setStarting] = useState(false);
@@ -47,6 +54,10 @@ function FirstScreen({ onStart }: { onStart: StartRun }) {
   const mode = sizeMode({ payer: who, adminConfig: facts.adminConfig.status, rateLimit: facts.rateLimit.status });
   // A run that is not the visitor's to size is a pair, whatever the address says.
   const runSize = mode === 'pair' ? FREE_SIZE : size;
+  // The run's turns, for the How it works card, once the scenario has loaded
+  // and the server has said whose keys a run uses: the scenario line's rule.
+  const payerKnown = who === 'own' || facts.adminConfig.status !== 'loading';
+  useTellRunTurns(scenarioReady && payerKnown ? effectiveTurns(facts, scenario, settings, who) : null);
 
   return (
     <div className={styles.screen} data-testid="run-first-screen">

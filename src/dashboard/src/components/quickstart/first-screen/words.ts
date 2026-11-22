@@ -344,3 +344,61 @@ export const SAVED_RUNS_NOT_LOADED = 'Your saved runs did not load.';
 
 /** The key beside it that asks for the list again. */
 export const TRY_AGAIN = 'Try again';
+
+/* How it works: the one card the header's key opens. */
+
+/** The card's title, and the name of the header's key that opens it. */
+export const HOW_IT_WORKS = 'How it works';
+
+/** The card's key that closes it. */
+export const CLOSE = 'Close';
+
+/**
+ * The card's six lines: the rules of a run. The fourth names the run's
+ * turns and the scenario's word for a settlement; until the scenario has
+ * loaded it reads "After the last turn" and "each side". The sixth says how
+ * many leaders run at a time only where the server has said so: a figure it
+ * has not sent is left out.
+ */
+export function howItWorksLines(o: { turns?: number; settlement?: string; batch?: number } = {}): string[] {
+  const after = o.turns === undefined ? 'After the last turn' : `After turn${NBSP}${o.turns}`;
+  const settlement = o.settlement?.trim().toLowerCase() || 'side';
+  const atATime = o.batch === undefined ? '' : `, ${o.batch}${NBSP}at a time`;
+  return [
+    'Each leader follows its own orders, shown on its card. “See the full prompt” shows everything it was given.',
+    'On each turn an AI leader reads the event and its departments’ reports, picks a bold or a safe option and writes why. Its rule is to take the bold option when that option’s chance reaches the leader’s bar, a number set by its personality. It breaks the rule only for a fact the odds leave out, and names that fact.',
+    'RISKY or SAFE says which option it took. WIN or LOSS says whether it paid off.',
+    `${after} a verdict names the winner or a tie, says why, and scores each ${settlement} 0${NBSP}to${NBSP}10 for survival, prosperity, morale and innovation.`,
+    'With two leaders, picking a winner is optional and changes nothing in the run.',
+    `With 3${NBSP}or more leaders, each runs the scenario on its own${atATime}. The report ranks them in quarters on morale, population and deaths, with no single winner.`,
+  ];
+}
+
+/** The mark over each of the card's three drawings: together they show one sample turn. */
+export const SAMPLE_TURN = 'Sample turn';
+
+/** The sample turn's figures: the leader's bar, and the bold option's chance, which reaches it. */
+export const SAMPLE_BAR = 36;
+export const SAMPLE_CHANCE = 80;
+
+/** The words on the first drawing. */
+export const sampleBar = `Bar${NBSP}${SAMPLE_BAR}`;
+export const sampleChance = `Chance${NBSP}${SAMPLE_CHANCE}`;
+
+/** The stamp the sample turn earns, as the run screen prints it. */
+export const SAMPLE_STAMP = 'RISKY WIN';
+
+/** The sample turn's four scores out of 10, in the order a verdict gives them. */
+export const SAMPLE_SCORES = [
+  ['Survival', 7],
+  ['Prosperity', 6],
+  ['Morale', 8],
+  ['Innovation', 5],
+] as const;
+
+/** What each drawing says to a screen reader, in the order of their lines. */
+export const DRAWING_ALT = {
+  bar: `A sample turn: a bar set at ${SAMPLE_BAR} with a chance of ${SAMPLE_CHANCE}, which reaches it`,
+  stamp: `The stamp that turn earns: ${SAMPLE_STAMP}, the bold option taken, and it paid off`,
+  scores: `Four sample scores out of 10: ${SAMPLE_SCORES.map(([name, value]) => `${name.toLowerCase()} ${value}`).join(', ')}`,
+} as const;

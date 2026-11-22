@@ -656,7 +656,16 @@
      overlapping, so fold the tour button to an icon + drop the
      per-turn progress bar. */
   @media (max-width: 1200px) {
-    .topbar-tour-label { display: none !important; }
+    /* The key's words stay as its name for a screen reader while the
+       question mark stands in for them. */
+    .topbar-tour-label {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      overflow: hidden !important;
+      clip-path: inset(50%) !important;
+      white-space: nowrap !important;
+    }
     .topbar-tour-icon { display: inline !important; }
     .topbar-progress { display: none !important; }
   }
