@@ -44,6 +44,10 @@ async function visit(browser: Browser, scenarioId?: string): Promise<Visit> {
   return { context, page };
 }
 
+/** The server's answer to the page's next POST /setup. */
+const setupAnswer = (page: Page) =>
+  page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/setup');
+
 /** Starts a run from the Run tab's Start; the page opens the run on the Sim tab. */
 async function pressRun(page: Page): Promise<void> {
   await pressStart(page);
@@ -195,14 +199,18 @@ test.describe('Run per visitor @runs', () => {
         await openRunTab(visitor.page);
         await expect(startKey(visitor.page)).toBeEnabled();
       }
+      const aTaken = setupAnswer(a.page);
       await startKey(a.page).click();
+      const bTaken = setupAnswer(b.page);
       await startKey(b.page).click();
-      await expect(a.page).toHaveURL(/[?&]tab=sim\b/);
-      await expect(b.page).toHaveURL(/[?&]tab=sim\b/);
+      expect((await aTaken).status()).toBe(200);
+      expect((await bTaken).status()).toBe(200);
       // The refused press stays on the Run tab and says why above Start.
       await startKey(c.page).click();
       await expect(c.page.getByTestId('start-failure')).toHaveText(SLOTS_IN_USE);
       await expect(c.page).not.toHaveURL(/[?&]tab=sim\b/);
+      await expect(a.page).toHaveURL(/[?&]tab=sim\b/);
+      await expect(b.page).toHaveURL(/[?&]tab=sim\b/);
       await expect(shown(b.page, 'Marcus Reinhardt').first()).toBeVisible();
       await expectComplete(a.page);
       await expectComplete(b.page);

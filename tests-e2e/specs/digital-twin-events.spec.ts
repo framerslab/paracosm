@@ -47,7 +47,8 @@ const dismiss = (page: Page) => page.getByRole('button', { name: 'Clear · run a
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
 const pairRunning = (page: Page) => page.getByRole('status', { name: /^Simulation status: Running\./ });
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
+/** What the Run tab says above Start when the server refuses the run. */
+const RUN_DID_NOT_START = 'The run did not start. Press Start again.';
 const stat = (page: Page, label: string) => page.locator('[class*="statsBar"]').getByText(label, { exact: true }).locator('xpath=..');
 
 /** Opens the Digital Twin card and presses Run on its first preset. */
@@ -116,13 +117,6 @@ async function refuseRuns(page: Page): Promise<void> {
  */
 async function twinAnswerHandled(page: Page): Promise<void> {
   await expect(page.getByRole('button', { name: 'Run digital twin', includeHidden: true })).toHaveCount(1);
-}
-
-/** Starts a run from the RUN menu, as a visitor who wants another run does. */
-async function runNew(page: Page): Promise<void> {
-  await runMenuButton(page).click();
-  await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
-  await runNewItem(page).click();
 }
 
 /** Starts a pair run from the Run tab's Start; the page opens the run on the Sim tab. */
@@ -239,8 +233,10 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expectProgressOfWholeRun(page);
 
-    await runNew(page);
-    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    // The refused press stays on the Run tab and says so above Start.
+    await pressStart(page);
+    await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
     await expectProgressOfWholeRun(page);
 
     release();
@@ -253,8 +249,9 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expect(playback(page, ROWS)).toBeVisible();
 
-    await runNew(page);
-    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    await pressStart(page);
+    await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
   });

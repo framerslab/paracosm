@@ -60,6 +60,8 @@ const rosterServer = createServer((req, res) => {
   res.writeHead(404);
   res.end();
 });
+// A roster port that cannot open is logged, and the page's server starts all the same.
+rosterServer.on('error', (err) => { console.error('[first-screen-server] the roster port did not open:', err); });
 rosterServer.listen(ROSTER_PORT, '127.0.0.1');
 
 const root = mkdtempSync(join(tmpdir(), 'paracosm-e2e-first-screen-'));
