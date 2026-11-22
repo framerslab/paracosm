@@ -3,6 +3,7 @@ import type { CitationRegistry } from '../../hooks/useCitationRegistry';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
 import { useForgeView } from '../forge/ForgeViewProvider';
 import { ReferencesList } from '../shared/ReferencesSection';
+import { OneRowScroller } from '../shared/OneRowScroller';
 import styles from './SimFooterBar.module.scss';
 
 interface SimFooterBarProps {
@@ -24,6 +25,11 @@ interface SimFooterBarProps {
  * References opens in this bar's own modal. The Forged Toolbox key opens
  * the forge view's toolbox dialog, which returns focus to the key when it
  * closes.
+ *
+ * The keys stand on one row at every width: on a phone the "Evidence" label
+ * gives way to them, and a row still wider than the bar scrolls sideways
+ * with its Previous and Next keys. The hint is not a key: it follows the
+ * row, on the row's line when there is room and on a line of its own below.
  */
 export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: SimFooterBarProps) {
   const [open, setOpen] = useState<null | 'refs'>(null);
@@ -49,25 +55,26 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
   return (
     <>
       <div role="region" aria-label="Simulation evidence" className={styles.bar}>
-        <span className={styles.label}>Evidence</span>
-        {refsCount > 0 && (
-          <FooterCta
-            label="References"
-            count={refsCount}
-            onClick={() => setOpen('refs')}
-            ariaLabel={`Open References list (${refsCount} sources)`}
-          />
-        )}
-        {toolsCount > 0 && (
-          <FooterCta
-            label="Forged Toolbox"
-            count={toolsCount}
-            onClick={(e) => openToolbox(e.currentTarget, 'sim')}
-            ariaLabel={`Open Forged Toolbox (${toolsCount} tools)`}
-          />
-        )}
-        {layoutToggle}
-        <span className={styles.spacer} />
+        <OneRowScroller label="evidence keys" className={styles.keys} rowClassName={styles.keysRow}>
+          <span className={styles.label}>Evidence</span>
+          {refsCount > 0 && (
+            <FooterCta
+              label="References"
+              count={refsCount}
+              onClick={() => setOpen('refs')}
+              ariaLabel={`Open References list (${refsCount} sources)`}
+            />
+          )}
+          {toolsCount > 0 && (
+            <FooterCta
+              label="Forged Toolbox"
+              count={toolsCount}
+              onClick={(e) => openToolbox(e.currentTarget, 'sim')}
+              ariaLabel={`Open Forged Toolbox (${toolsCount} tools)`}
+            />
+          )}
+          {layoutToggle}
+        </OneRowScroller>
         <span className={styles.hint}>Click any inline [N] pill to jump to its source.</span>
       </div>
 

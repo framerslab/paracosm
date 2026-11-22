@@ -28,6 +28,7 @@ import { useForgeView } from '../forge/ForgeViewProvider';
 import { vizToolboxKey } from '../forge/forgeWords';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import { ExportMenu } from './grid/ExportMenu.js';
+import { OneRowScroller } from '../shared/OneRowScroller';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels.js';
 import { HighlightStrip } from './HighlightStrip';
 import { VizLegendBar } from './VizLegendBar';
@@ -924,6 +925,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // state (hooks don't fire), producing React error #310.
   const narrow = useMediaQuery(NARROW_QUERY);
   const phone = useMediaQuery(PHONE_QUERY);
+  // On a phone the pair view's turn lines stand below the living grid,
+  // inside the grids' own scroll window: this is where TurnBanner draws them.
+  const [turnLinesSlot, setTurnLinesSlot] = useState<HTMLElement | null>(null);
 
   // Highlight + legend + diff-overlay hooks. Same Rules-of-Hooks
   // constraint as the media-query hooks above: must run on every render
@@ -1075,6 +1079,36 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // tickClock bump ~30x/sec before this memo).
   const searchMatches: SearchMatch[] = searchMatchesMemo;
 
+  // The diff and help keys: in the toolbar's row from 481 px, in its More
+  // panel on a phone.
+  const diffKey = (
+    <button
+      type="button"
+      onClick={() => setDiffOverlay(!diffOverlayOn)}
+      aria-label={diffOverlayOn ? 'Hide A-vs-B diff overlay (D)' : 'Show A-vs-B diff overlay (D)'}
+      aria-pressed={diffOverlayOn}
+      title="Highlight where Leader A and Leader B diverged this turn (press D)"
+      className={styles.helpBtn}
+    >
+      Diff {diffOverlayOn ? 'on' : 'off'}
+    </button>
+  );
+  const helpKey = (
+    <button
+      type="button"
+      onClick={() => setHelpOpen(true)}
+      aria-label="Open help overlay (shortcut: ?)"
+      title="What do these colors / symbols / modes mean? (press ?)"
+      className={styles.helpBtn}
+    >
+      ? Help
+    </button>
+  );
+  // On a phone, where the pair view shows one grid at a time, the turn's
+  // lines stand below that grid in its scroll window, so opening them never
+  // shrinks the grid's window.
+  const linesBelowGrid = phone && vizMode === 'pair';
+
   return (
       <div
         ref={vizRootRef}
@@ -1141,14 +1175,18 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             )}
           </div>
         )}
-        <TurnBanner state={state} currentTurn={currentTurn} />
+        <TurnBanner state={state} currentTurn={currentTurn} linesTarget={linesBelowGrid ? turnLinesSlot : null} />
         <HighlightStrip text={highlightText} turn={currentTurn + 1} />
         <VizLegendBar departments={legendDepartments} />
         {diffOverlayOn && cellDiff && (
           <DivergenceDetail diff={cellDiff} departmentLabels={departmentLabels} />
         )}
         <div className={styles.toolbarStrip}>
-          <div className={styles.toolbarTopRow}>
+          {/* One row at every width (OneRowScroller). On a phone the diff and
+              help keys stand in the More panel, so the mode menu keeps its
+              whole word beside FORGE mode's toolbox key; a row still wider
+              than the window scrolls sideways with its Previous and Next keys. */}
+          <OneRowScroller label="toolbar keys" rowClassName={styles.toolbarTopRow}>
             <div className={styles.modePillsWrap}>
               <GridModePills
                 mode={gridMode}
@@ -1177,83 +1215,66 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             <button
               type="button"
               onClick={() => setOverflowOpen(o => !o)}
-              aria-label={overflowOpen ? 'Hide advanced tools' : 'Show advanced tools (palette, stats, export, settings)'}
+              aria-label={overflowOpen
+                ? (phone ? 'Hide more tools' : 'Hide advanced tools')
+                : (phone ? 'Show more tools (diff, help, palette, stats, export, settings)' : 'Show advanced tools (palette, stats, export, settings)')}
               aria-expanded={overflowOpen}
-              title={overflowOpen ? 'Hide tools' : 'Palette · Stats · Export · Settings'}
+              title={overflowOpen ? 'Hide tools' : phone ? 'Diff · Help · Palette · Stats · Export · Settings' : 'Palette · Stats · Export · Settings'}
               className={[styles.overflowToggle, overflowOpen ? styles.overflowToggleOpen : ''].filter(Boolean).join(' ')}
             >
               {'\u22ef'}
             </button>
-            <button
-              type="button"
-              onClick={() => setDiffOverlay(!diffOverlayOn)}
-              aria-label={diffOverlayOn ? 'Hide A-vs-B diff overlay (D)' : 'Show A-vs-B diff overlay (D)'}
-              aria-pressed={diffOverlayOn}
-              title="Highlight where Leader A and Leader B diverged this turn (press D)"
-              className={styles.helpBtn}
-            >
-              Diff {diffOverlayOn ? 'on' : 'off'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setHelpOpen(true)}
-              aria-label="Open help overlay (shortcut: ?)"
-              title="What do these colors / symbols / modes mean? (press ?)"
-              className={styles.helpBtn}
-            >
-              ? Help
-            </button>
-            {overflowOpen && (
-              <div
-                role="toolbar"
-                aria-label="Viz tools"
-                className={styles.toolsRow}
+            {!phone && diffKey}
+            {!phone && helpKey}
+          </OneRowScroller>
+          {overflowOpen && (
+            <OneRowScroller label="Viz tools" role="toolbar" ariaLabel="Viz tools" rowClassName={styles.toolsRow}>
+              {phone && diffKey}
+              {phone && helpKey}
+              <button
+                type="button"
+                onClick={cyclePalette}
+                aria-label={`Palette: ${palette}. Click to cycle.`}
+                title={`Palette: ${palette.toUpperCase()} (click to cycle)`}
+                className={styles.paletteBtn}
+                style={{
+                  '--palette-bg':
+                    palette === 'amber'
+                      ? 'linear-gradient(135deg, #e8b44a 0 40%, #c44a1e 100%)'
+                      : palette === 'cool'
+                      ? 'linear-gradient(135deg, #4ecdc4 0 40%, #9b6bd8 100%)'
+                      : 'linear-gradient(135deg, #f5f0e4 0 40%, #6b5f50 100%)',
+                } as CSSProperties}
               >
-                <button
-                  type="button"
-                  onClick={cyclePalette}
-                  aria-label={`Palette: ${palette}. Click to cycle.`}
-                  title={`Palette: ${palette.toUpperCase()} (click to cycle)`}
-                  className={styles.paletteBtn}
-                  style={{
-                    '--palette-bg':
-                      palette === 'amber'
-                        ? 'linear-gradient(135deg, #e8b44a 0 40%, #c44a1e 100%)'
-                        : palette === 'cool'
-                        ? 'linear-gradient(135deg, #4ecdc4 0 40%, #9b6bd8 100%)'
-                        : 'linear-gradient(135deg, #f5f0e4 0 40%, #6b5f50 100%)',
-                  } as CSSProperties}
-                >
-                  {palette}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSummaryOpen(true)}
-                  aria-label="Open run summary"
-                  title="Run summary (cumulative totals)"
-                  className={styles.toolBtn}
-                >
-                  STATS
-                </button>
-                <ExportMenu
-                  recording={recording}
-                  onExportPng={handleExportPng}
-                  onExportJson={handleExportJson}
-                  onToggleRecording={recording ? stopTimelapse : startTimelapse}
-                />
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(o => !o)}
-                  aria-label="Open grid settings"
-                  aria-expanded={settingsOpen}
-                  title="Viz settings"
-                  className={[styles.settingsBtn, settingsOpen ? styles.settingsBtnOpen : ''].filter(Boolean).join(' ')}
-                >
-                  {'\u2699'}
-                </button>
-              </div>
-            )}
-          </div>
+                {palette}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSummaryOpen(true)}
+                aria-label="Open run summary"
+                title="Run summary (cumulative totals)"
+                className={styles.toolBtn}
+              >
+                STATS
+              </button>
+              <ExportMenu
+                recording={recording}
+                onExportPng={handleExportPng}
+                onExportJson={handleExportJson}
+                onToggleRecording={recording ? stopTimelapse : startTimelapse}
+              />
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(o => !o)}
+                aria-label="Open grid settings"
+                aria-expanded={settingsOpen}
+                title="Viz settings"
+                className={[styles.settingsBtn, settingsOpen ? styles.settingsBtnOpen : ''].filter(Boolean).join(' ')}
+              >
+                {'\u2699'}
+              </button>
+            </OneRowScroller>
+          )}
           <div className={styles.modeHint}>
             {gridModeHint(gridMode, scenarioLabels)}
           </div>
@@ -1359,6 +1380,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             'leaders-row',
             styles.leadersRow,
             narrow ? styles.leadersRowNarrow : '',
+            linesBelowGrid ? styles.leadersRowLinesBelow : '',
           ].filter(Boolean).join(' ')}
         >
           <div
@@ -1445,6 +1467,11 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             chronicleHover={hoveredChronicleEvent}
           />
           </div>
+          {/* A status region of its own: the outcomes stand outside the
+              banner's, and a screen reader reads them as the turn changes. */}
+          {linesBelowGrid && (
+            <section ref={setTurnLinesSlot} role="status" aria-label="Turn outcomes" className={styles.turnLinesSlot} />
+          )}
         </div>
         )}
         <VizControls
