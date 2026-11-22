@@ -105,6 +105,25 @@
  *   lines. At 200 per cent text it scrolls inside its own height with Close
  *   in view.
  *
+ * Other scenarios, Write your own scenario, the notes and the foot
+ * (features 12 and 13):
+ * - Under Start, one list of the server's scenarios: the bundled ones, then
+ *   the visitor's own under Yours. A row shows the scenario's name and its
+ *   departments, loads it with the page's reload, and never runs one. The
+ *   row of the scenario above says On screen now and cannot be pressed.
+ *   Show all opens the rest in place. A list or a row that did not load,
+ *   and a choice made offline, say so beside a Try again key or the
+ *   broken-link mark. A server with one scenario has no list.
+ * - Write your own scenario keeps the paste form under the list. On a run
+ *   on the host's keys it has no Actors slider and no dollar figure and its
+ *   key reads Generate and run; at the day's limit it says so above that
+ *   key and asks the server for nothing. A draft of 200 characters or more
+ *   holds Start, with a link to the draft and a key that clears it.
+ * - The fictional note stands under the leaders' heading row, the AI note
+ *   and the adults note above Start's notice, and the foot ends the page:
+ *   the adults line, the site's links in one row, Analytics choices and the
+ *   licence line. The idle tab shows no status, dollar figure or token count.
+ *
  * - Every word and glyph meets its figure, every row stays one row, and the
  *   automated check finds no WCAG 2.2 A or AA failure.
  *
@@ -1897,7 +1916,8 @@ screenTest('feature 10: Start on a free run', async ({ page }) => {
         // No sentence names a provider yet, and no dollar or token figure shows on a free run.
         await expect(notice).not.toContainText('It runs on');
         await expect(root).not.toContainText('USD');
-        await expect(root).not.toContainText('$');
+        // A sample scenario's own name in the paste form's menu is no figure of a run's cost.
+        expect(await wordsOf(root)).not.toContain('$');
         await expect(root.getByTestId('start-estimate')).toHaveCount(0);
         await picture(page, `start-free-${size.width}-${look}`);
       });
@@ -2530,7 +2550,7 @@ screenTest('feature 10: no free run left', async ({ page, browser }, info) => {
           await expect(root.getByTestId('start-key')).toHaveCount(0);
           await expect(root.getByTestId('replay-key')).toHaveCount(0);
           expect(await filledKeys(page, root)).toBe(0);
-          const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+          const addKey = root.getByTestId('start-band').getByRole('link', { name: ADD_KEY_LINK, exact: true });
           await expect(addKey).toBeVisible();
           expect(new URL((await addKey.getAttribute('href')) ?? '', page.url()).searchParams.get('tab')).toBe('settings');
           expect((await box(addKey)).height).toBeGreaterThanOrEqual(44);
@@ -2650,7 +2670,7 @@ screenTest('feature 10: at the limit with a saved run, with a team run, with nei
         await expect(root.getByTestId('at-limit-reset')).toHaveText(atLimitReset(await clockTime(page, RESET_AT)));
         await expect(root.getByTestId('at-limit-after')).toHaveText(`${REPLAY_FREE} ${ADD_KEY_PARAGRAPH}`);
         // The link to Settings under the key.
-        const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+        const addKey = root.getByTestId('start-band').getByRole('link', { name: ADD_KEY_LINK, exact: true });
         const [k, link] = await Promise.all([box(replay), box(addKey)]);
         expect(link.y).toBeGreaterThanOrEqual(k.y + k.height - 1);
         expect(link.height).toBeGreaterThanOrEqual(44);
@@ -2706,7 +2726,7 @@ screenTest('feature 10: at the limit with a saved run, with a team run, with nei
       await scrollToBandPlace(root);
       await expect(root.getByTestId('replay-key')).toHaveCount(0);
       expect(await filledKeys(page, root)).toBe(0);
-      await expect(root.getByRole('link', { name: ADD_KEY_LINK, exact: true })).toBeVisible();
+      await expect(root.getByTestId('start-band').getByRole('link', { name: ADD_KEY_LINK, exact: true })).toBeVisible();
       await expect(root.getByTestId('at-limit-after')).toHaveText(ADD_KEY_PARAGRAPH);
     });
   }
@@ -2880,7 +2900,7 @@ screenTest('feature 10: count unavailable and saved runs did not load', async ({
           expect(r.width).toBeGreaterThanOrEqual(96);
           await expect(root.getByTestId('replay-key')).toHaveCount(0);
           // Above the link to Settings, and the second paragraph without the replay sentence.
-          const addKey = root.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+          const addKey = root.getByTestId('start-band').getByRole('link', { name: ADD_KEY_LINK, exact: true });
           expect((await box(addKey)).y).toBeGreaterThanOrEqual(r.y + r.height - 1);
           await expect(root.getByTestId('at-limit-after')).toHaveText(ADD_KEY_PARAGRAPH);
           expect(await measureReadability(page)).toEqual([]);
@@ -3590,6 +3610,633 @@ screenTest('feature 11: layouts', async ({ page }) => {
     await expect(howCard(page)).toHaveCount(0);
     await page.emulateMedia({ reducedMotion: 'no-preference' });
   });
+});
+
+/* Other scenarios, Write your own scenario, the notes and the foot (features 12 and 13). */
+
+const MARS = 'mars-genesis';
+const LUNAR = 'lunar-outpost';
+const LOAD_FAILED = 'The other scenarios did not load.';
+const OFFLINE_ROW = 'You are offline. Choose it again when you are back online.';
+const NOTE_FICTIONAL = 'Leaders are fictional characters.';
+const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
+const NOTE_ADULTS = 'For adults. Under 18? Use it with a parent’s or guardian’s permission.';
+const LICENCE = 'Paracosm · Apache-2.0 · Frame.dev';
+const HELD = 'You have a draft scenario below. Run it there, or clear it to play Mars Genesis.';
+const FOOT = '[data-testid="page-foot"]';
+/** 200 characters and more of a scenario brief, the least the paste form takes. */
+const DRAFT = 'A harbour town of four thousand people loses its ferry for a season. Two councils decide how to ration fuel, whom to send for help, and whether to open the old road through the hills before the storms come back.'.padEnd(220, '.');
+
+/** One row of GET /scenarios. */
+interface ScenarioRow { id: string; name: string; description?: string; departments?: number; source?: string }
+
+/** Answers GET /scenarios with the server's own answer after `change` has edited its rows. */
+async function routeScenarios(page: Page, change: (rows: ScenarioRow[]) => ScenarioRow[]): Promise<void> {
+  await page.route('**/scenarios', async (route: Route) => {
+    const response = await route.fetch();
+    const body = await response.json() as { scenarios: ScenarioRow[] };
+    await route.fulfill({ response, json: { ...body, scenarios: change(body.scenarios) } });
+  });
+}
+
+/** The parts of Other scenarios. */
+const otherParts = (root: Locator) => {
+  const part = root.getByTestId('other-scenarios');
+  return {
+    part,
+    heading: part.getByRole('heading', { level: 2, name: 'Other scenarios', exact: true }),
+    rows: part.getByTestId('scenario-row'),
+    row: (id: string) => part.locator(`[data-testid="scenario-row"][data-scenario="${id}"]`),
+    load: (name: string) => part.getByRole('button', { name: `Load ${name}`, exact: true }),
+    showAll: part.getByTestId('show-all'),
+  };
+};
+
+/** A part's words, the choices inside a menu left out: a sample scenario's own name is no figure of a run's cost. */
+const wordsOf = (part: Locator): Promise<string> => part.evaluate((el) => {
+  const copy = el.cloneNode(true) as Element;
+  copy.querySelectorAll('option').forEach((option) => option.remove());
+  return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+});
+
+/** How many rows stand across the list: the rows that share the first row's top. */
+const rowsAcross = (rows: Locator): Promise<number> => rows.evaluateAll((els) => {
+  const tops = els.map((el) => Math.round(el.getBoundingClientRect().top));
+  return tops.filter((top) => Math.abs(top - tops[0]) <= 2).length;
+});
+
+/** The POST /setup requests the page has sent: a row loads a scenario and never runs one. */
+function countSetups(page: Page): () => number {
+  let sent = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/setup') sent += 1;
+  });
+  return () => sent;
+}
+
+screenTest('feature 12: the list loads, never runs', async ({ page }) => {
+  test.setTimeout(300_000);
+  const setups = countSetups(page);
+
+  // Feature 12, QA steps 5, 13, 15, 16 and 20: the rows under the heading.
+  for (const [size, shown] of [[PHONE, 3], [WIDE, 4]] as const) {
+    await test.step(`the rows at ${size.width} in the dark look`, async () => {
+      // The list's request is held: three row shapes stand under the heading until it answers.
+      const held = gate();
+      await page.route('**/scenarios', async (route: Route) => {
+        const response = await route.fetch();
+        await held.opened;
+        await route.fulfill({ response });
+      });
+      const root = await openReadyAt(page, '/sim', size, 'dark');
+      const { part, heading, rows, row, load, showAll } = otherParts(root);
+      await expect(heading).toBeVisible();
+      await expect(part.locator('[data-shape]')).toHaveCount(3);
+      await expect(rows).toHaveCount(0);
+      held.open();
+      await page.unroute('**/scenarios');
+
+      // The rows start with Lunar Outpost, each with its name and its departments as a free run uses them.
+      await expect(rows).toHaveCount(shown);
+      await expect(part.locator('[data-shape]')).toHaveCount(0);
+      await expect(rows.first()).toHaveAttribute('data-scenario', LUNAR);
+      await expect(rows.first().getByTestId('row-name')).toHaveText('Lunar Outpost');
+      await expect(rows.first().getByTestId('row-figures')).toHaveText('3 departments');
+      await expect(load('Lunar Outpost')).toBeVisible();
+      expect((await styleOf(rows.first().getByTestId('row-name'))).size).toBe(18);
+      expect((await styleOf(rows.first().getByTestId('row-figures'))).size).toBe(15);
+      if (size === PHONE) expect((await box(rows.first())).height).toBeGreaterThanOrEqual(80);
+      // No row holds a picture, and no row runs a scenario.
+      await expect(part.locator('img, canvas, svg:not([aria-hidden="true"])')).toHaveCount(0);
+      await expect(part.getByRole('button', { name: /^\W*(start|run|launch)\b/i })).toHaveCount(0);
+
+      // The scenario above has its row in the list, in its place: it says so and cannot be pressed.
+      const onScreen = row(MARS);
+      await expect(onScreen.getByTestId('row-state')).toHaveText('On screen now');
+      await expect(onScreen.getByRole('button')).toHaveCount(0);
+      await expect(onScreen).toContainText('Mars Genesis, on screen now, unavailable');
+
+      // Show all opens the rest in place, counted as the scenarios a press can load, then reads Show fewer.
+      await expect(showAll).toHaveText('Show all 6');
+      const key = await box(showAll);
+      expect(key.height).toBeGreaterThanOrEqual(44);
+      expect(key.width).toBeGreaterThanOrEqual(120);
+      await showAll.click();
+      await expect(rows).toHaveCount(7);
+      await expect(showAll).toHaveText('Show fewer');
+      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(6);
+      await picture(page, `other-scenarios-all-${size.width}-dark`);
+      await showAll.click();
+      await expect(rows).toHaveCount(shown);
+      await expect(showAll).toHaveText('Show all 6');
+
+      // From the header down to the end of the list: no Actors slider, no search field, no source filter, no sort select.
+      const controls = await root.evaluate((el) => {
+        const list = el.querySelector('[data-testid="other-scenarios"]');
+        return Array.from(el.querySelectorAll('input[type="range"], input[type="search"], select'))
+          .filter((control) => list && (list.contains(control) || (control.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)).length;
+      });
+      expect(controls).toBe(0);
+      await expectNoSidewaysScroll(page, root);
+      await part.scrollIntoViewIfNeeded();
+      await picture(page, `other-scenarios-${size.width}-dark`);
+    });
+  }
+
+  // Feature 12, QA steps 11 and 20: one, two, three and four across; four shown before Show all at 600 and 1,440 px.
+  for (const look of LOOKS) {
+    for (const [width, across, shown] of [[320, 1, 3], [600, 2, 4], [1100, 3, 3], [1440, 4, 4]] as const) {
+      await test.step(`${across} across at ${width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', sizeAt(width), look);
+        const { rows, showAll } = otherParts(root);
+        await expect(rows).toHaveCount(shown);
+        await showAll.click();
+        await expect(rows).toHaveCount(7);
+        expect(await rowsAcross(rows)).toBe(across);
+        await expectNoSidewaysScroll(page, root);
+      });
+    }
+  }
+
+  // Feature 12, QA steps 3, 4 and 12: a row loads its scenario, by keyboard, and runs nothing.
+  await test.step('Enter on the Lunar Outpost row loads it, 1440 in the dark look', async () => {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const { rows, row, load } = otherParts(root);
+    // The switch is held, so the row's loading words stay to be read.
+    const held = gate();
+    await page.route('**/scenario/switch', async (route: Route) => {
+      await held.opened;
+      await route.continue();
+    });
+    await load('Lunar Outpost').focus();
+    await page.keyboard.press('Enter');
+    await expect(row(LUNAR).getByRole('status')).toHaveText('Loading Lunar Outpost…');
+    // While it loads, no other row takes a press.
+    await expect(otherParts(root).part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(0);
+    await picture(page, 'other-scenarios-loading-1440-dark');
+    const reloaded = page.waitForEvent('load');
+    held.open();
+    await reloaded;
+    await page.unroute('**/scenario/switch');
+
+    // The page loads again at its top with that scenario: its name, its two leaders and its turns on Start.
+    const heading = root.getByRole('heading', { level: 1, name: 'Lunar Outpost', exact: true });
+    await expect(heading).toBeVisible();
+    await expect(heading).toBeFocused();
+    const leaders = root.getByTestId('leaders');
+    await expect(leaders).toContainText('Commander Sarah Lindgren');
+    await expect(leaders).toContainText('Commander Raj Patel');
+    await expect(startParts(root).key).toHaveAccessibleName('Start Lunar Outpost: 6 turns, about 3 and a half minutes');
+    expect(setups(), 'no run has started').toBe(0);
+
+    // Its row now says it is on screen and cannot be pressed, and Mars Genesis can be loaded.
+    await expect(rows.first()).toHaveAttribute('data-scenario', LUNAR);
+    await expect(row(LUNAR).getByTestId('row-state')).toHaveText('On screen now');
+    await expect(row(LUNAR).getByRole('button')).toHaveCount(0);
+    await expect(row(LUNAR)).toContainText('Lunar Outpost, on screen now, unavailable');
+    await expect(load('Mars Genesis')).toBeEnabled();
+    await picture(page, 'other-scenarios-lunar-on-screen-1440-dark');
+  });
+
+  // Feature 12, QA step 10: with the day's free run used, a row still loads its scenario, and the limit is said for it.
+  await routeNoRunLeft(page);
+  for (const look of LOOKS) {
+    await test.step(`no free run left, 390 in the ${look} look`, async () => {
+      const from = look === 'light' ? 'Lunar Outpost' : 'Mars Genesis';
+      const to = look === 'light' ? 'Mars Genesis' : 'Lunar Outpost';
+      const root = await openReadyAt(page, '/sim', PHONE, look, from);
+      await expect(root.getByTestId('at-limit-reset')).toBeVisible();
+      const reloaded = page.waitForEvent('load');
+      await otherParts(root).load(to).click();
+      await reloaded;
+      await expect(root.getByRole('heading', { level: 1, name: to, exact: true })).toBeVisible();
+      await expect(root.getByTestId('at-limit-reset')).toBeVisible();
+      await expect(root.getByTestId('scenario-sentences')).not.toContainText('Press Start');
+    });
+  }
+  await page.unroute('**/rate-limit');
+  expect(setups(), 'no run has started').toBe(0);
+
+  // Feature 12, QA steps 7 and 21: scenarios compiled in this browser are listed after the bundled ones under Yours.
+  await switchScenario(page, MARS);
+  const mine = Array.from({ length: 5 }, (_, i) => ({ id: `my-scenario-${i + 1}`, name: `Harbour Town ${i + 1}`, description: 'Compiled', departments: 4, source: 'compiled' }));
+  await routeScenarios(page, (listed) => [...mine, ...listed]);
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`twelve rows with five of Yours, ${size.width} in the dark look`, async () => {
+      const root = await openReadyAt(page, '/sim', size, 'dark');
+      const { part, rows, showAll } = otherParts(root);
+      await expect(showAll).toHaveText('Show all 11');
+      await expect(part.getByRole('heading', { level: 3, name: 'Yours', exact: true })).toHaveCount(0);
+      await showAll.click();
+      await expect(rows).toHaveCount(12);
+      // The bundled ones first, in their order, then Yours in theirs.
+      const ids = await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-scenario')));
+      expect(ids.slice(0, 2)).toEqual([LUNAR, MARS]);
+      expect(ids.slice(7)).toEqual(mine.map((scenario) => scenario.id));
+      const yours = part.getByRole('heading', { level: 3, name: 'Yours', exact: true });
+      await expect(yours).toBeVisible();
+      const [yoursBox, lastBundled, firstMine] = await Promise.all([box(yours), box(rows.nth(6)), box(rows.nth(7))]);
+      expect(yoursBox.y).toBeGreaterThanOrEqual(lastBundled.y + lastBundled.height - 1);
+      expect(firstMine.y).toBeGreaterThanOrEqual(yoursBox.y + yoursBox.height - 1);
+      await expect(rows.nth(7).getByTestId('row-figures')).toHaveText('3 departments');
+      await expectNoSidewaysScroll(page, root);
+      await picture(page, `other-scenarios-yours-${size.width}-dark`);
+    });
+  }
+
+  // A scenario of Yours keeps its details, where a compiled scenario is renamed and deleted: they open from its row, and run nothing.
+  await test.step('a row of Yours opens its details, 1440 in the dark look', async () => {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const { part, showAll } = otherParts(root);
+    await showAll.click();
+    await expect(part.getByRole('button', { name: /^View detail for /, disabled: false })).toHaveCount(5);
+    await part.getByRole('button', { name: 'View detail for Harbour Town 1', exact: true }).click();
+    const details = page.getByRole('dialog', { name: 'Scenario detail: Harbour Town 1' });
+    await expect(details).toBeVisible();
+    await expect(details.getByRole('button', { name: /^\W*(start|run|launch)\b/i })).toHaveCount(0);
+    await expect(details.locator('input[type="range"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(details).toHaveCount(0);
+    expect(setups(), 'no run has started').toBe(0);
+  });
+});
+
+screenTest('feature 12: failures', async ({ page, context }) => {
+  test.setTimeout(240_000);
+  const setups = countSetups(page);
+
+  // Feature 12, QA step 8: the list did not load; the first screen above works.
+  for (const look of LOOKS) {
+    await test.step(`the list did not load, 390 in the ${look} look`, async () => {
+      await page.route('**/scenarios', (route: Route) => route.abort('failed'));
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { part, heading, rows } = otherParts(root);
+      await expect(heading).toBeVisible();
+      const failed = part.getByTestId('scenarios-failed');
+      await expect(failed.getByRole('status')).toHaveText(LOAD_FAILED);
+      await expect(failed.locator('[data-mark="broken-link"]')).toBeVisible();
+      const again = failed.getByRole('button', { name: 'Try again', exact: true });
+      const key = await box(again);
+      expect(key.height).toBeGreaterThanOrEqual(44);
+      expect(key.width).toBeGreaterThanOrEqual(96);
+      await expect(rows).toHaveCount(0);
+      await expect(activeStart(root)).toHaveCount(1);
+      await failed.scrollIntoViewIfNeeded();
+      await picture(page, `other-scenarios-did-not-load-390-${look}`);
+
+      // Try again asks once more, and the rows arrive.
+      await page.unroute('**/scenarios');
+      await again.click();
+      await expect(rows).toHaveCount(3);
+      await expect(failed).toHaveCount(0);
+    });
+  }
+
+  // Feature 12, QA step 17: a switch that fails is said on its own row; every other row can be pressed.
+  for (const look of LOOKS) {
+    await test.step(`a row did not load, 390 in the ${look} look`, async () => {
+      await page.route('**/scenario/switch', (route: Route) => route.abort('failed'));
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { part, row, load, showAll } = otherParts(root);
+      await showAll.click();
+      await load('Lunar Outpost').click();
+      await expect(row(LUNAR).getByRole('status')).toHaveText('Lunar Outpost did not load.');
+      const again = row(LUNAR).getByRole('button', { name: 'Try again', exact: true });
+      const key = await box(again);
+      expect(key.height).toBeGreaterThanOrEqual(44);
+      expect(key.width).toBeGreaterThanOrEqual(96);
+      // The five other scenarios can still be loaded, and the scenario above is as it was.
+      await expect(part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(5);
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis', exact: true })).toBeVisible();
+      await expect(activeStart(root)).toHaveCount(1);
+      await row(LUNAR).scrollIntoViewIfNeeded();
+      await picture(page, `other-scenarios-row-did-not-load-390-${look}`);
+
+      // Unblocked, Try again loads it.
+      await page.unroute('**/scenario/switch');
+      const reloaded = page.waitForEvent('load');
+      await again.click();
+      await reloaded;
+      await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost', exact: true })).toBeVisible();
+      await switchScenario(page, MARS);
+    });
+  }
+
+  // Feature 12, QA step 9: offline, the rows stay, and choosing one says why nothing loads.
+  for (const look of LOOKS) {
+    await test.step(`offline, 390 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { rows, row, load } = otherParts(root);
+      await expect(rows).toHaveCount(3);
+      await context.setOffline(true);
+      try {
+        await load('Lunar Outpost').click();
+        await expect(row(LUNAR).getByRole('status')).toHaveText(OFFLINE_ROW);
+        await expect(row(LUNAR).locator('[data-mark="broken-link"]')).toBeVisible();
+        await expect(rows).toHaveCount(3);
+        await row(LUNAR).scrollIntoViewIfNeeded();
+        await picture(page, `other-scenarios-offline-390-${look}`);
+      } finally {
+        await context.setOffline(false);
+      }
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis', exact: true })).toBeVisible();
+    });
+  }
+
+  // Feature 12, QA step 19: a server with one scenario shows no heading and no list.
+  await routeScenarios(page, (listed) => listed.filter((scenario) => scenario.id === MARS));
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`one scenario, ${size.width} in the dark look`, async () => {
+      const root = await openReadyAt(page, '/sim', size, 'dark');
+      await expect(root.getByTestId('write-your-own')).toBeVisible();
+      await expect(root.getByRole('heading', { name: 'Other scenarios' })).toHaveCount(0);
+      await expect(otherParts(root).rows).toHaveCount(0);
+    });
+  }
+  expect(setups(), 'no run has started').toBe(0);
+});
+
+screenTest('feature 12: the paste form on a free run and on a key', async ({ page }) => {
+  test.setTimeout(240_000);
+  /** The parts of Write your own scenario. */
+  const pasteParts = (root: Locator) => {
+    const part = root.getByTestId('write-your-own');
+    return {
+      part,
+      heading: part.getByRole('heading', { level: 2, name: 'Write your own scenario', exact: true }),
+      field: part.locator('[data-quickstart-seed]'),
+      slider: part.locator('#quickstart-actor-count'),
+      atLimit: part.getByTestId('paste-at-limit'),
+    };
+  };
+
+  // Feature 10, QA step 23, on the host's keys: no Actors slider, no dollar figure, and the key reads Generate and run.
+  for (const [size, look] of [[PHONE, 'dark'], [WIDE, 'light']] as const) {
+    await test.step(`a free run, ${size.width} in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', size, look);
+      const { part, heading, field, slider, atLimit } = pasteParts(root);
+      await expect(heading).toBeVisible();
+      // Under the list of other scenarios.
+      const [list, block] = await Promise.all([box(root.getByTestId('other-scenarios')), box(part)]);
+      expect(block.y).toBeGreaterThanOrEqual(list.y + list.height - 1);
+      await expect(field).toBeVisible();
+      await expect(slider).toHaveCount(0);
+      expect(await wordsOf(part), 'no dollar figure').not.toContain('$');
+      await expect(atLimit).toHaveCount(0);
+      const run = part.getByRole('button', { name: 'Generate and run', exact: true });
+      await expect(run).toBeVisible();
+      await expect(run).toBeDisabled();
+      await field.fill(DRAFT);
+      await expect(run).toBeEnabled();
+      expect(await wordsOf(part), 'no dollar figure with a draft typed').not.toContain('$');
+      await part.scrollIntoViewIfNeeded();
+      await picture(page, `write-your-own-free-${size.width}-${look}`);
+    });
+  }
+
+  // Feature 10, QA step 24: with no free run left and no key, the at-limit paragraphs stand above that key, and a press asks the server for nothing.
+  await routeNoRunLeft(page);
+  for (const look of LOOKS) {
+    await test.step(`no free run left, 390 in the ${look} look`, async () => {
+      const compiles: string[] = [];
+      const watch = (request: { method(): string; url(): string }) => {
+        if (request.method() === 'POST' && /compile-from-seed/.test(request.url())) compiles.push(request.url());
+      };
+      page.on('request', watch);
+      const root = await openReadyAt(page, '/sim', PHONE, look);
+      const { part, field, atLimit } = pasteParts(root);
+      await expect(atLimit).toContainText(NO_RUN_LEFT);
+      await expect(atLimit).toContainText(ADD_KEY_PARAGRAPH);
+      const link = atLimit.getByRole('link', { name: ADD_KEY_LINK, exact: true });
+      await expect(link).toHaveAttribute('href', /tab=settings.*#key-openai$/);
+      const run = part.getByRole('button', { name: 'Generate and run', exact: true });
+      const [words, key] = await Promise.all([box(atLimit), box(run)]);
+      expect(words.y + words.height, 'the paragraphs stand above the key').toBeLessThanOrEqual(key.y + 1);
+      await field.fill(DRAFT);
+      await pressInPage(run);
+      await expect(atLimit).toContainText(NO_RUN_LEFT);
+      await expect(page.getByText('3 runs/day')).toHaveCount(0);
+      await page.waitForTimeout(500);
+      expect(compiles, 'a press at the limit asks the server for nothing').toEqual([]);
+      await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis', exact: true })).toBeVisible();
+      await atLimit.scrollIntoViewIfNeeded();
+      await picture(page, `write-your-own-at-limit-390-${look}`);
+      page.off('request', watch);
+    });
+  }
+  await page.unroute('**/rate-limit');
+
+  // On the visitor's own key, whose bill it is: the Actors slider, the estimate and the key's own label.
+  await saveKey(page);
+  for (const [size, look] of [[PHONE, 'light'], [WIDE, 'dark']] as const) {
+    await test.step(`own key, ${size.width} in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', size, look);
+      const { part, slider, atLimit } = pasteParts(root);
+      await expect(slider).toBeVisible();
+      await expect(part).toContainText('~$1.30');
+      await expect(part.getByRole('button', { name: 'Generate + Run 2 Actors (~$1.30)', exact: true })).toBeVisible();
+      await expect(atLimit).toHaveCount(0);
+      await part.scrollIntoViewIfNeeded();
+      await picture(page, `write-your-own-own-key-${size.width}-${look}`);
+    });
+  }
+});
+
+screenTest('feature 13: the notes and the foot', async ({ page }) => {
+  test.setTimeout(300_000);
+  const foot = page.locator(FOOT);
+  const links = foot.getByRole('navigation', { name: 'Site links', exact: true }).getByRole('link');
+
+  // Feature 13, QA steps 1, 2, 3, 11 and 13.
+  for (const size of [PHONE, WIDE]) {
+    for (const look of LOOKS) {
+      await test.step(`the notes and the foot at ${size.width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', size, look);
+        const ink = await tokenColour(page, '--text-1');
+
+        // The fictional note under the leaders' heading row.
+        const fictional = root.getByTestId('note-fictional');
+        await expect(fictional).toHaveText(NOTE_FICTIONAL);
+        const [sizeRow, fictionalBox, leaders] = await Promise.all([box(root.getByTestId('run-size')), box(fictional), box(root.getByTestId('leaders'))]);
+        expect(fictionalBox.y).toBeGreaterThanOrEqual(sizeRow.y + sizeRow.height - 1);
+        expect(fictionalBox.y + fictionalBox.height).toBeLessThanOrEqual(leaders.y + 1);
+
+        // The AI note and the adults note: two separate lines, above Start's notice.
+        const notes = root.getByTestId('first-screen-notes');
+        const ai = notes.getByTestId('note-ai');
+        const adults = notes.getByTestId('note-adults');
+        await expect(ai).toHaveText(NOTE_AI);
+        await expect(adults).toHaveText(NOTE_ADULTS);
+        await expect(notes.locator('p')).toHaveCount(2);
+        for (const note of [fictional, ai, adults]) {
+          const style = await styleOf(note);
+          expect(style.size).toBe(18);
+          expect(style.colour).toBe(ink);
+        }
+        const [notesBox, aiBox, adultsBox, notice] = await Promise.all([box(notes), box(ai), box(adults), box(startParts(root).notice)]);
+        expect(notesBox.y + notesBox.height, 'the notes stand above Start’s notice').toBeLessThanOrEqual(notice.y + 1);
+        if (size === WIDE) {
+          expect(Math.abs(aiBox.y - adultsBox.y), 'side by side at the wide width').toBeLessThanOrEqual(1);
+          expect(adultsBox.x).toBeGreaterThanOrEqual(aiBox.x + aiBox.width - 1);
+        } else {
+          expect(adultsBox.y).toBeGreaterThanOrEqual(aiBox.y + aiBox.height - 1);
+        }
+
+        // The idle screen says no status, no dollar figure and no token count.
+        await expect(page.getByText('Idle', { exact: true }).filter({ visible: true })).toHaveCount(0);
+        for (const part of [root, foot]) {
+          const words = await wordsOf(part);
+          expect(words, 'no dollar figure').not.toContain('$');
+          expect(words, 'no token count').not.toMatch(/\btokens?\b/i);
+        }
+        // Nothing drawn or generated of a person or a place: the one picture is the living grid's own canvas.
+        await expect(root.locator('img')).toHaveCount(0);
+        await expect(foot.locator('img, canvas')).toHaveCount(0);
+
+        // The foot ends the page and scrolls with it.
+        await expect(foot).toHaveRole('contentinfo');
+        await expect(foot.getByTestId('foot-adults')).toHaveText(NOTE_ADULTS);
+        await expect(links).toHaveText(['Docs', 'GitHub', 'npm', 'Privacy']);
+        await expect(links.nth(0)).toHaveAttribute('href', '/docs');
+        await expect(links.nth(1)).toHaveAttribute('href', 'https://github.com/framerslab/paracosm');
+        await expect(links.nth(2)).toHaveAttribute('href', 'https://www.npmjs.com/package/paracosm');
+        await expect(links.nth(3)).toHaveAttribute('href', '/#privacy');
+        const choices = foot.getByRole('button', { name: 'Analytics choices', exact: true });
+        await expect(choices).toBeVisible();
+        await expect(foot.getByTestId('foot-licence')).toHaveText(LICENCE);
+        expect(await foot.evaluate((el) => getComputedStyle(el).position)).not.toBe('fixed');
+        expect(await page.getByRole('contentinfo').count(), 'the page has one foot on the Run tab').toBe(1);
+        for (const part of [...await links.all(), choices]) {
+          const [style, area] = await Promise.all([styleOf(part), box(part)]);
+          expect(style.size).toBe(15);
+          expect(area.height).toBeGreaterThanOrEqual(44);
+          expect(area.width).toBeGreaterThanOrEqual(44);
+        }
+        expect((await styleOf(foot.getByTestId('foot-licence'))).size).toBe(15);
+        expect(await measureReadability(page, FOOT)).toEqual([]);
+        expect(await axeFindings(page, FOOT)).toEqual([]);
+        await foot.scrollIntoViewIfNeeded();
+        await picture(page, `page-foot-${size.width}-${look}`);
+      });
+    }
+  }
+
+  // Feature 13, QA steps 6, 7 and 14: the links stay one row; two columns at 600 px; one row from 1,100 px.
+  for (const look of LOOKS) {
+    for (const width of [320, 360, 390, 430, 480, 600, 768, 1100, 1440]) {
+      await test.step(`the foot at ${width} in the ${look} look`, async () => {
+        const root = await openReadyAt(page, '/sim', sizeAt(width), look);
+        const boxes = await Promise.all((await links.all()).map((link) => box(link)));
+        expect(boxes).toHaveLength(4);
+        for (const [i, link] of boxes.entries()) {
+          expect(Math.abs(link.y - boxes[0].y), 'the links stand on one row').toBeLessThanOrEqual(2);
+          if (i > 0) expect(link.x - (boxes[i - 1].x + boxes[i - 1].width), 'with 8 px or more between them').toBeGreaterThanOrEqual(8);
+        }
+        const [nav, choices, licence] = await Promise.all([
+          box(foot.getByRole('navigation', { name: 'Site links', exact: true })),
+          box(foot.getByRole('button', { name: 'Analytics choices', exact: true })),
+          box(foot.getByTestId('foot-licence')),
+        ]);
+        if (width >= 1100) {
+          // One row: the links, Analytics choices, then the licence line at the right.
+          expect(choices.x).toBeGreaterThanOrEqual(nav.x + nav.width - 1);
+          expect(licence.x).toBeGreaterThanOrEqual(choices.x + choices.width - 1);
+          expect(licence.y, 'the licence line shares the row').toBeLessThan(nav.y + nav.height);
+          expect(licence.y + licence.height).toBeGreaterThan(nav.y);
+        } else if (width >= 600) {
+          // Two columns: the links and Analytics choices at the left, the licence line at the right.
+          expect(choices.y).toBeGreaterThanOrEqual(nav.y + nav.height - 1);
+          expect(licence.x).toBeGreaterThanOrEqual(Math.max(nav.x + nav.width, choices.x + choices.width) - 1);
+        } else {
+          // Stacked: the links, then Analytics choices, then the licence line.
+          expect(choices.y).toBeGreaterThanOrEqual(nav.y + nav.height - 1);
+          expect(licence.y).toBeGreaterThanOrEqual(choices.y + choices.height - 1);
+        }
+        await expectNoSidewaysScroll(page, root);
+        expect(await foot.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'the foot does not scroll sideways').toBe(true);
+      });
+    }
+  }
+
+  // Feature 13, QA step 8: with the day's free run used, the notes stay, above the at-limit paragraphs.
+  await routeNoRunLeft(page);
+  for (const size of [PHONE, WIDE]) {
+    await test.step(`no free run left, ${size.width} in the dark look`, async () => {
+      const root = await openReadyAt(page, '/sim', size, 'dark');
+      await expect(root.getByTestId('note-fictional')).toHaveText(NOTE_FICTIONAL);
+      const notes = root.getByTestId('first-screen-notes');
+      await expect(notes.getByTestId('note-ai')).toHaveText(NOTE_AI);
+      await expect(notes.getByTestId('note-adults')).toHaveText(NOTE_ADULTS);
+      const [notesBox, limit] = await Promise.all([box(notes), box(root.getByTestId('at-limit'))]);
+      expect(notesBox.y + notesBox.height).toBeLessThanOrEqual(limit.y + 1);
+    });
+  }
+  await page.unroute('**/rate-limit');
+
+  // Feature 13, QA step 4: Analytics choices opens the consent choices again.
+  await test.step('Analytics choices opens the consent choices, 390 in the dark look', async () => {
+    await openReadyAt(page, '/sim', PHONE, 'dark');
+    const choices = foot.getByRole('button', { name: 'Analytics choices', exact: true });
+    await choices.scrollIntoViewIfNeeded();
+    await choices.click();
+    const bar = page.getByRole('region', { name: 'Analytics choices' });
+    await expect(bar).toBeVisible();
+    await expect(bar.getByRole('switch')).not.toHaveCount(0);
+    await bar.getByRole('button', { name: 'Reject all' }).click();
+    await expect(bar).toBeHidden();
+  });
+
+  // Feature 13, QA step 5: Privacy lands on the landing page's section of that name.
+  await test.step('Privacy opens the landing page’s privacy section, 1440 in the dark look', async () => {
+    await openReadyAt(page, '/sim', WIDE, 'dark');
+    await links.filter({ hasText: 'Privacy' }).click();
+    await expect(page).toHaveURL(/\/#privacy$/);
+    await expect(page.locator('#privacy')).toBeVisible();
+  });
+});
+
+screenTest('draft scenario', async ({ page }) => {
+  test.setTimeout(180_000);
+  // Feature 10, QA step 13: a draft of 200 characters or more in Write your own scenario holds Start.
+  for (const look of LOOKS) {
+    await test.step(`1440 in the ${look} look`, async () => {
+      const root = await openReadyAt(page, '/sim', WIDE, look);
+      const { key } = startParts(root);
+      const field = root.getByTestId('write-your-own').locator('[data-quickstart-seed]');
+      await expect(activeStart(root)).toHaveCount(1);
+      await expect(root.getByTestId('start-held')).toHaveCount(0);
+
+      // 199 characters are no draft yet.
+      await field.fill(DRAFT.slice(0, 199));
+      await expect(activeStart(root)).toHaveCount(1);
+      await field.fill(DRAFT.slice(0, 200));
+      const held = root.getByTestId('start-held');
+      await expect(held).toContainText(HELD);
+      await expect(key).toHaveAttribute('aria-disabled', 'true');
+      await expect(activeStart(root)).toHaveCount(0);
+      // An inactive Start has no fill.
+      expect((await styleOf(key)).ground).not.toBe(await tokenColour(page, '--rust'));
+      const go = held.getByRole('link', { name: 'Go to your draft', exact: true });
+      const clear = held.getByRole('button', { name: 'Clear your draft', exact: true });
+      await expect(go).toBeVisible();
+      await expect(clear).toBeVisible();
+      await key.scrollIntoViewIfNeeded();
+      await picture(page, `start-held-1440-${look}`);
+
+      // Go to your draft brings the draft into view, ready to be read and run there.
+      await go.click();
+      await expect(field).toBeInViewport();
+      await expect(field).toBeFocused();
+      await expect(field).toHaveValue(DRAFT.slice(0, 200));
+
+      // Clear your draft empties it, and Start is active again.
+      await pressInPage(clear);
+      await expect(field).toHaveValue('');
+      await expect(root.getByTestId('start-held')).toHaveCount(0);
+      await expect(activeStart(root)).toHaveCount(1);
+      await expect(key).toHaveAccessibleName(START_FREE);
+    });
+  }
 });
 
 screenTest('readability: the first screen at five widths', async ({ page }) => {
