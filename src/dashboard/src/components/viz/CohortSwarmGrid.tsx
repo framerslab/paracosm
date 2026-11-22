@@ -52,6 +52,8 @@ interface CohortSwarmGridProps {
   chronicleHover: { kind: 'birth' | 'death' | 'forge' | 'crisis'; side: 'a' | 'b'; turn: number } | null;
   startTime?: number;
   onOpenChat?: (colonistName: string) => void;
+  /** A class for the track, the grid's scroll window, beside its own. */
+  className?: string;
 }
 
 interface ForgeAttempt {
@@ -302,11 +304,12 @@ export function CohortSwarmGrid({
   chronicleHover,
   startTime,
   onOpenChat,
+  className,
 }: CohortSwarmGridProps) {
   const actorIds = state.actorIds;
   return (
     <div
-      className={styles.track}
+      className={[styles.track, className].filter(Boolean).join(' ')}
       role="region"
       aria-label={`Cohort swarm grid: ${actorIds.length} actors`}
     >
