@@ -16,6 +16,11 @@
  * `turn_start`) and holds the run open until the server aborts it. The
  * Digital Twin world, which the server compiles with a model on boot, is
  * none here. Its folders are temporary ones and it keeps no run history.
+ *
+ * The hosted demo refuses a run on the host's keys when it holds no OpenAI
+ * key (hosted-model-policy.ts), so the server holds a stand-in one. No
+ * request here reaches a model: the pair runner is the stub below, and a
+ * test that has Paracosm write leaders answers that request itself.
  */
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,6 +42,7 @@ const server = createMarsServer({
     PARACOSM_HOSTED_DEMO: 'true',
     PARACOSM_CLIENT_IP_HEADER: 'x-real-ip',
     PARACOSM_DISABLE_RUN_HISTORY: '1',
+    OPENAI_API_KEY: 'sk-first-screen-stand-in',
   },
   maxSimsPerDay: 1,
   runHistoryStore: createNoopRunHistoryStore(),
