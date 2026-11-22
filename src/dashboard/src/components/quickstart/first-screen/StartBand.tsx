@@ -153,16 +153,12 @@ function StartKey({ state, launch, scenarioName, writing, onPress }: {
 }) {
   if (state === 'ready' && launch) {
     const line = { who: launch.payer, size: launch.size, turns: launch.turns, minutes: minutesForTurns(launch.turns) };
+    // The key is named from its content, so its name starts with the word it shows: one line a screen reader reads,
+    // the scenario and the length in words it reads well, and the two lines drawn for the eye, hidden from it.
     return (
-      <button
-        type="button"
-        className={styles.key}
-        data-testid="start-key"
-        aria-label={startSpoken({ ...line, scenario: scenarioName })}
-        onClick={onPress}
-      >
-        <span className={styles.first} data-testid="start-first" data-read-exception="primary-key-label">{START}</span>
-        {/* The name says the length in words a screen reader reads well. */}
+      <button type="button" className={styles.key} data-testid="start-key" onClick={onPress}>
+        <span className="sr-only">{startSpoken({ ...line, scenario: scenarioName })}</span>
+        <span className={styles.first} data-testid="start-first" data-read-exception="primary-key-label" aria-hidden="true">{START}</span>
         <span className={styles.second} data-testid="start-second" data-read-exception="primary-key-label" aria-hidden="true">
           {startSecondLine(line)}
         </span>
