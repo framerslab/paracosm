@@ -24,7 +24,9 @@
  *   at the panel's end the play controls and the legend are in view.
  * - At 320, 390, 600 and 1440 the keyboard legend is one row inside the
  *   window. Where it shows fewer than its six keys, one key opens the help
- *   overlay, whose Keyboard section lists them all.
+ *   overlay, whose Keyboard section lists them all. From the keyboard the
+ *   key moves focus into the overlay, so the arrow keys leave the turn
+ *   behind it alone, and Escape brings focus back to the key.
  * - At 844 x 339 (a phone on its side with its browser's bars) the grids
  *   stand side by side under the same controls: the grid keeps the same
  *   usable window, and the turn's outcomes, the play controls and the
@@ -33,8 +35,9 @@
  *   LIVING and FORGE, on its More panel's keys, on the play controls and in
  *   the legend computes to 15 px or more; each of those rows is one row
  *   inside the window; and below 900 px every key in them is 44 px tall and
- *   wide. On a phone the Latest key, in the flow above the play controls, is
- *   44 px tall and wide, inside the window, its words at 15 px.
+ *   wide. On a turn before the last the Latest key covers no control of the
+ *   play controls; on a phone it stands in the flow above them, 44 px tall
+ *   and wide, inside the window, its words at 15 px.
  *
  * The stored runs are tests-e2e/support/viz-replay-server.ts's, served with
  * VIZ_REPLAY_EVENT_STARTS=1 on a port of their own: the hosted demo's six
@@ -548,6 +551,27 @@ for (const look of LOOKS) {
             await expect.soft(helpDialog(page).getByText('Keyboard', { exact: true }), `${where}: the help overlay lists the keyboard keys`).toBeVisible();
             await page.getByRole('button', { name: 'Close help', exact: true }).click();
             await expect(helpDialog(page)).toHaveCount(0);
+
+            // From the keyboard: focus moves into the help overlay, so the
+            // arrow keys leave the turn behind it alone, and Escape closes it
+            // and brings focus back to the key.
+            const scrub = playRow(page).getByRole('slider', { name: 'Scrub timeline' });
+            const turnBefore = await scrub.getAttribute('aria-valuetext');
+            await all.focus();
+            await page.keyboard.press('Enter');
+            await expect.soft(helpDialog(page), `${where}: Enter on the key opens the help overlay`).toBeVisible();
+            const focusInside = await page.evaluate(() => !!document.activeElement?.closest('[role="dialog"][aria-label="Grid viz help"]'));
+            expect.soft(focusInside, `${where}: focus moves into the help overlay as it opens`).toBe(true);
+            await page.keyboard.press('ArrowLeft');
+            await painted(page);
+            const turnAfter = await scrub.getAttribute('aria-valuetext');
+            expect.soft(turnAfter, `${where}: the left arrow key leaves the turn behind the help overlay alone`).toBe(turnBefore);
+            await page.keyboard.press('Escape');
+            await expect(helpDialog(page)).toHaveCount(0);
+            const focusBack = await all.evaluate(el => el === document.activeElement);
+            expect.soft(focusBack, `${where}: closing the help overlay brings focus back to its key`).toBe(true);
+            // Puts the run back on its last turn when the arrow moved it.
+            if (turnAfter !== turnBefore) await stepOn(page).click();
           }
         }
       });
@@ -572,7 +596,7 @@ async function chooseMode(page: Page, mode: 'living' | 'forge'): Promise<void> {
 }
 
 for (const look of LOOKS) {
-  test(`every word on the Viz toolbar, its More panel, the play controls and the legend is 15 px or more at 320, 390, 600 and 1440, each row one row with 44 px keys on a phone, and the Latest key a phone key, in the ${look} look`, async ({ page, request }) => {
+  test(`every word on the Viz toolbar, its More panel, the play controls and the legend is 15 px or more at 320, 390, 600 and 1440, each row one row with 44 px keys on a phone, and the Latest key clear of the play controls, in the ${look} look`, async ({ page, request }) => {
     test.setTimeout(300_000);
     const run = await pairRun(request);
     await openRun(page, run, look, sizeAt(1440));
@@ -608,33 +632,42 @@ for (const look of LOOKS) {
         expectReadable(await expectOneRow(page, playRow(page), `${width}, ${look}, the play controls`, width), `${width}, ${look}, the play controls`);
         expectReadable(await expectOneRow(page, legend(page), `${width}, ${look}, the keyboard legend`, width), `${width}, ${look}, the keyboard legend`);
 
-        // On a phone the Latest key stands in the flow above the play
-        // controls, so it is a phone key: 44 px tall and wide, inside the
-        // window, its words at 15 px. It shows on a turn before the last.
+        // The Latest key shows on a turn before the last. It covers no
+        // control of the play controls at any width. On a phone it stands in
+        // the flow above them, so it is a phone key: 44 px tall and wide,
+        // inside the window, its words at 15 px.
+        await stepBack(page).click();
+        await expect(latestKey(page)).toBeVisible();
+        await latestKey(page).evaluate((el) => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+        await playRow(page).evaluate((el) => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+        await painted(page);
+        await picture(page, `${width}-${look}-latest-key`, playRow(page), 160);
+        const key = await latestKey(page).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const words: Array<{ text: string; size: number }> = [];
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const text = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+            if (text && n.parentElement) words.push({ text: text.slice(0, 32), size: parseFloat(getComputedStyle(n.parentElement).fontSize) });
+          }
+          return { width: r.width, height: r.height, left: r.left, right: r.right, top: r.top, bottom: r.bottom, inner: document.documentElement.clientWidth, words };
+        });
+        const where = `${width}, ${look}, the Latest key`;
+        const covered = await playRow(page).evaluate((row, k) => Array.from(row.querySelectorAll('button, select, input'))
+          .filter((c) => {
+            const r = c.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && r.left < k.right && r.right > k.left && r.top < k.bottom && r.bottom > k.top;
+          })
+          .map(c => (c.getAttribute('aria-label') ?? c.textContent ?? c.tagName).replace(/\s+/g, ' ').trim().slice(0, 32)), key);
+        expect.soft(covered, `${where}: it covers no control of the play controls`).toEqual([]);
         if (width <= 480) {
-          await stepBack(page).click();
-          await expect(latestKey(page)).toBeVisible();
-          await latestKey(page).evaluate((el) => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
-          await painted(page);
-          await picture(page, `${width}-${look}-latest-key`);
-          const key = await latestKey(page).evaluate((el) => {
-            const r = el.getBoundingClientRect();
-            const words: Array<{ text: string; size: number }> = [];
-            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-              const text = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
-              if (text && n.parentElement) words.push({ text: text.slice(0, 32), size: parseFloat(getComputedStyle(n.parentElement).fontSize) });
-            }
-            return { width: r.width, height: r.height, left: r.left, right: r.right, inner: document.documentElement.clientWidth, words };
-          });
-          const where = `${width}, ${look}, the Latest key`;
           expect.soft(key.height, `${where}: 44 px tall or more on a phone (${key.height.toFixed(1)} px)`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
           expect.soft(key.width, `${where}: 44 px wide or more on a phone (${key.width.toFixed(1)} px)`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
           expect.soft(key.left >= -0.5 && key.right <= key.inner + 0.5, `${where}: inside the window (${key.left.toFixed(1)} to ${key.right.toFixed(1)} px of ${key.inner} px)`).toBe(true);
           expect.soft(key.words.filter(w => w.size < READ_SIZE - 0.01).map(w => `"${w.text}": ${w.size} px`), `${where}: every word is ${READ_SIZE} px or more`).toEqual([]);
-          await stepOn(page).click();
-          await expect(latestKey(page)).toHaveCount(0);
         }
+        await stepOn(page).click();
+        await expect(latestKey(page)).toHaveCount(0);
       });
     }
   });
