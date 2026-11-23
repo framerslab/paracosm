@@ -5,6 +5,7 @@ const RUN_SERVER = 'http://127.0.0.1:3470';
 const CONSENT_SERVER = 'http://127.0.0.1:3464';
 const REPLAY_SERVER = 'http://127.0.0.1:3462';
 const SLOT = 'paracosm:keyOverrides';
+const LAST_LAUNCH = 'paracosm:lastLaunchConfig';
 const MARKER = 'visitor-key-browser-fixture';
 const SEARCH_MARKER = 'visitor-search-browser-fixture';
 const AGE = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";
@@ -23,6 +24,10 @@ async function stores(page: Page) {
     local: localStorage.getItem(slot),
     session: sessionStorage.getItem(slot),
   }), SLOT);
+}
+
+async function savedLaunch(page: Page): Promise<unknown> {
+  return page.evaluate(slot => JSON.parse(localStorage.getItem(slot) ?? 'null'), LAST_LAUNCH);
 }
 
 test('editing a key stores it for this tab and masks all key inputs from recordings and analytics', async ({ page }) => {
@@ -62,13 +67,61 @@ test('editing a key stores it for this tab and masks all key inputs from recordi
 
 test('the first dashboard load moves an old model and search key to tab storage', async ({ page }) => {
   const old = JSON.stringify({ openai: MARKER, tavily: SEARCH_MARKER });
-  await page.addInitScript(({ slot, old }) => { localStorage.setItem(slot, old); }, { slot: SLOT, old });
+  // Earlier releases also saved the keys inside the last launch, through Run again.
+  const oldLaunch = JSON.stringify({ ...settingsBody(mars), apiKey: MARKER, tavilyKey: SEARCH_MARKER });
+  await page.addInitScript(({ slot, old, launchSlot, oldLaunch }) => {
+    localStorage.setItem(slot, old);
+    localStorage.setItem(launchSlot, oldLaunch);
+  }, { slot: SLOT, old, launchSlot: LAST_LAUNCH, oldLaunch });
   await page.goto(`${RUN_SERVER}/sim`);
   await expect(page.getByTestId('note-adults')).toBeAttached();
   await expect.poll(() => stores(page)).toEqual({ local: null, session: old });
+  expect(await savedLaunch(page)).toEqual(settingsBody(mars));
   await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(field(page, 'openai')).toHaveValue(MARKER);
   await expect(field(page, 'tavily')).toHaveValue(SEARCH_MARKER);
+});
+
+test('Run again sends the tab keys and keeps them out of the launch this device saves', async ({ page }) => {
+  const bodies: Record<string, unknown>[] = [];
+  await page.route(`${RUN_SERVER}/setup`, async route => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ redirect: '/sim' }) });
+  });
+  // A finished run, so the Run again row shows.
+  await page.route('**/events', route => route.fulfill({
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+    body: 'event: connected\ndata: {}\n\nevent: complete\ndata: {}\n\n',
+  }));
+  await page.goto(`${RUN_SERVER}/sim?tab=settings`);
+  await page.getByRole('button', { name: 'Reject all', exact: true }).click();
+  await field(page, 'openai').fill(MARKER);
+  await field(page, 'serper').fill(SEARCH_MARKER);
+  await page.evaluate(({ launchSlot, launch }) => { localStorage.setItem(launchSlot, launch); },
+    { launchSlot: LAST_LAUNCH, launch: JSON.stringify({ ...settingsBody(mars), seed: 7 }) });
+
+  const runAgain = page.getByText('Spin up a new run').locator('..').getByRole('button');
+  await page.goto(`${RUN_SERVER}/sim?tab=sim`);
+  await expect(runAgain).toBeEnabled();
+  await runAgain.click();
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toMatchObject({ seed: 8, apiKey: MARKER, serperKey: SEARCH_MARKER });
+  await expect.poll(() => savedLaunch(page)).toMatchObject({ seed: 8 });
+  expect(JSON.stringify(await savedLaunch(page))).not.toContain(MARKER);
+  expect(JSON.stringify(await savedLaunch(page))).not.toContain(SEARCH_MARKER);
+
+  // Forgotten keys never ride along on the next Run again.
+  await page.goto(`${RUN_SERVER}/sim?tab=settings`);
+  await keyGroup(page).getByRole('button', { name: 'Forget my keys', exact: true }).click();
+  await expect(keyGroup(page).getByRole('status')).toHaveText('Keys forgotten. Your held run and chat agents have been cleared.');
+  await page.goto(`${RUN_SERVER}/sim?tab=sim`);
+  await expect(runAgain).toBeEnabled();
+  await runAgain.click();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1]).toMatchObject({ seed: 9 });
+  expect(JSON.stringify(bodies[1])).not.toContain(MARKER);
+  expect(JSON.stringify(bodies[1])).not.toContain(SEARCH_MARKER);
 });
 
 test('Forget my keys empties the fields and both stores and drops the held run', async ({ page }) => {
