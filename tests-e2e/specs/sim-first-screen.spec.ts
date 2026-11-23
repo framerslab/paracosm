@@ -4841,6 +4841,44 @@ screenTest('feature 13: the foot ends the Run tab while a pasted scenario is wri
   }
 });
 
+// Feature 13: the control stands in the footer on screen. The Run tab stays mounted while another tab shows, and
+// a change of its state there gives it a new foot: that foot, out of view, does not take the control from the
+// footer the visitor sees.
+screenTest('feature 13: Analytics choices stays in the footer on screen while the Run tab changes out of view', async ({ page }) => {
+  test.setTimeout(120_000);
+  const held = gate();
+  await page.route('**/api/quickstart/compile-from-seed', async (route: Route) => { await held.opened; await route.abort(); });
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const part = root.getByTestId('write-your-own');
+    await part.locator('[data-quickstart-seed]').fill(DRAFT);
+    await part.getByRole('button', { name: 'Generate and run', exact: true }).click();
+    // The scenario is being written: the first screen has given way to the run's progress.
+    await expect(root).toHaveCount(0);
+
+    // The visitor opens Watch meanwhile, and that tab's footer offers the control.
+    await page.locator('#tab-sim').click();
+    await expect(page.locator('#tabpanel-sim')).toBeVisible();
+    const control = page.locator('#pcc-reopen');
+    await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
+
+    // The writing fails: out of view, the Run tab goes back to its first screen, which mounts a foot of its own.
+    held.open();
+    await expect(page.locator(FIRST_SCREEN)).toBeAttached();
+    await expect(page.locator(FIRST_SCREEN)).toBeHidden();
+    await expect(page.locator(FOOT)).toBeHidden();
+    await expect(control, 'the footer on screen keeps the control').toBeVisible();
+
+    // Back on the Run tab, its foot offers the control again.
+    await page.locator('#tab-quickstart').click();
+    await expect(page.locator(FIRST_SCREEN)).toBeVisible();
+    await expect(page.locator(FOOT).getByRole('button', { name: 'Analytics choices', exact: true })).toBeVisible();
+  } finally {
+    held.open();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
 // Feature 11, QA step 7: the sheet opens with focus on its title, and holds focus from there in both directions.
 screenTest('feature 11: Shift+Tab straight after the sheet opens stays inside it', async ({ page }) => {
   test.setTimeout(120_000);
