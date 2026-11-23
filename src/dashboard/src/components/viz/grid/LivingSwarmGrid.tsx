@@ -298,6 +298,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // panel's commander changes, so the tile layer eases in instead of
   // painting its whole steady state in one frame. See golReveal.ts.
   const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
+  const revealPaintTimes = useRef<number[]>([]);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -388,6 +389,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       reuseCalls,
       eventCategories: snapshot?.eventCategories,
       still: resting,
+      paintTimes: vizPanel ? revealPaintTimes : undefined,
     },
     canvasWrapRef,
     () => positions,
@@ -625,7 +627,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       // steady state in one frame. Single-turn advances (a live run,
       // playback) reseed in place.
       if (!reducedMotion && !resting && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
-        golRevealStartRef.current = performance.now();
+        const began = performance.now();
+        golRevealStartRef.current = began;
+        // A scrub can start with the grid offscreen. Let that canvas paint
+        // during the fade and settle at full strength for capture.
+        if (vizPanel) revealPaintTimes.current = [began + GOL_REVEAL_MS / 6, began + GOL_REVEAL_MS];
       }
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
