@@ -4354,20 +4354,41 @@ async function doubleText(page: Page): Promise<void> {
 /**
  * How far each part scrolls sideways, in px: the first screen, the nearest
  * part around it that scrolls (the tab's own scroll area), the page's foot,
- * and the page.
+ * and the page; and the parts that stand past the first screen's or the
+ * foot's right edge, each the outermost one, with how far past it.
  */
-const sidewaysOf = (page: Page, root: Locator): Promise<{ screen: number; view: number; foot: number; page: number }> => root.evaluate((el) => {
+const sidewaysOf = (page: Page, root: Locator): Promise<{ screen: number; view: number; foot: number; page: number; past: string[] }> => root.evaluate((el) => {
   let view = 0;
   for (let a = el.parentElement; a; a = a.parentElement) {
     const s = getComputedStyle(a);
     if (s.overflowX !== 'visible' || s.overflowY !== 'visible') { view = a.scrollWidth - a.clientWidth; break; }
   }
   const foot = document.querySelector('[data-testid="page-foot"]');
+  const past: string[] = [];
+  const walk = (holder: Element, edge: number, node: Element) => {
+    for (const child of Array.from(node.children)) {
+      const r = child.getBoundingClientRect();
+      const cs = getComputedStyle(child);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || r.width <= 0 || r.height <= 0) continue;
+      if (r.right > edge + 1) {
+        const tid = child.getAttribute('data-testid');
+        const cls = typeof child.className === 'string' ? child.className.split(/\s+/)[0] : '';
+        past.push(`${child.tagName.toLowerCase()}${tid ? `[${tid}]` : ''}${cls ? `.${cls}` : ''} "${(child.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 30)}" ${Math.round(r.right - edge)} px`);
+        continue;
+      }
+      // A part that clips or scrolls what it holds keeps it from the page.
+      if (cs.overflowX === 'visible') walk(holder, edge, child);
+    }
+  };
+  for (const holder of foot ? [el, foot] : [el]) {
+    walk(holder, holder.getBoundingClientRect().left + holder.clientWidth, holder);
+  }
   return {
     screen: el.scrollWidth - el.clientWidth,
     view,
     foot: foot ? foot.scrollWidth - foot.clientWidth : 0,
     page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    past: past.slice(0, 12),
   };
 });
 
