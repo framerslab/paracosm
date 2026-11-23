@@ -7,6 +7,8 @@
   --section-key-inset: calc(4 * var(--frame-rule-width));
 
   position: relative;
+  // The second header row takes its width from the header column.
+  contain: inline-size;
   min-inline-size: 0;
   overflow: clip;
   overflow-clip-margin: calc(2 * var(--section-focus));

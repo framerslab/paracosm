@@ -205,6 +205,8 @@
     grid-template-rows: minmax(var(--header-keys-height), auto);
 
     nav {
+      // The single-row header measures the tabs at their intrinsic width.
+      contain: none;
       grid-column: 2;
       grid-row: 1;
       --section-height: var(--frame-target-size);

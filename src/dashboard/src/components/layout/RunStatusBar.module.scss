@@ -14,7 +14,11 @@
   color: var(--text-3);
 }
 
-.bar.phone { padding: 3px 12px; }
+.bar.phone {
+  padding-block: calc(2 * var(--frame-rule-width));
+  padding-inline: calc(var(--frame-side-padding) - var(--frame-gap) / 2);
+  row-gap: calc(var(--frame-gap) / 2);
+}
 
 .statusChip {
   display: inline-flex;
