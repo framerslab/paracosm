@@ -4449,7 +4449,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         /** Answers 429 and returns true when the caller's IP has used its runs of the day. */
         const overTheDay = (): boolean => {
           if (!rateLimiter || rateIp === null) return false;
-          const { allowed, limit } = rateLimiter.check(rateIp);
+          const { allowed, limit, resetAt } = rateLimiter.check(rateIp);
           if (allowed) return false;
           console.log(`  [rate-limit] /setup blocked (${limit}/${limit} used)`);
           res.writeHead(429, {
@@ -4462,6 +4462,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             error: `Rate limit exceeded. Maximum ${limit} simulations per day. Add your own API keys in Settings to remove this limit.`,
             limit,
             remaining: 0,
+            // When the day's count resets, as GET /rate-limit says it: the
+            // page keeps the refusal until a count for a later day has a run.
+            resetAt,
           }));
           return true;
         };

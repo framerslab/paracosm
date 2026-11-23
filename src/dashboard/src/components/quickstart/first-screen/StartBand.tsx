@@ -510,7 +510,9 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
       const { kind } = classifyLaunchFailure({ ...outcome.failure, online: navigator.onLine });
       if (kind === 'limit' && who === 'host') {
         // The day's limit was met since the count was read: say it as the limit, with the reset time read again.
-        facts.markLimitMet(dayResetAt);
+        // The refusal names when the day's count resets; a server that leaves it out leaves the count read before the press.
+        const named = outcome.failure.body?.resetAt;
+        facts.markLimitMet(typeof named === 'number' && Number.isInteger(named) && named > 0 ? named : dayResetAt);
         void rateLimit.refresh();
       } else {
         setFailure(kind === 'limit' ? 'other' : kind);

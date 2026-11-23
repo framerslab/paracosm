@@ -51,8 +51,8 @@ export interface ServerFacts {
   limitMet: boolean;
   /**
    * Keeps that the day's limit was met, until a count read after that day's
-   * reset says a run is left, or the page leaves. `resetAt` is the reset
-   * time of the count last read before the refusal, when one was read.
+   * reset says a run is left, or the page leaves. `resetAt` is that day's
+   * reset time: the refusal's own, or the count's read before the press.
    */
   markLimitMet(resetAt?: number): void;
 }
@@ -155,11 +155,19 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [noneLeft, resetAt, refreshRateLimit]);
 
+  // A kept refusal ends with any count for a later day than the refused
+  // one that has a run left: the read straight after the refusal, a read
+  // asked again below, or the read at the reset time above.
+  useEffect(() => {
+    if (!limitMet) return;
+    const day = refusedDay.current;
+    const answer = rateLimit.status === 'ready' ? rateLimit.answer : undefined;
+    if (answer && day !== undefined && answer.resetAt > day && answer.remaining > 0) setLimitMet(false);
+  }, [limitMet, rateLimit]);
+
   // A refusal is kept and the count could not be read: no reset time is
   // known, so the read above sets no timer. The count is asked for again
-  // until it answers. An answer for a later day than the refused one, with a
-  // run left, ends the refusal; any other answer names the reset time the
-  // read above waits for.
+  // until it answers; the effect above reads each answer.
   const countUnread = limitMet && rateLimit.status === 'error';
   useEffect(() => {
     if (!countUnread) return undefined;
@@ -168,16 +176,9 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
     let wait = COUNT_RETRY_FIRST_MS;
     const read = () => {
       void refreshRateLimit().then((next) => {
-        if (next.status === 'error') {
-          if (cancelled) return;
-          timer = window.setTimeout(read, wait);
-          wait = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
-          return;
-        }
-        const day = refusedDay.current;
-        if (next.status === 'ready' && next.answer && day !== undefined && next.answer.resetAt > day && next.answer.remaining > 0) {
-          setLimitMet(false);
-        }
+        if (next.status !== 'error' || cancelled) return;
+        timer = window.setTimeout(read, wait);
+        wait = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
       });
     };
     timer = window.setTimeout(read, wait);
