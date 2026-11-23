@@ -324,6 +324,18 @@ const USED_KEYS_MAX = 1024;
 const PERSIST_DEBOUNCE_MS = 500;
 const SWEEP_INTERVAL_MS = 60_000;
 
+/** The fields of a run's config that hold the caller's model and search keys. */
+const RUN_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
+
+/** Lets go of the keys a run holds in memory: its config's and a Digital Twin run's own. */
+function forgetRunKeys(run: LiveRun): void {
+  if (run.config) for (const field of RUN_KEY_FIELDS) delete run.config[field];
+  if (run.ownKeys) {
+    delete run.ownKeys.apiKey;
+    delete run.ownKeys.anthropicKey;
+  }
+}
+
 interface PersistedRun {
   version: 1;
   key: string;
@@ -923,7 +935,8 @@ export class LiveRunRegistry {
 
   /**
    * Lets go of what nobody needs: a finished run nobody has read or watched
-   * for the idle time, then the oldest finished runs while the held runs are
+   * for the idle time, and the keys of a finished one that is watched but
+   * not read for it, then the oldest finished runs while the held runs are
    * over their count or byte cap. A run in flight is the watchdog's.
    */
   sweep(now = Date.now()): void {
@@ -931,7 +944,12 @@ export class LiveRunRegistry {
     for (const run of [...this.runs.values()]) {
       if (run.inFlight) continue;
       if (now - run.lastActivity <= this.options.staleMs) continue;
-      if (this.viewerCount(run) > 0) continue;
+      if (this.viewerCount(run) > 0) {
+        // An open page keeps the run, not the keys it ran on: they go after
+        // the idle time, as a chat agent built on them does.
+        forgetRunKeys(run);
+        continue;
+      }
       this.evict(run, 'idle', 'client_disconnected');
     }
     this.enforceCaps();
