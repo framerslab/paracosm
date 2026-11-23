@@ -104,12 +104,23 @@ const SETTINGS_RETRY_FIRST_MS = 2_000;
 const SETTINGS_RETRY_MAX_MS = 15_000;
 /**
  * The count is asked for again after this long, then at twice the gap each
- * time: a read of /rate-limit that failed while a refusal is kept, and a count
- * with no run left whose reset time has passed by this page's clock.
+ * time: a read of /rate-limit that failed while a refusal is kept, a count
+ * with no run left whose reset time has passed by this page's clock, and a
+ * read made for a count with no run left that failed.
  */
 const COUNT_RETRY_FIRST_MS = 2_000;
 /** The longest gap between two of those tries. */
 const COUNT_RETRY_MAX_MS = 15_000;
+
+/** One read of GET /rate-limit, checked. It changes nothing on the page. */
+async function readRateLimit(): Promise<RateLimitState> {
+  try {
+    const res = await fetch('/rate-limit', { cache: 'no-store' });
+    return res.ok ? parseRateLimit(await res.json()) : { status: 'error' };
+  } catch {
+    return { status: 'error' };
+  }
+}
 
 /** Asks the server and gives its answers to the first screen. */
 export function ServerFactsProvider({ children }: { children: ReactNode }) {
@@ -126,13 +137,7 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const refreshSessions = useCallback(() => savedSessions.refresh(), []);
 
   const refreshRateLimit = useCallback(async (): Promise<RateLimitState> => {
-    let next: RateLimitState;
-    try {
-      const res = await fetch('/rate-limit', { cache: 'no-store' });
-      next = res.ok ? parseRateLimit(await res.json()) : { status: 'error' };
-    } catch {
-      next = { status: 'error' };
-    }
+    const next = await readRateLimit();
     setRateLimit(next);
     return next;
   }, []);
@@ -147,7 +152,11 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
   // after the reset, or a clock ahead of the server's, whose read at the
   // reset time the server still answers for the old day) is read again after
   // a short wait, then at twice the gap each time, until the server names a
-  // later day or a run is left. The effect runs again with each answer.
+  // later day or a run is left. The effect runs again with each answer. A
+  // read that fails keeps the count the page has and is tried again at the
+  // same gaps, so the reads go on. An answer that arrives after another
+  // answer has reached the page is left unused, and the effect reads again
+  // from the one on the page.
   const noneLeft = limitMet || (rateLimit.status === 'ready' && rateLimit.answer?.remaining === 0);
   const countAnswer = rateLimit.status === 'ready' ? rateLimit.answer : undefined;
   const pastResetWait = useRef(COUNT_RETRY_FIRST_MS);
@@ -164,14 +173,28 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
       wait = pastResetWait.current;
       pastResetWait.current = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
     }
-    const timer = window.setTimeout(() => {
-      void refreshRateLimit().then((next) => {
+    let cancelled = false;
+    let failedWait = COUNT_RETRY_FIRST_MS;
+    let timer: number | undefined;
+    const read = () => {
+      void readRateLimit().then((next) => {
+        if (cancelled) return;
+        if (next.status === 'error') {
+          timer = window.setTimeout(read, failedWait);
+          failedWait = Math.min(failedWait * 2, COUNT_RETRY_MAX_MS);
+          return;
+        }
+        setRateLimit(next);
         // A run is left again: a refusal kept from before the reset no longer holds.
         if (next.status === 'ready' && (next.answer?.remaining ?? 0) > 0) setLimitMet(false);
       });
-    }, wait);
-    return () => window.clearTimeout(timer);
-  }, [noneLeft, countAnswer, refreshRateLimit]);
+    };
+    timer = window.setTimeout(read, wait);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [noneLeft, countAnswer]);
 
   // A kept refusal ends with any count for a later day than the refused
   // one that has a run left: the read straight after the refusal, a read
