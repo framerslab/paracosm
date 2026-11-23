@@ -73,6 +73,7 @@ test('the first dashboard load moves an old model and search key to tab storage'
 
 test('Forget my keys empties the fields and both stores and drops the held run', async ({ page }) => {
   await page.goto(`${RUN_SERVER}/sim?tab=settings`);
+  await page.getByRole('button', { name: 'Reject all', exact: true }).click();
   await field(page, 'openai').fill(MARKER);
   await field(page, 'serper').fill(SEARCH_MARKER);
   const run = await page.request.post(`${RUN_SERVER}/setup`, {
@@ -81,6 +82,11 @@ test('Forget my keys empties the fields and both stores and drops the held run',
   expect(run.ok()).toBe(true);
   const { runKey } = await run.json();
   expect(typeof runKey).toBe('string');
+  const chat = await page.request.post(`${RUN_SERVER}/chat`, {
+    data: { runKey, agentId: 'col-bruno-morales', message: 'What happened?', apiKey: MARKER },
+  });
+  expect(chat.ok()).toBe(true);
+  expect(await chat.json()).toMatchObject({ firstMessage: true });
   await page.evaluate(({ slot, marker }) => { localStorage.setItem(slot, JSON.stringify({ openai: marker })); },
     { slot: SLOT, marker: MARKER });
 
@@ -88,7 +94,7 @@ test('Forget my keys empties the fields and both stores and drops the held run',
   await keyGroup(page).getByRole('button', { name: 'Forget my keys', exact: true }).click();
   const answer = await forgotten;
   expect(answer.ok()).toBe(true);
-  expect(await answer.json()).toEqual({ runConfigsDropped: 1, chatAgentsDropped: 0 });
+  expect(await answer.json()).toEqual({ runConfigsDropped: 1, chatAgentsDropped: 1 });
   for (const provider of PROVIDERS) await expect(field(page, provider)).toHaveValue('');
   expect(await stores(page)).toEqual({ local: null, session: null });
   const results = await page.request.get(`${RUN_SERVER}/results`);
