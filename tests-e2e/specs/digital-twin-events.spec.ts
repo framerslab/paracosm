@@ -288,6 +288,8 @@ test.describe('Digital Twin events @twin', () => {
   test('clearing local data clears the result', async ({ page }) => {
     await startRun(page);
     await expect(result(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Complete/ })).toBeVisible();
 
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
@@ -329,6 +331,8 @@ test.describe('Digital Twin events @twin', () => {
     });
     await startRun(page);
     await expect(running(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
     await expect(stat(page, 'Turn')).toContainText('1 / 2');
 
     page.once('dialog', dialog => void dialog.accept());

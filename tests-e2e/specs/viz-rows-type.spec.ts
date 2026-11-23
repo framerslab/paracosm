@@ -390,8 +390,8 @@ for (const look of LOOKS) {
     await picture(page, `390x339-${look}-outcomes-scrolled-to`);
     const line = await ariaLine(page).textContent().catch(() => null);
 
-    // The panel's end: the play controls and the legend.
-    await wheelUntil(page, async () => false);
+    // The keyboard legend is at the panel's end, before the page footer.
+    await wheelUntil(page, () => inView(legend(page)));
     await painted(page);
     await picture(page, `390x339-${look}-panel-end`);
     const playInView = await inView(playRow(page));
@@ -437,7 +437,7 @@ for (const look of LOOKS) {
     const line = await ariaLineAnywhere(page).textContent().catch(() => null);
 
     // The panel's end: the play controls and the legend.
-    await wheelUntil(page, async () => false);
+    await wheelUntil(page, () => inView(legend(page)));
     await painted(page);
     await picture(page, `844x339-${look}-panel-end`);
     const playInView = await inView(playRow(page));

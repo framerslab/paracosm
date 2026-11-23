@@ -3167,9 +3167,7 @@ screenTest('one Start', async ({ page }) => {
       const named = await root.getByRole('button').or(root.getByRole('link')).evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim()));
       expect(named.filter((name) => startsARun.test(name))).toHaveLength(1);
       await expect(root.getByRole('button', { name: startsARun })).toHaveCount(1);
-      // The header's own RUN key opens the menu read above; nothing else in the header is named for a run.
-      await expect(header.getByRole('button', { name: startsARun })).toHaveCount(1);
-      await expect(header.getByRole('button', { name: startsARun })).toHaveAccessibleName('RUN');
+      await expect(header.getByRole('button', { name: startsARun })).toHaveCount(0);
       await expect(page.getByText(/guided tour/i).filter({ visible: true })).toHaveCount(0);
     });
   }
