@@ -1,3 +1,4 @@
+import { RunExportProvenanceContext } from './components/shared/RunReportDownloads';
 import { AiWrittenPage } from './components/shared/AiWritten';
 import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -1086,6 +1087,7 @@ function AppContent() {
       <ScenarioLoadContext.Provider value={scenarioLoad}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
+        <RunExportProvenanceContext.Provider value={sse.provenance}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
         {/* Skip link: keyboard users land on this first, jumping past
@@ -1425,6 +1427,7 @@ function AppContent() {
           <HowItWorksCard open={howItWorksOpen} onClose={closeHowItWorks} anchor={howItWorksKeyRef} />
         </div>
         </ForgeViewProvider>
+        </RunExportProvenanceContext.Provider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
       </ScenarioLoadContext.Provider>

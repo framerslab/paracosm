@@ -1,3 +1,4 @@
+import { useRunExportProvenance } from '../shared/RunReportDownloads';
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { sendForgeEvent } from '../../analytics/forgeEvents';
@@ -76,6 +77,7 @@ type ExportStatus = { state: 'idle' } | { state: 'exporting'; tools: number } | 
  * it. While a row's trace is open over it, it takes no key and no pointer.
  */
 export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
+  const provenance = useRunExportProvenance();
   const registry = useToolContext();
   const { show, find, actors } = useToolboxView();
   const dialogRef = useFocusTrap<HTMLDivElement>(true);
@@ -104,7 +106,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
     const rows = filterRows(registry.list, show, find, pickedActors(actors, registry.actors.length));
     const save = () => {
       try {
-        downloadJson(JSON.stringify(exportRows(rows), null, 2), TOOLBOX_FILE_NAME);
+        downloadJson(JSON.stringify({ provenance, tools: exportRows(rows) }, null, 2), TOOLBOX_FILE_NAME);
         setExported({ state: 'idle' });
       } catch {
         setExported({ state: 'failed' });

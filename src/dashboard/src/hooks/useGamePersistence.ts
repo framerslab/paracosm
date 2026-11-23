@@ -1,3 +1,4 @@
+import { exportProvenance } from '../exports/run-report';
 import type { RunProvenance } from '../../../engine/schema/index.js';
 import { useCallback } from 'react';
 import { downloadJson } from '../download';
@@ -72,7 +73,7 @@ export function useGamePersistence(
   const save = useCallback((events: SimEvent[], results: unknown[], verdict?: Record<string, unknown> | null, provenance?: RunProvenance | null) => {
     const data: GameData = {
       config: null,
-      ...(provenance ? { provenance } : {}),
+      provenance: exportProvenance(provenance, verdict),
       events,
       results,
       verdict: verdict ?? null,

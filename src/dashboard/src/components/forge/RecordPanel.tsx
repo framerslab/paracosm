@@ -1,3 +1,4 @@
+import { useRunExportProvenance } from '../shared/RunReportDownloads';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ProcessedEvent } from '../../hooks/useGameState';
 import type { ToolEntry } from '../../hooks/useToolRegistry';
@@ -60,6 +61,7 @@ export interface RecordPanelProps {
  * download that fails says so beside its key, with its way forward.
  */
 export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProps) {
+  const provenance = useRunExportProvenance();
   const headingId = useId();
   const text = useMemo(() => recordText(frames), [frames]);
   const [said, setSaid] = useState<Said>(null);
@@ -92,7 +94,7 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
     if (text === null) return;
     sendForgeEvent({ name: 'forge_record_export', what: 'record_download' });
     try {
-      downloadJson(text, recordFileName(entry.name));
+      downloadJson(JSON.stringify({ provenance, frames }, null, 2), recordFileName(entry.name));
       say(null);
     } catch {
       say('downloadFailed');

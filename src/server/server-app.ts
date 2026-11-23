@@ -1,3 +1,4 @@
+import { hookSourcesOf } from '../engine/compiler/hook-sources.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
 import type { TLSSocket } from 'node:tls';
@@ -100,7 +101,10 @@ import {
 } from './live-runs.js';
 
 function projectScenarioForClient(sc: ScenarioPackage) {
+  const sources = hookSourcesOf(sc);
+  const compiled = sources && Object.keys(sources.hooks).length > 0;
   return {
+    ...(compiled ? { provenance: makeRunProvenance({ compiler: sources.model }) } : {}),
     id: sc.id,
     sourceUrl: sc.sourceUrl,
     version: sc.version,

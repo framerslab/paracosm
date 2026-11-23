@@ -1,5 +1,7 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import styles from './AiWritten.module.scss';
+
+const Registration = createContext<((block: Element) => () => void) | null>(null);
 
 type MarkedElement = 'span' | 'div' | 'p' | 'li' | 'h2' | 'h3' | 'pre';
 
@@ -20,10 +22,17 @@ export function AiWritten({
   className?: string;
   style?: CSSProperties;
 }) {
+  const register = useContext(Registration);
+  const label = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const block = label.current?.parentElement;
+    if (authored && block && register) return register(block);
+  }, [authored, register, Element]);
+
   return (
     <Element className={className} style={style} data-ai-generated={authored ? 'true' : undefined}>
       {children}
-      {authored && <> <span className={styles.label}>AI-written</span></>}
+      {authored && <> <span ref={label} className={styles.label}>AI-written</span></>}
     </Element>
   );
 }
@@ -43,21 +52,32 @@ function isDisplayed(block: Element): boolean {
 }
 
 export function AiWrittenPage({ children }: { children: ReactNode }) {
-  const [content] = useState(() => document.createElement('meta'));
+  const blocks = useRef(new Set<Element>());
+  const schedule = useRef<() => void>(() => undefined);
+  const register = useCallback((block: Element) => {
+    blocks.current.add(block);
+    schedule.current();
+    return () => {
+      blocks.current.delete(block);
+      schedule.current();
+    };
+  }, []);
 
   useEffect(() => {
+    const content = document.createElement('meta');
     content.name = metaName;
     content.content = 'partial';
     let frame = 0;
     const refresh = () => {
       frame = 0;
-      const displayed = Array.from(document.querySelectorAll(selector)).some(isDisplayed);
+      const displayed = Array.from(blocks.current).some(isDisplayed);
       if (displayed && !content.isConnected) document.head.append(content);
       if (!displayed && content.isConnected) content.remove();
     };
     const queueRefresh = () => {
       if (!frame) frame = requestAnimationFrame(refresh);
     };
+    schedule.current = queueRefresh;
     const observer = new MutationObserver(records => {
       const changed = records.some(record => {
         if (record.type === 'attributes') return record.attributeName === 'data-ai-generated'
@@ -76,12 +96,13 @@ export function AiWrittenPage({ children }: { children: ReactNode }) {
     window.addEventListener('resize', queueRefresh);
     refresh();
     return () => {
+      schedule.current = () => undefined;
       observer.disconnect();
       window.removeEventListener('resize', queueRefresh);
       cancelAnimationFrame(frame);
       content.remove();
     };
-  }, [content]);
+  }, []);
 
-  return children;
+  return <Registration.Provider value={register}>{children}</Registration.Provider>;
 }

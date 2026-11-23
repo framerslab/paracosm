@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 /**
  * Right-side drawer that opens when the user clicks a scenario card
  * body in {@link ScenarioCatalogGrid}. Shows full meta, complete seed
@@ -76,6 +77,7 @@ interface ScenarioDetail {
       unit?: string;
       hexaco?: Record<string, number>;
       instructions?: string;
+      aiAuthorship?: { model: string; fields: string[] };
     }>;
   }>;
   departments: Array<{
@@ -621,11 +623,11 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
                     </ul>
                   )}
                   {leader.instructions && (
-                    <p className={styles.presetInstructions} title={leader.instructions}>
+                    <AiWritten as="p" className={styles.presetInstructions} authored={leader.aiAuthorship?.fields.includes("instructions") === true}>
                       {leader.instructions.length > 220
                         ? `${leader.instructions.slice(0, 220)}…`
                         : leader.instructions}
-                    </p>
+                    </AiWritten>
                   )}
                 </li>
               ))}

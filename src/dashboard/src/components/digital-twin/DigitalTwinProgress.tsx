@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 /**
  * DigitalTwinProgress — live-streaming view rendered while a
  * simulate-intervention call is in flight. Echoes the prefilled
@@ -50,17 +51,20 @@ function formatNumber(value: number): string {
   return value.toFixed(2);
 }
 
-function eventBody(event: { type: string; data?: Record<string, unknown> }): string {
-  const d = event.data ?? {};
-  if (typeof d.title === 'string') return d.title;
-  if (typeof d.summary === 'string') return d.summary;
-  if (typeof d.name === 'string') return d.name;
-  if (typeof d.description === 'string') return d.description;
-  if (typeof d.outcome === 'string') return d.outcome;
-  if (typeof d.toolName === 'string') return d.toolName;
-  if (typeof d.department === 'string') return d.department;
-  return '';
+function eventBody(event: { data?: Record<string, unknown> }) {
+  const source = event.data ?? {};
+  for (const key of ['title', 'summary', 'name', 'description', 'outcome', 'toolName', 'department']) {
+    const text = source[key];
+    if (typeof text === 'string') return { text, authored: isAiWritten(source, key) };
+  }
+  return { text: '', authored: false };
 }
+
+function EventExcerpt({ event }: { event: { data?: Record<string, unknown> } }) {
+  const { text, authored } = eventBody(event);
+  return <AiWritten className={styles.eventBody} authored={authored}>{text}</AiWritten>;
+}
+
 
 export function DigitalTwinProgress({ state, subject, intervention }: DigitalTwinProgressProps) {
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -199,7 +203,7 @@ export function DigitalTwinProgress({ state, subject, intervention }: DigitalTwi
                 <span className={styles.eventType}>
                   {EVENT_LABELS[event.type] ?? event.type}
                 </span>
-                <span className={styles.eventBody}>{eventBody(event)}</span>
+                <EventExcerpt event={event} />
               </div>
             ))
           )}

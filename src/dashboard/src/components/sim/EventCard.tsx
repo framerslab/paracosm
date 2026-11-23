@@ -588,7 +588,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                     <div className={styles.reactionTooltipMeta}>{r.role} in {r.department} {r.age ? `· Age ${r.age}` : ''}</div>
                     <div className={styles.reactionTooltipHexaco}>O:{r.hexaco?.O} C:{r.hexaco?.C} E:{r.hexaco?.E} A:{r.hexaco?.A} Em:{r.hexaco?.Em} HH:{r.hexaco?.HH}</div>
                     <div className={styles.reactionTooltipHealth}>Bone: {r.boneDensity}% · Radiation: {r.radiation}mSv · Psych: {r.psychScore}</div>
-                    <div className={styles.reactionTooltipQuote}>&ldquo;{r.quote}&rdquo;</div>
+                    <AiWritten as="div" authored={Boolean(r.quote)} className={styles.reactionTooltipQuote}>&ldquo;{r.quote}&rdquo;</AiWritten>
                     <div
                       className={styles.reactionTooltipMoodLine}
                       style={{ '--mood-color': moodColors[r.mood] || 'var(--text-3)' } as CSSProperties}
@@ -604,9 +604,9 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 }>
                   <div className={[styles.reactionRow, i < Math.min(reactions.length, 4) - 1 ? styles.notLast : ''].filter(Boolean).join(' ')}>
                     <span className={styles.reactionRowName} style={sideStyle}>{r.name}</span>
-                    <span className={styles.reactionRowQuote}>
+                    <AiWritten authored={Boolean(r.quote)} className={styles.reactionRowQuote}>
                       &ldquo;{String(r.quote || '')}&rdquo;
-                    </span>
+                    </AiWritten>
                     <span
                       className={styles.reactionRowMoodPill}
                       style={{ '--mood-color': moodColors[r.mood] || 'var(--text-3)' } as CSSProperties}
@@ -642,7 +642,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 <div>
                   <b className={styles.bulletinTooltipName} style={sideStyle}>{p.name}</b>{' '}
                   <span className={styles.bulletinTooltipRole}>{p.role} {p.department}</span>
-                  <div className={styles.bulletinTooltipBody}>{p.post}</div>
+                  <AiWritten as="div" authored={Boolean(p.post)} className={styles.bulletinTooltipBody}>{p.post}</AiWritten>
                   <div
                     className={styles.bulletinTooltipMood}
                     style={{ '--mood-color': moodColors[p.mood] || 'var(--text-3)' } as CSSProperties}
@@ -653,7 +653,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               }>
                 <div className={styles.bulletinRow}>
                   <span className={styles.bulletinName} style={sideStyle}>{p.name}</span>
-                  <span className={styles.bulletinPost}>{String(p.post || '')}</span>
+                  <AiWritten authored={Boolean(p.post)} className={styles.bulletinPost}>{String(p.post || '')}</AiWritten>
                   <span className={styles.bulletinLikes}>&hearts;{p.likes || 0}</span>
                 </div>
               </Tooltip>

@@ -1,3 +1,5 @@
+import { useRunExportProvenance } from '../shared/RunReportDownloads';
+import { markRunPng } from '../../exports/media-metadata';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { downloadBlob, downloadJson } from '../../download';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState.js';
@@ -126,6 +128,7 @@ function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
  * the strip widgets (TurnBanner, TimelineSparkline, EventChronicle).
  */
 export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
+  const provenance = useRunExportProvenance();
   const snapshotMap = useVizSnapshots(state);
   // Cohort-aware focus-pair: SwarmViz's living-swarm grid is built for
   // exactly two side-by-side panels (side='a' + side='b' on each
@@ -680,6 +683,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   // Export the current run state as a JSON replay file.
   const handleExportJson = useCallback(() => {
     const payload = {
+      provenance,
       exportedAt: new Date().toISOString(),
       leaderA: { name: leaderA?.name ?? 'Leader A', archetype: leaderA?.archetype ?? '' },
       leaderB: { name: leaderB?.name ?? 'Leader B', archetype: leaderB?.archetype ?? '' },
@@ -691,7 +695,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
       JSON.stringify(payload, null, 2),
       `paracosm-replay-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`,
     );
-  }, [currentTurn, leaderA, leaderB, snapsA, snapsB, sideStateA, sideStateB]);
+  }, [provenance, currentTurn, leaderA, leaderB, snapsA, snapsB, sideStateA, sideStateB]);
 
 
   const handleExportPng = useCallback(() => {
@@ -717,14 +721,14 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
     out.toBlob(
       blob => {
         if (!blob) return;
-        downloadBlob(
-          blob,
-          `paracosm-viz-t${currentTurn + 1}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`,
-        );
+        const filename = `paracosm-viz-t${currentTurn + 1}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
+        void markRunPng(blob, provenance).then(marked => downloadBlob(marked, filename)).catch(error => {
+          console.warn('Could not export the marked image', error);
+        });
       },
       'image/png',
     );
-  }, [currentTurn]);
+  }, [currentTurn, provenance]);
   useEffect(() => {
     const useNewGridFlag = import.meta.env.VITE_NEW_GRID !== '0';
     const onKey = (e: KeyboardEvent) => {
