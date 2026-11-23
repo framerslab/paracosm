@@ -66,6 +66,14 @@
   transition: none;
 }
 
+// On a phone the grid comes first in its box and the colony's stats card
+// stands under it, so the grid is in view as soon as the Viz panel is,
+// never below the card. The grid keeps the height it has wider: the box's
+// height less the card's. A panel at rest keeps its header above the field.
+@media (max-width: 480px) {
+  .region:not(.resting) .canvasWrap { order: -1; }
+}
+
 .canvas {
   position: absolute;
   inset: 0;

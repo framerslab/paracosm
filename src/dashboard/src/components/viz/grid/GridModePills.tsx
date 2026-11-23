@@ -2,6 +2,9 @@ import { useMediaQuery, PHONE_QUERY } from './useMediaQuery.js';
 
 export type GridMode = 'living' | 'mood' | 'forge' | 'ecology' | 'divergence';
 
+/** The size of the words on the mode tabs and their counts: 15 px, the size nothing in the Viz rows goes under. */
+const READ_SIZE = 15;
+
 /** Hints are scenario-templated. `{people}` = plural population noun,
  *  `{person}` = singular, both lower-case. Resolved at render time. */
 const MODES: { key: GridMode; label: string; hint: string }[] = [
@@ -147,7 +150,8 @@ export function GridModePills({
               // viewports rather than squishing pills into letter-stacks.
               flex: '1 0 auto',
               padding: '5px 8px',
-              fontSize: 'var(--font-3xs)',
+              // 15 px, the size nothing in the Viz rows goes under.
+              fontSize: READ_SIZE,
               fontFamily: 'var(--mono)',
               fontWeight: 800,
               letterSpacing: '0.1em',
@@ -179,7 +183,7 @@ export function GridModePills({
                   borderRadius: 2,
                   background: active ? 'rgba(10, 8, 6, 0.25)' : 'var(--bg-deep)',
                   color: active ? 'var(--bg-deep)' : 'var(--amber)',
-                  fontSize: 'var(--font-3xs)',
+                  fontSize: READ_SIZE,
                   fontWeight: 700,
                   letterSpacing: '0.05em',
                   minWidth: 14,

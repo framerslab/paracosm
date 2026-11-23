@@ -2,6 +2,8 @@
 
 .anchor { position: relative; }
 
+// The key in the Viz More panel's row: its word at 15 px, the size nothing
+// in the Viz rows goes under.
 .trigger {
   padding: 0 10px;
   background: var(--bg-card);
@@ -10,7 +12,7 @@
   border-radius: 3px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
   display: flex;

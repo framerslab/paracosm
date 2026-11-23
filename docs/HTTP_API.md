@@ -385,6 +385,12 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 - `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
+## `POST /forget-keys`
+
+Settings uses this endpoint when the visitor selects **Forget my keys**. It needs no request body. The server drops the run held for this visitor's dashboard cookie, stops it if it is running, and closes its pooled chat agents. On a local server, a visitor with no run of their own chats on the shared run they watch: its chat agents are closed and the run stays. A Digital Twin run's engine takes no stop signal, so a twin run in flight runs to its end, as it does after Clear. The response reports `runConfigsDropped` and `chatAgentsDropped`. Saved replays and run history remain available.
+
+Model and search keys entered in Settings are kept for the current browser tab, and never in the last launch the dashboard saves on the device for Run again. A key-bearing request is refused (403) unless it came over TLS, or carries `X-Forwarded-Proto: https` from a proxy on the same computer or from behind the proxy `PARACOSM_CLIENT_IP_HEADER` names, or was sent to a loopback name (`localhost`, `127.0.0.1`, `[::1]`) with no proxy between, as through a container's published port. `GET /admin-config` reports `visitorKeyIdleMinutes`, the server's idle limit for the keys a finished run or a visitor-key chat agent holds.
+
 ## `POST /scenario/store`
 
 The dashboard's scenario editor route. Any visitor can store a scenario JSON in memory. The stored scenario is the visitor's own: the visitor is the `paracosm_visitor` cookie the dashboard gives a browser, and every caller that sends no such cookie is one visitor, the anonymous one. A `paracosm_visitor` cookie whose value is not a UUID counts as no cookie, so that caller is the anonymous visitor too. When the JSON is a runnable scenario package, that visitor's `GET /scenarios` lists it with `source: "memory"`, and their `GET /scenarios/:id`, `POST /scenario/switch`, `GET /scenario?id=`, `POST /setup` and the Quickstart routes take its id. No other visitor lists, reads or runs it, and `GET /admin-config` lists each visitor's own stored ids under `memoryScenarios`.

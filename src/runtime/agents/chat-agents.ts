@@ -16,6 +16,7 @@
 import { agent as createAgent, AgentMemory } from '@framers/agentos';
 import type { LlmProvider, ScenarioLabels } from '../../engine/types.js';
 import { scenarioWords } from '../util/scenario-words.js';
+import { GENERAL_AUDIENCE_GUIDANCE } from '../util/audience.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
@@ -81,6 +82,10 @@ export interface ChatAgentOptions {
   provider?: LlmProvider;
   apiKey?: string;
   anthropicKey?: string;
+  /** How long to keep a visitor-key agent after its last chat finishes. */
+  visitorKeyIdleMs?: number;
+  /** True if the server dropped the run while this agent was being prepared. */
+  isRunDropped?: () => boolean;
   /**
    * Keep the chat on `provider`, also without an explicit key: no fallback
    * to another provider. The hosted demo sets it.
@@ -139,6 +144,8 @@ interface PoolEntry {
   agent: ReturnType<typeof createAgent>;
   session: ReturnType<ReturnType<typeof createAgent>['session']>;
   lastUsed: number;
+  idleTimer?: ReturnType<typeof setTimeout>;
+  activeChats: number;
   colonistName: string;
   /** The run whose events seeded the agent; clearPool(runKey) closes that run's agents. */
   runKey?: string;
@@ -207,34 +214,32 @@ export async function getOrCreateChatAgent(
   colonist: ColonistProfile,
   memories: ColonistMemoryEntry[],
   opts: ChatAgentOptions,
-): Promise<{ session: PoolEntry['session']; isNew: boolean }> {
+): Promise<{ session: PoolEntry['session']; isNew: boolean; release?: () => void }> {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
   const providerApiKey = apiKeyForProvider(provider, opts);
   const key = chatAgentPoolKey(colonist, opts);
 
-  // Return existing agent if available
-  const existing = pool.get(key);
-  if (existing) {
-    existing.lastUsed = Date.now();
-    return { session: existing.session, isNew: false };
-  }
+  const idleMs = providerApiKey ? opts.visitorKeyIdleMs : undefined;
+  const useEntry = (entry: PoolEntry, isNew: boolean) => {
+    entry.lastUsed = Date.now();
+    if (idleMs === undefined) return { session: entry.session, isNew };
 
-  // Evict LRU if pool is full
-  if (pool.size >= MAX_POOL_SIZE) {
-    let oldestKey = '';
-    let oldestTime = Infinity;
-    for (const [k, v] of pool) {
-      if (v.lastUsed < oldestTime) { oldestKey = k; oldestTime = v.lastUsed; }
-    }
-    if (oldestKey) {
-      const evicted = pool.get(oldestKey);
-      if (evicted) {
-        try { evicted.agent.close(); } catch { /* ignore */ }
-      }
-      pool.delete(oldestKey);
-      console.log(`  [chat] Evicted agent: ${evicted?.colonistName || oldestKey}`);
-    }
-  }
+    if (entry.idleTimer !== undefined) clearTimeout(entry.idleTimer);
+    entry.activeChats++;
+    return {
+      session: entry.session,
+      isNew,
+      release: () => {
+        entry.lastUsed = Date.now();
+        if (--entry.activeChats > 0 || pool.get(key) !== entry) return;
+        entry.idleTimer = setTimeout(() => dropPoolEntry(key, entry), idleMs);
+        entry.idleTimer.unref?.();
+      },
+    };
+  };
+
+  const existing = pool.get(key);
+  if (existing) return useEntry(existing, false);
 
   // Create new agent with memory
   console.log(`  [chat] Creating agent for ${colonist.name}...`);
@@ -271,9 +276,23 @@ export async function getOrCreateChatAgent(
     honesty: colonist.hexaco.HH ?? 0.5,
   } : undefined;
 
-  const instructions = buildChatAgentInstructions(colonist, opts);
+  const instructions = `${GENERAL_AUDIENCE_GUIDANCE}\n\n${buildChatAgentInstructions(colonist, opts)}`;
 
   const model = provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini';
+
+  if (opts.isRunDropped?.()) throw new Error('This run has been cleared.');
+
+  // Another request may have opened the same agent while this one was seeding.
+  const opened = pool.get(key);
+  if (opened) return useEntry(opened, false);
+
+  if (pool.size >= MAX_POOL_SIZE) {
+    let oldest: [string, PoolEntry] | undefined;
+    for (const entry of pool) {
+      if (!oldest || entry[1].lastUsed < oldest[1].lastUsed) oldest = entry;
+    }
+    if (oldest) dropPoolEntry(...oldest);
+  }
 
   const chatAgent = createAgent({
     provider,
@@ -295,10 +314,10 @@ export async function getOrCreateChatAgent(
   });
 
   const session = chatAgent.session(key);
-  const entry: PoolEntry = { agent: chatAgent, session, lastUsed: Date.now(), colonistName: colonist.name, runKey: opts.runKey };
+  const entry: PoolEntry = { agent: chatAgent, session, lastUsed: Date.now(), activeChats: 0, colonistName: colonist.name, runKey: opts.runKey };
   pool.set(key, entry);
 
-  return { session, isNew: true };
+  return useEntry(entry, true);
 }
 
 /**
@@ -700,11 +719,19 @@ export function getPoolStats(): { active: number; maxSize: number; agents: strin
   };
 }
 
-/** Closes the agents of one run when given its key, else every agent in the pool. */
-export function clearPool(runKey?: string): void {
+function dropPoolEntry(key: string, entry: PoolEntry): void {
+  pool.delete(key);
+  if (entry.idleTimer !== undefined) clearTimeout(entry.idleTimer);
+  try { entry.agent.close(); } catch { /* already closed */ }
+}
+
+/** Closes the agents of one run, or every agent if no run is given, and returns the count. */
+export function clearPool(runKey?: string): number {
+  let dropped = 0;
   for (const [key, entry] of pool) {
     if (runKey !== undefined && entry.runKey !== runKey) continue;
-    try { entry.agent.close(); } catch { /* ignore */ }
-    pool.delete(key);
+    dropPoolEntry(key, entry);
+    dropped++;
   }
+  return dropped;
 }
