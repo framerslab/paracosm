@@ -26,11 +26,16 @@
 }
 
 .root[data-row-fold='2'] {
-  .keys { flex: 1 1 0; }
+  .scroller {
+    display: grid;
+    grid-template-columns: var(--frame-target-size) minmax(0, 1fr) var(--frame-target-size);
+  }
 
-  .keys > .key {
-    flex: 0 0 auto;
-    min-inline-size: max-content;
+  .keys {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    justify-content: start;
   }
 }
 
