@@ -4847,7 +4847,8 @@ screenTest('feature 10: at the reset time the page reads the count again', async
   test.setTimeout(120_000);
   let resetAt = 0;
   await page.route('**/rate-limit', (route: Route) => {
-    if (resetAt === 0) resetAt = Date.now() + 5_000;
+    // The reset comes 15 seconds after the page's first read, so the at-limit state is on screen well before it.
+    if (resetAt === 0) resetAt = Date.now() + 15_000;
     return Date.now() < resetAt
       ? route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt } })
       : route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
@@ -4858,7 +4859,7 @@ screenTest('feature 10: at the reset time the page reads the count again', async
     await expect(band).toHaveAttribute('data-state', 'limit');
     await expect(root.getByTestId('scenario-sentences')).toHaveText(AT_LIMIT_SENTENCES);
     // No press and no reload: the page asks again by itself once the reset time has passed.
-    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 45_000 });
     const { key } = startParts(root);
     await expect(key).toHaveAccessibleName(START_FREE);
     await expect(key).toBeEnabled();
@@ -4889,4 +4890,134 @@ screenTest('feature 10: a settings read that failed is asked again', async ({ pa
   } finally {
     await page.unroute('**/admin-config');
   }
+});
+
+/** A press of Start whose run the server has not answered yet: POST /setup waits until `open` is called, then is refused as busy. */
+async function holdSetup(page: Page): Promise<{ open: () => void }> {
+  const held = gate();
+  await page.route('**/setup', async (route: Route) => {
+    await held.opened;
+    await route.fulfill({ status: 503, json: { error: 'x' } });
+  });
+  return held;
+}
+
+// Feature 10: one press starts one run. While it waits for the server, the paste form starts no second one.
+screenTest('feature 10: while Start waits for the server, the paste form waits too', async ({ page }) => {
+  test.setTimeout(120_000);
+  const held = await holdSetup(page);
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const field = root.getByTestId('write-your-own').locator('[data-quickstart-seed]');
+    await expect(field).toBeEnabled();
+    await startParts(root).key.click();
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'starting');
+    await expect(field, 'no draft can be written or sent while the run starts').toBeDisabled();
+    // The server refuses: the form can be used again.
+    held.open();
+    await expect(root.getByTestId('start-failure')).toHaveText(SERVER_BUSY);
+    await expect(field).toBeEnabled();
+  } finally {
+    held.open();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
+// Feature 12: the run Start posts is the scenario on screen, so no other scenario loads while it waits for the server.
+screenTest('feature 12: while Start waits for the server, no other scenario loads', async ({ page }) => {
+  test.setTimeout(120_000);
+  const switches: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/scenario/switch') switches.push(request.url());
+  });
+  const held = await holdSetup(page);
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const row = root.getByTestId('other-scenarios').locator('[data-testid="scenario-row"][data-state="rest"] button').first();
+    await expect(row).toBeVisible();
+    await expect(row).not.toHaveAttribute('aria-disabled', 'true');
+    await startParts(root).key.click();
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'starting');
+    await expect(row, 'a row says it cannot be pressed while the run starts').toHaveAttribute('aria-disabled', 'true');
+    await pressInPage(row);
+    await page.waitForTimeout(500);
+    expect(switches, 'no scenario is asked for while the run starts').toEqual([]);
+    await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis', exact: true })).toBeVisible();
+    // The server refuses: the rows can be pressed again.
+    held.open();
+    await expect(root.getByTestId('start-failure')).toHaveText(SERVER_BUSY);
+    await expect(row).not.toHaveAttribute('aria-disabled', 'true');
+  } finally {
+    held.open();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
+// Feature 10, QA step 13: at 1,440 px the band rests in its place, and Clear your draft takes a press of the pointer there.
+screenTest('draft scenario: Clear your draft takes a pointer press with the band at rest', async ({ page }) => {
+  test.setTimeout(120_000);
+  const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+  const field = root.getByTestId('write-your-own').locator('[data-quickstart-seed]');
+  await field.fill(DRAFT.slice(0, 200));
+  const held = root.getByTestId('start-held');
+  await expect(held).toContainText(HELD);
+  await scrollToBandPlace(root);
+  await expect(startParts(root).bar).toHaveAttribute('data-stuck', 'false');
+  const clear = held.getByRole('button', { name: 'Clear your draft', exact: true });
+  await expect(clear).toBeVisible();
+  // A press made with the pointer, as a visitor makes it.
+  await clear.click({ timeout: 5_000 });
+  await expect(field).toHaveValue('');
+  await expect(root.getByTestId('start-held')).toHaveCount(0);
+  await expect(activeStart(root)).toHaveCount(1);
+});
+
+// Feature 11, QA step 7: a sheet holds focus. A panel left open while the window narrows becomes a sheet, and takes focus then.
+screenTest('feature 11: an open panel that becomes a sheet takes focus', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openReadyAt(page, '/sim', WIDE, 'dark');
+  const key = howKey(page);
+  await key.click();
+  const card = howCard(page);
+  await expect(card).toBeVisible();
+  // As a panel, the page behind it stays in reach of the keyboard.
+  await key.focus();
+  expect(await holdsFocus(card), 'focus is on the page while the card is a panel').toBe(false);
+  await page.setViewportSize(PHONE);
+  await expect(card).toHaveAttribute('aria-modal', 'true');
+  await expect.poll(() => holdsFocus(card), { message: 'focus is inside the sheet' }).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+});
+
+// Feature 14: how many people the colony holds depends on whose keys a run uses, which the server's settings say.
+screenTest('feature 14: with the server’s settings unread and no key, the colony names no count', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.route('**/admin-config', (route: Route) => route.abort('failed'));
+  try {
+    const root = await openRun(page, PHONE, 'dark');
+    await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+    await expect(sizeParts(root).part.getByTestId('run-size-value')).toHaveText('2 leaders');
+    const colony = root.getByTestId('shared-colony');
+    await expect(colony).toBeVisible();
+    await expect(colony.getByTestId('colony-caption'), 'no caption names a count of people').toHaveCount(0);
+    await expect(colony.getByTestId('colony-figures')).toHaveCount(0);
+    await expect(root.getByTestId('scenario-figures')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/admin-config');
+  }
+});
+
+// Feature 3, QA step 13, at a tablet's width: with the text doubled the figures do not fit one line, and none is cut.
+screenTest('200 per cent text at 600 px: the scenario line’s figures stay inside the block', async ({ page }) => {
+  test.setTimeout(120_000);
+  const root = await openReadyAt(page, '/sim', sizeAt(600), 'light');
+  const line = root.getByTestId('scenario-line');
+  // At the page's own size the four figures stand on one line.
+  const tops = () => root.getByTestId('scenario-figures').locator('[data-figure]').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
+  expect(new Set(await tops()).size, 'one line at the page’s own size').toBe(1);
+  await doubleText(page);
+  await expect(root.getByTestId('scenario-figures').locator('[data-figure]')).toHaveCount(4);
+  expect(await outside(line, '[data-figure]'), 'every figure stands inside the block').toEqual([]);
+  expect(new Set(await tops()).size, 'the figures take more than one line').toBeGreaterThan(1);
 });
