@@ -102,16 +102,27 @@ test('Run again sends the tab keys and keeps them out of the launch this device 
     { launchSlot: LAST_LAUNCH, launch: JSON.stringify({ ...settingsBody(mars), seed: 7 }) });
 
   const runAgain = page.getByText('Spin up a new run').locator('..').getByRole('button');
-  await page.goto(`${RUN_SERVER}/sim?tab=sim`);
+  const watchUrl = `${RUN_SERVER}/sim?tab=sim`;
+  await page.goto(watchUrl);
   await expect(runAgain).toBeEnabled();
-  await runAgain.click();
-  await expect.poll(() => bodies.length).toBe(1);
+  // The redirect returns to the same URL. Wait for the new document and
+  // the replayed completion event before reading its storage.
+  await Promise.all([
+    page.waitForEvent('framenavigated', frame => frame === page.mainFrame() && frame.url() === watchUrl),
+    runAgain.click(),
+  ]);
+  await expect(runAgain).toBeEnabled();
+
+  expect(bodies).toHaveLength(1);
   expect(bodies[0]).toMatchObject({ seed: 8, apiKey: MARKER, serperKey: SEARCH_MARKER });
-  // Run again saves its launch, then reloads the page: one read covers both.
-  await expect.poll(async () => {
-    const saved = JSON.stringify(await savedLaunch(page));
-    return { savedNextSeed: saved.includes('"seed":8'), holdsAKey: saved.includes(MARKER) || saved.includes(SEARCH_MARKER) };
-  }).toEqual({ savedNextSeed: true, holdsAKey: false });
+  const launch = await savedLaunch(page);
+  expect(launch).toMatchObject({ seed: 8 });
+  expect(JSON.stringify(launch)).not.toContain(MARKER);
+  expect(JSON.stringify(launch)).not.toContain(SEARCH_MARKER);
+  expect(await stores(page)).toEqual({
+    local: null,
+    session: JSON.stringify({ openai: MARKER, serper: SEARCH_MARKER }),
+  });
 
   // Forgotten keys never ride along on the next Run again.
   await page.goto(`${RUN_SERVER}/sim?tab=settings`);
