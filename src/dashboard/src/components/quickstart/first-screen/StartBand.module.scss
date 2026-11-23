@@ -309,13 +309,16 @@
 
 .resetRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
 
   .sentence {
-    flex: 1 1 auto;
+    // Keep the clock beside the sentence only when the reset time fits there.
+    flex: 1 1 min-content;
     min-width: 0;
+    overflow-wrap: break-word;
   }
 }
 
