@@ -18,7 +18,7 @@
   border-radius: 6px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.6);
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: 15px;
   color: var(--text-2);
   z-index: 41;
   outline: none;
@@ -39,7 +39,7 @@
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
-  font-size: var(--font-xs);
+  font-size: 15px;
   line-height: 1;
   padding: 0;
 }
@@ -66,7 +66,7 @@
   border: 1px solid var(--border);
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -122,5 +122,15 @@
   .resetBtn {
     min-height: 40px;
     width: 100%;
+  }
+}
+
+@media (max-height: 500px) {
+  .backdrop,
+  .drawer { position: fixed; }
+
+  .drawer {
+    max-height: calc(100dvh - 64px);
+    overflow-y: auto;
   }
 }

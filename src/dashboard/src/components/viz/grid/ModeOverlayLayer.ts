@@ -43,6 +43,7 @@ export function drawForgeHeatmap(
   positions: Map<string, GridPosition>,
   forgeEvents: ForgeEvent[],
   sideColor: string,
+  textSize = 11,
 ): void {
   if (cells.length === 0 || forgeEvents.length === 0) return;
 
@@ -95,7 +96,7 @@ export function drawForgeHeatmap(
     // Forge count badge centered on the glow. Small but legible.
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = withAlpha(sideColor, 0.95);
-    ctx.font = 'bold 11px ui-monospace, monospace';
+    ctx.font = `bold ${textSize}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${count}`, cx, cy);
@@ -127,6 +128,7 @@ export function drawEcologyResourceMap(
   // threads the dark-text variant through so the FOOD/WATER/POWER/VOL
   // captions don't render as invisible cream-on-cream.
   labelColor = 'rgba(216, 204, 176, 0.6)',
+  textSize = 9,
 ): void {
   const asNum = (v: unknown): number | null => (typeof v === 'number' ? v : null);
   const food = asNum(snapshot.foodReserve);
@@ -184,9 +186,9 @@ export function drawEcologyResourceMap(
   // HUD's name and turn rows (y 10 to 34) so they never print over the
   // actor's name, and the bottom two at the top of their quadrants, clear
   // of the HUD's population readout and the featured pills at the bottom.
-  const topLabelY = 40;
+  const topLabelY = Math.max(40, 16 + textSize * 2);
   const bottomLabelY = halfH + 8;
-  ctx.font = 'bold 9px ui-monospace, monospace';
+  ctx.font = `bold ${textSize}px ui-monospace, monospace`;
   ctx.fillStyle = labelColor;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';

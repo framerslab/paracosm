@@ -254,6 +254,7 @@ function CohortColumn(props: CohortColumnProps) {
       <div className={styles.columnBody}>
         {hasBeenVisible ? (
           <LivingSwarmGrid
+            vizPanel
             snapshot={snap}
             previousSnapshot={prevSnap}
             snapshotHistory={snaps}

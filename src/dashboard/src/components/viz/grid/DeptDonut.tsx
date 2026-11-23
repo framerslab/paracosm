@@ -57,7 +57,7 @@ export function DeptDonut({
           alignItems: 'center',
           justifyContent: 'center',
           color: 'var(--text-4)',
-          fontSize: 'var(--font-3xs)',
+          fontSize: 'var(--viz-read-size, var(--font-3xs))',
           fontFamily: 'var(--mono)',
         }}
         aria-label="No live members"

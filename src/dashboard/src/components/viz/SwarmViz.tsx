@@ -80,6 +80,7 @@ import {
 interface HexacoShape { O: number; C: number; E: number; A: number; Em: number; HH: number }
 
 interface SwarmVizProps {
+  isReplay: boolean;
   state: GameState;
   onNavigateToChat?: (colonistName: string) => void;
 }
@@ -96,13 +97,10 @@ const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [ro
 /**
  * The Viz panel as a picture holds it, for the PNG export and the timelapse.
  *
- * On a phone and on a short screen the panel's parts scroll as one (`body`,
- * styles.body), so a grid can stand outside the panel's view. The picture is
- * then as tall as the panel with that scroll laid out in full, and `place`
- * gives each canvas inside the scroll the place it has in it, wherever the
- * scroll stands, so every grid is drawn whole. Where the panel does not
- * scroll, the box has no layout of its own and reads zero throughout: the
- * picture is the panel's own view and every canvas stands where it is seen.
+ * The tall narrow layout scrolls inside the panel. Include the body's full
+ * height and undo its scroll offset when placing its canvases. The short
+ * layout moves the whole panel with the dashboard scroll. Canvas positions
+ * relative to the panel stay the same as the dashboard scrolls.
  */
 function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
   const view = root.getBoundingClientRect();
@@ -127,7 +125,7 @@ function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
  * everything visual to LivingSwarmGrid (canvas + HUD + popovers) and
  * the strip widgets (TurnBanner, TimelineSparkline, EventChronicle).
  */
-export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
+export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   const snapshotMap = useVizSnapshots(state);
   // Cohort-aware focus-pair: SwarmViz's living-swarm grid is built for
   // exactly two side-by-side panels (side='a' + side='b' on each
@@ -329,7 +327,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // not monitoring a live run.
   useEffect(() => {
     if (!gridSettings.alerts) return;
-    if (!state.isRunning) return;
+    if (isReplay || !state.isRunning) return;
     const crisisKinds = new Set(['event_start', 'director_crisis']);
     const storageKey = 'paracosm:seenCrisisToasts';
     const readSeen = (): Set<string> => {
@@ -386,7 +384,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       if (prev && prev.key === latest.key) return prev;
       return { ...latest, expiresAt: performance.now() + 5500 };
     });
-  }, [state.actorIds, state.actors, gridSettings.alerts, state.isRunning]);
+  }, [state.actorIds, state.actors, gridSettings.alerts, isReplay, state.isRunning]);
 
   // Dismiss crisis toast after timeout.
   useEffect(() => {
@@ -439,7 +437,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     // crossings from a completed sim aren't fresh news. Only surface
     // alerts while the sim is actively running so the user isn't
     // spammed on tab open with past morale crashes and food drops.
-    if (!state.isRunning) return;
+    if (isReplay || !state.isRunning) return;
     const seen = readSeenAlerts();
     const fire = (key: string, toast: Omit<
       NonNullable<typeof alertToast>,
@@ -475,7 +473,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     check('a', snapsA);
     check('b', snapsB);
     writeSeenAlerts(seen);
-  }, [snapsA, snapsB, gridSettings.alerts, readSeenAlerts, writeSeenAlerts, state.isRunning]);
+  }, [snapsA, snapsB, gridSettings.alerts, readSeenAlerts, writeSeenAlerts, isReplay, state.isRunning]);
   useEffect(() => {
     if (!alertToast) return;
     const remaining = alertToast.expiresAt - performance.now();
@@ -726,20 +724,6 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       },
       'image/png',
     );
-  }, [currentTurn]);
-  // Scene-transition vignette — briefly dims the whole viz when the
-  // user jumps the playhead more than 1 turn in either direction.
-  const [vignetteKey, setVignetteKey] = useState(0);
-  const lastTurnRef = useRef<number>(-1);
-  useEffect(() => {
-    if (lastTurnRef.current === -1) {
-      lastTurnRef.current = currentTurn;
-      return;
-    }
-    if (Math.abs(currentTurn - lastTurnRef.current) >= 2) {
-      setVignetteKey(k => k + 1);
-    }
-    lastTurnRef.current = currentTurn;
   }, [currentTurn]);
   useEffect(() => {
     const useNewGridFlag = import.meta.env.VITE_NEW_GRID !== '0';
@@ -1135,10 +1119,21 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       ? Help
     </button>
   );
-  // On a phone the turn's lines stand below the living grid, in the pair
-  // view (one grid at a time) and in the cohort view, so opening them never
-  // moves the grid or covers it.
-  const linesBelowGrid = phone;
+  // On the stacked layout the grid precedes the outcomes and comparisons.
+  const linesBelowGrid = narrow;
+  const comparison = (
+    <>
+      <TimelineSparkline
+        snapsA={snapsA}
+        snapsB={snapsB}
+        currentTurn={currentTurn}
+        onJumpToTurn={handleTurnChange}
+        hoveredTurn={hoveredTurn}
+        onHoverTurnChange={setHoveredTurn}
+      />
+      {vizMode === 'pair' && diffLine && <div className={styles.diffLine}>{diffLine}</div>}
+    </>
+  );
   // The banner names the turn and its time only on a turn with a title; on a
   // phone the play controls leave the time to it only then.
   const timeInBanner = turnHeadline(state, currentTurn) !== '';
@@ -1151,13 +1146,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
         data-own-help-key="?"
       >
-        {/* The panel's parts in their order. Above 480 px and 500 px tall
-            this box lays out as if absent. On a phone, and on a screen too
-            short for the controls and the grid together (a phone on its
-            side), it scrolls as one, so the living grid shows under the
-            controls at its own size and every control and the turn's
-            outcomes stay a scroll away; the drawers and notices after it
-            keep their places over the panel. */}
+        {/* The narrow panel scrolls here. On short screens the dashboard
+            shell scrolls with the panel, so this wrapper lays out in flow. */}
         <div ref={vizBodyRef} className={styles.body}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
@@ -1372,17 +1362,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           onJumpToReports={handleJumpToReports}
           onForgeSelect={openForgeMark}
         />
-        <TimelineSparkline
-          snapsA={snapsA}
-          snapsB={snapsB}
-          currentTurn={currentTurn}
-          onJumpToTurn={handleTurnChange}
-          hoveredTurn={hoveredTurn}
-          onHoverTurnChange={setHoveredTurn}
-        />
-        {vizMode === 'pair' && diffLine && (
-          <div className={styles.diffLine}>{diffLine}</div>
-        )}
+        {!narrow && comparison}
         {vizMode === 'pair' && phone && (
           <div
             role="tablist"
@@ -1455,6 +1435,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             ].filter(Boolean).join(' ')}
           >
           <LivingSwarmGrid
+            vizPanel
             snapshot={snapA}
             previousSnapshot={prevSnapA}
             snapshotHistory={snapsA}
@@ -1497,6 +1478,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             ].filter(Boolean).join(' ')}
           >
           <LivingSwarmGrid
+            vizPanel
             snapshot={snapB}
             previousSnapshot={prevSnapB}
             snapshotHistory={snapsB}
@@ -1539,12 +1521,60 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
-        {/* Just above the play controls: on a taller screen it floats over
-            the panel from a box of no height at their top, so it clears them
-            however tall the rows under it are; on a phone and on a short
-            screen it stands in the flow, never over the grid. */}
-        {maxTurn > 1 && currentTurn < maxTurn - 1 && (
-          <div className={styles.jumpLatestAnchor}>
+        {narrow && comparison}
+        {!isReplay && alertToast && (
+          <div
+            key={alertToast.key}
+            role="status"
+            aria-live="assertive"
+            onClick={() => setAlertToast(null)}
+            className={styles.toast}
+            style={{
+              '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+              '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+            } as CSSProperties}
+            title="Click to dismiss"
+          >
+            <div
+              className={styles.toastKicker}
+              style={{
+                '--kicker-color': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+              } as CSSProperties}
+            >
+              <span>{alertToast.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
+              <span className={styles.toastKickerMeta}>
+                {alertToast.side.toUpperCase()} · T{alertToast.turn}
+              </span>
+            </div>
+            <div className={styles.toastBody}>{alertToast.message}</div>
+          </div>
+        )}
+        {!isReplay && crisisToast && (
+          <div
+            key={crisisToast.key}
+            role="status"
+            aria-live="polite"
+            onClick={() => setCrisisToast(null)}
+            className={styles.toast}
+            style={{
+              '--side-color': crisisToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+              '--left-accent': 'var(--rust)',
+            } as CSSProperties}
+            title="Click to dismiss"
+          >
+            <div className={styles.toastKicker}>
+              <span>⚡ Crisis</span>
+              <span className={styles.toastKickerMeta}>
+                {crisisToast.side.toUpperCase()} · T{crisisToast.turn} · {crisisToast.category}
+              </span>
+            </div>
+            <div className={styles.toastBodyMd}>
+              {crisisToast.title || `${crisisToast.category} crisis unfolding`}
+            </div>
+          </div>
+        )}
+        {/* The Latest key stays in the flow above the play controls. */}
+        <div className={styles.jumpLatestAnchor}>
             <button
               type="button"
               onClick={() => handleTurnChange(maxTurn - 1)}
@@ -1607,74 +1637,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             (divergenceData.aliveOnlyA?.size ?? 0) + (divergenceData.aliveOnlyB?.size ?? 0)
           }
         />
-        {alertToast && (
-          <div
-            key={alertToast.key}
-            role="status"
-            aria-live="assertive"
-            onClick={() => setAlertToast(null)}
-            className={styles.toast}
-            style={{
-              '--toast-top': crisisToast ? '68px' : '8px',
-              '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-              '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-            } as CSSProperties}
-            title="Click to dismiss"
-          >
-            <div
-              className={styles.toastKicker}
-              style={{
-                '--kicker-color': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-              } as CSSProperties}
-            >
-              <span>{alertToast.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
-              <span className={styles.toastKickerMeta}>
-                {alertToast.side.toUpperCase()} · T{alertToast.turn}
-              </span>
-            </div>
-            <div className={styles.toastBody}>{alertToast.message}</div>
-          </div>
-        )}
-        {crisisToast && (
-          <div
-            key={crisisToast.key}
-            role="status"
-            aria-live="polite"
-            onClick={() => setCrisisToast(null)}
-            className={styles.toast}
-            style={{
-              '--side-color': crisisToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-              '--left-accent': 'var(--rust)',
-            } as CSSProperties}
-            title="Click to dismiss"
-          >
-            <div className={styles.toastKicker}>
-              <span>⚡ Crisis</span>
-              <span className={styles.toastKickerMeta}>
-                {crisisToast.side.toUpperCase()} · T{crisisToast.turn} · {crisisToast.category}
-              </span>
-            </div>
-            <div className={styles.toastBodyMd}>
-              {crisisToast.title || `${crisisToast.category} crisis unfolding`}
-            </div>
-          </div>
-        )}
-        {vignetteKey > 0 && (
-          <div
-            key={vignetteKey}
-            aria-hidden="true"
-            className={styles.vignette}
-          />
-        )}
         <style>{`
-          @keyframes paracosm-vignette {
-            0% { opacity: 0; }
-            25% { opacity: 1; }
-            100% { opacity: 0; }
-          }
           @keyframes paracosm-toast-in {
-            0% { opacity: 0; transform: translate(-50%, -8px); }
-            100% { opacity: 1; transform: translate(-50%, 0); }
+            0% { opacity: 0; transform: translateY(-8px); }
+            100% { opacity: 1; transform: translateY(0); }
           }
           @keyframes paracosm-jump-pulse {
             0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(232, 180, 74, 0.4); }

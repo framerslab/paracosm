@@ -1067,7 +1067,7 @@ function AppContent() {
             visually hides it until :focus per the .skip-to-content
             class in theme/tokens.css. */}
         <a className="skip-to-content" href="#main-content">Skip to main content</a>
-        <div className={`scanline-overlay ${styles.shell}`}>
+        <div className={`scanline-overlay ${styles.shell} ${activeTab === 'viz' ? styles.vizShortScroll : ''}`}>
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
               providerError={sse.providerError}
@@ -1234,7 +1234,7 @@ function AppContent() {
                 tabIndex={-1}
                 className={styles.tabPanel}
               >
-                <SwarmViz state={gameState} onNavigateToChat={navigateToChat} />
+                <SwarmViz state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
               </section>
             )}
 

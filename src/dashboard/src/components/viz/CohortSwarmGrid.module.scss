@@ -108,7 +108,7 @@
 
 .columnHeaderSlot {
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: 15px;
   font-weight: 800;
   color: var(--actor-color, var(--amber));
   letter-spacing: 0.06em;
@@ -123,7 +123,7 @@
 }
 
 .columnHeaderName {
-  font-size: var(--font-sm);
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-1);
   white-space: nowrap;
@@ -133,7 +133,7 @@
 
 .columnHeaderArchetype {
   font-family: var(--mono);
-  font-size: var(--font-3xs);
+  font-size: 15px;
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -144,7 +144,7 @@
 
 .columnHeaderPop {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: 15px;
   color: var(--text-2);
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -202,7 +202,7 @@
 
 .columnPlaceholderLabel {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: 15px;
   color: var(--text-3);
   letter-spacing: 0.06em;
   text-transform: uppercase;

@@ -37,6 +37,7 @@ export function drawGlyphs(
   // streaming in). Threaded through from LivingSwarmGrid so it picks
   // up `var(--bg-deep)` at the active theme value.
   labelChipBg = 'rgba(10, 8, 6, 0.55)',
+  textSize = 9,
 ): void {
   void ({} as DrawGlyphsOptions);
   ctx.save();
@@ -113,7 +114,7 @@ export function drawGlyphs(
   // Always-on name labels for featured + diverged colonists. Rendered
   // in a second pass so labels aren't overdrawn by adjacent glyph strokes.
   if (nameLabels) {
-    ctx.font = '9px ui-monospace, monospace';
+    ctx.font = `${textSize}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (const c of cells) {
@@ -131,7 +132,7 @@ export function drawGlyphs(
       // Plate behind the label so it reads over the RD field.
       const w = ctx.measureText(label).width;
       ctx.fillStyle = labelChipBg;
-      ctx.fillRect(pos.x - w / 2 - 3, y - 1, w + 6, 10);
+      ctx.fillRect(pos.x - w / 2 - 3, y - 1, w + 6, textSize + 1);
       ctx.fillStyle = diverged
         ? 'rgba(232, 180, 74, 0.95)'
         : labelColor;

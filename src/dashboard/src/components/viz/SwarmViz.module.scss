@@ -15,7 +15,7 @@ $read-size: 15px;
   justify-content: center;
   gap: 12px;
   color: var(--text-3);
-  font-size: var(--font-md);
+  font-size: $read-size;
   text-align: center;
   padding: 0 24px;
 }
@@ -39,6 +39,7 @@ $read-size: 15px;
 }
 
 .root {
+  --viz-read-size: #{$read-size};
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -46,10 +47,8 @@ $read-size: 15px;
   position: relative;
 }
 
-// The panel's parts in their order (SwarmViz.tsx). Above 480 px and 500 px
-// tall the box lays out as if absent, so every part stands in the root's
-// column as it always has; on a phone and on a short screen it is the panel's
-// one scroll (the end of this file).
+// The wrapper owns the scroll on a tall, narrow screen. Its children
+// otherwise share the root's column.
 .body { display: contents; }
 
 .toolbarStrip {
@@ -136,7 +135,7 @@ $read-size: 15px;
   background: var(--bg-card);
   color: var(--amber);
   font-family: var(--sans);
-  font-size: var(--forge-text-meta);
+  font-size: $read-size;
   font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
@@ -212,11 +211,11 @@ $read-size: 15px;
 }
 
 .modeHint {
-  font-size: var(--font-3xs);
-  color: var(--text-4);
+  font-size: $read-size;
+  line-height: 1.35;
+  color: var(--text-2);
   font-family: var(--mono);
   letter-spacing: 0.04em;
-  min-height: 12px;
 }
 
 /* ECOLOGY on a run that holds none of its four readings: says so, with a
@@ -227,14 +226,14 @@ $read-size: 15px;
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   font-family: var(--mono);
   color: var(--text-2);
 }
 
 .ecologyBack {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   color: var(--text-1);
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -246,7 +245,7 @@ $read-size: 15px;
 
 .diffLine {
   padding: 4px 12px;
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   font-family: var(--mono);
   color: var(--text-3);
   background: var(--bg-panel);
@@ -270,7 +269,7 @@ $read-size: 15px;
   border-radius: 3px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: $read-size;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -346,7 +345,7 @@ $read-size: 15px;
   flex-direction: column;
   gap: 2px;
   padding: 4px 12px;
-  font-size: var(--font-xs);
+  font-size: $read-size;
   font-family: var(--mono);
   background: var(--bg-panel);
   border-top: 1px solid var(--border);
@@ -366,18 +365,14 @@ $read-size: 15px;
   border: 0;
 }
 
-// The Latest key's place: a box of no height at the top of the play
-// controls, so the key floats just above them whatever the height of the
-// play controls and the keyboard legend under it.
 .jumpLatestAnchor {
-  position: relative;
-  height: 0;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .jumpLatest {
-  position: absolute;
-  right: 16px;
-  bottom: 8px;
+  margin: 6px 12px;
+  min-height: 44px;
   padding: 6px 12px;
   background: var(--amber);
   color: var(--bg-deep);
@@ -385,7 +380,7 @@ $read-size: 15px;
   border-radius: 999px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -393,23 +388,25 @@ $read-size: 15px;
   z-index: 20;
   display: flex;
   align-items: center;
+  min-width: 0;
+  white-space: nowrap;
   gap: 6px;
   animation: paracosm-jump-pulse 2.2s ease-in-out infinite;
 }
 
 .jumpLatestBehind {
-  font-size: var(--font-3xs);
-  opacity: 0.7;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: $read-size;
 }
 
 .toast {
-  position: absolute;
-  // --toast-top set inline (alert sometimes shifts to clear crisis above).
-  top: var(--toast-top, 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  align-self: center;
   max-width: 520px;
   width: calc(100% - 24px);
+  margin: 4px 0;
   padding: 8px 14px;
   background: var(--bg-panel);
   // --side-color set inline; --left-accent set inline (rust/amber).
@@ -417,7 +414,7 @@ $read-size: 15px;
   border-left: 3px solid var(--left-accent, var(--rust));
   border-radius: 4px;
   font-family: var(--sans);
-  font-size: var(--font-sm);
+  font-size: $read-size;
   color: var(--text-1);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
   z-index: 30;
@@ -429,7 +426,7 @@ $read-size: 15px;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-3xs);
+  font-size: $read-size;
   font-family: var(--mono);
   letter-spacing: 0.12em;
   // --kicker-color set inline.
@@ -441,27 +438,13 @@ $read-size: 15px;
 .toastKickerMeta { color: var(--text-3); }
 
 .toastBody {
-  font-size: var(--font-sm);
+  font-size: $read-size;
   line-height: 1.3;
 }
 
 .toastBodyMd {
-  font-size: var(--font-md);
+  font-size: $read-size;
   line-height: 1.3;
-}
-
-.vignette {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  // Flat dim instead of radial. The previous radial gradient produced
-  // a heavy corner-darken artifact on the viz tab, which was the
-  // user-reported "dark corner vignetting" — kept the visual cue
-  // (whole-canvas dim on a scrub jump) without the painterly
-  // vignette effect that read as a rendering bug to viewers.
-  background: rgba(0, 0, 0, 0.25);
-  animation: paracosm-vignette 450ms ease-out forwards;
-  z-index: 50;
 }
 
 /* Cohort view controls — sits above TurnBanner on the Viz tab for
@@ -477,7 +460,7 @@ $read-size: 15px;
   flex-wrap: wrap;
   gap: 8px;
   padding: 4px 12px;
-  font-size: var(--font-sm);
+  font-size: $read-size;
   color: var(--text-1);
   border-bottom: 1px solid var(--border);
 }
@@ -493,7 +476,7 @@ $read-size: 15px;
 
 .cohortViewModeButton {
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: $read-size;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -546,7 +529,7 @@ $read-size: 15px;
 
 .cohortPairPickerLabel {
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: $read-size;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -555,7 +538,7 @@ $read-size: 15px;
 
 .cohortPairPickerSelect {
   font-family: var(--mono);
-  font-size: var(--font-sm);
+  font-size: $read-size;
   padding: 4px 8px;
   background: var(--bg-deep);
   color: var(--text-1);
@@ -587,30 +570,21 @@ $read-size: 15px;
 .cohortPairPickerVs {
   font-family: var(--mono);
   color: var(--text-3);
-  font-size: var(--font-xs);
+  font-size: $read-size;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .cohortPairPickerHint {
-  font-size: var(--font-xs);
+  font-size: $read-size;
   color: var(--text-2);
   flex-basis: 100%;
   line-height: 1.5;
 }
 
-// On a phone, and on a screen too short for the controls and the grid
-// together (a phone on its side with its browser's bars), the Viz panel
-// scrolls as one. Its parts keep their own heights, so the living grid stands
-// under the controls at its drawn size rather than in a window the controls
-// squeeze to nothing, and every control and the turn's outcomes stay a
-// scroll away. The pair view's row of grids and the cohort view's box, each a
-// scroll window of its own before, lay out at their own height in that one
-// scroll. The drawers and notices after the box keep their places over the
-// panel. The Latest key, floating just above the play controls on a taller
-// screen, stands in the flow above them, where it covers nothing; there it is
-// a phone key, 44 px tall, its words at 15 px.
-@media (max-width: 480px), (max-height: 500px) {
+// The stacked layout scrolls as one through the two grids and their
+// outcomes. Each grid keeps its height and the first canvas precedes stats.
+@media (max-width: 768px) {
   .body {
     display: flex;
     flex-direction: column;
@@ -621,30 +595,20 @@ $read-size: 15px;
 
     > * { flex-shrink: 0; }
   }
-
-  .jumpLatestAnchor {
-    display: flex;
-    justify-content: flex-end;
-    height: auto;
-  }
-
-  .jumpLatest {
-    position: static;
-    margin: 6px 12px;
-    min-height: 44px;
-    font-size: $read-size;
-  }
-
-  .jumpLatestBehind { font-size: $read-size; }
 }
 
-// On a short screen the pair view's row of grids lays out at its own height
-// in the panel's one scroll, each grid's box at least as tall as a phone's
-// (420 px, LivingSwarmGrid.module.scss), so scrolled to, the grid fills the
-// panel's view. The grids keep the layout of the screen's width: stacked up to
-// 768 px wide, as the narrow row stacks them on a taller screen, and side by
-// side wider.
 @media (max-height: 500px) {
+  .root {
+    flex: 1 0 auto;
+    overflow: visible;
+  }
+
+  .body {
+    display: contents;
+
+    > * { flex-shrink: 0; }
+  }
+
   .leadersRow,
   .leadersRowNarrow {
     flex: 0 0 auto;

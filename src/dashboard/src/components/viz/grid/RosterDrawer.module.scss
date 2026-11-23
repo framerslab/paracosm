@@ -29,7 +29,7 @@
 
 .headerLabel {
   color: var(--side-color, var(--amber));
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -44,7 +44,7 @@
   border-radius: 2px;
   color: var(--text-3);
   cursor: pointer;
-  font-size: var(--font-xs);
+  font-size: var(--viz-read-size, var(--font-xs));
   line-height: 1;
 }
 
@@ -58,7 +58,7 @@
 .sortChip {
   flex: 1;
   padding: 2px 0;
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   font-family: var(--mono);
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -84,12 +84,12 @@
 .empty {
   padding: 8px 10px;
   color: var(--text-4);
-  font-size: var(--font-2xs);
+  font-size: var(--viz-read-size, var(--font-2xs));
 }
 
 .deptHeader {
   padding: 3px 8px;
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-4);
@@ -103,7 +103,7 @@
   padding: 3px 6px;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: var(--viz-read-size, var(--font-2xs));
   // --row-color, --row-bg, --row-border, --row-opacity set inline.
   color: var(--row-color, var(--text-2));
   background: var(--row-bg, transparent);
@@ -137,7 +137,7 @@
 }
 
 .featuredPill {
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   padding: 0 3px;
   border-radius: 2px;
   background: color-mix(in srgb, var(--side-color, var(--amber)) 20%, transparent);
@@ -153,7 +153,7 @@
   background: transparent;
   color: var(--text-4);
   text-align: left;
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;

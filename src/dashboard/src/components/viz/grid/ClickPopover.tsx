@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { CellSnapshot, TurnSnapshot } from '../viz-types.js';
 import { HexacoRadar } from '../HexacoRadar.js';
 import { useMediaQuery, PHONE_QUERY } from './useMediaQuery.js';
@@ -15,6 +15,7 @@ export interface ClickPopoverPayload {
 
 interface ClickPopoverProps {
   payload: ClickPopoverPayload | null;
+  keepHeaderInView?: boolean;
   /** Container size so the popover can flip when near an edge. */
   containerW: number;
   containerH: number;
@@ -53,6 +54,7 @@ function topHexacoAxes(h: HexacoShape | undefined): string {
 export function ClickPopover(props: ClickPopoverProps) {
   const {
     payload,
+    keepHeaderInView = false,
     containerW,
     containerH,
     sideColor,
@@ -61,7 +63,14 @@ export function ClickPopover(props: ClickPopoverProps) {
     onClose,
     onOpenChat,
   } = props;
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const short = useMediaQuery('(max-height: 500px)');
+
+  useLayoutEffect(() => {
+    if (keepHeaderInView && short && payload) {
+      headerRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [keepHeaderInView, payload, short]);
 
   useEffect(() => {
     if (!payload) return;
@@ -145,13 +154,12 @@ export function ClickPopover(props: ClickPopoverProps) {
     <>
       <div onClick={onClose} className={styles.backdrop} />
       <div
-        ref={rootRef}
         role="dialog"
         aria-label={`${cell.name} drilldown`}
         className={styles.popover}
         style={popStyle}
       >
-        <div className={styles.headerRow}>
+        <div ref={headerRef} className={styles.headerRow}>
           <div>
             <div className={styles.headerName}>{cell.name}</div>
             <div className={styles.headerSubline}>
