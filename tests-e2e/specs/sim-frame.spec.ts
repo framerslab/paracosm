@@ -755,6 +755,11 @@ test('feature 2: large text', async ({ page }) => {
   await scaleText(page, 4);
   const nav = sections(page);
   await expect(nav).toHaveAttribute('data-row-fold', '2');
+  await expect.poll(() => nav.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const padding = parseFloat(getComputedStyle(element).getPropertyValue('--frame-side-padding'));
+    return { left: bounds.left, right: bounds.right, columnRight: window.innerWidth - padding, padding };
+  })).toMatchObject({ left: 16, right: 304, columnRight: 304, padding: 16 });
   const previous = nav.getByRole('button', { name: 'Previous sections' });
   const next = sections(page).getByRole('button', { name: 'Next sections' });
   const row = nav.locator('[data-fade-end]');
