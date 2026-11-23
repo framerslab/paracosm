@@ -447,7 +447,9 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
   const settings = readLaunchSettings(safeLocalStorage());
   const who = payer(facts, settings.overrides);
   // Whose keys a run uses is known once the visitor holds a key or the server has said whether it is the hosted demo.
-  const payerKnown = who === 'own' || facts.adminConfig.status !== 'loading';
+  // A read of the settings that failed leaves that unknown: the band waits, as the scenario line's figures do, while
+  // the page asks again, and never says a run on the host's keys is one on this server's.
+  const payerKnown = who === 'own' || facts.adminConfig.status === 'ready';
   const launch = ready && payerKnown ? effectiveLaunch(facts, scenario, settings, size, who) : null;
   const { rateLimit } = facts;
   const noneLeft = who === 'host' && noFreeRunLeft(facts);
