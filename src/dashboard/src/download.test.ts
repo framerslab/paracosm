@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { downloadJson } from './downloadJson.js';
+import { downloadJson } from './download.js';
 
 test('downloadJson clicks an attached link and keeps the blob URL available for one second', async (t) => {
   const url = 'blob:record';

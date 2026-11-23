@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react';
+import { downloadJson } from '../../download';
 import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import { buildScenarioCompileRequest } from './scenarioCompileRequest';
 import { compileRefusal } from './compileRefusal';
@@ -140,11 +141,7 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     try {
       const parsed = JSON.parse(jsonText);
       const name = parsed.id || 'scenario';
-      const blob = new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${name}.json`; a.click();
-      URL.revokeObjectURL(url);
+      downloadJson(JSON.stringify(parsed, null, 2), `${name}.json`);
       setResult({ success: true, message: `Exported ${name}.json` });
     } catch { setResult({ success: false, message: 'Fix JSON errors before exporting' }); }
   };

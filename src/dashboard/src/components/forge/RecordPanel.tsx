@@ -3,7 +3,7 @@ import type { ProcessedEvent } from '../../hooks/useGameState';
 import type { ToolEntry } from '../../hooks/useToolRegistry';
 import { writeClipboardText } from '../../hooks/writeClipboardText';
 import { sendForgeEvent } from '../../analytics/forgeEvents';
-import { downloadJson } from './downloadJson';
+import { downloadJson } from '../../download';
 import { RECORD_WORDS, recordFileName } from './forgeWords';
 import styles from './stations/stations.module.scss';
 

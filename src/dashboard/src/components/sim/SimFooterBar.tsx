@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, type MouseEvent, type ReactNode } from 'react';
+import { downloadJson } from '../../download';
 import type { CitationRegistry } from '../../hooks/useCitationRegistry';
 import type { ToolRegistry } from '../../hooks/useToolRegistry';
 import { useForgeView } from '../forge/ForgeViewProvider';
@@ -108,14 +109,7 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
 function ExportButton({ label, filename, data }: { label: string; filename: string; data: unknown }) {
   return (
     <button
-      onClick={() => {
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }}
+      onClick={() => downloadJson(JSON.stringify(data, null, 2), filename)}
       className={styles.exportBtn}
     >
       {label}
