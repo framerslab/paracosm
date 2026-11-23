@@ -638,13 +638,19 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       cctx.fillStyle = getComputedStyle(r).getPropertyValue('--bg-deep').trim() || '#0a0806';
       cctx.fillRect(0, 0, c.width, c.height);
       const whole = panelLaidOut(r, vizBodyRef.current);
-      const sx = c.width / Math.max(1, whole.width);
-      const sy = c.height / Math.max(1, whole.height);
+      // One scale for both axes, the panel centred in the frame. The frame's
+      // size is set as the recording starts (640 x 360 at least); the panel
+      // can be narrower than it, and its size can change under the recording
+      // (a turn's words, the More panel), so the grids keep their proportions
+      // and the frame's spare room stays the background's.
+      const scale = Math.min(c.width / Math.max(1, whole.width), c.height / Math.max(1, whole.height));
+      const left = (c.width - whole.width * scale) / 2;
+      const top = (c.height - whole.height * scale) / 2;
       const allCanvases = Array.from(r.querySelectorAll('canvas')) as HTMLCanvasElement[];
       for (const cv of allCanvases) {
         const at = whole.place(cv);
         if (!at) continue;
-        cctx.drawImage(cv, at.x * sx, at.y * sy, at.width * sx, at.height * sy);
+        cctx.drawImage(cv, left + at.x * scale, top + at.y * scale, at.width * scale, at.height * scale);
       }
       recRafRef.current = requestAnimationFrame(loop);
     };
