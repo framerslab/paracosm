@@ -133,6 +133,50 @@ for (const kind of ['run', 'compile'] as const) {
 }
 
 
+test('a run refused at the day\'s limit says when the day\'s count resets, as GET /rate-limit does', async () => {
+  const appDir = mkdtempSync(join(tmpdir(), 'paracosm-refusal-reset-'));
+  const log = mock.method(console, 'log', () => {});
+  const server = createMarsServer({
+    env: {
+      ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: join(appDir, 'runs'),
+      PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-openai-key-of-this-test', PARACOSM_CLIENT_IP_HEADER: '',
+      ANTHROPIC_API_KEY: '',
+    },
+    maxSimsPerDay: 1,
+    runHistoryStore: createNoopRunHistoryStore(),
+    runPairSimulations: async () => {},
+  });
+  try {
+    server.listen(0);
+    await once(server, 'listening');
+    const { port } = server.address() as { port: number };
+    const base = `http://127.0.0.1:${port}`;
+    const post = () => fetch(`${base}/setup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actors: marsScenario.presets[0].leaders, turns: 1, scenarioId: marsScenario.id }),
+    });
+    const first = await post();
+    await first.text();
+    assert.equal(first.status, 200);
+    const refused = await post();
+    assert.equal(refused.status, 429);
+    const body = await refused.json() as { remaining?: unknown; resetAt?: unknown };
+    const count = await (await fetch(`${base}/rate-limit`)).json() as { remaining: number; resetAt: number };
+    assert.equal(body.remaining, 0);
+    assert.equal(count.remaining, 0);
+    // The page keeps the refusal until a count for a later day says a run is left: it needs this day's reset time.
+    assert.equal(body.resetAt, count.resetAt);
+  } finally {
+    log.mock.restore();
+    if (server.listening) {
+      server.closeAllConnections();
+      server.close();
+      await once(server, 'close');
+    }
+    rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('limit log lines name no client address', () => {
   const source = readFileSync(new URL('../../src/server/server-app.ts', import.meta.url), 'utf8');
   const logs = [...source.matchAll(/`(?:\\[\s\S]|[^`\\])*`/g)]

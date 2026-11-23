@@ -2209,10 +2209,17 @@ screenTest('feature 10: own key and self-hosted', async ({ page }) => {
   // The server runs on the provider whose one key the visitor saved, whatever their last launch named. With that
   // last launch still saved and an Anthropic key alone, the notice names Anthropic and the estimate names no other.
   await test.step('one saved key of another provider than the last launch’s: the estimate names no provider or models', async () => {
-    await page.addInitScript(() => { window.localStorage.setItem('paracosm:keyOverrides', '{"anthropic":"test-anthropic-key"}'); });
-    const root = await openReadyAt(page, '/sim?size=24', WIDE, 'dark');
-    await expect(root.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE.replace('OpenAI', 'Anthropic'));
-    await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.');
+    // A page of its own: the page above writes an OpenAI key on each load, and two such scripts on one page run in no fixed order.
+    const own = await page.context().newPage();
+    try {
+      await own.addInitScript(() => { window.localStorage.setItem('paracosm:keyOverrides', '{"anthropic":"test-anthropic-key"}'); });
+      await saveLastLaunch(own, { scenarioId: 'mars-genesis', provider: 'openai', models: { commander: 'model-a', departments: 'model-b' } });
+      const root = await openReadyAt(own, '/sim?size=24', WIDE, 'dark');
+      await expect(root.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE.replace('OpenAI', 'Anthropic'));
+      await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.');
+    } finally {
+      await own.close();
+    }
   });
 });
 
@@ -5010,50 +5017,52 @@ screenTest('feature 10: at the reset time the page reads the count again', async
 });
 
 // Feature 10: a press the server refuses at the day's limit is kept, and the count is read again for the reset time.
-// When that read fails, the page asks again by itself, so Start comes back once the day has reset.
-screenTest('feature 10: after a refusal, a count that could not be read is asked for again', async ({ page }) => {
-  test.setTimeout(150_000);
-  let resetAt = 0;
-  let refused = false;
-  await page.route('**/rate-limit', (route: Route) => {
-    // The day resets 12 seconds after the page's first read.
-    if (resetAt === 0) resetAt = Date.now() + 12_000;
-    // Until the press is refused, the count says a run is left.
-    if (!refused) return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt } });
-    // After it, the count cannot be read until the day has reset; then a run is left again.
-    return Date.now() < resetAt
-      ? route.abort('failed')
-      : route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
-  });
-  // The run's own refusal at the day's limit, in the shape and the words the server answers it with.
-  await page.route('**/setup', (route: Route) => {
-    refused = true;
-    return route.fulfill({
-      status: 429,
-      json: { error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0 },
+// When that read fails, the page asks again by itself, so Start comes back once the day has reset: whether a count
+// was read before the press or not, since the refusal names the time the day's count resets.
+for (const before of ['a count read before the press', 'no count read before the press'] as const) {
+  screenTest(`feature 10: after a refusal, a count that could not be read is asked for again (${before})`, async ({ page }) => {
+    test.setTimeout(150_000);
+    // The day the press is refused in resets an hour from now; the test says when it has reset.
+    const resetAt = Date.now() + 3_600_000;
+    let stage: 'before' | 'refused' | 'reset' = 'before';
+    await page.route('**/rate-limit', (route: Route) => {
+      if (stage === 'reset') return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
+      if (stage === 'before' && before === 'a count read before the press') {
+        return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt } });
+      }
+      return route.abort('failed');
     });
+    // The run's own refusal at the day's limit, as the server answers it.
+    await page.route('**/setup', (route: Route) => {
+      stage = 'refused';
+      return route.fulfill({
+        status: 429,
+        json: { error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0, resetAt },
+      });
+    });
+    try {
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      const band = root.getByTestId('start-band');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+      await key.click();
+      // Refused: the at-limit paragraphs, with no reset time, since the count could not be read.
+      await expect(band).toHaveAttribute('data-state', 'limit');
+      await scrollToBandPlace(root);
+      await expect(root.getByTestId('at-limit-reset')).toHaveText(NO_RUN_LEFT);
+      // The day resets. No press and no reload: the page asks for the count again until it answers.
+      stage = 'reset';
+      await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+      await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+    } finally {
+      await page.unroute('**/rate-limit');
+      await page.unroute('**/setup');
+    }
   });
-  try {
-    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
-    const band = root.getByTestId('start-band');
-    const { key } = startParts(root);
-    await expect(key).toHaveAccessibleName(START_FREE);
-    await expect(key).toBeEnabled();
-    await key.click();
-    // Refused: the at-limit paragraphs, with no reset time, since the count could not be read.
-    await expect(band).toHaveAttribute('data-state', 'limit');
-    await scrollToBandPlace(root);
-    await expect(root.getByTestId('at-limit-reset')).toHaveText(NO_RUN_LEFT);
-    // No press and no reload: the page asks for the count again until it answers, and the day has reset by then.
-    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
-    await expect(key).toHaveAccessibleName(START_FREE);
-    await expect(key).toBeEnabled();
-    await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
-  } finally {
-    await page.unroute('**/rate-limit');
-    await page.unroute('**/setup');
-  }
-});
+}
 
 // Features 3 and 10: whose keys a run uses comes from the server's settings, so a read that failed is asked again.
 screenTest('feature 10: a settings read that failed is asked again', async ({ page }) => {
