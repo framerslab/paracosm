@@ -180,7 +180,7 @@ export default defineConfig({
         // replays draw above the living grid, for the spec that lays out the
         // Viz tab on a phone and a short screen.
         {
-          command: 'PORT=3473 VIZ_REPLAY_EVENT_STARTS=1 npx tsx tests-e2e/support/viz-replay-server.ts',
+          command: 'PORT=3473 VIZ_REPLAY_EVENT_STARTS=1 VIZ_REPLAY_HOSTED_CHROME=1 npx tsx tests-e2e/support/viz-replay-server.ts',
           url: 'http://127.0.0.1:3473/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,

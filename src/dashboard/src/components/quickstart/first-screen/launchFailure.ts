@@ -21,12 +21,17 @@ export type LaunchFailureKind = 'offline' | 'limit' | 'slots' | 'busy' | 'other'
  * slot in use on a 503 that names the most runs the server holds
  * (`{ error, runsInFlight, maxRuns }`); a busy server on any other 429 or
  * 503; anything else.
+ *
+ * The route that writes the leaders has a day's limit of its own on the
+ * hosted demo and refuses in the same shape. That refusal is not the day's
+ * limit of runs, which is still unspent: it reads as a run that did not
+ * start, and Start stays.
  */
 export function classifyLaunchFailure(i: LaunchFailureInput & { online?: boolean }): { kind: LaunchFailureKind } {
   if (i.networkError || i.online === false) return { kind: 'offline' };
   const remaining = i.body?.remaining;
   const maxRuns = i.body?.maxRuns;
-  if (i.status === 429 && remaining === 0) return { kind: 'limit' };
+  if (i.status === 429 && remaining === 0) return { kind: i.request === 'leaders' ? 'other' : 'limit' };
   if (i.status === 503 && typeof maxRuns === 'number' && Number.isFinite(maxRuns)) return { kind: 'slots' };
   if (i.status === 429 || i.status === 503) return { kind: 'busy' };
   return { kind: 'other' };

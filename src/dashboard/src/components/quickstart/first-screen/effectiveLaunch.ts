@@ -91,9 +91,18 @@ export function effectiveTurns(facts: ServerFacts, scenario: LaunchScenario, set
   return own;
 }
 
-/** The people the colony starts with: on the host's keys, the smaller of the scenario's figure and the host's cap. */
+/** The people a scenario that names none starts with (normalizeSimulationConfig in src/cli/sim-config.ts). */
+const DEFAULT_PEOPLE = 100;
+
+/**
+ * The people the colony starts with, as the server works them out when the
+ * run is posted (normalizeSimulationConfig, then applyDemoCaps on the host's
+ * keys): the scenario's figure, raised to its count of departments, since
+ * each department needs a person to head it; on the host's keys, the smaller
+ * of that and the host's cap.
+ */
 export function effectivePeople(facts: ServerFacts, scenario: LaunchScenario, who: Payer): number {
-  const own = scenario.setup.defaultPopulation;
+  const own = Math.max(scenario.setup.defaultPopulation ?? DEFAULT_PEOPLE, scenario.departments.length);
   if (who !== 'host') return own;
   const cap = facts.adminConfig.demoCaps?.maxPopulation;
   return isCount(cap) ? Math.min(own, cap) : own;
@@ -155,6 +164,8 @@ export interface LaunchFailureInput {
   status?: number;
   body?: Record<string, unknown>;
   networkError?: boolean;
+  /** Which request failed: the one that has the leaders written, or the one that posts the run. Unset reads as the run's. */
+  request?: 'leaders' | 'setup';
 }
 
 /** What the first screen gives the launch, so the screen stays in view and says each stage and failure itself. */
@@ -254,9 +265,16 @@ export function effectiveLaunch(
   body.captureSnapshots = true;
   body.quickstart = { scenarioId: scenario.id };
 
-  // The words name a provider and models only for a run the visitor's last launch shapes.
-  const shaped = who !== 'host';
-  const provider = shaped && typeof lastProvider === 'string' && lastProvider.trim() ? lastProvider : undefined;
+  // The words name a provider and models only for a run the visitor's last
+  // launch shapes. One saved key decides the provider the server runs on,
+  // whatever the last launch named (inferProviderFromKeys in
+  // src/cli/sim-config.ts), so a last launch on the other provider names
+  // neither: its models are not the ones the run uses.
+  const keys = sessionProviderKeys(overrides);
+  const keyed = keys.apiKey && !keys.anthropicKey ? 'openai' : keys.anthropicKey && !keys.apiKey ? 'anthropic' : undefined;
+  const named = typeof lastProvider === 'string' && lastProvider.trim() ? lastProvider : undefined;
+  const shaped = who !== 'host' && (keyed === undefined || named?.trim().toLowerCase() === keyed);
+  const provider = shaped ? named : undefined;
   const models = shaped ? namedModels(lastModels) : undefined;
   const lastBatch: unknown = isRecord(lastEconomics) ? lastEconomics.batch : undefined;
   const batchSet: unknown = isRecord(lastBatch) ? lastBatch.maxConcurrency : undefined;

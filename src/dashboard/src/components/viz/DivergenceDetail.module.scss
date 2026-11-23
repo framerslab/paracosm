@@ -9,13 +9,13 @@
   background: var(--bg-deep);
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: 15px;
   color: var(--text-2);
   flex-wrap: wrap;
 }
 
 .eyebrow {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -41,7 +41,7 @@
   gap: 6px;
   padding: 3px 8px;
   border-radius: 3px;
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-family: var(--mono);
   white-space: nowrap;
 }

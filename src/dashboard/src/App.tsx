@@ -967,7 +967,7 @@ function AppContent() {
         <ToolRegistryContext.Provider value={toolRegistry}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
-        <div className={`scanline-overlay ${styles.shell}`}>
+        <div className={`scanline-overlay ${styles.shell} ${activeTab === 'viz' ? styles.vizShortScroll : ''}`}>
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
               providerError={sse.providerError}
@@ -1108,7 +1108,7 @@ function AppContent() {
                   tabIndex={-1}
                   className={styles.tabPanel}
                 >
-                  <SwarmViz state={gameState} onNavigateToChat={navigateToChat} />
+                  <SwarmViz state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
                 </section>
               )}
 

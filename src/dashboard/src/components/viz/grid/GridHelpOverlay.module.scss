@@ -20,7 +20,7 @@
   max-height: 90vh;
   overflow: auto;
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: 15px;
   color: var(--text-2);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
 }
@@ -36,7 +36,7 @@
 
 .title {
   margin: 0;
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 800;
   color: var(--amber);
   letter-spacing: 0.08em;
@@ -52,7 +52,7 @@
   cursor: pointer;
   width: 26px;
   height: 26px;
-  font-size: var(--font-md);
+  font-size: 15px;
   line-height: 1;
   padding: 0;
 }
@@ -60,7 +60,7 @@
 .section { margin-bottom: 16px; }
 
 .sectionTitle {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -81,13 +81,13 @@
   grid-template-columns: minmax(110px, 160px) 1fr;
   gap: 12px;
   align-items: baseline;
-  font-size: var(--font-xs);
+  font-size: 15px;
 }
 
 .rowKey {
   color: var(--text-3);
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: 15px;
   letter-spacing: 0.05em;
 }
 
@@ -114,7 +114,7 @@
 }
 
 .footer {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   color: var(--text-4);
   margin-top: 12px;
 }
@@ -125,4 +125,8 @@
   border: 1px solid var(--border);
   border-radius: 2px;
   font-family: var(--mono);
+}
+
+@media (max-height: 500px) {
+  .backdrop { position: fixed; }
 }

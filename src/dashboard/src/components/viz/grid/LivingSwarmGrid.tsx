@@ -40,6 +40,8 @@ import { nearestPointOnLabel, placeNameLabels, type NameLabelPlace } from './nam
 interface HexacoShape { O: number; C: number; E: number; A: number; Em: number; HH: number }
 
 interface LivingSwarmGridProps {
+  /** Use the Viz panel's layout and keep its floating notices outside the field. */
+  vizPanel?: boolean;
   snapshot: TurnSnapshot | undefined;
   previousSnapshot?: TurnSnapshot | undefined;
   /** Full snapshot history for this side; enables recent-memory lookup. */
@@ -187,6 +189,7 @@ function resolveCssColor(color: string, element: HTMLElement | null): string {
  */
 export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   const {
+    vizPanel = false,
     snapshot,
     previousSnapshot,
     snapshotHistory,
@@ -295,6 +298,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // panel's commander changes, so the tile layer eases in instead of
   // painting its whole steady state in one frame. See golReveal.ts.
   const golRevealStartRef = useRef<number>(Number.NEGATIVE_INFINITY);
+  const revealPaintTimes = useRef<number[]>([]);
 
   // Relationship-flare: when a colonist is clicked, brighten their
   // partner/child arcs briefly (~1s decay). Ref, not state, so the
@@ -385,6 +389,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       reuseCalls,
       eventCategories: snapshot?.eventCategories,
       still: resting,
+      paintTimes: vizPanel ? revealPaintTimes : undefined,
     },
     canvasWrapRef,
     () => positions,
@@ -526,6 +531,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
 
     const resolvedSide = resolveCssColor(sideColor, containerRef.current);
     const cs = containerRef.current ? getComputedStyle(containerRef.current) : null;
+    const textSize = vizPanel ? parseFloat(cs?.getPropertyValue('--viz-read-size') || '15') : undefined;
     const hexToRgba = (hex: string, alpha: number): string | null => {
       if (!hex.startsWith('#') || hex.length !== 7) return null;
       const n = parseInt(hex.slice(1), 16);
@@ -579,9 +585,9 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const filterChanged = eventFilter !== lastGolFilterRef.current;
     const actorChanged = actorName !== lastGolActorRef.current;
     const sizeKey = `${size.w}x${size.h}`;
-    const restingSizeChanged = resting && sizeKey !== lastGolSizeRef.current;
+    const fieldResized = (resting || vizPanel) && sizeKey !== lastGolSizeRef.current;
     const prevGolTurn = lastGolTurnRef.current;
-    if (turnChanged || modeChanged || filterChanged || actorChanged || restingSizeChanged) {
+    if (turnChanged || modeChanged || filterChanged || actorChanged || fieldResized) {
       lastGolSizeRef.current = sizeKey;
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
@@ -611,13 +617,21 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       } else {
         warmup = 5;
       }
+      // Keep the colonists' seeded pattern if all of its tiles would die
+      // before the first frame. A turn with no seeds still draws no tiles.
+      const seeded = vizPanel && warmup > 0 ? gol.grid.slice() : undefined;
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
+      if (seeded && !gol.grid.some(Boolean)) gol.grid.set(seeded);
       // First seed, cached load, replay, multi-turn scrub or a new commander
       // on this panel: ease the tile layer in instead of painting the full
       // steady state in one frame. Single-turn advances (a live run,
       // playback) reseed in place.
       if (!reducedMotion && !resting && ((turnChanged && isJumpReveal(prevGolTurn, snapshot.turn)) || actorChanged)) {
-        golRevealStartRef.current = performance.now();
+        const began = performance.now();
+        golRevealStartRef.current = began;
+        // A scrub can start with the grid offscreen. Let that canvas paint
+        // during the fade and settle at full strength for capture.
+        if (vizPanel) revealPaintTimes.current = [began + GOL_REVEAL_MS / 6, began + GOL_REVEAL_MS];
       }
       lastFlareSignatureRef.current = visibleFlares.length
         ? `${visibleFlares[0].kind}|${visibleFlares[0].x}|${visibleFlares[0].y}`
@@ -723,6 +737,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         // splotches across light-mode cohort canvases on cached-run
         // loads (100+ colonist labels per panel × 6 panels).
         labelBg,
+        textSize,
       );
     // Mode-specific overlays. Each runs AFTER the base layers so its
     // own visual signature rides on top of the RD backdrop, and
@@ -738,10 +753,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           approved: f.approved,
         })),
         resolvedSide,
+        textSize,
       );
     }
     if (mode === 'ecology') {
-      drawEcologyResourceMap(ctx, snapshot, size.w, size.h, ecologyLabelColor);
+      drawEcologyResourceMap(ctx, snapshot, size.w, size.h, ecologyLabelColor, textSize);
     }
     if (mode === 'divergence') {
       drawDivergenceHighlight(
@@ -770,6 +786,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         labelBg,
         textMuted,
         deptLabels: settings.deptLabels,
+        textSize,
         timeUnitShort: scenarioLabels.Time,
       });
 
@@ -827,7 +844,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = crosshairTracerFill;
-        ctx.font = 'bold 11px ui-monospace, monospace';
+        ctx.font = `bold ${textSize ?? 11}px ui-monospace, monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillText(`\u2192 ${nearest.name.split(' ')[0]}`, cursor.x + 6, cursor.y + 6);
@@ -876,6 +893,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     eventFilter,
     resting,
     hasHeader,
+    vizPanel,
     domNames,
     lookTick,
   ]);
@@ -1104,6 +1122,19 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           : '0 0 20px rgba(196, 74, 30, 0.25)'
       : 'none';
 
+  const spotlight = !domNames && (
+    <FeaturedSpotlight
+      snapshot={snapshot}
+      previousSnapshot={previousSnapshot}
+      sideColor={resolveCssColor(sideColor, containerRef.current)}
+      inFlow={vizPanel}
+      onSelect={cell => {
+        const pos = positions.get(cell.agentId);
+        if (pos) setPopover({ cell, x: pos.x, y: pos.y });
+      }}
+    />
+  );
+
   return (
     <div
       ref={containerRef}
@@ -1112,7 +1143,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       data-testid={`living-colony-grid-${resting ? 'rest' : side}`}
       role={hasHeader ? undefined : 'region'}
       aria-label={hasHeader ? undefined : `${actorName} ${scenarioLabels.place} viz`}
-      className={[styles.region, narrow ? styles.narrow : '', resting ? styles.resting : ''].filter(Boolean).join(' ')}
+      className={[styles.region, narrow ? styles.narrow : '', vizPanel ? styles.vizPanel : '', resting ? styles.resting : ''].filter(Boolean).join(' ')}
     >
       {hasHeader ? header : snapshot && <GridMetricsStrip snapshot={snapshot} sideColor={sideColor} />}
       <div
@@ -1142,14 +1173,13 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           className={styles.canvas}
           style={{ '--canvas-cursor': hovered ? 'pointer' : 'default' } as CSSProperties}
         />
-        {/* Staged fade-in cover. Starts opaque on mount, transitions
-            to transparent so the canvas emerges over 400ms with a
-            slight radial reveal. */}
-        <div
-          aria-hidden="true"
-          className={styles.revealCover}
-          style={{ '--reveal-opacity': revealed ? '0' : '1' } as CSSProperties}
-        />
+        {!vizPanel && (
+          <div
+            aria-hidden="true"
+            className={styles.revealCover}
+            style={{ '--reveal-opacity': revealed ? '0' : '1' } as CSSProperties}
+          />
+        )}
         {domNames && snapshot && (
           <div ref={peopleRef} className={styles.people} onKeyDown={onPeopleKeyDown}>
             <svg className={styles.nameLines} width={size.w} height={size.h} aria-hidden="true" focusable="false">
@@ -1244,17 +1274,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
             {isFocused ? '\u2921' : '\u2922'}
           </button>
         )}
-        {!domNames && (
-          <FeaturedSpotlight
-            snapshot={snapshot}
-            previousSnapshot={previousSnapshot}
-            sideColor={resolveCssColor(sideColor, containerRef.current)}
-            onSelect={c => {
-              const pos = positions.get(c.agentId);
-              if (pos) setPopover({ cell: c, x: pos.x, y: pos.y });
-            }}
-          />
-        )}
+        {!vizPanel && spotlight}
         {!domNames && <RosterDrawer
           open={rosterOpen}
           cells={snapshot?.cells ?? []}
@@ -1466,6 +1486,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
         })()}
         <ClickPopover
           payload={popover}
+          keepHeaderInView={vizPanel}
           containerW={size.w}
           containerH={size.h}
           sideColor={resolveCssColor(sideColor, containerRef.current)}
@@ -1475,6 +1496,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           onOpenChat={onOpenChat}
         />
       </div>
+      {vizPanel && spotlight}
     </div>
   );
 }

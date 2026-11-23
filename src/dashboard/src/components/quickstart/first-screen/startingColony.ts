@@ -67,14 +67,6 @@ export function keyPeopleOf(scenario: Pick<ScenarioClientPayload, 'presets'>, po
   }));
 }
 
-/** The department a person is drawn in: its own, or `unknown` for one that names none, as the grid groups them. */
-const departmentOf = (person: Pick<KeyPerson, 'department'>): string => person.department || 'unknown';
-
-/** How many departments the people stand in: the groups the grid draws. */
-export function departmentCount(people: readonly Pick<KeyPerson, 'department'>[]): number {
-  return new Set(people.map(departmentOf)).size;
-}
-
 /**
  * The key people as the grid's turn 0: one cell a person, each at the values
  * the engine starts a key person with. `startTime` is the scenario's own

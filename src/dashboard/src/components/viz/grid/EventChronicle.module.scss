@@ -16,9 +16,9 @@
 }
 
 .heading {
-  font-size: var(--font-2xs);
+  font-size: 15px;
   font-family: var(--mono);
-  color: var(--text-3);
+  color: var(--text-2);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -33,7 +33,7 @@
 
 .filterChip {
   padding: 4px 10px;
-  font-size: var(--font-xs);
+  font-size: 15px;
   font-family: var(--mono);
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -44,6 +44,11 @@
   border-radius: 4px;
   cursor: pointer;
   transition: background 120ms, color 120ms, border-color 120ms;
+
+  @media (max-width: 899.98px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .filterChip.active {
@@ -69,7 +74,7 @@
   width: 16px;
   height: 16px;
   padding: 0;
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-family: var(--mono);
   font-weight: 800;
   background: transparent;
@@ -82,6 +87,11 @@
   opacity: 0.7;
   text-shadow: none;
   transition: opacity 120ms, text-shadow 120ms, background 120ms;
+
+  @media (max-width: 899.98px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .dot.hovered {

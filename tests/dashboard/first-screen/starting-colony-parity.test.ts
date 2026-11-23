@@ -9,9 +9,16 @@
  * kinds of run, the two lists are the same people in the same order. A
  * scenario with labels longer than the hosted demo's cap pins the page's
  * copy of that cap to the server's.
+ *
+ * The people the scenario line and the panel's caption count
+ * (effectivePeople) are the people the run starts with: the server raises a
+ * scenario's default population to its count of departments, and the hosted
+ * demo's cap is applied after that. Read for every bundled scenario of
+ * scenarios/*.json, for each kind of run.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 import { lunarScenario, marsScenario } from '../../../src/engine/scenarios/index.js';
 import {
   DEMO_EXECUTION,
@@ -24,6 +31,8 @@ import {
   HOST_PAID_LABEL_CHARS,
   keyPeopleOf,
 } from '../../../src/dashboard/src/components/quickstart/first-screen/startingColony.js';
+import { effectivePeople, type LaunchScenario } from '../../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
+import type { ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
 import type { ScenarioClientPayload } from '../../../src/dashboard/src/hooks/useScenario.js';
 
 /** The parts of a scenario the server sends the page that the panel reads (projectScenarioForClient in src/server/server-app.ts sends the presets whole). */
@@ -80,4 +89,40 @@ test('labels longer than the hosted demo\'s cap are cut on the page as the serve
   const keyedShown = keyPeopleOf(projectionOf(scenario), scenario.setup.defaultPopulation ?? 100, false);
   assert.equal(keyedRun.keyPersonnel[0].name.length, HOST_PAID_LABEL_CHARS + 180);
   assert.deepEqual(keyedShown.map(fields), keyedRun.keyPersonnel.map(fields));
+});
+
+/** Every bundled scenario a run can start in: each file of scenarios/ that holds departments of its own. */
+const SCENARIOS = new URL('../../../scenarios/', import.meta.url);
+const bundled: ScenarioPackage[] = readdirSync(SCENARIOS)
+  .filter((file) => file.endsWith('.json'))
+  .map((file) => JSON.parse(readFileSync(new URL(file, SCENARIOS), 'utf-8')) as ScenarioPackage)
+  .filter((scenario) => Array.isArray(scenario.departments) && scenario.departments.length > 0);
+
+/** The server's answers the count reads: the hosted demo's caps as GET /admin-config sends them, or a self-hosted server's. */
+const factsOf = (hostedDemo: boolean): ServerFacts => ({
+  adminConfig: {
+    status: 'ready',
+    hostedDemo,
+    demoCaps: { maxPopulation: DEMO_EXECUTION.maxPopulation, maxActiveDepartments: DEMO_EXECUTION.maxActiveDepartments },
+  },
+}) as unknown as ServerFacts;
+
+/** The parts of a scenario the count reads, as the server sends them to the page. */
+const launchPartsOf = (scenario: ScenarioPackage): LaunchScenario =>
+  JSON.parse(JSON.stringify({ id: scenario.id, setup: scenario.setup, departments: scenario.departments })) as LaunchScenario;
+
+test('the people the page counts are the people the run starts with, in every bundled scenario', () => {
+  // One bundled scenario file names fewer people than departments, as a compiled scenario may: the server starts such a run with a person for each department.
+  const fewer = bundled.filter((scenario) => (scenario.setup.defaultPopulation ?? 100) < scenario.departments.length);
+  assert.ok(fewer.length > 0, 'a bundled scenario names fewer people than departments');
+
+  for (const scenario of bundled) {
+    const name = scenario.labels.name;
+    const keyed = normalizeSimulationConfig(launchBody(scenario), scenario);
+    const hosted = applyDemoCaps(keyed);
+    const parts = launchPartsOf(scenario);
+    assert.equal(effectivePeople(factsOf(true), parts, 'host'), hosted.initialPopulation, `${name} on the host's keys`);
+    assert.equal(effectivePeople(factsOf(true), parts, 'own'), keyed.initialPopulation, `${name} on the visitor's own key`);
+    assert.equal(effectivePeople(factsOf(false), parts, 'server'), keyed.initialPopulation, `${name} on a self-hosted server`);
+  }
 });
