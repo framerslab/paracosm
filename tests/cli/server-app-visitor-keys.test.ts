@@ -129,6 +129,28 @@ test("forgetting keys drops the visitor's run and pooled agent alone", async t =
   }, () => 'The engineering team kept the power on.');
 });
 
+test("forgetting keys drops the visitor's agents on the shared run they watch and keeps that run", async t => {
+  t.after(() => clearPool());
+  await withProviderWire(async () => {
+    await withVisitors(async ({ visitor, cookied }) => {
+      // A local server's own run, which a browser with no run of its own watches.
+      const shared = visitor();
+      const runKey = await launch(shared);
+      const browser = cookied();
+      assert.equal((await browser.json<{ runKey: string }>('/results')).runKey, runKey);
+      const sent = await browser.post('/chat', { ...CHAT, apiKey: KEY });
+      assert.equal(sent.status, 200, await sent.clone().text());
+      assert.equal(getPoolStats().active, 1);
+
+      const response = await browser.post('/forget-keys', {});
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { runConfigsDropped: 0, chatAgentsDropped: 1 });
+      assert.equal(getPoolStats().active, 0);
+      assert.equal((await shared.json<{ runKey: string }>('/results')).runKey, runKey, 'the shared run stays');
+    }, options);
+  }, () => 'The engineering team kept the power on.');
+});
+
 test('visitor keys stay out of held run files, run records, sessions and logs', async t => {
   t.after(() => clearPool());
   const logs: string[] = [];
