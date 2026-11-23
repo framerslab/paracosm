@@ -96,9 +96,18 @@ export function effectiveTurns(facts: ServerFacts, scenario: LaunchScenario, set
   return own;
 }
 
-/** The people the colony starts with: on the host's keys, the smaller of the scenario's figure and the host's cap. */
+/** The people a scenario that names none starts with (normalizeSimulationConfig in src/cli/sim-config.ts). */
+const DEFAULT_PEOPLE = 100;
+
+/**
+ * The people the colony starts with, as the server works them out when the
+ * run is posted (normalizeSimulationConfig, then applyDemoCaps on the host's
+ * keys): the scenario's figure, raised to its count of departments, since
+ * each department needs a person to head it; on the host's keys, the smaller
+ * of that and the host's cap.
+ */
 export function effectivePeople(facts: ServerFacts, scenario: LaunchScenario, who: Payer): number {
-  const own = scenario.setup.defaultPopulation;
+  const own = Math.max(scenario.setup.defaultPopulation ?? DEFAULT_PEOPLE, scenario.departments.length);
   if (who !== 'host') return own;
   const cap = facts.adminConfig.demoCaps?.maxPopulation;
   return isCount(cap) ? Math.min(own, cap) : own;
