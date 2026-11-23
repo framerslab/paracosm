@@ -38,6 +38,11 @@
  *   wide. On a turn before the last the Latest key covers no control of the
  *   play controls; on a phone it stands in the flow above them, 44 px tall
  *   and wide, inside the window, its words at 15 px.
+ * - The PNG export of the Viz panel holds every living grid whole. Where the
+ *   panel scrolls as one (390 x 339, 844 x 339) a grid stands outside the
+ *   panel's view, and the picture is as tall as the panel laid out in full,
+ *   each grid drawn where it stands in it; at 1440 the picture is the
+ *   panel's own view, at twice its size.
  *
  * The stored runs are tests-e2e/support/viz-replay-server.ts's, served with
  * VIZ_REPLAY_EVENT_STARTS=1 on a port of their own: the hosted demo's six
@@ -51,6 +56,7 @@
  * test-pictures/viz-rows-type/, which CI uploads. Each is taken before its
  * checks, so a failing run leaves them too.
  */
+import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { LOOKS, useLook, type Look } from '../support/forge-view-pages';
 
@@ -689,6 +695,128 @@ for (const look of LOOKS) {
         }
         await stepOn(page).click();
         await expect(latestKey(page)).toHaveCount(0);
+      });
+    }
+  });
+}
+
+// ── The PNG export ───────────────────────────────────────────────────────
+
+const exportKey = (page: Page) => morePanel(page).getByRole('button', { name: 'Export options', exact: true });
+const pngAction = (page: Page) => page.getByRole('menuitem', { name: /^PNG/ });
+/** The export draws the panel at twice its size. */
+const EXPORT_SCALE = 2;
+/** The sizes the export is read at: the two where the panel scrolls as one, and a desktop's. */
+const EXPORT_SIZES = [SHORT, SIDE, sizeAt(1440)];
+
+interface Box { left: number; top: number; width: number; height: number }
+
+/** The Viz panel's view and each shown living grid's place in it, in CSS px from the panel's top left. */
+const readPanel = (page: Page): Promise<{ width: number; height: number; grids: Box[] }> => page.evaluate(() => {
+  const panel = document.querySelector('.viz-content')!.getBoundingClientRect();
+  const grids: Array<{ left: number; top: number; width: number; height: number }> = [];
+  for (const region of Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"]'))) {
+    // The grid's drawing: the largest canvas of its region.
+    const drawn = Array.from(region.querySelectorAll('canvas'))
+      .map(c => c.getBoundingClientRect())
+      .filter(r => r.width > 0 && r.height > 0)
+      .sort((a, b) => b.width * b.height - a.width * a.height)[0];
+    if (drawn) grids.push({ left: drawn.left - panel.left, top: drawn.top - panel.top, width: drawn.width, height: drawn.height });
+  }
+  return { width: panel.width, height: panel.height, grids };
+});
+
+/** Waits until every shown living grid holds its drawing: a canvas of it with more than one colour. */
+const gridsDrawn = (page: Page) => page.waitForFunction(() => {
+  const regions = Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"]'))
+    .filter(region => region.getBoundingClientRect().height > 0);
+  return regions.length > 0 && regions.every(region => Array.from(region.querySelectorAll('canvas')).some((canvas) => {
+    if (canvas.width === 0 || canvas.height === 0) return false;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 4; i < data.length; i += 4) {
+      if (data[i] !== data[0] || data[i + 1] !== data[1] || data[i + 2] !== data[2] || data[i + 3] !== data[3]) return true;
+    }
+    return false;
+  }));
+}, undefined, { timeout: 60_000, polling: 250 });
+
+/**
+ * Whether the picture holds a drawing in each box: more than one colour
+ * inside it. A box that reaches outside the picture holds none.
+ */
+const drawnIn = (page: Page, png: Buffer, boxes: Box[]): Promise<boolean[]> => page.evaluate(async ({ b64, boxes: at }) => {
+  const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(bitmap, 0, 0);
+  return at.map((box) => {
+    const left = Math.ceil(box.left) + 2;
+    const top = Math.ceil(box.top) + 2;
+    const width = Math.floor(box.width) - 4;
+    const height = Math.floor(box.height) - 4;
+    if (width <= 0 || height <= 0 || left < 0 || top < 0 || left + width > bitmap.width || top + height > bitmap.height) return false;
+    const { data } = ctx.getImageData(left, top, width, height);
+    for (let i = 4; i < data.length; i += 4) {
+      if (data[i] !== data[0] || data[i + 1] !== data[1] || data[i + 2] !== data[2]) return true;
+    }
+    return false;
+  });
+}, { b64: png.toString('base64'), boxes });
+
+for (const look of LOOKS) {
+  test(`the PNG export holds every living grid whole where the Viz panel scrolls as one (390 x 339, 844 x 339), and is the panel's own view at 1440, in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(240_000);
+    const run = await pairRun(request);
+    for (const size of EXPORT_SIZES) {
+      await test.step(`${size.width} x ${size.height}`, async () => {
+        const where = `${size.width} x ${size.height}, ${look}, the PNG export`;
+        const scrolls = size.height <= 500;
+        await openRun(page, run, look, size);
+        await painted(page);
+        if (!(await morePanel(page).isVisible())) await moreKey(page).click();
+        await expect(morePanel(page)).toBeVisible();
+        await gridsDrawn(page);
+
+        // Where each grid stands in the panel with nothing scrolled: its place in the panel laid out in full.
+        await scrollBack(page);
+        await painted(page);
+        const laidOut = await readPanel(page);
+
+        const key = exportKey(page);
+        await key.scrollIntoViewIfNeeded();
+        await key.click();
+        await expect(pngAction(page)).toBeVisible();
+        await painted(page);
+        const atExport = await readPanel(page);
+        const [download] = await Promise.all([page.waitForEvent('download'), pngAction(page).click()]);
+        await download.saveAs(`${PICTURES}/export-${size.width}x${size.height}-${look}.png`);
+        const png = readFileSync(`${PICTURES}/export-${size.width}x${size.height}-${look}.png`);
+        const pictureWidth = png.readUInt32BE(16);
+        const pictureHeight = png.readUInt32BE(20);
+
+        // The test's own ground: the panel draws its grids, and where it scrolls as one a grid stands outside its view.
+        expect(png.subarray(1, 4).toString('latin1'), `${where}: the download is a PNG`).toBe('PNG');
+        expect(laidOut.grids.length, `${where}: the panel draws a living grid`).toBeGreaterThan(0);
+        const outside = atExport.grids.filter(g => g.top < -0.5 || g.top + g.height > atExport.height + 0.5).length;
+        if (scrolls) expect(outside, `${where}: a grid stands outside the panel's ${atExport.height.toFixed(1)} px view as the export is taken`).toBeGreaterThan(0);
+
+        const lowest = Math.max(...laidOut.grids.map(g => g.top + g.height));
+        test.info().annotations.push({
+          type: `the PNG export, ${size.width} x ${size.height}`,
+          description: `${pictureWidth} x ${pictureHeight} px for a panel view ${laidOut.width.toFixed(1)} x ${laidOut.height.toFixed(1)} px; the lowest grid ends ${lowest.toFixed(1)} px down the panel laid out in full`,
+        });
+        expect.soft(pictureWidth, `${where}: as wide as the panel at twice its size`).toBe(Math.round(laidOut.width * EXPORT_SCALE));
+        expect.soft(pictureHeight, `${where}: tall enough to hold every grid whole (${pictureHeight} px for grids that end ${(lowest * EXPORT_SCALE).toFixed(1)} px down)`).toBeGreaterThanOrEqual(Math.floor(lowest * EXPORT_SCALE) - 1);
+        if (!scrolls) expect.soft(pictureHeight, `${where}: the panel's own view at twice its size`).toBe(Math.round(laidOut.height * EXPORT_SCALE));
+        const drawn = await drawnIn(page, png, laidOut.grids.map(g => ({ left: g.left * EXPORT_SCALE, top: g.top * EXPORT_SCALE, width: g.width * EXPORT_SCALE, height: g.height * EXPORT_SCALE })));
+        laidOut.grids.forEach((g, i) => {
+          expect.soft(drawn[i], `${where}: grid ${i + 1} is drawn where it stands in the panel laid out in full (${g.top.toFixed(1)} to ${(g.top + g.height).toFixed(1)} px down)`).toBe(true);
+        });
       });
     }
   });
