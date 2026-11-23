@@ -72,7 +72,7 @@ test.use({ deviceScaleFactor: 2 });
 
 const PICTURES = 'test-pictures/viz-rows-type';
 /** The stored runs with each turn's event_start frame: viz-replay-server.ts with VIZ_REPLAY_EVENT_STARTS=1. */
-const SERVER = 'http://127.0.0.1:3472';
+const SERVER = 'http://127.0.0.1:3473';
 const ARIA = 'Aria Chen';
 
 const PHONE = { width: 390, height: 844 };
