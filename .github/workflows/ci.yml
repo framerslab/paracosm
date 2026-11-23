@@ -248,6 +248,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # Run the comparison fixture on the base dashboard source before
+      # collecting the matching pictures from the pull request dashboard.
+      - name: Capture Viz replay comparison pictures from the base
+        if: ${{ !cancelled() && github.event.pull_request.number == 333 }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --depth=1 origin "$BASE_SHA"
+          trap 'git restore --source=HEAD --worktree src/dashboard/src' EXIT
+          git restore --source="$BASE_SHA" --worktree src/dashboard/src
+          npx playwright test tests-e2e/specs/viz-rows-type.spec.ts --project=chromium-desktop --grep 'replay comparison pictures'
+          mv test-pictures/viz-rows-type test-pictures/viz-tablet-export-before
+
+      - name: Upload the base Viz replay comparison pictures
+        if: ${{ always() && github.event.pull_request.number == 333 }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viz-tablet-export-before
+          path: test-pictures/viz-tablet-export-before/
+          if-no-files-found: ignore
+          retention-days: 14
+
       # On a phone the whole living grid is in view before any scroll; on a
       # short screen and on a phone on its side it keeps a usable window and
       # the Viz panel scrolls as one to the turn's outcomes and its controls;
