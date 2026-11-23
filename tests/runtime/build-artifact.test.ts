@@ -23,10 +23,18 @@ const baseInputs = {
   aborted: false,
 };
 
+const provenance = {
+  aiGenerated: true,
+  generator: 'paracosm',
+  models: { commander: 'gpt-4o' },
+} as const;
+
 test('buildRunArtifact produces schema-valid turn-loop artifact', () => {
-  const artifact = buildRunArtifact({ ...baseInputs, mode: 'turn-loop' });
+  const inputs = { ...baseInputs, mode: 'turn-loop' as const, provenance };
+  const artifact = buildRunArtifact(inputs);
   const result = RunArtifactSchema.safeParse(artifact);
   assert.equal(result.success, true, result.success ? '' : JSON.stringify(result.error.issues, null, 2));
+  assert.deepEqual(artifact.provenance, provenance);
   assert.equal(artifact.metadata.mode, 'turn-loop');
   assert.equal(artifact.metadata.runId, 'run-001');
 });

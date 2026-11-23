@@ -102,6 +102,10 @@ jobs:
         id: install-playwright
         run: npx playwright install --with-deps chromium
 
+      - name: Legacy JSON round trip
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/json-round-trip.spec.ts --project=chromium-desktop
+
       - name: Visitor keys and age notices end-to-end test
         if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
         run: npx playwright test tests-e2e/specs/visitor-keys-and-age.spec.ts --project=chromium-desktop
