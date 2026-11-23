@@ -155,7 +155,10 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   const report = await rendering.promise;
   try {
     const attachments = await report.getAttachments();
-    const json = JSON.parse(new TextDecoder().decode(attachments['run.json'].content));
+    const files = attachments instanceof Map ? Array.from(attachments.values()) : Object.values(attachments ?? {});
+    const runJson = files.find(file => file.filename === 'run.json');
+    expect(runJson, 'the report includes the selected run as a JSON attachment').toBeDefined();
+    const json = JSON.parse(new TextDecoder().decode(runJson.content));
     expect(json.provenance).toEqual(provenance);
     expect(json.decisions[0].choice).toBe(choice);
     const rendered = await (await report.getPage(1)).getTextContent();
@@ -169,7 +172,8 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
   await openPair(page, 'dark');
   await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
   await expect(page.locator('canvas').filter({ visible: true }).first()).toBeVisible();
-  await page.getByRole('button', { name: 'Export options' }).click();
+  await page.getByRole('button', { name: /^Show (advanced|more) tools/ }).click();
+  await page.getByRole('toolbar', { name: 'Viz tools' }).getByRole('button', { name: 'Export options' }).click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('menuitem', { name: /^PNG/ }).click(),
