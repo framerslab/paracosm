@@ -999,11 +999,13 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   }, []);
 
   // D hotkey toggle. Skipped while typing in inputs / textareas / contenteditable
-  // so the user's search query doesn't get interrupted.
+  // so the user's search query doesn't get interrupted, and, like the tab's
+  // other keys, while the help or another dialog is over the tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof Element ? e.target : null;
       if (target && target.matches('input, textarea, [contenteditable=true]')) return;
+      if (helpOpen || target?.closest('[role="dialog"]')) return;
       if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         setDiffOverlay(!diffOverlayOn);
@@ -1011,7 +1013,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [diffOverlayOn, setDiffOverlay]);
+  }, [diffOverlayOn, helpOpen, setDiffOverlay]);
 
   // Per-department diff at the current turn. Computed only when the
   // overlay is on — useMemo dependency on diffOverlayOn means the heavy

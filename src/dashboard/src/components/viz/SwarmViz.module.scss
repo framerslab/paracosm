@@ -641,7 +641,9 @@ $read-size: 15px;
 // On a short screen the pair view's row of grids lays out at its own height
 // in the panel's one scroll, each grid's box at least as tall as a phone's
 // (420 px, LivingSwarmGrid.module.scss), so scrolled to, the grid fills the
-// panel's view. Wider than a phone the grids stand side by side as before.
+// panel's view. The grids keep the layout of the screen's width: stacked up to
+// 768 px wide, as the narrow row stacks them on a taller screen, and side by
+// side wider.
 @media (max-height: 500px) {
   .leadersRow,
   .leadersRowNarrow {
