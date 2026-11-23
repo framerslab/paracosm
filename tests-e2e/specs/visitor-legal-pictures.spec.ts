@@ -18,8 +18,18 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
       await page.goto(`${SERVER}/sim?tab=settings`);
       const settings = page.getByRole('group', { name: 'API Keys', exact: true });
       await expect(settings).toBeVisible();
+      if (phase === 'after') {
+        await expect(settings.getByTestId('visitor-key-notes').locator('p')).toHaveCount(5);
+      }
+      // The Settings scroll pane clips a fieldset taller than the viewport.
+      // Keep the requested width and fit the whole section for this crop.
+      const settingsHeight = await settings.evaluate(el => Math.ceil(el.getBoundingClientRect().height));
+      await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, settingsHeight + 240) });
+      await settings.scrollIntoViewIfNeeded();
+      await expect(settings).toBeInViewport({ ratio: 0.99 });
       await settings.screenshot({ path: `${path}-settings.png`, animations: 'disabled' });
 
+      await page.setViewportSize(viewport);
       await page.goto(`${SERVER}/sim`);
       const startAge = page.getByTestId('note-adults');
       const footerAge = page.getByTestId('foot-adults');
