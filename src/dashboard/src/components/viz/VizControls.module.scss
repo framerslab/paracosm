@@ -4,7 +4,10 @@
 // leave, never under 44 px; below 900 px every key is 44 px tall and wide
 // (VizControls.tsx). Runs reach 100 turns: at 320 px "T100/100" leaves the
 // slider less than 44 px, so there the turn gives way, cut with an ellipsis,
-// and the slider still reads the turn to a screen reader.
+// and the slider still reads the turn to a screen reader. Every word in the
+// row is 15 px, the size nothing in the Viz rows goes under.
+
+$read-size: 15px;
 
 .row {
   display: flex;
@@ -28,7 +31,7 @@
   border-radius: 4px;
   padding: 4px 10px;
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: $read-size;
   cursor: pointer;
 
   @media (max-width: 899.98px) {
@@ -50,7 +53,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   color: var(--text-3);
   white-space: nowrap;
 }
@@ -66,7 +69,7 @@
 .speed {
   flex: 0 0 auto;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: $read-size;
   background: var(--bg-card);
   color: var(--text-2);
   border: 1px solid var(--border);
