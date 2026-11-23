@@ -13,10 +13,16 @@
  *     verdict landed (pair or cohort). Its own fingerprint lets the
  *     verdict and the completion each announce once.
  *
+ * Each toast is recorded under the run it belongs to: the run the page
+ * held when that finish, or that verdict, arrived (noticeOwner.ts). A
+ * fork brings a key of its own while the page keeps its parent's finish
+ * and verdict, and announces neither again.
+ *
  * Extracted from App.tsx.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useToast } from '../components/shared/Toast';
+import { finishSignal, noticeOwner, type NoticeOwner } from './noticeOwner';
 import type { AbortReasonState } from './useSSE';
 
 const STORAGE_KEY = 'paracosm:terminalToastFingerprint';
@@ -55,12 +61,25 @@ export function useTerminalToast({
   verdict,
 }: UseTerminalToastOptions): void {
   const { toast } = useToast();
+  // The run each notice belongs to. Kept by the first effect, so the
+  // notices below read this render's owners: effects run in the order they
+  // are written.
+  const finishOwnerRef = useRef<NoticeOwner<string> | null>(null);
+  const verdictOwnerRef = useRef<NoticeOwner<Record<string, unknown> | null> | null>(null);
+  const finish = finishSignal(isComplete, isAborted, resultsCount);
+  const heldVerdict = verdict ?? null;
+  useEffect(() => {
+    finishOwnerRef.current = noticeOwner(finishOwnerRef.current, finish, runKey);
+    verdictOwnerRef.current = noticeOwner(verdictOwnerRef.current, heldVerdict, runKey);
+  }, [finish, heldVerdict, runKey]);
+
   useEffect(() => {
     if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!isComplete && !isAborted) return;
     if (!replayDone) return;
-    const fingerprint = runKey ?? (isAborted
+    const finishedRunKey = finishOwnerRef.current ? finishOwnerRef.current.runKey : runKey;
+    const fingerprint = finishedRunKey ?? (isAborted
       ? `aborted:${abortReason?.reason ?? 'unknown'}:${abortReason?.leader ?? ''}:${abortReason?.turn ?? ''}`
       : `complete:${resultsCount}:${hasVerdict ? 'v' : 'nv'}`);
     try {
@@ -86,6 +105,7 @@ export function useTerminalToast({
     if (!userTriggeredRun) return;
     if (!verdict || typeof verdict !== 'object') return;
     if (!replayDone) return;
+    const judgedRunKey = verdictOwnerRef.current ? verdictOwnerRef.current.runKey : runKey;
     // Strict equality on `=== true` instead of Boolean() so a non-boolean
     // truthy payload (legacy clients sending "skipped": "yes" etc.) does
     // not silently flip the banner into the no-verdict state.
@@ -94,7 +114,7 @@ export function useTerminalToast({
       // Skipped-verdict toast — explains the missing banner so users
       // don't refresh the page assuming something hung.
       const reason = String((verdict as { reason?: unknown }).reason || 'unknown');
-      const fingerprint = runKey ?? `skipped:${reason}`;
+      const fingerprint = judgedRunKey ?? `skipped:${reason}`;
       try {
         if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
         sessionStorage.setItem(VERDICT_STORAGE_KEY, fingerprint);
@@ -126,7 +146,7 @@ export function useTerminalToast({
       const named = String((verdict as { winnerName?: unknown }).winnerName || '').trim();
       return named || `Leader ${winner}`;
     })();
-    const fingerprint = runKey ?? `${mode}:${winner}:${winnerName}:${headline}`;
+    const fingerprint = judgedRunKey ?? `${mode}:${winner}:${winnerName}:${headline}`;
     try {
       if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
       sessionStorage.setItem(VERDICT_STORAGE_KEY, fingerprint);
