@@ -149,7 +149,7 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     try {
       const parsed = JSON.parse(jsonText);
       const name = parsed.id || 'scenario';
-      const data = compilerSource?.id === parsed.id ? { ...parsed, provenance: compilerSource.provenance } : parsed;
+      const data = compilerSource && compilerSource.id === parsed.id ? { ...parsed, provenance: compilerSource.provenance } : parsed;
       downloadJson(JSON.stringify(data, null, 2), `${name}.json`);
       setResult({ success: true, message: `Exported ${name}.json` });
     } catch { setResult({ success: false, message: 'Fix JSON errors before exporting' }); }

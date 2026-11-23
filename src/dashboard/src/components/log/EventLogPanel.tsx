@@ -135,7 +135,8 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
       )}
       {filteredEvents.map((e, i) => {
         const color = TYPE_COLORS[e.type] || 'var(--text-3)';
-        const hasData = e.data && Object.keys(e.data).length > 0;
+        const data = e.data ?? {};
+        const hasData = Object.keys(data).length > 0;
         return (
           <details
             key={i}
@@ -152,8 +153,8 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
               {!!e.data?.outcome && <span className={styles.outcome}>{String(e.data.outcome)}</span>}
             </summary>
             {hasData && (
-              <AiWritten as="div" authored={Array.isArray(e.data.aiWrittenFields) && e.data.aiWrittenFields.length > 0}>
-                <pre className={styles.dataBlock}>{JSON.stringify(e.data, null, 2)}</pre>
+              <AiWritten as="div" authored={Array.isArray(data.aiWrittenFields) && data.aiWrittenFields.length > 0}>
+                <pre className={styles.dataBlock}>{JSON.stringify(data, null, 2)}</pre>
               </AiWritten>
             )}
           </details>
