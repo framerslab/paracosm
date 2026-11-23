@@ -181,7 +181,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
     : sse.isComplete
     ? 'Run finished all turns. Verdict is broadcast in Reports.'
     : sse.status === 'connected'
-    ? 'Connected to the simulation server. Press RUN to start.'
+    ? 'Connected to the simulation server. No run in progress.'
     : sse.status === 'error'
     ? 'Reconnecting to the simulation server.'
     : 'Connecting to the simulation server.';

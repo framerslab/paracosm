@@ -89,7 +89,7 @@ function StatusChip({ s }: { s: NonNullable<FooterProps['simStatus']> }) {
     : s.isRunning
     ? 'Simulation in progress.'
     : s.connectionStatus === 'connected'
-    ? 'Connected to the simulation server. Press RUN to start.'
+    ? 'Connected to the simulation server. No run in progress.'
     : s.connectionStatus === 'error'
     ? 'Reconnecting to the simulation server.'
     : 'Connecting to the simulation server.';

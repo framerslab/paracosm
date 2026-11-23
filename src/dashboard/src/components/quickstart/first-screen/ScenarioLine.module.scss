@@ -207,17 +207,21 @@
   }
 }
 
-// Tablet: the figures on one line.
+// Tablet: the figures on one line, where the line has room for them in its
+// own type size (about 30 em). With less room, which is 200 per cent text at
+// these widths, the phone's grid above stands, so no figure is cut.
 @media (min-width: 600px) {
-  .cells {
-    display: block;
-    white-space: nowrap;
-  }
+  @container (min-width: 32em) {
+    .cells {
+      display: block;
+      white-space: nowrap;
+    }
 
-  .cell,
-  .dot {
-    display: inline;
-    white-space: pre;
+    .cell,
+    .dot {
+      display: inline;
+      white-space: pre;
+    }
   }
 }
 

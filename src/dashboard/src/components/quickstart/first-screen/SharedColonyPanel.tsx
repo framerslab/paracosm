@@ -92,7 +92,8 @@ export function SharedColonyPanel({ size = 2 }: SharedColonyPanelProps) {
   const settings = readLaunchSettings(safeLocalStorage());
   const who = payer(facts, settings.overrides);
   // How many people the colony holds is known once the visitor holds a key or the server has said whether it is the hosted demo.
-  const known = ready && (who === 'own' || facts.adminConfig.status !== 'loading');
+  // A read of the settings that failed leaves that unknown, so the panel waits as the scenario line's figures do.
+  const known = ready && (who === 'own' || typeof facts.adminConfig.hostedDemo === 'boolean');
   const population = effectivePeople(facts, scenario, who);
   const hostPaid = who === 'host';
 

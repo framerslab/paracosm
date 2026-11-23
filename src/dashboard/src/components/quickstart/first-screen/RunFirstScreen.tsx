@@ -61,7 +61,8 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const { size, setSize } = useRunSetup();
-  // From Start's press until the run opens or fails, the size cannot change.
+  // From Start's press until the run opens or fails, the size cannot change,
+  // no other scenario loads and the paste form starts no second run.
   const [starting, setStarting] = useState(false);
   // The paste form's draft, held here so Start can wait for it.
   const [draft, setDraft] = useState(readPromptFromUrl);
@@ -97,11 +98,12 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
       <LeaderPair size={runSize} />
       <FirstScreenNotes />
       <StartBand size={runSize} onStart={onStart} onBusy={setStarting} draft={held} />
-      <OtherScenarios />
+      <OtherScenarios locked={starting} />
       <section className={styles.writeYourOwn} data-testid="write-your-own" aria-labelledby="write-your-own-heading">
         <h2 className={styles.heading} id="write-your-own-heading" data-text="heading">{WRITE_YOUR_OWN}</h2>
         <SeedInput
           variant="pasteOnly"
+          locked={starting}
           payer={who}
           atLimit={atLimit}
           onSeedReady={onSeedReady}

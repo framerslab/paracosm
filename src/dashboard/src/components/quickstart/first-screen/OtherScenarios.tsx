@@ -82,7 +82,12 @@ type ListState = { status: 'loading' } | { status: 'ready'; rows: CatalogScenari
 /** What a row is doing after a press: loading its scenario, failed to, or chosen while offline. */
 type RowState = { id: string; kind: 'loading' | 'failed' | 'offline' };
 
-export function OtherScenarios() {
+export interface OtherScenariosProps {
+  /** True from Start's press until the run opens or fails: the run posted is the scenario on screen, so no row loads another. */
+  locked?: boolean;
+}
+
+export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const facts = useServerFacts();
@@ -134,7 +139,7 @@ export function OtherScenarios() {
   };
 
   const choose = async (row: CatalogScenario) => {
-    if (rowState?.kind === 'loading') return;
+    if (locked || rowState?.kind === 'loading') return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       setRowState({ id: row.id, kind: 'offline' });
       return;
@@ -197,9 +202,9 @@ export function OtherScenarios() {
               type="button"
               className={styles.card}
               aria-label={loadScenario(name)}
-              aria-disabled={busy || state === 'failed' ? 'true' : undefined}
+              aria-disabled={busy || locked || state === 'failed' ? 'true' : undefined}
               onClick={() => {
-                if (busy || state === 'failed') return;
+                if (busy || locked || state === 'failed') return;
                 void choose(row);
               }}
             >

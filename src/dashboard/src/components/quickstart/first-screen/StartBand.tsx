@@ -472,16 +472,18 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
     setFailure(null);
     const outcome: { failure: LaunchFailureInput | null } = { failure: null };
     try {
+      // From here until the run opens or fails, the screen holds as it is: the body posted is this scenario at this size.
+      onBusy?.(true);
       if (who === 'host') {
         // The count may have been spent since the page read it: read it again, and post nothing when none is left.
         setStage('checking');
         const fresh = await rateLimit.refresh();
         if (fresh.status === 'ready' && fresh.answer?.remaining === 0) {
           setStage(null);
+          onBusy?.(false);
           return;
         }
       }
-      onBusy?.(true);
       if (writtenLeaders(scenario).length < size) {
         setWriting(size);
         setStage('writing');

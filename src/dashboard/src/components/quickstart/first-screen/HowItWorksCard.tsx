@@ -186,6 +186,11 @@ export function HowItWorksCard({ open, onClose, anchor }: HowItWorksCardProps) {
     if (open) titleRef.current?.focus({ preventScroll: true });
   }, [open]);
 
+  // A panel left open while the window narrows becomes a sheet. A sheet holds focus, so it takes it then.
+  useEffect(() => {
+    if (open && sheet && !cardRef.current?.contains(document.activeElement)) titleRef.current?.focus({ preventScroll: true });
+  }, [open, sheet]);
+
   // Where the card stands: a panel under the header's key, a sheet above the consent bar while that shows.
   useLayoutEffect(() => {
     if (!open) return undefined;

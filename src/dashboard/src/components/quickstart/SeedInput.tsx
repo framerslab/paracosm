@@ -54,6 +54,12 @@ export interface SeedInputProps {
   onSeedTextChange?: (text: string) => void;
   /** Hands the page a function that brings the draft into view and focuses it. */
   registerGoToDraft?: (go: () => void) => void;
+  /**
+   * True while another run is starting on this screen (Start was pressed and
+   * the server has not answered): the draft cannot be changed or sent, so one
+   * press starts one run. The form keeps its look, since the wait is short.
+   */
+  locked?: boolean;
 }
 
 type Tab = 'paste' | 'url' | 'pdf';
@@ -85,6 +91,7 @@ export function SeedInput({
   seedText: heldText,
   onSeedTextChange,
   registerGoToDraft,
+  locked = false,
 }: SeedInputProps) {
   const pasteOnly = variant === 'pasteOnly';
   // A run on the host's keys is a pair, and its cost is the host's.
@@ -129,6 +136,8 @@ export function SeedInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const submit = useCallback(() => {
+    // Another run is starting on this screen: this form starts no second one.
+    if (locked) return;
     // No free run is left on the host's keys: the sentences above the key say so, and nothing is sent.
     if (limited) return;
     const trimmedSeed = seedText.trim();
@@ -148,7 +157,7 @@ export function SeedInput({
       domainHint: domainHint.trim() || undefined,
       actorCount: hostPaid ? 2 : actorCount,
     });
-  }, [seedText, sourceUrl, domainHint, actorCount, onSeedReady, limited, hostPaid]);
+  }, [seedText, sourceUrl, domainHint, actorCount, onSeedReady, limited, hostPaid, locked]);
 
   const fetchUrl = useCallback(async () => {
     const validation = validateSeedUrl(urlInput);
@@ -326,6 +335,8 @@ export function SeedInput({
           onChange={e => setSeedText(e.target.value)}
           rows={6}
           disabled={disabled}
+          readOnly={locked}
+          aria-disabled={locked ? 'true' : undefined}
         />
       )}
 

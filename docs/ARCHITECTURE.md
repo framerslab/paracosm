@@ -586,7 +586,7 @@ The Run tab (`/sim`) opens on one screen a first-time visitor reads from the top
 | The run's size | `RunSize.tsx`, `runSize.helpers.ts`, `useRunSetup.ts` | A pair on the host's keys; 2 to 300 leaders on the visitor's own key or a self-hosted server, kept in `?size=` |
 | The leaders | `LeaderPair.tsx`, `ScoreRows.tsx` | Each leader's place, name, title, six HEXACO scores and written orders |
 | The notes | `FirstScreenNotes.tsx` | The leaders are fictional, they are AI and can be wrong, and the demo is for adults |
-| Start | `StartBand.tsx`, `launchFailure.ts` | The one key that starts a run, the run line, who pays, the day's limit and each failure |
+| Start | `StartBand.tsx`, `launchFailure.ts` | The one key that starts a run, the run line, who pays, the day's limit and each failure. From its press until the run opens or fails, the size is held, no row of Other scenarios loads and the paste form sends nothing, so the run posted is the scenario on screen and one press starts one run |
 | Other scenarios | `OtherScenarios.tsx` | A list that loads a scenario through `POST /scenario/switch` and a reload, and runs none |
 | Write your own scenario | `SeedInput.tsx` (`variant="pasteOnly"`) | The paste, URL and PDF form, which compiles a scenario from a brief and runs it |
 | The foot | `PageFoot.tsx`, `layout/consentControl.ts` | The adults line, the site's links (Docs, GitHub and npm under More links when the four do not fit one row), Analytics choices and the licence line. It ends the Run tab in every state: under the first screen, and under a run's progress and results. The Analytics choices control is one element, kept by `consentControl.ts` and moved to the footer on screen |
