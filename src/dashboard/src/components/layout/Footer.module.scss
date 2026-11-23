@@ -26,6 +26,18 @@
   font-weight: 600;
 }
 
+// Where the page's Analytics choices control sits while the footer is
+// mounted (useConsentControl); the consent bar's stylesheet sizes the control.
+.consentSlot {
+  display: inline-flex;
+  align-items: center;
+
+  :global(button[data-consent-open]) {
+    color: var(--rust);
+    font-weight: 600;
+  }
+}
+
 .statusChip {
   display: inline-flex;
   align-items: center;

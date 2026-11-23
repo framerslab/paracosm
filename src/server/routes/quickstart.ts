@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../services/run-record.js';
 /**
  * Quickstart HTTP routes (Tier 5 onboarding). Three endpoints:
  *
@@ -6,22 +7,66 @@
  * - `POST /api/quickstart/generate-actors`: scenarioId -> ActorConfig[].
  *
  * Each is stateless except for the compiled-scenario install: a
- * successful `compile-from-seed` installs the result as the active
- * scenario so the subsequent `/setup` POST runs it. Routes are
+ * successful `compile-from-seed` adds the result to the catalog and makes it
+ * the requesting visitor's pick, so their `/setup` POST runs it, and
+ * `simulate-intervention`, whose run is its caller's own (it replaces their
+ * current run and leaves every other visitor's alone). Routes are
  * extracted from `server-app.ts` for unit-test isolation.
  *
  * @module paracosm/cli/quickstart-routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
 import { generateQuickstartActors } from '../../runtime/world-model/index.js';
 import { WorldModel } from '../../runtime/world-model/index.js';
-import type { ScenarioPackage, ActorConfig } from '../../engine/types.js';
+import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
+import {
+  apiKeyForProvider,
+  credentialFingerprint,
+  normalizeCredential,
+  resolveProviderFromCredentials,
+  type ProviderCredentialOptions,
+} from '../../engine/provider/credentials.js';
 import type { SubjectConfig, InterventionConfig, RunArtifact } from '../../engine/schema/index.js';
 import { groundScenario, type GroundingResult } from '../services/deep-research.js';
 import type { BroadcastFn } from '../../cli/pair-runner.js';
+import { RunCapacityError, RUN_CAPACITY_RETRY_AFTER_SECONDS } from '../live-runs.js';
+import { UrlRefusedError } from '../../engine/compiler/public-url-fetch.js';
+
+/** A run the server opened for a digital-twin request. */
+export interface OpenedRun {
+  /** The run's key, which its active_scenario event carries. */
+  runKey: string;
+  /** The visitor the run belongs to. */
+  visitorId: string;
+  /** Writes one of the run's events; once the run is replaced or cleared, its events go nowhere. */
+  broadcast: BroadcastFn;
+  /** Releases the run's capacity slot; called once the engine has returned or thrown. */
+  finish: () => void;
+}
+
+/** The most JSON a Digital Twin subject's free-form profile may hold. */
+const MAX_SUBJECT_PROFILE_CHARS = 8000;
+
+/**
+ * A provider key a Quickstart request may carry: the visitor's own, from
+ * Settings. A request with one runs its model calls on that key.
+ */
+const ProviderKeyField = z.string().max(1024).optional();
+
+/** The answer a route writes when a limit refuses the request. */
+export interface QuickstartRefusal {
+  status: number;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+function writeRefusal(res: ServerResponse, refusal: QuickstartRefusal): void {
+  res.writeHead(refusal.status, { 'Content-Type': 'application/json', ...refusal.headers });
+  res.end(JSON.stringify(refusal.body));
+}
 
 const FetchSeedSchema = z.object({
   url: z.string().url().max(2048),
@@ -38,10 +83,20 @@ const CompileFromSeedSchema = z.object({
   // limiting (economics.batch.maxConcurrency) so 300 actors no longer
   // fan out to 300 simultaneous LLM streams.
   actorCount: z.number().int().min(1).max(300).optional(),
+  apiKey: ProviderKeyField,
+  anthropicKey: ProviderKeyField,
 });
 
+/**
+ * The longest scenario id the Quickstart routes the page calls after a
+ * compile take (generate-actors, ground-scenario): 64 characters, the
+ * longest id a compile from a seed gives its draft. The server keeps the id
+ * it installs a Quickstart compile under within it.
+ */
+export const QUICKSTART_SCENARIO_ID_MAX = 64;
+
 const GenerateActorsSchema = z.object({
-  scenarioId: z.string().min(3).max(64),
+  scenarioId: z.string().min(3).max(QUICKSTART_SCENARIO_ID_MAX),
   // Max 300 actors per bundle. A hosted demo actor cost 0.29 to 1.05 USD
   // in the pairs measured on 30 October and 1 November 2026; the
   // SeedInput cost preview surfaces the running total so users opt in
@@ -49,10 +104,12 @@ const GenerateActorsSchema = z.object({
   // an economics-profile concurrency cap (default 8 in batch mode) so
   // 300 actors land as ~38 batches of 8, not 300 simultaneous calls.
   count: z.number().int().min(2).max(300).default(3),
+  apiKey: ProviderKeyField,
+  anthropicKey: ProviderKeyField,
 });
 
 const GroundScenarioSchema = z.object({
-  scenarioId: z.string().min(3).max(64),
+  scenarioId: z.string().min(3).max(QUICKSTART_SCENARIO_ID_MAX),
 });
 
 const SubjectSignalSchema = z.object({
@@ -71,7 +128,11 @@ const SubjectMarkerSchema = z.object({
 const SubjectSchema = z.object({
   id: z.string().min(1).max(80),
   name: z.string().min(1).max(120),
-  profile: z.record(z.string(), z.unknown()).optional(),
+  profile: z.record(z.string(), z.unknown())
+    .refine(profile => JSON.stringify(profile).length <= MAX_SUBJECT_PROFILE_CHARS, {
+      message: `profile is over ${MAX_SUBJECT_PROFILE_CHARS} characters of JSON`,
+    })
+    .optional(),
   signals: z.array(SubjectSignalSchema).max(40).optional(),
   markers: z.array(SubjectMarkerSchema).max(40).optional(),
 });
@@ -102,7 +163,7 @@ const LeaderSchema = z.object({
     emotionality: z.number().min(0).max(1),
     honestyHumility: z.number().min(0).max(1),
   }),
-  instructions: z.string().default(''),
+  instructions: z.string().max(400).default(''),
 });
 
 const SimulateInterventionSchema = z.object({
@@ -121,6 +182,8 @@ const SimulateInterventionSchema = z.object({
     seed: z.number().int().optional(),
     costPreset: z.enum(['quality', 'economy']).optional(),
   }).optional(),
+  apiKey: ProviderKeyField,
+  anthropicKey: ProviderKeyField,
 });
 
 const DEFAULT_DIGITAL_TWIN_LEADER: ActorConfig = {
@@ -138,6 +201,74 @@ const DEFAULT_DIGITAL_TWIN_LEADER: ActorConfig = {
   instructions: '',
 };
 
+/** The model a Quickstart draft, its hook compile's caller and its actors run on, by provider. */
+export const QUICKSTART_MODELS: Record<LlmProvider, string> = {
+  openai: 'gpt-5.4-mini',
+  anthropic: 'claude-sonnet-4-6',
+};
+
+/** How one Quickstart request's model calls run. */
+export interface QuickstartModelCalls {
+  provider: LlmProvider;
+  /** The model of the draft and of the actors. */
+  model: string;
+  /** The request's own OpenAI key, when the calls run on it. */
+  apiKey?: string;
+  /** The request's own Anthropic key, when the calls run on it. */
+  anthropicKey?: string;
+  /** Keep every call on `provider`: no fallback to another provider. */
+  stayOnProvider?: boolean;
+  /**
+   * True when the server's keys pay. Only such a request takes the server's
+   * limits (`hostLimits`): its charges and its caps on leaders and turns.
+   */
+  hostPaid: boolean;
+  /** The models of a Digital Twin run, in place of its cost preset. */
+  runModels?: SimulationModelConfig;
+  /** The most turns a Digital Twin run takes. */
+  maxTurns?: number;
+  /** The most leaders an actor call writes. */
+  maxActors?: number;
+}
+
+/**
+ * The model calls of a request on a server with no routing of its own: on
+ * the request's own key and that key's provider when it brought one (with
+ * `defaultModel` when that provider is `defaultProvider`, else
+ * {@link QUICKSTART_MODELS}), else on `defaultProvider` and `defaultModel`
+ * with the server's keys.
+ */
+export function defaultModelCalls(
+  deps: Pick<QuickstartDeps, 'defaultProvider' | 'defaultModel'>,
+  credentials: ProviderCredentialOptions,
+): QuickstartModelCalls {
+  const apiKey = normalizeCredential(credentials.apiKey);
+  const anthropicKey = normalizeCredential(credentials.anthropicKey);
+  const defaultProvider = deps.defaultProvider as LlmProvider;
+  if (!apiKey && !anthropicKey) return { provider: defaultProvider, model: deps.defaultModel, hostPaid: true };
+  const provider = resolveProviderFromCredentials(defaultProvider, { apiKey, anthropicKey }, 'openai');
+  return {
+    provider,
+    model: provider === defaultProvider ? deps.defaultModel : QUICKSTART_MODELS[provider],
+    ...(apiKey ? { apiKey } : {}),
+    ...(anthropicKey ? { anthropicKey } : {}),
+    hostPaid: false,
+  };
+}
+
+/** The model calls of one request: the server's routing, else {@link defaultModelCalls}. */
+function modelCallsFor(
+  deps: QuickstartDeps,
+  data: { apiKey?: string; anthropicKey?: string },
+): QuickstartModelCalls | QuickstartRefusal {
+  const credentials = { apiKey: data.apiKey, anthropicKey: data.anthropicKey };
+  return deps.modelCalls ? deps.modelCalls(credentials) : defaultModelCalls(deps, credentials);
+}
+
+function isRefusal(value: QuickstartModelCalls | QuickstartRefusal): value is QuickstartRefusal {
+  return 'status' in value;
+}
+
 export interface QuickstartDeps {
   /** Installs a compiled scenario into the server catalog and persists it.
    *  It becomes nobody's pick by itself: the visitor who compiled it gets
@@ -145,8 +276,13 @@ export interface QuickstartDeps {
    *  `seedText` is the user's original natural-language prompt; the server
    *  keeps it with the scenario so a run's active_scenario event can carry
    *  it through to the session store, which surfaces it on the replay
-   *  banner and Replay-Last-Run CTA. */
-  installCompiledScenario: (scenario: ScenarioPackage, seedText?: string) => void;
+   *  banner and Replay-Last-Run CTA.
+   *
+   *  Returns the scenario as installed. The server never replaces a
+   *  scenario the compiled id already names, so the installed one can carry
+   *  another id (`<id>-2`); the answers report the returned scenario. An
+   *  implementation that returns nothing installed the one it was given. */
+  installCompiledScenario: (scenario: ScenarioPackage, seedText?: string) => ScenarioPackage | void;
   /** Resolves a scenario id against the server catalog. */
   getScenarioById: (id: string) => ScenarioPackage | undefined;
   /** The headers that make a scenario the requesting visitor's pick (the
@@ -158,6 +294,13 @@ export interface QuickstartDeps {
   /** Default provider + model for the LLM calls. */
   defaultProvider: string;
   defaultModel: string;
+  /**
+   * Routes one request's model calls from the provider keys it brought. The
+   * server gives its hosted policy here (hosted-model-policy.ts), which
+   * refuses a host-paid request it cannot pay on OpenAI. Absent:
+   * {@link defaultModelCalls}.
+   */
+  modelCalls?: (credentials: ProviderCredentialOptions) => QuickstartModelCalls | QuickstartRefusal;
   /** Stash deep-research citations keyed by scenario id. Optional so
    *  legacy callers (older test fixtures) don't have to construct the
    *  full record. The grounding route is the only writer; future
@@ -167,41 +310,44 @@ export interface QuickstartDeps {
     citations: Array<{ query: string; sources: Array<{ title: string; link: string; domain: string }> }>,
   ) => void;
   /**
-   * Lazily compile + cache the corporate-quarterly scenario and return a
-   * WorldModel ready for `intervene`. Used by the
-   * /simulate-intervention route so the digital-twin tab does not need
-   * the user to compile a scenario first.
+   * The Digital Twin's world, ready for `intervene`: the one the server
+   * keeps, else one compiled from scenarios/t2d-glp1-protocol.json and
+   * kept. Used by the /simulate-intervention route so the digital-twin
+   * tab does not need the user to compile a scenario first.
    *
-   * Returns undefined when the underlying scenario file is missing or
-   * compile fails (caller writes a 502 in that case).
+   * `calls` is the routing of the request the world is for. On the hosted
+   * demo a compile runs on it: on the request's own key and that key's
+   * provider, else on the host's OpenAI key, with no fallback to another
+   * provider. Off the hosted demo a compile runs on the server's keys
+   * whatever the request brought.
+   *
+   * Resolves to null when the scenario file is missing or the compile
+   * fails (the route answers 503).
    */
-  getDigitalTwinWorld?: () => Promise<WorldModel | null>;
+  getDigitalTwinWorld?: (calls: QuickstartModelCalls) => Promise<WorldModel | null>;
   /**
-   * SSE broadcast function (same one /setup uses). When wired, the
-   * simulate-intervention handler opens the run with its roster and turn
-   * count, streams every event runSimulation emits as a `sim` event tagged
-   * with its leader, as the pair runner does, and ends the run with
-   * `complete`, so the SIM tab renders live progress while the synchronous
-   * fetch is still in flight. Without it, the run still works but the user
-   * sees nothing until the artifact returns.
+   * The directory a digital-twin run's output file is written to: the
+   * server's runs directory. Omitted, the run writes to
+   * `PARACOSM_OUTPUT_DIR` from `process.env`, else `<cwd>/output`.
    */
-  broadcast?: BroadcastFn;
+  outputDir?: string;
   /**
-   * Reset the in-memory event buffer + per-run state before a new
-   * digital-twin run starts. Mirrors what /setup does on a fresh sim:
-   * without it, prior events from another run bleed into the
-   * dashboard's gameState while the new intervention is streaming.
-   * Given the run's scenario, the server also opens the buffer with the
-   * run's active_scenario event, which carries `runKey`, and takes the
-   * run's nouns for /chat from it.
+   * Opens the caller's run for a digital-twin request: it replaces their
+   * current run, is admitted under the server's run cap (throws
+   * RunCapacityError above it), and opens with the run's active_scenario
+   * event, which carries `runKey` (the page's key when given). The handler
+   * writes the roster and turn count, every event runSimulation emits as a
+   * `sim` event tagged with its leader, as the pair runner does, and the run's
+   * `complete` through the returned broadcast, so the SIM tab renders live
+   * progress while the synchronous fetch is still in flight, and calls
+   * `finish` once the engine has returned or thrown. Without it the run still
+   * works, but the user sees nothing until the artifact returns.
+   *
+   * `calls` is the routing of the request the run is for. A run on the
+   * caller's own key counts for its address under the run cap, as a /setup
+   * run on one does, and keeps its provider and keys for its chats.
    */
-  resetEventBuffer?: (scenario?: ScenarioPackage, runKey?: string) => void;
-  /**
-   * True while the run with this key is the last one opened. A run started
-   * after it takes the shared buffer: this run then writes nothing more to
-   * it, or its events and its end would land in the new run.
-   */
-  isCurrentRun?: (runKey: string) => boolean;
+  openRun?: (scenario: ScenarioPackage, runKey?: string, calls?: QuickstartModelCalls) => OpenedRun | Promise<OpenedRun>;
   /**
    * True when a run has already opened with this key. Pages tell runs apart
    * by key and read each key off the stream, so a request naming a used key
@@ -214,6 +360,21 @@ export interface QuickstartDeps {
    * fake to exercise the async-job state machine without LLM calls.
    */
   compileFn?: typeof compileFromSeed;
+  /**
+   * Limits for a server that bills the host's keys (the hosted demo).
+   * Each refusal function returns the answer to write, or null to go on.
+   */
+  hostLimits?: {
+    /** Charges a new compile-from-seed against the caller's compile limit. */
+    admitCompile: () => QuickstartRefusal | null;
+    /** Charges a grounding, actor or URL request against the caller's Quickstart limit. */
+    admitCall: () => QuickstartRefusal | null;
+    /** Charges the caller's run of the day; `refund` gives it back when the run cannot open. */
+    run: { admit: () => QuickstartRefusal | null; refund: () => void };
+    /** The hosted demo's caps on a run: its turns and its leaders. */
+    maxTurns: number;
+    maxActors: number;
+  };
 }
 
 export async function handleFetchSeed(
@@ -242,6 +403,11 @@ export async function handleFetchSeed(
     res.end(JSON.stringify({ error: `Unsupported URL scheme: ${scheme}. Use http or https.` }));
     return;
   }
+  const refused = deps.hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
+    return;
+  }
   try {
     const { text, title, sourceUrl } = await deps.fetchSeedFromUrl(url);
     const truncated = text.length > 50_000;
@@ -249,7 +415,10 @@ export async function handleFetchSeed(
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ text: finalText, title, sourceUrl, truncated }));
   } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json' });
+    // A URL that names an address the server does not fetch is the
+    // caller's to change, as an invalid one is.
+    const status = err instanceof UrlRefusedError || (err as Error | null)?.name === 'UrlRefusedError' ? 400 : 502;
+    res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Failed to fetch URL: ${String(err)}` }));
   }
 }
@@ -277,10 +446,13 @@ export async function handleFetchSeed(
  *
  * Job state is in-memory; resolved jobs are kept for 10 minutes so a
  * slow user retry hits the cached scenario instantly. Beyond that the
- * compiled scenario is still in customScenarioCatalog (via
- * installCompiledScenario); the job map is purely the compile-pipeline
- * deduplicator.
+ * compiled scenario is in customScenarioCatalog (via
+ * installCompiledScenario), unless it left the catalog to make room; the
+ * job map is purely the compile-pipeline deduplicator. A job pending for
+ * more than 10 minutes ends as an error. Its result is never installed,
+ * even if nobody polls before the compile finishes.
  */
+export const MAX_PENDING_COMPILES = 4;
 const JOB_TTL_MS = 10 * 60 * 1000;
 
 type JobStatus = 'pending' | 'done' | 'error';
@@ -299,29 +471,50 @@ interface CompileJob {
 const compileJobs = new Map<string, CompileJob>();
 const jobBySignature = new Map<string, string>();
 
+/** Ends finished jobs holding this exact package when it leaves the catalog to make room. */
+export function endFinishedJobsOf(scenario: ScenarioPackage): void {
+  for (const job of compileJobs.values()) {
+    if (job.status !== 'done' || job.scenario !== scenario) continue;
+    job.status = 'error';
+    job.error = 'This scenario left the catalog to make room. Compile it again.';
+    delete job.scenario;
+  }
+}
+
 function compileSignature(input: {
   seedText: string;
   sourceUrl?: string;
   domainHint?: string;
-}): string {
-  // Normalize whitespace + lowercase optional fields so trivially
-  // different submissions share a slot. The seed text is fingerprinted
-  // by length + head + tail; collisions across two 50KB payloads with
-  // the same length are extraordinarily unlikely and the worst case is
-  // one client receives a different scenario than they typed once.
+}, calls: QuickstartModelCalls): string {
+  // Trim the seed and lowercase the optional fields so trivially
+  // different submissions share a slot. The key is a SHA-256 of the whole
+  // seed, so only the same text shares another submission's compile, then
+  // the compile's routing (its provider and a fingerprint of each key it
+  // runs on, never a key), so a request shares only a compile that runs on
+  // its own keys.
   const text = input.seedText.trim();
-  return JSON.stringify({
-    len: text.length,
-    head: text.slice(0, 256),
-    tail: text.slice(-128),
+  const seed = createHash('sha256').update(JSON.stringify({
+    text,
     url: (input.sourceUrl ?? '').toLowerCase(),
     hint: (input.domainHint ?? '').toLowerCase(),
-  });
+  })).digest('hex');
+  return [seed, calls.provider, credentialFingerprint(calls.apiKey), credentialFingerprint(calls.anthropicKey)].join(':');
+}
+
+/** End an overdue job before counting it or accepting its result. */
+function isPending(job: CompileJob, now: number): boolean {
+  if (job.status !== 'pending') return false;
+  if (now - job.startedAt <= JOB_TTL_MS) return true;
+  job.status = 'error';
+  job.error = 'The compile did not finish in 10 minutes. Try again.';
+  job.resolvedAt = now;
+  return false;
 }
 
 function sweepStaleJobs(): void {
   const now = Date.now();
   for (const [jobId, job] of compileJobs) {
+    if (isPending(job, now)) continue;
     if (job.resolvedAt && now - job.resolvedAt > JOB_TTL_MS) {
       compileJobs.delete(jobId);
       if (jobBySignature.get(job.signature) === jobId) {
@@ -361,8 +554,18 @@ export async function handleCompileFromSeed(
     return;
   }
 
+  // The provider keys stay out of the compile's input and the installed
+  // scenario's brief, which read the seed alone. The job's signature holds
+  // the routing, with a fingerprint of each key in place of the key, so a
+  // request joins only a compile that runs on its own keys.
+  const { apiKey, anthropicKey, ...seedInput } = parsed.data;
+  const calls = modelCallsFor(deps, { apiKey, anthropicKey });
+  if (isRefusal(calls)) {
+    writeRefusal(res, calls);
+    return;
+  }
   sweepStaleJobs();
-  const signature = compileSignature(parsed.data);
+  const signature = compileSignature(seedInput, calls);
 
   // Dedupe: an existing job for this signature short-circuits a new
   // compile. Pending → return the same jobId so the second client
@@ -381,7 +584,7 @@ export async function handleCompileFromSeed(
       // An admin can have deleted the scenario from the catalog since it
       // compiled, so install it again; the answer makes it this visitor's
       // pick, as the status answer does for the visitor who waited.
-      deps.installCompiledScenario(existing.scenario, parsed.data.seedText);
+      existing.scenario = deps.installCompiledScenario(existing.scenario, parsed.data.seedText) ?? existing.scenario;
       res.writeHead(200, { 'Content-Type': 'application/json', ...deps.pickHeaders?.(existing.scenario.id) });
       res.end(JSON.stringify({
         jobId: existing.jobId,
@@ -394,6 +597,26 @@ export async function handleCompileFromSeed(
     if (existing && existing.status === 'error') {
       compileJobs.delete(existing.jobId);
       jobBySignature.delete(signature);
+    }
+  }
+
+  let pending = 0;
+  for (const job of compileJobs.values()) if (job.status === 'pending') pending += 1;
+  if (pending >= MAX_PENDING_COMPILES) {
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+    res.end(JSON.stringify({
+      error: `The server is compiling ${pending} scenarios right now, the most it compiles at once. Try again in a minute.`,
+    }));
+    return;
+  }
+
+  // A seed compile counts against the compile limit whoever pays for the
+  // model: its research reads the web on the server's search keys.
+  if (deps.hostLimits) {
+    const refused = deps.hostLimits.admitCompile();
+    if (refused) {
+      writeRefusal(res, refused);
+      return;
     }
   }
 
@@ -412,19 +635,25 @@ export async function handleCompileFromSeed(
   jobBySignature.set(signature, jobId);
 
   const compile = deps.compileFn ?? compileFromSeed;
-  void compile(parsed.data, {
-    draftProvider: deps.defaultProvider,
-    draftModel: deps.defaultModel,
+  void compile(seedInput, {
+    draftProvider: calls.provider,
+    draftModel: calls.model,
+    // The hook compile after the draft runs on the draft's provider and keys.
+    provider: calls.provider,
+    ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+    ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+    ...(calls.stayOnProvider ? { stayOnProvider: true } : {}),
   }).then((scenario) => {
     const stored = compileJobs.get(jobId);
-    if (!stored) return; // Swept out by TTL while still pending — exotic.
-    stored.scenario = scenario;
+    if (!stored || !isPending(stored, Date.now())) return;
+    // The job reports the scenario as installed, whose id the server may
+    // have changed to a free one.
+    stored.scenario = deps.installCompiledScenario(scenario, seedInput.seedText) ?? scenario;
     stored.status = 'done';
     stored.resolvedAt = Date.now();
-    deps.installCompiledScenario(scenario, parsed.data.seedText);
   }).catch((err: unknown) => {
     const stored = compileJobs.get(jobId);
-    if (!stored) return;
+    if (!stored || !isPending(stored, Date.now())) return;
     stored.status = 'error';
     stored.error = err instanceof Error ? err.message : String(err);
     stored.resolvedAt = Date.now();
@@ -490,10 +719,31 @@ export async function handleGenerateActors(
     res.end(JSON.stringify({ error: `Scenario '${parsed.data.scenarioId}' not found. Compile it via /api/quickstart/compile-from-seed first.` }));
     return;
   }
+  const calls = modelCallsFor(deps, parsed.data);
+  if (isRefusal(calls)) {
+    writeRefusal(res, calls);
+    return;
+  }
+  // The server's limits hold a request its keys pay for; a request on the
+  // visitor's own key takes none of them.
+  const hostLimits = calls.hostPaid ? deps.hostLimits : undefined;
+  const refused = hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
+    return;
+  }
+  // A hosted run on the server's keys takes at most maxActors leaders, so no
+  // more are generated: the request's routing caps it whether or not the
+  // daily limiter is on, and the limiter's cap holds where the routing
+  // names none.
+  const maxActors = calls.maxActors ?? hostLimits?.maxActors;
+  const count = maxActors !== undefined ? Math.min(parsed.data.count, maxActors) : parsed.data.count;
   try {
-    const actors = await generateQuickstartActors(scenario, parsed.data.count, {
-      provider: deps.defaultProvider,
-      model: deps.defaultModel,
+    const actors = await generateQuickstartActors(scenario, count, {
+      provider: calls.provider,
+      model: calls.model,
+      apiKey: apiKeyForProvider(calls.provider, calls),
+      stayOnProvider: calls.stayOnProvider,
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ actors }));
@@ -533,6 +783,11 @@ export async function handleGroundScenario(
     res.end(JSON.stringify({ error: `Scenario '${parsed.data.scenarioId}' not found. Compile it via /api/quickstart/compile-from-seed first.` }));
     return;
   }
+  const refused = deps.hostLimits?.admitCall() ?? null;
+  if (refused) {
+    writeRefusal(res, refused);
+    return;
+  }
   try {
     const result: GroundingResult | null = await groundScenario(scenario);
     if (!result) {
@@ -548,7 +803,9 @@ export async function handleGroundScenario(
     // a free-form metadata slot today; this in-memory side-channel is
     // intentionally scoped to the server process so a restart drops
     // citations along with the scenario itself.
-    deps.recordGroundingCitations?.(scenario.id, result.citations);
+    if (deps.getScenarioById(scenario.id) === scenario) {
+      deps.recordGroundingCitations?.(scenario.id, result.citations);
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       citations: result.citations,
@@ -573,8 +830,9 @@ export async function handleGroundScenario(
  *
  * Behaviour:
  * - If `scenarioId` is provided, resolves it via deps.getScenarioById.
- * - Otherwise calls deps.getDigitalTwinWorld() which lazily compiles
- *   t2d-glp1-protocol.json and caches the WorldModel.
+ * - Otherwise calls deps.getDigitalTwinWorld(calls), which returns the
+ *   world the server keeps, or compiles t2d-glp1-protocol.json on the
+ *   request's routing and keeps the WorldModel.
  * - Leader defaults to a Cautious Methodical Evaluator HEXACO profile
  *   if the body does not supply one.
  * - Options default to maxTurns=2, seed=11, costPreset='economy' so a
@@ -600,6 +858,17 @@ export async function handleSimulateIntervention(
 
   const { subject, intervention, leader, scenarioId, runKey: requestedRunKey, options = {} } = parsed.data;
 
+  // Routed before the world is prepared (a world no request has compiled
+  // is compiled on this routing) and before the day's run is charged.
+  const calls = modelCallsFor(deps, parsed.data);
+  if (isRefusal(calls)) {
+    writeRefusal(res, calls);
+    return;
+  }
+  // The server's limits hold a run its keys pay for; a run on the visitor's
+  // own key takes none of them, as a /setup run on one does not.
+  const hostLimits = calls.hostPaid ? deps.hostLimits : undefined;
+
   let world: WorldModel | null = null;
   if (scenarioId) {
     const sc = deps.getScenarioById(scenarioId);
@@ -616,7 +885,7 @@ export async function handleSimulateIntervention(
       return;
     }
     try {
-      world = await deps.getDigitalTwinWorld();
+      world = await deps.getDigitalTwinWorld(calls);
     } catch (err) {
       console.error('[simulate-intervention] getDigitalTwinWorld failed:', err);
       res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -634,34 +903,57 @@ export async function handleSimulateIntervention(
     ? { ...leader, unit: leader.unit ?? 'Lab leadership', instructions: leader.instructions ?? '' }
     : DEFAULT_DIGITAL_TWIN_LEADER;
 
-  // Reset the SSE event buffer before broadcasting this run's events so
-  // the dashboard's gameState does not interleave them with whatever
-  // run came before, and name the run's scenario. /setup does the same
-  // thing at its top.
+  // Pages tell runs apart by key and read each key off the stream, so a
+  // request naming a key a run has had would have that run taken for its own.
   if (requestedRunKey && deps.isRunKeyUsed?.(requestedRunKey)) {
     res.writeHead(409, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'That run key has already opened a run.' }));
     return;
   }
-  const runKey = requestedRunKey ?? randomUUID();
-  deps.resetEventBuffer?.(world.scenario, runKey);
+  // On the hosted demo a twin run is the caller's run of the day, as a
+  // /setup run is. It is charged before the run opens, in the same step as
+  // the check, so concurrent requests cannot all pass the check; a run
+  // refused for capacity gives the charge back.
+  const runRefused = hostLimits?.run.admit() ?? null;
+  if (runRefused) {
+    writeRefusal(res, runRefused);
+    return;
+  }
+  // The caller's run, with its own buffer and viewers, so the dashboard's
+  // gameState does not interleave it with whatever run came before.
+  let run: OpenedRun | null = null;
+  try {
+    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls) : null;
+  } catch (err) {
+    hostLimits?.run.refund();
+    if (err instanceof RunCapacityError) {
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': String(RUN_CAPACITY_RETRY_AFTER_SECONDS) });
+      res.end(JSON.stringify(err.body()));
+      return;
+    }
+    throw err;
+  }
+  const opened = run;
+  const runKey = opened?.runKey ?? requestedRunKey ?? randomUUID();
 
-  // Writes to the SSE broadcast bus while this run holds the buffer. One
-  // bad event must not fail the run.
-  const broadcast = deps.broadcast;
+  // Writes to the run's stream. One bad event must not fail the run.
   const send: BroadcastFn = (event, data, actorId) => {
-    if (!broadcast || deps.isCurrentRun?.(runKey) === false) return;
-    try { broadcast(event, data, actorId); } catch { /* the run goes on */ }
+    if (!opened) return;
+    try { opened.broadcast(event, data, actorId); } catch { /* the run goes on */ }
   };
 
   // The same frames a /setup run writes: the roster and the turn count, each
   // engine event as a `sim` event tagged with its leader, and an end. Without
   // them, the dashboard sees nothing until the artifact returns at the bottom
-  // of this handler. The roster and the turn count share one frame because
-  // the dashboard keeps the first `status` frame of a run. The handler still
+  // of this handler. The roster and the turn count share one `parallel`
+  // frame, which is what marks the run running on the page. The handler still
   // returns the full artifact synchronously at the end, which the Digital
   // Twin card renders.
-  const maxTurns = options.maxTurns ?? 2;
+  // A host-paid run's caps: the hosted demo's turn cap and its models (the
+  // routing's, which hold with the limiter off too), else the limits' turn
+  // cap and the economy tier.
+  const maxTurns = Math.min(options.maxTurns ?? 2, calls.maxTurns ?? hostLimits?.maxTurns ?? Number.POSITIVE_INFINITY);
+  const costPreset = hostLimits || calls.runModels ? 'economy' : options.costPreset ?? 'economy';
   send('status', {
     phase: 'parallel',
     maxTurns,
@@ -677,37 +969,54 @@ export async function handleSimulateIntervention(
   };
 
   const startedAt = Date.now();
-  let artifact: RunArtifact;
+  let artifact: RunArtifact | undefined;
   try {
-    artifact = await world.intervene({
-      subject: subject as SubjectConfig,
-      intervention: intervention as InterventionConfig,
-      actor: effectiveLeader,
-      maxTurns,
-      seed: options.seed ?? 11,
-      costPreset: options.costPreset ?? 'economy',
-      captureSnapshots: false,
-      onEvent,
+    try {
+      artifact = await world.intervene({
+        subject: subject as SubjectConfig,
+        intervention: intervention as InterventionConfig,
+        actor: effectiveLeader,
+        maxTurns,
+        seed: options.seed ?? 11,
+        costPreset,
+        provider: calls.provider,
+        ...(calls.runModels ? { models: calls.runModels } : {}),
+        ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
+        ...(calls.anthropicKey ? { anthropicKey: calls.anthropicKey } : {}),
+        ...(calls.stayOnProvider ? { stayOnProvider: true } : {}),
+        captureSnapshots: false,
+        onEvent,
+        outputDir: deps.outputDir,
+        writeOutputFile: false,
+      });
+    } catch (err) {
+      console.error('[simulate-intervention] intervene failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      send('sim_error', { leader: effectiveLeader.name, error: message }, effectiveLeader.name);
+      send('complete', { timestamp: new Date().toISOString(), aborted: true });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Intervention run failed: ${message}` }));
+      return;
+    }
+
+    // A run the provider stopped or a signal cancelled returns partial
+    // results and ends as aborted, as the pair runner ends one.
+    const stopped = artifact as RunArtifact & { aborted?: unknown; providerError?: unknown };
+    send('complete', {
+      timestamp: new Date().toISOString(),
+      ...(stopped.aborted === true || stopped.providerError ? { aborted: true } : {}),
     });
-  } catch (err) {
-    console.error('[simulate-intervention] intervene failed:', err);
-    const message = err instanceof Error ? err.message : String(err);
-    send('sim_error', { leader: effectiveLeader.name, error: message }, effectiveLeader.name);
-    send('complete', { timestamp: new Date().toISOString(), aborted: true });
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `Intervention run failed: ${message}` }));
-    return;
+  } finally {
+    // The engine has returned or thrown: the run's capacity slot is free.
+    opened?.finish();
   }
   const durationMs = Date.now() - startedAt;
 
-  // A run the provider stopped or a signal cancelled returns partial results
-  // and ends as aborted, as the pair runner ends one.
-  const stopped = artifact as RunArtifact & { aborted?: unknown; providerError?: unknown };
-  send('complete', {
-    timestamp: new Date().toISOString(),
-    ...(stopped.aborted === true || stopped.providerError ? { aborted: true } : {}),
-  });
-
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ artifact, durationMs }));
+  res.end(JSON.stringify({
+    artifact: artifact && withoutOutputPath(artifact),
+    durationMs,
+    runKey,
+    ...(opened ? { visitorId: opened.visitorId } : {}),
+  }));
 }

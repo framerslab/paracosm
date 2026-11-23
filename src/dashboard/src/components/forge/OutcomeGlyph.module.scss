@@ -1,0 +1,20 @@
+// Each outcome's glyph colour, from the live tokens: the pass green, the
+// forge view's problem colour, the accent for a judge that did not answer,
+// and the quiet tone for a forge whose record does not say why it did not pass.
+
+.glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.passed { color: var(--green); }
+
+.rejected,
+.refused,
+.failed { color: var(--problem); }
+
+.notJudged { color: var(--amber); }
+
+.didNotPass { color: var(--forge-quiet); }

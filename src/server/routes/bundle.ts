@@ -15,10 +15,21 @@
  */
 import type { ServerResponse } from 'node:http';
 import type { RunHistoryStore } from '../stores/run-history.js';
-import type { RunRecord } from '../services/run-record.js';
+import { publicRunRecord, withSavedSessionLinks, type RunRecord } from '../services/run-record.js';
 
 export interface BundleRoutesDeps {
   runHistoryStore: RunHistoryStore;
+  /**
+   * Whose runs the bundle answers with. Absent, every member. Given, the
+   * members that scope reaches; a bundle with none of them answers as a
+   * bundle no run is in.
+   */
+  runScope?: import('../stores/run-history.js').RunScope;
+  /**
+   * The session ids among those given that the session store holds; a
+   * member whose saved session is gone is answered without its link.
+   */
+  savedSessionIds?: (ids: readonly string[]) => Promise<ReadonlySet<string>>;
 }
 
 export async function handleListBundle(
@@ -31,7 +42,7 @@ export async function handleListBundle(
     res.end(JSON.stringify({ error: 'bundle queries not supported by this store' }));
     return;
   }
-  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId);
+  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId, deps.runScope);
   if (members.length === 0) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Bundle ${bundleId} has no members` }));
@@ -39,13 +50,14 @@ export async function handleListBundle(
   }
   const scenarioId = members[0].scenarioId;
   const createdAt = members[0].createdAt;
+  const linked = await withSavedSessionLinks(members, deps.savedSessionIds);
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({
     bundleId,
     scenarioId,
     createdAt,
     memberCount: members.length,
-    members,
+    members: linked.map(publicRunRecord),
   }));
 }
 
@@ -67,7 +79,7 @@ export async function handleBundleAggregate(
     res.end(JSON.stringify({ error: 'bundle queries not supported' }));
     return;
   }
-  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId);
+  const members = await deps.runHistoryStore.listRunsByBundleId(bundleId, deps.runScope);
   if (members.length === 0) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `Bundle ${bundleId} has no members` }));

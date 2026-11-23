@@ -24,7 +24,7 @@ import { RunArtifactSchema } from '../../src/engine/schema/artifact.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
 import { applyOutcomeEffects, systemsSnapshotTotals } from '../../src/runtime/orchestrator/outcome-effects.js';
-import { replaySimulation } from '../../src/runtime/orchestrator/index.js';
+import { replaySimulation, WorldModelReplayError } from '../../src/runtime/orchestrator/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const catalog = loadDiskCustomScenarios(resolve(here, '../../scenarios'));
@@ -173,7 +173,7 @@ test('a run with no scenario keeps the Mars defaults it has always had', () => {
   assert.deepEqual(Object.keys(state.politics), ['earthDependencyPct', 'governanceStatus', 'independencePressure']);
 });
 
-test('an Atlas Lab run saved with the Mars defaults still loads, forks and replays', async () => {
+test('an Atlas Lab run saved with the Mars defaults still loads and forks, and replay says it cannot verify it', async () => {
   // Trimmed from run_11b08c71 on paracosm.agentos.sh, 2 Nov 2026 05:50 UTC:
   // its first decision, its final state and its first two kernel snapshots.
   const saved = JSON.parse(readFileSync(resolve(here, '../fixtures/atlas-lab-run-2026-11-02.json'), 'utf-8'));
@@ -190,25 +190,28 @@ test('an Atlas Lab run saved with the Mars defaults still loads, forks and repla
   assert.equal(typeof state.metrics.foodMonthsReserve, 'number');
   assert.deepEqual(notFinite(state.metrics), []);
 
-  const replayed = await replaySimulation(atlasLab, artifact);
-  const fresh = (replayed.scenarioExtensions as { kernelSnapshotsPerTurn: KernelSnapshot[] }).kernelSnapshotsPerTurn;
-  assert.equal(fresh.length, 2);
-  assert.equal(fresh[1].state.metrics.powerKw, savedPower);
-  assert.deepEqual(notFinite(fresh[1].state.metrics), []);
+  // Its snapshots were saved at the end of each turn, after the turn's
+  // decisions, and it holds none from right after a between-turn step, so
+  // replay has nothing to compare a step with (#235).
+  await assert.rejects(
+    () => replaySimulation(atlasLab, artifact),
+    (err: unknown) => err instanceof WorldModelReplayError && /cannot verify this run/.test((err as Error).message),
+  );
 });
 
-test('an outcome reports the change the floor and the ceiling let through', () => {
+test('an outcome reports the change the floor and the easing of a morale gain let through', () => {
   // Morale 0.95 and a lift of 0.1 at the risky-success multiplier (2.5)
-  // asks for +0.25; morale stops at 1, so the run moved it by 0.05.
+  // asks for +0.25. A gain above 0.9 eases: it closes 1 - e^-2.5 of the
+  // 0.05 left to 1, so the run moved morale by 0.045896.
   const lab = new SimulationKernel(11, 'Marcus Reinhardt', [], {
     startTime: 1, initialPopulation: 30, scenario: atlasLab, startingResources: { morale: 0.95 },
   });
   const { systemDeltas: lift } = applyOutcomeEffects(lab, new EffectRegistry({ lift: { morale: 0.1 } }), {
     category: 'lift', outcome: 'risky_success', modifiers: { personalityBonus: 0, noise: 0 }, turn: 1, time: 1,
   });
-  assert.equal(lab.getState().metrics.morale, 1);
-  assert.deepEqual(lift, { morale: 0.05 });
-  assert.match(lab.getState().eventLog.at(-1)?.description ?? '', /morale \+0\.05$/);
+  assert.ok(Math.abs(lab.getState().metrics.morale - (1 - 0.05 * Math.exp(-2.5))) < 1e-12, `morale ${lab.getState().metrics.morale}`);
+  assert.deepEqual(lift, { morale: 0.045896 });
+  assert.match(lab.getState().eventLog.at(-1)?.description ?? '', /morale \+0\.045896$/);
 
   // 3 kW left and five forges at 1.2 kW each: power stops at 0, a change of -3.
   const mars = new SimulationKernel(950, 'x', [], {

@@ -112,9 +112,11 @@ test('two selected effects on one metric add up, and the floor and ceiling still
   assert.equal(floored.getState().metrics.morale, 0);
   assert.equal(floored.getState().metrics.powerKw, 0);
 
+  // A morale gain eases above 0.9, so even one of 2 ends just under 1.
   const ceiling = kernelFor(marsScenario, 50);
   ceiling.applyPolicy(policyFrom([{ id: 'a', systemDelta: { morale: 2 } }], ['a']));
-  assert.equal(ceiling.getState().metrics.morale, 1);
+  const lifted = ceiling.getState().metrics.morale;
+  assert.ok(lifted > 0.999999 && lifted < 1, `morale ${lifted}`);
 });
 
 test('a selected politics effect moves a politics value by its delta', () => {
@@ -135,17 +137,18 @@ test('a selected effect moves only what the run carries, wherever the run holds 
   assert.ok(!('boardConfidence' in state.metrics));
 });
 
-test('a legacy patch still sets a value outright, and a selected effect adds to what it set', () => {
+test('a department\'s patch sets nothing, and a selected effect still adds to the value', () => {
   const kernel = kernelFor(marsScenario, 50);
+  const governance = kernel.getState().politics.governanceStatus;
   kernel.applyPolicy(policyFrom(
     [{ id: 'a', systemDelta: { morale: -0.02 } }],
     ['a'],
     { metrics: { morale: 0.5, powerKw: 'plenty' }, politics: { governanceStatus: 'commonwealth' } },
   ));
   const state = kernel.getState();
-  near(state.metrics.morale, 0.48, 'morale');
-  assert.equal(state.metrics.powerKw, 400, 'a patch that is not a number moves nothing');
-  assert.equal(state.politics.governanceStatus, 'commonwealth');
+  near(state.metrics.morale, 0.83, 'morale');
+  assert.equal(state.metrics.powerKw, 400);
+  assert.equal(state.politics.governanceStatus, governance);
 });
 
 test('no patch writes a head count over the roster', () => {

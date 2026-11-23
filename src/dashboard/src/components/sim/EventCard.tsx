@@ -1,12 +1,12 @@
 import * as React from 'react';
-import { useEffect, useState, type CSSProperties } from 'react';
-import type { ProcessedEvent } from '../../hooks/useGameState';
+import type { CSSProperties } from 'react';
+import type { DecisionBarCheck, ProcessedEvent } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
 import { useScenarioContext } from '../../App';
-import { useToolContext } from '../../hooks/useToolRegistry';
 import { Badge } from '../shared/Badge';
 import { Tooltip } from '../shared/Tooltip';
 import { CitationPills } from '../shared/CitationPills';
+import { useForgeView } from '../forge/ForgeViewProvider';
 import styles from './EventCard.module.scss';
 
 // `import * as React` keeps the SSR test runner happy. The dashboard's
@@ -18,7 +18,10 @@ void React;
 
 interface EventCardProps {
   event: ProcessedEvent;
+  /** The colour slot: in the side-by-side columns, the column's place modulo 2. */
   actorIndex: number;
+  /** The actor's launch index, whose own registry a forged tool is read from. Defaults to `actorIndex`. */
+  actorSlot?: number;
 }
 
 const moodColors: Record<string, string> = {
@@ -31,13 +34,13 @@ const moodBgColors: Record<string, string> = {
   defiant: '#e06530', hopeful: '#6aad48', resigned: '#a89878', neutral: '#a89878',
 };
 
-export function EventCard({ event, actorIndex }: EventCardProps) {
+export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
   const scenario = useScenarioContext();
-  const toolRegistry = useToolContext();
-  // Open detail modal for a forge_attempt or specialist_done tool card. Tracks
-  // the inspected tool's name so the modal can pull schema + sample
-  // output + reuse stats from the registry.
-  const [inspectingTool, setInspectingTool] = useState<string | null>(null);
+  // The INSPECT key of a forge_attempt or specialist_done tool card opens the
+  // tool's trace, the one dialog the forge view's provider renders.
+  const forgeView = useForgeView();
+  // Each actor's tools are its own: a name another actor forged is that actor's tool.
+  const slot = actorSlot ?? actorIndex;
   const sideColor = getActorColorVar(actorIndex);
   const sideStyle = { '--side-color': sideColor } as CSSProperties;
   const dd = event.data;
@@ -52,8 +55,13 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const title = String(dd.title || '');
       const category = String(dd.category || '');
       if (total <= 1) return null;
+      // A forged tool's trace links to the event its tool was made for and moves focus here.
       return (
-        <div className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}>
+        <div
+          id={`sim-event-${slot}-${Number(dd.turn ?? 0)}-${idx}`}
+          tabIndex={-1}
+          className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}
+        >
           <span className={styles.eventNumber}>EVENT {idx + 1}/{total}</span>
           <span className={styles.eventStartTitle}>{title}</span>
           {category && <span className={styles.eventCategoryPill}>{category}</span>}
@@ -158,7 +166,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
               of <summary> in the DOM. */}
           <button
             type="button"
-            onClick={() => setInspectingTool(name)}
+            onClick={(e) => forgeView.openTrace({ actorIndex: slot, toolName: name }, e.currentTarget, 'inspect')}
             aria-label={`Inspect forged tool ${name}`}
             className={styles.forgeInspectAbs}
           >
@@ -180,13 +188,6 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
             )}
           </div>
         </details>
-        {inspectingTool && (
-          <ToolDetailModal
-            entry={toolRegistry.getEntry(inspectingTool)}
-            fallbackName={inspectingTool}
-            onClose={() => setInspectingTool(null)}
-          />
-        )}
         </>
       );
     }
@@ -383,7 +384,11 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
                     the summary's toggle click. */}
                 <button
                   type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setInspectingTool(t.name || ''); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    forgeView.openTrace({ actorIndex: slot, toolName: String(t.name || '') }, e.currentTarget, 'inspect');
+                  }}
                   aria-label={`Inspect tool ${t.name || ''}`}
                   className={styles.toolInspectBtn}
                 >
@@ -431,13 +436,6 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
             );
           })}
         </div>
-        {inspectingTool && (
-          <ToolDetailModal
-            entry={toolRegistry.getEntry(inspectingTool)}
-            fallbackName={inspectingTool}
-            onClose={() => setInspectingTool(null)}
-          />
-        )}
         </>
       );
     }
@@ -448,6 +446,7 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const rationale = String(dd._rationale || '');
       const reasoning = String(dd._reasoning || '');
       const policies = (dd._policies as string[]) || [];
+      const barCheck = dd._barCheck as DecisionBarCheck | undefined;
       const systemDeltas = {
         ...(dd.systemDeltas as Record<string, number> | undefined),
         ...(dd.politicsDeltas as Record<string, number> | undefined),
@@ -476,6 +475,12 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
           </div>
           {/* Decision text */}
           <div className={styles.outcomeText}>{decision}</div>
+          {/* The decision against the leader's bar, from the leader's result. */}
+          {barCheck && (
+            <div className={barCheck.departs ? `${styles.outcomeBar} ${styles.outcomeBarDeparts}` : styles.outcomeBar}>
+              {describeBarCheck(barCheck)}
+            </div>
+          )}
           {/* System deltas in teal mono */}
           {Object.keys(systemDeltas).length > 0 && (
             <div className={styles.outcomeDeltas}>
@@ -671,14 +676,21 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
       const schemaName = String(dd.schemaName || '<unknown>');
       const site = String(dd.site || '');
       const preview = String(dd.rawTextPreview || '');
+      // A salvage kept the reply with the keys the run does not hold
+      // dropped; a fallback replaced it with the empty skeleton.
+      const salvaged = dd.salvaged === true;
+      const dropped = Array.isArray(dd.droppedKeys) ? dd.droppedKeys.map(k => String(k)) : [];
       return (
         <details
           className={styles.fallbackDetails}
           style={sideStyle}
         >
           <summary className={styles.fallbackSummary}>
-            <span className={styles.fallbackTitle}>⚠ SCHEMA FALLBACK — {schemaName}</span>
+            <span className={styles.fallbackTitle}>⚠ {salvaged ? 'SCHEMA SALVAGE' : 'SCHEMA FALLBACK'} — {schemaName}</span>
             <span className={styles.fallbackSite}>site: {site || 'n/a'}</span>
+            {salvaged && (
+              <span className={styles.fallbackSite}>kept without: {dropped.length > 0 ? dropped.join(', ') : 'n/a'}</span>
+            )}
           </summary>
           {preview && (
             <details className={styles.fallbackPreviewWrap}>
@@ -695,150 +707,17 @@ export function EventCard({ event, actorIndex }: EventCardProps) {
   }
 }
 
-import type { ToolEntry } from '../../hooks/useToolRegistry';
-
 /**
- * Modal that surfaces the full toolbox entry for a forged tool — schemas,
- * sample output, reuse counts, departments. Triggered by clicking a
- * forge_attempt card in the sim flow.
+ * One line for a decision against the bar its prompt stated: the bar, the
+ * bold option's chance against it, the choice, and for a choice against the
+ * bar the fact the reply named for it, or that it named none.
  */
-function ToolDetailModal({ entry, fallbackName, onClose }: {
-  entry: ToolEntry | undefined;
-  fallbackName: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Tool detail · ${entry?.name || fallbackName}`}
-      onClick={onClose}
-      className={styles.modalBackdrop}
-    >
-      <div onClick={e => e.stopPropagation()} className={styles.modalDialog}>
-        <div className={styles.modalHeader}>
-          <div className={styles.modalHeaderLeft}>
-            <div className={styles.modalKicker}>FORGED TOOL [{entry?.n ?? '?'}]</div>
-            <div className={styles.modalTitle}>{entry?.name || fallbackName}</div>
-            {entry?.description && entry.description !== entry.name && (
-              <div className={styles.modalDescription}>{entry.description}</div>
-            )}
-          </div>
-          <button onClick={onClose} aria-label="Close" className={styles.modalCloseBtn}>×</button>
-        </div>
-
-        <div className={styles.modalScroll}>
-          {entry ? (
-            <>
-              <div className={styles.modalPills}>
-                <Pill label={`${entry.mode}`} color="var(--text-3)" />
-                <Pill label={entry.approved ? `PASS ${entry.confidence.toFixed(2)}` : 'RETRY'} color={entry.approved ? 'var(--green)' : 'var(--amber)'} />
-                <Pill label={`first forged T${entry.firstForgedTurn} · ${entry.firstForgedDepartment}`} color="var(--amber)" />
-                {entry.reuseCount > 0 && <Pill label={`reused ${entry.reuseCount}×`} color="var(--green)" />}
-                {entry.departments.size > 0 && <Pill label={`used by ${[...entry.departments].join(', ')}`} color="var(--teal)" />}
-              </div>
-
-              {entry.inputSchema && (
-                <ModalSection title="INPUT SCHEMA">
-                  <pre className={styles.codePre}>{JSON.stringify(entry.inputSchema, null, 2)}</pre>
-                </ModalSection>
-              )}
-              {entry.outputSchema && (
-                <ModalSection title="OUTPUT SCHEMA">
-                  <pre className={styles.codePre}>{JSON.stringify(entry.outputSchema, null, 2)}</pre>
-                </ModalSection>
-              )}
-              {!entry.inputSchema && !entry.outputSchema && (entry.inputFields.length > 0 || entry.outputFields.length > 0) && (
-                <ModalSection title="FIELDS (DERIVED)">
-                  <div className={styles.fieldsBlock}>
-                    {entry.inputFields.length > 0 && <div><span className={styles.fieldsLabelIn}>in:</span> {entry.inputFields.join(', ')}</div>}
-                    {entry.outputFields.length > 0 && <div><span className={styles.fieldsLabelOut}>out:</span> {entry.outputFields.join(', ')}</div>}
-                  </div>
-                </ModalSection>
-              )}
-              {/* Reuse timeline — every invocation across the run with
-                  turn, dept, event title, and output. Re-forge attempts
-                  are flagged separately from pure citations so the user
-                  can see when the LLM re-ran the judge vs cited an
-                  existing tool. */}
-              {entry.history && entry.history.length > 0 && (
-                <ModalSection title={`USAGE HISTORY · ${entry.history.length} invocation${entry.history.length === 1 ? '' : 's'}`}>
-                  <ol className={styles.usageList}>
-                    {entry.history.map((h, i) => {
-                      const accent = h.rejected ? 'var(--rust)' : h.isReforge ? 'var(--amber)' : 'var(--green)';
-                      return (
-                        <li
-                          key={i}
-                          className={styles.usageItem}
-                          style={{ '--usage-accent': accent } as CSSProperties}
-                        >
-                          <div className={styles.usageHeader}>
-                            <span className={styles.usageTurn}>T{h.turn}</span>
-                            <span className={styles.usageTime}>{h.time}</span>
-                            <span className={styles.usageDept}>{h.department}</span>
-                            <span className={styles.usageEvent}>· {h.eventTitle}</span>
-                            <span className={styles.usageStatus}>
-                              <span
-                                className={styles.usageStatusBadge}
-                                style={{ '--status-color': accent } as CSSProperties}
-                              >
-                                {h.rejected ? 'JUDGE REJECTED' : h.isReforge ? 'RE-FORGE' : i === 0 ? 'FORGE' : 'REUSE'}
-                              </span>
-                              {typeof h.confidence === 'number' && (
-                                <span className={styles.usageConf}>conf {h.confidence.toFixed(2)}</span>
-                              )}
-                            </span>
-                          </div>
-                          {h.output && (
-                            <div className={styles.usageOutput}>
-                              {h.output.length > 200 ? h.output.slice(0, 200) + '…' : h.output}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </ModalSection>
-              )}
-
-              {entry.sampleOutput && (
-                <ModalSection title="LATEST OUTPUT">
-                  <pre className={styles.codePre}>{entry.sampleOutput}</pre>
-                </ModalSection>
-              )}
-            </>
-          ) : (
-            <div className={styles.modalEmpty}>
-              Tool entry not yet in the registry — the specialist_done summary
-              for this forge hasn't arrived yet. Try again in a moment.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Pill({ label, color }: { label: string; color: string }) {
-  return (
-    <span className={styles.pill} style={{ '--pill-color': color } as CSSProperties}>
-      {label}
-    </span>
-  );
-}
-
-function ModalSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className={styles.modalSection}>
-      <div className={styles.modalSectionTitle}>{title}</div>
-      {children}
-    </div>
-  );
+export function describeBarCheck(c: DecisionBarCheck): string {
+  const stands = c.clearsBar ? 'clears it' : 'is under it';
+  const choice = c.choseBold ? 'the bold option was taken' : 'the bold option was refused';
+  if (!c.departs) return `Bar ${c.bar}: the bold option's chance ${c.boldChance} ${stands}, so ${choice}`;
+  const why = c.departureFact ? `, for: ${c.departureFact}` : ', with no fact named for it';
+  return `Bar ${c.bar}: the bold option's chance ${c.boldChance} ${stands}, yet ${choice}${why}`;
 }
 
 /**

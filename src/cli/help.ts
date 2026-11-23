@@ -43,7 +43,7 @@ const RUN_HELP = `paracosm run [options]
 
 Run a simulation against actors.json (or --actors <path>) and print
 turn-by-turn narrative to stdout. Saves the full RunArtifact JSON to
-./output/v3-<archetype>-<timestamp>.json (override with PARACOSM_OUTPUT_DIR).
+./output/v3-<archetype>-<timestamp>-<random>.json (override with PARACOSM_OUTPUT_DIR).
 
 Options:
   --actor <n>             Actor index in actors.json (default: 0)
@@ -86,6 +86,8 @@ Options:
 
 Environment:
   PORT                  Dashboard port (default: 3456)
+  HOST                  Address to listen on (default: 127.0.0.1; 0.0.0.0 for a container or a LAN)
+  PARACOSM_ALLOWED_HOSTS Additional names a local server answers besides localhost, IP addresses and HOST (comma-separated, no port)
   PARACOSM_ENABLE_SIMULATE_ENDPOINT=true   Enable POST /simulate one-shot endpoint
 `;
 

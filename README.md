@@ -84,11 +84,11 @@ console.log(trunk.fingerprint, branch.fingerprint);
 
 ```typescript
 const replay = await wm.replay(storedArtifact);
-console.log(replay.matches);     // true when the kernel reproduces the artifact byte for byte
-console.log(replay.divergence);  // first-mismatch JSON pointer when matches=false
+console.log(replay.matches);     // true when each between-turn step reproduces the state the run saved after it
+console.log(replay.divergence);  // first path that differs, from the artifact's root, when matches=false
 ```
 
-The kernel's between-turn progression hook reruns deterministically from each recorded snapshot. LLM stages are not invoked, so replay is fast and free. Use it for golden-artifact regression tests in CI, or to find the first kernel-state divergence between two paracosm versions.
+With `captureSnapshots: true` the turn loop saves, beside each turn's end-of-turn snapshot, the state its first between-turn step starts from and the state right after each turn's step, before the turn's decisions move it. Replay restores the kernel from the state each step started from, re-runs the step (ageing, dose, deaths, births, food and morale), and compares the result with the state the run saved after it. It calls no model, so it is fast and free. It does not re-apply a turn's decisions. A run saved before the turn loop kept those snapshots gets a `WorldModelReplayError` saying replay cannot verify it, never a match or a mismatch ([#235](https://github.com/framerslab/paracosm/issues/235)). What replay checks, what the seed fixes and what the model decides: [FAQ](docs/FAQ.md#what-does-replay-do).
 
 ---
 
@@ -98,7 +98,7 @@ The kernel's between-turn progression hook reruns deterministically from each re
 >
 > Stanislaw Lem, *Solaris*, 1961
 
-Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, morale that holds, a department that keeps them off the airlock.
+Two simulation runs against an identical compiled scenario, starting from the same kernel state, produce divergent trajectories when the only thing that changes is the actor's personality. The kernel is reproducible. The divergence comes from the LLM stages reading a HEXACO profile and deciding accordingly. Both runs roll the same dice for the same person, so the people who die on one side and not the other are the ones whose world that run changed: a habitat that shields more of the dose, supplies held above what the colony landed with, morale that holds, a department that keeps them off the airlock. On Mars Genesis, which keeps one death die for each person and cause for a life, a person both sides lose dies no earlier on the side that gave them better chances in every year.
 
 Actors do not need to be people. The same authoring contract handles colony commanders, ship captains, AI release directors, governing councils, faction leaders, autonomous coordinators, or any entity whose decisions shape the world after a chain of inputs. Paracosm does not care what an actor represents. It cares how the actor decides.
 
@@ -158,7 +158,7 @@ Six turns is enough to surface the contrast. The fingerprint is a stable hash ov
 
 ## Quickstart: prompt or document to running simulation
 
-`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed.
+`WorldModel.fromPrompt` compiles a scenario from seed source material (paste, URL, or extracted PDF text), and `wm.quickstart` then generates N contextual HEXACO actors and runs them in parallel. Both paths validate against `DraftScenarioSchema` and route into `compileScenario`. The canonical `ScenarioPackage` contract is never bypassed. The compiled scenario declares each score's start and range and the category tables its events use, so a run holds every score the scenario declares.
 
 ```typescript
 import { WorldModel } from 'paracosm';
@@ -231,7 +231,7 @@ Every scenario declares its own vocabulary via `labels.populationNoun` (plural),
 
 Time is unit-agnostic. `setup.defaultTimePerTurn` and `setup.defaultStartTime` are plain numbers; whether they represent years, quarters, hours, or ticks is decided by `timeUnitNoun`. The dashboard turn header reads `Quarter 5`, `Day 22`, or `Year 2043` straight from the label.
 
-Ages, experience and the kernel's yearly rates (births, deaths, partnerships, recovery, promotions) are in years. Between turns the kernel converts the elapsed units to years with `setup.yearsPerTimeUnit`, or, when the scenario declares none, with the length of the unit `timeUnitNoun` names: year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, and 1 for any other word (`tick`, `turn`). A month of Atlas Lab ages its people a twelfth of a year and rolls a twelfth of a year's births and deaths; an eight-year Mars turn ages its colonists eight years. Progression hooks get the step as `timeDelta` (the scenario's unit) and as `yearsDelta`, with `yearsSinceStart` and `yearsPerUnit` beside them.
+Ages, experience and the kernel's yearly rates (births, deaths, partnerships, recovery, promotions) are in years. Between turns the kernel converts the elapsed units to years with `setup.yearsPerTimeUnit`, or, when the scenario declares none, with the length of the unit `timeUnitNoun` names: year 1, quarter 1/4, month 1/12, week 1/52, day 1/365, hour 1/8760, and 1 for any other word (`tick`, `turn`). A month of Atlas Lab ages its people a twelfth of a year and rolls a twelfth of a year's births and deaths; an eight-year Mars turn runs as eight one-year steps, so it ages its colonists eight years, gives the chances eight one-year turns give and settles the colony's morale once a year. Progression hooks get the step as `timeDelta` (the scenario's unit) and as `yearsDelta`, with `yearsSinceStart` and `yearsPerUnit` beside them.
 
 ---
 
@@ -295,15 +295,16 @@ The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./co
 
 The dashboard ships two ways to produce a shareable run link, both landing the viewer on the visualization tab with no upload step.
 
-**From the dashboard UI** — three places now copy `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz` to the clipboard:
+**From the dashboard UI** — four places copy `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz` to the clipboard:
 
 - **TopBar overflow menu** (⋯ → Share viz link) — for the run you're currently watching, including replays loaded from a previously shared link.
+- **Run detail drawer** (Library → Open → Share viz link) — for the run the drawer shows.
 - **Quickstart actor cards** — per-actor "Copy viz share link" button.
 - **Library row Share button** — for any historical run whose broadcast session was successfully linked at save time (any run completed after this feature shipped). Library rows from before the link wire-up render without the Share button.
 
-All three routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly.
+All four routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly. Anyone who has the link and can reach the dashboard that made it can watch the run; a link made on a dashboard served at `localhost` opens only on that computer. Every one of these keys shows the link in a field after the press, with whether it was copied and who can open it; when the browser refuses the clipboard or does not answer within three seconds, the note says so and the link stays in the field to copy by hand.
 
-**By URL construction** — any remote `.json` save can be turned into a deep link that auto-fetches, parses, and lands on the tab you choose. No upload step, no preview modal.
+**By URL construction** — any remote `.json` save can be turned into a deep link that fetches, parses, and lands on the tab you choose. No upload step, no preview modal. A file on another site than the dashboard's is fetched after the viewer answers one question that names that site.
 
 ```
 https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
@@ -313,7 +314,7 @@ https://paracosm.agentos.sh/sim?load=<remote-json-url>&tab=viz&autoload=1
 | ---------- | -------- | --------- |
 | `load`     | yes      | URL of the remote `.json` save. Must be `http:` or `https:` and CORS-readable. Pastebins, gists, S3, GitHub raw all work. |
 | `tab`      | no       | Tab to open after the run loads. `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. Invalid values fall back to `sim`. |
-| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. |
+| `autoload` | no       | `1` or `true` skips the F9 preview modal and confirms the load automatically. Omit to show the preview confirm step. A file on another site still asks the question naming that site first. |
 
 Concrete share links:
 
@@ -430,18 +431,18 @@ Running a simulation calls real LLM APIs against the user's key. Paracosm assign
 
 | Preset                | Departments                          | Commander · Director · Judge                       | Reactions                                          | OpenAI / run | Anthropic / run |
 |-----------------------|--------------------------------------|-----------------------------------------------------|----------------------------------------------------|--------------|-----------------|
-| `quality` (default)   | gpt-5.4 · claude-sonnet-4-6          | gpt-5.4-mini · claude-haiku-4-5-20251001            | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$1 to $3    | ~$3 to $7       |
+| `quality` (default)   | gpt-5.4 · claude-sonnet-4-6          | gpt-4o (commander), gpt-5.4-mini (director, judge) · claude-haiku-4-5-20251001 | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$1 to $3    | ~$3 to $7       |
 | `economy`             | gpt-4o · claude-sonnet-4-6           | gpt-5.4-nano · claude-haiku-4-5-20251001            | gpt-5.4-nano · claude-haiku-4-5-20251001           | ~$0.20 to $0.60 | ~$3 to $5    |
 
 Numbers assume 6 turns, 5 departments, 100 agents, up to 3 events per turn. Forge approval rate drops 10 to 20 points on `economy` because the mid-tier department model occasionally violates structured-output schemas the judge rejects. Use `economy` for iteration and CI; use `quality` for publishable runs. Explicit `models` entries always win over the preset, so per-role overrides combine cleanly with global defaults.
 
-`WorldModel.simulate` returns a `cost` field with token counts, LLM call counts, and USD spend. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The `cost.caches` field reports tokens read, tokens created, and USD saved per run.
+`WorldModel.simulate` returns a `cost` field with the run's USD spend and its LLM call count; it leaves the token counts empty. Stable system prefixes (the director's instructions, the department prompts) route through a `cacheBreakpoint: true` block, so on Anthropic the shared prefix serves from prompt cache at one-tenth input cost from turn 2 onward once it reaches the model's minimum (4,096 tokens on Claude Haiku 4.5, [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)); OpenAI caches a prefix on its own once it reaches the model's minimum (1,024 tokens on GPT-5.6 and later, set by the request on earlier models, [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching)). The cost payload on each streamed event (`_cost`) carries the tokens, the prompt-cache reads and writes, and the USD the cache saved, per stage.
 
 ---
 
 ## How a turn runs
 
-Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging in an in-process `node:vm` context; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.
+Director event → Kernel advance (deterministic, seeded) → Department analysis in parallel (with optional runtime tool forging, each call in a QuickJS WebAssembly instance of its own; an LLM judge approves each forge) → Commander decision (HEXACO-weighted) → Outcome classification → Kernel effects → Agent reactions → Memory consolidation → Personality drift.
 
 Every structured LLM call (director, departments, commander, reactions, verdict) is Zod-validated with retry-with-feedback. Schemas under [`src/runtime/validators/`](src/runtime/validators/). Full per-stage breakdown in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -461,7 +462,7 @@ Programmatic surfaces: `paracosm` root (`run`, `runMany`, `WorldModel`, `compile
 
 For non-SSE consumers there's `POST /simulate` (gated on `PARACOSM_ENABLE_SIMULATE_ENDPOINT=true`) and nine read-and-replay routes under `/api/v1/*`. Wire-level details: [`docs/HTTP_API.md`](docs/HTTP_API.md).
 
-Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer; off by default.
+Storage: SQLite through `@framers/sql-storage-adapter` (better-sqlite3, or sql.js when the native module cannot load). Run history (Library) lives in `data/runs.db` under `APP_DIR`, the working directory when unset (`PARACOSM_RUN_HISTORY_DB_PATH` moves it), and saved sessions (Load menu) in `data/sessions.db`; `STORAGE_ADAPTER` and `DATABASE_URL` have no effect on either. Admin write routes (`/admin/sessions/save`, `/admin/data/wipe`, `DELETE /admin/scenarios/:id`, `POST /scenarios/:id/rename`) and the disk write of `POST /scenario/store` (`saveToDisk: true`) require both `ADMIN_WRITE=true` and an `ADMIN_TOKEN` bearer in the `X-Admin-Token` header; off by default. With `ADMIN_WRITE=true` the dashboard's Settings tab shows an Admin Token field, where an operator enters the token once for that browser. The dashboard sends it on Save to Disk, Delete server data, and a scenario's Rename and Delete; Clear local data clears the browser's cached data and lets go of that browser's own run on the server, stopping it when it is running; run history, saved sessions and output files are kept.
 
 ---
 
@@ -520,7 +521,7 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 |------------------------------|-----------------------------------------------------------------------|
 | `agent()`                    | Commander, department, and Event Director agents                      |
 | `generateText()`             | LLM calls for event generation and tool evaluation                    |
-| `EmergentCapabilityEngine`   | Runtime tool forging in an in-process node:vm context                 |
+| `EmergentCapabilityEngine`   | Runtime tool forging; forged code runs in AgentOS's `QuickJSExecutor` |
 | `EmergentJudge`              | LLM-as-judge safety review of forged tools                            |
 | `WebSearchService`           | Multi-provider seed enrichment with Firecrawl, Tavily, Serper, Brave  |
 | `AgentMemory`                | Per-run citation memory with full-text recall                         |
@@ -531,9 +532,9 @@ Paracosm uses [AgentOS](https://agentos.sh/en) for agent orchestration, LLM disp
 
 | | Hosted demo | Your own install (Apache-2.0) |
 |---|---|---|
-| Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. |
+| Where | [paracosm.agentos.sh/sim](https://paracosm.agentos.sh/sim), in the browser, without an account. | Your machine or server: `npm install paracosm` for the SDK and the CLI, `paracosm dashboard` for the same dashboard at `http://localhost:3456`. To reach it by another name (a LAN name, a server behind a proxy), list the name in `PARACOSM_ALLOWED_HOSTS`, and from another machine also set `HOST=0.0.0.0`. |
 | Model keys | The host's keys, or your own OpenAI or Anthropic key entered in Settings. | Your own keys, from the environment or a `.env` file. |
-| Limits | Runs on the host's keys are capped in turns, population and departments, and each IP address has a daily run limit. Your own key lifts both. | No hosted quotas: the SDK and `paracosm run` cap no turns, population, departments or daily runs. The API has its own bounds: `runMany()` and `WorldModel.quickstart()` take 2 to 6 actors and throw outside that range, `run()` runs two and returns the first, and a dashboard run takes 2 to 300 actors (a fork takes 1). The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
+| Limits | Runs on the host's keys are capped in turns, population, departments and leaders (two), and each IP address has a daily run limit, which a Digital Twin run also counts against. Quickstart compiles count against a daily compile limit, and its grounding, actor and URL requests against a daily limit of their own. Your own key lifts the run caps and the run limit for a run you start (a Digital Twin run takes no key, so it always counts); live search there runs only on search keys you bring. | No hosted quotas: the SDK and `paracosm run` cap no turns, population, departments or daily runs. The API has its own bounds: `runMany()` and `WorldModel.quickstart()` take 2 to 6 actors and throw outside that range, `run()` runs two and returns the first, and a dashboard run takes 2 to 300 actors (a fork takes 1). The dashboard server limits runs on its own keys to `RATE_LIMIT` per IP address per day (1 when unset); `RATE_LIMIT=0` turns the limit off. |
 | Cost | Free to try. | Free. You pay your model provider for the runs you make. |
 | Support | Community via Discord and GitHub. | Community via Discord and GitHub. |
 
@@ -550,6 +551,7 @@ Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:
 | API docs       | [paracosm.agentos.sh/docs](https://paracosm.agentos.sh/docs) |
 | HTTP API       | [docs/HTTP_API.md](https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md) |
 | Cookbook       | [docs/COOKBOOK.md](https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md) |
+| FAQ            | [docs/FAQ.md](https://github.com/framerslab/paracosm/blob/master/docs/FAQ.md): dice, models, seeds, replay and forks |
 | npm            | [npmjs.com/package/paracosm](https://www.npmjs.com/package/paracosm) |
 | AgentOS        | [agentos.sh](https://agentos.sh/en)                              |
 | Discord        | [wilds.ai/discord](https://wilds.ai/discord)                  |
@@ -568,6 +570,8 @@ Commercial, partnership and sponsorship inquiries go to [team@frame.dev](mailto:
 ## License
 
 Apache-2.0
+
+The landing page, the dashboard and the API docs load their fonts from the site itself: Inter and JetBrains Mono, in `assets/fonts/`, from the `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono` packages. Both fonts are under the [SIL Open Font License 1.1](https://openfontlicense.org/open-font-license-official-text/); the licence texts are `assets/fonts/LICENSE-Inter.txt` and `assets/fonts/LICENSE-JetBrains-Mono.txt`.
 
 ---
 

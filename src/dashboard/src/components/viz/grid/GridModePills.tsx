@@ -5,10 +5,10 @@ export type GridMode = 'living' | 'mood' | 'forge' | 'ecology' | 'divergence';
 /** Hints are scenario-templated. `{people}` = plural population noun,
  *  `{person}` = singular, both lower-case. Resolved at render time. */
 const MODES: { key: GridMode; label: string; hint: string }[] = [
-  { key: 'living', label: 'LIVING', hint: 'Full field + {person} seeds + family lines + all events' },
-  { key: 'mood', label: 'MOOD', hint: '{Person} mood cloud emphasized; births / deaths / partner arcs' },
+  { key: 'living', label: 'LIVING', hint: 'Full field + {person} seeds + all events' },
+  { key: 'mood', label: 'MOOD', hint: '{Person} mood cloud emphasized; births / deaths' },
   { key: 'forge', label: 'FORGE', hint: 'Field dimmed; tool forge attempts + reuse arcs between departments' },
-  { key: 'ecology', label: 'ECOLOGY', hint: 'Glyphs hidden; metrics strip + crisis shockwaves lead' },
+  { key: 'ecology', label: 'ECOLOGY', hint: 'Glyphs hidden; food, water, power and volume tint a quadrant each' },
   { key: 'divergence', label: 'DIVERGENCE', hint: 'Only {people} alive here but dead on the other side' },
 ];
 
@@ -58,6 +58,15 @@ export function GridModePills({
   // current mode + a tap target that opens the system picker — cleaner
   // and reclaims the row for actual viz content.
   if (isPhone) {
+    // The menu is never narrower than its chosen word: in the monospaced
+    // face each character takes 1ch and the 0.08em letter spacing. The
+    // padding, the edges and the arrow take 32 to 35 px more (measured in
+    // Chromium: "LIVING" needs 98 px, "DIVERGENCE · 60" 200 px), so 44 px
+    // leaves room to spare. It grows into the row's free space.
+    const chosen = MODES.find(m => m.key === mode);
+    const chosenCount = counts?.[mode];
+    const chosenWord = `${chosen?.label ?? ''}${typeof chosenCount === 'number' && chosenCount > 0 ? ` · ${chosenCount}` : ''}`;
+    const wordWidth = `calc(${chosenWord.length} * (1ch + 0.08em) + 44px)`;
     return (
       <select
         aria-label="Grid viz mode"
@@ -65,7 +74,9 @@ export function GridModePills({
         onChange={(e) => onChange(e.target.value as GridMode)}
         title={interpolate(MODES.find(m => m.key === mode)?.hint ?? '', labels)}
         style={{
-          width: '100%',
+          flex: '1 1 auto',
+          width: wordWidth,
+          minWidth: wordWidth,
           padding: '8px 10px',
           fontSize: 16,  // iOS Safari zoom-on-focus threshold
           fontFamily: 'var(--mono)',

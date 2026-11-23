@@ -90,7 +90,7 @@ export function StudioGuide(): JSX.Element {
           <strong>Download the artifact.</strong> Sim output panel has a Save button — that JSON is the RunArtifact. You can also produce one from the CLI: <code>paracosm run scenarios/frontier-ai-lab.json --turns 20 --out run.json</code>.
         </li>
         <li>
-          <strong>Drop it in the zone below.</strong> Single artifact or a bundle (array of artifacts, e.g. for branch comparisons). Max 10&nbsp;MB.
+          <strong>Drop it in the zone below.</strong> Single artifact or a bundle (array of artifacts, e.g. for branch comparisons). Max 10&nbsp;MB. A bundle over the server&rsquo;s request limit (5&nbsp;MiB unless <code>MAX_REQUEST_BODY_BYTES</code> sets another) is promoted in parts of whole runs, snapshots included, into one Library bundle; a run that alone passes the limit is refused.
         </li>
       </ol>
 

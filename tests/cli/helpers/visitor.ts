@@ -7,7 +7,7 @@
  * for each.
  */
 export interface Visitor {
-  get(path: string): Promise<Response>;
+  get(path: string, init?: RequestInit): Promise<Response>;
   post(path: string, payload: unknown): Promise<Response>;
   /** GET a path and parse its JSON. */
   json<T = Record<string, unknown>>(path: string): Promise<T>;
@@ -21,16 +21,19 @@ export interface Visitor {
  * back as one Cookie header on its next requests, as a browser does on the
  * same origin; attributes such as Max-Age are not enforced.
  * `initialCookies` starts the jar, for a visitor who arrives holding a
- * cookie (a stale pick, a pick from before a restart).
+ * cookie (a stale pick, a pick from before a restart). `headers` go on
+ * every request, such as an `x-forwarded-for` that gives the visitor an
+ * address of their own.
  */
-export function visitor(base: string, initialCookies: Record<string, string> = {}): Visitor {
+export function visitor(base: string, initialCookies: Record<string, string> = {}, headers: Record<string, string> = {}): Visitor {
   const cookies = new Map(Object.entries(initialCookies));
   const send = async (path: string, init: RequestInit = {}): Promise<Response> => {
-    const headers = new Headers(init.headers);
+    const sent = new Headers(init.headers);
+    for (const [name, value] of Object.entries(headers)) sent.set(name, value);
     if (cookies.size > 0) {
-      headers.set('Cookie', [...cookies].map(([name, value]) => `${name}=${value}`).join('; '));
+      sent.set('Cookie', [...cookies].map(([name, value]) => `${name}=${value}`).join('; '));
     }
-    const res = await fetch(`${base}${path}`, { ...init, headers });
+    const res = await fetch(`${base}${path}`, { ...init, headers: sent });
     for (const line of res.headers.getSetCookie()) {
       const pair = line.split(';', 1)[0];
       const eq = pair.indexOf('=');
@@ -40,7 +43,7 @@ export function visitor(base: string, initialCookies: Record<string, string> = {
   };
   return {
     cookies,
-    get: path => send(path),
+    get: (path, init) => send(path, init),
     post: (path, payload) => send(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

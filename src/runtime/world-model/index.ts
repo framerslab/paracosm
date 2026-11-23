@@ -131,15 +131,16 @@ export interface WorldModelSnapshot {
  */
 /**
  * Shape returned by {@link WorldModel.replay}. `matches=true` iff the
- * fresh kernel snapshots produced by re-execution byte-equal the input
- * artifact's snapshots under canonical JSON. When false, `divergence`
- * carries a JSON-pointer-style first-mismatch path suitable for
- * forensic inspection.
+ * fresh state after each between-turn step equals the input artifact's
+ * `scenarioExtensions.kernelSnapshotsAfterProgression` under canonical
+ * JSON. When false, `divergence` names the first path that differs, from
+ * the artifact's root (`/scenarioExtensions/kernelSnapshotsAfterProgression/1/state/metrics/morale`),
+ * with the recorded and the fresh value.
  *
  * The fresh `artifact` has the same shape as the input but with a
- * regenerated `metadata.runId` and freshly-computed
- * `scenarioExtensions.kernelSnapshotsPerTurn`. Other fields copy from
- * the input verbatim.
+ * regenerated `metadata.runId` and freshly computed
+ * `scenarioExtensions.kernelSnapshotsAfterProgression`. Other fields copy
+ * from the input verbatim.
  */
 export interface WorldModelReplayResult {
   artifact: RunArtifact;
@@ -375,6 +376,8 @@ export class WorldModel {
    */
   async simulate(
     opts: SimulateOptions,
+    /** Optional engine implementation; fork runners retain the same resume handling. */
+    runSimulationImpl: typeof runSimulation = runSimulation,
   ): Promise<RunArtifact> {
     const { actor, keyPersonnel = [], ...options } = opts;
     const resumeFrom = this._pendingResumeFrom;
@@ -401,7 +404,7 @@ export class WorldModel {
     this._pendingForkedFrom = undefined;
     this._pendingResumeFrom = undefined;
 
-    const artifact = await runSimulation(actor, keyPersonnel, mergedOpts as RunOptions);
+    const artifact = await runSimulationImpl(actor, keyPersonnel, mergedOpts as RunOptions);
     this._lastRunId = artifact.metadata.runId;
 
     // Pull the terminal kernel snapshot from the artifact's embedded
@@ -614,20 +617,29 @@ export class WorldModel {
   }
 
   /**
-   * Re-execute the kernel transitions captured in `artifact` and report
-   * whether today's kernel produces the same snapshots. The audit
-   * use case named in the 2026-04-23 positioning spec is now a single
-   * API call; pillar 2 (Reproducible) is verifiable in code rather
-   * than promised in copy.
+   * Re-run each between-turn step `artifact` recorded and report whether
+   * today's kernel produces the same state after it. The audit use case
+   * named in the 2026-04-23 positioning spec is a single API call.
    *
-   * Implementation re-runs the deterministic between-turn progression
-   * hook from each recorded snapshot to the next, captures fresh
-   * snapshots, and compares the fresh `kernelSnapshotsPerTurn` array
-   * to the input artifact's via canonical JSON. `matches=true` proves
-   * the kernel is byte-equal-deterministic for this artifact's transitions.
+   * Each step restarts from the state it started from in the run (the
+   * run's start snapshot for the first, else the end-of-turn snapshot of
+   * the turn before) and is compared with the state the run saved right
+   * after it, before the turn's decisions moved it. `matches=true` shows
+   * the current kernel code reproduces every step the run took. Replay
+   * calls no model and does not re-apply the turns' decisions, outcomes or
+   * drift (#235).
    *
    * Required preconditions on `artifact`:
-   *   - `scenarioExtensions.kernelSnapshotsPerTurn` populated.
+   *   - `scenarioExtensions.kernelSnapshotAtStart` and
+   *     `kernelSnapshotsAfterProgression`, which the turn loop saves with
+   *     `captureSnapshots: true`. A run saved before the turn loop kept them gets a
+   *     `WorldModelReplayError` saying replay cannot verify it, never a
+   *     match or a mismatch.
+   *   - For every step after the first, the end-of-turn snapshot of the
+   *     turn before (`kernelSnapshotsPerTurn`), the state it started from;
+   *     and for every end-of-turn snapshot, the state after that turn's
+   *     step. A run missing one (a turn that ended in an error saves no
+   *     end-of-turn snapshot) gets the same cannot-verify error.
    *   - `decisions[]` populated.
    *   - `metadata.scenario.id` matches this WorldModel's scenario.
    *
@@ -637,15 +649,17 @@ export class WorldModel {
    */
   async replay(artifact: RunArtifact): Promise<WorldModelReplayResult> {
     const fresh = await replaySimulation(this.scenario, artifact);
-    const inputSnaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn ?? [];
-    const freshSnaps = (fresh.scenarioExtensions as { kernelSnapshotsPerTurn?: KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn ?? [];
-    if (canonicalJson(inputSnaps) === canonicalJson(freshSnaps)) {
+    const afterSteps = (a: RunArtifact) =>
+      (a.scenarioExtensions as { kernelSnapshotsAfterProgression?: KernelSnapshot[] } | undefined)?.kernelSnapshotsAfterProgression ?? [];
+    const recorded = afterSteps(artifact);
+    const replayed = afterSteps(fresh);
+    if (canonicalJson(recorded) === canonicalJson(replayed)) {
       return { artifact: fresh, matches: true, divergence: '' };
     }
     return {
       artifact: fresh,
       matches: false,
-      divergence: firstDivergence(inputSnaps, freshSnaps),
+      divergence: firstDivergence(recorded, replayed, '/scenarioExtensions/kernelSnapshotsAfterProgression'),
     };
   }
 }
@@ -710,8 +724,14 @@ const QuickstartActorSchema = z.object({
   instructions: z.string().min(10).max(400),
 });
 
+/**
+ * The most leaders one actor call writes: the most `POST
+ * /api/quickstart/generate-actors` asks for (its `count`, 2 to 300).
+ */
+const MAX_QUICKSTART_ACTORS = 300;
+
 const QuickstartActorsSchema = z.object({
-  actors: z.array(QuickstartActorSchema).min(2).max(6),
+  actors: z.array(QuickstartActorSchema).min(2).max(MAX_QUICKSTART_ACTORS),
 });
 
 /**
@@ -724,7 +744,14 @@ const QuickstartActorsSchema = z.object({
 export async function generateQuickstartActors(
   scenario: ScenarioPackage,
   count: number,
-  opts: { provider?: string; model?: string } = {},
+  opts: {
+    provider?: string;
+    model?: string;
+    /** The provider key the call bills; without it the call uses the environment's key. */
+    apiKey?: string;
+    /** Keep the call on `provider`: no fallback to another provider. */
+    stayOnProvider?: boolean;
+  } = {},
 ): Promise<ActorConfig[]> {
   const provider = opts.provider ?? 'anthropic';
   const model = opts.model ?? 'claude-sonnet-4-6';
@@ -749,7 +776,10 @@ Generate exactly ${count} archetypal actors. Each one makes recognizably differe
     systemCacheable: systemPrompt,
     prompt,
     maxRetries: 1,
+    apiKey: opts.apiKey,
+    stayOnProvider: opts.stayOnProvider,
   });
 
-  return result.object.actors as ActorConfig[];
+  // The leaders asked for, never more.
+  return (result.object.actors as ActorConfig[]).slice(0, count);
 }

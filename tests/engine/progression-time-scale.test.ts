@@ -148,9 +148,9 @@ test('an eight-year Mars step still ages and doses its people eight years', () =
     if (!age.has(a.core.id) || !a.health.alive) continue;
     near(ageYears(kernel, a), age.get(a.core.id)! + 8, `${a.core.name}'s age after eight years`);
     near(a.career.yearsExperience, experience.get(a.core.id)! + 8, `${a.core.name}'s experience after eight years`);
-    // Mars starts with three habitat modules, which keep out 60 percent
-    // of the surface dose.
-    near(a.health.cumulativeRadiationMsv ?? 0, dose.get(a.core.id)! + 0.67 * 365 * 8 * 0.4, `${a.core.name}'s dose after eight years`);
+    // Mars starts with three habitat modules, which keep out 49 percent
+    // of the surface dose: 0.8 ^ 3 gets through.
+    near(a.health.cumulativeRadiationMsv ?? 0, dose.get(a.core.id)! + 0.67 * 365 * 8 * 0.512, `${a.core.name}'s dose after eight years`);
   }
 });
 

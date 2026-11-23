@@ -87,6 +87,16 @@ export interface ScenarioSetupSchema {
   defaultPopulation: number;
   /** Maximum events the Event Director can generate per turn. Default: 3 */
   maxEventsPerTurn?: number;
+  /**
+   * How each person's death dice are kept. `'year'` (the default): a die of
+   * its own for each cause in each year. `'life'`: one die for each cause
+   * for the person's whole life, and the person dies in the year their
+   * chance of having survived that cause falls to it. A run's chances of
+   * death are the same either way; with a die for life, two runs of one
+   * seed that give a person different yearly chances can record that
+   * person's death in different years.
+   */
+  mortalityDice?: 'year' | 'life';
   /** Which setup form sections to expose in the dashboard */
   configurableSections: Array<'actors' | 'personnel' | 'resources' | 'departments' | 'events' | 'models' | 'advanced'>;
 }
@@ -105,6 +115,12 @@ export interface WorldMetricSchema {
   min?: number;
   max?: number;
   category: 'metric' | 'capacity' | 'status' | 'politic' | 'environment';
+  /**
+   * A supply that sustains the people (a metric or a capacity): the yearly
+   * age and accident rates divide by the colony's supply level, the
+   * geometric mean of these supplies against their landing-day amounts.
+   */
+  sustains?: boolean;
 }
 
 /** Declares all world state variables for a scenario. */
@@ -175,9 +191,9 @@ export interface MetricDefinition {
   id: string;
   label: string;
   /**
-   * Path into the world snapshot, e.g. `metrics.population`. A
-   * seed-compiled draft declares only id and format; readers fall back
-   * to `metrics.<id>`.
+   * Path into the world snapshot, e.g. `metrics.population`. A scenario
+   * compiled from a seed draft before the compiler wrote a world for it
+   * declares only id and format; readers fall back to `metrics.<id>`.
    */
   source: string;
   format: 'number' | 'percent' | 'currency' | 'duration';
@@ -282,7 +298,9 @@ export interface ScenarioPreset {
 export interface ProgressionHookContext {
   /** All agents (mutable: the hook modifies health fields in place) */
   agents: Agent[];
-  /** Time since the last turn, in the scenario's unit. */
+  /** The step's length, in the scenario's unit. A turn calls the hook once
+   *  for each whole year it spans and once for a part of a year left over
+   *  (one call for a turn under a year), with `time` at that step's end. */
   timeDelta: number;
   time: number;
   turn: number;
@@ -293,7 +311,7 @@ export interface ProgressionHookContext {
   yearsSinceStart?: number;
   /** Years in one unit of the scenario's time. */
   yearsPerUnit?: number;
-  /** The run's metrics as the turn ends, read only (habitat modules shield a dose). */
+  /** The run's metrics at the step, read only (habitat modules shield a dose). */
   metrics?: Readonly<Record<string, unknown>>;
   /** The run's environment (`world.environment`), read only. */
   environment?: Readonly<Record<string, unknown>>;

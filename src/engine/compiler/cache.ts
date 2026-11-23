@@ -58,8 +58,19 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  *   prompt applied a year's effects each unit of a month or week
  *   scenario, so every cached hook regenerates (one-time ~$0.10 per
  *   previously-compiled scenario).
+ * - v8 (2026-11-03): a turn runs the progression hook once for each year
+ *   it spans, with `timeDelta` and `yearsDelta` that step's length. A hook
+ *   generated under the earlier prompt and leaving an effect unscaled
+ *   would apply it once a year of a long turn, so every cached hook
+ *   regenerates (one-time ~$0.10 per previously-compiled scenario).
+ *
+ * A change to the hook runner's own rules (sandbox-runner.ts), or to what
+ * its context holds (own-context.ts), needs no bump: a compile checks
+ * each cached code hook as it restores it, and generates again only a
+ * hook the runner refuses or one that names a built-in the context does
+ * not hold (`cachedHookRefusal` in ./index.ts).
  */
-export const COMPILE_SCHEMA_VERSION = 7;
+export const COMPILE_SCHEMA_VERSION = 8;
 
 /** SHA-256 hash of the scenario JSON, used for cache invalidation. */
 export function hashScenario(scenarioJson: Record<string, unknown>): string {
@@ -70,9 +81,57 @@ export function hashScenario(scenarioJson: Record<string, unknown>): string {
     .slice(0, 16);
 }
 
-/** Build the cache directory path for a scenario + version combo. */
-function cacheDir(scenarioId: string, version: string, baseDir: string): string {
-  return join(baseDir, `${scenarioId}-v${version}`);
+/**
+ * A cache folder name that is one plain file name: a letter or digit, then
+ * up to 159 letters, digits, dots, hyphens, underscores or plus signs.
+ */
+const PLAIN_CACHE_FOLDER = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,159}$/;
+
+/**
+ * The cache folder of a scenario + version: one folder directly inside
+ * `baseDir`. The scenario JSON's id and version come from whoever asked
+ * for the compile, so they name the folder only when `<id>-v<version>` is
+ * a plain file name, as every built-in and compiled scenario's is (so a
+ * warm cache stays warm). Any other id or version, one with a path
+ * separator, a `..` segment or a null byte, names it by its letters,
+ * digits, hyphens and underscores and a hash of the whole name, still one
+ * folder inside `baseDir`.
+ */
+function cacheDir(scenarioId: unknown, version: unknown, baseDir: string): string {
+  const name = `${String(scenarioId)}-v${String(version)}`;
+  if (PLAIN_CACHE_FOLDER.test(name)) return join(baseDir, name);
+  const readable = name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  const digest = createHash('sha256').update(name).digest('hex').slice(0, 16);
+  return join(baseDir, `${readable}-${digest}`);
+}
+
+/**
+ * The model the cache holds hooks of this exact scenario JSON under, or
+ * null when it holds none for it: no manifest for this JSON, or none of
+ * the hook files its manifest names is on disk. The cache keeps one model
+ * for a scenario's id and version, so a restore reads the hooks back under
+ * the model that wrote them (`CompileOptions.restore`, ./index.ts).
+ */
+export function cachedHooksModel(
+  scenarioJson: Record<string, unknown>,
+  baseDir = DEFAULT_CACHE_DIR,
+): string | null {
+  const id = (scenarioJson as any).id ?? 'unknown';
+  const ver = (scenarioJson as any).version ?? '0.0.0';
+  const dir = cacheDir(id, ver, baseDir);
+  const manifestPath = join(dir, 'manifest.json');
+  if (!existsSync(manifestPath)) return null;
+  try {
+    const manifest: CacheManifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+    if (manifest.scenarioHash !== hashScenario(scenarioJson)) return null;
+    if (typeof manifest.model !== 'string' || manifest.model === '') return null;
+    if (!manifest.hooks || typeof manifest.hooks !== 'object') return null;
+    const files = Object.values(manifest.hooks).filter((file): file is string => typeof file === 'string');
+    if (!files.some(file => existsSync(join(dir, file)))) return null;
+    return manifest.model;
+  } catch {
+    return null;
+  }
 }
 
 /** Read a cached hook result. Returns null on cache miss. */
@@ -185,10 +244,19 @@ export function writeCache(
     };
   }
 
+  // The manifest records one scenario hash and model for all its hooks, so
+  // a hook written for another scenario JSON with this id and version, or
+  // for another model, leaves the manifest: a read for this JSON never
+  // answers with it.
+  const scenarioHash = hashScenario(scenarioJson);
+  if (manifest.scenarioHash !== scenarioHash || manifest.model !== model || !manifest.hooks) {
+    manifest.hooks = {};
+  }
+
   const fileName = `${hookName}.ts`;
   writeFileSync(join(dir, fileName), content, 'utf-8');
   manifest.hooks[hookName] = fileName;
-  manifest.scenarioHash = hashScenario(scenarioJson);
+  manifest.scenarioHash = scenarioHash;
   manifest.model = model;
   manifest.timestamp = new Date().toISOString();
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');

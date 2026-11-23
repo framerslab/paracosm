@@ -1,0 +1,448 @@
+// A forged tool's trace: a dialog over the dimmed run, on the dashboard's own
+// tokens. Every colour and size is a live token of theme/tokens.css or one of
+// the forge view's named tokens (--forge-quiet, --forge-edge, --problem and
+// the three text sizes).
+//
+// - below 600 px: a full-screen sheet, its header row fixed at the top, the
+//   tool's name under the row
+// - 600 to 899 px: the sheet with 32 px margins, the name and the outcome
+//   sentence side by side
+// - from 900 px: a dialog 880 px wide and 88 per cent of the window tall, the
+//   name in the header row
+// - from 1440 px: the dialog 1200 px wide
+
+// The dim the dashboard's dialogs lay over the run.
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-critical);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.78);
+}
+
+// Over the Viz tab the same dim lets half the grid's light through, so the
+// living grid stays in view at the dialog's sides. The toolbox shares this
+// backdrop.
+:global(body:has(.viz-content)) .backdrop {
+  background: rgba(10, 8, 6, 0.5);
+}
+
+.dialog {
+  // The side margin of the sheet, and the room its fixed header row takes.
+  --trace-pad: 16px;
+  --trace-header: 64px;
+
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  // No focused control sits under the fixed header row.
+  scroll-padding-top: var(--trace-header);
+  border-top: 2px solid var(--amber);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-family: var(--sans);
+
+  &:focus { outline: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dialog { animation: sheet-up 200ms ease-out both; }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+// ── The header row: Close, the actor's tile, the tool's number, the look key ──
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) max(var(--trace-pad), env(safe-area-inset-right)) 8px max(var(--trace-pad), env(safe-area-inset-left));
+  border-bottom: 1px solid var(--forge-edge);
+  background: var(--bg-card);
+}
+
+// The keys at the row's right end.
+.headerEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+// A key: a 1 px edge in the edge tone, 4 px corners, its label in the ink.
+.key {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  // An inactive key keeps its place and its focus; its mark is in the quiet tone.
+  &[aria-disabled='true'] {
+    color: var(--forge-quiet);
+    cursor: default;
+
+    &:hover,
+    &:active { background: transparent; }
+  }
+}
+
+// A key that holds a mark alone: a square.
+.iconKey {
+  width: 44px;
+  padding: 0;
+}
+
+.lookGlyph {
+  font-size: var(--forge-text-body);
+  line-height: 1;
+}
+
+.number {
+  flex-shrink: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+// Below 400 px the header row's parts stand 4 px apart, so Close, the tile,
+// the tool's number, Copy link to this tool and the look key fit at 320 px.
+// The number gives way last: "Forged tool 3612" beside A300's tile breaks
+// between its words inside the row, so nothing is cut and the keys stay on
+// one row.
+@media (max-width: 399px) {
+  .header,
+  .headerEnd { gap: 4px; }
+
+  .number {
+    flex-shrink: 1;
+    white-space: normal;
+  }
+}
+
+// ── What Copy link to this tool says, under the header row ────────────────
+// Empty until a copy answers or the page goes offline; a polite status.
+.linkNote {
+  display: grid;
+  gap: 4px;
+  padding: 0 max(var(--trace-pad), env(safe-area-inset-right)) 0 max(var(--trace-pad), env(safe-area-inset-left));
+
+  &:not(:empty) { padding-top: 12px; }
+}
+
+.linkSaid {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The link, to select and copy by hand when the clipboard refused it.
+.linkText {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+// The tool's name, the dialog's heading: an identifier, in the code face,
+// wrapping at any character.
+.name {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--font-2xl);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+
+  &:focus { outline: none; }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// The name stands under the header row below 900 px and in it from 900 px.
+.nameInRow { display: none; }
+
+// ── The head: the label, the name, the outcome in one sentence ─────────────
+
+.head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 16px max(var(--trace-pad), env(safe-area-inset-right)) 8px max(var(--trace-pad), env(safe-area-inset-left));
+}
+
+.label {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--forge-quiet);
+}
+
+// The outcome is said once, in the ink; its glyph carries the colour.
+.outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+
+  > svg { margin-top: 0.15em; }
+
+  > span { min-width: 0; }
+}
+
+// ── The attempts: Previous attempt, the attempt line, Next attempt ────────
+// One row under the header row on a phone; at the right of the outcome
+// sentence from 900 px.
+.attempts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attemptLine {
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+// ── The reason the run recorded, under the head ───────────────────────────
+
+.reason {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  max-width: 72ch;
+  margin-top: 8px;
+}
+
+.reasonHeading {
+  margin: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The record's own text, as recorded, in the code face on the code ground.
+.reasonText {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: var(--forge-text-meta);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reasonNote {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  line-height: 1.4;
+  color: var(--forge-quiet);
+}
+
+// ── The line, down the sheet's left edge ──────────────────────────────────
+
+// The line's column is 40 px wide with its 20 px cells in the middle, so the
+// cells' left edge stands on the sheet's side margin.
+.line {
+  padding: 8px max(var(--trace-pad), env(safe-area-inset-right)) 8px max(calc(var(--trace-pad) - 10px), env(safe-area-inset-left));
+}
+
+// ── Record: one key at the line's foot, aligned with the stations ─────────
+// Never a sixth station: no mark and no rail. On a phone the key is as wide
+// as the stations' column, and the record opens under it; from 900 px the
+// record opens across the evidence column, beside the key.
+.recordFoot {
+  --rail-col: 40px;
+
+  display: grid;
+  grid-template-columns: var(--rail-col) minmax(0, 1fr);
+  align-items: start;
+  row-gap: 12px;
+  padding: 8px max(var(--trace-pad), env(safe-area-inset-right)) 24px max(calc(var(--trace-pad) - 10px), env(safe-area-inset-left));
+}
+
+.recordKey {
+  grid-column: 2;
+  width: 100%;
+}
+
+.recordBody {
+  grid-column: 2;
+  min-width: 0;
+}
+
+@media (min-width: 600px) {
+  .dialog { --trace-pad: 32px; }
+
+  .name { font-size: var(--forge-text-title); }
+
+  // The name and the outcome sentence side by side, over the line.
+  .head {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 24px;
+  }
+
+  .label,
+  .reason,
+  .attempts { grid-column: 1 / -1; }
+
+  // The line's column is 48 px from here.
+  .line { padding-left: calc(var(--trace-pad) - 14px); }
+
+  .recordFoot {
+    --rail-col: 48px;
+
+    grid-template-columns: var(--rail-col) 200px minmax(0, 1fr);
+    padding-left: calc(var(--trace-pad) - 14px);
+  }
+
+  .recordKey {
+    justify-self: start;
+    width: auto;
+  }
+
+  .recordBody { grid-column: 2 / -1; }
+}
+
+@media (min-width: 900px) {
+  .dialog {
+    --trace-pad: 24px;
+    --trace-header: 60px;
+
+    width: 880px;
+    max-width: calc(100vw - 48px);
+    height: 88vh;
+    padding-bottom: 0;
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--amber);
+    border-radius: var(--radius-md);
+    animation: none;
+  }
+
+  .header {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  // Keys are 32 px tall from here, with 8 px between.
+  .key { min-height: 32px; }
+
+  .iconKey { width: 32px; }
+
+  .number { font-size: var(--forge-text-body); }
+
+  .nameInRow {
+    display: block;
+    flex: 1 1 auto;
+  }
+
+  .nameInHead { display: none; }
+
+  // The label over the outcome sentence, and the attempt keys at its right.
+  .head { grid-template-columns: minmax(0, 1fr) auto; }
+
+  .label {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .outcome {
+    grid-column: 1;
+    grid-row: 2;
+    font-size: var(--font-2xl);
+  }
+
+  .attempts {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+  }
+
+  .recordBody {
+    grid-column: 3;
+    grid-row: 1;
+    max-width: 72ch;
+  }
+}
+
+@media (min-width: 1440px) {
+  .dialog { width: 1200px; }
+
+  .recordFoot { grid-template-columns: var(--rail-col) 240px minmax(0, 1fr); }
+}
+
+// Open all, at the line's head, at its right.
+.lineHead {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+}

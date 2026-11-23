@@ -19,7 +19,8 @@ import type { SimEvent } from '../../hooks/useSSE';
  * Viz step looking blank to first-time visitors.
  */
 function buildDemoAgents(side: 'A' | 'B', turn: number): Array<Record<string, unknown>> {
-  const departments = ['medical', 'engineering', 'agriculture', 'governance', 'science', 'logistics'];
+  // Mars Genesis's departments (scenarios/mars.json).
+  const departments = ['medical', 'engineering', 'agriculture', 'psychology', 'governance'];
   const ranks = ['junior', 'senior', 'lead', 'chief'] as const;
   const moods = ['neutral', 'optimistic', 'tense', 'focused', 'anxious', 'confident'];
   const firstA = ['Aria', 'Diego', 'Yuki', 'Kira', 'Marco', 'Lila', 'Theo', 'Nia', 'Omar', 'Saanvi', 'Felix', 'Mira'];
@@ -242,7 +243,7 @@ export const DEMO_EVENTS: SimEvent[] = [
       turn: 1,
       totalReactions: 14,
       reactions: [
-        { name: 'Carlos Fernandez', role: 'Chief Scientist', department: 'science', mood: 'resigned', quote: 'Another month of no fieldwork. The regolith samples are degrading in storage.', hexaco: { O: 0.82, C: 0.60, E: 0.55, A: 0.50, Em: 0.40, HH: 0.70 }, boneDensity: 91, radiation: 18, psychScore: 65, intensity: 0.60 },
+        { name: 'Carlos Fernandez', role: 'Senior Geologist', department: 'engineering', mood: 'resigned', quote: 'Another month of no fieldwork. The regolith samples are degrading in storage.', hexaco: { O: 0.82, C: 0.60, E: 0.55, A: 0.50, Em: 0.40, HH: 0.70 }, boneDensity: 91, radiation: 18, psychScore: 65, intensity: 0.60 },
         { name: 'Amara Osei', role: 'Head of Agriculture', department: 'agriculture', mood: 'positive', quote: 'Good call on the crop rotation. The cold-tolerant strains are actually yielding better than expected.', hexaco: { O: 0.55, C: 0.78, E: 0.65, A: 0.85, Em: 0.50, HH: 0.75 }, boneDensity: 97, radiation: 6, psychScore: 82, intensity: 0.55 },
       ],
     },
@@ -327,7 +328,7 @@ export const DEMO_EVENTS: SimEvent[] = [
       totalReactions: 14,
       reactions: [
         { name: 'Dr. Yuki Tanaka', role: 'Chief Medical Officer', department: 'medical', mood: 'negative', quote: 'Two people died during rationing. The well could have waited until the recycler was fixed.', hexaco: { O: 0.60, C: 0.75, E: 0.50, A: 0.80, Em: 0.72, HH: 0.85 }, boneDensity: 96, radiation: 10, psychScore: 58, intensity: 0.91 },
-        { name: 'Carlos Fernandez', role: 'Chief Scientist', department: 'science', mood: 'positive', quote: 'The subsurface ice discovery changes everything. This is publishable. The colony is sitting on a water reservoir.', hexaco: { O: 0.85, C: 0.60, E: 0.58, A: 0.50, Em: 0.38, HH: 0.70 }, boneDensity: 91, radiation: 20, psychScore: 70, intensity: 0.74 },
+        { name: 'Carlos Fernandez', role: 'Senior Geologist', department: 'engineering', mood: 'positive', quote: 'The subsurface ice discovery changes everything. This is publishable. The colony is sitting on a water reservoir.', hexaco: { O: 0.85, C: 0.60, E: 0.58, A: 0.50, Em: 0.38, HH: 0.70 }, boneDensity: 91, radiation: 20, psychScore: 70, intensity: 0.74 },
       ],
     },
   },

@@ -1,0 +1,66 @@
+// The note a "Share viz link" press shows. Words are 15 px or more in
+// --text-1 and --text-2 on --bg-card, 10.9:1 or more in both looks.
+.note {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 6px;
+  margin: 8px 12px;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  color: var(--text-1);
+  font-size: 15px;
+  line-height: 1.45;
+
+  &[data-state='refused'],
+  &[data-state='unanswered'] {
+    border-left-color: var(--rust);
+  }
+
+  &[data-state='copying'] {
+    border-left-color: var(--amber);
+  }
+}
+
+.label {
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.field {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.result {
+  margin: 0;
+  color: var(--text-1);
+}
+
+.who {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.close {
+  align-self: flex-end;
+  min-height: 44px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-1);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}

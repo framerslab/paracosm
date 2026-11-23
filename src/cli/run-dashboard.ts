@@ -8,6 +8,7 @@
 
 import { loadDotEnvFromCwd } from './dotenv.js';
 import { createMarsServer } from '../server/server-app.js';
+import { resolveServerMode } from '../server/server-mode.js';
 import { normalizeSimulationConfig } from './sim-config.js';
 import { parseCliRunOptions } from './cli-run-options.js';
 import { resolveActors, parseActorsFlag } from './actors-resolver.js';
@@ -18,6 +19,19 @@ function loadEnvFromCwd(): void {
   if (loaded > 0) {
     process.stdout.write(`  [env] loaded ${loaded} var${loaded === 1 ? '' : 's'} from ${envPath}\n`);
   }
+}
+
+/**
+ * The address the dashboard listens on: `HOST` when it is set; otherwise
+ * the loopback address for a local dashboard, so no other machine on the
+ * network reaches it; otherwise (the hosted demo and the platform API
+ * mode, which a proxy on the same machine forwards to) undefined, every
+ * interface.
+ */
+export function listenHost(env: NodeJS.ProcessEnv): string | undefined {
+  const host = (env.HOST ?? '').trim();
+  if (host.length > 0) return host;
+  return resolveServerMode(env) === 'local_demo' ? '127.0.0.1' : undefined;
 }
 
 /**
@@ -36,11 +50,15 @@ export async function runDashboard(argv: readonly string[]): Promise<number> {
   loadEnvFromCwd();
 
   const PORT = parseInt(process.env.PORT || '3456', 10);
+  const HOST = listenHost(process.env);
   const server = createMarsServer({ env: process.env });
   const cliOptions = parseCliRunOptions(argv);
 
   await new Promise<void>((resolveServer) => {
-    server.listen(PORT, () => {
+    server.listen(PORT, HOST, () => {
+      if (HOST && HOST !== '127.0.0.1' && HOST !== 'localhost' && HOST !== '::1') {
+        process.stdout.write(`\n  Listening on ${HOST}:${PORT}\n`);
+      }
       process.stdout.write(`\n  Paracosm dashboard: http://localhost:${PORT}\n`);
       process.stdout.write(`  Settings route:     http://localhost:${PORT}/sim?tab=settings\n`);
       process.stdout.write(`  SSE endpoint:       http://localhost:${PORT}/events\n\n`);

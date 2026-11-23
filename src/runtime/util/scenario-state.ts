@@ -79,6 +79,34 @@ function formatValue(value: number, display?: MetricDisplay): string {
 }
 
 /**
+ * One metric's value as the prompts show it: with the unit the scenario
+ * declares for it (morale, declared or not, as a percent of 1: "100%";
+ * Mars food as "18 months"), else a share strictly between 0 and 1 as a
+ * percent and anything else as it is. The director's state lines read it.
+ */
+export function formatMetricValue(key: string, value: unknown, world?: DeclaredWorld | null): string {
+  if (typeof value !== 'number') return String(value);
+  const displays: Record<string, MetricDisplay> = { ...UNIVERSAL_METRICS, ...world?.capacities, ...world?.metrics };
+  const display = displays[key];
+  if (display) return formatValue(value, display);
+  return value < 1 && value > 0 ? `${Math.round(value * 100)}%` : String(value);
+}
+
+/**
+ * One politics value as the prompts show it: with the unit the scenario
+ * declares for it in `world.politics` (Mars independence pressure, a share
+ * of 1, at 1 as "100%"; Atlas Lab's board confidence, held on a 0 to 100
+ * scale, at 0.5 as "0.5%"), else a share strictly between 0 and 1 as a
+ * percent and anything else as it is. The director's politics lines read it.
+ */
+export function formatPoliticsValue(key: string, value: unknown, world?: DeclaredWorld | null): string {
+  if (typeof value !== 'number') return String(value);
+  const display = world?.politics?.[key];
+  if (display) return formatValue(value, display);
+  return value < 1 && value > 0 ? `${Math.round(value * 100)}%` : String(value);
+}
+
+/**
  * One line of the scenario's metrics with their labels and units, for the
  * department and commander prompts: "Researchers 480 people | Morale 85% |
  * AlignmentBench 0.84 score | Release Readiness 65%".
@@ -89,4 +117,48 @@ export function formatStateLine(metrics: Record<string, number>, world?: Declare
     .filter(([, value]) => typeof value === 'number')
     .map(([key, value]) => `${displays[key]?.label ?? key} ${formatValue(value, displays[key])}`)
     .join(' | ');
+}
+
+type KeyDisplay = { label?: string; unit?: string; min?: number; max?: number };
+
+/** A key a department's effect may move: one the run holds as a number. */
+export interface EffectKey {
+  id: string;
+  /** The effect field it belongs in: `systemDelta` for a metric or capacity, `politicsDelta` for a politics value. */
+  bag: 'systemDelta' | 'politicsDelta';
+  label: string;
+  unit: string;
+  min?: number;
+  max?: number;
+}
+
+/**
+ * The keys a department's `recommendedEffects` may name: each number the
+ * run holds in its metrics (capacities included) or its politics, as the
+ * prompts may name them (see {@link declaredMetrics}), with the label,
+ * unit and range the scenario declares. The kernel drops a delta on any
+ * other key (`applyDeltas`), so a report is shown these and refused for
+ * any other.
+ */
+export function effectKeys(
+  state: { metrics: Record<string, number>; politics: Record<string, number | string | boolean> },
+  world?: DeclaredWorld | null,
+): EffectKey[] {
+  const systems: Record<string, KeyDisplay> = { ...UNIVERSAL_METRICS, ...world?.capacities, ...world?.metrics };
+  const politics: Record<string, KeyDisplay> = { ...world?.politics };
+  const key = (id: string, bag: EffectKey['bag'], d: KeyDisplay | undefined): EffectKey => ({
+    id, bag,
+    label: d?.label ?? id,
+    unit: d?.unit ?? '',
+    ...(typeof d?.min === 'number' ? { min: d.min } : {}),
+    ...(typeof d?.max === 'number' ? { max: d.max } : {}),
+  });
+  const metricKeys = Object.entries(declaredMetrics(state.metrics, world))
+    .filter(([, v]) => typeof v === 'number')
+    .map(([id]) => key(id, 'systemDelta', systems[id]));
+  const held = new Set(metricKeys.map(k => k.id));
+  const politicsKeys = Object.entries(declaredPolitics(state.politics, world))
+    .filter(([id, v]) => typeof v === 'number' && !held.has(id))
+    .map(([id]) => key(id, 'politicsDelta', politics[id]));
+  return [...metricKeys, ...politicsKeys];
 }

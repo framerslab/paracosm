@@ -1,9 +1,9 @@
-import type { SimulationState, Agent, TurnEvent, HexacoProfile, TurnOutcome, Department } from './state.js';
+import type { SimulationState, Agent, AgentMemory, TurnEvent, HexacoProfile, TurnOutcome, Department } from './state.js';
 import type { WorldMetrics, WorldPolitics } from './state.js';
 import type { ProgressionHookContext, ScenarioPackage } from '../types.js';
 import { SeededRng } from './rng.js';
 import { agentIdKeys, generateInitialPopulation, generateJoiners, type KeyPersonnel } from './agent-generator.js';
-import { progressBetweenTurns, applyPersonalityDrift, ROLE_ACTIVATIONS } from './progression.js';
+import { progressBetweenTurns, applyPersonalityDrift, moraleAfterGain, ROLE_ACTIVATIONS } from './progression.js';
 import type { KernelSnapshot } from './snapshot.js';
 import { CURRENT_SNAPSHOT_VERSION } from './snapshot.js';
 import { ageInYears, yearsPerTimeUnit } from './time-unit.js';
@@ -14,6 +14,8 @@ interface DeclaredMetric {
   initial?: number | string | boolean;
   min?: number;
   max?: number;
+  /** A supply that sustains the people: its amount against landing day moves the yearly age and accident rates. */
+  sustains?: boolean;
 }
 
 /**
@@ -145,7 +147,7 @@ function clampDeclared(bag: Record<string, unknown>, keys: Iterable<string>, ran
 
 /**
  * The change a delta made: the delta itself, or less where a floor or
- * ceiling stopped it (morale at 1, power at 0).
+ * ceiling stopped it (power at 0) or a morale gain eased above 0.9.
  */
 function changeMade(asked: number, before: number, after: number): number {
   const moved = after - before;
@@ -291,6 +293,22 @@ export class SimulationKernel {
     // The roster is the head count, whatever a scenario declares for a
     // full-size run: a demo run of Atlas Lab has 30 people, not 480.
     this.state.metrics.population = agents.length;
+    // What the colony holds on landing day, after the caller's starting
+    // resources, of each supply the scenario marks as sustaining its
+    // people (`sustains`), when it holds more than nothing. A scenario
+    // that marks none keeps no landing amounts, and its supply level
+    // reads 1.
+    const landingSupplies: Record<string, number> = {};
+    for (const bag of [scenarioWorld.metrics, scenarioWorld.capacities]) {
+      for (const [key, def] of Object.entries(bag ?? {})) {
+        const value = (this.state.metrics as Record<string, unknown>)[key];
+        if (def.sustains === true && typeof value === 'number' && value > 0) landingSupplies[key] = value;
+      }
+    }
+    if (Object.keys(landingSupplies).length > 0) this.state.metadata.landingSupplies = landingSupplies;
+    // How each person's death dice are kept, recorded in the state so a
+    // saved run and a fork of one keep the dice they began with.
+    if (init.scenario?.setup?.mortalityDice === 'life') this.state.metadata.mortalityDice = 'life';
     this.setRanges(init.scenario);
   }
 
@@ -451,7 +469,8 @@ export class SimulationKernel {
       const written: string[] = [];
       for (const [k, v] of Object.entries(patches.metrics)) {
         // The head count follows the roster; a model's number cannot replace it.
-        if (k === 'population' || typeof v !== 'number' || !Number.isFinite(v) || !(k in c)) continue;
+        // Number.isFinite is false for anything but a finite number.
+        if (k === 'population' || !Number.isFinite(v) || !(k in c)) continue;
         (c as any)[k] = v;
         written.push(k);
       }
@@ -638,9 +657,11 @@ export class SimulationKernel {
    * Apply additive deltas to world systems (not absolute values). A delta
    * for a metric the run does not carry is dropped. A population delta
    * moves whole people on and off the roster; see {@link movePeople}.
-   * Returns the change each metric made, which is what the run reports:
-   * the delta itself, or less where a floor or ceiling stopped it (morale
-   * at 1, power at 0, a hull a scenario keeps at or under 100).
+   * A morale gain adds in full up to 0.9 and eases above it, so no gain
+   * stops at 1 (`moraleAfterGain`). Returns the change each metric made,
+   * which is what the run reports: the delta itself, or less where a floor
+   * or ceiling stopped it (power at 0, a hull a scenario keeps at or under
+   * 100) or a morale gain eased.
    */
   applySystemDeltas(deltas: Partial<WorldMetrics>, events: TurnEvent[] = []): Record<string, number> {
     const c = this.state.metrics;
@@ -653,7 +674,7 @@ export class SimulationKernel {
         continue;
       }
       requested.push([k, v, c[k]]);
-      (c as any)[k] = (c as any)[k] + v;
+      (c as any)[k] = k === 'morale' && v > 0 ? moraleAfterGain((c as any)[k], v) : (c as any)[k] + v;
     }
     clampField(c, 'morale', 0, 1);
     clampField(c, 'foodMonthsReserve', 0);
@@ -772,14 +793,22 @@ export class SimulationKernel {
   }
 
   /**
-   * Apply featured colonist updates from department reports. A report's
+   * Apply updates to living people: the featured colonist updates of the
+   * department reports, and the memory the reaction step writes. A report's
    * psych score moves the person at most 0.15 toward the value it writes
-   * ({@link PSYCH_STEP}); its conditions are set as written.
+   * ({@link PSYCH_STEP}); its conditions are set as written. A memory
+   * write is held by {@link writeMemory}; it moves no number the dice read.
    */
-  applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string }>): void {
+  applyAgentUpdates(updates: Array<{ agentId: string; health?: Partial<Agent['health']>; career?: Partial<Agent['career']>; narrativeEvent?: string; memory?: AgentMemory }>): void {
+    let roster: Set<string> | undefined;
     for (const u of updates) {
       const col = this.findAgent(u.agentId);
       if (!col || !col.health.alive) continue;
+
+      if (u.memory) {
+        roster ??= new Set(this.state.agents.map(a => a.core.id));
+        this.writeMemory(col, u.memory, roster);
+      }
 
       if (u.health) {
         if (typeof u.health.psychScore === 'number') this.movePsych(col, u.health.psychScore);
@@ -803,6 +832,44 @@ export class SimulationKernel {
         });
       }
     }
+  }
+
+  /**
+   * Replace a person's memory with the one the reaction step wrote. A stance
+   * or a relationship moves at most {@link PSYCH_STEP} from where it stood
+   * (0 when it had none), within -1 to 1, the bound a report's psych write
+   * has; a relationship names someone else on the roster. A person saved
+   * with no memory object starts from an empty one.
+   */
+  private writeMemory(agent: Agent, next: AgentMemory, roster: Set<string>): void {
+    const before = agent.memory ?? { shortTerm: [], longTerm: [], stances: {}, relationships: {} };
+    const step = (from: number, to: number): number => {
+      const goal = Math.max(-1, Math.min(1, to));
+      return Math.abs(goal - from) <= PSYCH_STEP ? goal : from + Math.sign(goal - from) * PSYCH_STEP;
+    };
+    // A topic is an event category, model-written text, so only the
+    // person's own entries count as where it stood: "constructor" names
+    // a property every object inherits.
+    const stood = (held: Record<string, number> | undefined, key: string): number => {
+      const value = held && Object.hasOwn(held, key) ? held[key] : 0;
+      return Number.isFinite(value) ? value : 0;
+    };
+    const stances: Record<string, number> = {};
+    for (const [topic, value] of Object.entries(next.stances ?? {})) {
+      if (Number.isFinite(value)) stances[topic] = step(stood(before.stances, topic), value);
+    }
+    const relationships: Record<string, number> = {};
+    for (const [id, value] of Object.entries(next.relationships ?? {})) {
+      if (id !== agent.core.id && roster.has(id) && Number.isFinite(value)) {
+        relationships[id] = step(stood(before.relationships, id), value);
+      }
+    }
+    agent.memory = {
+      shortTerm: (next.shortTerm ?? []).map(entry => ({ ...entry })),
+      longTerm: [...(next.longTerm ?? [])],
+      stances,
+      relationships,
+    };
   }
 
   export(): SimulationState { return structuredClone(this.state); }

@@ -18,7 +18,7 @@
 
 import type { Agent, TurnOutcome } from '../../engine/core/state.js';
 import { buildMemoryContext } from './agent-memory.js';
-import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
+import { generateValidatedObject, type ValidatedObjectOptions } from '../../llm/generateValidatedObject.js';
 import { ReactionBatchSchema } from '../validators/reactions.js';
 import { buildReactionCues } from './cues/hexaco/translation.js';
 import type { ScenarioLabels } from '../../engine/types.js';
@@ -231,6 +231,8 @@ export async function generateAgentReactions(
     model?: string;
     /** Explicit provider API key for this run. */
     apiKey?: string;
+    /** Keep every reaction call on `provider`, also without an explicit key: the run's `stayOnProvider`. */
+    stayOnProvider?: boolean;
     maxConcurrent?: number;
     reactionContextHook?: (agent: any, ctx: any) => string;
     onUsage?: (result: { usage?: { totalTokens?: number; promptTokens?: number; completionTokens?: number; costUSD?: number } }) => void;
@@ -264,6 +266,11 @@ export async function generateAgentReactions(
      *     single bad batch loses 20 reactions)
      */
     batchSize?: number;
+    /**
+     * Replaces the provider call (tests). Production callers omit it and
+     * generateValidatedObject uses AgentOS.
+     */
+    generateObjectImpl?: ValidatedObjectOptions<typeof ReactionBatchSchema>['_generateObjectImpl'];
   } = {},
 ): Promise<AgentReaction[]> {
   const alive = agents.filter(c => c.health.alive);
@@ -323,6 +330,8 @@ export async function generateAgentReactions(
           // stops at the natural JSON close.
           maxTokens: 4500,
           apiKey: options.apiKey,
+          stayOnProvider: options.stayOnProvider,
+          _generateObjectImpl: options.generateObjectImpl,
           onUsage: options.onUsage,
           onProviderError: options.onProviderError,
           fallback: { reactions: [] },

@@ -1,0 +1,104 @@
+{
+  "id": "orchard-seasons",
+  "version": "1.0.0",
+  "engineArchetype": "closed_turn_based_settlement",
+  "labels": {
+    "name": "Orchard",
+    "shortName": "orchard-seasons",
+    "populationNoun": "growers",
+    "settlementNoun": "orchard",
+    "currency": "credits",
+    "actorNoun": "actor",
+    "actorNounPlural": "actors",
+    "timeUnitNoun": "season"
+  },
+  "theme": {
+    "primaryColor": "#6366f1",
+    "accentColor": "#818cf8",
+    "cssVariables": {}
+  },
+  "setup": {
+    "defaultTurns": 4,
+    "defaultPopulation": 20,
+    "defaultStartTime": 1,
+    "yearsPerTimeUnit": 0.25
+  },
+  "world": {
+    "metrics": {},
+    "capacities": {},
+    "statuses": {},
+    "politics": {},
+    "environment": {}
+  },
+  "departments": [
+    {
+      "id": "growing",
+      "label": "Growing",
+      "role": "Head Grower",
+      "instructions": "Weigh the harvest against the soil."
+    },
+    {
+      "id": "market",
+      "label": "Market",
+      "role": "Market Lead",
+      "instructions": "Weigh prices against the stock."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "harvest",
+      "format": "number"
+    },
+    {
+      "id": "soil-health",
+      "format": "percent"
+    }
+  ],
+  "events": [],
+  "effects": [],
+  "ui": {
+    "headerMetrics": [],
+    "tooltipFields": [],
+    "reportSections": [
+      "crisis",
+      "departments",
+      "decision",
+      "outcome"
+    ],
+    "departmentIcons": {},
+    "setupSections": [
+      "actors",
+      "departments",
+      "models"
+    ],
+    "eventRenderers": {}
+  },
+  "knowledge": {
+    "topics": {},
+    "categoryMapping": {}
+  },
+  "policies": {
+    "toolForging": {
+      "enabled": true
+    },
+    "liveSearch": {
+      "enabled": false,
+      "mode": "off"
+    },
+    "bulletin": {
+      "enabled": true
+    },
+    "characterChat": {
+      "enabled": true
+    },
+    "sandbox": {
+      "timeoutMs": 10000,
+      "memoryMB": 128
+    }
+  },
+  "presets": [],
+  "_persistMeta": {
+    "compiledAt": "2026-11-11T00:00:00.000Z",
+    "seedText": null
+  }
+}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateLegacyEventShape } from './migrateLegacyEventShape';
-import { consumeScenarioSwitched } from '../scenario-sync';
+import { eventKey } from './sseEventKey';
+import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
+import { refreshOnSimSaved, savedSessions } from './useSessions';
 import type { RunArtifact } from '../../../engine/schema/index.js';
 
 /**
@@ -73,14 +75,18 @@ export interface AbortReasonState {
 }
 
 /**
- * One rollup bucket per schema name for validation fallbacks observed
- * during a run. Non-terminal — the sim keeps running with the fallback
- * skeleton — but worth surfacing in the topbar because repeated fallbacks
- * on the same schema mean the model is fighting the output format and
- * whatever data the bucket represents is degraded.
+ * One rollup bucket per schema name and kind for the `validation_fallback`
+ * events of a run. Non-terminal (the sim keeps running), but worth
+ * surfacing in the topbar because repeated failures on the same schema
+ * mean the model is fighting the output format. A fallback replaced the
+ * reply with the empty skeleton; a salvage (`salvaged: true`) kept the
+ * model's own reply without the effect keys the run does not hold, so the
+ * two are counted apart.
  */
 export interface ValidationFallbackBucket {
   schemaName: string;
+  /** True for the salvages: the reply was kept with its unheld keys dropped. */
+  salvaged: boolean;
   count: number;
   /** Most recent call-site tag (e.g. `dept:medical:turn3:event1`). */
   lastSite?: string;
@@ -126,10 +132,10 @@ interface SSEState {
   /**
    * Rollup of `validation_fallback` SSE events received during the current
    * run. One bucket per schema name (DepartmentReport, CommanderDecision,
-   * etc.) with counts + most-recent preview. Empty array when no schema
-   * has fallen back. Rendered as a small amber indicator in the topbar
-   * (not a full banner — these are soft degradations, the sim keeps
-   * running).
+   * etc.) and kind (a fallback or a salvage) with counts + most-recent
+   * preview. Empty array when no schema has failed. Rendered as a small
+   * amber indicator in the topbar, not a full banner: these are soft
+   * degradations and the sim keeps running.
    */
   validationFallbacks: ValidationFallbackBucket[];
   /**
@@ -156,6 +162,23 @@ interface SSEState {
    * page leaves its own run.
    */
   heldOwnRun: OwnRun | null;
+  /**
+   * The key of the run the page shows from the live feed (active_scenario's
+   * runKey), null before one arrives, after a reset, when the page takes a
+   * new source until its run arrives, and while the page shows a run loaded
+   * from a file or from its history. A reconnect replays the
+   * same key; a new run, a fork included, brings a new one. A run the page
+   * skips (one in another scenario) leaves it on the key of the run it
+   * shows. The Chat tab's threads belong to this run.
+   */
+  runKey: string | null;
+  /**
+   * How many runs the page has loaded from a file or from its history, or
+   * taken from a new source (the live feed or a saved session's replay). A
+   * loaded run has no key, so this count tells one loaded run from the next;
+   * with runKey it names the run the page shows.
+   */
+  loadedRuns: number;
 }
 
 /**
@@ -184,14 +207,24 @@ export interface UseSSEOptions {
   /**
    * The page's scenario id once GET /scenario has answered, null before.
    * The live feed shows a run only when the run's scenario, named by the
-   * active_scenario event that opens its buffer, is this one: the server
-   * holds one run for every visitor, whichever scenario each one picked.
+   * active_scenario event that opens its buffer, is this one: the feed is
+   * the visitor's own run, which is in the scenario it ran in, and that is
+   * not always the page's (a run started in another tab before a switch, a
+   * Digital Twin run).
    */
   scenarioId?: string | null;
+  /**
+   * Called with the run's key when the server says it let go of the run the
+   * page shows from the feed (`run_cleared`), after the feed's views of it
+   * emptied. The page holds views of that run outside the feed's state (a
+   * finished Digital Twin's result), and empties them here. Not called for
+   * a run the page does not show, nor for the page's own reset().
+   */
+  onRunCleared?: (runKey: string) => void;
 }
 
 /** The run fields of SSEState, empty: a page that holds no run. */
-function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun'> {
+function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
     events: [], results: [], verdict: null, errors: [], isComplete: false,
     isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
@@ -205,6 +238,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   const replaySessionId = options.replaySessionId ?? null;
   const replaySpeed = options.replaySpeed;
   const scenarioId = options.scenarioId ?? null;
+  // Read when run_cleared arrives, so the stream is not reopened for a new callback.
+  const onRunClearedRef = useRef(options.onRunCleared);
+  onRunClearedRef.current = options.onRunCleared;
   const [state, setState] = useState<SSEState>({
     status: 'connecting',
     events: [],
@@ -219,6 +255,8 @@ export function useSSE(options: UseSSEOptions = {}) {
     replayDone: false,
     ownRunScenarioId: null,
     heldOwnRun: null,
+    runKey: null,
+    loadedRuns: 0,
   });
   const esRef = useRef<EventSource | null>(null);
   // Dedupe set used by the connection effect. Lifted to a ref so reset()
@@ -227,9 +265,9 @@ export function useSSE(options: UseSSEOptions = {}) {
   // would still leave the set populated forever).
   const seenEventKeysRef = useRef<Set<string>>(new Set());
   // True after this tab switched its scenario (the mark the switch callers
-  // set before their reload). The server's buffer still holds the run from
-  // before the switch, any visitor's in any scenario, and replays it on
-  // every connect, so the page skips that run: every event until a run
+  // set before their reload). The server still holds the visitor's run from
+  // before the switch, in the scenario it ran in, and replays it on every
+  // connect, so the page skips that run: every event until a run
   // names its scenario (an active_scenario event, live or replayed, after
   // which the scenario decides) or the page resets. A ref read when an
   // event arrives, never React state: the listeners are created once per
@@ -261,9 +299,15 @@ export function useSSE(options: UseSSEOptions = {}) {
   // True while the page shows a run loaded from a file (loadEvents), the
   // visitor's own pick, rather than the run the live feed delivered.
   const shownFromFileRef = useRef(false);
+  // The source (a saved session's id, or null for the live feed) of the
+  // subscription that last connected; undefined before the first.
+  const connectedSourceRef = useRef<string | null | undefined>(undefined);
   // The page's scenario id, null until GET /scenario answers.
   const pageScenarioIdRef = useRef<string | null>(scenarioId);
   pageScenarioIdRef.current = scenarioId;
+  // The visitor the open stream belongs to (its `connected` frame), null
+  // before it connects. A launch answered for another visitor reopens it.
+  const streamVisitorIdRef = useRef<string | null>(null);
 
   // The run's events can arrive before GET /scenario answers. Once the page
   // knows its scenario, a run it holds from another scenario is dropped;
@@ -279,15 +323,19 @@ export function useSSE(options: UseSSEOptions = {}) {
   }, [scenarioId, replaySessionId]);
 
   /**
-   * Clear all client-side SSE state AND tell the server to drop its
-   * event buffer so the next reconnect doesn't replay the same events
-   * we just cleared. Status stays 'connected' because the EventSource
-   * itself is still open — we only nuke the data.
+   * Clear all client-side SSE state. Status stays 'connected' because the
+   * EventSource itself is still open — we only nuke the data.
    */
-  const reset = useCallback(async () => {
+  const clearLocalRun = useCallback(() => {
     seenEventKeysRef.current.clear();
-    skipBufferedRunRef.current = false;
-    // The buffer is cleared below; the next run names its scenario.
+    // A run the feed holds in another scenario than the page's can still be
+    // writing until the server drops it. Its events that arrive before the
+    // next active_scenario are skipped, as the page skipped them before the
+    // reset: every run opens with one.
+    const runScenarioId = runScenarioIdRef.current;
+    const pageScenarioId = pageScenarioIdRef.current;
+    skipBufferedRunRef.current = runScenarioId !== null && pageScenarioId !== null && runScenarioId !== pageScenarioId;
+    // The run is gone; the next run names its scenario.
     runScenarioIdRef.current = null;
     runKeyRef.current = null;
     ownRunKeyRef.current = null;
@@ -305,19 +353,37 @@ export function useSSE(options: UseSSEOptions = {}) {
       // seconds, which is the right UX: let the user try.
       providerError: null,
       validationFallbacks: [],
-      // After a manual clear the buffer is empty, so the next events we
-      // receive are live by definition.
+      // After a clear the server holds no run of this visitor's, so the
+      // next events we receive are live by definition.
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
+      runKey: null,
+      loadedRuns: prev.loadedRuns,
     }));
+  }, []);
+
+  /**
+   * Clear all client-side SSE state AND tell the server to drop the
+   * visitor's run, stopping it when in flight, so the next reconnect doesn't
+   * replay the same events we just cleared. The /clear names the run the
+   * page held: a launch awaits this and posts its run next, and a /clear
+   * that named no run and landed after the new run opened would stop it.
+   * A page that holds no run posts none, and the server clears the
+   * visitor's current run.
+   */
+  const reset = useCallback(async () => {
+    const heldRunKey = runKeyRef.current;
+    clearLocalRun();
     try {
-      await fetch('/clear', { method: 'POST' });
+      await fetch('/clear', heldRunKey
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runKey: heldRunKey }) }
+        : { method: 'POST' });
     } catch {
       // Server unreachable — local state is still cleared so the user
       // sees the empty state regardless.
     }
-  }, []);
+  }, [clearLocalRun]);
 
   /**
    * Show the run that opens with this key as this page's own, whichever
@@ -349,12 +415,14 @@ export function useSSE(options: UseSSEOptions = {}) {
     // a reload after a failed run restores the banner state, not just
     // the viz/reports tabs.
     const errEvent = events.find(e => e.type === 'provider_error');
+    // A file's JSON can hold any value here; the banner shows a string only.
+    const errActionUrl = errEvent?.data?.actionUrl;
     const restoredProviderError: ProviderErrorState | null = errEvent
       ? {
           kind: (errEvent.data?.kind as ProviderErrorState['kind']) ?? 'unknown',
           provider: errEvent.data?.provider as string | undefined,
           message: String(errEvent.data?.message ?? 'Provider error'),
-          actionUrl: errEvent.data?.actionUrl as string | undefined,
+          actionUrl: typeof errActionUrl === 'string' ? errActionUrl : undefined,
           leader: errEvent.leader,
         }
       : null;
@@ -375,7 +443,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     const restoredFallbacks = rollupValidationFallbacks(events);
     shownFromFileRef.current = true;
     ownRunKeyRef.current = null;
-    setState({
+    setState(prev => ({
       status: 'connected',
       events,
       results: (results || []) as SSEState['results'],
@@ -391,7 +459,10 @@ export function useSSE(options: UseSSEOptions = {}) {
       replayDone: true,
       ownRunScenarioId: null,
       heldOwnRun: null,
-    });
+      runKey: null,
+      // Each load is a run of its own, the same scenario loaded twice included.
+      loadedRuns: prev.loadedRuns + 1,
+    }));
   }, []);
 
 /**
@@ -400,22 +471,37 @@ export function useSSE(options: UseSSEOptions = {}) {
  * same shape of rollup.
  */
 function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket[] {
-  const bySchema = new Map<string, ValidationFallbackBucket>();
+  let buckets: ValidationFallbackBucket[] = [];
   for (const e of events) {
     if (e.type !== 'validation_fallback' || !e.data) continue;
-    const d = e.data as Record<string, unknown>;
-    const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-      ? d.schemaName
-      : 'unknown';
-    const existing = bySchema.get(schemaName);
-    bySchema.set(schemaName, {
-      schemaName,
-      count: (existing?.count ?? 0) + 1,
-      lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
-      lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
-    });
+    buckets = addValidationFallback(buckets, e.data as Record<string, unknown>);
   }
-  return [...bySchema.values()].sort((a, b) => b.count - a.count);
+  return buckets;
+}
+
+/**
+ * Count one `validation_fallback` event's data into the buckets: by schema
+ * name, a salvage apart from a fallback. Returns new buckets, most counted
+ * first. The live stream and a run loaded from a file both count through it.
+ */
+function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Record<string, unknown>): ValidationFallbackBucket[] {
+  const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
+    ? d.schemaName
+    : 'unknown';
+  const salvaged = d.salvaged === true;
+  const buckets = [...prev];
+  const idx = buckets.findIndex(b => b.schemaName === schemaName && b.salvaged === salvaged);
+  const existing = idx === -1 ? undefined : buckets[idx];
+  const updated: ValidationFallbackBucket = {
+    schemaName,
+    salvaged,
+    count: (existing?.count ?? 0) + 1,
+    lastSite: typeof d.site === 'string' ? d.site : existing?.lastSite,
+    lastPreview: typeof d.rawTextPreview === 'string' ? d.rawTextPreview : existing?.lastPreview,
+  };
+  if (idx === -1) buckets.push(updated);
+  else buckets[idx] = updated;
+  return buckets.sort((a, b) => b.count - a.count);
 }
 
   useEffect(() => {
@@ -446,34 +532,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
     // wiping state.events (which would lose the user's view of completed
     // simulations after a transient browser-managed reconnect).
     const seenEventKeys = seenEventKeysRef.current;
-    // Build a dedup key that uniquely identifies a logical event.
-    //
-    // IMPORTANT: the orchestrator emits events with turn nested in
-    // `e.data.turn`, not the top-level `e.turn` field. Earlier versions
-    // of this key only looked at `e.turn` (always undefined in practice)
-    // and relied on eventIndex/department/title as the real
-    // discriminators. That silently ate every turn after turn 1 for
-    // event types that have no other discriminator in their payload:
-    // systems_snapshot, turn_done, personality_drift, bulletin, agent_reactions.
-    //
-    // The user-visible symptom was the viz tab stuck showing T1 while
-    // the sim tab correctly counted up to T3+ (because the only
-    // replacement systems_snapshot events for T2/T3 were filtered as
-    // "already seen"). Falling back to `e.data?.turn` when the top-level
-    // field is missing restores a monotonic key across turns for every
-    // emit path.
-    const eventKey = (e: SimEvent): string => {
-      const turnId = (e.turn ?? (e.data?.turn as number | undefined) ?? '');
-      const eventIndex = (e.data?.eventIndex ?? '');
-      const department = (e.data?.department ?? '');
-      const title = (e.data?.title ?? '');
-      // Some per-agent / per-tool payloads need extra discriminators
-      // too, so they don't collapse across different agents/tools in
-      // the same turn. Forge attempts carry `name`; agent reactions
-      // roll up into a single per-turn event so the turn suffices.
-      const forgeName = (e.data?.name ?? '');
-      return `${e.type}|${e.leader || ''}|${turnId}|${eventIndex}|${department}|${title}|${forgeName}`;
-    };
+    // Each frame's key (sseEventKey.ts) tells a repeat from a new event.
 
     const open = async () => {
       if (cancelled) return;
@@ -513,9 +572,15 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
       const es = new EventSource(sourceUrl);
       esRef.current = es;
 
-      es.addEventListener('connected', () => {
+      es.addEventListener('connected', (e: MessageEvent) => {
         attempt = 0;
         connectCount += 1;
+        try {
+          const data = JSON.parse(e.data) as { visitorId?: unknown } | null;
+          streamVisitorIdRef.current = typeof data?.visitorId === 'string' ? data.visitorId : null;
+        } catch {
+          streamVisitorIdRef.current = null;
+        }
         // The replay starts at the buffer's first event, which names the
         // run when the run named its scenario.
         runScenarioIdRef.current = null;
@@ -532,9 +597,24 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         // trailing `replay_done` SSE event once the buffer flush is
         // complete; the listener below flips the flag true again so
         // subsequent truly-live events can toast.
+        //
+        // A first connect from another source than the last (a switch
+        // between the live feed and a saved session's replay without a
+        // reload), or after a run loaded from a file or from the page's
+        // history, drops the run the page held: the Chat tab's threads start
+        // empty with the run this source delivers.
         if (connectCount === 1) {
+          const newSource = connectedSourceRef.current !== replaySessionId || shownFromFileRef.current;
+          connectedSourceRef.current = replaySessionId;
           seenEventKeys.clear();
-          setState(prev => ({ ...prev, status: 'connected', events: [], replayDone: false }));
+          shownFromFileRef.current = false;
+          setState(prev => ({
+            ...prev,
+            status: 'connected',
+            events: [],
+            replayDone: false,
+            ...(newSource ? { runKey: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+          }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
         }
@@ -542,6 +622,24 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
 
       es.addEventListener('replay_done', () => {
         setState(prev => ({ ...prev, replayDone: true }));
+      });
+
+      // The visitor cleared the run in another tab, or the server let it go
+      // (idle, or over its held-run caps). The page that holds that run
+      // empties its view, as reset() does, without posting /clear; a page
+      // that holds another run, or none, or shows a run loaded from a file,
+      // ignores it.
+      es.addEventListener('run_cleared', (e: MessageEvent) => {
+        let runKey: string | null = null;
+        try {
+          const data = JSON.parse(e.data) as { runKey?: unknown } | null;
+          runKey = typeof data?.runKey === 'string' ? data.runKey : null;
+        } catch { /* no key: not this page's run */ }
+        if (runKey === null || runKey !== runKeyRef.current) return;
+        // A run loaded from a file is not the feed's: it stays.
+        if (shownFromFileRef.current) return;
+        clearLocalRun();
+        onRunClearedRef.current?.(runKey);
       });
 
       // Every run opens with active_scenario, which names its scenario; the
@@ -570,12 +668,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         if (isOwnRun) {
           setState(prev => ({ ...prev, ownRunScenarioId: id }));
         }
-        // A new run took the server's place: the server aborts the run in
-        // flight to start another. When the new one is in another scenario
-        // than the page's, the page skips it, and with it the last events of
-        // the run it shows, so it ends that run here instead of showing it
-        // running for good. A run the page already saw finish stays as it is.
-        if (skipped()) {
+        // A new run took the stream's place: the visitor started another
+        // (in another tab, or this one), which replaced the run in flight.
+        // When the new one is in another scenario than the page's, the page
+        // skips it, and with it the last events of the run it shows, so it
+        // ends that run here instead of showing it running for good. A run
+        // the page already saw finish stays as it is.
+        const skip = skipped();
+        if (skip) {
           setState(prev => (prev.events.length > 0 && !prev.isComplete
             ? {
                 ...prev,
@@ -602,6 +702,12 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
               : prev.heldOwnRun,
           }));
         }
+        // The run the page holds now, which the Chat tab keys its threads on.
+        // A run the page skips leaves it on the run it shows, and a run loaded
+        // from a file stays the page's until a new run replaces it, above.
+        if (!skip && !shownFromFileRef.current) {
+          setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
+        }
       });
 
       // Status events carry run-wide metadata: the effective maxTurns
@@ -616,7 +722,14 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'status', leader: '', data };
-          const key = eventKey(evt);
+          // A status event carries no turn, leader or title, so eventKey
+          // gives every status event of a run one key. A pair run writes two
+          // (`starting`, then `parallel` with the leaders, which is what marks
+          // the run running), a fork `starting` and `fork-running`. The run's
+          // key and the frame itself tell them apart, and a replay after a
+          // reconnect sends the same frame under the same run, so it still
+          // counts once.
+          const key = `status|${runKeyRef.current ?? ''}|${e.data}`;
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));
@@ -643,6 +756,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // them in `events` for audit / reload-restoration purposes.
           if (data.type === 'provider_error' && data.data) {
             const d = data.data as Record<string, unknown>;
+            const actionUrl = d.actionUrl;
             setState(prev => ({
               ...prev,
               events: [...prev.events, data],
@@ -653,7 +767,7 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
                 kind: (d.kind as ProviderErrorState['kind']) ?? 'unknown',
                 provider: d.provider as string | undefined,
                 message: String(d.message ?? 'Provider error'),
-                actionUrl: d.actionUrl as string | undefined,
+                actionUrl: typeof actionUrl === 'string' ? actionUrl : undefined,
                 leader: data.leader,
               },
             }));
@@ -664,25 +778,11 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           // audit + save/reload restoration.
           if (data.type === 'validation_fallback' && data.data) {
             const d = data.data as Record<string, unknown>;
-            const schemaName = typeof d.schemaName === 'string' && d.schemaName.length > 0
-              ? d.schemaName
-              : 'unknown';
-            setState(prev => {
-              const buckets = [...prev.validationFallbacks];
-              const idx = buckets.findIndex(b => b.schemaName === schemaName);
-              const updated: ValidationFallbackBucket = idx === -1
-                ? { schemaName, count: 1, lastSite: d.site as string | undefined, lastPreview: d.rawTextPreview as string | undefined }
-                : {
-                    ...buckets[idx],
-                    count: buckets[idx].count + 1,
-                    lastSite: (d.site as string | undefined) ?? buckets[idx].lastSite,
-                    lastPreview: (d.rawTextPreview as string | undefined) ?? buckets[idx].lastPreview,
-                  };
-              if (idx === -1) buckets.push(updated);
-              else buckets[idx] = updated;
-              buckets.sort((a, b) => b.count - a.count);
-              return { ...prev, events: [...prev.events, data], validationFallbacks: buckets };
-            });
+            setState(prev => ({
+              ...prev,
+              events: [...prev.events, data],
+              validationFallbacks: addValidationFallback(prev.validationFallbacks, d),
+            }));
             return;
           }
           // sim_aborted: orchestrator emits this when the run was
@@ -807,6 +907,9 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
           setState(prev => ({ ...prev, events: [...prev.events, evt] }));
+          // A save or a title that landed refreshes the saved-run list every
+          // mounted picker reads (Quickstart, Load Prior Run, the Run menu).
+          void refreshOnSimSaved(savedSessions, data);
         } catch {}
       });
 
@@ -826,8 +929,26 @@ function rollupValidationFallbacks(events: SimEvent[]): ValidationFallbackBucket
 
     void open();
 
+    // A launch answered for another visitor than the stream's (two first-time
+    // tabs, each given an id by its own load, the browser keeping the
+    // second): reopen the stream, which then carries the cookie the browser
+    // holds now. The page keeps its events, as on any reconnect.
+    const unsubscribeLaunched = replaySessionId ? () => {} : subscribeLaunched(window, visitorId => {
+      if (cancelled || streamVisitorIdRef.current === null || visitorId === streamVisitorIdRef.current) return;
+      streamVisitorIdRef.current = null;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      const es = esRef.current;
+      if (es) { try { es.close(); } catch {} }
+      esRef.current = null;
+      void open();
+    });
+
     return () => {
       cancelled = true;
+      unsubscribeLaunched();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       const es = esRef.current;
       if (es) { try { es.close(); } catch {} }

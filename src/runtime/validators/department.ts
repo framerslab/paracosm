@@ -9,6 +9,7 @@
  * @module paracosm/runtime/validators/department
  */
 import { z } from 'zod';
+import { oneLine } from '../util/parsers.js';
 
 export const CitationSchema = z.object({
   text: z.string().min(1),
@@ -73,6 +74,73 @@ export const DepartmentReportSchema = z.object({
   openQuestions: z.array(z.string()).default([]),
   recommendedEffects: z.array(RecommendedEffectSchema).default([]),
 });
+
+/**
+ * The report schema for a run: {@link DepartmentReportSchema}, refusing an
+ * effect whose `systemDelta` or `politicsDelta` names a key the run does
+ * not hold. The kernel would drop such a delta and move nothing (the Mars
+ * departments of 6 November 2026 wrote "power", "water" and "science");
+ * refused here, the message names the keys the run holds, and the retry
+ * of `sendAndValidate` hands it to the model. A key may sit in either
+ * field: the kernel adds both to wherever the run holds the key.
+ */
+export function departmentReportSchemaFor(heldKeys: readonly string[]) {
+  const held = new Set(heldKeys);
+  const list = [...held].join(', ');
+  return DepartmentReportSchema.superRefine((report, ctx) => {
+    report.recommendedEffects.forEach((effect, i) => {
+      for (const field of ['systemDelta', 'politicsDelta'] as const) {
+        for (const key of Object.keys(effect[field] ?? {})) {
+          if (held.has(key)) continue;
+          ctx.addIssue({
+            code: 'custom',
+            path: ['recommendedEffects', i, field, key],
+            message: `"${key}" is not a key this run holds, so it would move nothing; use only these keys: ${list}`,
+          });
+        }
+      }
+    });
+  });
+}
+
+/**
+ * The report a department sent once its retries are spent, when its one
+ * fault is effect keys the run does not hold: those keys come out of
+ * each effect's `systemDelta` and `politicsDelta`, one line through `log`
+ * names them with the keys the run holds (and hands them over, sorted, as
+ * its second argument), and the rest of the report
+ * stands (summary, risks, citations, every effect with its held keys).
+ * `undefined` when the reply fails the plain schema
+ * ({@link DepartmentReportSchema}) too, so the caller's fallback applies.
+ * The orchestrator passes it as the `salvage` of `sendAndValidate`.
+ */
+export function salvageDepartmentReport(
+  raw: unknown,
+  heldKeys: readonly string[],
+  log: (line: string, dropped: string[]) => void,
+): DepartmentReportZ | undefined {
+  const parsed = DepartmentReportSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const held = new Set(heldKeys);
+  const dropped = new Set<string>();
+  const report = parsed.data;
+  for (const effect of report.recommendedEffects) {
+    for (const field of ['systemDelta', 'politicsDelta'] as const) {
+      const deltas = effect[field];
+      if (!deltas) continue;
+      for (const key of Object.keys(deltas)) {
+        if (held.has(key)) continue;
+        delete deltas[key];
+        dropped.add(key);
+      }
+    }
+  }
+  if (dropped.size > 0) {
+    const keys = [...dropped].sort();
+    log(`effect keys not held, dropped: ${keys.map(oneLine).join(', ')} (the run holds ${[...held].join(', ')}); the rest of the report kept`, keys);
+  }
+  return report;
+}
 
 export type DepartmentReportZ = z.infer<typeof DepartmentReportSchema>;
 export type RiskZ = z.infer<typeof RiskSchema>;

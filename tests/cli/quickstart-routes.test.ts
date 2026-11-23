@@ -173,6 +173,24 @@ test('compile-from-seed: dedupes pending compile by signature', async () => {
   assert.equal(callCount, 1, 'compile should run only once across duplicate submissions');
 });
 
+test('compile-from-seed: two seeds that differ only in the middle are two compiles', async () => {
+  _resetCompileJobsForTest();
+  let callCount = 0;
+  const compileFn = ((async () => {
+    callCount++;
+    return await new Promise(() => { /* never resolves */ });
+  }) as unknown) as QuickstartDeps['compileFn'];
+  const deps = fakeDeps({ compileFn });
+  const head = 'h'.repeat(256);
+  const tail = 't'.repeat(128);
+  const r1 = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, r1.res, { seedText: head + 'a'.repeat(400) + tail }, deps);
+  const r2 = fakeRes();
+  await handleCompileFromSeed({} as IncomingMessage, r2.res, { seedText: head + 'b'.repeat(400) + tail }, deps);
+  assert.notEqual(r1.get().body.jobId, r2.get().body.jobId, 'a different seed is a job of its own');
+  assert.equal(callCount, 2);
+});
+
 test('compile-from-seed: status returns done with scenario after compile resolves', async () => {
   _resetCompileJobsForTest();
   const d = deferred<ScenarioPackage>();
@@ -328,12 +346,11 @@ test('compile-from-seed: the done answers carry the visitor\'s pick, a pending o
   assert.equal(hit.get().headers['Set-Cookie'], `paracosm_scenario=${ASYNC_TEST_SCENARIO.id}`);
 });
 
-test('simulate-intervention hands the server the scenario its run is in when it opens the run', async () => {
-  // The intervention replaces the shared event buffer as a /setup run does.
-  // The server opens that buffer with the run's active_scenario event and
-  // reads the run's nouns for /chat from the scenario handed over here; with
-  // nothing handed over, /chat kept the previous run's nouns.
-  const opened: Array<ScenarioPackage | undefined> = [];
+test('simulate-intervention opens a run of its own for the caller, in the scenario the run is in', async () => {
+  // The server opens the run with its active_scenario event and reads the
+  // run's nouns for /chat from the scenario handed over here. The key the
+  // page minted names the run.
+  const opened: Array<{ scenario: ScenarioPackage | undefined; runKey: string | undefined }> = [];
   const world = {
     scenario: ASYNC_TEST_SCENARIO,
     intervene: async () => ({ metadata: { runId: 'twin-1' } }),
@@ -342,10 +359,130 @@ test('simulate-intervention hands the server the scenario its run is in when it 
   await handleSimulateIntervention({} as IncomingMessage, res, {
     subject: { id: 'subject-1', name: 'Maria Chen' },
     intervention: { id: 'glp1', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
+    runKey: 'page-key-1',
   }, fakeDeps({
     getDigitalTwinWorld: async () => world,
-    resetEventBuffer: (scenario?: ScenarioPackage) => { opened.push(scenario); },
+    openRun: (scenario: ScenarioPackage, runKey?: string) => {
+      opened.push({ scenario, runKey });
+      return { runKey: runKey ?? 'server-key', visitorId: 'visitor-1', broadcast: () => {}, finish: () => {} };
+    },
+  } as Partial<QuickstartDeps>));
+  assert.equal(get().status, 200);
+  assert.deepEqual(opened.map(o => [o.scenario?.id, o.runKey]), [[ASYNC_TEST_SCENARIO.id, 'page-key-1']]);
+  assert.equal(get().body.runKey, 'page-key-1');
+  assert.equal(get().body.visitorId, 'visitor-1');
+});
+
+/** A run handle that records what the route writes through it and whether it was finished. */
+function recordingRun() {
+  const frames: Array<{ event: string; data: unknown; actorId?: string }> = [];
+  let finished = 0;
+  return {
+    frames,
+    finished: () => finished,
+    handle: {
+      runKey: 'run-1',
+      visitorId: 'visitor-1',
+      broadcast: (event: string, data: unknown, actorId?: string) => { frames.push({ event, data, actorId }); },
+      finish: () => { finished += 1; },
+    },
+  };
+}
+
+const twinBody = {
+  subject: { id: 'subject-1', name: 'Maria Chen' },
+  intervention: { id: 'glp1', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
+};
+
+test("simulate-intervention writes the run's events through the run it opened and releases the run when the engine returns", async () => {
+  const run = recordingRun();
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async ({ onEvent }: { onEvent?: (e: unknown) => void }) => {
+      onEvent?.({ type: 'turn_start', leader: 'Lead', data: { turn: 1 } });
+      assert.equal(run.finished(), 0, 'the run holds its slot while the engine works');
+      return { metadata: { runId: 'twin-1' } };
+    },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    openRun: () => run.handle,
+  } as Partial<QuickstartDeps>));
+  assert.equal(get().status, 200);
+  assert.deepEqual(run.frames.map(f => f.event), ['status', 'sim', 'complete']);
+  assert.equal(run.frames[1].actorId, 'Lead');
+  assert.equal(run.finished(), 1);
+});
+
+test('simulate-intervention releases the run when the engine throws', async () => {
+  const run = recordingRun();
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async () => { throw new Error('the engine stopped'); },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    openRun: () => run.handle,
+  } as Partial<QuickstartDeps>));
+  assert.equal(get().status, 500);
+  assert.deepEqual(run.frames.map(f => f.event), ['status', 'sim_error', 'complete']);
+  assert.equal(run.finished(), 1);
+});
+
+test('simulate-intervention answers 503 with the run cap when the server is running its most', async () => {
+  const { RunCapacityError } = await import('../../src/server/live-runs.js');
+  let intervened = false;
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async () => { intervened = true; return { metadata: { runId: 'twin-1' } }; },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    openRun: () => { throw new RunCapacityError(2, 2); },
+  } as Partial<QuickstartDeps>));
+  assert.equal(get().status, 503);
+  assert.equal(get().headers['Retry-After'], '180');
+  assert.deepEqual(get().body, {
+    error: 'The server is running 2 simulations right now, the most it runs at once. Try again in a few minutes.',
+    runsInFlight: 2,
+    maxRuns: 2,
+  });
+  assert.equal(intervened, false);
+});
+
+
+test('a digital-twin run asks the engine to write no output file', async () => {
+  let options: Record<string, unknown> | undefined;
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async (opts: Record<string, unknown>) => {
+      options = opts;
+      return { metadata: { runId: 'twin-output' }, scenarioExtensions: { outputPath: '/tmp/twin-output.json' } };
+    },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
   }));
   assert.equal(get().status, 200);
-  assert.deepEqual(opened.map(scenario => scenario?.id), [ASYNC_TEST_SCENARIO.id]);
+  assert.equal(options?.writeOutputFile, false);
+  assert.equal(get().body.artifact.scenarioExtensions?.outputPath, undefined);
+});
+
+test('a digital-twin answer omits outputPath without changing the engine artifact', async () => {
+  const artifact = {
+    metadata: { runId: 'twin-answer' },
+    scenarioExtensions: { outputPath: '/tmp/twin-answer.json', label: 'kept' },
+  };
+  const world = { scenario: ASYNC_TEST_SCENARIO, intervene: async () => artifact } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, twinBody, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+  }));
+  assert.equal(get().status, 200);
+  assert.deepEqual(get().body.artifact.scenarioExtensions, { label: 'kept' });
+  assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/twin-answer.json');
 });

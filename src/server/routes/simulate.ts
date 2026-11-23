@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../services/run-record.js';
 /**
  * HTTP `POST /simulate` one-shot endpoint (Tier 4 T4.2). Accepts
  * `{ scenario, leader, options }`, returns a full `RunArtifact` JSON.
@@ -96,6 +97,23 @@ export interface SimulateRunOptions {
   scenario: ScenarioPackage;
   apiKey?: string;
   anthropicKey?: string;
+  /** Keep every model call of the run on `provider`: no fallback to another provider. */
+  stayOnProvider?: boolean;
+}
+
+/**
+ * How the server routes one /simulate request's model calls: its hosted
+ * policy on the hosted demo (hosted-model-policy.ts), nothing elsewhere.
+ */
+export interface SimulateModelRouting {
+  /** The provider of every call, whatever the request names. Absent: the request's, read with its keys. */
+  provider?: LlmProvider;
+  /** The run's models, in place of the request's cost preset. */
+  models?: SimulationModelConfig;
+  /** Keep every compile and run call on its provider: no fallback to another provider. */
+  stayOnProvider?: boolean;
+  /** False: the compile runs no web search on the server's keys. */
+  serverSearch?: boolean;
 }
 
 /**
@@ -127,6 +145,7 @@ export async function handleSimulate(
   body: unknown,
   deps: SimulateDeps,
   credentials: ProviderCredentialOptions = {},
+  routing: SimulateModelRouting = {},
 ): Promise<void> {
   const parsed = SimulateRequestSchema.safeParse(body);
   if (!parsed.success) {
@@ -142,7 +161,7 @@ export async function handleSimulate(
     apiKey: normalizeCredential(credentials.apiKey),
     anthropicKey: normalizeCredential(credentials.anthropicKey),
   };
-  const provider = resolveProviderFromCredentials(options.provider, cleanCredentials, 'openai');
+  const provider = routing.provider ?? resolveProviderFromCredentials(options.provider, cleanCredentials, 'openai');
 
   let scenarioPkg: ScenarioPackage;
   try {
@@ -155,6 +174,8 @@ export async function handleSimulate(
       seedUrl: options.seedUrl,
       apiKey: cleanCredentials.apiKey,
       anthropicKey: cleanCredentials.anthropicKey,
+      ...(routing.stayOnProvider ? { stayOnProvider: true } : {}),
+      ...(routing.serverSearch === false ? { webSearch: false } : {}),
     });
   } catch (err) {
     // Server-side log with the full stack; client gets a generic
@@ -174,9 +195,12 @@ export async function handleSimulate(
       startTime: options.startTime,
       captureSnapshots: options.captureSnapshots ?? false,
       provider,
-      costPreset: options.costPreset,
+      // Routed models replace the request's cost preset.
+      costPreset: routing.models ? undefined : options.costPreset,
+      ...(routing.models ? { models: routing.models } : {}),
       apiKey: cleanCredentials.apiKey,
       anthropicKey: cleanCredentials.anthropicKey,
+      ...(routing.stayOnProvider ? { stayOnProvider: true } : {}),
     });
   } catch (err) {
     console.error('[simulate] runSimulation failed:', err);
@@ -185,6 +209,6 @@ export async function handleSimulate(
   }
   const durationMs = Date.now() - startedAt;
 
-  const response: SimulateResponse = { artifact, scenario: scenarioPkg, durationMs };
+  const response: SimulateResponse = { artifact: withoutOutputPath(artifact), scenario: scenarioPkg, durationMs };
   writeJson(res, 200, response);
 }

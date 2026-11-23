@@ -34,9 +34,9 @@ test('progressBetweenTurns with Mars hook applies radiation and bone density', (
   const { state } = progressBetweenTurns(makeState() as any, 1, new SeededRng(950), marsRadiationBoneProgression);
   assert.equal(state.agents[0].health.boneDensityPct, 99.5);
   // A year of the surface dose (0.67 mSv a day) through three habitat
-  // modules, which keep out 60 percent of it.
+  // modules, which keep out 49 percent of it: 0.8 ^ 3 gets through.
   const dose = state.agents[0]!.health.cumulativeRadiationMsv ?? 0;
-  assert.ok(Math.abs(dose - 0.67 * 365 * 0.4) < 1e-9, `dose ${dose}`);
+  assert.ok(Math.abs(dose - 0.67 * 365 * 0.512) < 1e-9, `dose ${dose}`);
 });
 
 test('progressBetweenTurns without hook does not apply radiation or bone density', () => {

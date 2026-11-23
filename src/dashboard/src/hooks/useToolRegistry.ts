@@ -1,5 +1,55 @@
 import { useMemo, createContext, useContext } from 'react';
 import type { GameState } from './useGameState';
+import { buildToolRegistry } from './toolRegistry.helpers';
+
+/** What the record says of a forge: the judge passed it, or it did not pass. */
+export type RecordOutcome = 'passed' | 'did_not_pass';
+
+/** One forge of one actor's tool, read from its forge_attempt frame. */
+export interface ForgeAttemptRecord {
+  /** 1-based, in stream order, within one actor's tool. */
+  attempt: number;
+  turn: number;
+  time: number;
+  eventIndex: number;
+  department: string;
+  /** The title of that turn's event at eventIndex (its event_start frame), '' when absent. */
+  eventTitle: string;
+  approved: boolean;
+  confidence: number | null;
+  /** The record's text as sent (240 characters at most). */
+  errorReason: string | null;
+  description: string;
+  inputFields: string[];
+  outputFields: string[];
+  /** The ProcessedEvent id of its forge_attempt frame. */
+  eventId: string;
+}
+
+/** Tools, forges and their outcomes. Forges are the forge_attempt frames; passed and didNotPass add up to them. */
+export interface ForgeCounts {
+  tools: number;
+  forges: number;
+  /** Forges after a tool's first. */
+  reforges: number;
+  passed: number;
+  didNotPass: number;
+}
+
+/** One actor of the run, in launch order, with its own registry's counts. */
+export interface ActorSummary {
+  index: number;
+  /** 'A1'..'A300' (index + 1). */
+  label: string;
+  name: string;
+  archetype: string;
+  counts: ForgeCounts;
+  /** One entry a forge, in turn order. */
+  strip: RecordOutcome[];
+  status: 'waiting' | 'running' | 'done';
+  /** A department report of this actor listed its tools in a shape the page cannot read. */
+  unreadable: boolean;
+}
 
 export interface ToolUseEvent {
   /** Which leader used the tool here (by name, the dedup key across
@@ -19,7 +69,7 @@ export interface ToolUseEvent {
 }
 
 export interface ToolEntry {
-  /** Stable index for [N] referencing in EventCards / Toolbox section. */
+  /** Stable index for [N] referencing in EventCards / Toolbox section: the entry's place in `list`, plus 1. */
   n: number;
   name: string;
   description: string;
@@ -27,9 +77,9 @@ export interface ToolEntry {
   /** First turn this tool was forged in the simulation. */
   firstForgedTurn: number;
   firstForgedDepartment: string;
-  /** All departments that referenced this tool across the run. */
+  /** All departments of this actor that forged or referenced this tool. */
   departments: Set<string>;
-  /** Leaders (by name) that referenced it, for divergence display. */
+  /** The actor that holds it, by name: one name, since each actor's tool is its own entry. */
   actorNames: Set<string>;
   /** Number of times reused after the first forge (across all events). */
   reuseCount: number;
@@ -59,176 +109,56 @@ export interface ToolEntry {
    *  attached one yet (older sim payloads); falls back to the count
    *  fields for display. */
   history: ToolUseEvent[];
+  /** The actor whose registry holds this tool: its launch index and name. */
+  actorIndex: number;
+  actorName: string;
+  /** Every forge of this tool by this actor, in stream order. Empty on a run whose stream holds no forge_attempt frame. */
+  attempts: ForgeAttemptRecord[];
+  /** The latest attempt's outcome; the latest report's `approved` when there is no attempt. */
+  outcome: RecordOutcome;
+  /** Launch indexes of the other actors that hold a tool of this name. */
+  sameNameActors: number[];
 }
 
 export interface ToolRegistry {
-  /** Look up the global number for a tool by name. Returns 0 if unknown. */
+  /** The number of the lowest-numbered entry of this name. Returns 0 if unknown. */
   getNumber: (name: string) => number;
+  /** The lowest-numbered entry of this name. */
   getEntry: (name: string) => ToolEntry | undefined;
-  /** Full list ordered by first-forge turn, then department. */
+  /** One actor's tool of this name. */
+  getEntryFor: (actorIndex: number, name: string) => ToolEntry | undefined;
+  /** The entry numbered n (1-based). */
+  getEntryByNumber: (n: number) => ToolEntry | undefined;
+  /** Every entry in actor order, and within an actor in the order its tools first appear in its stream; `n` is the position plus 1. */
   list: ToolEntry[];
+  /** Every actor of the run, in launch order. */
+  actors: ActorSummary[];
+  /** The whole run. */
+  counts: ForgeCounts;
 }
 
 const EMPTY_REGISTRY: ToolRegistry = {
   getNumber: () => 0,
   getEntry: () => undefined,
+  getEntryFor: () => undefined,
+  getEntryByNumber: () => undefined,
   list: [],
+  actors: [],
+  counts: { tools: 0, forges: 0, reforges: 0, passed: 0, didNotPass: 0 },
 };
 
 /**
- * Build the per-simulation tool ledger from SSE specialist_done events. Tools
- * dedupe by name; the entry remembers when it was first forged, every
- * department that used it, and how many times it was reused.
+ * The run's forged tools, one entry for each actor's tool: each actor runs
+ * its own simulation with its own tool registry, so a name two actors forged
+ * is two entries, each with its own uses and attempts. Built by the pure
+ * `buildToolRegistry` (toolRegistry.helpers.ts).
  *
  * Schema fields (`inputSchema`, `outputSchema`) are populated by the
  * orchestrator from the EmergentToolRegistry when the tool first appears,
  * so the same registry that drives the engine drives the UI provenance.
  */
 export function useToolRegistry(state: GameState): ToolRegistry {
-  return useMemo(() => {
-    const byName = new Map<string, ToolEntry>();
-    const list: ToolEntry[] = [];
-    let next = 1;
-
-    for (const actorName of state.actorIds) {
-      const sideState = state.actors[actorName];
-      if (!sideState) continue;
-      for (const evt of sideState.events) {
-        if (evt.type !== 'specialist_done') continue;
-        const tools = (evt.data?._filteredTools as Array<Record<string, unknown>>) || [];
-        const dept = String(evt.data?.department || '');
-        for (const t of tools) {
-          const name = String(t.name || '').trim();
-          if (!name || name === 'unnamed') continue;
-
-          let entry = byName.get(name);
-          if (!entry) {
-            entry = {
-              n: next++,
-              name,
-              description: String(t.description || name),
-              mode: String(t.mode || 'sandbox'),
-              firstForgedTurn: typeof t.firstForgedTurn === 'number' ? (t.firstForgedTurn as number) : (evt.turn ?? 0),
-              firstForgedDepartment: String(t.firstForgedDepartment || dept),
-              departments: new Set(),
-              actorNames: new Set(),
-              reuseCount: 0,
-              reforgeCount: 0,
-              rejectedReforges: 0,
-              confidence: typeof t.confidence === 'number'
-                ? (t.confidence as number)
-                : (t.approved !== false ? 0.85 : 0),
-              approved: t.approved !== false,
-              inputSchema: t.inputSchema,
-              outputSchema: t.outputSchema,
-              sampleOutput: typeof t.output === 'string' ? (t.output as string) : null,
-              errorReason: typeof t.errorReason === 'string' ? (t.errorReason as string) : undefined,
-              inputFields: Array.isArray(t.inputFields) ? (t.inputFields as string[]) : [],
-              outputFields: Array.isArray(t.outputFields) ? (t.outputFields as string[]) : [],
-              history: [],
-            };
-            byName.set(name, entry);
-            list.push(entry);
-          } else {
-            if (typeof t.output === 'string' && t.output) entry.sampleOutput = t.output as string;
-            if (typeof t.confidence === 'number' && (t.confidence as number) > entry.confidence) {
-              entry.confidence = t.confidence as number;
-            }
-            if (t.approved !== false) {
-              entry.approved = true;
-            }
-            if (!entry.inputSchema && t.inputSchema) entry.inputSchema = t.inputSchema;
-            if (!entry.outputSchema && t.outputSchema) entry.outputSchema = t.outputSchema;
-            if (entry.approved) {
-              entry.errorReason = undefined;
-            } else if (typeof t.errorReason === 'string' && t.errorReason) {
-              entry.errorReason = t.errorReason as string;
-            }
-          }
-          if (dept) entry.departments.add(dept);
-          entry.actorNames.add(actorName);
-
-          const serverHistory = (t.history as Array<{
-            turn: number; time: number; eventIndex: number; eventTitle: string;
-            department: string; output: string | null;
-            isReforge: boolean; rejected: boolean; confidence?: number;
-          }>) || null;
-          if (Array.isArray(serverHistory)) {
-            entry.history = serverHistory.map(h => ({ ...h, actorName }));
-            entry.reuseCount = Math.max(0, serverHistory.length - 1);
-            entry.reforgeCount = serverHistory.filter(h => h.isReforge).length;
-            entry.rejectedReforges = serverHistory.filter(h => h.isReforge && h.rejected).length;
-          }
-        }
-      }
-    }
-
-    // Failsafe pass: scan forge_attempt events directly and include any
-    // tool name that ONLY ever appeared as rejected (never made it into
-    // a specialist_done summary with an approved record). Covers the edge case
-    // where a forge fails and the dept bails on that tool entirely —
-    // those attempts wouldn't land in specialist_done.forgedTools but ARE in
-    // the live forge_attempt stream, and users need to see terminal
-    // failures in the toolbox to understand what was tried.
-    for (const actorName of state.actorIds) {
-      const sideState = state.actors[actorName];
-      if (!sideState) continue;
-      for (const evt of sideState.events) {
-        if (evt.type !== 'forge_attempt') continue;
-        const d = (evt.data as Record<string, unknown>) || {};
-        const name = String(d.name || '').trim();
-        if (!name || name === 'unnamed') continue;
-        if (byName.has(name)) continue;
-        if (d.approved === true) continue;
-        const failEntry: ToolEntry = {
-          n: next++,
-          name,
-          description: String(d.description || name),
-          mode: String(d.mode || 'sandbox'),
-          firstForgedTurn: Number(d.turn ?? evt.turn ?? 0),
-          firstForgedDepartment: String(d.department || ''),
-          departments: new Set<string>(
-            typeof d.department === 'string' && d.department ? [d.department] : [],
-          ),
-          actorNames: new Set<string>([actorName]),
-          reuseCount: 0,
-          reforgeCount: 0,
-          rejectedReforges: 1,
-          confidence: typeof d.confidence === 'number' ? (d.confidence as number) : 0,
-          approved: false,
-          inputSchema: undefined,
-          outputSchema: undefined,
-          sampleOutput: null,
-          errorReason: typeof d.errorReason === 'string' ? (d.errorReason as string) : undefined,
-          inputFields: Array.isArray(d.inputFields) ? (d.inputFields as string[]) : [],
-          outputFields: Array.isArray(d.outputFields) ? (d.outputFields as string[]) : [],
-          history: [
-            {
-              turn: Number(d.turn ?? evt.turn ?? 0),
-              time: Number(d.time ?? 0),
-              eventIndex: Number(d.eventIndex ?? 0),
-              eventTitle: '',
-              department: String(d.department || ''),
-              output: null,
-              isReforge: false,
-              rejected: true,
-              confidence:
-                typeof d.confidence === 'number' ? (d.confidence as number) : undefined,
-              actorName,
-            },
-          ],
-        };
-        byName.set(name, failEntry);
-        list.push(failEntry);
-      }
-    }
-
-    return {
-      getNumber: (name: string) => byName.get(name)?.n ?? 0,
-      getEntry: (name: string) => byName.get(name),
-      list,
-    };
-  }, [state]);
+  return useMemo(() => buildToolRegistry(state), [state]);
 }
 
 export const ToolRegistryContext = createContext<ToolRegistry>(EMPTY_REGISTRY);

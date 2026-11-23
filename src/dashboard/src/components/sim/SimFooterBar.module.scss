@@ -22,32 +22,55 @@
   text-transform: uppercase;
 }
 
-.spacer { flex: 1; }
+// The keys' row: one row at every width (OneRowScroller). It keeps the
+// keys' own widths and gives the hint the rest of the bar's line.
+.keys {
+  flex: 0 1 auto;
+}
+
+.keysRow {
+  gap: 8px;
+  align-items: center;
+}
 
 .hint {
+  margin-left: auto;
   font-size: var(--font-3xs);
   font-family: var(--mono);
   color: var(--text-3);
   font-style: italic;
 }
 
-// Narrow viewports — without wrap, .spacer's flex:1 squeezed the hint
-// into a per-word vertical column on the right edge of the row. With
-// `flex-wrap: wrap` on .bar (above), the hint now drops to its own
-// row when there is no horizontal room. Drop the spacer (pointless once
-// items wrap) and span the hint full-width so it reads as a one-liner
-// over the rerun panel below instead of stacking word-per-line.
+// Narrow viewports: the hint is not a key, so when the bar's line has no
+// room for it, it takes a line of its own below the keys' row and reads as
+// a one-liner over the rerun panel instead of stacking word-per-line.
 @media (max-width: 600px) {
   .bar {
     padding: 6px 10px;
     gap: 6px;
   }
 
-  .spacer { display: none; }
+  .keysRow { gap: 6px; }
 
   .hint {
     flex: 1 0 100%;
     line-height: 1.4;
+  }
+}
+
+// Phone: the keys' names say what they open, so the "Evidence" label gives
+// way to them; the region keeps the name "Simulation evidence".
+@media (max-width: 480px) {
+  .label { display: none; }
+}
+
+// Below 900 px each key in the row is 44 px wide and 44 px tall, the layout
+// switch's included.
+@media (max-width: 899.98px) {
+  .keysRow {
+    align-items: stretch;
+
+    button { min-width: 44px; min-height: 44px; }
   }
 }
 

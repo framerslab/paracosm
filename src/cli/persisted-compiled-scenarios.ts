@@ -8,12 +8,16 @@
  * post-compile draft (the scenario shape minus the function-typed
  * `hooks` field) to `${scenarioDir}/compiled/{id}.json` after every
  * successful compile, and exposes loaders so the server can lift those
- * drafts back into the catalog at boot. Hook source strings live in
- * the compiler's separate disk cache (`.paracosm/cache/`), so a boot-
- * time `compileScenario(draft, { cache: true })` re-hydrates the full
- * runnable scenario for free when the cache is warm — and at LLM cost
- * (~$0.10/draft) when it's cold (e.g. fresh deploy with no cache
- * volume mounted).
+ * drafts back into the catalog at boot. Each file also carries the
+ * source of every hook the compile restored or generated, the model that
+ * generated them and the compile schema version (`_persistHooks`, from
+ * the compiler's `hookSourcesOf`), so the boot restore
+ * (`compileScenario(draft, { restore: { hookSources } })`) rebuilds the
+ * runnable scenario on any host without calling a model. A file written
+ * before files carried their hooks is restored from the compiler's disk
+ * cache (`.paracosm/cache/`) under the model that wrote it, with no model
+ * call, and compiled again only when that cache holds none of its hooks
+ * that the compiler can restore.
  *
  * @module paracosm/cli/persisted-compiled-scenarios
  */
@@ -26,8 +30,9 @@ import {
   unlinkSync,
   statSync,
 } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import type { ScenarioPackage } from '../engine/types.js';
+import { hookSourcesOf, readHookSources, type CompiledHookSources } from '../engine/compiler/hook-sources.js';
 
 /**
  * Subdirectory under `scenarios/` where compile-from-seed scenarios
@@ -39,11 +44,9 @@ import type { ScenarioPackage } from '../engine/types.js';
 export const COMPILED_SUBDIR = 'compiled';
 
 /**
- * Cap on the number of persisted compiled scenarios at any time. Oldest
- * (by mtime) evict FIFO when a 51st scenario tries to save. 50 is sized
- * for the public-demo use case: enough room for the entire interesting-
- * scenario tail, small enough that disk + boot-time recompile cost
- * stay bounded.
+ * Cap on the shared catalog's compiled scenarios and its saved drafts.
+ * Scenarios named by held runs stay in the catalog even above the cap;
+ * folder clean-up keeps compiled catalog entries and drafts loading at boot.
  */
 export const COMPILED_SCENARIOS_CAP = 50;
 
@@ -65,9 +68,13 @@ export interface PersistedCompiledMeta {
 export interface PersistedCompiledDraft {
   id: string;
   /** Scenario JSON minus the function-typed `hooks` field — runnable
-   *  through `compileScenario(draft, { cache: true })`. */
+   *  through `compileScenario(draft, { restore: { hookSources } })`. */
   draft: Record<string, unknown>;
   meta: PersistedCompiledMeta;
+  /** The hook sources saved with it; absent in a file written before
+   *  files carried them. A record that names no hook is a compile that
+   *  kept every hook on its fallback. */
+  hookSources?: CompiledHookSources;
 }
 
 /** Resolve the `compiled/` subdir path under a scenario root. */
@@ -89,14 +96,36 @@ function stripHooks(scenario: ScenarioPackage): Record<string, unknown> {
 }
 
 /**
- * Strict id validator. Scenario ids in this codebase are kebab-case
- * slugs produced by the compile-from-seed pipeline; values containing
- * path separators or `..` segments are not legitimate ids and would
- * let a caller write/read outside the compiled/ directory. The
- * persist + delete paths run this gate before touching the filesystem.
+ * The one pattern a scenario id must match to name a file: a letter or
+ * digit, then up to 127 letters, digits, hyphens or underscores. An id
+ * with a path separator, a dot, a percent sign, a null byte or anything
+ * else outside that set never names a file.
  */
-function isSafeScenarioId(id: string): boolean {
-  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(id);
+export const SCENARIO_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
+
+/** {@link SCENARIO_ID_PATTERN} in words, for refusals. */
+export const SCENARIO_ID_RULE =
+  'a scenario id that names a file is 1 to 128 letters, digits, hyphens or underscores, starting with a letter or digit';
+
+/**
+ * Whether a value is a scenario id that may name a file. The persist and
+ * delete paths here, the boot loader and the scenario store's disk write
+ * all run this gate before touching the file system.
+ */
+export function isSafeScenarioId(id: unknown): id is string {
+  return typeof id === 'string' && SCENARIO_ID_PATTERN.test(id);
+}
+
+/**
+ * The path of `<id>.json` directly inside `dir`, or `null` when the id
+ * fails {@link isSafeScenarioId} or the resolved path is anything other
+ * than that one file name inside `dir`.
+ */
+export function scenarioJsonPath(dir: string, id: unknown): string | null {
+  if (!isSafeScenarioId(id)) return null;
+  const root = resolve(dir);
+  const filePath = resolve(root, `${id}.json`);
+  return relative(root, filePath) === `${id}.json` ? filePath : null;
 }
 
 /**
@@ -114,7 +143,8 @@ export interface PersistResult {
 /**
  * Save a compile-from-seed scenario to disk. Caller passes the fully-
  * compiled scenario; we persist a hook-stripped copy plus metadata.
- * Idempotent on the same id (overwrites the previous file).
+ * Idempotent on the same id (overwrites the previous file). The optional
+ * `keep` protects catalog entries and loading drafts from folder clean-up.
  *
  * @returns A {@link PersistResult} carrying the path written + the
  *   exact meta block stored on disk so callers can mirror it into
@@ -127,6 +157,7 @@ export function persistCompiledScenario(
   scenarioDir: string,
   scenario: ScenarioPackage,
   seedText: string | null,
+  keep?: (id: string) => boolean,
 ): PersistResult | null {
   if (!isSafeScenarioId(scenario.id)) {
     console.warn(`[scenarios] refusing to persist scenario with unsafe id: ${JSON.stringify(scenario.id)}`);
@@ -139,13 +170,19 @@ export function persistCompiledScenario(
       compiledAt: new Date().toISOString(),
       seedText: seedText && seedText.length > 0 ? seedText.slice(0, 1000) : null,
     };
+    // The hooks' sources, when this process compiled or restored the
+    // scenario, so a restart restores its hooks without a model call. A
+    // compile that kept every hook on its fallback saves a record that names
+    // no hook, which restores those fallbacks.
+    const hookSources = hookSourcesOf(scenario);
     const payload = {
       ...stripHooks(scenario),
       _persistMeta: meta,
+      ...(hookSources ? { _persistHooks: hookSources } : {}),
     };
     const filePath = resolve(dir, `${scenario.id}.json`);
     writeFileSync(filePath, JSON.stringify(payload, null, 2));
-    enforceCompiledCap(dir, COMPILED_SCENARIOS_CAP);
+    enforceCompiledCap(dir, COMPILED_SCENARIOS_CAP, keep);
     return { filePath, meta };
   } catch (err) {
     console.warn(`[scenarios] persistCompiledScenario failed for ${scenario.id}:`, err);
@@ -154,62 +191,91 @@ export function persistCompiledScenario(
 }
 
 /**
- * Read every compiled-draft JSON from the persistence dir. Malformed
- * files are skipped silently — one corrupted entry never blocks the
- * rest of the catalog from loading.
+ * Read the compiled-draft JSON files in the persistence dir, newest
+ * first by mtime, and return at most `cap` of them
+ * ({@link COMPILED_SCENARIOS_CAP} by default, the number
+ * {@link persistCompiledScenario} keeps), since the server compiles
+ * every draft returned. Once `cap` drafts are read the rest are left
+ * unread, in one log line. Malformed files and files whose id fails
+ * {@link isSafeScenarioId} are skipped with a line naming the file;
+ * one bad entry never blocks the rest of the catalog from loading.
  */
-export function loadPersistedCompiledDrafts(scenarioDir: string): PersistedCompiledDraft[] {
+export function loadPersistedCompiledDrafts(
+  scenarioDir: string,
+  cap: number = COMPILED_SCENARIOS_CAP,
+): PersistedCompiledDraft[] {
   const dir = compiledDir(scenarioDir);
   if (!existsSync(dir)) return [];
+  const files = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => {
+      const filePath = resolve(dir, entry.name);
+      let mtimeMs = 0;
+      try { mtimeMs = statSync(filePath).mtimeMs; } catch { /* sorts last; the read below reports it */ }
+      return { name: entry.name, filePath, mtimeMs };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
   const out: PersistedCompiledDraft[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-    const filePath = resolve(dir, entry.name);
+  for (let index = 0; index < files.length; index += 1) {
+    const { name, filePath, mtimeMs } = files[index];
+    if (out.length >= cap) {
+      console.warn(
+        `[scenarios] stopped loading persisted compiled drafts at the cap of ${cap}; ` +
+        `${files.length - index} older draft file(s) left unread`,
+      );
+      break;
+    }
     try {
       const raw = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, unknown>;
-      const id = typeof raw.id === 'string' ? raw.id : null;
-      if (!id) continue;
+      const id: unknown = raw.id;
+      if (id === undefined || id === null || id === '') continue;
+      if (!isSafeScenarioId(id)) {
+        console.warn(`[scenarios] skipping persisted draft ${JSON.stringify(name)}: its id is not a plain scenario id`);
+        continue;
+      }
       const persistMeta = (raw._persistMeta ?? {}) as Partial<PersistedCompiledMeta>;
       // Fall back to file mtime when the on-disk metadata predates the
       // _persistMeta field (e.g. user manually dropped a JSON in this
       // dir without going through persistCompiledScenario).
-      const fallbackCompiledAt = (() => {
-        try { return new Date(statSync(filePath).mtimeMs).toISOString(); }
-        catch { return new Date(0).toISOString(); }
-      })();
+      const fallbackCompiledAt = new Date(mtimeMs).toISOString();
       const meta: PersistedCompiledMeta = {
         compiledAt: typeof persistMeta.compiledAt === 'string' ? persistMeta.compiledAt : fallbackCompiledAt,
         seedText: typeof persistMeta.seedText === 'string' ? persistMeta.seedText : null,
       };
-      // Strip the side-channel field so the draft passed to
+      // Strip the side-channel fields so the draft passed to
       // compileScenario matches the schema it expects.
-      const { _persistMeta: _meta, ...draft } = raw;
-      out.push({ id, draft, meta });
+      const { _persistMeta: _meta, _persistHooks: savedHooks, ...draft } = raw;
+      const hookSources = readHookSources(savedHooks);
+      out.push({ id, draft, meta, ...(hookSources ? { hookSources } : {}) });
     } catch (err) {
-      console.warn(`[scenarios] skipping unreadable draft ${entry.name}:`, err);
+      console.warn(`[scenarios] skipping unreadable draft ${name}:`, err);
     }
   }
   return out;
 }
 
-/**
- * FIFO eviction once the cap is exceeded. Oldest by mtime drops first.
- * Idempotent and safe to call after every persist — at-cap state is the
- * common case so the function returns quickly when nothing needs
- * eviction.
- */
-function enforceCompiledCap(dir: string, cap: number): void {
+/** Deletes the oldest saved drafts above the cap, except those the caller keeps. */
+function enforceCompiledCap(dir: string, cap: number, keep?: (id: string) => boolean): void {
   if (!existsSync(dir)) return;
   const files = readdirSync(dir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith('.json'))
-    .map((e) => {
+    .filter(e => e.isFile() && e.name.endsWith('.json'))
+    .flatMap(e => {
+      const id = e.name.slice(0, -5);
+      if (!isSafeScenarioId(id)) return [];
       const filePath = resolve(dir, e.name);
-      return { filePath, mtime: statSync(filePath).mtimeMs };
+      try {
+        const draft: unknown = JSON.parse(readFileSync(filePath, 'utf-8'));
+        if (!draft || typeof draft !== 'object' || (draft as { id?: unknown }).id !== id) return [];
+        return [{ id, filePath, mtime: statSync(filePath).mtimeMs }];
+      } catch {
+        return []; // An unreadable file is not a saved draft we can remove.
+      }
     })
     .sort((a, b) => a.mtime - b.mtime);
   while (files.length > cap) {
-    const drop = files.shift();
-    if (!drop) break;
+    const index = files.findIndex(file => !keep?.(file.id));
+    if (index < 0) break;
+    const [drop] = files.splice(index, 1);
     try {
       unlinkSync(drop.filePath);
     } catch (err) {
@@ -222,8 +288,7 @@ function enforceCompiledCap(dir: string, cap: number): void {
  * Remove a persisted draft by id. Returns true when a file was actually
  * deleted, false when no matching file existed or the id failed
  * validation (idempotent for callers that don't pre-check). Used by
- * the future `/scenario/delete` admin surface and by tests; production
- * server-app does not call this on the active path.
+ * catalog eviction, an admin disk save, the admin delete route and tests.
  *
  * Path-traversal guard: rejects any id that doesn't match the strict
  * kebab-slug shape AND verifies the resolved file path stays inside

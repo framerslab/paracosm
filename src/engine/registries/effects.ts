@@ -3,12 +3,29 @@ import type { EffectDefinition, MetricDefinition } from '../types.js';
 /** Possible outcome classifications for a simulation turn. */
 export type TurnOutcome = 'risky_success' | 'risky_failure' | 'conservative_success' | 'conservative_failure';
 
-const OUTCOME_MULTIPLIERS: Record<TurnOutcome, number> = {
+/**
+ * What each outcome multiplies a category table by (see {@link EffectRegistry}).
+ * The commander's decision rule states them and reads its break-even chance
+ * from them.
+ */
+export const OUTCOME_MULTIPLIERS: Readonly<Record<TurnOutcome, number>> = {
   risky_success: 2.5,
   risky_failure: -2.0,
   conservative_success: 1.0,
   conservative_failure: -1.0,
 };
+
+/**
+ * What a harmful entry of a category table (a cost) is multiplied by when
+ * the response went as well as `effective`: `max(0, 2 - effective)`. A
+ * cost stays a cost: 0 at a risky success, 1 at a conservative success, 3
+ * at a conservative failure and 4 at a risky failure, at no modifier (see
+ * {@link EffectRegistry}). The commander's decision rule states these
+ * beside {@link OUTCOME_MULTIPLIERS}.
+ */
+export function costMultiple(effective: number): number {
+  return Math.max(0, 2 - effective);
+}
 
 export interface OutcomeModifiers {
   personalityBonus: number;
@@ -21,7 +38,8 @@ export interface OutcomeModifiers {
    *                          (cheap, pure upside — institutional knowledge)
    *   forgeFailures          failed forge attempts this event (judge
    *                          rejected — wasted department effort)
-   *   totalToolsForRun       cumulative unique tools over the run
+   *   totalToolsForRun       the run's approved tools so far, each once;
+   *                          a forge rejected on every try is none
    *                          (innovation index — diminishing returns)
    */
   toolModifiers?: {
@@ -136,7 +154,7 @@ export class EffectRegistry {
     const addsPeople = (base.population ?? 0) > 0;
     for (const [key, value] of Object.entries(base)) {
       const cost = !addsPeople && this.isHarmful(key, value);
-      const raw = value * (cost ? Math.max(0, 2 - effective) : effective);
+      const raw = value * (cost ? costMultiple(effective) : effective);
       deltas[key] = Math.round(raw * 100) / 100;
     }
 
@@ -147,7 +165,7 @@ export class EffectRegistry {
     if (tm) {
       const forgeCost = tm.newToolsThisEvent + tm.forgeFailures;
       if (forgeCost > 0) {
-        // Power: every forged tool runs in an in-process node:vm context.
+        // Power: every forged tool runs its code on the server, in QuickJS.
         if (deltas.powerKw !== undefined || base.powerKw !== undefined) {
           deltas.powerKw = (deltas.powerKw ?? 0) - forgeCost * 1.2;
         } else {
@@ -171,5 +189,28 @@ export class EffectRegistry {
     }
 
     return deltas;
+  }
+
+  /** The categories the tables name. */
+  categories(): string[] {
+    return Object.keys(this.effects);
+  }
+
+  /**
+   * The largest absolute entry each key has across the category tables:
+   * the most one event brings on that key at an ordinary response (a
+   * conservative success, before the modifiers). A key no table names is
+   * absent; one the tables name only with 0 has 0. The policy step bounds
+   * what one decision's selected effects move by it.
+   */
+  largestEntries(): Record<string, number> {
+    const largest: Record<string, number> = {};
+    for (const table of Object.values(this.effects)) {
+      for (const [key, value] of Object.entries(table ?? {})) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+        largest[key] = Math.max(largest[key] ?? 0, Math.abs(value));
+      }
+    }
+    return largest;
   }
 }

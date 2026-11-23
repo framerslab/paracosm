@@ -993,6 +993,16 @@
             },
             "error": {
               "type": "string"
+            },
+            "salvaged": {
+              "type": "boolean",
+              "const": true
+            },
+            "droppedKeys": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [

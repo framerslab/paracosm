@@ -27,6 +27,10 @@ export interface CompileFromSeedPayload {
   sourceUrl?: string;
   domainHint?: string;
   actorCount?: number;
+  /** The visitor's own OpenAI key from Settings: the draft and its compile run on it. */
+  apiKey?: string;
+  /** The visitor's own Anthropic key from Settings: the draft and its compile run on it. */
+  anthropicKey?: string;
 }
 
 export interface CompileScenarioResult {

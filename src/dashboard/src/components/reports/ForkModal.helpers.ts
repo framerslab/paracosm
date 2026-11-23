@@ -112,6 +112,23 @@ export function parseCustomEvents(
   return events;
 }
 
+/** The snapshots a saved run holds for replay alone (#235); a fork branches from `kernelSnapshotsPerTurn`. */
+const REPLAY_ONLY_SNAPSHOTS = new Set(['kernelSnapshotAtStart', 'kernelSnapshotsAfterProgression']);
+
+/**
+ * The parent run as the fork posts it to `/setup`: without the snapshots
+ * only replay reads. They hold one more kernel snapshot than the turns,
+ * each about the size of an end-of-turn one, and the server refuses a
+ * request body over its limit (5 MiB unless `MAX_REQUEST_BODY_BYTES` sets
+ * another). The run the page holds keeps them.
+ */
+export function forkParentForPost<T extends { scenarioExtensions?: unknown }>(parent: T): T {
+  const ext = parent.scenarioExtensions;
+  if (!ext || typeof ext !== 'object') return parent;
+  const kept = Object.fromEntries(Object.entries(ext as Record<string, unknown>).filter(([key]) => !REPLAY_ONLY_SNAPSHOTS.has(key)));
+  return { ...parent, scenarioExtensions: kept };
+}
+
 /** The parts of a parent run the fork controls read. */
 export interface ForkParent {
   trajectory?: { timepoints?: unknown[] };

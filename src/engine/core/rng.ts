@@ -65,6 +65,16 @@ export class SeededRng {
     return new SeededRng((hash ^ seed) | 0);
   }
 
+  /**
+   * The one die a person keeps for a cause of death for their whole life,
+   * in a run whose scenario keeps one death die for a life
+   * (`setup.mortalityDice: 'life'`): keyed by the seed, the person and the
+   * cause, and by no turn or year.
+   */
+  static forLife(seed: number, agentId: string, cause: string): SeededRng {
+    return SeededRng.forDraw(seed, 0, agentId, `life:${cause}`);
+  }
+
   /** Derives a child RNG for a specific turn (deterministic sub-stream). */
   turnSeed(turn: number): SeededRng {
     return new SeededRng(this._state ^ (turn * 2654435761));

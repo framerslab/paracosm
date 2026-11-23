@@ -17,7 +17,7 @@
  * @module paracosm/runtime/emergent-setup
  */
 
-import type { ITool } from '@framers/agentos';
+import type { ITool, JSONSchemaObject } from '@framers/agentos';
 import {
   EmergentCapabilityEngine, EmergentJudge, EmergentToolRegistry,
   ComposableToolBuilder, ForgeToolMetaTool, generateText,
@@ -34,12 +34,19 @@ import {
 // sites continue to import from this module without churn.
 export { validateForgeShape, inferSchemaFromTestCases };
 import { DEFAULT_EXECUTION, type SimulationExecutionConfig } from '../../cli/sim-config.js';
+import { fallbackProvidersFor } from '../../engine/provider/credentials.js';
+import { refusedWordIn } from '../../engine/compiler/own-context.js';
 import {
   searchCredential,
   type SearchCredentialOptions,
 } from '../../engine/provider/credentials.js';
 import { createResearchSearch } from '../../engine/provider/web-search.js';
 import type { LlmProvider } from '../../engine/types.js';
+import {
+  clampForgedCodeMemoryMB,
+  clampForgedCodeTimeoutMs,
+  QuickJSForgedCodeExecutor,
+} from './forged-code-executor.js';
 
 // ---------------------------------------------------------------------------
 // Web search tool
@@ -147,7 +154,13 @@ export function createEmergentEngine(
   forgedExecutables?: Map<string, ITool>,
   /** Explicit provider API key for this run. */
   apiKey?: string,
+  /**
+   * Keep every judge call on `provider`, also without an explicit key: the
+   * run's `stayOnProvider`.
+   */
+  stayOnProvider?: boolean,
 ) {
+  const fallbackProviders = fallbackProvidersFor(apiKey, stayOnProvider);
   const llmCb = async (model: string, prompt: string) => {
     try {
       const r = await generateText({
@@ -155,7 +168,7 @@ export function createEmergentEngine(
         model: model || judgeModel,
         prompt,
         apiKey,
-        fallbackProviders: apiKey ? [] : undefined,
+        fallbackProviders,
       });
       onUsage?.(r);
       return r.text;
@@ -178,7 +191,7 @@ export function createEmergentEngine(
         system: [{ text: system, cacheBreakpoint: true }],
         prompt: user,
         apiKey,
-        fallbackProviders: apiKey ? [] : undefined,
+        fallbackProviders,
       });
       onUsage?.(r);
       return r.text;
@@ -219,8 +232,16 @@ export function createEmergentEngine(
       enabled: true,
       maxSessionTools: SESSION_TOOL_LIMIT,
       maxAgentTools: AGENT_TOOL_LIMIT,
-      sandboxTimeoutMs: execution.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs,
-      sandboxMemoryMB: execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
+      // At most the server's own limits, whatever the run asked for: code
+      // that computes holds the event loop until it returns or its deadline,
+      // and a call's memory is its own WebAssembly memory, capped here.
+      sandboxTimeoutMs: clampForgedCodeTimeoutMs(execution.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs),
+      sandboxMemoryMB: clampForgedCodeMemoryMB(execution.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB),
+      // Forged code runs in AgentOS's QuickJS executor, a WebAssembly
+      // instance of its own for each call, behind paracosm's refusals
+      // (forged-code-executor.ts). It loads QuickJS once for the process;
+      // the engine awaits that before a forge's first test case.
+      executor: new QuickJSForgedCodeExecutor(),
       promotionThreshold: { uses: 5, confidence: 0.8 },
       allowSandboxTools: true, persistSandboxSource: true,
       // Forged code here computes; it reaches nothing. The ceiling grants no
@@ -246,7 +267,80 @@ export function createEmergentEngine(
         }
       : undefined,
   });
-  return { engine, forgeTool: new ForgeToolMetaTool(engine) };
+  return { engine, forgeTool: new SynchronousForgeTool(engine) };
+}
+
+// ---------------------------------------------------------------------------
+// forge_tool, with this server's rule for forged code
+// ---------------------------------------------------------------------------
+
+/**
+ * The rule forged code is held to on this server, in the words the
+ * forging model reads: in forge_tool's own schema, in the forge guidance
+ * (forge-guidance.ts) and in the refusal of a source that breaks it.
+ */
+export const SYNCHRONOUS_CODE_RULE =
+  'Forged code here is synchronous: define a plain `function execute(input) { ... }` that returns its result directly. '
+  + 'A source holding the word `async` or `import` is refused before it runs, '
+  + 'so write no `await`, no `.then` and no timer.';
+
+/**
+ * forge_tool's input schema with the description of sandbox code saying
+ * what this server runs. AgentOS's own text allows "an async equivalent"
+ * of `function execute(input)`; this server refuses one
+ * ({@link SynchronousForgeTool}).
+ */
+function withSynchronousCodeRule(schema: JSONSchemaObject): JSONSchemaObject {
+  const copy = structuredClone(schema) as JSONSchemaObject;
+  const variants: unknown = copy.properties?.implementation?.oneOf;
+  for (const variant of Array.isArray(variants) ? variants : []) {
+    const code = variant?.properties?.code;
+    if (variant?.properties?.mode?.const === 'sandbox' && code && typeof code.description === 'string') {
+      code.description = `${SYNCHRONOUS_CODE_RULE} ${code.description.replace(/\s*\(or an async equivalent\)/, '')}`;
+    }
+  }
+  return copy;
+}
+
+/**
+ * AgentOS's forge_tool as a department is handed it here.
+ *
+ * AgentOS allows a forged tool to be an async function, and its executors
+ * await one. paracosm holds forged code to a plain synchronous function: a
+ * tool here computes over its input and returns, and the executor refuses
+ * a source with the word `async` or `import` at every test case
+ * (forged-code-executor.ts). So an async source is not accepted, and the
+ * forging model is told so in three places instead:
+ *
+ * - the schema's description of the code, which is what the model reads
+ *   when it writes the call, offers no async form;
+ * - the forge guidance lists the rule among those that cost an attempt;
+ * - a source that holds the word `async` or `import` is refused here,
+ *   with the rule as the error, before the engine runs a test case or
+ *   asks the judge. Left to the engine, every test case fails in the
+ *   executor and the judge is still asked to review the failures.
+ *
+ * The word check is the executor's own (`refusedWordIn`), so the two
+ * cannot differ.
+ */
+export class SynchronousForgeTool extends ForgeToolMetaTool {
+  constructor(engine: EmergentCapabilityEngine) {
+    super(engine);
+    (this as { inputSchema: JSONSchemaObject }).inputSchema = withSynchronousCodeRule(this.inputSchema);
+  }
+
+  /** Refuse sandbox code the executor would refuse at every test case; forge anything else as AgentOS does. */
+  execute(...call: Parameters<ForgeToolMetaTool['execute']>): ReturnType<ForgeToolMetaTool['execute']> {
+    const implementation = call[0]?.implementation as { mode?: unknown; code?: unknown } | undefined;
+    if (implementation?.mode === 'sandbox' && typeof implementation.code === 'string') {
+      const word = refusedWordIn(implementation.code);
+      if (word !== null) {
+        const error = `${SYNCHRONOUS_CODE_RULE} This source was not run and no judge read it (${word}). Write it as a plain function and call forge_tool again.`;
+        return Promise.resolve({ success: false, error, output: { success: false, error } });
+      }
+    }
+    return super.execute(...call);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleLibraryImport } from '../../../src/server/routes/library-import.js';
 import { createSqliteRunHistoryStore } from '../../../src/server/stores/sqlite-run-history.js';
@@ -9,6 +10,8 @@ import type { RunHistoryStore } from '../../../src/server/stores/run-history.js'
 import type { ServerResponse, IncomingMessage } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Imports write their artifact under the runs directory; keep it out of the checkout.
+process.env.PARACOSM_OUTPUT_DIR = mkdtempSync(join(tmpdir(), 'paracosm-import-route-'));
 const fixtureDir = resolve(__dirname, '../../fixtures');
 const turnLoopArtifact = JSON.parse(readFileSync(resolve(fixtureDir, 'runArtifact-v0.8-turn-loop.json'), 'utf-8'));
 const bundleArtifacts = JSON.parse(readFileSync(resolve(fixtureDir, 'runArtifact-v0.8-bundle.json'), 'utf-8'));
@@ -92,4 +95,16 @@ test('handleLibraryImport: bundle of 51 → 400', async () => {
   const { res, status } = fakeRes();
   await handleLibraryImport({} as IncomingMessage, res, { artifacts: big }, { runHistoryStore: store, sourceMode: 'local_demo' });
   assert.equal(status(), 400);
+});
+
+test('handleLibraryImport: addToBundle that is not bundle_ and a UUID → 400, nothing inserted', async () => {
+  // The id is stored on each record and read back in /api/v1/bundles/:id URLs.
+  for (const addToBundle of ['bundle_123', '../bundle_x', 'bundle_8B1E0C2A-1111-4222-8333-944455556666', 42]) {
+    const store = fakeStore();
+    const { res, status, body } = fakeRes();
+    await handleLibraryImport({} as IncomingMessage, res, { artifacts: bundleArtifacts, addToBundle }, { runHistoryStore: store, sourceMode: 'local_demo' });
+    assert.equal(status(), 400, `addToBundle ${JSON.stringify(addToBundle)}`);
+    assert.equal(JSON.parse(body()).error, 'Invalid bundle');
+    assert.deepEqual(await store.listRuns(), [], `nothing inserted for ${JSON.stringify(addToBundle)}`);
+  }
 });

@@ -28,13 +28,22 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium-desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
-    // The Digital Twin spec holds one server with one event buffer, so one
-    // project runs it: two at once would replace each other's runs.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // The Digital Twin and run status specs each hold one server whose runs
+    // they read, so one project runs them: two at once would replace each
+    // other's runs. So does the run-per-visitor spec, whose server caps how
+    // many runs it holds.
+    // So does the dashboard display spec, whose Library server counts the
+    // replays its tests run. The toolbox log and share link spec, the forged
+    // tool view spec, the Viz living grid spec, the phone rows and grid
+    // window spec, the phone rows more spec and the run view toast and Event
+    // Log chip spec set each width they check themselves, so one project runs
+    // them. So does the saved run replay spec, which reads the one shared-run
+    // server.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -53,6 +62,103 @@ export default defineConfig({
         {
           command: 'PORT=3457 npx tsx tests-e2e/support/digital-twin-server.ts',
           url: 'http://127.0.0.1:3457',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with a stub pair runner, for the spec that starts a
+        // pair run from the page.
+        {
+          command: 'PORT=3458 npx tsx tests-e2e/support/pair-run-server.ts',
+          url: 'http://127.0.0.1:3458',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with admin writes on and a temporary scenarios
+        // folder, for the spec that enters the admin token in Settings and
+        // saves a scenario to disk.
+        {
+          command: 'PORT=3461 npx tsx tests-e2e/support/admin-write-server.ts',
+          url: 'http://127.0.0.1:3461/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with a scripted runner, for the spec that starts
+        // real runs from several browsers at once through the real /setup.
+        {
+          command: 'PORT=3459 PARACOSM_MAX_RUNS=2 npx tsx tests-e2e/support/stub-runner-server.ts',
+          url: 'http://127.0.0.1:3459/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with three stored Mars Genesis runs in its Library,
+        // for the spec that replays them and reads the replay counters.
+        {
+          command: 'PORT=3460 npx tsx tests-e2e/support/library-replay-server.ts',
+          url: 'http://127.0.0.1:3460/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with one finished pair run stored as a session and
+        // listed in its Library, for the spec that presses a forged tool's log
+        // key and the run's share controls, and the spec that picks the run
+        // from the Run menu's saved runs.
+        {
+          command: 'PORT=3462 npx tsx tests-e2e/support/shared-run-server.ts',
+          url: 'http://127.0.0.1:3462/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with generated runs of 24 and 300 actors stored as
+        // sessions, for the spec that opens forged tools at those sizes.
+        {
+          command: 'PORT=3467 npx tsx tests-e2e/support/cohort-run-server.ts',
+          url: 'http://127.0.0.1:3467/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with one finished Mars Genesis pair run stored as a
+        // session, built from the engine's kernel and the hosted demo's
+        // recorded words, for the spec that opens it in the Viz tab.
+        {
+          command: 'PORT=3466 npx tsx tests-e2e/support/viz-replay-server.ts',
+          url: 'http://127.0.0.1:3466/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with one finished Mars Genesis pair run of six turns
+        // stored as a session, for the spec that reads the run view's toasts
+        // and the Event Log as it opens after a forged tool's Show in Event
+        // Log and after a reload.
+        {
+          command: 'PORT=3468 npx tsx tests-e2e/support/six-turn-run-server.ts',
+          url: 'http://127.0.0.1:3468/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The hosted demo's server with its visitor analytics on and made-up
+        // ids, for the consent bar spec; the count events it forwards go to a
+        // sink on port 3465.
+        {
+          command: 'PORT=3464 CONSENT_SINK_PORT=3465 npx tsx tests-e2e/support/consent-server.ts',
+          url: 'http://127.0.0.1:3464/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',

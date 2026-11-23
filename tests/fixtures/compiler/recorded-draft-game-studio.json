@@ -1,0 +1,65 @@
+{
+  "id": "stardrift-online-creative-direction",
+  "labels": {
+    "name": "Stardrift Online Creative Direction",
+    "populationNoun": "players",
+    "settlementNoun": "studio",
+    "timeUnitNoun": "week",
+    "currency": "USD"
+  },
+  "setup": {
+    "defaultTurns": 6,
+    "defaultPopulation": 200,
+    "defaultStartTime": 4,
+    "defaultSeed": 0
+  },
+  "departments": [
+    {
+      "id": "narrative",
+      "label": "Narrative",
+      "role": "Story and world continuity",
+      "instructions": "Protect lore quality, plan beats, and keep content aligned with the game’s identity."
+    },
+    {
+      "id": "systems",
+      "label": "Systems",
+      "role": "Gameplay balance and progression",
+      "instructions": "Tune mechanics, rewards, and friction; watch for exploits, churn, and power creep."
+    },
+    {
+      "id": "live-ops",
+      "label": "Live Ops",
+      "role": "Events and releases",
+      "instructions": "Schedule weekly drops, respond to telemetry, and keep the cadence engaging."
+    },
+    {
+      "id": "player-trust",
+      "label": "Player Trust",
+      "role": "Community health and moderation",
+      "instructions": "Reduce toxicity, handle feedback, and coordinate interventions that rebuild confidence."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "retention",
+      "format": "percent"
+    },
+    {
+      "id": "toxicity",
+      "format": "percent"
+    },
+    {
+      "id": "monetization",
+      "format": "currency"
+    },
+    {
+      "id": "narrative-integrity",
+      "format": "percent"
+    },
+    {
+      "id": "team-morale",
+      "format": "percent"
+    }
+  ],
+  "theme": "A live-service MMO studio balancing content cadence, community health, and competitive pressure."
+}

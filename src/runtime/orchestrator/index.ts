@@ -18,23 +18,31 @@ import {
   humanizeToolName,
   emptyReport,
   emptyDecision,
+  oneLine,
 } from '../util/parsers.js';
 import { sendAndValidate } from '../../llm/sendAndValidate.js';
-import { DepartmentReportSchema } from '../validators/department.js';
+import { departmentReportSchemaFor } from '../validators/department.js';
+import { sendDepartmentReport, validationFallbackData } from './department-report.js';
 import { CommanderDecisionSchema } from '../validators/commander.js';
 import { createCostTracker } from '../economics/cost-tracker.js';
 import {
   buildPersonalityCue,
   buildCommanderBootstrap,
   buildCommanderTurnPrompt,
+  buildDecisionRule,
+  decisionRuleNumbers,
+  checkBarDeparture,
+  summarizeBarChecks,
+  type BarCheck,
+  type DecisionRuleArgs,
   buildEffectsBlock,
   resolveActiveDepartments,
   resolveEventDepartments,
   runDepartmentPromotions,
 } from './commander-setup.js';
-import { applyCommanderPolicy } from './commander-policy.js';
+import { applyCommanderPolicy, policyEffectTablesFor, type PolicyEffectTables } from './commander-policy.js';
 import { buildForgeGuidance } from './forge-guidance.js';
-import { buildAvailableToolsBlock, buildForgedToolbox, type ForgedLedger } from './tool-ledger.js';
+import { buildAvailableToolsBlock, buildForgedToolbox, eventToolModifiers, forgedToolNames, recordEventForges, type ForgedLedger } from './tool-ledger.js';
 import { buildCitationCatalog } from '../io/citations-catalog.js';
 import type { Department, HexacoProfile, HexacoSnapshot, TurnOutcome } from '../../engine/core/state.js';
 import { SeededRng } from '../../engine/core/rng.js';
@@ -51,7 +59,7 @@ import { getResearchFromBundle } from '../research/scenario-research.js';
 import { createResearchMemory, researchEmergentEvent, type ResearchMemory } from '../research/research-memory.js';
 import { buildDepartmentContext } from './departments.js';
 import { artifactTimeUnit, scenarioWords } from '../util/scenario-words.js';
-import { declaredMetrics, declaredPolitics, formatStateLine } from '../util/scenario-state.js';
+import { declaredMetrics, declaredPolitics, effectKeys, formatStateLine } from '../util/scenario-state.js';
 import { EventDirector, type DirectorEvent, type DirectorContext } from './director.js';
 import { runReactionStep } from './reaction-step.js';
 import type { ScenarioPackage } from '../../engine/types.js';
@@ -67,6 +75,7 @@ import {
 import { resolveProviderWithFallback } from '../../engine/provider/resolver.js';
 import {
   apiKeyForProvider,
+  fallbackProvidersFor,
   resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
 } from '../../engine/provider/credentials.js';
@@ -228,7 +237,16 @@ export interface SimEventPayloadMap {
     site: string;
   };
   /** Non-terminal: a schema-validated call exhausted retries and returned the fallback skeleton. Run continues degraded. */
-  validation_fallback: { site: string; schemaName?: string; rawTextPreview: string; error: string };
+  validation_fallback: {
+    site: string;
+    schemaName?: string;
+    rawTextPreview: string;
+    error: string;
+    /** True when the call kept a reply with its unheld effect keys dropped rather than returning the fallback. */
+    salvaged?: true;
+    /** The keys a salvage dropped, sorted. */
+    droppedKeys?: string[];
+  };
   /** Run was cancelled via `signal.abort()` (or the server's disconnect watchdog). Partial results preserved. */
   sim_aborted: {
     reason: string;
@@ -348,8 +366,11 @@ export function buildEventSummary(type: SimEventType, data: Record<string, unkno
     }
     case 'provider_error':
       return `provider error (${d.kind ?? 'unknown'}): ${trunc(d.message, 80)}`;
-    case 'validation_fallback':
-      return `schema fallback: ${d.schemaName ?? 'unknown'}`;
+    case 'validation_fallback': {
+      if (d.salvaged !== true) return `schema fallback: ${d.schemaName ?? 'unknown'}`;
+      const dropped: unknown[] = Array.isArray(d.droppedKeys) ? d.droppedKeys : [];
+      return `schema salvage: ${d.schemaName ?? 'unknown'} kept without ${dropped.length > 0 ? dropped.map(k => oneLine(String(k))).join(', ') : 'unheld keys'}`;
+    }
     case 'sim_aborted':
       return `aborted: ${d.reason ?? 'unknown'}`;
     default: {
@@ -375,12 +396,15 @@ export interface RunOptions extends RuntimeCredentialOptions {
   customEvents?: Array<{ turn: number; title: string; description: string }>;
   models?: Partial<SimulationModelConfig>;
   /**
-   * When true, the orchestrator captures a {@link KernelSnapshot} at
-   * the end of every turn and stashes the resulting array under
-   * `artifact.scenarioExtensions.kernelSnapshotsPerTurn`. Enables
-   * `WorldModel.forkFromArtifact()` on the returned artifact. Default
-   * false so normal runs stay lean; snapshots add ~100 KB per turn
-   * for 100-agent Mars-shape runs.
+   * When true, the orchestrator captures {@link KernelSnapshot}s into
+   * `artifact.scenarioExtensions`: `kernelSnapshotsPerTurn`, one at the
+   * end of every turn, which `WorldModel.forkFromArtifact()` branches
+   * from; and, for `WorldModel.replay()`, `kernelSnapshotAtStart`, the
+   * state the first between-turn step starts from, and
+   * `kernelSnapshotsAfterProgression`, one right after each turn's
+   * between-turn step, before the turn's events. Default false so normal
+   * runs stay lean: a run with snapshots holds two per turn and one more,
+   * each about 100 KB for a 100-agent Mars-shape run.
    */
   captureSnapshots?: boolean;
   /**
@@ -427,6 +451,14 @@ export interface RunOptions extends RuntimeCredentialOptions {
   startingStatuses?: Record<string, string | boolean>;
   startingEnvironment?: Record<string, number | string | boolean>;
   execution?: Partial<SimulationExecutionConfig>;
+  /**
+   * The scenario the run plays. Omitted, the run plays Mars Genesis: its
+   * events, tables, hooks and research memory, the kernel it builds
+   * (landing-day supplies, declared ranges, starting world) and its start
+   * time (2035) when `startTime` is not given. The turn length is the
+   * exception: with no scenario and no `timePerTurn`, turns stay one year
+   * apart, not Mars's eight.
+   */
   scenario?: ScenarioPackage;
   /**
    * Cancellation signal. When `.aborted` flips to true, the turn loop
@@ -451,6 +483,28 @@ export interface RunOptions extends RuntimeCredentialOptions {
    * `RunArtifact.intervention`. Turn-loop ignores; batch modes consume.
    */
   intervention?: InterventionConfig;
+  /**
+   * The directory the run's output file (`v3-<tag>-<timestamp>.json`) is
+   * written to. Omitted, the run writes to `PARACOSM_OUTPUT_DIR` from
+   * `process.env`, else `<cwd>/output`. The server passes its runs
+   * directory, so a server started with its own env writes, reads,
+   * sweeps and wipes its runs in one directory.
+   */
+  outputDir?: string;
+  /**
+   * Whether to write the run's output file. Defaults to true. False returns
+   * the artifact without writing a file and leaves scenarioExtensions.outputPath unset.
+   */
+  writeOutputFile?: boolean;
+  /**
+   * The environment the run's web search reads a search key from
+   * (`SERPER_API_KEY`, `FIRECRAWL_API_KEY`, `TAVILY_API_KEY`,
+   * `BRAVE_API_KEY`, `COHERE_API_KEY`) when these options name none.
+   * Omitted, `process.env`. `{}` searches on the keys named here alone; the
+   * hosted demo passes it, so a run there never spends the host's search
+   * keys.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
 }
 
 export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
@@ -468,7 +522,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const { agent } = await import('@framers/agentos');
   const sc = opts.scenario ?? marsScenario;
   const maxTurns = opts.maxTurns ?? 12;
-  const startTime = opts.startTime ?? opts.scenario?.setup?.defaultStartTime ?? 0;
+  // A run given no scenario is a Mars Genesis run, its start and its
+  // kernel included.
+  const startTime = opts.startTime ?? sc.setup?.defaultStartTime ?? 0;
 
   // Normalize the leader so traitProfile is guaranteed populated before
   // any downstream code reads it. Legacy hexaco-only callers continue
@@ -491,12 +547,18 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Preflight env check. Falls back to the other supported provider if
   // the requested one has no key; throws ProviderKeyMissingError when
   // neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set, rather than
-  // hanging in a retry loop during the first LLM call.
+  // hanging in a retry loop during the first LLM call. A run that stays on
+  // its provider (`stayOnProvider`, the hosted demo) never moves to another
+  // provider's key: its provider's missing key throws instead.
   const resolvedProvider = resolveProviderWithFallback(requestedProvider, {
     apiKey: requestedProviderApiKey,
+    stayOnProvider: opts.stayOnProvider,
   });
   const provider = resolvedProvider.provider;
   const providerApiKey = apiKeyForProvider(provider, opts);
+  // The fallback chain every model call of the run passes AgentOS: none on
+  // the run's own key or when the run stays on its provider.
+  const callFallbackProviders = fallbackProvidersFor(providerApiKey, opts.stayOnProvider);
   const archetypeSlug = (typeof leader.archetype === 'string' ? leader.archetype : '')
     .toLowerCase().replace(/\s+/g, '-')
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
@@ -613,15 +675,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       (issueSummary ? `\n    issues: ${issueSummary}` : '') +
       `\n    raw[:600]: ${details.rawText.slice(0, 600).replace(/\n/g, '\\n')}`,
     );
-    emit('validation_fallback', {
-      site,
-      schemaName: details.schemaName,
-      rawTextPreview: details.rawText.slice(0, 1500),
-      // Compact Zod issue list for the dashboard / forensic-replay tooling.
-      issues: Array.isArray(zodIssues)
-        ? zodIssues.slice(0, 5).map(i => ({ path: i.path ?? [], message: i.message, code: i.code }))
-        : undefined,
-    });
+    emit('validation_fallback', validationFallbackData(site, details));
   };
 
   /** True when the run should stop launching new LLM work. */
@@ -655,7 +709,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     : new SimulationKernel(seed, leader.name, keyPersonnel, {
         startTime,
         initialPopulation: opts.initialPopulation,
-        scenario: opts.scenario,
+        scenario: sc,
         // StartingResources / StartingPolitics are subsets of the kernel's
         // Partial<WorldMetrics / WorldPolitics> shape. The kernel's types
         // carry index signatures for scenario-defined fields; the starter
@@ -670,6 +724,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Per-turn kernel snapshots captured when opts.captureSnapshots is on.
   // Populates RunArtifact.scenarioExtensions.kernelSnapshotsPerTurn.
   const kernelSnapshotsPerTurn: import('../../engine/core/snapshot.js').KernelSnapshot[] = [];
+  // What replay compares (#235): the state the run's first between-turn
+  // step starts from, and the state right after each turn's step, before
+  // the turn's decisions, outcomes and drift move it. The end-of-turn
+  // snapshots above hold those moves, so replaying the step from one of
+  // them to the next could never match.
+  let kernelSnapshotAtStart: import('../../engine/core/snapshot.js').KernelSnapshot | undefined;
+  const kernelSnapshotsAfterProgression: import('../../engine/core/snapshot.js').KernelSnapshot[] = [];
 
   // Rolling capture of the agent-swarm snapshot. Updated at the end of
   // each turn (immediately after the systems_snapshot emit). At end-of-
@@ -677,7 +738,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // serializable view of every agent's role, mood, family edges, memory.
   let latestSwarmSnapshot: import('../../engine/schema/index.js').SwarmSnapshot | undefined;
 
-  const webSearchTool = createWebSearchTool(opts);
+  const webSearchTool = createWebSearchTool(opts, opts.searchEnv);
   const toolMap = new Map<string, ITool>();
   toolMap.set('web_search', webSearchTool);
   // Shared map of approved forged-tool executables. Populated by the
@@ -701,6 +762,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     (err) => reportProviderError(err, 'judge'),
     forgedExecutables,
     providerApiKey,
+    opts.stayOnProvider,
   );
   const callForgedTool = createCallForgedTool(forgedExecutables);
   const toolRegs: Record<string, string[]> = {};
@@ -758,7 +820,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const commander = agent({
     provider, model: modelConfig.commander,
     apiKey: providerApiKey,
-    fallbackProviders: providerApiKey ? [] : undefined,
+    fallbackProviders: callFallbackProviders,
     instructions: leader.instructions,
     personality: { openness: leaderHexaco.openness, conscientiousness: leaderHexaco.conscientiousness, extraversion: leaderHexaco.extraversion, agreeableness: leaderHexaco.agreeableness, emotionality: leaderHexaco.emotionality, honesty: leaderHexaco.honestyHumility },
     maxSteps: opts.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
@@ -775,16 +837,24 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // is the FIRST LLM call in the run, so if the user's key is invalid
   // or credits are exhausted, the classifier fires here before we burn
   // compute on a run that has no hope of producing valid output.
-  try {
-    trackUsage(
-      await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco), sc.labels)),
-      'commander',
-    );
-  } catch (err) {
-    reportProviderError(err, 'commander-bootstrap');
-    // If this is a terminal provider error, isAborted() is now true; the
-    // turn loop skips LLM work but continues so the end-of-run cleanup
-    // path runs and the user gets a proper `complete` SSE event.
+  //
+  // Abort gate: a run whose signal is already aborted makes no call at
+  // all. The server holds a run's capacity slot until its runner settles,
+  // and a cleared batch can still start an actor after the abort; the
+  // promotions below are gated the same way, and the turn loop's first
+  // turn emits the run's one sim_aborted and ends it.
+  if (!opts.signal?.aborted) {
+    try {
+      trackUsage(
+        await cmdSess.send(buildCommanderBootstrap(buildPersonalityCue(leaderHexaco), sc.labels)),
+        'commander',
+      );
+    } catch (err) {
+      reportProviderError(err, 'commander-bootstrap');
+      // If this is a terminal provider error, isAborted() is now true; the
+      // turn loop skips LLM work but continues so the end-of-run cleanup
+      // path runs and the user gets a proper `complete` SSE event.
+    }
   }
 
   // Turn 0: commander promotes department heads from the kernel's
@@ -861,6 +931,14 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Create department agent sessions from promoted agents
   const deptAgents = new Map<Department, any>();
   const deptSess = new Map<Department, any>();
+  // The keys a department's effects may move are the numbers the run
+  // holds; the report format lists them and the report schema refuses
+  // any other, so the retry asks the model again (#209). A report that
+  // still names one after its retries keeps the rest, with those keys
+  // dropped and logged (salvageDepartmentReport).
+  const runState = kernel.getState();
+  const deptHeldKeys = effectKeys(runState, sc.world).map(k => k.id);
+  const deptReportSchema = departmentReportSchemaFor(deptHeldKeys);
   const promoted = kernel.getState().agents.filter(c => c.promotion);
   for (const p of promoted) {
     const dept = p.promotion!.department;
@@ -882,7 +960,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     // cfg.instructions from the scenario JSON, which doesn't mention
     // forge_tool. Result: no tools were ever forged unless the scenario
     // author thought to add the instruction themselves.
-    const forgeGuidance = buildForgeGuidance(dept);
+    const forgeGuidance = buildForgeGuidance(dept, sc.world, runState);
     // Prompt caching: the combined role instructions + forge guidance
     // (~1500-2500 tokens) are identical across every session.send() call
     // for this department across all turns/events in one run. Moving it
@@ -895,7 +973,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       provider,
       model: modelConfig.departments || cfg.defaultModel,
       apiKey: providerApiKey,
-      fallbackProviders: providerApiKey ? [] : undefined,
+      fallbackProviders: callFallbackProviders,
       systemBlocks: [{ text: deptSystemPrompt, cacheBreakpoint: true }],
       tools,
       maxSteps: opts.execution?.departmentMaxSteps ?? DEFAULT_EXECUTION.departmentMaxSteps,
@@ -921,17 +999,24 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // Run-wide accumulators surfaced in the final runSimulation() result so
   // programmatic consumers see the same data the dashboard sees via SSE.
   const allDepartmentReports: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; report: DepartmentReport }> = [];
-  const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome }> = [];
+  // `barCheck`: how the choice stands against the bar the decision prompt
+  // stated, when it stated one (see checkBarDeparture).
+  const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome; barCheck?: BarCheck }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
   const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agents/agent-reactions.js').AgentReaction[] }> = [];
   const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
+  let turnPolicyLimited: NonNullable<TurnArtifact['policyEffectsLimited']> = [];
   let turnDeptReports: DepartmentReport[] = [];
   let turnDecisions: CommanderDecision[] = [];
   let turnPolicyEffects: string[] = [];
+  let turnPolicyKeysDropped: string[] = [];
   const director = new EventDirector();
   const effectRegistry = EffectRegistry.forScenario(sc);
+  // One decision's adopted effects move a key at most what one event
+  // outcome brings on it: the scenario's outcome tables bound them (#214).
+  const policyTables: PolicyEffectTables = policyEffectTablesFor(sc, effectRegistry);
   // Department memory: stores previous turn summaries per department for session continuity
   const deptMemory = new Map<Department, import('./departments.js').DepartmentTurnMemory[]>();
   const activeDepartments = new Set<Department>(resolveActiveDepartments(opts.activeDepartments, sc.departments) as Department[]);
@@ -949,20 +1034,22 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     const time = timeSchedule[turn - 1] ?? (timeSchedule[timeSchedule.length - 1] + (turn - timeSchedule.length) * 5);
 
     // ── External-abort gate ─────────────────────────────────────────
-    // Fired when opts.signal flips (client disconnected and grace
-    // period expired). Emits a single sim_aborted event and bails out
-    // of the turn loop — we do NOT continue emitting degraded turn_done
-    // stubs, because an external cancel is a clean stop, not a
-    // provider-errored skip. Partial results already in the event
-    // buffer stay intact so the user sees what was reached.
+    // Fired when opts.signal flips: the server stopped the run (its
+    // visitor started another or cleared it, or its viewers left and the
+    // grace period expired). Emits a single sim_aborted event, with the
+    // reason the server aborted the signal with, and bails out of the
+    // turn loop — we do NOT continue emitting degraded turn_done stubs,
+    // because an external cancel is a clean stop, not a provider-errored
+    // skip. Partial results already in the event buffer stay intact so
+    // the user sees what was reached.
     if (opts.signal?.aborted && !externallyAborted) {
       externallyAborted = true;
       emit('sim_aborted', {
         turn, time,
-        reason: 'client_disconnected',
+        reason: typeof opts.signal.reason === 'string' ? opts.signal.reason : 'client_disconnected',
         completedTurns: turn - 1,
         metrics: kernel.getState().metrics,
-        toolsForged: Object.values(toolRegs).flat().length,
+        toolsForged: forgedToolNames(forgedLedger, allForges).length,
       });
       break;
     }
@@ -987,7 +1074,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           metrics: st.metrics,
           statuses: Object.keys(st.statuses).length > 0 ? { ...st.statuses } : undefined,
           environment: Object.keys(st.environment).length > 0 ? { ...st.environment } : undefined,
-          toolsForged: Object.values(toolRegs).flat().length,
+          toolsForged: forgedToolNames(forgedLedger, allForges).length,
           aborted: true,
           providerError: pe
             ? { kind: pe.kind, provider: pe.provider, message: pe.message }
@@ -1042,7 +1129,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         recentBirths: preState.eventLog.filter(e => e.turn === turn - 1 && e.type === 'birth').length,
         previousEvents: eventHistory,
         previousCrises: eventHistory,
-        toolsForged: Object.values(toolRegs).flat(),
+        toolsForged: forgedToolNames(forgedLedger, allForges),
         driftSummary: preState.agents.filter(c => c.promotion && c.health.alive).slice(0, 4)
           .map(c => ({ name: c.core.name, role: c.core.role, openness: c.hexaco.openness, conscientiousness: c.hexaco.conscientiousness })),
         recentToolOutputs: lastTurnToolOutputs,
@@ -1053,6 +1140,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         knowledgeCategories: Object.keys(sc.knowledge?.categoryMapping ?? {}),
         labels: sc.labels,
         departments: sc.departments.filter(d => activeDepartments.has(d.id)),
+        // The state lines read the units the scenario declares: full morale is "100%".
+        world: sc.world,
       };
       emit('turn_start', { turn, time, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: preState.metrics });
       // Abort gate: if the client already left during the gap between
@@ -1081,6 +1170,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // Feed per-schema retry telemetry.
         (attempts, fellBack) => recordSchemaAttempt('DirectorEventBatch', attempts, fellBack),
         providerApiKey,
+        opts.stayOnProvider,
       );
       turnEvents = batch.events;
       batchPacing = batch.pacing;
@@ -1088,7 +1178,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     }
 
     // ── Kernel advance (once per turn, before events) ─────────────────
+    // Nothing writes the kernel between the turn-0 promotions (or a fork's
+    // restore) and the first advance, nor between a turn's end-of-turn
+    // snapshot and the next advance, so replay can start each step from
+    // the start snapshot or the previous turn's end-of-turn snapshot.
+    if (opts.captureSnapshots && !kernelSnapshotAtStart) kernelSnapshotAtStart = kernel.toSnapshot(sc.id);
     const state = kernel.advanceTurn(turn, time, sc.hooks.progressionHook);
+    if (opts.captureSnapshots) kernelSnapshotsAfterProgression.push(kernel.toSnapshot(sc.id));
     const births = state.eventLog.filter(e => e.turn === turn && e.type === 'birth').length;
     const deaths = state.eventLog.filter(e => e.turn === turn && e.type === 'death').length;
     console.log(`  Kernel: +${births} births, -${deaths} deaths → pop ${state.metrics.population}`);
@@ -1109,9 +1205,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     let lastEventCategory = '';
     // Reset per-turn slots so the artifacts.push() below captures only this
     // turn's reports / decisions / policies.
+    turnPolicyLimited = [];
     turnDeptReports = [];
     turnDecisions = [];
     turnPolicyEffects = [];
+    turnPolicyKeysDropped = [];
 
     for (let ei = 0; ei < turnEvents.length; ei++) {
       try {
@@ -1200,21 +1298,23 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // it actually forged — captured forges below are authoritative.
         const forgeBucketStart = deptForgeBuckets.get(dept)?.length ?? 0;
         try {
-          const sendResult = await sendAndValidate({
+          // A salvaged report and a fallback are each counted in the run's
+          // schemaRetries and go out as a validation_fallback event
+          // (sendDepartmentReport).
+          const sendResult = await sendDepartmentReport({
             session: sess,
             prompt: ctx,
-            schema: DepartmentReportSchema,
-            schemaName: 'DepartmentReport',
+            department: dept,
+            site: `dept:${dept}:turn${turn}:event${ei + 1}`,
+            heldKeys: deptHeldKeys,
+            schema: deptReportSchema,
             onUsage: (usage) => trackUsage(usage as any, 'departments'),
             onProviderError: (err) => reportProviderError(err, `dept:${dept}:turn${turn}:event${ei + 1}`),
             onValidationFallback: (details) => reportValidationFallback(`dept:${dept}:turn${turn}:event${ei + 1}`, details),
-            fallback: { ...emptyReport(dept), summary: `${dept} report unavailable this turn.` } as any,
+            recordSchemaAttempt,
+            emit,
           });
-          const { object: parsedDeptReport, fromFallback: deptFallback } = sendResult;
-          recordSchemaAttempt('DepartmentReport', sendResult.attempts, deptFallback);
-          if (deptFallback) {
-            console.log(`    [${dept}] schema fallback; using empty report skeleton`);
-          }
+          const parsedDeptReport = sendResult.report;
           // Cast schema-inferred result back to the legacy DepartmentReport
           // nominal type so downstream code (reports consumer, cost tracker,
           // citation plumbing) sees the same shape it always has.
@@ -1440,13 +1540,14 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // Use the per-dept eventBucketStarts snapshot instead of scanning
       // the whole bucket and de-duping with .find() (was O(n²) and prone
       // to missed matches when timestamps tied at sub-ms resolution).
-      for (const dept of depts) {
-        const bucket = deptForgeBuckets.get(dept) ?? [];
-        const start = eventBucketStarts.get(dept) ?? 0;
-        for (const forge of bucket.slice(start)) {
-          allForges.push({ ...forge, turn, time, eventIndex: ei });
-        }
-      }
+      // An approved forge of a department whose report failed, which wrote
+      // no ledger entry, is recorded here, so the toolbox keeps it.
+      recordEventForges(
+        depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
+        { turn, time, eventIndex: ei, eventTitle: event.title },
+        forgedLedger,
+        allForges,
+      );
 
       // Accumulate tool outputs across events
       lastTurnToolOutputs.push(...reports.flatMap(r => (r.forgedToolsUsed || []).filter(t => t?.output).map(t => ({ name: t.name || 'unnamed', department: r.department, output: typeof t.output === 'string' ? t.output.slice(0, 200) : JSON.stringify(t.output).slice(0, 200) }))));
@@ -1499,6 +1600,22 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       const trajectoryCue = commanderTraitProfileLive.modelId === 'hexaco'
         ? buildTrajectoryCue(commanderHexacoHistory, commanderHexacoLive)
         : buildTrajectoryCueGeneric(commanderTraitProfileHistory, commanderTraitProfileLive);
+      // The leader's rule for the bold option, read each turn from the profile
+      // as it stands, beside the chances the outcome step meets its draw with
+      // and the multipliers. The leader's profile reached a decision only
+      // through the drift line, and two opposite Mars leaders chose a safe
+      // option in 40 of 41 live decisions (#248). A leader on another trait
+      // model is shown the odds and the multipliers without a bar. The
+      // numbers the rule states are kept to check the reply against (#250).
+      const ruleArgs: DecisionRuleArgs = {
+        hexaco: commanderHexacoLive,
+        options: event.options,
+        riskSuccessProbability: event.riskSuccessProbability,
+        metrics: kernel.getState().metrics,
+        withBar: commanderTraitProfileLive.modelId === 'hexaco',
+      };
+      const decisionRule = buildDecisionRule(ruleArgs);
+      const ruleNumbers = decisionRuleNumbers(ruleArgs);
       const cmdPrompt = buildCommanderTurnPrompt({
         turn,
         time,
@@ -1511,6 +1628,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         stateLine: formatStateLine(kernel.getState().metrics, sc.world),
         optionText,
         effectsText,
+        decisionRule,
         labels: sc.labels,
       });
 
@@ -1553,7 +1671,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         eventIndex: ei,
       });
 
-      applyCommanderPolicy(kernel, decision, reports, turn, time);
+      const policyApplied = applyCommanderPolicy(kernel, decision, reports, turn, time, console.log, policyTables);
+      for (const key of policyApplied.notHeld) if (!turnPolicyKeysDropped.includes(key)) turnPolicyKeysDropped.push(key);
+      for (const [key, { asked, applied }] of Object.entries(policyApplied.limited)) turnPolicyLimited.push({ eventIndex: ei, key, asked, applied });
       const agentUpdates = reports.flatMap(r => (r.featuredAgentUpdates || []).filter(u => u && u.agentId && u.updates).map(u => ({ agentId: u.agentId, health: u.updates?.health, career: u.updates?.career, narrativeEvent: u.updates?.narrative?.event })));
       if (agentUpdates.length) kernel.applyAgentUpdates(agentUpdates);
 
@@ -1562,6 +1682,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // The option the decision chose: an id the event offers, else the one
       // its text names; an id the event does not offer is not a choice.
       const resolvedOptionId = resolveChosenOption(decision.selectedOptionId, decision.decision, event.options);
+      // A choice against the stated bar with no fact named for it is
+      // flagged in the decision record and counted in the artifact; the
+      // choice stands (#250).
+      const barCheck = checkBarDeparture(ruleNumbers, resolvedOptionId, decision.barDeparture);
+      if (barCheck?.unexplained) {
+        console.log(`  [commander] turn ${turn} event ${ei + 1}: the bold option's chance ${barCheck.boldChance} is ${barCheck.clearsBar ? 'at or above' : 'under'} the bar ${barCheck.bar}, the choice departs from it, and the reply names no fact for the departure`);
+      }
       const outcome = resolvedOptionId
         ? classifyOutcomeById(resolvedOptionId, event.options, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng)
         : classifyOutcome(decision.decision, scenario.riskyOption, event.riskSuccessProbability, kernel.getState().metrics, outcomeRng);
@@ -1588,35 +1715,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       // affect outcomes. Reuses are nearly free; failed forges cost
       // morale + power. Run-wide cumulative count gives a small
       // log-scaled innovation bonus with diminishing returns.
-      const eventForges = (() => {
-        let newCount = 0, reuseCount = 0, failCount = 0;
-        const newNamesThisEvent = new Set<string>();
-        for (const dept of depts) {
-          const bucket = deptForgeBuckets.get(dept) ?? [];
-          const start = eventBucketStarts.get(dept) ?? 0;
-          // Forges added DURING this event only — slice past start.
-          const newForges = bucket.slice(start);
-          for (const f of newForges) {
-            if (!f.approved) { failCount++; continue; }
-            // First-time forges: name not seen before (firstForgedTurn === turn
-            // AND we haven't already counted it elsewhere this event).
-            const ledgerEntry = forgedLedger.get(f.name);
-            const isFirstUse = ledgerEntry?.firstForgedTurn === turn && !newNamesThisEvent.has(f.name);
-            if (isFirstUse) {
-              newCount++;
-              newNamesThisEvent.add(f.name);
-            } else {
-              reuseCount++;
-            }
-          }
-        }
-        return {
-          newToolsThisEvent: newCount,
-          reuseCountThisEvent: reuseCount,
-          forgeFailures: failCount,
-          totalToolsForRun: forgedLedger.size,
-        };
-      })();
+      const eventForges = eventToolModifiers(
+        // Forges added DURING this event only: each bucket past its start.
+        depts.flatMap(dept => (deptForgeBuckets.get(dept) ?? []).slice(eventBucketStarts.get(dept) ?? 0)),
+        forgedLedger,
+        allForges,
+        turn,
+      );
 
       const { systemDeltas, politicsDeltas } = applyOutcomeEffects(kernel, effectRegistry, {
         category: event.category,
@@ -1639,7 +1744,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       if (decision.selectedPolicies?.length) {
         turnPolicyEffects.push(...decision.selectedPolicies.map(p => typeof p === 'string' ? p : JSON.stringify(p)));
       }
-      allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome });
+      allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome, ...(barCheck ? { barCheck } : {}) });
       allDirectorEvents.push({ turn, time, eventIndex: ei, event, pacing: batchPacing });
       lastOutcome = outcome;
       lastEventCategory = event.category;
@@ -1729,6 +1834,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       lastOutcome,
       provider,
       apiKey: providerApiKey,
+      stayOnProvider: opts.stayOnProvider,
       modelConfig,
       execution: opts.execution,
       trackUsage,
@@ -1767,6 +1873,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       departmentReports: turnDeptReports.slice(),
       commanderDecision: mergedDecision,
       policyEffectsApplied: turnPolicyEffects.slice(),
+      ...(turnPolicyKeysDropped.length > 0 ? { policyKeysDropped: turnPolicyKeysDropped.slice().sort() } : {}),
       stateSnapshotAfter: {
         // Metrics bag (Mars heritage: population, morale, food,
         // infra, science, etc) plus births/deaths computed ad-hoc this
@@ -1780,6 +1887,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         ...(Object.keys(after.politics).length > 0 ? { politics: { ...after.politics } } : {}),
         ...(Object.keys(after.environment).length > 0 ? { environment: { ...after.environment } } : {}),
       },
+      ...(turnPolicyLimited.length > 0 ? { policyEffectsLimited: turnPolicyLimited.slice() } : {}),
     });
     // Per-turn kernel snapshot for WorldModel.forkFromArtifact. Opt-in
     // via opts.captureSnapshots; adds ~100 KB per turn for 100-agent
@@ -1808,7 +1916,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       metrics: after.metrics,
       statuses: Object.keys(after.statuses).length > 0 ? { ...after.statuses } : undefined,
       environment: Object.keys(after.environment).length > 0 ? { ...after.environment } : undefined,
-      toolsForged: Object.values(toolRegs).flat().length,
+      toolsForged: forgedToolNames(forgedLedger, allForges).length,
       totalEvents: turnEvents.length,
       deathCauses: Object.keys(deathCauses).length > 0 ? deathCauses : undefined,
     });
@@ -1903,7 +2011,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           metrics: st.metrics,
           statuses: Object.keys(st.statuses).length > 0 ? { ...st.statuses } : undefined,
           environment: Object.keys(st.environment).length > 0 ? { ...st.environment } : undefined,
-          toolsForged: Object.values(toolRegs).flat().length,
+          toolsForged: forgedToolNames(forgedLedger, allForges).length,
           error: String(err),
         });
       }
@@ -2027,6 +2135,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         outcomeClassifications: outcomeLog,
         directorEvents: allDirectorEvents,
         commanderDecisions: allCommanderDecisions,
+        // The run's choices against the bars their prompts stated: how many
+        // followed, departed, and departed with no fact named.
+        barChecks: summarizeBarChecks(allCommanderDecisions.map(cd => cd.barCheck)),
         forgeAttempts: allForges,
         totalCitations: citationCatalog.length,
         totalToolsForged: forgedToolbox.length,
@@ -2038,22 +2149,30 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       ...(kernelSnapshotsPerTurn.length > 0
         ? { kernelSnapshotsPerTurn }
         : {}),
+      // What WorldModel.replay compares: emitted when at least one
+      // between-turn step ran with snapshots on.
+      ...(kernelSnapshotAtStart && kernelSnapshotsAfterProgression.length > 0
+        ? { kernelSnapshotAtStart, kernelSnapshotsAfterProgression }
+        : {}),
     },
     forkedFrom: opts._forkedFrom,
   });
 
-  const writtenPath = writeRunOutput(output, {
-    actorName: leader.name,
-    actorArchetype: leader.archetype,
-    turns: artifacts.length,
-    toolRegs,
-  });
-  // Stash the on-disk path on scenarioExtensions so server-app can
-  // enrich the SQLite RunRecord at run-end. /api/v1/runs/:runId reads
-  // record.artifactPath to load the full artifact via the Library tab.
-  const extObj = (output.scenarioExtensions ?? {}) as Record<string, unknown>;
-  extObj.outputPath = writtenPath;
-  output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
+  if (opts.writeOutputFile !== false) {
+    const writtenPath = writeRunOutput(output, {
+      actorName: leader.name,
+      actorArchetype: leader.archetype,
+      turns: artifacts.length,
+      toolRegs,
+      outputDir: opts.outputDir,
+    });
+    // Stash the on-disk path on scenarioExtensions so server-app can
+    // enrich the SQLite RunRecord at run-end. /api/v1/runs/:runId reads
+    // record.artifactPath to load the full artifact via the Library tab.
+    const extObj = (output.scenarioExtensions ?? {}) as Record<string, unknown>;
+    extObj.outputPath = writtenPath;
+    output.scenarioExtensions = extObj as RunArtifact['scenarioExtensions'];
+  }
 
   engine.cleanupSession(sid);
   await commander.close();
@@ -2067,8 +2186,11 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
 /**
  * Thrown by {@link replaySimulation} when the input artifact lacks the
- * preconditions for deterministic replay (missing per-turn kernel
- * snapshots, missing recorded decisions, or a scenario id mismatch).
+ * preconditions for replay: no kernel snapshots, no recorded decisions, a
+ * scenario id mismatch, no snapshot of the state right after each
+ * between-turn step, which replay compares with (a run saved before the
+ * turn loop kept them, #235), a step whose start state the run does not
+ * hold, or an entry that is not a snapshot. The message says which.
  */
 export class WorldModelReplayError extends Error {
   constructor(message: string) {
@@ -2077,24 +2199,46 @@ export class WorldModelReplayError extends Error {
   }
 }
 
+type Snapshot = import('../../engine/core/snapshot.js').KernelSnapshot;
+
+/** The snapshots a saved run holds under `scenarioExtensions`. */
+interface ReplaySnapshots {
+  kernelSnapshotsPerTurn?: Snapshot[];
+  kernelSnapshotAtStart?: Snapshot;
+  kernelSnapshotsAfterProgression?: Snapshot[];
+}
+
+const CANNOT_VERIFY =
+  'Replay cannot verify this run: it holds no snapshot of the state right after each between-turn step ' +
+  '(scenarioExtensions.kernelSnapshotsAfterProgression, with kernelSnapshotAtStart). Its snapshots were each ' +
+  'saved at the end of a turn, after the turn\'s decisions, outcomes and drift, which replay does not re-apply, ' +
+  'so comparing the step with them would report a mismatch whatever the kernel does. The turn loop saves both ' +
+  'with `captureSnapshots: true`; run the simulation again to get a run replay can verify.';
+
 /**
- * Re-execute the kernel transitions captured in a stored RunArtifact.
+ * Re-run each between-turn step a stored RunArtifact recorded.
  *
- * Implementation note (2026-04-25): the v1 replay is a kernel
- * progression-hook re-execution. It restores the kernel from each
- * recorded snapshot and re-runs `advanceTurn` between snapshots,
- * capturing fresh snapshots produced by the current kernel code. The
- * caller compares fresh snapshots to the input artifact's snapshots
- * (via canonicalJson on the kernelSnapshotsPerTurn arrays) to verify
- * kernel determinism: byte-equal arrays prove the progression hook is
- * unchanged since the original run.
+ * The turn loop saves, with `captureSnapshots: true`, the state its first
+ * between-turn step starts from (`kernelSnapshotAtStart`: after the turn-0
+ * promotions, or the snapshot a fork resumed from), the state right after
+ * each turn's step (`kernelSnapshotsAfterProgression`), and the state at
+ * the end of each turn (`kernelSnapshotsPerTurn`), after the turn's
+ * decisions, outcomes and drift. Nothing writes the kernel between the end
+ * of one turn and the next step, so each step starts from the start
+ * snapshot (the first) or the end-of-turn snapshot of the turn whose step
+ * ran before it. This restores the kernel from that state, runs
+ * `advanceTurn` to the recorded turn and time, and captures the fresh
+ * state. The caller compares the fresh `kernelSnapshotsAfterProgression`
+ * with the recorded one under canonical JSON: equal arrays show the
+ * current kernel code reproduces each step the run took.
  *
- * Out of scope for v1: re-applying recorded decisions via
- * `kernel.applyPolicy()`. The orchestrator's policy-application path
- * requires the full department reports, which the public RunArtifact
- * does not preserve in the shape `decisionToPolicy()` expects. A
- * follow-up spec adds policy replay once department reports are
- * normalized into a replay-ready shape on the artifact.
+ * Replay does not re-apply a turn's decisions, outcomes or drift.
+ * Re-running them needs each event's department reports as the turn loop
+ * held them, and the artifact keeps the reports merged into one list per
+ * turn. A run missing the state a step started from (the turn before it
+ * ended in an error, which saves no end-of-turn snapshot), or the state
+ * after a turn's step, gets the cannot-verify answer: no step is counted
+ * as checked that was not run.
  *
  * Used by {@link WorldModel.replay}. Direct callers should prefer the
  * façade method.
@@ -2102,9 +2246,13 @@ export class WorldModelReplayError extends Error {
  * @param scenario The compiled scenario the artifact was produced from.
  *                 Must match `artifact.metadata.scenario.id`.
  * @param artifact The stored RunArtifact to replay.
- * @returns A fresh RunArtifact with kernelSnapshotsPerTurn produced by
- *          the current code's kernel. Other fields copy from the input.
- * @throws WorldModelReplayError when preconditions are not met.
+ * @returns A fresh RunArtifact whose `kernelSnapshotsAfterProgression`
+ *          the current code's kernel produced, index for index with the
+ *          input's. Other fields copy from the input.
+ * @throws WorldModelReplayError when preconditions are not met, and when
+ *         the artifact lacks a snapshot a step needs (the state after it,
+ *         or the state it started from), which replay cannot verify a run
+ *         without.
  */
 export async function replaySimulation(
   scenario: ScenarioPackage,
@@ -2117,8 +2265,10 @@ export async function replaySimulation(
     );
   }
 
-  const inputSnaps = (artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: import('../../engine/core/snapshot.js').KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn;
-  if (!inputSnaps || inputSnaps.length === 0) {
+  const saved = (artifact.scenarioExtensions ?? {}) as ReplaySnapshots;
+  const endOfTurn = Array.isArray(saved.kernelSnapshotsPerTurn) ? saved.kernelSnapshotsPerTurn : [];
+  const afterSteps = Array.isArray(saved.kernelSnapshotsAfterProgression) ? saved.kernelSnapshotsAfterProgression : [];
+  if (endOfTurn.length === 0 && afterSteps.length === 0) {
     throw new WorldModelReplayError(
       `Replay requires per-turn kernel snapshots. The input artifact has none. ` +
       `Re-run the original simulation with \`captureSnapshots: true\` on the RunOptions ` +
@@ -2134,17 +2284,88 @@ export async function replaySimulation(
     );
   }
 
-  // Re-execute the deterministic between-turn progression hook from
-  // each snapshot to the next. Fresh snapshots are captured immediately
-  // after each advanceTurn call.
-  const freshSnapshots: import('../../engine/core/snapshot.js').KernelSnapshot[] = [inputSnaps[0]];
-  for (let i = 0; i < inputSnaps.length - 1; i++) {
-    const here = inputSnaps[i];
-    const next = inputSnaps[i + 1];
-    const kernel = SimulationKernel.fromSnapshot(here, scenario.id, scenario);
-    kernel.advanceTurn(next.turn, next.time, scenario.hooks?.progressionHook);
-    freshSnapshots.push(kernel.toSnapshot(scenario.id));
+  const start = saved.kernelSnapshotAtStart;
+  if (afterSteps.length === 0 || !start) throw new WorldModelReplayError(CANNOT_VERIFY);
+
+  // Every entry is read as a snapshot below, so each must be one a kernel
+  // of this scenario restores: the version `SimulationKernel.fromSnapshot`
+  // reads, this scenario's id, a turn, a time, the generator state, the
+  // seed, the start time and a state.
+  const isSnapshot = (s: unknown): s is Snapshot =>
+    typeof s === 'object' && s !== null
+    && (s as Snapshot).snapshotVersion === 1
+    && (s as Snapshot).scenarioId === scenario.id
+    && Number.isInteger((s as Snapshot).turn)
+    && typeof (s as Snapshot).time === 'number'
+    && typeof (s as Snapshot).rngState === 'number'
+    && typeof (s as Snapshot).seed === 'number'
+    && typeof (s as Snapshot).startTime === 'number'
+    && typeof (s as Snapshot).state === 'object' && (s as Snapshot).state !== null;
+  const notSnapshot = [
+    ...(isSnapshot(start) ? [] : ['kernelSnapshotAtStart']),
+    ...afterSteps.flatMap((s, i) => (isSnapshot(s) ? [] : [`kernelSnapshotsAfterProgression/${i}`])),
+    ...endOfTurn.flatMap((s, i) => (isSnapshot(s) ? [] : [`kernelSnapshotsPerTurn/${i}`])),
+  ];
+  if (notSnapshot.length > 0) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: scenarioExtensions.${notSnapshot[0]} is not a kernel snapshot of scenario '${scenario.id}'.`,
+    );
   }
+
+  // Each turn the run recorded (a timepoint at its end, a decision during
+  // it) took a between-turn step first, so each needs the state saved
+  // after that step. Without one, a step the run took is not checked. An
+  // entry with no time names no turn.
+  const afterTimes = new Set(afterSteps.map(s => s.time));
+  const recordedTimes = [
+    ...(artifact.trajectory?.timepoints ?? []).map(t => t.time),
+    ...recordedDecisions.map(d => d.time),
+  ];
+  const unstepped = recordedTimes.find(t => typeof t === 'number' && !afterTimes.has(t));
+  if (unstepped !== undefined) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: it records a turn at time ${unstepped} but holds no state right after that turn's ` +
+      'between-turn step (scenarioExtensions.kernelSnapshotsAfterProgression).',
+    );
+  }
+
+  // The turn loop saves the state right after a turn's step before the
+  // state at the turn's end, so a turn that ended holds both.
+  const afterTurns = new Set(afterSteps.map(s => s.turn));
+  const unmatched = endOfTurn.find(s => !afterTurns.has(s.turn));
+  if (unmatched) {
+    throw new WorldModelReplayError(
+      `Replay cannot verify this run: it holds the state at the end of turn ${unmatched.turn} but not the state ` +
+      'right after that turn\'s between-turn step (scenarioExtensions.kernelSnapshotsAfterProgression).',
+    );
+  }
+
+  // Each step from the state it started from to the recorded turn: the
+  // start snapshot for the first, else the end of the turn before. A step
+  // whose start the run does not hold is not checked, and the run gets the
+  // cannot-verify answer rather than a match it was not checked for.
+  const endByTurn = new Map(endOfTurn.map(s => [s.turn, s]));
+  const fresh: Snapshot[] = afterSteps.map((recorded, i) => {
+    const from = i === 0 ? start : endByTurn.get(afterSteps[i - 1].turn);
+    if (!from) {
+      throw new WorldModelReplayError(
+        `Replay cannot verify this run: its between-turn step to turn ${recorded.turn} started from the state at the end ` +
+        `of turn ${afterSteps[i - 1].turn}, and the run holds no snapshot of it (scenarioExtensions.kernelSnapshotsPerTurn). ` +
+        'A turn that ends in an error saves none.',
+      );
+    }
+    let kernel: SimulationKernel;
+    try {
+      kernel = SimulationKernel.fromSnapshot(from, scenario.id, scenario);
+    } catch (err) {
+      throw new WorldModelReplayError(
+        `Replay cannot verify this run: the state its between-turn step to turn ${recorded.turn} started from does not restore ` +
+        `(${err instanceof Error ? err.message : String(err)}).`,
+      );
+    }
+    kernel.advanceTurn(recorded.turn, recorded.time, scenario.hooks?.progressionHook);
+    return kernel.toSnapshot(scenario.id);
+  });
 
   const freshRunId = `replay-${artifact.metadata.runId}-${Date.now().toString(36)}`;
   const freshArtifact: RunArtifact = {
@@ -2155,7 +2376,7 @@ export async function replaySimulation(
     },
     scenarioExtensions: {
       ...(artifact.scenarioExtensions ?? {}),
-      kernelSnapshotsPerTurn: freshSnapshots,
+      kernelSnapshotsAfterProgression: fresh,
     },
   };
   return freshArtifact;

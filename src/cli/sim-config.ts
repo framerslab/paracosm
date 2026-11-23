@@ -4,6 +4,8 @@ import type { ScenarioPackage } from '../engine/types.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
+import type { HexacoProfile } from '../engine/core/state.js';
+import { hexacoModel } from '../engine/traits/hexaco.js';
 import {
   resolveEconomicsProfile,
   type ResolvedEconomicsProfile,
@@ -147,6 +149,12 @@ export interface NormalizedSimulationConfig {
   economics: ResolvedEconomicsProfile;
   apiKey?: string;
   anthropicKey?: string;
+  /**
+   * Keep every model call of the run on `provider`: no fallback to another
+   * provider, on any key. The server sets it on every run of the hosted
+   * demo; `normalizeSimulationConfig` never reads it from a request.
+   */
+  stayOnProvider?: boolean;
   serperKey?: string;
   firecrawlKey?: string;
   tavilyKey?: string;
@@ -161,17 +169,20 @@ export interface NormalizedSimulationConfig {
 
 /**
  * Mars Genesis's key personnel for the `paracosm run` path, which runs
- * that scenario. `normalizeSimulationConfig` does not use this list: a
+ * that scenario: the five of its preset in scenarios/mars.json, each in
+ * a department Mars Genesis has. `normalizeSimulationConfig` does not use this list: a
  * run's personnel come from its payload or from the scenario's own
  * preset (`scenarioKeyPersonnel`), so a non-Mars scenario never starts
- * with these five.
+ * with these five. Nobody here carries a department head's title: the
+ * commander names every head at turn 0, and a seeded head with no
+ * promotion record would sit beside the one it names.
  */
 export const DEFAULT_KEY_PERSONNEL: KeyPersonnel[] = [
-  { name: 'Dr. Yuki Tanaka', department: 'medical', role: 'Chief Medical Officer', specialization: 'Radiation Medicine', age: 38, featured: true },
-  { name: 'Erik Lindqvist', department: 'engineering', role: 'Chief Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
-  { name: 'Amara Osei', department: 'agriculture', role: 'Head of Agriculture', specialization: 'Hydroponics', age: 34, featured: true },
-  { name: 'Dr. Priya Singh', department: 'psychology', role: 'Colony Psychologist', specialization: 'Clinical Psychology', age: 41, featured: true },
-  { name: 'Carlos Fernandez', department: 'science', role: 'Chief Scientist', specialization: 'Geology', age: 50, featured: true },
+  { name: 'Dr. Yuki Tanaka', department: 'medical', role: 'Senior Physician, Radiation Medicine', specialization: 'Radiation Medicine', age: 38, featured: true },
+  { name: 'Erik Lindqvist', department: 'engineering', role: 'Senior Structural Engineer', specialization: 'Structural Engineering', age: 45, featured: true },
+  { name: 'Amara Osei', department: 'agriculture', role: 'Senior Hydroponics Specialist', specialization: 'Hydroponics', age: 34, featured: true },
+  { name: 'Dr. Priya Singh', department: 'psychology', role: 'Clinical Psychologist', specialization: 'Clinical Psychology', age: 41, featured: true },
+  { name: 'Carlos Fernandez', department: 'engineering', role: 'Senior Geologist', specialization: 'Mars Surface Geology', age: 50, featured: true },
 ];
 
 /**
@@ -257,6 +268,21 @@ export const DEFAULT_EXECUTION: SimulationExecutionConfig = {
 };
 
 /**
+ * The forged-code time limit a run holds: what the request names when
+ * that is a positive number no greater than the default, and the default
+ * (which is also the most the server allows) for anything else. A call of
+ * forged code that computes holds the event loop until it returns or its
+ * deadline, so a longer limit would let one run hold it for every other
+ * request. The executor applies the same bound again, and caps a call's
+ * memory (src/runtime/orchestrator/forged-code-executor.ts).
+ */
+export function boundedSandboxTimeoutMs(asked: unknown): number {
+  const most = DEFAULT_EXECUTION.sandboxTimeoutMs;
+  if (typeof asked !== 'number' || !Number.isFinite(asked) || asked <= 0) return most;
+  return Math.max(1, Math.min(most, Math.floor(asked)));
+}
+
+/**
  * Demo-mode model assignments. Used when a request arrives without a
  * user-supplied API key, i.e. when the run bills against the host's
  * provider keys. Tiered to keep the demo cost floor bounded while
@@ -318,6 +344,30 @@ export const DEMO_MODELS: Record<LlmProvider, SimulationModelConfig> = {
 };
 
 /**
+ * The commander's model on the hosted demo, over the economy profile's,
+ * for a provider whose economy commander is too small to follow its own
+ * decision rule. The director, departments, judge and reactions keep the
+ * economy profile's models.
+ *
+ * Two live Mars Genesis pairs on 11 November 2026 (seed 950) ran the
+ * commander on gpt-5.4-nano: in each, Aria Chen stated that the bold
+ * option's chance cleared her bar and chose a safe option on 5 of her 6
+ * events. The same pair with the commander alone on gpt-5.4-mini followed
+ * the bar on all 12 decisions, for 0.7043 USD against 0.6420 and 0.6380
+ * (#252). That is one pair on one seed. Anthropic's economy commander is
+ * Haiku, as before.
+ */
+export const DEMO_COMMANDER_MODELS: Partial<Record<LlmProvider, string>> = {
+  openai: 'gpt-5.4-mini',
+};
+
+/**
+ * The provider every host-paid run on the hosted demo runs on, whatever
+ * provider the request names. `applyDemoCaps` sets it.
+ */
+export const DEMO_PROVIDER: LlmProvider = 'openai';
+
+/**
  * Demo-mode execution caps. Enforced server-side when the request has no
  * user API key. Caps apply on top of whatever the client posted.
  *
@@ -351,6 +401,7 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: number;
   maxPopulation: number;
   maxActiveDepartments: number;
+  maxActors: number;
 } = {
   commanderMaxSteps: 2,
   // Three steps gives the dept loop enough room to: forge attempt #1,
@@ -368,7 +419,32 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
   maxTurns: resolveDemoMaxTurns(),
   maxPopulation: 30,
   maxActiveDepartments: 3,
+  // A hosted run on the host's keys is a pair: the day limit charges one
+  // run, and each leader is a run's worth of model calls.
+  maxActors: 2,
 };
+
+/** The hosted demo's bounds on what a run's body may add to every prompt. */
+const DEMO_MAX_INSTRUCTIONS_CHARS = 400;
+const DEMO_MAX_EVENT_TITLE_CHARS = 120;
+const DEMO_MAX_EVENT_DESCRIPTION_CHARS = 600;
+/** A leader's name, archetype and unit, and a key person's name, role and specialization. */
+const DEMO_MAX_LABEL_CHARS = 120;
+
+/** `value` cut to the demo's label length; a value that is not a string passes as it is. */
+function demoLabel<T>(value: T): T {
+  return (typeof value === 'string' ? value.slice(0, DEMO_MAX_LABEL_CHARS) : value) as T;
+}
+
+/** The first custom event of each turn up to `turns`, in turn order. */
+function firstEventPerTurn<T extends { turn: number }>(events: readonly T[], turns: number): T[] {
+  const seen = new Set<number>();
+  return events.filter(event => {
+    if (event.turn > turns || seen.has(event.turn)) return false;
+    seen.add(event.turn);
+    return true;
+  });
+}
 
 export function inferProviderFromModel(model?: string): LlmProvider | undefined {
   if (!model) return undefined;
@@ -507,21 +583,14 @@ function normalizeActiveDepartments(
 }
 
 /**
- * Apply demo-mode caps to an already-normalized sim config.
- *
- * Called server-side when a request arrives without a user-supplied API
- * key, so the run bills against the host's provider key. Replaces models
- * with DEMO_MODELS, clamps turn/population/department counts, and tightens
- * tool-loop step caps. Leaders, seed, scenario content, and scenario-level
- * starting state pass through unchanged so the run still feels like a
- * real sim rather than a canned preview.
- *
- * The client cannot bypass by posting its own `models` or `turns` values.
- * Whatever the normalizer produced is overwritten here.
+ * The economics profile a host-paid run on the hosted demo plays: the
+ * economy profile on the demo's models for `provider`, with the commander
+ * moved up (DEMO_COMMANDER_MODELS). `applyDemoCaps` gives it to every
+ * host-paid /setup run, and a host-paid Digital Twin or /simulate run takes
+ * its models.
  */
-export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSimulationConfig {
-  const demoModels = DEMO_MODELS[config.provider];
-  const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
+export function demoEconomics(provider: LlmProvider = DEMO_PROVIDER): ResolvedEconomicsProfile {
+  const demoModels = DEMO_MODELS[provider];
   // Pure economy tier for the hosted demo: let the 'economy' profile's
   // own model matrix win, rather than layering DEMO_MODELS on top as
   // overrides. DEMO_MODELS was pinning `gpt-4o` on departments to avoid
@@ -534,15 +603,79 @@ export function applyDemoCaps(config: NormalizedSimulationConfig): NormalizedSim
   // leaders). Users who provide their own keys
   // keep their selected profile — this path only fires when the
   // server is running on host-provided keys in hosted-demo mode.
-  const economics = resolveEconomicsProfile({
+  const economy = resolveEconomicsProfile({
     profileId: 'economy',
-    provider: config.provider,
+    provider,
     baseModels: demoModels,
   });
+  // The commander alone moves up (DEMO_COMMANDER_MODELS). A commander
+  // override also moves the director unless the director is named, so the
+  // economy profile's director is named with it.
+  const demoCommander = DEMO_COMMANDER_MODELS[provider];
+  return demoCommander
+    ? resolveEconomicsProfile({
+        profileId: 'economy',
+        provider,
+        baseModels: demoModels,
+        overrides: { commander: demoCommander, director: economy.models.director },
+      })
+    : economy;
+}
+
+/**
+ * Apply demo-mode caps to an already-normalized sim config.
+ *
+ * Called server-side when a request arrives without a user-supplied API
+ * key, so the run bills against the host's provider key. Replaces models
+ * with DEMO_MODELS, clamps turn/population/department counts, keeps the
+ * first two leaders with their instructions and labels trimmed, trims key
+ * personnel to the population (their labels trimmed) and custom events to
+ * the first one of each turn within the run's turns, turns live search off,
+ * and tightens tool-loop step caps. Seed, scenario content, and
+ * scenario-level starting state pass through unchanged so the run still
+ * feels like a real sim rather than a canned preview.
+ *
+ * The run always runs on OpenAI (DEMO_PROVIDER) with the demo's OpenAI
+ * models, whatever provider the client posted: the host's Anthropic key,
+ * when the host holds one, is never billed by a host-paid run.
+ *
+ * The client cannot bypass by posting its own `provider`, `models` or
+ * `turns` values. Whatever the normalizer produced is overwritten here.
+ */
+export function applyDemoCaps(input: NormalizedSimulationConfig): NormalizedSimulationConfig {
+  const config: NormalizedSimulationConfig = { ...input, provider: DEMO_PROVIDER };
+  const activeClamped = config.activeDepartments.slice(0, DEMO_EXECUTION.maxActiveDepartments);
+  const economics = demoEconomics(config.provider);
+  const turns = Math.min(config.turns, DEMO_EXECUTION.maxTurns);
+  const initialPopulation = Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation);
   return {
     ...config,
-    turns: Math.min(config.turns, DEMO_EXECUTION.maxTurns),
-    initialPopulation: Math.min(config.initialPopulation, DEMO_EXECUTION.maxPopulation),
+    // The first leaders, each with instructions of at most 400 characters
+    // and a name, archetype and unit of at most 120; key personnel within
+    // the population, each name, role and specialization at most 120; one
+    // custom event a turn at most, each with a short title and description;
+    // no live search.
+    actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => ({
+      ...actor,
+      name: demoLabel(actor.name),
+      archetype: demoLabel(actor.archetype),
+      unit: demoLabel(actor.unit),
+      instructions: (actor.instructions ?? '').slice(0, DEMO_MAX_INSTRUCTIONS_CHARS),
+    })),
+    keyPersonnel: config.keyPersonnel.slice(0, initialPopulation).map(person => ({
+      ...person,
+      name: demoLabel(person.name),
+      role: demoLabel(person.role),
+      specialization: demoLabel(person.specialization),
+    })),
+    customEvents: firstEventPerTurn(config.customEvents, turns).map(event => ({
+      turn: event.turn,
+      title: event.title.slice(0, DEMO_MAX_EVENT_TITLE_CHARS),
+      description: event.description.slice(0, DEMO_MAX_EVENT_DESCRIPTION_CHARS),
+    })),
+    liveSearch: false,
+    turns,
+    initialPopulation,
     activeDepartments: activeClamped,
     execution: {
       commanderMaxSteps: DEMO_EXECUTION.commanderMaxSteps,
@@ -657,6 +790,55 @@ function forkParentTimeline(
 }
 
 /**
+ * An actor whose HEXACO profile leaves a trait out, or holds one that is
+ * not a finite number (a JSON body carries an empty one as null), with that
+ * trait set to the HEXACO model's neutral value (`hexacoModel.defaults`,
+ * 0.5 where it declares none), and one log line naming the traits filled.
+ * A `/setup` profile with openness alone reached the decision rule with
+ * five traits undefined, and the rule threw on every decision of the run.
+ * An actor without a HEXACO profile is returned as it came.
+ */
+function withNeutralTraits(actor: ActorConfig): ActorConfig {
+  const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
+  if (!given || typeof given !== 'object') return actor;
+  const filled: string[] = [];
+  const hexaco = { ...given } as Record<string, unknown>;
+  for (const { id } of hexacoModel.axes) {
+    const value = hexaco[id];
+    if (typeof value === 'number' && Number.isFinite(value)) continue;
+    hexaco[id] = hexacoModel.defaults[id] ?? 0.5;
+    filled.push(id);
+  }
+  if (!filled.length) return actor;
+  console.warn(`[setup] ${actor.name ?? '<unnamed>'}: HEXACO traits missing or not a number, set to the neutral value: ${filled.map(id => `${id} ${hexaco[id]}`).join(', ')}`);
+  return { ...actor, hexaco: hexaco as unknown as HexacoProfile };
+}
+
+/**
+ * The most turns one run takes, whoever pays for it. A turn the provider
+ * refuses still runs the turn loop, so the bound holds with or without a
+ * caller key. The dashboard's Turns field stops at 20; a fork adds the
+ * scenario's turns to its fork turn.
+ */
+export const MAX_SIMULATION_TURNS = 100;
+
+/**
+ * The largest starting population one run takes, whoever pays for it. The
+ * name lists give 2500 distinct names; the largest scenario default is 480.
+ * It bounds the roster the run starts with: the population the body names,
+ * or the scenario's default, and every key person, from the body or the
+ * scenario's preset.
+ */
+export const MAX_SIMULATION_POPULATION = 2000;
+
+/** Throws unless `value` is a whole number from 1 to `max`. */
+function assertRunBound(value: number, max: number, what: string): void {
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    throw new Error(`Simulation ${what} must be a whole number from 1 to ${max}, got ${JSON.stringify(value)}`);
+  }
+}
+
+/**
  * Turn a `/setup` payload into the config the runners take.
  *
  * Every setup value the payload omits comes from the scenario the run
@@ -741,27 +923,46 @@ export function normalizeSimulationConfig(
     batchConcurrency: input.economics?.batchConcurrency,
   });
 
+  const turns = input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns);
+  assertRunBound(turns, MAX_SIMULATION_TURNS, 'turns');
+  if (input.population !== undefined && input.population !== null) {
+    assertRunBound(input.population, MAX_SIMULATION_POPULATION, 'population');
+  }
+  // Each person heads at most one department, so a roster smaller than
+  // the department list leaves the rest without a report. A population
+  // the body names stays the person's own choice.
+  const initialPopulation = input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length);
+  const keyPersonnel = input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario);
+  // The roster holds every key person and at least the population, so the
+  // bound holds for it whichever value sets it: a scenario's default
+  // population, department list and preset personnel come from its JSON (a
+  // stored or compiled scenario included), and key personnel from the body.
+  const rosterSize = Math.max(initialPopulation, keyPersonnel.length);
+  if (!(rosterSize <= MAX_SIMULATION_POPULATION)) {
+    throw new Error(
+      `Simulation population must be at most ${MAX_SIMULATION_POPULATION} people, got ${String(rosterSize)} `
+      + `(population ${String(initialPopulation)}, ${keyPersonnel.length} key personnel)`,
+    );
+  }
+
   return {
-    actors: input.actors,
+    actors: input.actors.map(withNeutralTraits),
     provider: inferredProvider,
-    turns: input.turns ?? (input.forkFrom ? input.forkFrom.atTurn + scenarioTurns : scenarioTurns),
+    turns,
     seed: input.seed ?? setup.defaultSeed ?? 42,
     startTime,
     timePerTurn: input.timePerTurn ?? forkTimeline.timePerTurn ?? setup.defaultTimePerTurn,
-    // Each person heads at most one department, so a roster smaller than
-    // the department list leaves the rest without a report. A population
-    // the body names stays the person's own choice.
-    initialPopulation: input.population ?? Math.max(setup.defaultPopulation ?? 100, scenario.departments.length),
+    initialPopulation,
     liveSearch: economics.search.mode === 'off' ? false : (input.liveSearch ?? false),
     activeDepartments: normalizeActiveDepartments(input.activeDepartments, scenario),
     customEvents: normalizeCustomEvents(input.customEvents),
-    keyPersonnel: input.keyPersonnel?.length ? input.keyPersonnel : scenarioKeyPersonnel(scenario),
+    keyPersonnel,
     startingResources: suppliedStartingResources(input.startingResources),
     startingPolitics: suppliedStartingPolitics(input.startingPolitics),
     execution: {
       commanderMaxSteps: input.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
       departmentMaxSteps: input.execution?.departmentMaxSteps ?? DEFAULT_EXECUTION.departmentMaxSteps,
-      sandboxTimeoutMs: input.execution?.sandboxTimeoutMs ?? DEFAULT_EXECUTION.sandboxTimeoutMs,
+      sandboxTimeoutMs: boundedSandboxTimeoutMs(input.execution?.sandboxTimeoutMs),
       sandboxMemoryMB: input.execution?.sandboxMemoryMB ?? DEFAULT_EXECUTION.sandboxMemoryMB,
       reactionBatchSize: input.execution?.reactionBatchSize ?? DEFAULT_EXECUTION.reactionBatchSize,
       progressiveReactions: input.execution?.progressiveReactions ?? DEFAULT_EXECUTION.progressiveReactions,

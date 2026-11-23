@@ -23,6 +23,19 @@ interface TopBarProps {
   onSave?: () => void;
   onLoad?: () => void;
   onClear?: () => void;
+  /**
+   * Asks the server to delete its stored runs, saved sessions and run
+   * output files, for every visitor. Passed only where the server takes
+   * admin writes and this browser holds an admin token; the menu shows
+   * Delete server data only then.
+   */
+  onWipeServer?: () => void;
+  /**
+   * Called each time the run actions menu opens, so the page can ask again
+   * for what decides the menu's items (GET /admin-config) after a failed
+   * request.
+   */
+  onRunActionsOpen?: () => void;
   onRun?: () => void;
   onTour?: () => void;
   onCopy?: () => void;
@@ -66,7 +79,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -77,6 +90,9 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRootRef = useRef<HTMLDivElement | null>(null);
   const overflowMenuRef = useFocusTrap<HTMLDivElement>(overflowOpen);
+  useEffect(() => {
+    if (overflowOpen) onRunActionsOpen?.();
+  }, [overflowOpen, onRunActionsOpen]);
   useEffect(() => {
     if (!overflowOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -132,7 +148,8 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
       case 'quota_exhausted': return 'provider credits exhausted';
       case 'user_aborted': return 'cancelled by the user';
       case 'provider_error': return 'provider returned an unrecoverable error';
-      case 'another_run_started': return 'another run started on the server';
+      case 'another_run_started': return 'you started another run';
+      case 'server_restarted': return 'the server restarted before the run finished';
       case 'unknown': return 'reason not recorded by the server';
       default: return raw;
     }
@@ -292,36 +309,63 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
               />
             </div>
             {sse.validationFallbacks.length > 0 && (() => {
-              const total = sse.validationFallbacks.reduce((sum, b) => sum + b.count, 0);
+              // A fallback replaced a reply with the empty skeleton; a
+              // salvage kept the model's own reply without the effect keys
+              // the run does not hold. The pill counts both and names each.
+              const fallbacks = sse.validationFallbacks.filter(b => !b.salvaged);
+              const salvages = sse.validationFallbacks.filter(b => b.salvaged);
+              const fellBack = fallbacks.reduce((sum, b) => sum + b.count, 0);
+              const kept = salvages.reduce((sum, b) => sum + b.count, 0);
+              const total = fellBack + kept;
+              const fellBackLabel = `${fellBack} validation fallback${fellBack === 1 ? '' : 's'}`;
+              const keptLabel = `${kept} ${kept === 1 ? 'reply' : 'replies'} kept without the keys the run does not hold`;
+              const label = [fellBack > 0 ? fellBackLabel : '', kept > 0 ? keptLabel : ''].filter(Boolean).join(', ');
+              const rows = (buckets: typeof fallbacks) => (
+                <div className={styles.fallbackBlock}>
+                  {buckets.map(b => (
+                    <div key={b.schemaName} className={styles.fallbackRow}>
+                      <span>{b.schemaName}</span>
+                      <span className={styles.fallbackRowMeta}>
+                        {b.count}× {b.lastSite ? `(last: ${b.lastSite})` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
               return (
                 <Tooltip
                   content={
                     <div>
-                      <div className={styles.tooltipTitle}>
-                        ⚠ {total} validation fallback{total === 1 ? '' : 's'}
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        An LLM call returned a JSON payload that failed zod
-                        schema validation. After retries were exhausted the
-                        orchestrator continued with an empty skeleton so the
-                        sim wouldn't abort mid-turn. Numbers here let you
-                        spot which schema is misbehaving.
-                      </div>
-                      <div className={styles.fallbackBlock}>
-                        {sse.validationFallbacks.map(b => (
-                          <div key={b.schemaName} className={styles.fallbackRow}>
-                            <span>{b.schemaName}</span>
-                            <span className={styles.fallbackRowMeta}>
-                              {b.count}× {b.lastSite ? `(last: ${b.lastSite})` : ''}
-                            </span>
+                      {fellBack > 0 && (
+                        <div style={{ marginBottom: kept > 0 ? 8 : 0 }}>
+                          <div className={styles.tooltipTitle}>⚠ {fellBackLabel}</div>
+                          <div style={{ marginBottom: 8 }}>
+                            An LLM call returned a JSON payload that failed zod
+                            schema validation. After retries were exhausted the
+                            orchestrator continued with an empty skeleton so the
+                            sim wouldn't abort mid-turn. Numbers here let you
+                            spot which schema is misbehaving.
                           </div>
-                        ))}
-                      </div>
+                          {rows(fallbacks)}
+                        </div>
+                      )}
+                      {kept > 0 && (
+                        <div>
+                          <div className={styles.tooltipTitle}>⚠ {keptLabel}</div>
+                          <div style={{ marginBottom: 8 }}>
+                            A reply failed schema validation only on effect keys
+                            the run does not hold. After retries the run kept the
+                            model's own reply with those keys dropped; nothing
+                            was replaced with a skeleton.
+                          </div>
+                          {rows(salvages)}
+                        </div>
+                      )}
                     </div>
                   }
                 >
                   <span
-                    aria-label={`${total} validation fallback${total === 1 ? '' : 's'}`}
+                    aria-label={label}
                     className={styles.fallbackPill}
                   >
                     <span aria-hidden="true">⚠</span>
@@ -397,8 +441,8 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
             GITHUB / TOUR / status / theme. Visible only when a run
             has emitted events (same gating the 3 separate buttons
             had before). */}
-        {/* Clear always opens the menu so the user can wipe server-
-            stored runs + sessions + output files even with an empty
+        {/* Clear always opens the menu, so Clear local data and, where
+            it shows, Delete server data are there even with an empty
             local buffer. Save/Copy still require an active run; their
             individual buttons inside the menu are gated separately. */}
         {((hasEvents && (onSave || onCopy || onShareViz)) || onClear) && (
@@ -460,9 +504,20 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onRu
                     type="button"
                     onClick={() => { setOverflowOpen(false); onClear(); }}
                     className={styles.overflowItemDanger}
-                    title="Clear in-browser simulation buffer + cached events. Server-stored runs are kept."
+                    title="Clear in-browser simulation buffer + cached events, and let go of this browser's run on the server, stopping it if it is running. Run history, saved sessions and output files are kept."
                   >
                     Clear local data
+                  </button>
+                )}
+                {onWipeServer && (
+                  <button
+                    role="menuitem"
+                    type="button"
+                    onClick={() => { setOverflowOpen(false); onWipeServer(); }}
+                    className={styles.overflowItemDanger}
+                    title="Delete the server's stored runs, saved sessions and run output files, for every visitor. Pages showing a finished run this server holds, this one included, empty their view of it."
+                  >
+                    Delete server data
                   </button>
                 )}
               </div>

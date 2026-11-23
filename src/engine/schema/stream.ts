@@ -148,6 +148,7 @@ const TurnDoneDataSchema = z.object({
    * Same emit rule as statuses.
    */
   environment: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).optional(),
+  /** The tools the run has forged so far, each approved tool once however often it was used. */
   toolsForged: z.number().int().min(0),
   totalEvents: z.number().int().optional(),
   deathCauses: z.record(z.string(), z.number()).optional(),
@@ -184,6 +185,14 @@ const ValidationFallbackDataSchema = z.object({
   schemaName: z.string().optional(),
   rawTextPreview: z.string(),
   error: z.string(),
+  /**
+   * True when the call kept a reply that failed its schema rather than
+   * returning the fallback: a department report whose effects named keys
+   * the run does not hold, kept with those keys dropped.
+   */
+  salvaged: z.literal(true).optional(),
+  /** The keys a salvage dropped, sorted. */
+  droppedKeys: z.array(z.string()).optional(),
 });
 
 const SimAbortedDataSchema = z.object({
@@ -191,6 +200,7 @@ const SimAbortedDataSchema = z.object({
   reason: z.string(),
   completedTurns: z.number().int().min(0),
   metrics: z.record(z.string(), z.number()),
+  /** The tools the run has forged so far, each approved tool once however often it was used. */
   toolsForged: z.number().int().min(0),
 });
 

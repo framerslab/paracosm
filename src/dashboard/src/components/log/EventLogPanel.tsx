@@ -2,17 +2,18 @@
  * Event Log tab content. Scrollable list of every SSE event with
  * per-type color coding, a rich filter bar (F15) covering text search,
  * event-type toggles, per-leader filter, and turn range. Legacy
- * `#log=<toolName>` hash filter (set by the ToolboxSection CTA) is
- * preserved and surfaced as a chip in the bar. Auto-pin-to-bottom
- * stays live as events stream in.
+ * `#log=<toolName>` hash filter (set by a forged tool's Show in Event Log) is
+ * preserved and surfaced as a chip in the bar. The log opens at its top,
+ * with its heading and filters in view; once the visitor scrolls to its end
+ * it follows new events as they stream in.
  */
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SimEvent } from '../../hooks/useSSE';
 import { EventLogFilterBar } from './EventLogFilterBar';
 import {
   applyLogFilters,
+  hrefWithLogFilters,
   parseFiltersFromUrl,
-  serializeFiltersToUrl,
   type LogFilters,
 } from './EventLogPanel.helpers';
 import styles from './EventLogPanel.module.scss';
@@ -45,17 +46,24 @@ function readFiltersFromWindow(): LogFilters {
 
 export function EventLogPanel({ events }: EventLogPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const pinnedRef = useRef(true);
+  const pinnedRef = useRef(false);
   const [filters, setFilters] = useState<LogFilters>(readFiltersFromWindow);
 
   // Listen for hash changes so the legacy `#log=` chip updates when
-  // ToolboxSection clicks set the hash.
+  // a forged tool's Show in Event Log sets the hash.
   useEffect(() => {
     const onHash = () => setFilters(readFiltersFromWindow());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // The heading and the filter bar scroll with the list, so the log opens
+  // at its top, where they are, and follows new events only once the
+  // visitor has scrolled to its end. Following from the first render put the
+  // heading, search field and a tool's chip out of view, behind the sub-tab
+  // bar above the panel, whenever the list was taller than the panel: on a
+  // phone after a forged tool's Show in Event Log, and at every width after
+  // a reload of a replay, whose events arrive after the panel mounts.
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -70,20 +78,16 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
   }, [events.length]);
 
   // Sync filters back to the URL so a refresh / share link preserves
-  // state. The legacy `#log=<tool>` hash is stripped when the user
-  // clears `toolHash` via the chip's × button; otherwise the hash is
-  // preserved (toolbox-section clicks can still drive it).
+  // state. Only the log parameters change; the replay, tab and sub view
+  // stay in the address. The legacy `#log=<tool>` hash is stripped when the
+  // user clears `toolHash` via the chip's × button; otherwise the hash is
+  // preserved (a forged tool's Show in Event Log can still drive it).
   const handleFiltersChange = useCallback(
     (next: LogFilters) => {
       setFilters((prev) => {
         try {
-          const qs = serializeFiltersToUrl(next);
-          const base = window.location.pathname;
-          // Drop the hash entirely when the user just cleared toolHash.
           const toolHashJustCleared = prev.toolHash !== '' && next.toolHash === '';
-          const hash = toolHashJustCleared ? '' : window.location.hash;
-          const target = base + qs + (hash || '');
-          window.history.replaceState({}, '', target);
+          window.history.replaceState({}, '', hrefWithLogFilters(window.location.href, next, toolHashJustCleared));
         } catch {
           // Best-effort; filter state still lives in React.
         }

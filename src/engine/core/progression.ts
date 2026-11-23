@@ -121,9 +121,13 @@ export function applyPersonalityDrift(
  *
  * Unlike {@link applyPersonalityDrift} which runs on promoted agents,
  * the commander has no leader to pull them (they ARE the leader) and no
- * department role to activate. Only outcome-pull applies. Same rate cap
- * (±0.05/turn) and bounds [0.05, 0.95] so commander drift and agent
- * drift stay in the same numerical regime.
+ * department role to activate. Only outcome-pull applies. The pull is
+ * scaled by the turn's length and then capped at ±0.05, so one turn moves
+ * a leader's trait at most 0.05 however long the turn: capped first and
+ * scaled after, one safe success moved conscientiousness 0.16 on a Mars
+ * turn of eight years, and two outcomes turned one Mars preset into the
+ * other (#248). Bounds [0.05, 0.95], as for agents. A promoted agent's
+ * pull is still capped per time unit and then scaled.
  *
  * Mutates `leaderHexaco` and `history` in place. Callers should push a
  * baseline snapshot `{ turn: 0, time, hexaco: {...initial} }` onto
@@ -141,7 +145,7 @@ export function driftCommanderHexaco(
   for (const trait of HEXACO_TRAITS) {
     let pull = 0;
     if (outcome) pull += outcomePullForTrait(trait, outcome);
-    const delta = Math.max(-0.05, Math.min(0.05, pull)) * timeDelta;
+    const delta = Math.max(-0.05, Math.min(0.05, pull * timeDelta));
     leaderHexaco[trait] = Math.max(0.05, Math.min(0.95, leaderHexaco[trait] + delta));
   }
   history.push({ turn, time, hexaco: { ...leaderHexaco } });
@@ -272,10 +276,47 @@ export interface CauseHazards {
 }
 
 /**
+ * The supply level a colony holds: the geometric mean, over the supplies
+ * its scenario declares as sustaining its people (`sustains` in
+ * `world.metrics` and `world.capacities`), of each supply's amount against
+ * its amount on landing day. 1 on landing day and for as long as no
+ * outcome or decision moves a supply; above 1 where the colony has built,
+ * under 1 where a supply ran down. A supply at or under zero counts as a
+ * billionth of its landing amount. A run whose scenario declares no such
+ * supply, and a saved state that holds no landing amounts, read 1.
+ */
+export function supplyLevel(
+  metrics: Readonly<Record<string, unknown>>,
+  landingSupplies: Readonly<Record<string, number>> | undefined,
+): number {
+  if (!landingSupplies) return 1;
+  let logs = 0;
+  let count = 0;
+  for (const [key, landing] of Object.entries(landingSupplies)) {
+    const now = metrics[key];
+    if (typeof now !== 'number' || !Number.isFinite(now) || !(landing > 0)) continue;
+    logs += Math.log(Math.max(now / landing, 1e-9));
+    count++;
+  }
+  return count === 0 ? 1 : Math.exp(logs / count);
+}
+
+/**
+ * What a supply level makes of the yearly age and accident rates: they
+ * divide by it, within a half and double. A colony holding half its
+ * landing supplies loses its old and has its accidents at twice the rate;
+ * one holding twice as much, at half.
+ */
+export function supplyRateFactor(level: number): number {
+  return Math.max(0.5, Math.min(2, 1 / Math.max(level, 1e-9)));
+}
+
+/**
  * Each cause of death's chance for `agent` over a turn of `years` years,
  * from its yearly rate and the state it reads:
  *
- * - natural: 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90;
+ * - natural: 1, 3, 8 and 20 percent a year from ages 60, 70, 80 and 90,
+ *   times `supplyFactor`;
  * - radiation cancer: 0.004 a year for each sievert of cumulative dose
  *   above 0.5, from age 30;
  * - starvation: `(1 - foodMonthsReserve) * 0.15` a year while the colony
@@ -284,13 +325,18 @@ export interface CauseHazards {
  *   while psych is under 0.2, from age 18;
  * - fracture: `(60 - boneDensityPct) * 0.003` a year under 60 percent
  *   bone density, from age 40;
- * - accident: 0.003 a year times the department's weight, from age 18.
+ * - accident: 0.003 a year times the department's weight, from age 18,
+ *   times `supplyFactor`.
+ *
+ * `supplyFactor` is {@link supplyRateFactor} of the colony's
+ * {@link supplyLevel} at the step; 1 when the caller passes none.
  */
 export function causeHazards(
   agent: Agent,
   metrics: Readonly<Record<string, unknown>>,
   ageYears: number,
   years: number,
+  supplyFactor = 1,
 ): CauseHazards {
   const health = agent.health;
   let natural = 0;
@@ -298,6 +344,7 @@ export function causeHazards(
   else if (ageYears >= 80) natural = 0.08;
   else if (ageYears >= 70) natural = 0.03;
   else if (ageYears >= 60) natural = 0.01;
+  natural *= supplyFactor;
 
   const doseSv = (health.cumulativeRadiationMsv ?? 0) / 1000;
   const radiation = ageYears >= 30 ? 0.004 * Math.max(0, doseSv - 0.5) : 0;
@@ -313,7 +360,7 @@ export function causeHazards(
   const fracture = ageYears >= 40 && typeof bone === 'number' && bone < 60 ? (60 - bone) * 0.003 : 0;
 
   const accident = ageYears >= 18
-    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0)
+    ? 0.003 * (ROLE_ACCIDENT_WEIGHT[agent.core.department ?? 'science'] ?? 1.0) * supplyFactor
     : 0;
 
   return {
@@ -327,6 +374,83 @@ export function causeHazards(
 }
 
 /**
+ * The most steps one turn runs: a run's time per turn can be any number,
+ * and each step walks the whole roster, so the work of a turn stays
+ * bounded. A century outlasts everyone the turn began with.
+ */
+export const MAX_YEAR_STEPS = 100;
+
+/**
+ * The steps a turn of `years` years runs as: a year each for the whole
+ * years it spans, then one step for the part of a year left over. A turn
+ * shorter than a year is one step of its own length, and a turn with no
+ * time in it is one step of none. An eight-year Mars turn is eight steps
+ * of a year; a month of Atlas Lab is one step of a twelfth. A turn that
+ * would take more than {@link MAX_YEAR_STEPS} folds the years past them
+ * into its last step, whose rates compound over them.
+ */
+export function yearSteps(years: number): number[] {
+  if (!Number.isFinite(years)) return [0];
+  if (!(years > 0)) return [years];
+  // Within a nanoyear of a whole year counts as that year, so twelve
+  // months summed in floating point are one step, not one and a sliver.
+  const whole = Math.floor(years + 1e-9);
+  const rest = years - whole;
+  const hasRest = rest > 1e-9;
+  if (whole + (hasRest ? 1 : 0) > MAX_YEAR_STEPS) {
+    const ones: number[] = new Array(MAX_YEAR_STEPS - 1).fill(1);
+    return [...ones, years - (MAX_YEAR_STEPS - 1)];
+  }
+  const steps: number[] = new Array(whole).fill(1);
+  if (hasRest) steps.push(rest);
+  return steps.length ? steps : [years];
+}
+
+/**
+ * How far colony morale pulls each person's psych score a year, per unit
+ * of morale away from one half: at morale 0.2 a person loses 0.06 a year,
+ * at 0.8 gains 0.06. It outweighs a partner and outside contacts (0.03 a
+ * year together), so a colony held at low morale wears even its partnered
+ * people down to where the despair roll reads them; at 0.1 a year the
+ * pull and those comforts cancelled at morale 0.2 and nobody partnered
+ * ever fell.
+ */
+export const MORALE_PULL_PER_YEAR = 0.2;
+
+/**
+ * Where the yearly settling holds the morale of a content colony. With the
+ * average psych over 0.7 and no food or life-support pressure, a year moves
+ * morale a tenth of the way to 0.6 and adds 0.03 ({@link settleMorale}),
+ * and the two balance at `0.6 + 10 * 0.03`. The years after a decision
+ * pull back, a tenth a year, whatever it added above this level, so a gain
+ * eases from here on ({@link moraleAfterGain}).
+ */
+export const MORALE_OF_A_CONTENT_COLONY = 0.9;
+
+/**
+ * Morale after a gain of `gain` (over 0), before the floor and the ceiling.
+ *
+ * A gain that ends at or under {@link MORALE_OF_A_CONTENT_COLONY} adds in
+ * full. The part of a gain above that level closes a share of the gap left
+ * to 1, `1 - e^(-part / 0.1)`: 0.05 closes 39 percent of the gap, 0.1
+ * closes 63 percent, 0.15 closes 78 percent, and each further 0.069 halves
+ * what is left. So a larger gain always ends higher, none reaches 1, and
+ * two gains land where one gain of their sum lands.
+ *
+ * Without the easing a gain would add in full up to 1 and stop there: a
+ * content colony begins an eight-year Mars turn at 0.943 at most and one
+ * decision's adopted effects alone bring up to 0.15, so morale would end
+ * most turns at exactly 1 whatever the leader chose, and the ceiling would
+ * cut what was left of every choice. A loss moves in full.
+ */
+export function moraleAfterGain(morale: number, gain: number): number {
+  const lifted = morale + gain;
+  if (lifted <= MORALE_OF_A_CONTENT_COLONY) return lifted;
+  const from = Math.max(morale, MORALE_OF_A_CONTENT_COLONY);
+  return 1 - (1 - from) * Math.exp(-(lifted - from) / (1 - MORALE_OF_A_CONTENT_COLONY));
+}
+
+/**
  * Run all between-turn progression: aging, mortality, births, careers,
  * health degradation, resource production. All deterministic from seed.
  *
@@ -335,6 +459,14 @@ export function causeHazards(
  * `metadata.yearsPerUnit`, else 1) converts the step, so a month of Atlas
  * Lab ages its people a twelfth of a year and rolls a twelfth of a
  * year's births and deaths.
+ *
+ * A turn runs as the steps {@link yearSteps} gives: each whole year it
+ * spans is a step of its own, which ages people a year, adds a year's
+ * dose, moves psych a year's worth and rolls every yearly chance once on
+ * dice of its own, then settles the colony's morale with that year's
+ * pressures and death shock ({@link settleMorale}), so one eight-year
+ * turn gives the chances and the morale eight one-year turns give. A
+ * step shorter than a year rolls `1 - (1 - rate)^years`.
  */
 export function progressBetweenTurns(
   state: SimulationState,
@@ -345,31 +477,138 @@ export function progressBetweenTurns(
 ): { state: SimulationState; events: TurnEvent[] } {
   const events: TurnEvent[] = [];
   const time = state.metadata.currentTime;
+  const colonists = state.agents.map(c => structuredClone(c));
+  const metrics = structuredClone(state.metrics);
+  const steps = yearSteps(timeDelta * yearsPerUnit);
+  const turnStart = time - timeDelta;
+  let elapsedYears = 0;
+  let stepStart = turnStart;
+  steps.forEach((years, step) => {
+    elapsedYears += years;
+    // The step's end in the scenario's time; the last step ends on the
+    // turn's time exactly.
+    const stepEnd = step === steps.length - 1
+      ? time
+      : turnStart + Math.round((elapsedYears / yearsPerUnit) * 1e9) / 1e9;
+    const deathShock = progressStep({
+      state, colonists, metrics, events, turnRng, progressionHook, yearsPerUnit,
+      step, years,
+      time: stepEnd,
+      units: steps.length === 1 ? timeDelta : stepEnd - stepStart,
+    });
+    // 6. Morale drift, after each step: a turn of a year or less settles
+    // once, however short; a longer one settles for each year it spans.
+    settleMorale(colonists, metrics, deathShock, steps.length === 1 ? 1 : years);
+    stepStart = stepEnd;
+  });
+
+  return {
+    state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },
+    events,
+  };
+}
+
+/**
+ * Settle the colony's morale after one step of a turn: it moves a tenth of
+ * the way to 0.6 a year and takes the year's pressures (a food store under
+ * six months -0.05, more people alive than the life support holds -0.08,
+ * an average psych under 0.4 -0.06 or over 0.7 +0.03; food and life
+ * support only in a run that carries them) and the step's death shock.
+ *
+ * `years` is how many years of settling the step takes. A turn of a year
+ * or less is one step and takes one year's, however short, so a month of
+ * Atlas Lab settles as a turn always has. A longer turn takes one for each
+ * whole year it spans, as many as one-year turns over those years take:
+ * the pressures act on the colony through the years between decisions,
+ * not once for each decision. A step of `f` years other than one (the
+ * part of a year a long turn ends with, or the years a turn past
+ * {@link MAX_YEAR_STEPS} folds into its last step) takes what `f` yearly
+ * settlings with the step's pressures held give: morale moves
+ * `1 - 0.9^f` of the way to `0.6 + 10 * pressures`, where those pressures
+ * hold it. For a content colony that level is 0.9
+ * ({@link MORALE_OF_A_CONTENT_COLONY}): a turn of eight years that begins
+ * at 1 ends at 0.943, not near 0.6.
+ */
+function settleMorale(colonists: Agent[], metrics: SimulationState['metrics'], deathShock: number, years: number): void {
+  const aliveColonists = colonists.filter(c => c.health.alive);
+  const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
+  const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
+  // Food and life support weigh on morale only in a run that carries them.
+  const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
+  const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
+  if (years === 1) {
+    metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
+    return;
+  }
+  const held = 0.6 + (foodPressure + popPressure + psychPressure) * 10;
+  metrics.morale = Math.max(0, Math.min(1, held + (metrics.morale - held) * Math.pow(0.9, years) + deathShock));
+}
+
+/** One step of a turn: what {@link progressBetweenTurns} runs for each year a turn spans. */
+interface StepInput {
+  state: SimulationState;
+  /** The roster, changed in place; children born in the step join it. */
+  colonists: Agent[];
+  /** The run's metrics, changed in place (food, science). */
+  metrics: SimulationState['metrics'];
+  /** The turn's events; the step appends to them. */
+  events: TurnEvent[];
+  /** The turn's stream, for a child's name, id and traits and for the hook. */
+  turnRng: SeededRng;
+  progressionHook?: (ctx: ProgressionHookContext) => void;
+  yearsPerUnit: number;
+  /** The step's index in the turn, from 0. */
+  step: number;
+  /** The step's length in years. */
+  years: number;
+  /** The step's length in the scenario's unit. */
+  units: number;
+  /** The scenario's time at the step's end. */
+  time: number;
+}
+
+/** Run one step of a turn and return the morale shock of its deaths: 0.04 a death when more than two people die in it. */
+function progressStep(input: StepInput): number {
+  const { state, colonists, metrics, events, turnRng, progressionHook, yearsPerUnit, step, years, units, time } = input;
   const turn = state.metadata.currentTurn;
-  let colonists = state.agents.map(c => structuredClone(c));
-  let metrics = structuredClone(state.metrics);
-  /** The step in years: what every yearly rate below scales by. Not
-   *  rounded, so experience added a month at a time stays exact. */
-  const yearsDelta = timeDelta * yearsPerUnit;
   const ageOf = (c: Agent) => ageInYears(c, time, yearsPerUnit);
+  /** A yearly chance over this step: the rate itself for a year, compounded for less. */
+  const per = (rate: number) => turnHazard(rate, years);
+  // Every roll that decides something about one person draws from a
+  // stream of its own, keyed by the person, what is rolled for, the turn
+  // and the step (SeededRng.forDraw), so two runs with the same seed roll
+  // the same dice for the same person and one person's fate never moves
+  // another person's dice. A person's fate differs between two runs only
+  // where that run's world gave them a different chance. The first step's
+  // key is the turn's own, so a turn of a year or less keeps its dice.
+  // Where the scenario keeps one death die for a life
+  // (`setup.mortalityDice: 'life'`, recorded in the state), the deaths roll
+  // no die a step: each person keeps one die for each cause, keyed by the
+  // seed, the person and the cause (SeededRng.forLife), and dies in the
+  // step where their chance of having survived that cause falls to it.
+  const seed = state.metadata.seed;
+  const roll = (id: string, what: string) => SeededRng.forDraw(seed, turn, id, step === 0 ? what : `${what}@${step}`);
+  const eventsBefore = events.length;
 
   // 1. Age all colonists (generic: experience, earth contacts)
   for (const c of colonists) {
     if (!c.health.alive) continue;
-    c.career.yearsExperience += yearsDelta;
+    c.career.yearsExperience += years;
 
     // Earth contacts decay
-    if (c.social.earthContacts > 0 && turnRng.chance(0.15 * yearsDelta)) {
+    if (c.social.earthContacts > 0 && roll(c.core.id, 'earth-contacts').chance(per(0.15))) {
       c.social.earthContacts = Math.max(0, c.social.earthContacts - 1);
     }
   }
 
-  // 1b. Scenario-specific progression (radiation, bone density, etc.)
+  // 1b. Scenario-specific progression (radiation, bone density, etc.),
+  // once a step, so the dose rises through a long turn as it does over
+  // one-year turns.
   if (progressionHook) {
     const startTime = state.metadata.startTime;
     progressionHook({
-      agents: colonists, timeDelta, time, turn, startTime, rng: turnRng,
-      yearsDelta, yearsSinceStart: unitsToYears(time - startTime, yearsPerUnit), yearsPerUnit,
+      agents: colonists, timeDelta: units, time, turn, startTime, rng: turnRng,
+      yearsDelta: years, yearsSinceStart: unitsToYears(time - startTime, yearsPerUnit), yearsPerUnit,
       // The world the hook reads, as copies it cannot write through.
       metrics: Object.freeze(structuredClone(metrics)),
       environment: Object.freeze(structuredClone(state.environment ?? {})),
@@ -379,7 +618,8 @@ export function progressBetweenTurns(
   // 2. Mortality — multi-cause. Each cause independently rolls and
   // attributes a specific reason of death, so the dashboard can break
   // down "8 deaths: 3 starvation, 2 radiation cancer, 2 accidents,
-  // 1 suicide" instead of reporting a faceless total.
+  // 1 suicide" instead of reporting a faceless total. Each step reads
+  // the age and the dose at its own end.
   const killColonist = (c: Agent, cause: string, description: string) => {
     if (!c.health.alive) return;
     const age = Math.floor(ageOf(c));
@@ -390,22 +630,35 @@ export function progressBetweenTurns(
     events.push({ turn, time, type: 'death', description: `${c.core.name}: ${description}`, agentId: c.core.id, cause });
   };
 
-  // Every roll here draws from a stream of its own, keyed by the person,
-  // the cause and the turn (SeededRng.forDraw), so two runs with the same
-  // seed roll the same dice for the same person and one person's death
-  // never moves another person's dice. A person dies in one run and not
-  // the other only where that run's world gave them a higher hazard.
-  const seed = state.metadata.seed;
-  const roll = (c: Agent, cause: string) => SeededRng.forDraw(seed, turn, c.core.id, cause);
+  // The colony's supplies against landing day, read once for everyone in
+  // the step: the age and accident rates divide by the level.
+  const supplyFactor = supplyRateFactor(supplyLevel(metrics, state.metadata.landingSupplies));
+  const diceForLife = state.metadata.mortalityDice === 'life';
+
   for (const c of colonists) {
     if (!c.health.alive) continue;
     const exactAge = ageOf(c);
     // Whole years, for the descriptions.
     const age = Math.floor(exactAge);
-    const h = causeHazards(c, metrics, exactAge, yearsDelta);
+    const h = causeHazards(c, metrics, exactAge, years, supplyFactor);
+    const id = c.core.id;
+
+    // Whether the person dies of `cause` in this step. A die a year: the
+    // step's own die against the step's chance. A die for life: the
+    // person's chance of having survived the cause so far takes this
+    // step's chance, and the person dies when it falls to the die they
+    // keep for that cause. Given that they lived to this step, their
+    // chance of dying of it here is the step's chance either way.
+    const dies = (cause: keyof CauseHazards): boolean => {
+      if (!diceForLife) return roll(id, cause).chance(h[cause]);
+      const survival = (c.health.survival ??= {});
+      const after = (survival[cause] ?? 1) * (1 - h[cause]);
+      survival[cause] = after;
+      return SeededRng.forLife(seed, id, cause).next() >= after;
+    };
 
     // 2a. Natural mortality (age-dependent)
-    if (roll(c, 'natural').chance(h.natural)) {
+    if (dies('natural')) {
       const cause = exactAge >= 80 ? 'natural causes' : 'age-related complications';
       killColonist(c, cause, `died at age ${age} of ${cause}`);
       continue;
@@ -413,7 +666,7 @@ export function progressBetweenTurns(
 
     // 2b. Radiation cancer: an excess hazard that grows with the dose,
     // a distinct story from natural aging. Adults only.
-    if (roll(c, 'radiation').chance(h.radiation)) {
+    if (dies('radiation')) {
       killColonist(c, 'radiation cancer',
         `died at age ${age} of radiation-induced cancer (cumulative ${Math.round(c.health.cumulativeRadiationMsv ?? 0)} mSv)`);
       continue;
@@ -421,7 +674,7 @@ export function progressBetweenTurns(
 
     // 2c. Starvation: a food reserve below a month puts everyone at risk;
     // the shortage is shared, not individual.
-    if (roll(c, 'starvation').chance(h.starvation)) {
+    if (dies('starvation')) {
       killColonist(c, 'starvation',
         `died at age ${age} of starvation (food reserve ${(metrics.foodMonthsReserve as number).toFixed(1)} months)`);
       continue;
@@ -430,7 +683,7 @@ export function progressBetweenTurns(
     // 2d. Despair: a psych score under 0.2, weighted by emotionality.
     // Covered as a real phenomenon in long-duration isolation studies
     // (Antarctic, submarine crews, ISS).
-    if (roll(c, 'despair').chance(h.despair)) {
+    if (dies('despair')) {
       killColonist(c, 'despair',
         `died at age ${age} of prolonged psychological decline (psych ${c.health.psychScore.toFixed(2)})`);
       continue;
@@ -438,7 +691,7 @@ export function progressBetweenTurns(
 
     // 2e. Bone-density fracture: below 60 percent bone density a fall
     // can be fatal where medical capacity is low. From age 40.
-    if (roll(c, 'fracture').chance(h.fracture)) {
+    if (dies('fracture')) {
       killColonist(c, 'fatal fracture',
         `died at age ${age} of a fall-induced fracture (bone density ${(c.health.boneDensityPct as number).toFixed(0)}%)`);
       continue;
@@ -447,11 +700,11 @@ export function progressBetweenTurns(
     // 2f. Baseline accident risk, weighted by department. A run with a
     // pressurized habitat (it carries that metric) has EVA and
     // life-support hazards; any other run has everyday ones.
-    if (roll(c, 'accident').chance(h.accident)) {
+    if (dies('accident')) {
       const descriptors = typeof metrics.pressurizedVolumeM3 === 'number'
         ? ['airlock failure', 'EVA accident', 'falling debris', 'pressure-suit tear', 'vehicle rollover']
         : ['equipment failure', 'vehicle accident', 'fall', 'electrical fault', 'workplace accident'];
-      const descriptor = roll(c, 'accident-kind').pick(descriptors);
+      const descriptor = roll(id, 'accident-kind').pick(descriptors);
       const article = /^[aeiou]/i.test(descriptor) ? 'an' : 'a';
       killColonist(c, `accident: ${descriptor}`,
         `died at age ${age} in ${article} ${descriptor}`);
@@ -471,11 +724,11 @@ export function progressBetweenTurns(
     && ageOf(c) >= 20
     && ageOf(c) <= 60
     && !c.social.partnerId);
-  const partnerProb = metrics.morale > 0.35 ? 0.10 * yearsDelta : 0.03 * yearsDelta;
+  const partnerRate = metrics.morale > 0.35 ? 0.10 : 0.03;
   for (let i = 0; i < unpartneredAdults.length; i++) {
     const a = unpartneredAdults[i];
     if (a.social.partnerId) continue;
-    if (!turnRng.chance(partnerProb * (0.5 + a.hexaco.extraversion))) continue;
+    if (!roll(a.core.id, 'partnership').chance(per(partnerRate * (0.5 + a.hexaco.extraversion)))) continue;
     // Pick a candidate: prefer HEXACO-compatible colonist of similar age
     const candidates = unpartneredAdults
       .filter(b => b.core.id !== a.core.id && !b.social.partnerId)
@@ -503,9 +756,9 @@ export function progressBetweenTurns(
   for (const c of colonists) {
     if (!c.health.alive) continue;
     if (!Array.isArray(c.health.conditions) || c.health.conditions.length === 0) continue;
-    c.health.conditions = c.health.conditions.filter(cond => {
+    c.health.conditions = c.health.conditions.filter((cond, i) => {
       const severe = /severe|chronic|cancer|permanent/i.test(cond);
-      const recovered = turnRng.chance((severe ? 0.05 : 0.35) * yearsDelta);
+      const recovered = roll(c.core.id, `recovery:${i}:${cond}`).chance(per(severe ? 0.05 : 0.35));
       if (recovered) {
         c.narrative.lifeEvents.push({ time, event: `Recovered from ${cond}`, source: 'kernel' });
       }
@@ -516,6 +769,8 @@ export function progressBetweenTurns(
   // 3c. Births — partnered couples first, then fall back to pairing
   // unpartnered-but-eligible adults. Partnerships meaningfully raise
   // birth probability; random pairings are a sparse background rate.
+  // Each step is a year, so a couple can have more than one child in a
+  // long turn, up to three in all.
   const aliveAdults = colonists.filter(c => c.health.alive && ageOf(c) >= 20 && ageOf(c) <= 42);
   const partneredCouples: Array<[Agent, Agent]> = [];
   const seenPairs = new Set<string>();
@@ -532,11 +787,11 @@ export function progressBetweenTurns(
   // A run that carries no food store (its scenario declares none) is not
   // short of food.
   const fedEnough = typeof metrics.foodMonthsReserve !== 'number' || metrics.foodMonthsReserve > 6;
-  const baseBirthProb = metrics.morale > 0.4 && fedEnough ? 0.08 * yearsDelta : 0.02 * yearsDelta;
+  const baseBirthRate = metrics.morale > 0.4 && fedEnough ? 0.08 : 0.02;
   // Partnered couples: 3x the base rate (stable relationships, higher
   // intentional birth decisions). Unpartnered pairs: 0.3x the base rate.
-  const partneredBirthProb = Math.min(0.6, baseBirthProb * 3);
-  const solitaryBirthProb = baseBirthProb * 0.3;
+  const partneredBirthProb = per(baseBirthRate * 3);
+  const solitaryBirthProb = per(baseBirthRate * 0.3);
   // Every id on the roster, so a child's id is never another person's
   // (each person's dice are keyed by their id).
   const takenIds = new Set(colonists.map(c => c.core.id));
@@ -577,12 +832,12 @@ export function progressBetweenTurns(
   };
   // First: partnered couples
   for (const [p1, p2] of partneredCouples) {
-    if (turnRng.chance(partneredBirthProb)) tryBirth(p1, p2);
+    if (roll(p1.core.id, 'birth').chance(partneredBirthProb)) tryBirth(p1, p2);
   }
   // Then: unpartnered potential-parent pairs at a much lower rate
   const unpartneredPool = aliveAdults.filter(c => c.social.childrenIds.length < 3 && !seenPairs.has(c.core.id));
   for (let i = 0; i < unpartneredPool.length - 1; i += 2) {
-    if (turnRng.chance(solitaryBirthProb)) {
+    if (roll(unpartneredPool[i].core.id, 'birth-unpartnered').chance(solitaryBirthProb)) {
       tryBirth(unpartneredPool[i], unpartneredPool[i + 1]);
     }
   }
@@ -595,9 +850,10 @@ export function progressBetweenTurns(
     // Children born in the run enter the workforce at 18, in a trade the
     // roster has; otherwise they stay in the department they were counted in.
     if (c.core.role === 'Child' && age >= 18) {
-      const trade = turnRng.pick(['medical', 'engineering', 'agriculture', 'science'] as const);
+      const start = roll(c.core.id, 'career-start');
+      const trade = start.pick(['medical', 'engineering', 'agriculture', 'science'] as const);
       if (colonists.some(other => other.core.department === trade)) c.core.department = trade;
-      c.career.specialization = turnRng.pick(['General', 'Support', 'Research']);
+      c.career.specialization = start.pick(['General', 'Support', 'Research']);
       c.core.role = `Junior ${c.career.specialization} Specialist`;
       c.career.rank = 'junior';
       c.narrative.lifeEvents.push({ time, event: `Began career in ${c.core.department}`, source: 'kernel' });
@@ -605,12 +861,13 @@ export function progressBetweenTurns(
 
     if (age < 18) continue;
 
-    if (c.career.rank === 'junior' && c.career.yearsExperience >= 5 && turnRng.chance(0.15 * yearsDelta)) {
+    if (c.career.rank === 'junior' && c.career.yearsExperience >= 5 && roll(c.core.id, 'promotion-senior').chance(per(0.15))) {
       c.career.rank = 'senior';
       c.narrative.lifeEvents.push({ time, event: `Promoted to Senior ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to senior`, agentId: c.core.id });
     }
-    if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && turnRng.chance(0.08 * yearsDelta)) {
+    // One promotion a step: a new senior waits for the next one.
+    else if (c.career.rank === 'senior' && c.career.yearsExperience >= 12 && roll(c.core.id, 'promotion-lead').chance(per(0.08))) {
       c.career.rank = 'lead';
       c.narrative.lifeEvents.push({ time, event: `Promoted to Lead ${c.career.specialization}`, source: 'kernel' });
       events.push({ turn, time, type: 'promotion', description: `${c.core.name} promoted to lead`, agentId: c.core.id });
@@ -619,12 +876,12 @@ export function progressBetweenTurns(
 
   // 5. Relationship-driven psych effects
   // Deaths cause grief in partners, children, and friends
-  const deadThisTurn = new Set(events.filter(e => e.type === 'death' && e.agentId).map(e => e.agentId!));
+  const deadThisStep = new Set(events.slice(eventsBefore).filter(e => e.type === 'death' && e.agentId).map(e => e.agentId!));
   for (const c of colonists) {
     if (!c.health.alive) continue;
 
-    // Partner died this turn: major psych hit
-    if (c.social.partnerId && deadThisTurn.has(c.social.partnerId)) {
+    // Partner died this step: major psych hit
+    if (c.social.partnerId && deadThisStep.has(c.social.partnerId)) {
       c.health.psychScore = Math.max(0, c.health.psychScore - 0.25);
       c.narrative.lifeEvents.push({ time, event: `Partner died. Grief.`, source: 'kernel' });
       c.social.partnerId = undefined;
@@ -632,44 +889,44 @@ export function progressBetweenTurns(
 
     // Friend died: moderate psych hit
     const friendIds = c.social.friendIds || [];
-    const deadFriends = friendIds.filter(id => deadThisTurn.has(id));
+    const deadFriends = friendIds.filter(id => deadThisStep.has(id));
     if (deadFriends.length) {
       c.health.psychScore = Math.max(0, c.health.psychScore - 0.08 * deadFriends.length);
-      c.social.friendIds = friendIds.filter(id => !deadThisTurn.has(id));
+      c.social.friendIds = friendIds.filter(id => !deadThisStep.has(id));
     }
 
     // Parent of dead child: devastating
     const childIds = c.social.childrenIds || [];
-    const deadChildren = childIds.filter(id => deadThisTurn.has(id));
+    const deadChildren = childIds.filter(id => deadThisStep.has(id));
     if (deadChildren.length) {
       c.health.psychScore = Math.max(0, c.health.psychScore - 0.35);
       c.narrative.lifeEvents.push({ time, event: `Lost a child. Devastated.`, source: 'kernel' });
     }
 
     // The colony's mood reaches each person: morale above one half lifts
-    // psych, below it wears psych down, 0.1 a year at the extremes.
-    c.health.psychScore = Math.max(0, Math.min(1, c.health.psychScore + (metrics.morale - 0.5) * 0.1 * yearsDelta));
+    // psych, below it wears psych down (MORALE_PULL_PER_YEAR).
+    c.health.psychScore = Math.max(0, Math.min(1, c.health.psychScore + (metrics.morale - 0.5) * MORALE_PULL_PER_YEAR * years));
 
     // Having a partner provides a psych buffer
     if (c.social.partnerId) {
-      c.health.psychScore = Math.min(1, c.health.psychScore + 0.02 * yearsDelta);
+      c.health.psychScore = Math.min(1, c.health.psychScore + 0.02 * years);
     }
 
     // Earth contacts provide comfort but decay over time
     if (c.social.earthContacts > 0) {
-      c.health.psychScore = Math.min(1, c.health.psychScore + 0.01 * yearsDelta);
+      c.health.psychScore = Math.min(1, c.health.psychScore + 0.01 * years);
     }
 
     // Isolation penalty: no partner, no friends, no earth contacts
     if (!c.social.partnerId && (c.social.friendIds || []).length === 0 && c.social.earthContacts === 0) {
-      c.health.psychScore = Math.max(0, c.health.psychScore - 0.04 * yearsDelta);
+      c.health.psychScore = Math.max(0, c.health.psychScore - 0.04 * years);
     }
   }
 
   // 5b. Form new relationships (partnerships and friendships)
   const singles = colonists.filter(c => c.health.alive && !c.social.partnerId && ageOf(c) >= 20);
   for (let i = 0; i < singles.length - 1; i += 2) {
-    if (turnRng.chance(0.05 * yearsDelta)) {
+    if (roll(singles[i].core.id, 'pairing').chance(per(0.05))) {
       singles[i].social.partnerId = singles[i + 1].core.id;
       singles[i + 1].social.partnerId = singles[i].core.id;
       singles[i].narrative.lifeEvents.push({ time, event: `Partnered with ${singles[i + 1].core.name}`, source: 'kernel' });
@@ -684,36 +941,23 @@ export function progressBetweenTurns(
     const a = alive[i], b = alive[i + 1];
     if (!a.social.friendIds) a.social.friendIds = [];
     if (!b.social.friendIds) b.social.friendIds = [];
-    if (a.core.department === b.core.department && !a.social.friendIds.includes(b.core.id) && turnRng.chance(0.08 * yearsDelta)) {
+    if (a.core.department === b.core.department && !a.social.friendIds.includes(b.core.id) && roll(a.core.id, `friend:${b.core.id}`).chance(per(0.08))) {
       a.social.friendIds.push(b.core.id);
       b.social.friendIds.push(a.core.id);
     }
   }
-
-  // 6. Morale drift (now informed by average psych scores)
-  const aliveColonists = colonists.filter(c => c.health.alive);
-  const avgPsych = aliveColonists.length ? aliveColonists.reduce((s, c) => s + c.health.psychScore, 0) / aliveColonists.length : 0.5;
-  const psychPressure = avgPsych < 0.4 ? -0.06 : avgPsych > 0.7 ? 0.03 : 0;
-  // Food and life support weigh on morale only in a run that carries them.
-  const foodPressure = typeof metrics.foodMonthsReserve === 'number' && metrics.foodMonthsReserve < 6 ? -0.05 : 0;
-  const popPressure = typeof metrics.lifeSupportCapacity === 'number' && aliveColonists.length > metrics.lifeSupportCapacity ? -0.08 : 0;
-  const deathShock = deadThisTurn.size > 2 ? -0.04 * deadThisTurn.size : 0;
-  metrics.morale = Math.max(0, Math.min(1, metrics.morale + (0.6 - metrics.morale) * 0.1 + foodPressure + popPressure + psychPressure + deathShock));
-
-  // 7. Update population count
-  metrics.population = aliveColonists.length;
 
   // 8. Resource production, for the resources the run carries. Food
   // grows with the modules a scenario declares; without them it only
   // runs down.
   if (typeof metrics.foodMonthsReserve === 'number') {
     const modules = typeof metrics.infrastructureModules === 'number' ? metrics.infrastructureModules : 0;
-    metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (yearsDelta * 0.5) + (modules * 0.3 * yearsDelta));
+    metrics.foodMonthsReserve = Math.max(0, metrics.foodMonthsReserve - (years * 0.5) + (modules * 0.3 * years));
   }
-  if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += yearsDelta;
+  if (typeof metrics.scienceOutput === 'number') metrics.scienceOutput += years;
 
-  return {
-    state: { ...state, agents: colonists, metrics, eventLog: [...state.eventLog, ...events] },
-    events,
-  };
+  // 7. Update population count, which the next step's hook reads.
+  metrics.population = colonists.filter(c => c.health.alive).length;
+
+  return deadThisStep.size > 2 ? -0.04 * deadThisStep.size : 0;
 }

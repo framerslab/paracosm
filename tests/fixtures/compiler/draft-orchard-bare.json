@@ -1,0 +1,39 @@
+{
+  "id": "orchard-seasons",
+  "labels": {
+    "name": "Orchard",
+    "populationNoun": "growers",
+    "settlementNoun": "orchard",
+    "timeUnitNoun": "season"
+  },
+  "setup": {
+    "defaultTurns": 4,
+    "defaultPopulation": 20,
+    "defaultStartTime": 1,
+    "yearsPerTimeUnit": 0.25
+  },
+  "departments": [
+    {
+      "id": "growing",
+      "label": "Growing",
+      "role": "Head Grower",
+      "instructions": "Weigh the harvest against the soil."
+    },
+    {
+      "id": "market",
+      "label": "Market",
+      "role": "Market Lead",
+      "instructions": "Weigh prices against the stock."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "harvest",
+      "format": "number"
+    },
+    {
+      "id": "soil-health",
+      "format": "percent"
+    }
+  ]
+}

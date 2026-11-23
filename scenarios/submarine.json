@@ -28,6 +28,7 @@
   "setup": {
     "defaultTurns": 8,
     "defaultSeed": 200,
+    "mortalityDice": "life",
     "defaultStartTime": 2038,
     "defaultPopulation": 50,
     "configurableSections": [
@@ -337,7 +338,8 @@
         "type": "number",
         "initial": 200,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "hullIntegrity": {
         "id": "hullIntegrity",
@@ -356,7 +358,8 @@
         "type": "number",
         "initial": 720,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       }
     },
     "capacities": {

@@ -1,5 +1,4 @@
 import type { Department, Agent } from '../engine/core/state.js';
-import type { SystemsPatch } from '../engine/core/kernel.js';
 
 export interface CrisisOption {
   id: string;
@@ -49,7 +48,14 @@ export interface DepartmentReport {
   risks: Risk[];
   opportunities: Opportunity[];
   recommendedActions: string[];
-  proposedPatches: Partial<SystemsPatch>;
+  /**
+   * What a model writes here, kept as it wrote it (notes in words, as a
+   * rule). The policy step applies none of it: only the selected
+   * `recommendedEffects` move the state, within one decision's bound,
+   * and a `metrics`, `politics` or `agentUpdates` entry here is logged as
+   * asked and left unapplied.
+   */
+  proposedPatches: Record<string, unknown>;
   forgedToolsUsed: ForgedToolUsage[];
   featuredAgentUpdates: FeaturedAgentUpdate[];
   confidence: number;
@@ -59,6 +65,12 @@ export interface DepartmentReport {
 
 export interface CommanderDecision {
   selectedOptionId?: string;
+  /**
+   * The fact the commander departs from the bar its prompt stated for, ""
+   * when it follows the bar; absent on a fallback decision and on a run
+   * from before the field.
+   */
+  barDeparture?: string;
   selectedEffectIds?: string[];
   decision: string;
   rationale: string;
@@ -91,6 +103,11 @@ export interface TurnArtifact {
   commanderDecision: CommanderDecision;
   policyEffectsApplied: string[];
   /**
+   * The keys of the turn's selected effects that the run holds in neither
+   * its metrics nor its politics, which moved nothing; absent when none.
+   */
+  policyKeysDropped?: string[];
+  /**
    * Snapshot of the five runtime state bags at the end of the turn,
    * produced by the kernel. Widened in 0.7.x from the pre-F23
    * Mars-shape (flat `population`/`morale`/…) to a structural match
@@ -117,6 +134,14 @@ export interface TurnArtifact {
     /** Environmental conditions; optional, declared via world.environment. */
     environment?: Record<string, number | string | boolean>;
   };
+  /**
+   * Each key a decision's selected effects moved otherwise than they
+   * asked, by the event's index in the turn: the bound of one decision
+   * held it, a floor or ceiling stopped it, or a morale gain eased above
+   * 0.9. An `applied` of 0 is a choice that moved nothing. Absent when
+   * every key moved as asked.
+   */
+  policyEffectsLimited?: Array<{ eventIndex: number; key: string; asked: number; applied: number }>;
 }
 
 export interface PromotionDecision {

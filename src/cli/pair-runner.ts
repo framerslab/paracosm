@@ -1,3 +1,4 @@
+import { withoutOutputPath } from '../server/services/run-record.js';
 import { DEFAULT_KEY_PERSONNEL, type NormalizedSimulationConfig } from './sim-config.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { apiKeyForProvider } from '../engine/provider/credentials.js';
@@ -215,6 +216,22 @@ function resolveVerdictModel(
   }
 }
 
+/** Options the server hands each runner along with the run's config. */
+export interface RunnerOptions {
+  /**
+   * The directory each leader's output file is written to. Omitted, the
+   * orchestrator writes to `PARACOSM_OUTPUT_DIR` from `process.env`,
+   * else `<cwd>/output`. The server passes its runs directory.
+   */
+  outputDir?: string;
+  /**
+   * The environment each leader's web search reads a search key from when
+   * the run's config names none; see the orchestrator's `searchEnv`.
+   * Omitted, `process.env`.
+   */
+  searchEnv?: NodeJS.ProcessEnv;
+}
+
 export async function runPairSimulations(
   simConfig: NormalizedSimulationConfig,
   broadcast: BroadcastFn,
@@ -243,11 +260,14 @@ export async function runPairSimulations(
    * caught and logged so a failing handler does not break the run.
    */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  runnerOptions: RunnerOptions = {},
+  /** Optional engine implementation; defaults to the runtime orchestrator. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
 
-  const { runSimulation } = await import('../runtime/orchestrator/index.js');
+  const runSimulation = runSimulationImpl ?? (await import('../runtime/orchestrator/index.js')).runSimulation;
   // Per-actor SSE channels: pull leader from each event so subscribers
   // on /events?actor=<leaderName> can filter the stream server-side.
   // Orchestrator emits events with `{ type, leader: leader.name, data }`
@@ -292,10 +312,13 @@ export async function runPairSimulations(
       captureSnapshots: simConfig.captureSnapshots ?? false,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
+      outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
     }).then(async result => {
       broadcast('result', {
         leader: tag,
@@ -311,7 +334,7 @@ export async function runPairSimulations(
         // without reconstructing from the event stream. Skipped when
         // captureSnapshots is off to keep the SSE payload lean on
         // hosted-demo runs that don't need fork capability.
-        artifact: simConfig.captureSnapshots ? result : undefined,
+        artifact: simConfig.captureSnapshots ? withoutOutputPath(result) : undefined,
       });
       if (onArtifact) {
         try { await onArtifact(result, leader); } catch (err) {
@@ -384,6 +407,9 @@ export async function runForkSimulation(
   scenario: ScenarioPackage = marsScenario,
   /** Optional callback fired after the forked artifact completes. */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  runnerOptions: RunnerOptions = {},
+  /** Optional engine implementation; defaults to the runtime orchestrator. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
 ): Promise<void> {
   if (!simConfig.forkFrom) {
     throw new Error('runForkSimulation called without simConfig.forkFrom set');
@@ -450,11 +476,14 @@ export async function runForkSimulation(
       captureSnapshots: true,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
-    });
+      outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
+    }, runSimulationImpl);
     broadcast('result', {
       leader: leaderTag(leader, 0),
       summary: {
@@ -469,7 +498,7 @@ export async function runForkSimulation(
       // simulate call above); emit the full artifact so the dashboard
       // can keep forking recursively without the event-stream
       // reconstruction the spec originally assumed.
-      artifact: result,
+      artifact: withoutOutputPath(result),
     });
     if (onArtifact) {
       try { await onArtifact(result, leader); } catch (err) {
@@ -506,11 +535,14 @@ export async function runBatchSimulations(
   scenario: ScenarioPackage = marsScenario,
   /** Optional callback fired after each leader's artifact completes. */
   onArtifact?: (artifact: import('../engine/schema/index.js').RunArtifact, leader: import('../runtime/orchestrator/index.js').ActorConfig) => void | Promise<void>,
+  /** Test seam: runs one actor in place of the orchestrator's runSimulation, so a test calls no model. */
+  runSimulationImpl?: typeof import('../runtime/orchestrator/index.js').runSimulation,
+  runnerOptions: RunnerOptions = {},
 ): Promise<void> {
   const { actors, turns, seed, startTime, liveSearch, customEvents } = simConfig;
   broadcast('status', { phase: 'starting', maxTurns: turns, customEvents, batch: true, actorCount: actors.length });
 
-  const { runSimulation } = await import('../runtime/orchestrator/index.js');
+  const runSimulation = runSimulationImpl ?? (await import('../runtime/orchestrator/index.js')).runSimulation;
   // Per-actor SSE filter: same pattern as runPairSimulations / fork.
   const onEvent = (event: unknown) => {
     const lname = (event as { leader?: string } | null)?.leader;
@@ -571,10 +603,13 @@ export async function runBatchSimulations(
       captureSnapshots: simConfig.captureSnapshots ?? false,
       apiKey: simConfig.apiKey,
       anthropicKey: simConfig.anthropicKey,
+      stayOnProvider: simConfig.stayOnProvider,
       serperKey: simConfig.serperKey,
       firecrawlKey: simConfig.firecrawlKey,
       tavilyKey: simConfig.tavilyKey,
       cohereKey: simConfig.cohereKey,
+      outputDir: runnerOptions.outputDir,
+      searchEnv: runnerOptions.searchEnv,
     }).then(async result => {
       broadcast('result', {
         leader: tag,
@@ -586,7 +621,7 @@ export async function runBatchSimulations(
           citations: result.citations?.length ?? 0,
         },
         fingerprint: result.fingerprint ?? null,
-        artifact: simConfig.captureSnapshots ? result : undefined,
+        artifact: simConfig.captureSnapshots ? withoutOutputPath(result) : undefined,
       });
       if (onArtifact) {
         try { await onArtifact(result, leader); } catch (err) {
@@ -600,15 +635,17 @@ export async function runBatchSimulations(
     });
 
   // Simple worker-pool implementation: keep `maxConcurrency` runs
-  // in flight at once. Avoids pulling in `p-limit` for one usage and
-  // keeps abort behaviour identical (each runSimulation already
-  // observes simConfig.signal). Errors are captured per-actor in the
-  // settled-style result array so a single 429 doesn't poison the
-  // whole batch.
+  // in flight at once. Avoids pulling in `p-limit` for one usage.
+  // Each runSimulation observes the signal, and the pool takes no
+  // further actor once it has fired: a cleared 300-actor batch ends
+  // with the actors already running instead of starting the rest.
+  // Errors are captured per-actor in the settled-style result array
+  // so a single 429 doesn't poison the whole batch.
   const settled: PromiseSettledResult<unknown>[] = new Array(actorsWithTags.length);
   let nextIndex = 0;
   async function worker(): Promise<void> {
     while (true) {
+      if (signal?.aborted) return;
       const slot = nextIndex++;
       if (slot >= actorsWithTags.length) return;
       try {
@@ -624,12 +661,16 @@ export async function runBatchSimulations(
 
   // Mirror runPairSimulations: surface aborted/provider-error at the
   // terminal event so the dashboard can badge the session as
-  // interrupted. We consider the batch aborted when every leader
-  // failed or reported abortion; a single success still counts as
-  // a successful batch run.
+  // interrupted. We consider the batch aborted when its signal fired
+  // (the pool started no actor after that, so the batch is cut whatever
+  // the actors already running returned), or when every leader failed
+  // or reported abortion; a single success still counts as a successful
+  // batch run otherwise. An aborted batch gets no verdict.
   const fulfilled = settled.filter(s => s.status === 'fulfilled')
     .map(s => (s as PromiseFulfilledResult<unknown>).value as { aborted?: boolean; providerError?: unknown });
-  const allAborted = fulfilled.length === 0 || fulfilled.every(v => v?.aborted === true || !!v?.providerError);
+  const allAborted = signal?.aborted === true
+    || fulfilled.length === 0
+    || fulfilled.every(v => v?.aborted === true || !!v?.providerError);
 
   // Cohort verdict: rank every actor that finished cleanly. Previously
   // the dashboard saw no winner banner for N>=3 runs because verdicts
@@ -689,8 +730,8 @@ export interface JudgedRun {
 
 /** What a verdict call needs besides the runs it judges. */
 export interface VerdictCallOptions {
-  /** Provider and keys; the run's normalized config satisfies it. */
-  credentials: Pick<NormalizedSimulationConfig, 'provider' | 'apiKey' | 'anthropicKey'>;
+  /** Provider, keys and whether the call stays on the provider; the run's normalized config satisfies it. */
+  credentials: Pick<NormalizedSimulationConfig, 'provider' | 'apiKey' | 'anthropicKey' | 'stayOnProvider'>;
   verdictModel: string;
   turns: number;
   /** The scenario the runs played; its labels and scores frame the verdict. */
@@ -788,6 +829,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      stayOnProvider: credentials.stayOnProvider,
       _generateObjectImpl: generateObjectImpl,
       schema: VerdictSchema,
       schemaName: 'Verdict',
@@ -893,6 +935,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
+      stayOnProvider: credentials.stayOnProvider,
       _generateObjectImpl: generateObjectImpl,
       schema: CohortVerdictSchema,
       schemaName: 'CohortVerdict',

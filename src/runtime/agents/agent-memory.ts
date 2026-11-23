@@ -71,19 +71,21 @@ export function consolidateMemory(agent: Agent): void {
     return { entry: e, score: e.salience * 0.6 + recency * 0.4 };
   });
   scored.sort((a, b) => b.score - a.score);
-  const keep = scored.slice(0, 5).map(s => s.entry);
+  const keep = new Set(scored.slice(0, 5).map(s => s.entry));
   const consolidate = scored.slice(5).map(s => s.entry);
 
-  // Group consolidated memories by category
-  const byCategory: Record<string, AgentMemoryEntry[]> = {};
+  // Group consolidated memories by category. A Map, since a category is
+  // model-written text: in a plain object "constructor" or "__proto__"
+  // names a property every object inherits.
+  const byCategory = new Map<string, AgentMemoryEntry[]>();
   for (const entry of consolidate) {
-    const cat = entry.category;
-    if (!byCategory[cat]) byCategory[cat] = [];
-    byCategory[cat].push(entry);
+    const list = byCategory.get(entry.category) ?? [];
+    list.push(entry);
+    byCategory.set(entry.category, list);
   }
 
   // Generate long-term belief summaries
-  for (const [category, entries] of Object.entries(byCategory)) {
+  for (const [category, entries] of byCategory) {
     const positiveCount = entries.filter(e => e.valence === 'positive').length;
     const negativeCount = entries.filter(e => e.valence === 'negative').length;
     const dominant = positiveCount > negativeCount ? 'positive' : negativeCount > positiveCount ? 'negative' : 'mixed';
@@ -102,7 +104,9 @@ export function consolidateMemory(agent: Agent): void {
     mem.longTerm = mem.longTerm.slice(-LONG_TERM_MAX);
   }
 
-  mem.shortTerm = keep;
+  // The kept entries stay in the order they happened: the reaction prompt
+  // and the agent_reactions event read the newest from the end.
+  mem.shortTerm = mem.shortTerm.filter(e => keep.has(e));
 }
 
 /**
@@ -115,7 +119,7 @@ function updateStance(
   outcome: string,
   mood: string,
 ): void {
-  const current = mem.stances[category] ?? 0;
+  const current = Object.hasOwn(mem.stances, category) ? mem.stances[category] : 0;
   const isSuccess = outcome.includes('success');
   const isPositiveMood = mood === 'positive' || mood === 'hopeful';
 

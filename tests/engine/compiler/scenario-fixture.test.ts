@@ -115,11 +115,54 @@ test('buildScenarioFixture: numeric metric without initial defaults to 0', () =>
   assert.equal(fixture.metrics.foo, 0);
 });
 
-test('buildScenarioFixture: scenario missing world.metrics throws clear error', () => {
-  const broken = { id: 'broken', labels: { name: 'Broken' }, setup: {} };
-  assert.throws(
-    () => buildScenarioFixture(broken as unknown as Record<string, unknown>),
-    /world\.metrics/,
+/**
+ * A draft that declares no `world.metrics` compiles with the empty bags
+ * `compileScenario` gives it, and a run of it holds the head count and
+ * morale alone. Its fixture holds the same two values, at the fixture's
+ * own starts, so the hooks that read them are tried on that state.
+ */
+function assertHeadCountAndMoraleState(
+  fixture: ReturnType<typeof buildScenarioFixture>,
+  draft: string,
+  extraMetrics: Record<string, number> = {},
+) {
+  assert.deepEqual(
+    fixture.metrics,
+    { population: 100, morale: 0.75, ...extraMetrics },
+    `${draft}: the fixture's metrics read ${JSON.stringify(fixture.metrics)}`,
+  );
+  assert.deepEqual(fixture.politics, {}, `${draft}: the fixture's politics read ${JSON.stringify(fixture.politics)}`);
+  assert.deepEqual(fixture.statuses, {}, `${draft}: the fixture's statuses read ${JSON.stringify(fixture.statuses)}`);
+  assert.deepEqual(fixture.environment, {}, `${draft}: the fixture's environment read ${JSON.stringify(fixture.environment)}`);
+  assert.equal(fixture.agents.length, 1, `${draft}: the fixture holds ${fixture.agents.length} agents`);
+}
+
+test('buildScenarioFixture: a draft with no world holds the head count and morale and nothing else', () => {
+  const draft = { id: 'no-world', labels: { name: 'No World' }, setup: {} };
+  assertHeadCountAndMoraleState(buildScenarioFixture(draft), 'a draft with no world');
+});
+
+test('buildScenarioFixture: a draft whose world is empty holds the head count and morale and nothing else', () => {
+  const draft = { id: 'empty-world', labels: { name: 'Empty World' }, setup: {}, world: {} };
+  assertHeadCountAndMoraleState(buildScenarioFixture(draft), 'a draft whose world is {}');
+});
+
+test('buildScenarioFixture: a draft whose world declares capacities and no metrics holds each capacity at its start', () => {
+  const draft = {
+    id: 'capacities-only',
+    labels: { name: 'Capacities Only' },
+    setup: {},
+    world: {
+      capacities: {
+        dockBerths: { id: 'dockBerths', type: 'number' as const, initial: 4 },
+        crewQuarters: { id: 'crewQuarters', type: 'number' as const, initial: 12 },
+      },
+    },
+  };
+  assertHeadCountAndMoraleState(
+    buildScenarioFixture(draft),
+    'a draft whose world declares two capacities and no metrics',
+    { dockBerths: 4, crewQuarters: 12 },
   );
 });
 

@@ -3,15 +3,18 @@ import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
 import { useToolContext } from '../../hooks/useToolRegistry';
 import { useBranchesContext } from '../branches/BranchesContext';
-import { useDashboardNavigation, useScenarioContext, useScenarioReady } from '../../App';
+import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { ForkModal, type ForkConfirmPayload } from './ForkModal';
-import { canForkAtTurn, forkFinalTurn } from './ForkModal.helpers';
+import { canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers';
 import forkStyles from './ForkModal.module.scss';
 import { Badge } from '../shared/Badge';
 import { CitationPills } from '../shared/CitationPills';
 import { ReferencesSection } from '../shared/ReferencesSection';
-import { ToolboxSection } from '../shared/ToolboxSection';
+import { sendForgeEvent } from '../../analytics/forgeEvents';
+import { TOOLBOX_TITLE } from '../forge/forgeWords';
+import { ToolboxList } from '../forge/ToolboxList';
+import toolboxStyles from '../forge/ToolboxList.module.scss';
 import { VerdictPanel } from '../sim/VerdictCard';
 import { CostBreakdownModal } from '../layout/CostBreakdownModal';
 import { CommanderTrajectoryCard } from './CommanderTrajectoryCard';
@@ -29,6 +32,7 @@ import { ReportSideNav, type SideNavItem } from './ReportSideNav';
 import { collectMetricSeries, collectMetricSeriesCohort, collectRunStripData } from './reports-shared';
 import { getActorColorVar } from '../../hooks/useGameState';
 import styles from './ReportView.module.scss';
+import { emitLaunched } from '../../scenario-sync';
 
 /**
  * Tiny hook for booleans persisted to localStorage. Used here to remember
@@ -53,6 +57,10 @@ function usePersistedToggle(key: string, initial: boolean): [boolean, (v: boolea
 interface ReportViewProps {
   state: GameState;
   verdict?: Record<string, unknown> | null;
+  /** Names the run the page shows. What the verdict's export key said
+   *  about one run never shows on the next, the same saved file loaded
+   *  again included. */
+  shownRun?: string;
   reportSections: Array<'crisis' | 'departments' | 'decision' | 'outcome' | 'quotes' | 'causality'>;
 }
 
@@ -189,7 +197,7 @@ function toneColor(tone: 'pos' | 'neg' | 'neutral' | undefined): string {
   return 'var(--text-1)';
 }
 
-export function ReportView({ state, verdict, reportSections }: ReportViewProps) {
+export function ReportView({ state, verdict, shownRun, reportSections }: ReportViewProps) {
   const citationRegistry = useCitationContext();
   const toolRegistry = useToolContext();
   // User's expand/collapse preference for References + Toolbox in this tab,
@@ -204,6 +212,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
   // visible once the parent run is terminal and snapshots exist.
   const { state: branchesState, dispatch: branchesDispatch } = useBranchesContext();
   const navigate = useDashboardNavigation();
+  const runStart = useRunStart();
   const labels = useScenarioLabels();
   const [forkModalAtTurn, setForkModalAtTurn] = useState<number | null>(null);
   const parentArtifact = branchesState.parent;
@@ -248,7 +257,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
             captureSnapshots: true,
             customEvents: payload.customEvents,
             forkFrom: {
-              parentArtifact: payload.parentArtifact,
+              parentArtifact: forkParentForPost(payload.parentArtifact),
               atTurn: payload.atTurn,
             },
           }),
@@ -262,6 +271,10 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
           });
           return;
         }
+        const launched = (await res.json().catch(() => ({}))) as { visitorId?: string };
+        emitLaunched(window, launched.visitorId);
+        // The server took the fork: it replaces the Digital Twin views.
+        runStart();
         // Branches is a sub-tab of Studio after the merge.
         navigate('studio');
       } catch (err) {
@@ -272,7 +285,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         });
       }
     },
-    [branchesDispatch, navigate],
+    [branchesDispatch, navigate, runStart],
   );
   // Actor pair selection. For 2-actor runs the picker is hidden and the
   // canonical actorIds[0]/[1] pair is used. For 3+ actor runs the user
@@ -906,16 +919,23 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
       {/* Forged Toolbox + References — collapsed by default in the Reports
           tab so the turn-by-turn report is the focus on open. The user's
           expand choice is persisted to localStorage so subsequent visits
-          restore their preferred view. */}
+          restore their preferred view. The toolbox's rows are the forge
+          view's list, the one its dialog shows. */}
       <section id="toolbox">
         {toolRegistry.list.length > 0 && (
-          <ToolboxSection
-            registry={toolRegistry}
-            title="Forged Toolbox"
-            collapsible
-            defaultOpen={toolsOpen}
-            onToggle={setToolsOpen}
-          />
+          <details
+            open={toolsOpen}
+            onToggle={(e) => {
+              const open = e.currentTarget.open;
+              // A visitor opened the fold; the open state kept from an earlier visit sends nothing.
+              if (open && !toolsOpen) sendForgeEvent({ name: 'forge_toolbox_open', from: 'reports' });
+              setToolsOpen(open);
+            }}
+            className={toolboxStyles.pageFold}
+          >
+            <summary className={toolboxStyles.pageFoldSummary}>{TOOLBOX_TITLE}</summary>
+            <ToolboxList inPage />
+          </details>
         )}
       </section>
 
@@ -941,7 +961,7 @@ export function ReportView({ state, verdict, reportSections }: ReportViewProps) 
         <CohortVerdict state={state} />
         {verdict && (
           <div className={styles.summaryVerdictWrap}>
-            <VerdictPanel verdict={verdict} />
+            <VerdictPanel verdict={verdict} shownRun={shownRun} />
           </div>
         )}
       </section>

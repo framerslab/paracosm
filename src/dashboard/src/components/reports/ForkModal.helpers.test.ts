@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, canForkAtTurn, forkFinalTurn } from './ForkModal.helpers.js';
+import { resolveLeaderPresets, estimateForkCost, parseCustomEvents, canForkAtTurn, forkFinalTurn, forkParentForPost } from './ForkModal.helpers.js';
 import { marsScenario } from '../../../../engine/scenarios/index.js';
 import type { ActorConfig } from '../../../../engine/types.js';
 
@@ -141,4 +141,24 @@ test('forkFinalTurn: a forked run counts its turns from its snapshots', () => {
   assert.equal(canForkAtTurn(child, 4), true);
   assert.equal(canForkAtTurn(child, 5), true);
   assert.equal(canForkAtTurn(child, 6), false);
+});
+
+test('forkParentForPost: the fork posts the end-of-turn snapshots it branches from and leaves out the ones only replay reads', () => {
+  const parent = {
+    metadata: { runId: 'run-a' },
+    scenarioExtensions: {
+      kernelSnapshotsPerTurn: [{ turn: 1 }, { turn: 2 }],
+      kernelSnapshotAtStart: { turn: 0 },
+      kernelSnapshotsAfterProgression: [{ turn: 1 }, { turn: 2 }],
+      paracosmInternal: { simulation: 'mars-genesis-v3' },
+    },
+  };
+  const posted = forkParentForPost(parent);
+  assert.deepEqual(posted.scenarioExtensions, {
+    kernelSnapshotsPerTurn: [{ turn: 1 }, { turn: 2 }],
+    paracosmInternal: { simulation: 'mars-genesis-v3' },
+  });
+  assert.equal(posted.metadata.runId, 'run-a');
+  assert.ok('kernelSnapshotsAfterProgression' in parent.scenarioExtensions, 'the run the page holds keeps them');
+  assert.equal(forkFinalTurn(posted), 2);
 });

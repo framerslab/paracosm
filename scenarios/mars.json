@@ -31,6 +31,7 @@
     "defaultTurns": 6,
     "maxEventsPerTurn": 2,
     "defaultSeed": 950,
+    "mortalityDice": "life",
     "defaultStartTime": 2035,
     "defaultTimePerTurn": 8,
     "defaultPopulation": 100,
@@ -228,7 +229,8 @@
         "type": "number",
         "initial": 400,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "foodMonthsReserve": {
         "id": "foodMonthsReserve",
@@ -246,7 +248,8 @@
         "type": "number",
         "initial": 800,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "pressurizedVolumeM3": {
         "id": "pressurizedVolumeM3",
@@ -255,7 +258,8 @@
         "type": "number",
         "initial": 3000,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "infrastructureModules": {
         "id": "infrastructureModules",
@@ -264,7 +268,8 @@
         "type": "number",
         "initial": 3,
         "min": 0,
-        "category": "metric"
+        "category": "metric",
+        "sustains": true
       },
       "scienceOutput": {
         "id": "scienceOutput",
@@ -294,7 +299,8 @@
         "type": "number",
         "initial": 120,
         "min": 0,
-        "category": "capacity"
+        "category": "capacity",
+        "sustains": true
       }
     },
     "statuses": {
@@ -454,7 +460,7 @@
         {
           "name": "Dr. Yuki Tanaka",
           "department": "medical",
-          "role": "Chief Medical Officer",
+          "role": "Senior Physician, Radiation Medicine",
           "specialization": "Radiation Medicine",
           "age": 38,
           "featured": true
@@ -462,7 +468,7 @@
         {
           "name": "Erik Lindqvist",
           "department": "engineering",
-          "role": "Chief Engineer",
+          "role": "Senior Structural Engineer",
           "specialization": "Structural Engineering",
           "age": 45,
           "featured": true
@@ -470,7 +476,7 @@
         {
           "name": "Amara Osei",
           "department": "agriculture",
-          "role": "Head of Agriculture",
+          "role": "Senior Hydroponics Specialist",
           "specialization": "Hydroponics",
           "age": 34,
           "featured": true
@@ -478,7 +484,7 @@
         {
           "name": "Dr. Priya Singh",
           "department": "psychology",
-          "role": "Colony Psychologist",
+          "role": "Clinical Psychologist",
           "specialization": "Clinical Psychology",
           "age": 41,
           "featured": true

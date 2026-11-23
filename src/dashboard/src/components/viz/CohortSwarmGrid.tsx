@@ -52,6 +52,8 @@ interface CohortSwarmGridProps {
   chronicleHover: { kind: 'birth' | 'death' | 'forge' | 'crisis'; side: 'a' | 'b'; turn: number } | null;
   startTime?: number;
   onOpenChat?: (colonistName: string) => void;
+  /** A class for the track, the grid's scroll window, beside its own. */
+  className?: string;
 }
 
 interface ForgeAttempt {
@@ -172,11 +174,6 @@ function CohortColumn(props: CohortColumnProps) {
     onOpenChat,
   } = props;
 
-  // Replay (`?replay=<id>`) is cached playback; the reducer keeps
-  // `isRunning` true while replayed events stream, so treat replay as
-  // non-live and suppress the ambient wash on cached cohort playback.
-  const isReplaying = typeof window !== 'undefined'
-    && new URLSearchParams(window.location.search).has('replay');
   const ref = useRef<HTMLDivElement | null>(null);
   // Track whether the column has been visible at least once. Once true
   // we keep the LivingSwarmGrid mounted forever (canvas animation
@@ -258,7 +255,6 @@ function CohortColumn(props: CohortColumnProps) {
         {hasBeenVisible ? (
           <LivingSwarmGrid
             snapshot={snap}
-            isLiveRun={state.isRunning && !isReplaying}
             previousSnapshot={prevSnap}
             snapshotHistory={snaps}
             actorName={fallbackName}
@@ -308,11 +304,12 @@ export function CohortSwarmGrid({
   chronicleHover,
   startTime,
   onOpenChat,
+  className,
 }: CohortSwarmGridProps) {
   const actorIds = state.actorIds;
   return (
     <div
-      className={styles.track}
+      className={[styles.track, className].filter(Boolean).join(' ')}
       role="region"
       aria-label={`Cohort swarm grid: ${actorIds.length} actors`}
     >

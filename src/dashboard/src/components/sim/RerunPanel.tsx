@@ -11,7 +11,7 @@
  * @module paracosm/cli/dashboard/components/sim/RerunPanel
  */
 import { useCallback, useState } from 'react';
-import { useScenarioContext, useScenarioReady } from '../../App';
+import { useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import {
   buildNextRunConfig,
   isLastLaunchFor,
@@ -22,6 +22,7 @@ import {
   type PersistedActor,
 } from '../../hooks/useLastLaunchConfig';
 import { resolveSetupRedirectHref } from '../../tab-routing';
+import { emitLaunched } from '../../scenario-sync';
 import styles from './RerunPanel.module.scss';
 
 interface RerunPanelProps {
@@ -34,6 +35,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
+  const runStart = useRunStart();
 
   const handleClick = useCallback(async () => {
     if (launching || !scenarioReady) return;
@@ -56,6 +58,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
       const data = (await res.json().catch(() => ({}))) as {
         redirect?: string;
         error?: string;
+        visitorId?: string;
       };
       if (res.status === 429) {
         alert(data.error || 'Rate limit hit. Add an API key in Settings to bypass.');
@@ -68,6 +71,9 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         return;
       }
       if (data.redirect) {
+        emitLaunched(window, data.visitorId);
+        // The server took the run: it replaces the Digital Twin views.
+        runStart();
         // Persist the new seed so a subsequent Re-run bumps from THIS
         // run's seed, not the original.
         writeLastLaunchConfig(window.localStorage, next);
@@ -97,7 +103,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
     } finally {
       setLaunching(false);
     }
-  }, [launching, scenarioReady, scenario.id, scenario.labels.name]);
+  }, [launching, scenarioReady, scenario.id, scenario.labels.name, runStart]);
 
   if (!enabled) return null;
 

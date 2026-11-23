@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef, createContext, useContext, Co
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { defaultRunSetup } from './run-payload';
+import { emitLaunched } from './scenario-sync';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
 import { useGameState } from './hooks/useGameState';
@@ -9,6 +11,7 @@ import { useGamePersistence } from './hooks/useGamePersistence';
 import { useLocalHistory } from './hooks/useLocalHistory';
 import { useLoadPreview } from './hooks/useLoadPreview';
 import { useLoadFromUrl } from './hooks/useLoadFromUrl';
+import { writeClipboardText } from './hooks/writeClipboardText';
 import {
   parseAutoloadParam,
   parseDestinationTabParam,
@@ -20,10 +23,13 @@ import {
 } from './hooks/shareUrl.helpers';
 import { useDashboardDropZone } from './hooks/useDashboardDropZone';
 import { LoadPreviewModal } from './components/layout/LoadPreviewModal';
+import { LoadFromHostModal } from './components/layout/LoadFromHostModal';
 import { DropZoneOverlay } from './components/layout/DropZoneOverlay';
 import { useForgeToasts } from './hooks/useForgeToasts';
 import { useTerminalToast } from './hooks/useTerminalToast';
 import { useSimSavedToast } from './hooks/useSimSavedToast';
+import { useShareLink } from './hooks/useShareLink';
+import { ShareLinkNote } from './components/shared/ShareLinkNote';
 import { useLaunchState } from './hooks/useLaunchState';
 import { VerdictBanner } from './components/layout/VerdictBanner';
 import { VerdictModal } from './components/layout/VerdictModal';
@@ -37,6 +43,7 @@ import { StudioTab } from './components/studio/StudioTab.js';
 import { QuickstartView } from './components/quickstart/QuickstartView';
 import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitationRegistry';
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
+import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
 import { TabBar } from './components/layout/TabBar';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
@@ -51,11 +58,11 @@ import { SwarmViz } from './components/viz/SwarmViz';
 import { Footer } from './components/layout/Footer';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
-import { Analytics } from './components/shared/Analytics';
 import { GuidedTour } from './components/tour/GuidedTour';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
+  createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
   getDashboardTabFromHref,
@@ -85,11 +92,34 @@ export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
 }
 
-const DashboardNavigationContext = createContext<((tab: Exclude<DashboardTab, 'about'>) => void) | null>(null);
+/**
+ * Where a navigation lands. `logTool` opens the Settings tab's Event Log
+ * filtered to that forged tool's events by its whole name (a trace's Show
+ * in Event Log); `logActor` keeps the log to
+ * that actor's events, since two actors of a run can forge tools of one name.
+ */
+export interface DashboardNavigationOptions {
+  logTool?: string;
+  logActor?: string;
+}
+type DashboardNavigate = (tab: Exclude<DashboardTab, 'about'>, options?: DashboardNavigationOptions) => void;
+const DashboardNavigationContext = createContext<DashboardNavigate | null>(null);
 export function useDashboardNavigation() {
   const ctx = useContext(DashboardNavigationContext);
   if (!ctx) throw new Error('useDashboardNavigation must be used within App');
   return ctx;
+}
+
+const RunStartContext = createContext<() => void>(() => {});
+/**
+ * What a Run control calls once the server has taken its run (the /setup
+ * answer carries a redirect, or its status is ok): App leaves the Digital
+ * Twin views, which the new run replaces on the SIM tab. A run the server
+ * refuses replaces nothing, so the control does not call it then. Outside
+ * App it does nothing.
+ */
+export function useRunStart() {
+  return useContext(RunStartContext);
 }
 
 /**
@@ -177,7 +207,11 @@ function AppContent() {
   const replaySessionId = useReplaySessionId();
   // The live feed shows a run only in the page's scenario: the server holds
   // one run for every visitor, whichever scenario each one picked.
-  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null });
+  // What the page does when the server says it let go of the run the page
+  // shows (run_cleared). Set below, where the Digital Twin's state is.
+  const runClearedRef = useRef<(runKey: string) => void>(() => {});
+  const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
+  const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
   const [tourActive, setTourActive] = useState(false);
 
   // Global verdict banner. Closable by the user; dismissal is keyed
@@ -211,7 +245,8 @@ function AppContent() {
   }, [scenario.id, scenario.labels.name]);
 
   // When tour is active, use demo events; otherwise use live SSE events.
-  // Event Log pin-to-bottom scroll logic lives inside EventLogPanel.
+  // How the Event Log scrolls (it opens at its top and follows new events
+  // once the visitor scrolls to its end) lives inside EventLogPanel.
   // Tour data swap. The tour ships with DEMO_EVENTS so first-time
   // visitors with no run loaded see realistic content while the
   // highlight walks through tabs. BUT — if the user already has real
@@ -223,7 +258,12 @@ function AppContent() {
   const useDemoData = tourActive && sse.events.length === 0;
   const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
   const effectiveComplete = useDemoData ? true : sse.isComplete;
-  const gameState = useGameState(effectiveEvents, effectiveComplete);
+  // The results carry each decision's bar check, which the outcome cards show.
+  const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
+  // Names the run the page shows, the same saved file loaded twice as two
+  // runs. The Chat tab's threads start afresh for each run, and the
+  // verdict's export key drops what it said about the run before.
+  const shownRun = `${sse.runKey ?? ''}:${sse.loadedRuns}`;
   // What the Digital Twin views read: the run this page started when the
   // page's own state is not it, and the page's state otherwise.
   const ownRunState = useGameState(sse.ownRun?.events ?? NO_EVENTS, sse.ownRun?.isComplete ?? false);
@@ -233,6 +273,12 @@ function AppContent() {
   // set). Three-layer gating extracted to hooks/useForgeToasts.ts; see
   // that file for the rationale.
   const { toast } = useToast();
+  // The run actions menu's share note: the link, what became of the copy
+  // and who can open it. It names one run's link, so whatever replaces the
+  // run on screen clears it.
+  const shareLink = useShareLink();
+  const shareRunLink = shareLink.share;
+  const clearShareLink = shareLink.clear;
   useForgeToasts({
     events: effectiveEvents,
     replayDone: sse.replayDone,
@@ -255,7 +301,9 @@ function AppContent() {
   const [studioInitialSubTab] = useState<'author' | 'branches'>(
     initialRoute.tab === 'studio' && initialRoute.sub === 'branches' ? 'branches' : 'author',
   );
-  const [settingsInitialSubTab] = useState<'config' | 'log'>(
+  // The sub-tab the Settings tab opens on: its settings unless the URL
+  // or a forged tool's Show in Event Log asks for the Event Log.
+  const [settingsInitialSubTab, setSettingsInitialSubTab] = useState<'config' | 'log'>(
     initialRoute.tab === 'settings' && initialRoute.sub === 'log' ? 'log' : 'config',
   );
   const setActiveTab = useCallback((tab: DashboardTab) => {
@@ -263,9 +311,28 @@ function AppContent() {
       window.location.href = '/';
       return;
     }
+    if (tab === 'settings') setSettingsInitialSubTab('config');
     setActiveTabState(tab);
     window.history.replaceState({}, '', createDashboardTabHref(window.location.href, tab));
   }, []);
+  // The navigation components get. A trace's Show in Event Log opens the
+  // Event Log with the tool's filter, and a toolbox actor's with that actor's:
+  // the URL is written before the panel mounts, so EventLogPanel reads the
+  // filter from it on its first render.
+  const navigateTab = useCallback<DashboardNavigate>((tab, options) => {
+    if (options?.logTool || options?.logActor) {
+      setSettingsInitialSubTab('log');
+      setActiveTabState('settings');
+      window.history.replaceState({}, '', createToolLogHref(window.location.href, options.logTool ?? '', options.logActor));
+      return;
+    }
+    setActiveTab(tab);
+  }, [setActiveTab]);
+  // A trace's Show in Event Log: the Event Log on one actor's tool, or on
+  // the actor's events alone when the tool's name is empty.
+  const showToolLog = useCallback((toolName: string, actorName: string) => {
+    navigateTab('settings', { logTool: toolName, logActor: actorName });
+  }, [navigateTab]);
 
   // Direct deep-link to /sim?tab=about lands the user on the dashboard
   // with activeTab='about' but no rendering branch handles it (the
@@ -304,19 +371,81 @@ function AppContent() {
       autoload: parseAutoloadParam(window.location.href),
     };
   });
+  // True from the moment the link's own file goes to the preview until a
+  // file the visitor picks or drops takes its place. The link's autoload
+  // and tab apply to that file alone: after the visitor cancels the link,
+  // or its file fails to load, their own file still gets the preview.
+  const linkFileRef = useRef(false);
+
+  // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
+  // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
+  // layout. Single-actor intervention runs are structurally different from
+  // multi-actor side-by-side runs, so the SIM UI swaps wholesale rather
+  // than trying to merge both shapes into one view. Cleared by the panel's
+  // dismiss button, and by leaveDigitalTwin.
+  const [interventionArtifact, setInterventionArtifact] = useState<RunArtifact | null>(null);
+  // While set, SIM renders DigitalTwinProgress (live-streaming events
+  // from the in-flight simulate-intervention run) instead of the
+  // parallel-actor layout or the static panel. Carries the prefilled
+  // subject + intervention so the progress view can echo them on
+  // screen before any artifact comes back. Cleared when the artifact
+  // arrives (panel takes over), when the user dismisses, and by
+  // leaveDigitalTwin.
+  const [interventionRunning, setInterventionRunning] = useState<{
+    subject: { id: string; name: string; profile?: Record<string, unknown> };
+    intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
+  } | null>(null);
+  // The key of the Digital Twin run whose answer the page waits for, null
+  // when it waits for none. The answer of a run the page has left (the
+  // server took another run from the page, or the views were dismissed) is
+  // dropped: the server goes on with the twin and still answers, and that
+  // late answer would put the panel back over what the page shows since.
+  const twinRunKeyRef = useRef<string | null>(null);
+  // The key of the run whose result the panel shows, null when it shows
+  // none. The result is a view of that run. When the server says it let go
+  // of the run (run_cleared: Delete server data, the visitor's Clear local
+  // data in another tab, the server's held-run caps), the result leaves the
+  // page with the feed's other views of the run: the server holds nothing
+  // of it to show again.
+  const twinResultKeyRef = useRef<string | null>(null);
+  runClearedRef.current = (runKey: string) => {
+    if (runKey !== twinResultKeyRef.current) return;
+    twinResultKeyRef.current = null;
+    setInterventionArtifact(null);
+  };
+  // Leaves the Digital Twin views on the SIM tab for what replaces them: a
+  // run the server took from one of the page's Run controls, a Quickstart
+  // launch, a run loaded from a file or from history, or a clear of the
+  // page's local data. A run the server refuses replaces nothing. The feed
+  // stops showing the twin's run as the page's own, as a dismiss does.
+  const { leaveOwnRun } = sse;
+  const leaveDigitalTwin = useCallback(() => {
+    twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
+    setInterventionRunning(null);
+    setInterventionArtifact(null);
+    leaveOwnRun();
+  }, [leaveOwnRun]);
 
   const loadPreview = useLoadPreview({
-    pickFile: persistence.pickFile,
+    pickFile: async () => {
+      const file = await persistence.pickFile();
+      if (file) linkFileRef.current = false;
+      return file;
+    },
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
     onConfirm: ({ events, results, verdict }) => {
+      leaveDigitalTwin();
       sse.loadEvents(events, results, verdict);
+      clearShareLink();
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
       // `?load=` — falls back to 'sim' for picker / DnD loads and for
       // share links that didn't pin a tab. 'about' is excluded because
       // landing on / would discard the just-loaded sim state.
-      const target = deepLinkIntent.destinationTab;
+      const target = linkFileRef.current ? deepLinkIntent.destinationTab : null;
+      linkFileRef.current = false;
       setActiveTab(target && target !== 'about' ? target : 'sim');
     },
     onError: (reason) => {
@@ -326,9 +455,13 @@ function AppContent() {
   const handleLoad = loadPreview.openPicker;
 
   // ?load=<url> query-param auto-fetch. Runs once on mount; if the
-  // param isn't present, the hook is a no-op.
-  useLoadFromUrl({
-    openFromFile: (file) => loadPreview.openFromFile(file),
+  // param isn't present, the hook is a no-op. A file on another site
+  // waits for the visitor's answer to LoadFromHostModal.
+  const loadFromUrl = useLoadFromUrl({
+    openFromFile: (file) => {
+      linkFileRef.current = true;
+      return loadPreview.openFromFile(file);
+    },
     onInfo: (title, body) => toast('info', title, body),
     onError: (title, body) => toast('error', title, body),
   });
@@ -338,12 +471,14 @@ function AppContent() {
   // flag. Without this, social-share viewers would see a "Load run?"
   // modal asking them to click before the viz appears — defeats the
   // one-click share. `consumed` guards against re-firing if state ever
-  // cycles back through 'preview' for a subsequent picker / DnD load.
+  // cycles back through 'preview' for a subsequent picker / DnD load,
+  // and `linkFileRef` confirms only the file the link fetched.
   const autoloadConsumedRef = useRef(false);
   useEffect(() => {
     if (autoloadConsumedRef.current) return;
     if (!deepLinkIntent.autoload) return;
     if (loadPreview.state.kind !== 'preview') return;
+    if (!linkFileRef.current) return;
     autoloadConsumedRef.current = true;
     loadPreview.confirm();
   }, [deepLinkIntent.autoload, loadPreview.state.kind, loadPreview]);
@@ -351,7 +486,10 @@ function AppContent() {
   // Drag-and-drop a .json save file anywhere on the dashboard. Uses the
   // same preview + parse pipeline as the file-picker flow.
   const dropZone = useDashboardDropZone({
-    onFile: (file) => loadPreview.openFromFile(file),
+    onFile: (file) => {
+      linkFileRef.current = false;
+      return loadPreview.openFromFile(file);
+    },
     onError: () => {
       toast('error', 'Unsupported file', 'Only .json simulation files supported.');
     },
@@ -360,79 +498,141 @@ function AppContent() {
     },
   });
 
-  const handleClear = useCallback(async () => {
-    // End-user wipe path: clears every browser-side cache the dashboard
-    // owns (localStorage event cache, SSE in-memory state, the
-    // user-triggered-run gate). The server-side /admin/data/wipe call is
-    // ONLY attempted when the operator has previously stored an admin
-    // token in this browser — because /admin/data/wipe requires
-    // X-Admin-Token, prompting an end user for a value they cannot
-    // possibly have was both confusing and a security smell (it surfaced
-    // the exact env-var name + .env path inside a window.prompt).
-    //
-    // Token-bearing operators still get the full server wipe with no
-    // prompt: paste the token once into Settings (or via the dev-tools
-    // localStorage key `paracosm:adminToken`), and every subsequent
-    // Wipe All click does both the local + server pass automatically.
+  const handleClear = useCallback(() => {
+    // Clears every browser-side cache the dashboard owns (localStorage
+    // event cache, SSE in-memory state, the user-triggered-run gate), with
+    // an admin token saved or not. On the server it touches only this
+    // browser's own run: POST /clear lets go of it, and stops it when it
+    // is running, so a reload does not replay the events just
+    // cleared. The question says so. Run history, saved sessions and
+    // output files are Delete server data's, a separate item in the same
+    // menu (handleWipeServer below).
     if (!confirm(
       'Clear local data? This wipes the in-browser simulation buffer + cached events for this dashboard.\n\n' +
-      'Server-stored runs, sessions, and on-disk artifact files are kept.\n\n' +
+      "It also lets go of this browser's run on the server, and stops it if it is running.\n\n" +
+      'Run history, saved sessions, and on-disk artifact files are kept.\n\n' +
       'Cannot be undone.',
     )) return;
     persistence.clearCache();
+    leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
+    toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+    setActiveTab('settings');
+  }, [persistence, sse, toast, leaveDigitalTwin]);
 
-    let adminToken = '';
-    try {
-      adminToken = localStorage.getItem('paracosm:adminToken') ?? '';
-    } catch {
-      /* localStorage may be disabled (SSR / private window); treat as missing. */
-    }
+  // Delete server data shows only where the server takes admin writes and
+  // this browser holds an admin token. The token is watched (Settings saves
+  // and clears it, a refused call clears it); /admin-config is asked once a
+  // token is there, so a browser without one sends no extra request.
+  const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
+  useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
+  // A request that fails, or is answered with an error, is asked again the
+  // next time the run actions menu opens, so one failed request does not
+  // hide the item for the rest of the page load.
+  const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
+  const [adminConfigAsk, setAdminConfigAsk] = useState(0);
+  const adminConfigFailedRef = useRef(false);
+  useEffect(() => {
+    if (!adminTokenSaved || serverAdminWrite !== null) return;
+    let live = true;
+    adminConfigFailedRef.current = false;
+    fetch('/admin-config')
+      .then(res => (res.ok ? res.json() : null))
+      .then((config: { adminWrite?: unknown } | null) => {
+        if (!live) return;
+        if (config) setServerAdminWrite(config.adminWrite === true);
+        else adminConfigFailedRef.current = true;
+      })
+      .catch(() => { if (live) adminConfigFailedRef.current = true; });
+    return () => { live = false; };
+  }, [adminTokenSaved, serverAdminWrite, adminConfigAsk]);
+  const handleRunActionsOpen = useCallback(() => {
+    if (!adminConfigFailedRef.current) return;
+    adminConfigFailedRef.current = false;
+    setAdminConfigAsk(n => n + 1);
+  }, []);
 
-    if (!adminToken) {
-      // No admin context. Tell the user what we did + did NOT do, and
-      // route them to Settings where the rest of the cleanup options
-      // live (per-scenario reset, key-only wipe, etc.).
-      toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
+  const handleWipeServer = useCallback(async () => {
+    // The server wipe, POST /admin/data/wipe with the admin token: the
+    // server's stored runs, saved sessions and run output files, for every
+    // visitor. It also drops every finished run the server holds for the
+    // live feed, and tells each page showing one (run_cleared), this page
+    // included, so those views empty: a page left showing a run the server
+    // has deleted would show data the wipe was asked to remove, and could
+    // not reload it. The question says so. Runs in progress are kept.
+    // This browser's cached data is Clear local data's.
+    const adminToken = readAdminToken();
+    if (!adminToken) return;
+    if (!confirm(
+      'Delete server data? This asks the server to delete its stored runs, saved sessions and run output files, for every visitor of this server, not only this browser.\n\n' +
+      'Pages showing a finished run this server holds, this one included, empty their view of it. A run in progress keeps running.\n\n' +
+      "Clear local data, a separate item, clears this browser's cached data.\n\n" +
+      'Cannot be undone.',
+    )) return;
+    const unsendable = dropUnsendableAdminToken(adminToken);
+    if (unsendable) {
+      toast('info', 'Server data kept', unsendable);
       setActiveTab('settings');
       return;
     }
-
-    // Operator path: token already stored, attempt the full server wipe.
     try {
       const res = await fetch('/admin/data/wipe', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken },
+        headers: { 'Content-Type': 'application/json', [ADMIN_TOKEN_HEADER]: adminToken },
         body: JSON.stringify({ wipeRuns: true, wipeSessions: true, wipeOutput: true }),
       });
       if (res.ok) {
         const body = await res.json() as { wiped: { runs: number; sessions: number; outputFiles: number } };
         toast(
           'info',
-          'Wiped',
-          `Local + ${body.wiped.runs} runs + ${body.wiped.sessions} sessions + ${body.wiped.outputFiles} files cleared.`,
+          'Server data deleted',
+          `${body.wiped.runs} runs, ${body.wiped.sessions} sessions and ${body.wiped.outputFiles} files deleted on the server.`,
         );
       } else if (res.status === 401) {
-        // Stored token no longer matches the server's ADMIN_TOKEN.
-        // Drop it so a future operator paste isn't fighting a stale
-        // entry, then surface the failure as info (local already cleared).
-        try { localStorage.removeItem('paracosm:adminToken'); } catch { /* silent */ }
-        toast('info', 'Local data cleared', 'Server-side wipe skipped: stored admin token rejected. Re-paste it via dev-tools localStorage if needed.');
+        // The token no longer matches the server's ADMIN_TOKEN: drop it and
+        // say where it is entered. A token entered since the request went
+        // out is not the refused one, and stays; the words say which.
+        clearAdminToken(adminToken);
+        toast(
+          'info',
+          'Server data kept',
+          readAdminToken()
+            ? 'Server data not deleted: the server refused the admin token this request was sent with. A newer token is saved in this browser; choose Delete server data again to try with it.'
+            : `Server data not deleted: the admin token was refused and has been cleared. ${ADMIN_TOKEN_WHERE}`,
+        );
       } else if (res.status === 403) {
-        // Server has admin-write disabled. Local clear stands.
-        toast('info', 'Local data cleared', 'Server-side wipe disabled on this deployment.');
+        toast('info', 'Server data kept', 'Admin writes are off on this server.');
       } else if (res.status === 503) {
-        toast('info', 'Local data cleared', 'Server-side wipe configured but no ADMIN_TOKEN set on the server.');
+        toast('info', 'Server data kept', 'Admin writes are on but no ADMIN_TOKEN is set on the server.');
       } else {
         const err = await res.json().catch(() => ({} as { error?: string }));
-        toast('info', 'Local data cleared', `Server-side wipe failed: ${err.error ?? `HTTP ${res.status}`}`);
+        const detail = err.error ?? `HTTP ${res.status}`;
+        if (res.status >= 500) {
+          // An error of the server's own. The wipe deletes store by store
+          // and restores nothing, so what it deleted before the error
+          // stays deleted: the data is not reported as kept.
+          toast(
+            'error',
+            'Server error while deleting',
+            `The server reported an error while deleting (${detail}). It may have deleted some of its data before the error.`,
+          );
+        } else {
+          toast('info', 'Server data kept', `Server data not deleted: ${detail}`);
+        }
       }
     } catch (err) {
-      toast('info', 'Local data cleared', `Server-side wipe failed: ${err instanceof Error ? err.message : String(err)}`);
+      // The request did not complete, or its answer could not be read. The
+      // server may have deleted its data all the same, so neither outcome
+      // is claimed.
+      toast(
+        'info',
+        'Deletion not confirmed',
+        `Whether the server's data was deleted is not known: its answer did not arrive or could not be read (${err instanceof Error ? err.message : String(err)}).`,
+      );
     }
     setActiveTab('settings');
-  }, [persistence, sse, toast]);
+  }, [toast]);
 
   // Local dismiss flag for the provider-error banner. Lives outside useSSE
   // so dismissing hides the current banner without clearing the underlying
@@ -612,7 +812,9 @@ function AppContent() {
 
     lines.push('', `Generated by Paracosm (paracosm.sh)`);
 
-    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    // A page with no clipboard (plain http at a network address) gets the
+    // same failure toast as a refused one.
+    writeClipboardText(lines.join('\n')).then(() => {
       toast('success', 'Copied', 'Simulation summary copied to clipboard.');
     }).catch(() => {
       toast('error', 'Copy Failed', 'Clipboard access denied.');
@@ -631,15 +833,22 @@ function AppContent() {
   // Copy a deep link that opens the current run on the viz tab. Used
   // for social shares (r/dataisbeautiful etc.) where viewers click
   // straight through to the swarm visualization with no upload step.
+  // The note names one run's link: it goes when the run on screen is
+  // another one or none (a new run, a cleared page, leaving a replay).
+  useEffect(() => {
+    clearShareLink();
+  }, [currentSessionId, clearShareLink]);
+  // A reset (RUN, Clear local data, clearing history) empties the page's
+  // events and can keep the replay parameter, so the session id above
+  // does not change; an empty page clears the note too.
+  const pageHoldsEvents = sse.events.length > 0;
+  useEffect(() => {
+    if (!pageHoldsEvents) clearShareLink();
+  }, [pageHoldsEvents, clearShareLink]);
   const handleShareViz = useCallback(() => {
     if (!currentSessionId) return;
-    const url = buildReplayShareUrl(window.location.origin, currentSessionId, 'viz');
-    navigator.clipboard.writeText(url).then(() => {
-      toast('success', 'Share link copied', 'Anyone with the link opens this run on the viz tab.');
-    }).catch(() => {
-      toast('error', 'Copy Failed', 'Clipboard access denied.');
-    });
-  }, [currentSessionId, toast]);
+    shareRunLink(buildReplayShareUrl(window.location.origin, currentSessionId, 'viz'));
+  }, [currentSessionId, shareRunLink]);
 
   // App-level "launching" state: persists across tab navigation so the
   // user can submit /setup, switch to viz/chat/etc., come back to sim,
@@ -661,24 +870,6 @@ function AppContent() {
     try { return window.localStorage.getItem('paracosm:launchPending') === '1'; }
     catch { return false; }
   });
-
-  // Digital-twin artifact returned by /api/quickstart/simulate-intervention.
-  // When set, SIM tab renders DigitalTwinPanel instead of the parallel-actor
-  // layout. Single-actor intervention runs are structurally different from
-  // multi-actor side-by-side runs, so the SIM UI swaps wholesale rather
-  // than trying to merge both shapes into one view. Cleared by the panel's
-  // dismiss button or by triggering a fresh /setup run.
-  const [interventionArtifact, setInterventionArtifact] = useState<RunArtifact | null>(null);
-  // While set, SIM renders DigitalTwinProgress (live-streaming events
-  // from the in-flight simulate-intervention run) instead of the
-  // parallel-actor layout or the static panel. Carries the prefilled
-  // subject + intervention so the progress view can echo them on
-  // screen before any artifact comes back. Cleared when the artifact
-  // arrives (panel takes over) or when the user dismisses.
-  const [interventionRunning, setInterventionRunning] = useState<{
-    subject: { id: string; name: string; profile?: Record<string, unknown> };
-    intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  } | null>(null);
 
   // Accumulator for /chat turn cost + tokens. Folded into the Footer's
   // `cost` prop so users see the real run-plus-chat total spend. Prior
@@ -736,7 +927,9 @@ function AppContent() {
   // We reset prior SSE state, follow the run's key so its events show
   // whichever scenario the run is in, switch to SIM immediately (so
   // streaming events from the server show up live), and park the prefilled
-  // subject + intervention so DigitalTwinProgress can echo them.
+  // subject + intervention so DigitalTwinProgress can echo them. It returns
+  // the reset's /clear, which the card awaits before it starts the run: a
+  // /clear that landed after the run opened would stop it.
   //
   // Result: artifact landed, swap progress -> panel (single render
   // pass; the artifact carries subject + intervention so the panel
@@ -745,29 +938,42 @@ function AppContent() {
     runKey: string;
     subject: { id: string; name: string; profile?: Record<string, unknown> };
     intervention: { id: string; name: string; description: string; duration?: { value: number; unit: string } };
-  }) => {
-    sse.reset();
+  }): Promise<void> => {
+    const cleared = sse.reset();
     sse.followRun(payload.runKey);
+    twinRunKeyRef.current = payload.runKey;
+    twinResultKeyRef.current = null;
     setInterventionArtifact(null);
     setInterventionRunning(payload);
     setUserTriggeredRun(true);
     setActiveTab('sim');
+    return cleared;
   }, [sse, setActiveTab]);
-  const handleInterventionResult = useCallback((artifact: RunArtifact) => {
+  const handleInterventionResult = useCallback((artifact: RunArtifact, runKey: string) => {
+    if (runKey !== twinRunKeyRef.current) return;
+    twinRunKeyRef.current = null;
+    twinResultKeyRef.current = runKey;
     setInterventionRunning(null);
     setInterventionArtifact(artifact);
     setUserTriggeredRun(true);
     setActiveTab('sim');
   }, [setActiveTab]);
   const handleInterventionDismiss = useCallback(() => {
+    twinRunKeyRef.current = null;
+    twinResultKeyRef.current = null;
     setInterventionRunning(null);
     setInterventionArtifact(null);
     sse.leaveOwnRun();
   }, [sse]);
-  const handleInterventionError = useCallback((message: string) => {
+  // Answers whether the page took the failure: the failure of a run it has
+  // left says nothing, here or on the Quickstart tab.
+  const handleInterventionError = useCallback((message: string, runKey: string): boolean => {
+    if (runKey !== twinRunKeyRef.current) return false;
+    twinRunKeyRef.current = null;
     setInterventionRunning(null);
     sse.leaveOwnRun();
     toast('error', 'Digital twin failed', message);
+    return true;
   }, [sse, toast]);
   useTerminalToast({
     isComplete: sse.isComplete,
@@ -842,10 +1048,15 @@ function AppContent() {
       // handleClear does this via sse.reset() but Run previously did not,
       // so a user who loaded a completed run from cache and then hit Run
       // saw the new sim's events append to the stale history. reset()
-      // also posts /clear to the server; the server's /setup handler
-      // would clear its buffer again anyway, but a redundant clear is
-      // cheap and unambiguous.
-      sse.reset();
+      // also posts /clear to the server, naming the run the page held; it
+      // is awaited, so the /clear lands before the new run opens and never
+      // stops it. The server's /setup replaces the visitor's run anyway. A
+      // page that shows a Digital Twin keeps its events until the server
+      // takes the run, so a run the server refuses leaves the twin's
+      // progress and playback as they were: the new run opens with a key of
+      // its own, and the feed starts it clean then.
+      const showsTwin = twinRunKeyRef.current !== null || interventionArtifact !== null;
+      if (!showsTwin) await sse.reset();
       // Switch to the sim tab immediately so the user sees the launching
       // spinner there (the Run button on the empty state still works
       // from any tab via the topbar).
@@ -863,6 +1074,10 @@ function AppContent() {
       } else if (!data.redirect) {
         setLaunching(false);
         toast('error', 'Launch Failed', data.error || 'Unknown error');
+      } else {
+        emitLaunched(window, data.visitorId);
+        // The server took the run: it replaces the Digital Twin views.
+        leaveDigitalTwin();
       }
       // Success path: leave launching=true; the effect above clears it
       // when the first SSE event arrives.
@@ -870,15 +1085,17 @@ function AppContent() {
       setLaunching(false);
       toast('error', 'Launch Failed', String(err));
     }
-  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse]);
+  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, leaveDigitalTwin, interventionArtifact]);
 
   return (
     <BranchesProvider>
-    <DashboardNavigationContext.Provider value={setActiveTab}>
+    <DashboardNavigationContext.Provider value={navigateTab}>
+     <RunStartContext.Provider value={leaveDigitalTwin}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
+        <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
         {/* Skip link: keyboard users land on this first, jumping past
             the long tab/header chrome to the active tabpanel. The CSS
@@ -905,26 +1122,36 @@ function AppContent() {
             onSave={handleSave}
             onLoad={handleLoad}
             onClear={handleClear}
+            onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
+            onRunActionsOpen={handleRunActionsOpen}
             onRun={handleRun}
             onTour={handleTourStart}
             onCopy={handleCopySummary}
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
             history={history.entries}
-            onRestoreHistory={(entry) => history.restore(entry, sse.loadEvents)}
+            onRestoreHistory={(entry) => { leaveDigitalTwin(); clearShareLink(); history.restore(entry, sse.loadEvents); }}
             onClearHistory={() => {
               // Clear all browser-side state — the local LOAD-menu
               // ring, the localStorage event-cache, the in-memory SSE
               // state (which feeds Sim/Constellation/EventLog), and
-              // the userTriggeredRun toast gate. Doesn't touch server
-              // data; that's what Wipe All is for.
+              // the userTriggeredRun toast gate. On the server, as Clear
+              // local data in the run actions menu, POST /clear lets go of
+              // this browser's run and stops it while it runs. Run
+              // history, saved sessions and output files are Delete server
+              // data's, in the run actions menu.
               history.clear();
               persistence.clearCache();
+              leaveDigitalTwin();
               sse.reset();
               setUserTriggeredRun(false);
             }}
           />
           <TabBar active={activeTab} onTabChange={setActiveTab} scenario={scenario} />
+          {/* In the page's flow under the tabs, so it covers none of the top bar's keys. */}
+          {shareLink.shared && (
+            <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
+          )}
           {/* Cold-load gate: suppress the verdict banner unless the
               user actually started a run this session. Without this
               guard, a fresh visitor lands on the page with the SSE
@@ -990,7 +1217,7 @@ function AppContent() {
               <QuickstartView
                 sse={sse}
                 sessionId={replaySessionId ?? undefined}
-                onRunStarted={() => setUserTriggeredRun(true)}
+                onRunStarted={() => { leaveDigitalTwin(); setUserTriggeredRun(true); }}
                 onInterventionStart={handleInterventionStart}
                 onInterventionResult={handleInterventionResult}
                 onInterventionError={handleInterventionError}
@@ -1016,6 +1243,7 @@ function AppContent() {
                   onRun={handleRun}
                   onTour={handleTourStart}
                   verdict={sse.verdict}
+                  shownRun={shownRun}
                   launching={launching}
                   interventionArtifact={interventionArtifact}
                   interventionRunning={interventionRunning}
@@ -1076,7 +1304,7 @@ function AppContent() {
                 tabIndex={-1}
                 className={styles.tabPanel}
               >
-                <ReportView state={gameState} verdict={sse.verdict} reportSections={scenario.ui.reportSections} />
+                <ReportView state={gameState} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
               </section>
             )}
 
@@ -1126,7 +1354,14 @@ function AppContent() {
                 alone removes the subtree from layout, the a11y tree, and
                 tab order. Do NOT switch to visibility/opacity hiding
                 without auditing chat input + send button focus order
-                (would create a hidden-but-focusable trap). */}
+                (would create a hidden-but-focusable trap).
+
+                Keyed on the run the page shows (its key, or which run
+                loaded from a file or from history it is): a new run, the
+                same scenario with the same people included, mounts a fresh
+                panel, so no thread and no history from the last run shows
+                or goes to /chat. A reconnect replays the same key and keeps
+                the threads. */}
             <section
               role="tabpanel"
               id="tabpanel-chat"
@@ -1134,7 +1369,7 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel state={gameState} onChatUsage={handleChatUsage} />
+              <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now
@@ -1169,6 +1404,13 @@ function AppContent() {
               onClose={() => setVerdictModalOpen(false)}
             />
           )}
+          {loadFromUrl.pendingHost && (
+            <LoadFromHostModal
+              host={loadFromUrl.pendingHost}
+              onLoad={loadFromUrl.confirmPending}
+              onCancel={loadFromUrl.cancelPending}
+            />
+          )}
           {loadPreview.metadata && (
             <LoadPreviewModal
               metadata={loadPreview.metadata}
@@ -1190,10 +1432,12 @@ function AppContent() {
           )}
           <ShortcutsOverlay />
         </div>
+        </ForgeViewProvider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
       </ScenarioReadyContext.Provider>
       </ScenarioContext.Provider>
+     </RunStartContext.Provider>
     </DashboardNavigationContext.Provider>
     </BranchesProvider>
   );
@@ -1234,7 +1478,6 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <ToastProvider>
-          <Analytics />
           <AppContent />
         </ToastProvider>
       </ThemeProvider>

@@ -17,7 +17,7 @@ import { createDatabase, type StorageAdapter, type DatabaseOptions } from '@fram
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { RunRecord } from '../services/run-record.js';
-import type { ListRunsFilters, RunHistoryStore, RunsAggregate } from './run-history.js';
+import type { InsertRunOptions, ListRunsFilters, RunHistoryStore, RunScope, RunsAggregate } from './run-history.js';
 
 export interface SqliteRunHistoryStoreOptions {
   /** SQLite database path, opened unless `databaseOptions` is given. */
@@ -158,6 +158,10 @@ async function ensureRunsColumns(adapter: StorageAdapter): Promise<void> {
     // autoSaveOnComplete pass returns. NULL for legacy runs that
     // predate the link wire-up and for runs whose save failed.
     ['session_id', 'TEXT'],
+    // The key of the visitor the run belongs to (InsertRunOptions.owner).
+    // NULL for a run recorded before the column and for a run no visitor
+    // owns.
+    ['owner', 'TEXT'],
   ];
   for (const [name, type] of newCols) {
     try {
@@ -167,6 +171,16 @@ async function ensureRunsColumns(adapter: StorageAdapter): Promise<void> {
       if (!msg.includes('duplicate column name')) throw err;
     }
   }
+}
+
+/**
+ * Adds the `owner` column to a Postgres `runs` table made before it.
+ * Postgres takes ADD COLUMN IF NOT EXISTS; the SQLite table gets the
+ * column from {@link ensureRunsColumns}.
+ */
+async function ensureRunsOwnerColumnOnPostgres(adapter: StorageAdapter): Promise<void> {
+  if (adapter.kind !== 'postgres' && adapter.kind !== 'supabase-postgres') return;
+  await adapter.exec('ALTER TABLE runs ADD COLUMN IF NOT EXISTS owner TEXT');
 }
 
 async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
@@ -190,7 +204,8 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       replay_matches      INTEGER DEFAULT 0,
       bundle_id           TEXT,
       summary_trajectory  TEXT,
-      session_id          TEXT
+      session_id          TEXT,
+      owner               TEXT
     );
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_runs_created_at        ON runs (created_at DESC);`);
@@ -202,11 +217,13 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
   // when the indexes are created.
   await migrateLeaderColumnsToActor(adapter);
   await ensureRunsColumns(adapter);
+  await ensureRunsOwnerColumnOnPostgres(adapter);
 
   for (const indexSql of [
     `CREATE INDEX IF NOT EXISTS idx_runs_actor_created     ON runs (actor_config_hash, created_at DESC);`,
     `CREATE INDEX IF NOT EXISTS idx_runs_sim_mode_created  ON runs (mode, created_at DESC);`,
     `CREATE INDEX IF NOT EXISTS idx_runs_bundle_created    ON runs (bundle_id, created_at ASC);`,
+    `CREATE INDEX IF NOT EXISTS idx_runs_owner_created     ON runs (owner, created_at DESC);`,
   ]) {
     try {
       await adapter.exec(indexSql);
@@ -216,7 +233,7 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
   }
 }
 
-function buildInsertParams(run: RunRecord): Record<string, unknown> {
+function buildInsertParams(run: RunRecord, options: InsertRunOptions | undefined): Record<string, unknown> {
   return {
     runId: run.runId,
     createdAt: run.createdAt,
@@ -235,6 +252,7 @@ function buildInsertParams(run: RunRecord): Record<string, unknown> {
     bundleId: run.bundleId ?? null,
     summaryTrajectory: run.summaryTrajectory ? JSON.stringify(run.summaryTrajectory) : null,
     sessionId: run.sessionId ?? null,
+    owner: options?.owner ?? null,
   };
 }
 
@@ -243,12 +261,12 @@ const INSERT_RUN_SQL = `
     (run_id, created_at, scenario_id, scenario_version, actor_config_hash,
      economics_profile, source_mode, created_by,
      artifact_path, cost_usd, duration_ms, mode, actor_name, actor_archetype,
-     bundle_id, summary_trajectory, session_id)
+     bundle_id, summary_trajectory, session_id, owner)
   VALUES
     (@runId, @createdAt, @scenarioId, @scenarioVersion, @actorConfigHash,
      @economicsProfile, @sourceMode, @createdBy,
      @artifactPath, @costUSD, @durationMs, @mode, @actorName, @actorArchetype,
-     @bundleId, @summaryTrajectory, @sessionId)
+     @bundleId, @summaryTrajectory, @sessionId, @owner)
 `;
 
 function buildWhere(filters: ListRunsFilters | undefined): { where: string; params: Record<string, string> } {
@@ -277,6 +295,15 @@ function buildWhere(filters: ListRunsFilters | undefined): { where: string; para
   if (filters?.bundleId) {
     clauses.push('bundle_id = @bundleId');
     params.bundleId = filters.bundleId;
+  }
+  if (filters?.scope) {
+    if (filters.scope.owner === null) {
+      // A caller the server knows no visitor for reaches no run.
+      clauses.push('1 = 0');
+    } else {
+      clauses.push('owner = @owner');
+      params.owner = filters.scope.owner;
+    }
   }
   return {
     where: clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '',
@@ -315,9 +342,9 @@ export function createSqliteRunHistoryStore(options: SqliteRunHistoryStoreOption
   }
 
   return {
-    async insertRun(run: RunRecord): Promise<void> {
+    async insertRun(run: RunRecord, insertOptions?: InsertRunOptions): Promise<void> {
       const adapter = await getAdapter();
-      await adapter.run(INSERT_RUN_SQL, buildInsertParams(run));
+      await adapter.run(INSERT_RUN_SQL, buildInsertParams(run, insertOptions));
     },
 
     async listRuns(filters?: ListRunsFilters): Promise<RunRecord[]> {
@@ -330,29 +357,38 @@ export function createSqliteRunHistoryStore(options: SqliteRunHistoryStoreOption
       return rows.map(rowToRecord);
     },
 
-    async getRun(runId: string): Promise<RunRecord | null> {
+    async getRun(runId: string, scope?: RunScope): Promise<RunRecord | null> {
+      if (scope && scope.owner === null) return null;
       const adapter = await getAdapter();
-      const row = await adapter.get<RunRow>(`SELECT * FROM runs WHERE run_id = ?`, [runId]);
+      const row = scope
+        ? await adapter.get<RunRow>(`SELECT * FROM runs WHERE run_id = ? AND owner = ?`, [runId, scope.owner])
+        : await adapter.get<RunRow>(`SELECT * FROM runs WHERE run_id = ?`, [runId]);
       return row ? rowToRecord(row) : null;
     },
 
-    async listRunsByBundleId(bundleId: string): Promise<RunRecord[]> {
+    async listRunsByBundleId(bundleId: string, scope?: RunScope): Promise<RunRecord[]> {
+      if (scope && scope.owner === null) return [];
       const adapter = await getAdapter();
-      const rows = await adapter.all<RunRow>(
-        `SELECT * FROM runs WHERE bundle_id = ? ORDER BY created_at ASC`,
-        [bundleId],
-      );
+      const rows = scope
+        ? await adapter.all<RunRow>(
+          `SELECT * FROM runs WHERE bundle_id = ? AND owner = ? ORDER BY created_at ASC`,
+          [bundleId, scope.owner],
+        )
+        : await adapter.all<RunRow>(
+          `SELECT * FROM runs WHERE bundle_id = ? ORDER BY created_at ASC`,
+          [bundleId],
+        );
       return rows.map(rowToRecord);
     },
 
-    async countRuns(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'q'>): Promise<number> {
+    async countRuns(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'q' | 'scope'>): Promise<number> {
       const adapter = await getAdapter();
       const { where, params } = buildWhere(filters);
       const row = await adapter.get<{ n: number }>(`SELECT COUNT(*) AS n FROM runs ${where}`, params);
       return row?.n ?? 0;
     },
 
-    async aggregateStats(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash'>): Promise<RunsAggregate> {
+    async aggregateStats(filters?: Pick<ListRunsFilters, 'mode' | 'sourceMode' | 'scenarioId' | 'actorConfigHash' | 'scope'>): Promise<RunsAggregate> {
       const adapter = await getAdapter();
       const { where, params } = buildWhere(filters);
       const sql = `

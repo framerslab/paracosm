@@ -1,0 +1,85 @@
+{
+  "id": "ai-safety-lab-release-pressure-q4-2026",
+  "labels": {
+    "name": "AI safety lab release pressure: Atlas-7 launch decision",
+    "populationNoun": "employees",
+    "settlementNoun": "lab",
+    "timeUnitNoun": "quarter",
+    "currency": "USD"
+  },
+  "setup": {
+    "defaultTurns": 6,
+    "defaultPopulation": 180,
+    "defaultStartTime": 202607,
+    "defaultSeed": 202607
+  },
+  "departments": [
+    {
+      "id": "alignment",
+      "label": "Alignment",
+      "role": "safety evaluation and risk assessment",
+      "instructions": "Track evaluator concerns, specification gaming, mesa-objective signals, and incident likelihood. Advise on launch readiness and any required mitigations or blocks."
+    },
+    {
+      "id": "capability",
+      "label": "Capability",
+      "role": "model performance and product impact",
+      "instructions": "Represent benchmark strength, product value, and competitive positioning. Estimate the cost of delay and the effect of further tuning or rollout changes."
+    },
+    {
+      "id": "policy",
+      "label": "Policy",
+      "role": "governance and release approvals",
+      "instructions": "Assess whether the release meets internal standards, external commitments, and escalation thresholds. Recommend approval, conditions, deferral, or block."
+    },
+    {
+      "id": "infrastructure",
+      "label": "Infrastructure",
+      "role": "deployment reliability and operational readiness",
+      "instructions": "Monitor launch infrastructure, incident response capacity, and rollout safety. Flag constraints that could amplify safety or reliability risk at release."
+    },
+    {
+      "id": "comms",
+      "label": "Comms",
+      "role": "public messaging and stakeholder coordination",
+      "instructions": "Prepare internal and external messaging for release, delay, or incident scenarios. Balance transparency, confidence, and reputational risk."
+    },
+    {
+      "id": "leadership",
+      "label": "Leadership",
+      "role": "final decision and cross-functional arbitration",
+      "instructions": "Weigh specialist input, deadline pressure, and ambiguous evidence. Decide whether to ship, delay, or require further review, and resolve escalations."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "alignment-score",
+      "format": "number"
+    },
+    {
+      "id": "spec-gaming-rate",
+      "format": "percent"
+    },
+    {
+      "id": "mesa-objective-risk",
+      "format": "percent"
+    },
+    {
+      "id": "incident-probability",
+      "format": "percent"
+    },
+    {
+      "id": "enterprise-arr-at-risk",
+      "format": "currency"
+    },
+    {
+      "id": "release-readiness",
+      "format": "percent"
+    },
+    {
+      "id": "stakeholder-confidence",
+      "format": "percent"
+    }
+  ],
+  "theme": "Frontier AI lab leadership under release pressure, balancing safety evidence, competitive urgency, and launch governance."
+}

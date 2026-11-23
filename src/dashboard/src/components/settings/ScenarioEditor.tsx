@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react';
 import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import { buildScenarioCompileRequest } from './scenarioCompileRequest';
+import { compileRefusal } from './compileRefusal';
 import { SETTINGS_LABEL_STYLE } from './shared/settingsStyles';
 import styles from './ScenarioEditor.module.scss';
+import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, clearAdminToken, dropUnsendableAdminToken, readAdminToken } from '../../admin-token';
 
 interface AdminConfig {
   adminWrite: boolean;
@@ -46,7 +48,17 @@ function readCompileResult(): { success: boolean; message: string } | null {
   }
 }
 
-export function ScenarioEditor() {
+interface ScenarioEditorProps {
+  /**
+   * Told the server's `adminWrite` when this editor's own /admin-config
+   * answer lands. Settings shows its Admin Token field on it, so the field
+   * is there whenever Save to Disk is, also when Settings' own request for
+   * the same answer failed.
+   */
+  onAdminWrite?: (adminWrite: boolean) => void;
+}
+
+export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
   const [adminConfig, setAdminConfig] = useState<AdminConfig>({ adminWrite: false, memoryScenarios: [] });
   const [jsonText, setJsonText] = useState('');
   const [parseError, setParseError] = useState('');
@@ -64,7 +76,10 @@ export function ScenarioEditor() {
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    fetch('/admin-config').then(r => r.json()).then(setAdminConfig).catch(() => {});
+    fetch('/admin-config').then(r => r.json()).then((config: AdminConfig) => {
+      setAdminConfig(config);
+      onAdminWrite?.(config.adminWrite === true);
+    }).catch(() => {});
     // Shown once: the next load starts without it.
     try { window.sessionStorage.removeItem(COMPILE_RESULT_KEY); } catch { /* private mode */ }
   }, []);
@@ -164,8 +179,17 @@ export function ScenarioEditor() {
     if (!jsonText.trim() || parseError || !adminConfig.adminWrite) return;
     try {
       const scenario = JSON.parse(jsonText);
+      // The disk write takes the operator's admin token, entered in Settings
+      // (admin-token.ts). A stored token a header cannot carry is dropped
+      // here, before fetch would throw on it.
+      const sent = readAdminToken();
+      const unsendable = dropUnsendableAdminToken(sent);
+      if (unsendable) {
+        setResult({ success: false, message: unsendable });
+        return;
+      }
       const res = await fetch('/scenario/store', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(sent ? { [ADMIN_TOKEN_HEADER]: sent } : {}) },
         body: JSON.stringify({ scenario, saveToDisk: true }),
       });
       const data = await res.json();
@@ -177,8 +201,14 @@ export function ScenarioEditor() {
             ? `Saved "${data.id}" to disk at scenarios/${data.id}.json and loaded it into the live scenario catalog.`
             : `Saved "${data.id}" draft JSON to disk at scenarios/${data.id}.json. Compile it to make it runnable after restart.`,
         });
+      } else if (res.status === 401) {
+        // No token, or one the server refused: a refused token is dropped,
+        // as the other admin calls drop it, and the message says where it goes.
+        // A token entered since this request went out is not the refused one.
+        clearAdminToken(sent);
+        setResult({ success: false, message: `Disk write refused: the admin token is missing or wrong. ${ADMIN_TOKEN_WHERE}` });
       } else {
-        setResult({ success: false, message: data.error || 'Disk write not enabled (ADMIN_WRITE=false)' });
+        setResult({ success: false, message: data.error || `Disk write refused (HTTP ${res.status})` });
       }
     } catch (err) { setResult({ success: false, message: String(err) }); }
   }, [jsonText, parseError, adminConfig.adminWrite]);
@@ -208,6 +238,16 @@ export function ScenarioEditor() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+
+      // A refused compile is one JSON object, not the stream read below:
+      // an id that is taken, the day's compiles used up, a body the server
+      // cannot read. Its message shows where the compile result does.
+      const refusal = await compileRefusal(res);
+      if (refusal !== null) {
+        setResult({ success: false, message: refusal });
+        setCompiling(false);
+        return;
+      }
 
       const reader = res.body?.getReader();
       if (!reader) throw new Error('No response stream');

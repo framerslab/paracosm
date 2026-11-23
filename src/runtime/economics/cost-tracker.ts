@@ -103,6 +103,19 @@ export interface ProviderErrorStats {
   total: number;
 }
 
+/**
+ * One schema's rollup: the calls, the attempts they took, the calls that
+ * returned the caller's fallback, and (only when there were any) the calls
+ * whose result a `salvage` kept from a reply that failed the schema, such
+ * as a department report with its unheld effect keys dropped.
+ */
+export interface SchemaRetryBucket {
+  attempts: number;
+  calls: number;
+  fallbacks: number;
+  salvaged?: number;
+}
+
 /** Aggregate cost payload embedded on every SSE event's `_cost` field. */
 export interface CostPayload {
   totalTokens: number;
@@ -118,7 +131,7 @@ export interface CostPayload {
    * start reporting attempt counts. Only present when at least one
    * schema-validated call completed.
    */
-  schemaRetries?: Record<string, { attempts: number; calls: number; fallbacks: number }>;
+  schemaRetries?: Record<string, SchemaRetryBucket>;
   /**
    * Per-run forge reliability rollup. Only present when at least one
    * forge attempt (approved or rejected) was captured during the run.
@@ -144,9 +157,12 @@ export interface CostTracker {
    * Record that a schema-validated call finished — used for retry
    * telemetry. `attempts` is the count returned by the wrapper (1 =
    * first-try success, N = N-1 retries, maxRetries+1 = fallback).
+   * `salvaged` is true when the result was kept from a reply that failed
+   * the schema (the wrapper's `salvaged`); it counts in the bucket's
+   * `salvaged`, which is written only once one call was salvaged.
    * Builds a per-schema rollup exposed in `finalCost().schemaRetries`.
    */
-  recordSchemaAttempt(schemaName: string, attempts: number, fellBack: boolean): void;
+  recordSchemaAttempt(schemaName: string, attempts: number, fellBack: boolean, salvaged?: boolean): void;
   /**
    * Record one forge attempt's outcome. `approved` true means the judge
    * cleared the tool; false means shape check or judge rejected it.
@@ -181,7 +197,7 @@ export interface CostTracker {
     totalTokens: number;
     totalCostUSD: number;
     llmCalls: number;
-    schemaRetries?: Record<string, { attempts: number; calls: number; fallbacks: number }>;
+    schemaRetries?: Record<string, SchemaRetryBucket>;
     forgeStats?: ForgeStats;
     cacheStats?: CacheStats;
     providerErrors?: ProviderErrorStats;
@@ -214,7 +230,7 @@ export function createCostTracker(modelConfig: SimulationModelConfig): CostTrack
    * count. Empty when no schema-validated call site fed results in
    * (older call sites still using plain generateText bypass this).
    */
-  const schemaRetries = new Map<string, { attempts: number; calls: number; fallbacks: number }>();
+  const schemaRetries = new Map<string, SchemaRetryBucket>();
   /**
    * Running forge stats aggregator. Every wrapForgeTool capture feeds
    * through recordForgeAttempt, which delegates to the AgentOS
@@ -340,13 +356,15 @@ export function createCostTracker(modelConfig: SimulationModelConfig): CostTrack
     return payload;
   };
 
-  const recordSchemaAttempt: CostTracker['recordSchemaAttempt'] = (schemaName, attempts, fellBack) => {
+  const recordSchemaAttempt: CostTracker['recordSchemaAttempt'] = (schemaName, attempts, fellBack, salvaged = false) => {
     if (!schemaName) return;
     const existing = schemaRetries.get(schemaName) ?? { attempts: 0, calls: 0, fallbacks: 0 };
+    const salvagedCount = (existing.salvaged ?? 0) + (salvaged ? 1 : 0);
     schemaRetries.set(schemaName, {
       attempts: existing.attempts + attempts,
       calls: existing.calls + 1,
       fallbacks: existing.fallbacks + (fellBack ? 1 : 0),
+      ...(salvagedCount > 0 ? { salvaged: salvagedCount } : {}),
     });
   };
 

@@ -1,10 +1,12 @@
 /**
- * Tests for `WorldModel.replay`. The replay path re-executes the
- * deterministic between-turn progression hook from each recorded
- * snapshot to the next, captures fresh snapshots, and compares them to
- * the input artifact's snapshots. These tests exercise the precondition
- * checks plus the round-trip + divergence-detection invariants without
- * touching any LLM provider.
+ * Tests for `WorldModel.replay`. Replay re-runs each recorded between-turn
+ * step from the state it started from and compares the fresh state with
+ * the input artifact's `kernelSnapshotsAfterProgression`. These artifacts
+ * are built with `advanceTurn` alone, so the end of each turn is the state
+ * after its step; replay-turn-loop.test.ts replays a run the turn loop
+ * saved, decisions applied. These tests exercise the precondition checks
+ * plus the round-trip + divergence-detection invariants without touching
+ * any LLM provider.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,8 +47,12 @@ function syntheticArtifact(snaps: KernelSnapshot[], scenarioId = marsScenario.id
       chosenOptionId: 'safe',
       reasoning: 'test',
     })),
+    // snaps[0] is the state before turn 1; with no decisions each turn
+    // ends in the state its step left.
     scenarioExtensions: {
-      kernelSnapshotsPerTurn: snaps,
+      kernelSnapshotsPerTurn: snaps.slice(1),
+      kernelSnapshotAtStart: snaps[0],
+      kernelSnapshotsAfterProgression: snaps.slice(1),
     },
   } as unknown as RunArtifact;
 }
@@ -61,9 +67,9 @@ test('WorldModel.replay matches=true when re-execution produces equal snapshots'
   assert.equal(result.matches, true, `Expected match; divergence: ${result.divergence}`);
   assert.equal(result.divergence, '');
   assert.ok(result.artifact.metadata.runId.startsWith('replay-'));
-  // Fresh snapshots count equals the input.
-  const freshSnaps = (result.artifact.scenarioExtensions as { kernelSnapshotsPerTurn?: KernelSnapshot[] } | undefined)?.kernelSnapshotsPerTurn ?? [];
-  assert.equal(freshSnaps.length, snaps.length);
+  // One fresh state for each recorded step.
+  const freshSnaps = (result.artifact.scenarioExtensions as { kernelSnapshotsAfterProgression?: KernelSnapshot[] } | undefined)?.kernelSnapshotsAfterProgression ?? [];
+  assert.equal(freshSnaps.length, snaps.length - 1);
 });
 
 test('WorldModel.replay returns matches=false with divergence path when a snapshot is mutated', async () => {
@@ -78,7 +84,8 @@ test('WorldModel.replay returns matches=false with divergence path when a snapsh
   const result = await wm.replay(artifact);
 
   assert.equal(result.matches, false);
-  assert.ok(result.divergence.length > 0, 'divergence string must be non-empty');
+  assert.equal(result.divergence, '/scenarioExtensions/kernelSnapshotsAfterProgression/1/state/metrics/morale (0.123456789 vs ' +
+    `${JSON.stringify(snaps[2].state.metrics.morale)})`);
 });
 
 test('WorldModel.replay throws WorldModelReplayError when snapshots are missing', async () => {

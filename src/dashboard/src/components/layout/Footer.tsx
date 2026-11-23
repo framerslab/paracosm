@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useMediaQuery, PHONE_QUERY } from '../viz/grid/useMediaQuery';
 import styles from './Footer.module.scss';
 
@@ -42,7 +42,8 @@ function abortReasonLabel(raw: string): string {
     case 'quota_exhausted': return 'provider credits exhausted';
     case 'user_aborted': return 'cancelled by the user';
     case 'provider_error': return 'provider returned an unrecoverable error';
-    case 'another_run_started': return 'another run started on the server';
+    case 'another_run_started': return 'you started another run';
+    case 'server_restarted': return 'the server restarted before the run finished';
     case 'unknown': return 'reason not recorded by the server';
     default: return raw;
   }
@@ -126,8 +127,40 @@ function buildCostTooltip(
   return lines.join('\n');
 }
 
+/**
+ * Whether the server gave this page the consent bar (the hosted demo, in
+ * src/server/site-analytics.ts). Its script opens the choices from any
+ * element marked data-consent-open, so the footer offers the control only
+ * where the bar exists.
+ */
+function hasConsentBar(): boolean {
+  return typeof document !== 'undefined' && document.getElementById('paracosm-consent-config') !== null;
+}
+
+/**
+ * The page's Analytics choices control (#pcc-reopen in index.html, outside
+ * #root, so it is there when this script does not load), moved into the
+ * footer while the footer is mounted and back to its place after.
+ */
+function useConsentControl() {
+  const slot = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const control = document.getElementById('pcc-reopen');
+    const home = document.getElementById('pcc-shell');
+    const target = slot.current;
+    if (!control || !home || !target) return undefined;
+    target.appendChild(control);
+    return () => {
+      home.appendChild(control);
+    };
+  }, []);
+  return slot;
+}
+
 export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
   const isPhone = useMediaQuery(PHONE_QUERY);
+  const consentBar = hasConsentBar();
+  const consentSlot = useConsentControl();
   const cls = ['shrink-0', styles.footer, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
   return (
     <footer className={cls} role="contentinfo">
@@ -158,6 +191,8 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
           )}
         </span>
       )}
+
+      {consentBar && <span ref={consentSlot} className={styles.consentSlot} />}
 
       {!isPhone && (
         <span>

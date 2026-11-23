@@ -100,21 +100,26 @@ test('the dose a colonist takes reads the habitat', () => {
     const p = k.getState().agents.find(x => x.health.alive)!;
     return (p.health.cumulativeRadiationMsv ?? 0) - before.get(p.core.id)!;
   };
+  // Each module keeps out a fifth of the dose that still reaches the
+  // colonists, with no stop: 0.8 ^ modules gets through.
   const surface = 0.67 * 365 * 8;
   assert.ok(Math.abs(doseOver8Years(0) - surface) < 0.01, `no shielding: ${doseOver8Years(0)}`);
-  assert.ok(Math.abs(doseOver8Years(3) - surface * 0.4) < 0.01, `three modules: ${doseOver8Years(3)}`);
-  assert.ok(Math.abs(doseOver8Years(5) - surface * 0.1) < 0.01, `five modules: ${doseOver8Years(5)}`);
+  assert.ok(Math.abs(doseOver8Years(3) - surface * 0.512) < 0.01, `three modules: ${doseOver8Years(3)}`);
+  assert.ok(Math.abs(doseOver8Years(5) - surface * 0.32768) < 0.01, `five modules: ${doseOver8Years(5)}`);
+  assert.ok(Math.abs(doseOver8Years(11) - surface * 0.8 ** 11) < 0.01, `eleven modules: ${doseOver8Years(11)}`);
 });
 
-test('the colony\'s morale reaches its people', () => {
-  // Morale pulls each person's psych by (morale - 0.5) * 0.1 a year, so a
-  // colony held at 0.2 for forty years wears its people down to where the
-  // despair roll reads them, and one held at 0.8 never does.
+test('the colony\'s morale reaches its people', (t) => {
+  // Morale pulls each person's psych a little every year. A colony held at
+  // 0.2 for forty years wears its people down until despair takes some of
+  // them, partners and outside contacts notwithstanding; one held at 0.8,
+  // on the same seed, loses nobody to despair. A long turn settles morale
+  // each year it spans, so the test holds it each year, on one-year turns.
   const run = (morale: number) => {
     const k = mars();
-    for (const [turn, time] of TURNS) {
+    for (let turn = 1; turn <= 41; turn++) {
       k.applySystemDeltas({ morale: morale - k.getState().metrics.morale });
-      k.advanceTurn(turn, time, hook);
+      k.advanceTurn(turn, 2035 + turn - 1, hook);
     }
     const living = adults(k);
     return {
@@ -127,7 +132,8 @@ test('the colony\'s morale reaches its people', () => {
   const low = run(0.2);
   const high = run(0.8);
   const seen = `at 0.2 ${JSON.stringify(low)}, at 0.8 ${JSON.stringify(high)}`;
-  assert.ok(low.low + low.despair > 0, `morale held at 0.2 brings someone under 0.2 psych: ${seen}`);
+  t.diagnostic(seen);
+  assert.ok(low.despair > 0, `morale held at 0.2 brings a despair death: ${seen}`);
   assert.ok(low.mean < high.mean, seen);
   assert.equal(high.low + high.despair, 0, `morale held at 0.8: ${seen}`);
 });
@@ -186,7 +192,9 @@ test('children born in one turn never share an id, so never share dice', async (
   }
   const next = { ...state, metadata: { ...state.metadata, currentTime: 2043, currentTurn: 2 } };
   const { state: after } = progressBetweenTurns(next, 8, constant as never);
-  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime === 2043);
+  // The turn runs as eight one-year steps, so its children are born in
+  // 2036 to 2043.
+  const born = after.agents.filter(a => a.core.marsborn && a.core.birthTime > 2035);
   assert.ok(born.length >= 2, `children born: ${born.length}`);
   const ids = after.agents.map(a => a.core.id);
   assert.equal(new Set(ids).size, ids.length, `ids: ${born.map(a => a.core.id).join(', ')}`);

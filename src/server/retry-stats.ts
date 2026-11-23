@@ -18,6 +18,9 @@
  *                  empty skeleton was returned instead of a validated object
  * - `fallbackRate` — fallbacks / calls. > 0 means the run served
  *                   degraded data on at least one turn for this schema
+ * - `salvaged`   — calls whose result was kept from a reply that failed
+ *                  the schema (a department report with its unheld effect
+ *                  keys dropped); present only when there was one
  * - `runsPresent`— number of runs in the window where this schema
  *                  appeared at least once (not every run exercises every
  *                  schema: agriculture dept only fires on some turns)
@@ -28,7 +31,7 @@
 /** Per-run payload emitted by the cost tracker. Keys are schema names. */
 export type PerRunSchemaRetries = Record<
   string,
-  { attempts: number; calls: number; fallbacks: number }
+  { attempts: number; calls: number; fallbacks: number; salvaged?: number }
 >;
 
 /** Aggregate rollup across N runs. */
@@ -44,6 +47,8 @@ export interface SchemaRetryStats {
       avgAttempts: number;
       /** fallbacks / calls; rounded to four decimals. */
       fallbackRate: number;
+      /** Calls kept by a salvage; present only when there was one. */
+      salvaged?: number;
       /** Count of runs in the window where this schema appeared. */
       runsPresent: number;
     }
@@ -64,15 +69,16 @@ const round = (v: number, precision: number) => {
 export function aggregateSchemaRetries(
   runs: PerRunSchemaRetries[],
 ): SchemaRetryStats {
-  const rollup = new Map<string, { calls: number; attempts: number; fallbacks: number; runsPresent: number }>();
+  const rollup = new Map<string, { calls: number; attempts: number; fallbacks: number; salvaged: number; runsPresent: number }>();
 
   for (const run of runs) {
     if (!run) continue;
     for (const [schemaName, bucket] of Object.entries(run)) {
-      const existing = rollup.get(schemaName) ?? { calls: 0, attempts: 0, fallbacks: 0, runsPresent: 0 };
+      const existing = rollup.get(schemaName) ?? { calls: 0, attempts: 0, fallbacks: 0, salvaged: 0, runsPresent: 0 };
       existing.calls += bucket.calls;
       existing.attempts += bucket.attempts;
       existing.fallbacks += bucket.fallbacks;
+      existing.salvaged += bucket.salvaged ?? 0;
       existing.runsPresent += 1;
       rollup.set(schemaName, existing);
     }
@@ -86,6 +92,7 @@ export function aggregateSchemaRetries(
       fallbacks: r.fallbacks,
       avgAttempts: r.calls > 0 ? round(r.attempts / r.calls, 2) : 0,
       fallbackRate: r.calls > 0 ? round(r.fallbacks / r.calls, 4) : 0,
+      ...(r.salvaged > 0 ? { salvaged: r.salvaged } : {}),
       runsPresent: r.runsPresent,
     };
   }

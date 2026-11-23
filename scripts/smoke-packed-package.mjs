@@ -21,7 +21,7 @@
  * install that needs a toolchain fails.
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -55,6 +55,8 @@ const REQUIRED_FILES = [
   'dist/dashboard/dist/index.html',
   'dist/dashboard/landing.html',
   'assets/landing.css',
+  'assets/fonts/fonts.css',
+  'assets/fonts/inter-latin-wght-normal.woff2',
   'assets/diagrams/paracosm-flow.svg',
   'assets/favicons/favicon-32.png',
   'assets/demo/e2e-atlas-8-poster.jpg',
@@ -67,15 +69,18 @@ const PAGES = [
   ['/', 'text/html', 'https://paracosm.agentos.sh/demo/e2e-atlas-8-hero.mp4'],
   ['/sim', 'text/html', '<div id="root">'],
   ['/brand/landing.css', 'text/css', null],
+  ['/brand/fonts/fonts.css', 'text/css', "font-family: 'Inter'"],
+  ['/brand/fonts/inter-latin-wght-normal.woff2', 'font/woff2', null],
   ['/diagrams/paracosm-flow.svg', 'image/svg+xml', '<svg'],
   ['/favicon.png', 'image/png', null],
 ];
 
 /**
- * Hosts the visitor analytics load from. Only the hosted demo adds them (src/server/site-analytics.ts),
- * and the landing page's privacy section tells visitors a copy installed from npm loads none of them.
+ * Hosts the visitor analytics load from, and the consent bar's own assets. Only the hosted demo adds the bar,
+ * which loads each tool under the visitor's yes (src/server/site-analytics.ts), and the landing page's privacy
+ * section tells visitors a copy installed from npm loads none of them.
  */
-const ANALYTICS_HOSTS = ['analytics.manic.agency', 'googletagmanager.com', 'clarity.ms'];
+const ANALYTICS_HOSTS = ['analytics.manic.agency', 'googletagmanager.com', 'clarity.ms', '/brand/consent/'];
 
 /** [path, Location of the redirect]: the package ships no docs/api, so the docs links go to the hosted reference. */
 const REDIRECTS = [
@@ -175,6 +180,10 @@ async function main() {
 
     const base = `http://127.0.0.1:${port}`;
     await waitForServer(`${base}/`, 60_000, child, closed);
+    const deployedVersion = JSON.parse(readFileSync(join(project, 'node_modules/paracosm/package.json'), 'utf8')).version;
+    const health = await (await fetch(`${base}/health`)).json();
+    if (health.version !== deployedVersion) throw new Error(`/health reports ${health.version}, expected ${deployedVersion}`);
+    console.log(`GET /health: version ${deployedVersion}`);
     for (const [path, type, marker] of PAGES) {
       const response = await fetch(`${base}${path}`);
       const contentType = response.headers.get('content-type') ?? '';

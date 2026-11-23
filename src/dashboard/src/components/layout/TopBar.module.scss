@@ -241,9 +241,11 @@
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: var(--font-lg);
   font-weight: 600;
   border-radius: 3px;
+  // One line each: the menu widens to its longest item.
+  white-space: nowrap;
 }
 
 .overflowItemDanger {
@@ -254,9 +256,22 @@
   border: none;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: var(--font-lg);
   font-weight: 600;
   border-radius: 3px;
+  // One line each: the menu widens to its longest item.
+  white-space: nowrap;
+}
+
+// The run actions menu's items: 14px text on one line everywhere, and
+// 44px targets on a touch screen at any width (a phone held sideways is
+// wider than 768px) and in a window 768px wide or less. The column and
+// the order stay as they are.
+@media (max-width: 768px), (pointer: coarse) {
+  .overflowItem,
+  .overflowItemDanger {
+    min-height: 44px;
+  }
 }
 
 .statusPill {

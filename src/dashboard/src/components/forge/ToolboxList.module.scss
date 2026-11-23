@@ -1,0 +1,913 @@
+// The forged toolbox's list, in the toolbox dialog and in Reports' page, on
+// the dashboard's own tokens. Every colour and size is a live token of
+// theme/tokens.css or one of the forge view's named tokens (--forge-quiet,
+// --forge-edge and the three text sizes).
+//
+// The count line, the keys (Group, Actors, the filter and Find a tool), Open
+// all groups and the five station names once, then the rows, in folds by actor
+// or by department or as one list. Rows and fold heads part by space and one
+// hairline in the edge tone: no card, no box round a group and no chip. Each
+// row stands behind a 4 px side mark in its actor's run colour (--actor, set
+// inline by ToolboxRow.tsx).
+//
+// Below 1440 px Group and Actors stand on a row of their own over the filter
+// and Find a tool; from 1440 px the four share one row. Keys are 44 px tall
+// below 900 px and 32 px from 900 px.
+//
+// The filter follows the window: a one-row menu below 768 px, a row of
+// segments from 768 px. A row follows the list's own width, so the dialog
+// and Reports' page each get the layout that fits them:
+// - below 680 px: the name with the outcome, the line, what it does, the
+//   meta line, one under another
+// - from 680 px: the name, the line and the outcome on the first line; what
+//   it does and the meta line on the second
+// - from 1100 px: aligned columns (the name, the line, the outcome, what it
+//   does, the meta line)
+
+.list {
+  // The line's column and the outcome's, where a row sets them side by side.
+  --line-col: 270px;
+  --outcome-col: 124px;
+  // The room a row keeps left of its words, past its 4 px side mark.
+  --row-lead: 16px;
+  --key-h: 44px;
+
+  // A row's layout follows this list's own width.
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  color: var(--text-1);
+  font-family: var(--sans);
+}
+
+// The count line: other words, in the ink, with no coloured word.
+.count {
+  margin: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// ── The keys: Group and Actors, then the filter and Find a tool ───────────
+
+.keyRows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+// Group's and Actors' row. Where the two keys and their words do not fit
+// beside each other (Group: Department and Actors: 100 of 300 at 320 px),
+// a key's words take a second line inside it, and the row stays one row.
+.lead {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+
+  .key {
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+  }
+}
+
+// Actors: the key that opens the actor picker (ActorPicker.tsx).
+.actorsMenu {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.keys {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+// The filter as segments: each a key with its count, the chosen one filled
+// in the accent with its label in the ground colour.
+.segments {
+  display: none;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.segment {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: var(--key-h);
+  padding: 0 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  // The radio itself covers its segment, drawn by the segment.
+  input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:has(input:focus-visible) {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  &:has(input:checked) {
+    border-color: var(--amber);
+    background: var(--amber);
+    color: var(--bg-card);
+  }
+}
+
+// The filter as a one-row menu: "Show:" and the choice, in one key.
+.menu {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  // Find a tool keeps the larger part of a phone's row.
+  max-width: 55%;
+  min-height: var(--key-h);
+  padding-left: 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:has(select:focus-visible) {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.menuSelect {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  // The key's height less its two edges.
+  height: calc(var(--key-h) - 2px);
+  margin: 0;
+  padding: 0 32px 0 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+
+  option {
+    background: var(--bg-card);
+    color: var(--text-1);
+    font-weight: 400;
+  }
+}
+
+.menuMark {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--text-1);
+  pointer-events: none;
+}
+
+// Find a tool: a label that shows, over its field on a phone and beside it
+// from 600 px.
+.find {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.findLabel {
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+.field {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--key-h);
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  appearance: none;
+
+  &::placeholder {
+    color: var(--forge-quiet);
+    opacity: 1;
+  }
+
+  // The field's own Clear key stands in for the browser's.
+  &::-webkit-search-cancel-button,
+  &::-webkit-search-decoration { display: none; }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// Room for Clear at the field's right end while it holds text.
+.field:has(.clear) .input { padding-right: var(--key-h); }
+
+.clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--key-h);
+  height: var(--key-h);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+}
+
+// A key: a 1 px edge in the edge tone, 4 px corners, its label in the ink.
+.key {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--key-h);
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 14%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// Group: a key that names the grouping shown, and its menu of three.
+.groupMenu {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.menuKey {
+  gap: 8px;
+  padding-right: 10px;
+  white-space: nowrap;
+}
+
+.menuKeyMark {
+  flex-shrink: 0;
+  color: var(--text-1);
+}
+
+.groupList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  box-sizing: border-box;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--forge-edge);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.groupItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--key-h);
+  padding: 0 12px 0 8px;
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 8%, transparent); }
+
+  &:focus {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+
+  &[aria-checked='true'] { font-weight: 600; }
+}
+
+// The chosen grouping's check, drawn only: the item says it is checked.
+.groupCheck {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--text-1);
+}
+
+.groupItem[aria-checked='true'] .groupCheck { visibility: visible; }
+
+// ── A list with no row: one line and its way forward ──────────────────────
+
+.empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.emptyWords {
+  margin: 0;
+  font-size: var(--forge-text-body);
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+// ── The station names, once, over the rows' lines ─────────────────────────
+// .head and .row share one grid, so the names' five equal columns stand over
+// the line's column of every row.
+
+.rows { min-width: 0; }
+
+.head,
+.row {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  padding-right: 8px;
+  padding-left: var(--row-lead);
+}
+
+.head {
+  row-gap: 8px;
+  padding-bottom: 6px;
+}
+
+// Open all groups: over the station names on a phone, beside them where a
+// row sets its parts side by side. Inactive with Group: None, its label in
+// the edge tone.
+.openAll {
+  justify-self: start;
+  white-space: nowrap;
+
+  &[aria-disabled='true'] {
+    color: var(--forge-edge);
+    cursor: default;
+
+    &:hover,
+    &:active { background: transparent; }
+  }
+}
+
+.stations {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--forge-quiet);
+
+  // Each name is centred on its column.
+  > span {
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  // Where the first or the last name is wider than its column (Request at
+  // 15 px in a column of 54 px), it overflows away from the names beside it,
+  // into the room at the row's ends, so with wider text spacing no name runs
+  // over the next. The first name's start is its right side for that.
+  > span:first-child {
+    justify-content: safe center;
+    direction: rtl;
+  }
+
+  > span:last-child { justify-content: safe center; }
+}
+
+// ── The rows ──────────────────────────────────────────────────────────────
+
+.items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  border-top: 1px solid var(--forge-edge);
+}
+
+// The actor's 4 px side mark, drawn only.
+.sideMark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--actor, var(--forge-edge));
+  pointer-events: none;
+}
+
+.row {
+  row-gap: 6px;
+  margin: 0;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 12%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+}
+
+// The name and the outcome: side by side where both fit, the outcome under
+// the name where they do not.
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+// The number and the name: an identifier, in the code face, breaking after
+// an underscore and, where it must, at any character.
+.name {
+  flex: 1 1 60%;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+// The outcome: its word in the ink beside its glyph, which carries the colour.
+.outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+// The line's five cells stand at the centres of five equal columns, under
+// the station names: 10 px cells, so the line starts 5 px short of a tenth
+// of its column.
+.lineCell {
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  padding: 4px calc(10% - 5px);
+}
+
+.does {
+  min-width: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.metaCell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  min-width: 0;
+}
+
+// The meta line: other words in the quiet tone, led by the actor's label and
+// name in the ink.
+.meta,
+.same {
+  min-width: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--forge-quiet);
+  overflow-wrap: anywhere;
+}
+
+.actor { color: var(--text-1); }
+
+// ── The folds: a head, and its rows while it is open ──────────────────────
+
+.groups { min-width: 0; }
+
+.fold { min-width: 0; }
+
+// A fold's hairline sits on its head's line, so past 50 lines, where the list
+// renders only the lines in view, a fold shown without its head draws none
+// and each line's height is all of its room.
+.foldTop { border-top: 1px solid var(--forge-edge); }
+
+.foldHeading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+// A fold head: the chevron, the tile, the name and archetype, the count
+// line and the forge strip. Two lines with the strip under them below 900
+// px, one line from 900 px.
+.foldHead {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  width: 100%;
+  min-height: var(--key-h);
+  margin: 0;
+  padding: 12px 8px 12px var(--row-lead);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  text-align: left;
+}
+
+button.foldHead {
+  cursor: pointer;
+
+  &:hover { background: color-mix(in srgb, var(--text-1) 6%, transparent); }
+
+  &:active { background: color-mix(in srgb, var(--text-1) 12%, transparent); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+}
+
+.chevron,
+.chevronRoom {
+  grid-column: 1;
+  grid-row: 1;
+  width: 16px;
+  height: 16px;
+  color: var(--text-1);
+}
+
+// A fold opens and closes with no motion: the chevron turns at once.
+.foldHead[aria-expanded='true'] .chevron { transform: rotate(90deg); }
+
+.foldTile {
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+}
+
+.foldName {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  font-size: var(--forge-text-body);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.foldActor { font-weight: 600; }
+
+// The count line, the registry's limit and an actor's error: other words in the ink.
+.foldCount,
+.foldNote {
+  grid-column: 3;
+  min-width: 0;
+  font-size: var(--forge-text-meta);
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// The forge strip under the head, ten cells a row.
+.foldStrip {
+  grid-column: 3;
+  min-width: 0;
+
+  > span {
+    flex-wrap: wrap;
+    max-width: calc(10 * 10px + 9 * 2px);
+  }
+}
+
+// A department's head: the chevron, its name and its count line.
+.foldHeadDept { grid-template-columns: 16px minmax(0, 1fr); }
+
+.foldHeadDept .foldName {
+  grid-column: 2;
+  font-weight: 600;
+}
+
+.foldHeadDept .foldCount { grid-column: 2; }
+
+// A head with no rows to open.
+.foldStill { cursor: default; }
+
+// Show in Event Log under an actor whose tools could not be read, in line with the head's words.
+.foldWay { padding: 0 8px 12px calc(var(--row-lead) + 26px); }
+
+// A department's line in an actor's open fold, over its rows.
+.department { min-width: 0; }
+
+.deptLine {
+  margin: 0;
+  padding: 12px 8px 6px var(--row-lead);
+  font-size: var(--forge-text-meta);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// ── Reports' page: the fold that holds the list ───────────────────────────
+
+.pageFold {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.pageFoldSummary {
+  min-height: 44px;
+  font-family: var(--mono);
+  font-size: var(--forge-text-body);
+  font-weight: 600;
+  line-height: 44px;
+  color: var(--text-1);
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.pageFold[open] > .pageFoldSummary { margin-bottom: 8px; }
+
+// ── By the window's width: the filter, and the keys' height ───────────────
+
+@media (min-width: 600px) {
+  .find {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+}
+
+@media (min-width: 768px) {
+  .segments { display: flex; }
+
+  .menu { display: none; }
+
+  // Find a tool at the row's right end.
+  .find {
+    flex: 0 1 420px;
+    margin-left: auto;
+  }
+}
+
+// Keys are 32 px tall from here, and a fold head is one line with its strip
+// at the right end, up to 30 cells and 50 from 1440 px (FoldHead.tsx).
+@media (min-width: 900px) {
+  .list { --key-h: 32px; }
+
+  .foldHead {
+    grid-template-columns: 16px auto auto minmax(0, 1fr) auto;
+    column-gap: 12px;
+  }
+
+  .foldName {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .foldCount {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .foldNote {
+    grid-column: 4;
+    grid-row: 2;
+  }
+
+  .foldStrip {
+    grid-column: 5;
+    grid-row: 1;
+    justify-self: end;
+
+    > span {
+      flex-wrap: nowrap;
+      max-width: none;
+    }
+  }
+
+  .foldHeadDept { grid-template-columns: 16px auto minmax(0, 1fr); }
+
+  .foldHeadDept .foldName { grid-column: 2; }
+
+  .foldHeadDept .foldCount { grid-column: 3; }
+
+  .pageFoldSummary {
+    min-height: 32px;
+    line-height: 32px;
+  }
+}
+
+// Group and Actors share the filter's row from here, where the dialog is
+// 1200 px wide and Find a tool keeps its room.
+@media (min-width: 1440px) {
+  .keyRows {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .lead {
+    flex: 0 0 auto;
+
+    .key { white-space: nowrap; }
+  }
+
+  .keys { flex: 1 1 auto; }
+}
+
+// ── By the list's own width: a row's layout ───────────────────────────────
+
+@container (min-width: 680px) {
+  .head,
+  .row {
+    grid-template-columns: minmax(0, 1fr) var(--line-col) var(--outcome-col);
+    column-gap: 16px;
+  }
+
+  .top { display: contents; }
+
+  .name {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .stations,
+  .lineCell {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .stations { align-self: end; }
+
+  .openAll {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: end;
+  }
+
+  // The line stands level with the name's first line.
+  .lineCell {
+    align-self: start;
+    padding-top: 8px;
+  }
+
+  .outcome {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .does {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .metaCell {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}
+
+@container (min-width: 1100px) {
+  .head,
+  .row {
+    grid-template-columns: 260px var(--line-col) var(--outcome-col) minmax(0, 1fr) 230px;
+  }
+
+  .does {
+    grid-column: 4;
+    grid-row: 1;
+  }
+
+  .metaCell {
+    grid-column: 5;
+    grid-row: 1;
+  }
+}

@@ -3,29 +3,93 @@
  * of RunArtifacts (bundle) from a Studio drop and inserts the enriched
  * RunRecord(s) into the active run-history store. Lets users persist
  * artifacts that originated outside this server (Studio JSON drops,
- * shared exports, replay clones).
+ * shared exports, replay clones). Each imported artifact is written
+ * under the server's runs directory and its record points at that
+ * copy; no file path is taken from the request.
  *
  * @module paracosm/cli/server/library-import-route
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { RunArtifactSchema } from '../../engine/schema/artifact.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import type { RunHistoryStore } from '../stores/run-history.js';
 import type { RunRecord } from '../services/run-record.js';
-import { createRunRecord, hashActorConfig } from '../services/run-record.js';
+import { createRunRecord, hashActorConfig, withoutOutputPath } from '../services/run-record.js';
 import { enrichRunRecordFromArtifact } from '../services/enrich-run-record.js';
+import { removeImportedRunArtifact, writeImportedRunArtifact } from '../services/run-artifact-file.js';
 import type { ParacosmServerMode } from '../server-mode.js';
+import type { RunScope } from '../stores/run-history.js';
 
 const MAX_BUNDLE_SIZE = 50;
 
+/** A bundle id as this route gives one: `bundle_` and a random UUID. */
+const BUNDLE_ID_PATTERN = /^bundle_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 const SingleBodySchema = z.object({ artifact: z.unknown() });
-const BundleBodySchema = z.object({ artifacts: z.array(z.unknown()).min(1).max(MAX_BUNDLE_SIZE) });
+/**
+ * `addToBundle` puts the runs in a bundle an earlier request made: the
+ * Studio sends a bundle over the request body limit in parts, and every
+ * part, the first included, names one bundle id the page made.
+ */
+const BundleBodySchema = z.object({
+  artifacts: z.array(z.unknown()).min(1).max(MAX_BUNDLE_SIZE),
+  addToBundle: z.string().regex(BUNDLE_ID_PATTERN).optional(),
+});
 
 export interface LibraryImportDeps {
   runHistoryStore: RunHistoryStore;
   sourceMode: ParacosmServerMode;
+  /**
+   * Where imported artifacts are written. Defaults to the runs
+   * directory run output is written to (`PARACOSM_OUTPUT_DIR`, else
+   * `<cwd>/output`), the only directory the run-history routes read.
+   */
+  runsDir?: string;
+  /**
+   * Charges one new run to the caller's daily import limit; false when the
+   * limit is reached. A run id already in the store is not charged.
+   * Absent, imports are not counted.
+   */
+  admitNewRun?: () => boolean;
+  /**
+   * The key of the visitor an imported run belongs to (the store's
+   * `InsertRunOptions.owner`). Absent or null, no visitor owns it.
+   */
+  owner?: string | null;
+  /**
+   * Given, the import is one visitor's own: it finds the runs that scope
+   * reaches alone, and it stores a run under an id of that visitor's
+   * ({@link visitorRunId}), so a run id another visitor holds is imported
+   * as an id no run holds is. Absent, the import keeps the run id its
+   * artifact carries and reports an id the store holds as already there.
+   */
+  runScope?: RunScope;
+}
+
+/**
+ * The id a visitor's import of the run `runId` is stored under: one id
+ * for each visitor and run id, so the same file dropped twice is one run
+ * of theirs, and nothing in it depends on the runs other visitors hold.
+ * A caller with no owner key gets a new id with each import.
+ */
+function visitorRunId(owner: string | null, runId: string): string {
+  if (owner === null) return `run_${randomUUID()}`;
+  const hex = createHash('sha256').update(`paracosm-imported-run:${owner}:${runId}`).digest('hex');
+  return `run_${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Thrown by an import past the caller's daily limit of new runs. */
+class ImportLimitError extends Error {}
+
+function writeImportLimit(res: ServerResponse, extra: Record<string, unknown> = {}): void {
+  // The daily import limit starts again at the next UTC midnight.
+  const midnight = new Date();
+  midnight.setUTCHours(24, 0, 0, 0);
+  const retryAfter = Math.max(1, Math.ceil((midnight.getTime() - Date.now()) / 1000));
+  res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) });
+  res.end(JSON.stringify({ error: 'Daily import limit reached. Try again tomorrow.', ...extra }));
 }
 
 export async function handleLibraryImport(
@@ -67,7 +131,7 @@ export async function handleLibraryImport(
       // pass. Zod strips by default; the schema acts only as a gate.
       artifacts.push(parsed.data.artifacts[i] as RunArtifact);
     }
-    const bundleId = `bundle_${randomUUID()}`;
+    const bundleId = parsed.data.addToBundle ?? `bundle_${randomUUID()}`;
     const result: { runIds: string[]; alreadyExisted: boolean[] } = { runIds: [], alreadyExisted: [] };
     for (let i = 0; i < artifacts.length; i += 1) {
       const artifact = artifacts[i];
@@ -76,6 +140,10 @@ export async function handleLibraryImport(
         result.runIds.push(inserted.runId);
         result.alreadyExisted.push(inserted.alreadyExisted);
       } catch (err) {
+        if (err instanceof ImportLimitError) {
+          writeImportLimit(res, { bundleId, insertedSoFar: result });
+          return;
+        }
         // Surface the failing artifact's index + runId so the client
         // can show a partial-success state and retry just the broken
         // one rather than the whole bundle.
@@ -118,6 +186,10 @@ export async function handleLibraryImport(
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(inserted));
   } catch (err) {
+    if (err instanceof ImportLimitError) {
+      writeImportLimit(res);
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     const failedRunId = (parsed.data.artifact as RunArtifact)?.metadata?.runId;
     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -136,12 +208,21 @@ async function insertOne(
   // The artifact's metadata.runId is the source of truth — preserves
   // identity across re-imports so duplicate drops collapse to a single
   // Library row.
-  const importedRunId = artifact.metadata.runId;
+  const scope = deps.runScope;
+  let importedRunId = artifact.metadata.runId;
 
-  const existing = await deps.runHistoryStore.getRun(importedRunId);
+  let existing = await deps.runHistoryStore.getRun(importedRunId, scope);
+  if (!existing && scope) {
+    // One visitor's import: a run of theirs under the artifact's id was
+    // found above. Otherwise the run goes under their own id for it,
+    // whether or not another visitor's run holds the artifact's id.
+    importedRunId = visitorRunId(scope.owner, importedRunId);
+    existing = await deps.runHistoryStore.getRun(importedRunId, scope);
+  }
   if (existing) {
     return { runId: importedRunId, alreadyExisted: true };
   }
+  if (deps.admitNewRun && !deps.admitNewRun()) throw new ImportLimitError();
 
   const baseInput: Omit<RunRecord, 'runId' | 'createdAt'> = {
     scenarioId: artifact.metadata.scenario.id,
@@ -162,7 +243,39 @@ async function insertOne(
     ...createRunRecord(baseInput),
     runId: importedRunId,
   };
-  const enriched = enrichRunRecordFromArtifact(base, artifact);
-  await deps.runHistoryStore.insertRun(enriched);
+  // The artifact file is the server's own: a path in the imported
+  // artifact (`scenarioExtensions.outputPath`) is dropped, the artifact
+  // is written under the runs directory, and the record points there.
+  const stored = withoutOutputPath(artifact);
+  // A run stored under a visitor's own id carries that id in its file
+  // too, so the file and its record name the same run.
+  const kept: RunArtifact = importedRunId === artifact.metadata.runId
+    ? stored
+    : { ...stored, metadata: { ...stored.metadata, runId: importedRunId } };
+  const artifactPath = await writeImportedRunArtifact(importedRunId, kept, deps.runsDir);
+  const enriched: RunRecord = { ...enrichRunRecordFromArtifact(base, kept), artifactPath };
+  try {
+    await deps.runHistoryStore.insertRun(enriched, { owner: scope ? scope.owner : deps.owner ?? null });
+  } catch (err) {
+    await removeImportedRunArtifact(artifactPath);
+    throw err;
+  }
+  // The store keeps the first record for a run id. When another import
+  // of the same run id stored its record between the check above and
+  // this insert, the stored record points at that import's file: this
+  // copy is removed and the run reported as already there. The insert
+  // went through, so a failed read back keeps this copy and reports the
+  // run as this import's rather than failing a stored import.
+  let storedRecord: RunRecord | null;
+  try {
+    storedRecord = await deps.runHistoryStore.getRun(importedRunId);
+  } catch (err) {
+    console.warn('[library-import] stored record not read back after insert; copy kept:', importedRunId, err instanceof Error ? err.message : String(err));
+    return { runId: importedRunId, alreadyExisted: false };
+  }
+  if (storedRecord && storedRecord.artifactPath !== artifactPath) {
+    await removeImportedRunArtifact(artifactPath);
+    return { runId: importedRunId, alreadyExisted: true };
+  }
   return { runId: importedRunId, alreadyExisted: false };
 }

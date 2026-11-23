@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useScenarioReady } from '../../App';
 import { useSessions, type StoredSessionMeta } from '../../hooks/useSessions';
-import { resolveSetupRedirectHref } from '../../tab-routing';
 import { buildReplayHref, cacheExpandedBody } from './LoadMenu.helpers';
 import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import { Tooltip } from '../shared/Tooltip';
@@ -143,8 +142,9 @@ export function RunMenu({
   };
 
   const handlePickSession = (id: string) => {
-    const href = buildReplayHref(window.location.href, id);
-    window.location.assign(resolveSetupRedirectHref(href, 'sim'));
+    // The replay link keeps the current path and sets ?replay=<id>&tab=sim,
+    // as the Load menu and Quickstart's replay link do.
+    window.location.assign(buildReplayHref(window.location.href, id));
   };
 
   const handleFile = () => {
@@ -328,15 +328,20 @@ export function RunMenu({
                     <button
                       type="button"
                       className={historyStyles.historyClearAll}
-                      title="Wipe everything in this browser: saved-runs ring, event cache, current sim state. Server data untouched — use Wipe All in the ⋯ menu for that."
+                      title="Wipe everything in this browser: saved-runs ring, event cache, current sim state. It also lets go of this browser's run on the server, stopping it if it is running. Run history, saved sessions and output files are kept: Delete server data in the ⋯ menu deletes those, where admin writes are on and an admin token is saved."
                       onClick={() => {
+                        // As Clear local data in the run actions menu, this
+                        // posts POST /clear, which lets go of this browser's
+                        // run on the server and stops it while it runs, so
+                        // the question says so.
                         if (
                           window.confirm(
                             'Clear all local browser state?\n\n' +
                             '  • Saved-runs ring (this dropdown)\n' +
                             '  • Event cache (Sim / Constellation / Log)\n' +
                             '  • Current SSE state\n\n' +
-                            'Server-stored runs are NOT affected (use Wipe All in the ⋯ menu for that).\n\nCannot be undone.',
+                            "It also lets go of this browser's run on the server, and stops it if it is running.\n\n" +
+                            'Run history, saved sessions, and on-disk artifact files are kept (Delete server data in the ⋯ menu deletes those, where it shows).\n\nCannot be undone.',
                           )
                         ) {
                           onClearHistory();

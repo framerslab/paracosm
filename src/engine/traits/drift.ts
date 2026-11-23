@@ -29,8 +29,9 @@ const KERNEL_TRAIT_LOWER = 0.05;
 const KERNEL_TRAIT_UPPER = 0.95;
 
 /**
- * Per-turn drift cap. Outcome-pull deltas are clamped to this range
- * BEFORE multiplying by `timeDelta`. Matches progression.ts:142.
+ * Per-turn drift cap: a leader's outcome pull, scaled by the turn's
+ * length, is clamped to this range, as `driftCommanderHexaco` does in
+ * progression.ts.
  */
 const PER_TURN_DRIFT_CAP = 0.05;
 
@@ -129,10 +130,11 @@ export function applyLeaderPull(
  *
  *   1. Per-axis pull from `model.drift.outcomes[axis][outcome]`
  *      (defaulting to 0 when missing).
- *   2. Pull is clamped to ±PER_TURN_DRIFT_CAP (±0.05) BEFORE applying
- *      timeDelta scaling. Matches progression.ts:142.
+ *   2. Pull is scaled by timeDelta and then clamped to
+ *      ±PER_TURN_DRIFT_CAP (±0.05), so one turn moves an axis at most
+ *      0.05 however long the turn. Matches `driftCommanderHexaco`.
  *   3. Result clamped to [KERNEL_TRAIT_LOWER, KERNEL_TRAIT_UPPER]
- *      ([0.05, 0.95]). Matches progression.ts:143.
+ *      ([0.05, 0.95]). Matches `driftCommanderHexaco`.
  *   4. The new traits are pushed to the snapshot history.
  *
  * For HEXACO leaders this produces byte-identical output to
@@ -165,8 +167,7 @@ export function driftLeaderProfile(
     if (ctx.outcome) {
       pull += model.drift.outcomes[axis.id]?.[ctx.outcome] ?? 0;
     }
-    const cappedPull = Math.max(-PER_TURN_DRIFT_CAP, Math.min(PER_TURN_DRIFT_CAP, pull));
-    const delta = cappedPull * ctx.timeDelta;
+    const delta = Math.max(-PER_TURN_DRIFT_CAP, Math.min(PER_TURN_DRIFT_CAP, pull * ctx.timeDelta));
     out[axis.id] = clampKernelTrait(filled[axis.id] + delta);
   }
   const next: TraitProfile = { modelId: profile.modelId, traits: out };

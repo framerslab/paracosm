@@ -1,0 +1,80 @@
+// The Viz tab's play controls: one row at every width from 320 px.
+// On a phone the turn reads "T6/6" and leaves its time to the turn banner
+// above when the banner shows it; the scrub slider takes the room the keys
+// leave, never under 44 px; below 900 px every key is 44 px tall and wide
+// (VizControls.tsx). Runs reach 100 turns: at 320 px "T100/100" leaves the
+// slider less than 44 px, so there the turn gives way, cut with an ellipsis,
+// and the slider still reads the turn to a screen reader.
+
+.row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+
+  @media (max-width: 480px) {
+    gap: 6px;
+  }
+}
+
+.key {
+  flex: 0 0 auto;
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: var(--font-xs);
+  cursor: pointer;
+
+  @media (max-width: 899.98px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+// The slider shares out what the keys leave: it may be narrower than its own
+// width, so the row never stands wider than the tab, and is never under 44 px.
+.scrub {
+  flex: 1 1 0;
+  min-width: 44px;
+}
+
+.turn {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+// When the turn banner above shows the turn's time, on a phone the row leaves
+// it out. A turn with no title has no banner, and then the row keeps it.
+.timeShownAbove {
+  @media (max-width: 480px) {
+    display: none;
+  }
+}
+
+.speed {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: var(--font-2xs);
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+
+  @media (max-width: 899.98px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

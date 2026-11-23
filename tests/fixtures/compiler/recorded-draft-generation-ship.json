@@ -1,0 +1,58 @@
+{
+  "id": "wayfinder-succession-voyage",
+  "labels": {
+    "name": "Wayfinder Succession Voyage",
+    "populationNoun": "crew",
+    "settlementNoun": "ship",
+    "timeUnitNoun": "year",
+    "currency": "credits"
+  },
+  "setup": {
+    "defaultTurns": 6,
+    "defaultPopulation": 120,
+    "defaultStartTime": 2147
+  },
+  "departments": [
+    {
+      "id": "engineering",
+      "label": "Engineering",
+      "role": "systems and propulsion",
+      "instructions": "Maintain drive, hull, power, and navigation. Trade off speed, safety, and maintenance debt carefully."
+    },
+    {
+      "id": "biosphere",
+      "label": "Biosphere",
+      "role": "life support and genetics",
+      "instructions": "Protect food, air, water, and fertility stability. Watch diversity, health, and long-term survivability."
+    },
+    {
+      "id": "civic",
+      "label": "Civic",
+      "role": "governance and legitimacy",
+      "instructions": "Manage councils, succession, morale, and faction pressure. Preserve order while balancing competing claims."
+    }
+  ],
+  "metrics": [
+    {
+      "id": "voyage-progress",
+      "format": "number"
+    },
+    {
+      "id": "biosphere-stability",
+      "format": "percent"
+    },
+    {
+      "id": "genetic-diversity",
+      "format": "percent"
+    },
+    {
+      "id": "crew-morale",
+      "format": "percent"
+    },
+    {
+      "id": "legitimacy",
+      "format": "percent"
+    }
+  ],
+  "theme": "A generational starship facing succession politics, strategic rerouting, and fragile long-term survival."
+}

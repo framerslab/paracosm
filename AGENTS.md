@@ -39,13 +39,14 @@ CI runs (job "Build and test" in [`.github/workflows/ci.yml`](https://github.com
 4. `npm run dashboard:build`
 5. `npm test` (the boundary check, the dashboard type check, then every test file)
 6. `npm run check:package` (packs the package, installs the tarball into an empty project and checks that `paracosm-dashboard` serves the landing page, the dashboard and their assets), then the same check in `node:22-bookworm-slim` (no make, compiler or Python) after reinstalling the project from its lockfile with `npm ci` (`scripts/smoke-packed-package.mjs --tarball <file> --reinstall-from-lockfile`)
-7. `npx playwright install --with-deps chromium`, then `npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop` (the PDF upload end-to-end test)
+7. `npx playwright install --with-deps chromium`, then `npx playwright test <spec> --project=chromium-desktop` for each end-to-end spec CI runs, in order: `pdf-upload.spec.ts`, `run-control.spec.ts`, `admin-token-field.spec.ts`, `scenario-per-visitor.spec.ts`, `digital-twin-events.spec.ts`, `dashboard-display.spec.ts`, `run-status-events.spec.ts`, `run-per-visitor.spec.ts`, `chat-per-run.spec.ts`, `load-link.spec.ts`, `saved-run-replay.spec.ts` and `toolbox-log-and-share-link.spec.ts`, all under `tests-e2e/specs/`
 8. `npm run check:doc-examples` (type-checks the examples in `src/dashboard/landing.html` against the package)
-9. `npm run docs` (TypeDoc)
+9. `npm run docs` (TypeDoc), then `npm run check:sitemap`
+10. `npx playwright test tests-e2e/specs/consent-bar.spec.ts --project=chromium-desktop`: the hosted demo's consent bar on the landing page, the dashboard and the API docs the step before built, against a server in hosted_demo mode with made-up analytics ids (`tests-e2e/support/consent-server.ts`); CI uploads its pictures of the bar as the `consent-bar-captures` artifact
 
 A second job, "Server install", runs `npm ci --omit=dev` in `node:22-bookworm-slim`: the install the server runs after a deploy.
 
-The build job of the deploy workflow ([`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml)) runs the same steps after a merge except the package check and the PDF upload test, and a failure in any of them stops the deploy. Its server-install job installs the production dependencies from the lockfile on Node 22 with no toolchain, as the server does, and deploy waits for it. Its package-check job packs the tarball the publish job ships and runs the package check on it, again on Node 22 with no toolchain after a lockfile reinstall; publish installs and builds nothing.
+The build job of the deploy workflow ([`.github/workflows/deploy.yml`](https://github.com/framerslab/paracosm/blob/master/.github/workflows/deploy.yml)) runs the same steps after a merge except the package check and the end-to-end tests, and a failure in any of them stops the deploy. Its server-install job installs the production dependencies from the lockfile on Node 22 with no toolchain, as the server does, and deploy waits for it. Its package-check job packs the tarball the publish job ships and runs the package check on it, again on Node 22 with no toolchain after a lockfile reinstall; publish installs and builds nothing.
 
 To run one test file: `node --import tsx --import ./scripts/test-css-stub.mjs --test <path>`.
 
@@ -79,7 +80,7 @@ Before a pull request merges, every unresolved thread from a review bot, includi
 
 ## Security
 
-Never commit API keys or tokens; keep `.env` out of commits (`.env.example` is the template). The admin routes stay off unless `ADMIN_WRITE=true`, and then require `ADMIN_TOKEN`. Report vulnerabilities privately as the [security policy](https://github.com/framerslab/paracosm/blob/master/.github/SECURITY.md) describes.
+Never commit API keys or tokens; keep `.env` out of commits (`.env.example` is the template). The admin routes, and the scenario store's disk write, stay off unless `ADMIN_WRITE=true`, and then require `ADMIN_TOKEN`. Report vulnerabilities privately as the [security policy](https://github.com/framerslab/paracosm/blob/master/.github/SECURITY.md) describes.
 
 ## Do not
 

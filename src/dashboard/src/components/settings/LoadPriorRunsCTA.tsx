@@ -19,13 +19,9 @@ export function LoadPriorRunsCTA({ hideWhenUnavailable = true }: LoadPriorRunsCT
   const { sessions, status, refresh } = useSessions();
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const recent = useMemo(
-    () =>
-      [...sessions]
-        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-        .slice(0, 3),
-    [sessions],
-  );
+  // The server lists saved runs newest first by the order they were saved
+  // in, which a clock moved back cannot reorder; the three newest are the head.
+  const recent = useMemo(() => sessions.slice(0, 3), [sessions]);
 
   if (status === 'loading') return null;
   if (status === 'unavailable' && hideWhenUnavailable) return null;
