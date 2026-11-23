@@ -47,9 +47,17 @@ $read-size: 15px;
   position: relative;
 }
 
-// The wrapper owns the scroll on a tall, narrow screen. Its children
-// otherwise share the root's column.
-.body { display: contents; }
+// The rows share the panel's scroll once they need more than the viewport.
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+
+  > * { flex-shrink: 0; }
+}
 
 .toolbarStrip {
   padding: 6px 10px 4px;
@@ -289,16 +297,12 @@ $read-size: 15px;
 .leadersRow {
   display: flex;
   flex-direction: row;
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 0;
   gap: 4px;
-  overflow: hidden;
 }
 
-.leadersRowNarrow {
-  flex-direction: column;
-  overflow: auto;
-}
+.leadersRowNarrow { flex-direction: column; }
 
 .sideWrap {
   display: flex;
@@ -582,21 +586,6 @@ $read-size: 15px;
   line-height: 1.5;
 }
 
-// The stacked layout scrolls as one through the two grids and their
-// outcomes. Each grid keeps its height and the first canvas precedes stats.
-@media (max-width: 768px) {
-  .body {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-
-    > * { flex-shrink: 0; }
-  }
-}
-
 @media (max-height: 500px) {
   .root {
     flex: 1 0 auto;
@@ -605,8 +594,7 @@ $read-size: 15px;
 
   .body {
     display: contents;
-
-    > * { flex-shrink: 0; }
+    overflow: visible;
   }
 
   .leadersRow,

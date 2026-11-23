@@ -89,9 +89,7 @@
   }
 }
 
-@media (min-width: 769px) and (max-height: 500px) {
-  .vizPanel .canvasWrap { min-height: 200px; }
-}
+.vizPanel .canvasWrap { min-height: 200px; }
 
 .canvas {
   position: absolute;

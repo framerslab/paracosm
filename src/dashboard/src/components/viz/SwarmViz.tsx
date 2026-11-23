@@ -97,8 +97,8 @@ const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [ro
 /**
  * The Viz panel as a picture holds it, for the PNG export and the timelapse.
  *
- * The tall narrow layout scrolls inside the panel. Include the body's full
- * height and undo its scroll offset when placing its canvases. The short
+ * Include the body's full height and undo its scroll offset when placing
+ * its canvases. The short
  * layout moves the whole panel with the dashboard scroll. Canvas positions
  * relative to the panel stay the same as the dashboard scrolls.
  */
@@ -1119,6 +1119,21 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
       ? Help
     </button>
   );
+  const eventRow = (
+    <EventChronicle
+      eventsA={sideStateA?.events ?? []}
+      eventsB={sideStateB?.events ?? []}
+      currentTurn={currentTurn}
+      onJumpToTurn={handleTurnChange}
+      hoveredTurn={hoveredTurn}
+      onHoverTurnChange={setHoveredTurn}
+      filter={chronicleFilter}
+      onFilterChange={setChronicleFilter}
+      onHoverEventChange={setHoveredChronicleEvent}
+      onJumpToReports={handleJumpToReports}
+      onForgeSelect={openForgeMark}
+    />
+  );
   // On the stacked layout the grid precedes the outcomes and comparisons.
   const linesBelowGrid = narrow;
   const comparison = (
@@ -1146,9 +1161,9 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
         data-own-help-key="?"
       >
-        {/* The narrow panel scrolls here. On short screens the dashboard
-            shell scrolls with the panel, so this wrapper lays out in flow. */}
-        <div ref={vizBodyRef} className={styles.body}>
+        {/* The panel scrolls here when its content needs room. On short
+            screens the dashboard shell scrolls with the panel. */}
+        <div ref={vizBodyRef} className={styles.body} data-viz-layout="">
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
@@ -1349,19 +1364,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           eventsB={(sideStateB?.events ?? []) as Array<{ type: string; turn?: number; data?: Record<string, unknown> }>}
           totalDepartments={scenario.departments.length}
         />
-        <EventChronicle
-          eventsA={sideStateA?.events ?? []}
-          eventsB={sideStateB?.events ?? []}
-          currentTurn={currentTurn}
-          onJumpToTurn={handleTurnChange}
-          hoveredTurn={hoveredTurn}
-          onHoverTurnChange={setHoveredTurn}
-          filter={chronicleFilter}
-          onFilterChange={setChronicleFilter}
-          onHoverEventChange={setHoveredChronicleEvent}
-          onJumpToReports={handleJumpToReports}
-          onForgeSelect={openForgeMark}
-        />
+        {!narrow && eventRow}
         {!narrow && comparison}
         {vizMode === 'pair' && phone && (
           <div
@@ -1521,6 +1524,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
+        {narrow && eventRow}
         {narrow && comparison}
         {!isReplay && alertToast && (
           <div

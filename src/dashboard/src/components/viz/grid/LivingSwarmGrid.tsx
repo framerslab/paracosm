@@ -583,9 +583,9 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const filterChanged = eventFilter !== lastGolFilterRef.current;
     const actorChanged = actorName !== lastGolActorRef.current;
     const sizeKey = `${size.w}x${size.h}`;
-    const restingSizeChanged = resting && sizeKey !== lastGolSizeRef.current;
+    const fieldResized = (resting || vizPanel) && sizeKey !== lastGolSizeRef.current;
     const prevGolTurn = lastGolTurnRef.current;
-    if (turnChanged || modeChanged || filterChanged || actorChanged || restingSizeChanged) {
+    if (turnChanged || modeChanged || filterChanged || actorChanged || fieldResized) {
       lastGolSizeRef.current = sizeKey;
       lastGolTurnRef.current = snapshot.turn;
       lastGolModeRef.current = mode;
@@ -615,7 +615,11 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       } else {
         warmup = 5;
       }
+      // Keep the colonists' seeded pattern if all of its tiles would die
+      // before the first frame. A turn with no seeds still draws no tiles.
+      const seeded = vizPanel && warmup > 0 ? gol.grid.slice() : undefined;
       for (let i = 0; i < warmup; i += 1) tickGol(gol);
+      if (seeded && !gol.grid.some(Boolean)) gol.grid.set(seeded);
       // First seed, cached load, replay, multi-turn scrub or a new commander
       // on this panel: ease the tile layer in instead of painting the full
       // steady state in one frame. Single-turn advances (a live run,
