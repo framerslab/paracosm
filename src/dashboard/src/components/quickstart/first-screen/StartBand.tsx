@@ -473,6 +473,8 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
     pressed.current = true;
     setFailure(null);
     const outcome: { failure: LaunchFailureInput | null } = { failure: null };
+    // The reset time of the count this press acts on, kept with a refusal at the day's limit.
+    let dayResetAt = rateLimit.status === 'ready' ? rateLimit.answer?.resetAt : undefined;
     try {
       // From here until the run opens or fails, the screen holds as it is: the body posted is this scenario at this size.
       onBusy?.(true);
@@ -480,6 +482,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
         // The count may have been spent since the page read it: read it again, and post nothing when none is left.
         setStage('checking');
         const fresh = await rateLimit.refresh();
+        if (fresh.status === 'ready') dayResetAt = fresh.answer?.resetAt;
         if (fresh.status === 'ready' && fresh.answer?.remaining === 0) {
           setStage(null);
           onBusy?.(false);
@@ -507,7 +510,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
       const { kind } = classifyLaunchFailure({ ...outcome.failure, online: navigator.onLine });
       if (kind === 'limit' && who === 'host') {
         // The day's limit was met since the count was read: say it as the limit, with the reset time read again.
-        facts.markLimitMet();
+        facts.markLimitMet(dayResetAt);
         void rateLimit.refresh();
       } else {
         setFailure(kind === 'limit' ? 'other' : kind);

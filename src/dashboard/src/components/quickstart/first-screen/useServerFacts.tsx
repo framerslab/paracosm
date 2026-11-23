@@ -7,13 +7,16 @@
  * a read of /admin-config that failed is tried again, at 2 seconds and then
  * at longer gaps up to 15. A press of Start that the server
  * refuses at the day's limit is kept too, so the screen says the limit
- * even when the count it last read said a run was left. Every field of an answer is
+ * even when the count it last read said a run was left; while it is kept
+ * and the count could not be read, the count is asked for again at the same
+ * gaps, so the screen learns the reset time and, once the refused day has
+ * reset, that a run is left. Every field of an answer is
  * checked before it is used; a field that is missing or of the wrong kind is
  * left out, so the words that read it are left out rather than drawn blank.
  *
  * @module paracosm/dashboard/quickstart/first-screen/useServerFacts
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { savedSessions, useSessions, type SessionsStatus, type StoredSessionMeta } from '../../../hooks/useSessions';
 
 /** The day's count of free runs for this internet address. */
@@ -46,8 +49,12 @@ export interface ServerFacts {
   sessions: { status: SessionsStatus; rows: SessionRow[]; refresh(): Promise<void> };
   /** True once a press of Start was refused at the day's limit (POST /setup answered 429 with none left). */
   limitMet: boolean;
-  /** Keeps that the day's limit was met, until the page leaves. */
-  markLimitMet(): void;
+  /**
+   * Keeps that the day's limit was met, until a count read after that day's
+   * reset says a run is left, or the page leaves. `resetAt` is the reset
+   * time of the count last read before the refusal, when one was read.
+   */
+  markLimitMet(resetAt?: number): void;
 }
 
 /** Whether this internet address has no free run left today: the count says none, or a press was refused at the limit. */
@@ -95,6 +102,10 @@ const LONGEST_TIMER_MS = 2_147_483_647;
 const SETTINGS_RETRY_FIRST_MS = 2_000;
 /** The longest gap between two tries of /admin-config. */
 const SETTINGS_RETRY_MAX_MS = 15_000;
+/** While a refusal is kept, a read of /rate-limit that failed is tried again after this long, then at twice the gap each time. */
+const COUNT_RETRY_FIRST_MS = 2_000;
+/** The longest gap between two of those tries. */
+const COUNT_RETRY_MAX_MS = 15_000;
 
 /** Asks the server and gives its answers to the first screen. */
 export function ServerFactsProvider({ children }: { children: ReactNode }) {
@@ -102,7 +113,12 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
   const [adminConfig, setAdminConfig] = useState<AdminConfigState>({ status: 'loading' });
   const [limitMet, setLimitMet] = useState(false);
   const sessions = useSessions();
-  const markLimitMet = useCallback(() => setLimitMet(true), []);
+  // The reset time of the day the kept refusal belongs to, when a count was read before it.
+  const refusedDay = useRef<number | undefined>(undefined);
+  const markLimitMet = useCallback((resetAt?: number) => {
+    refusedDay.current = resetAt;
+    setLimitMet(true);
+  }, []);
   const refreshSessions = useCallback(() => savedSessions.refresh(), []);
 
   const refreshRateLimit = useCallback(async (): Promise<RateLimitState> => {
@@ -138,6 +154,39 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
     }, until + RESET_READ_MARGIN_MS);
     return () => window.clearTimeout(timer);
   }, [noneLeft, resetAt, refreshRateLimit]);
+
+  // A refusal is kept and the count could not be read: no reset time is
+  // known, so the read above sets no timer. The count is asked for again
+  // until it answers. An answer for a later day than the refused one, with a
+  // run left, ends the refusal; any other answer names the reset time the
+  // read above waits for.
+  const countUnread = limitMet && rateLimit.status === 'error';
+  useEffect(() => {
+    if (!countUnread) return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    let wait = COUNT_RETRY_FIRST_MS;
+    const read = () => {
+      void refreshRateLimit().then((next) => {
+        if (next.status === 'error') {
+          if (cancelled) return;
+          timer = window.setTimeout(read, wait);
+          wait = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
+          return;
+        }
+        const day = refusedDay.current;
+        if (next.status === 'ready' && next.answer && day !== undefined && next.answer.resetAt > day && next.answer.remaining > 0) {
+          setLimitMet(false);
+        }
+      });
+    };
+    timer = window.setTimeout(read, wait);
+    wait = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [countUnread, refreshRateLimit]);
 
   useEffect(() => {
     let cancelled = false;
