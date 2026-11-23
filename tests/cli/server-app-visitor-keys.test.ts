@@ -103,7 +103,9 @@ test('visitor keys stay out of held run files, run records, sessions and logs', 
       const visitor = cookied();
       const setup = await visitor.post('/setup', { ...settingsBody(mars), turns: 1, apiKey: KEY });
       assert.equal(setup.status, 200);
-      const { runKey, runRecord } = await setup.json() as { runKey: string; runRecord: unknown };
+      const setupAnswer = await setup.text();
+      const { runKey, run } = JSON.parse(setupAnswer) as { runKey: string; run: unknown };
+      assert.ok(run);
       await waitFor(async () => (await visitor.json<{ isComplete: boolean }>('/results')).isComplete, 'the run to finish');
       await chat(visitor, runKey);
       assert.ok(modelCalls(calls).some(call => call.key === KEY), 'the chat used the supplied key');
@@ -118,14 +120,14 @@ test('visitor keys stay out of held run files, run records, sessions and logs', 
       assert.ok(logs.length > 0);
 
       for (const [name, text] of [
-        ['setup response', JSON.stringify(runRecord)],
+        ['setup response', setupAnswer],
         ['held run file', readFileSync(file, 'utf-8')],
         ['run record', JSON.stringify(record)],
         ['saved session', JSON.stringify(storedSession)],
         ['captured logs', logs.join('\n')],
         ['response cookies', JSON.stringify([...visitor.cookies.values()])],
       ]) {
-        assert.equal(text?.includes(KEY), false, `${name} does not contain the key`);
+        assert.equal(text.includes(KEY), false, `${name} does not contain the key`);
       }
     }, {
       extra: {
