@@ -513,7 +513,7 @@ export function resolveSimulationModels(
   provider: LlmProvider,
   models?: Partial<SimulationModelConfig>,
   costPreset: CostPreset = 'quality',
-): SimulationModelConfig {
+): Required<SimulationModelConfig> {
   const defaults = costPreset === 'economy' ? DEMO_MODELS[provider] : DEFAULT_MODELS[provider];
   const normalizeModel = (
     requested: string | undefined,

@@ -18,6 +18,7 @@ import {
   ProviderErrorSchema,
   RiskFlagSchema,
   RunMetadataSchema,
+  RunProvenanceSchema,
   ScenarioExtensionsSchema,
   SpecialistNoteSchema,
   SubjectConfigSchema,
@@ -104,6 +105,8 @@ export const ForgedToolSummarySchema = z.object({
 export const RunArtifactSchema = z.object({
   /** Required. Identifies the run + scenario + mode. */
   metadata: RunMetadataSchema,
+  /** Present on new runs. Historical artifacts may omit it. */
+  provenance: RunProvenanceSchema.optional(),
 
   // -----------------------------------------------------------------------
   // Narrative layer — mode-agnostic (all modes may populate)

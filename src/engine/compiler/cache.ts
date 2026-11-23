@@ -70,7 +70,7 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  * hook the runner refuses or one that names a built-in the context does
  * not hold (`cachedHookRefusal` in ./index.ts).
  */
-export const COMPILE_SCHEMA_VERSION = 8;
+export const COMPILE_SCHEMA_VERSION = 9;
 
 /** SHA-256 hash of the scenario JSON, used for cache invalidation. */
 export function hashScenario(scenarioJson: Record<string, unknown>): string {

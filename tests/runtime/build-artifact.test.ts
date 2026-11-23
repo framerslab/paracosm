@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { buildRunArtifact } from '../../src/runtime/io/build-artifact.js';
 import { RunArtifactSchema } from '../../src/engine/schema/index.js';
 
+const provenance = {
+  aiGenerated: true,
+  generator: 'paracosm',
+  models: { commander: 'gpt-4o' },
+} as const;
+
 const baseInputs = {
+  provenance,
   runId: 'run-001',
   scenarioId: 'mars',
   scenarioName: 'Mars Genesis',
@@ -23,15 +30,8 @@ const baseInputs = {
   aborted: false,
 };
 
-const provenance = {
-  aiGenerated: true,
-  generator: 'paracosm',
-  models: { commander: 'gpt-4o' },
-} as const;
-
 test('buildRunArtifact produces schema-valid turn-loop artifact', () => {
-  const inputs = { ...baseInputs, mode: 'turn-loop' as const, provenance };
-  const artifact = buildRunArtifact(inputs);
+  const artifact = buildRunArtifact({ ...baseInputs, mode: 'turn-loop' });
   const result = RunArtifactSchema.safeParse(artifact);
   assert.equal(result.success, true, result.success ? '' : JSON.stringify(result.error.issues, null, 2));
   assert.deepEqual(artifact.provenance, provenance);

@@ -15,6 +15,7 @@ import type {
   InterventionConfig,
   ProviderError,
   RunArtifact,
+  RunProvenance,
   SimulationMode,
   SpecialistNote,
   SubjectConfig,
@@ -49,6 +50,7 @@ const isOpportunityImpact = (v: string): v is OpportunityImpact =>
  */
 export interface BuildArtifactInputs {
   runId: string;
+  provenance: RunProvenance;
   scenarioId: string;
   scenarioName: string;
   seed?: number;
@@ -246,6 +248,7 @@ export function buildRunArtifact(inputs: BuildArtifactInputs): RunArtifact {
       completedAt: inputs.completedAt,
       ...(inputs.forkedFrom ? { forkedFrom: inputs.forkedFrom } : {}),
     },
+    provenance: inputs.provenance,
     overview: inputs.overview,
     assumptions: inputs.assumptions,
     leveragePoints: inputs.leveragePoints,

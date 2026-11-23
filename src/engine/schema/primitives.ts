@@ -25,6 +25,13 @@
  */
 import { z } from 'zod';
 
+/** Machine-readable authorship and public model identifiers by role. */
+export const RunProvenanceSchema = z.strictObject({
+  aiGenerated: z.literal(true),
+  generator: z.literal('paracosm'),
+  models: z.record(z.string(), z.string().min(1)),
+});
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

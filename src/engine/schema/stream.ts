@@ -15,7 +15,7 @@
  */
 import { z } from 'zod';
 
-import { ProviderErrorSchema } from './primitives.js';
+import { ProviderErrorSchema, RunProvenanceSchema } from './primitives.js';
 
 // ---------------------------------------------------------------------------
 // Per-event data schemas — formalize the 17 payload shapes
@@ -222,6 +222,7 @@ const envelope = <T extends z.ZodTypeAny>(type: string, data: T) =>
     leader: z.string(),
     turn: z.number().int().optional(),
     time: z.number().optional(),
+    provenance: RunProvenanceSchema.optional(),
     data,
   });
 

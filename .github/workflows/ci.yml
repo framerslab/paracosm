@@ -77,6 +77,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check schema drift
+        run: |
+          npm run export:json-schema
+          npm run snapshot:schema
+          git diff --exit-code -- schema tests/engine/schema/run-artifact-schema-snapshot.json
+
       # Packs the package, installs the tarball into an empty project, starts
       # paracosm-dashboard and requests the landing page, the dashboard and
       # their assets (scripts/smoke-packed-package.mjs).

@@ -421,6 +421,7 @@ test('the mortality line counts the deaths in the run\'s event log', async () =>
 
 test('a run that forged and cited nothing says zero, though its artifact drops the empty lists', async () => {
   const artifact = buildRunArtifact({
+    provenance: { aiGenerated: true, generator: 'paracosm', models: {} },
     runId: 'atlas-empty',
     scenarioId: 'atlas-lab',
     scenarioName: 'Atlas Lab',

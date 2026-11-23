@@ -1,10 +1,12 @@
 import { GENERAL_AUDIENCE_GUIDANCE } from '../util/audience.js';
 import { writeRunOutput } from '../io/output-writer.js';
 import { buildRunArtifact } from '../io/build-artifact.js';
+import { makeRunProvenance } from '../../engine/schema/provenance.js';
 import type {
   Decision,
   InterventionConfig,
   RunArtifact,
+  RunProvenance,
   SubjectConfig,
 } from '../../engine/schema/index.js';
 import type { ITool } from '@framers/agentos';
@@ -287,6 +289,7 @@ export type SimEvent = {
     leader: string;
     turn?: number;
     time?: number;
+    provenance?: RunProvenance;
     data: SimEventPayloadMap[K] & SimEventCostPayload;
   };
 }[SimEventType];
@@ -566,6 +569,13 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     || 'leader';
   const sid = `${sc.labels.shortName}-v2-${archetypeSlug}`;
   const modelConfig = resolveSimulationModels(provider, opts.models, opts.costPreset);
+  const provenance = makeRunProvenance({
+    commander: modelConfig.commander,
+    departments: modelConfig.departments,
+    judge: modelConfig.judge,
+    director: modelConfig.director,
+    agentReactions: modelConfig.agentReactions,
+  });
   // Cost tracking: accumulate token usage and estimated cost across all LLM calls
   // Cost tracker: per-site buckets + cache-aware fallback estimation.
   // Lives in cost-tracker.ts so the math has one home and the turn loop
@@ -589,6 +599,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // having to type-narrow or know which fields carry a title — the
   // exact pain point that produced the "undefined" spam in casual
   // examples before this was wired up.
+  let firstEvent = true;
   const emit = (type: SimEventType, data?: Record<string, unknown>) => {
     const merged: Record<string, unknown> = {
       ...data,
@@ -599,9 +610,12 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     // Record-typed data bag that doesn't structurally match the narrow
     // per-event payload interfaces; we guarantee the shape via the
     // emit() call-sites in the orchestrator, so the double-cast is safe.
+    const opening = firstEvent;
+    firstEvent = false;
     opts.onEvent?.({
       type,
       leader: leader.name,
+      ...(opening ? { provenance: { ...provenance, models: { ...provenance.models } } } : {}),
       data: merged,
     } as unknown as SimEvent);
   };
@@ -2077,6 +2091,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const finalCost = costTracker.finalCost();
 
   const output: RunArtifact = buildRunArtifact({
+    provenance,
     runId: `${sc.labels.shortName}-${archetypeSlug}-${Date.now()}`,
     scenarioId: sc.id,
     scenarioName: sc.labels.name,
@@ -2371,6 +2386,7 @@ export async function replaySimulation(
   const freshRunId = `replay-${artifact.metadata.runId}-${Date.now().toString(36)}`;
   const freshArtifact: RunArtifact = {
     ...artifact,
+    provenance: makeRunProvenance(artifact.provenance?.models ?? {}),
     metadata: {
       ...artifact.metadata,
       runId: freshRunId,
