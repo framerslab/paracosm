@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
 import { format } from 'node:util';
@@ -163,4 +164,46 @@ test('the server refuses model and search keys sent without HTTPS outside the lo
     }
     assert.equal(launches.length, 0);
   }, options);
+});
+
+/**
+ * POSTs a key-bearing /setup from 127.0.0.2, a peer the server does not count
+ * as this computer's own: how a proxy in another container, or a container's
+ * published port, reaches the server. Answers the status.
+ */
+async function setupFromAnotherPeer(base: string, headers: Record<string, string>): Promise<number> {
+  const body = JSON.stringify({ ...settingsBody(mars), apiKey: KEY });
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1',
+      port: new URL(base).port,
+      path: '/setup',
+      method: 'POST',
+      localAddress: '127.0.0.2',
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)), ...headers },
+    }, res => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode ?? 0));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('a key reaches the server from a browser on this computer through a container port, or over HTTPS through a named proxy', async () => {
+  const proxy = { 'x-forwarded-for': '203.0.113.7', host: 'paracosm.example' };
+  await withVisitors(async ({ base }) => {
+    // The browser addressed localhost; the server sees the container bridge's address.
+    assert.equal(await setupFromAnotherPeer(base, { host: `localhost:${new URL(base).port}` }), 200);
+    // The proxy the operator named reached the browser over HTTPS.
+    assert.equal(await setupFromAnotherPeer(base, { ...proxy, 'x-forwarded-proto': 'https' }), 200);
+    // Plain HTTP through that proxy is refused.
+    assert.equal(await setupFromAnotherPeer(base, { ...proxy, 'x-forwarded-proto': 'http' }), 403);
+  }, { ...options, env: { PARACOSM_ALLOWED_HOSTS: 'paracosm.example', PARACOSM_CLIENT_IP_HEADER: 'x-forwarded-for' } });
+
+  // With no proxy named, another peer's word that the browser used HTTPS is not taken.
+  await withVisitors(async ({ base, launches }) => {
+    assert.equal(await setupFromAnotherPeer(base, { ...proxy, 'x-forwarded-proto': 'https' }), 403);
+    assert.equal(launches.length, 0);
+  }, { ...options, env: { PARACOSM_ALLOWED_HOSTS: 'paracosm.example' } });
 });
