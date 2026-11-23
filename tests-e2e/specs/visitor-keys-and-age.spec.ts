@@ -117,14 +117,14 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await expect(page.locator('#privacy').getByText(PRIVACY, { exact: true })).toBeAttached();
   await expect(page.locator('#privacy').getByText(CHILDREN, { exact: true })).toBeAttached();
 
-  await openShareNote(page);
-  const note = page.getByRole('status', { name: 'Share link' });
-  await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
-
   const chats: string[] = [];
   page.on('request', request => {
     if (new URL(request.url()).pathname === '/chat') chats.push(request.url());
   });
+  await openShareNote(page);
+  const note = page.getByRole('status', { name: 'Share link' });
+  await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
+
   await note.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
   await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
