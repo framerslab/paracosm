@@ -1,5 +1,8 @@
+import * as React from 'react';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import styles from './AiWritten.module.scss';
+
+void React;
 
 const Registration = createContext<((block: Element) => () => void) | null>(null);
 

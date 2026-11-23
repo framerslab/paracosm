@@ -1,7 +1,10 @@
+import * as React from 'react';
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { RunArtifact, RunProvenance } from '../../../../engine/schema/index.js';
 import { downloadBlob, downloadJson } from '../../download';
 import { exportProvenance, makeRunReportHtml, makeRunReportPdf } from '../../exports/run-report';
+
+void React;
 
 export const RunExportProvenanceContext = createContext<RunProvenance | null>(null);
 
