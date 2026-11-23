@@ -5,6 +5,7 @@
 import type { LlmProvider } from '../types.js';
 import type { RuntimeCredentialOptions } from '../provider/credentials.js';
 import type { CompilerTelemetry } from './telemetry.js';
+import type { CompiledHookSources } from './hook-sources.js';
 
 /**
  * Function signature for LLM text generation calls used by compile hooks.
@@ -63,4 +64,18 @@ export interface CompileOptions extends RuntimeCredentialOptions {
    * {@link CompilerTelemetry}.
    */
   telemetry?: CompilerTelemetry;
+  /**
+   * Restore a saved compiled scenario instead of compiling it: the server's
+   * boot restore sets this for each saved scenario. When `hookSources` were
+   * generated under the current compile schema version, every hook is
+   * rebuilt from them alone, a record that names no hook included;
+   * otherwise, when the disk cache holds one or more hooks of this exact
+   * scenario JSON that restore, from those under the model that wrote them.
+   * Either way no provider is resolved and no model is called: a hook that
+   * source does not hold, or holds in a form the hook runner refuses, gets
+   * the compiler's own fallback for it, as the compile that saved the
+   * scenario did. With neither, the scenario is compiled as the other
+   * options say.
+   */
+  restore?: { hookSources?: CompiledHookSources };
 }
