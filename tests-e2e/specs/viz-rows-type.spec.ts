@@ -536,6 +536,31 @@ for (const look of LOOKS) {
   });
 }
 
+test('the living grid draws its labels at the Viz text size', async ({ page, request }) => {
+  const run = await pairRun(request);
+  await page.addInitScript(() => {
+    const sizes = new WeakMap<HTMLCanvasElement, Set<number>>();
+    Object.assign(window, { gridTextSizes: sizes });
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+      const size = /([0-9.]+)px/.exec(this.font)?.[1];
+      if (size && this.canvas.closest('.viz-content')) {
+        const drawn = sizes.get(this.canvas) ?? new Set<number>();
+        drawn.add(Number(size));
+        sizes.set(this.canvas, drawn);
+      }
+      fillText.call(this, text, x, y, maxWidth);
+    };
+  });
+  await openRun(page, run, 'dark', PHONE);
+  const sizes = () => gridOf(page, run.turns).evaluate(canvas => {
+    const drawn = (window as unknown as { gridTextSizes: WeakMap<Element, Set<number>> }).gridTextSizes;
+    return [...(drawn.get(canvas) ?? [])];
+  });
+  await expect.poll(async () => (await sizes()).length).toBeGreaterThan(0);
+  expect((await sizes()).filter(size => size < READ_SIZE)).toEqual([]);
+});
+
 test('the light phone replay shows the toolbar ground at full brightness', async ({ page, request }) => {
   const run = await pairRun(request);
   await openRun(page, run, 'light', PHONE);
