@@ -29,7 +29,7 @@ test('editing a key stores it for this tab and masks all key inputs from recordi
   const analytics: string[] = [];
   const vendors = /(?:clarity\.ms|posthog\.com|googletagmanager\.com|google-analytics\.com|plausible\.io|analytics\.manic\.agency)(?::\d+)?\//;
   page.on('request', request => {
-    if (vendors.test(request.url()) || new URL(request.url()).pathname.startsWith('/api/analytics/')) {
+    if (vendors.test(request.url()) || new URL(request.url()).pathname === '/api/event') {
       analytics.push(`${request.url()} ${JSON.stringify(request.headers())} ${request.postData() ?? ''}`);
     }
   });
@@ -120,6 +120,16 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await openShareNote(page);
   const note = page.getByRole('status', { name: 'Share link' });
   await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
+
+  const chats: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/chat') chats.push(request.url());
+  });
+  await note.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+  await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Agent chat', exact: true })).toHaveCount(0);
+  expect(chats).toEqual([]);
 });
 
 async function openShareNote(page: Page) {

@@ -3954,12 +3954,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)
-        let result: Awaited<ReturnType<typeof session.send>>;
-        try {
-          result = await session.send(message);
-        } finally {
-          release?.();
-        }
+        const result = await session.send(message).finally(() => release?.());
 
         // Surface per-turn token usage + cost so the dashboard footer
         // can fold chat spend into the run-total display. Without this,
