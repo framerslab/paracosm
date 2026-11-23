@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, cre
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { PAGE_TITLE } from './components/quickstart/first-screen/words';
+import { clearRunLaunchHandoff, readRunLaunchHandoff } from './scenario-sync';
 import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
@@ -127,13 +128,13 @@ export function useDashboardNavigation() {
   return ctx;
 }
 
-const RunStartContext = createContext<() => void>(() => {});
+const RunStartContext = createContext<(runKey?: string) => void>(() => {});
 /**
  * What a Run control calls once the server has taken its run (the /setup
  * answer carries a redirect, or its status is ok): App leaves the Digital
  * Twin views, which the new run replaces on the SIM tab. A run the server
- * refuses replaces nothing, so the control does not call it then. Outside
- * App it does nothing.
+ * refuses replaces nothing, so the control does not call it then. An
+ * in-place launch can pass its run key to enable the finish notices.
  */
 export function useRunStart() {
   return useContext(RunStartContext);
@@ -211,6 +212,10 @@ function AppContent() {
   const runClearedRef = useRef<(runKey: string) => void>(() => {});
   const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
   const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
+  const [launchedRunKey, setLaunchedRunKey] = useState(readRunLaunchHandoff);
+  useEffect(() => {
+    if (launchedRunKey !== null) clearRunLaunchHandoff(launchedRunKey);
+  }, [launchedRunKey]);
   // The How it works card: the header's key opens and closes it on every
   // tab. Nothing opens it by itself.
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
@@ -414,8 +419,9 @@ function AppContent() {
 
   // An accepted launch takes the visitor from saved playback to their
   // own live stream. Other tab changes keep the replay address intact.
-  const showNewRun = useCallback(() => {
+  const showNewRun = useCallback((runKey?: string) => {
     leaveDigitalTwin();
+    setLaunchedRunKey(runKey ?? null);
     const url = new URL(window.location.href);
     if (!url.searchParams.has('replay')) return;
     url.searchParams.delete('replay');
@@ -513,6 +519,7 @@ function AppContent() {
     leaveDigitalTwin();
     sse.reset();
     setUserTriggeredRun(false);
+    setLaunchedRunKey(null);
     toast('info', 'Local data cleared', 'In-browser caches wiped. Server-stored runs are unchanged.');
     setActiveTab('settings');
   }, [persistence, sse, toast, leaveDigitalTwin]);
@@ -833,12 +840,13 @@ function AppContent() {
     eventsCount: sse.events.length,
   });
 
-  // Gate the run-finish + cache-saved toasts on whether the user
-  // actually clicked Run during this session. Cold loads that hydrate
-  // straight into a terminal state (server event-buffer replay or
-  // localStorage cache) shouldn't announce results the user didn't
-  // ask to start.
-  const [userTriggeredRun, setUserTriggeredRun] = useState(false);
+  const [runStartedInPage, setUserTriggeredRun] = useState(false);
+  // The hand-off and Settings launch both name the exact live run that may
+  // show finish notices. A cold load, a saved replay or a replacement run
+  // from another tab does not inherit that permission.
+  const userTriggeredRun = runStartedInPage || (
+    replaySessionId === null && launchedRunKey !== null && launchedRunKey === sse.runKey
+  );
 
   // Handlers for the digital-twin intervention path: declared here so
   // setUserTriggeredRun is in scope.
@@ -896,6 +904,7 @@ function AppContent() {
     return true;
   }, [sse, toast]);
   useTerminalToast({
+    runKey: sse.runKey,
     isComplete: sse.isComplete,
     isAborted: sse.isAborted,
     abortReason: sse.abortReason,
@@ -991,13 +1000,7 @@ function AppContent() {
           {shareLink.shared && (
             <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
           )}
-          {/* Cold-load gate: suppress the verdict banner unless the
-              user actually started a run this session. Without this
-              guard, a fresh visitor lands on the page with the SSE
-              event buffer rehydrating someone else's stale verdict
-              ("The Engineer wins · Turn 6/6") which pollutes the
-              Quickstart view + every demo recording. Same gate the
-              terminal/sim-saved toasts already use. */}
+          {/* The banner and finish notices share the launch gate. */}
           {userTriggeredRun && (
             <VerdictBanner
               verdict={sse.verdict}
@@ -1059,7 +1062,7 @@ function AppContent() {
                 <QuickstartView
                   sse={sse}
                   sessionId={replaySessionId ?? undefined}
-                  onRunStarted={() => { leaveDigitalTwin(); setUserTriggeredRun(true); }}
+                  onRunStarted={leaveDigitalTwin}
                   showsDigitalTwin={showsDigitalTwin}
                   onInterventionStart={handleInterventionStart}
                   onInterventionResult={handleInterventionResult}
@@ -1174,6 +1177,7 @@ function AppContent() {
                       leaveDigitalTwin();
                       void sse.reset();
                       setUserTriggeredRun(false);
+                      setLaunchedRunKey(null);
                     },
                   }} />
                 </section>

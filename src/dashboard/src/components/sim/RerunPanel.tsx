@@ -22,7 +22,7 @@ import {
   type PersistedActor,
 } from '../../hooks/useLastLaunchConfig';
 import { resolveSetupRedirectHref } from '../../tab-routing';
-import { emitLaunched } from '../../scenario-sync';
+import { emitLaunched, markRunLaunchHandoff } from '../../scenario-sync';
 import styles from './RerunPanel.module.scss';
 
 interface RerunPanelProps {
@@ -59,6 +59,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         redirect?: string;
         error?: string;
         visitorId?: string;
+        runKey?: string;
       };
       if (res.status === 429) {
         alert(data.error || 'Rate limit hit. Add an API key in Settings to bypass.');
@@ -94,6 +95,10 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         // through to the URL parser's default ('quickstart'), so the
         // user lands on the form they came from instead of the live
         // Sim tab. resolveSetupRedirectHref forces ?tab=sim.
+        // The page load that follows opens the re-run. Its key goes with
+        // it, so the run ends with its verdict and notices as one that
+        // Start hands over does.
+        markRunLaunchHandoff(data.runKey);
         window.location.href = resolveSetupRedirectHref(window.location.href, data.redirect);
       } else {
         alert('Re-run failed: server did not return a redirect. Check the server logs.');
