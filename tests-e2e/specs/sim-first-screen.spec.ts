@@ -4893,6 +4893,56 @@ screenTest('feature 10: a Start the server refuses leaves the stored leaders of 
   }
 });
 
+// Feature 10: the leaders a scenario does not write are written by a route with a day's limit of its own on the
+// hosted demo. Its refusal is not the day's limit of free runs: the run is still there, and so is Start.
+screenTest('feature 10: a refusal to write the leaders is not the day’s limit of free runs', async ({ page }) => {
+  test.setTimeout(120_000);
+  // A scenario that writes no leaders, as a compiled one does: Start has them written before it posts the run.
+  await routeScenario(page, (scenario) => {
+    for (const preset of scenario.presets) {
+      delete preset.leaders;
+      delete preset.actors;
+    }
+  });
+  let posted = 0;
+  const onRequest = (request: { method(): string; url(): string }) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/setup') posted += 1;
+  };
+  page.on('request', onRequest);
+  // The route's own refusal on the hosted demo, in the shape and the words the server answers it with.
+  await page.route('**/api/quickstart/generate-actors', (route: Route) => route.fulfill({
+    status: 429,
+    json: {
+      error: 'Rate limit exceeded. Maximum 20 Quickstart grounding, actor and URL requests per day.',
+      limit: 20,
+      remaining: 0,
+      resetAt: Date.now() + 3_600_000,
+    },
+  }));
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key } = startParts(root);
+    await expect(key).toBeEnabled();
+    const refusal = page.waitForResponse((res) => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/quickstart/generate-actors');
+    await key.click();
+    expect((await refusal).status()).toBe(429);
+
+    // The run did not start, and the page says so above Start, which can be pressed again.
+    await expect(root.getByTestId('start-failure')).toHaveText(DID_NOT_START);
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'ready');
+    await expect(key).toBeEnabled();
+    // The day's free run is not used: no at-limit paragraphs stand in Start's place, and the count says one is left.
+    await expect(root.getByTestId('at-limit')).toHaveCount(0);
+    expect((await dayCount(page)).remaining).toBe(1);
+    expect(posted, 'no run was posted').toBe(0);
+    await expect(page.locator('body')).not.toContainText('Rate limit exceeded');
+  } finally {
+    page.off('request', onRequest);
+    await page.unroute('**/api/quickstart/generate-actors');
+    await page.unroute('**/scenario');
+  }
+});
+
 // Feature 10: the at-limit state names a reset time, and the page reads the count again once that time has come.
 screenTest('feature 10: at the reset time the page reads the count again', async ({ page }) => {
   test.setTimeout(120_000);

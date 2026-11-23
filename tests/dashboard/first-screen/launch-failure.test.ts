@@ -69,6 +69,9 @@ test('classifyLaunchFailure: by the answer, never by its words', () => {
   assert.equal(classifyLaunchFailure({ status: 500, body: {}, online: false }).kind, 'offline');
   // POST /setup's own refusal at the day's limit.
   assert.equal(classifyLaunchFailure({ status: 429, body: { error: 'Rate limit exceeded.', limit: 1, remaining: 0 } }).kind, 'limit');
+  // The same answer from the route that writes the leaders is that route's own limit, never the day's limit of runs.
+  assert.equal(classifyLaunchFailure({ status: 429, body: { error: 'Rate limit exceeded.', limit: 20, remaining: 0 }, request: 'leaders' }).kind, 'other');
+  assert.equal(classifyLaunchFailure({ status: 429, body: { error: 'Rate limit exceeded.', limit: 1, remaining: 0 }, request: 'setup' }).kind, 'limit');
   // A full server names the most runs it holds.
   assert.equal(classifyLaunchFailure({ status: 503, body: { error: 'x', runsInFlight: 3, maxRuns: 3 } }).kind, 'slots');
   // Any other 429 or 503 is a busy server, whatever its words say.
