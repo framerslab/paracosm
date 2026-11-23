@@ -12,8 +12,18 @@
  * @module paracosm/cli/dashboard/hooks/useLastLaunchConfig
  */
 
-/** localStorage key holding the last config that succeeded on /setup. */
+/** localStorage key holding the last config that succeeded on /setup, without its keys. */
 export const LAST_LAUNCH_KEY = 'paracosm:lastLaunchConfig';
+
+/** The /setup fields that carry a visitor's model and search keys. */
+const KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
+
+/** A launch config without its key fields: keys stay in this tab's storage alone. */
+function withoutKeys(config: Record<string, unknown>): Record<string, unknown> {
+  const rest = { ...config };
+  for (const field of KEY_FIELDS) delete rest[field];
+  return rest;
+}
 
 /** sessionStorage key holding per-provider API key overrides. */
 export const KEY_OVERRIDES_KEY = 'paracosm:keyOverrides';
@@ -66,7 +76,7 @@ export function readLastLaunchConfig(
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
+      ? withoutKeys(parsed as Record<string, unknown>)
       : null;
   } catch {
     return null;
@@ -87,16 +97,16 @@ export function isLastLaunchFor(
 }
 
 /**
- * Write the last-launch config. Silently swallows storage errors
- * (quota exceeded etc.) — the UI flow shouldn't break on storage
- * failure.
+ * Write the last-launch config, its key fields left out. Silently
+ * swallows storage errors (quota exceeded etc.) — the UI flow
+ * shouldn't break on storage failure.
  */
 export function writeLastLaunchConfig(
   storage: StorageLike,
   config: Record<string, unknown>,
 ): void {
   try {
-    storage.setItem(LAST_LAUNCH_KEY, JSON.stringify(config));
+    storage.setItem(LAST_LAUNCH_KEY, JSON.stringify(withoutKeys(config)));
   } catch {
     // Best-effort.
   }
@@ -228,10 +238,18 @@ export function readKeyOverrides(storage: StorageLike): KeyOverrides {
   }
 }
 
+/** Rewrites a saved last launch that still holds keys, as earlier releases' Run again saved it. */
+function dropKeysFromLastLaunch(storage: StorageLike): void {
+  const raw = storage.getItem(LAST_LAUNCH_KEY);
+  const saved = readLastLaunchConfig(storage);
+  if (raw !== null && saved !== null && raw !== JSON.stringify(saved)) writeLastLaunchConfig(storage, saved);
+}
+
 /** Moves the previous persistent overrides into the current tab on dashboard startup. */
 export function migrateLegacyKeyOverrides(): void {
   try {
     const legacy = window.localStorage;
+    dropKeysFromLastLaunch(legacy);
     if (legacy.getItem(KEY_OVERRIDES_KEY) === null) return;
     try {
       writeTabKeyOverrides({ ...readKeyOverrides(legacy), ...readTabKeyOverrides() });
@@ -269,6 +287,7 @@ export function forgetTabKeyOverrides(): void {
   writeTabKeyOverrides({});
   try {
     window.localStorage.removeItem(KEY_OVERRIDES_KEY);
+    dropKeysFromLastLaunch(window.localStorage);
   } catch {
     // The browser may disallow access to legacy storage.
   }

@@ -389,7 +389,7 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 
 Settings uses this endpoint when the visitor selects **Forget my keys**. It needs no request body. The server drops the run held for this visitor's dashboard cookie, stops it if it is running, and closes its pooled chat agents. The response reports `runConfigsDropped` and `chatAgentsDropped`. Saved replays and run history remain available.
 
-Model and search keys entered in Settings are kept for the current browser tab. Outside loopback, key-bearing requests require HTTPS. `GET /admin-config` reports `visitorKeyIdleMinutes`, the server's idle limit for a visitor-key chat agent.
+Model and search keys entered in Settings are kept for the current browser tab, and never in the last launch the dashboard saves on the device for Run again. Outside loopback, key-bearing requests require HTTPS. `GET /admin-config` reports `visitorKeyIdleMinutes`, the server's idle limit for a visitor-key chat agent.
 
 ## `POST /scenario/store`
 
