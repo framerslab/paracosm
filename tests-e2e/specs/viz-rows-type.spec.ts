@@ -223,23 +223,25 @@ async function readGrid(page: Page): Promise<GridRead | null> {
       .find(c => c.getBoundingClientRect().height > 0) as HTMLElement | undefined;
     if (!canvas) return null;
     const region = canvas.closest('[data-testid^="living-colony-grid-"]')!;
+    const panel = canvas.closest('.viz-content')!;
     const c = canvas.getBoundingClientRect();
+    const panelBox = panel.getBoundingClientRect();
     let top = 0;
     let bottom = window.innerHeight;
     let left = 0;
     let right = document.documentElement.clientWidth;
-    let panelTop = -1;
-    let panelHeight = -1;
+    let panelTop = Math.max(0, panelBox.top + panel.clientTop);
+    let panelBottom = Math.min(window.innerHeight, panelBox.top + panel.clientTop + panel.clientHeight);
     for (let box = canvas.parentElement; box && box !== document.documentElement; box = box.parentElement) {
       const cs = getComputedStyle(box);
-      if (box.classList.contains('viz-content')) {
-        panelTop = box.getBoundingClientRect().top + box.clientTop;
-        panelHeight = box.clientHeight;
-      }
       if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
       const b = box.getBoundingClientRect();
       const boxTop = b.top + box.clientTop;
       const boxLeft = b.left + box.clientLeft;
+      if (!panel.contains(box)) {
+        panelTop = Math.max(panelTop, boxTop);
+        panelBottom = Math.min(panelBottom, boxTop + box.clientHeight);
+      }
       top = Math.max(top, boxTop);
       bottom = Math.min(bottom, boxTop + box.clientHeight);
       left = Math.max(left, boxLeft);
@@ -268,7 +270,7 @@ async function readGrid(page: Page): Promise<GridRead | null> {
       shownHeight: Math.max(0, y1 - y0),
       shownWidth: Math.max(0, x1 - x0),
       panelTop,
-      panelHeight,
+      panelHeight: Math.max(0, panelBottom - panelTop),
       over: [...over],
     };
   });
@@ -371,7 +373,8 @@ const scrolled = (page: Page) => page.evaluate(() => Array.from(document.querySe
 async function wheelUntil(page: Page, done: () => Promise<boolean>): Promise<boolean> {
   const panel = await page.locator('.viz-content').first().boundingBox();
   if (!panel) return false;
-  await page.mouse.move(panel.x + 3, panel.y + Math.min(24, panel.height / 2));
+  const y = Math.max(1, Math.min(page.viewportSize()!.height - 1, panel.y + Math.min(24, panel.height / 2)));
+  await page.mouse.move(panel.x + 3, y);
   for (let i = 0; i < 60; i += 1) {
     if (await done()) return true;
     const before = await scrolled(page);
@@ -549,7 +552,8 @@ test('the living grid draws its labels at the Viz text size', async ({ page, req
         drawn.add(Number(size));
         sizes.set(this.canvas, drawn);
       }
-      fillText.call(this, text, x, y, maxWidth);
+      if (maxWidth === undefined) fillText.call(this, text, x, y);
+      else fillText.call(this, text, x, y, maxWidth);
     };
   });
   await openRun(page, run, 'dark', PHONE);
@@ -904,11 +908,16 @@ const drawnIn = (page: Page, png: Buffer, boxes: Box[]): Promise<boolean[]> => p
     const width = Math.floor(box.width) - 4;
     const height = Math.floor(box.height) - 4;
     if (width <= 0 || height <= 0 || left < 0 || top < 0 || left + width > bitmap.width || top + height > bitmap.height) return false;
-    const { data } = ctx.getImageData(left, top, width, height);
-    for (let i = 4; i < data.length; i += 4) {
-      if (data[i] !== data[0] || data[i + 1] !== data[1] || data[i + 2] !== data[2]) return true;
-    }
-    return false;
+    // The stored grid paints both its heading and its population readout.
+    // Require pixels in both bands so a cropped grid cannot satisfy the check.
+    const bandHeight = Math.ceil(height / 5);
+    return [top, top + height - bandHeight].every(y => {
+      const { data } = ctx.getImageData(left, y, width, bandHeight);
+      for (let i = 4; i < data.length; i += 4) {
+        if (data[i] !== data[0] || data[i + 1] !== data[1] || data[i + 2] !== data[2]) return true;
+      }
+      return false;
+    });
   });
 }, { b64: png.toString('base64'), boxes });
 
