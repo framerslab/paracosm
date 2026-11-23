@@ -64,13 +64,16 @@ export function ClickPopover(props: ClickPopoverProps) {
     onOpenChat,
   } = props;
   const headerRef = useRef<HTMLDivElement | null>(null);
-  const short = useMediaQuery('(max-height: 500px)');
 
+  // In the Viz panel a drilldown can open from a spotlight below the grid,
+  // with the grid scrolled above the view at any screen height: the header,
+  // with the name and the Close key, is brought into view. `nearest` leaves
+  // a header already in view where it stands.
   useLayoutEffect(() => {
-    if (keepHeaderInView && short && payload) {
+    if (keepHeaderInView && payload) {
       headerRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
-  }, [keepHeaderInView, payload, short]);
+  }, [keepHeaderInView, payload]);
 
   useEffect(() => {
     if (!payload) return;

@@ -1403,6 +1403,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
             ].filter(Boolean).join(' ')}
           >
           <CohortSwarmGrid
+            vizPanel
             className={linesBelowGrid ? styles.cohortTrackLinesBelow : undefined}
             state={state}
             snapshotMap={snapshotMap}

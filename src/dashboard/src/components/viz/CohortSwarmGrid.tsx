@@ -54,6 +54,11 @@ interface CohortSwarmGridProps {
   onOpenChat?: (colonistName: string) => void;
   /** A class for the track, the grid's scroll window, beside its own. */
   className?: string;
+  /**
+   * True in the Viz panel: each column's grid takes the panel's layout and
+   * its 15 px words. The Run tab's track leaves it off and keeps its own.
+   */
+  vizPanel?: boolean;
 }
 
 interface ForgeAttempt {
@@ -140,6 +145,7 @@ function buildForgeFeedFor(events: ProcessedEvent[]): { attempts: ForgeAttempt[]
  * blow away the canvas animation state.
  */
 interface CohortColumnProps {
+  vizPanel: boolean;
   actorIndex: number;
   actorId: string;
   state: GameState;
@@ -158,6 +164,7 @@ interface CohortColumnProps {
 
 function CohortColumn(props: CohortColumnProps) {
   const {
+    vizPanel,
     actorIndex,
     actorId,
     state,
@@ -254,7 +261,7 @@ function CohortColumn(props: CohortColumnProps) {
       <div className={styles.columnBody}>
         {hasBeenVisible ? (
           <LivingSwarmGrid
-            vizPanel
+            vizPanel={vizPanel}
             snapshot={snap}
             previousSnapshot={prevSnap}
             snapshotHistory={snaps}
@@ -306,6 +313,7 @@ export function CohortSwarmGrid({
   startTime,
   onOpenChat,
   className,
+  vizPanel = false,
 }: CohortSwarmGridProps) {
   const actorIds = state.actorIds;
   return (
@@ -318,6 +326,7 @@ export function CohortSwarmGrid({
         {actorIds.map((actorId, idx) => (
           <CohortColumn
             key={actorId}
+            vizPanel={vizPanel}
             actorId={actorId}
             actorIndex={idx}
             state={state}

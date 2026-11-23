@@ -1,9 +1,13 @@
 /**
  * Always-visible 4-glyph legend strip + a "Show full legend" popover.
  * The inline strip is glanceable; the popover carries the full color
- * map (departments, mood tiers). Dismissed with Esc, with the click
- * outside the popover, or with the Close button. Focus is trapped per
- * existing dashboard conventions while open.
+ * map (departments, mood tiers) and every mark the strip shows. Dismissed
+ * with Esc, with the click outside the popover, or with the Close button.
+ * Focus is trapped per existing dashboard conventions while open.
+ *
+ * The strip is one row at every width it shows at: each mark keeps its
+ * glyph and its words together, and a mark the row has no room for is
+ * left out of the row, one key away in the popover.
  *
  * @module viz/VizLegendBar
  */
@@ -20,6 +24,16 @@ export interface VizLegendDept {
   label: string;
   color: string;
 }
+
+type GlyphType = 'band' | 'agent' | 'featured' | 'turn';
+
+/** The marks on the grid, in the order the strip shows them. */
+const MARKS: ReadonlyArray<{ type: GlyphType; label: string }> = [
+  { type: 'band', label: 'Department band' },
+  { type: 'agent', label: 'Agent' },
+  { type: 'featured', label: 'Featured agent' },
+  { type: 'turn', label: 'Turn marker' },
+];
 
 export interface VizLegendBarProps {
   /** Active scenario's department list with display color. */
@@ -54,14 +68,12 @@ export function VizLegendBar({ departments }: VizLegendBarProps) {
   return (
     <div className={styles.bar} aria-label="Visualization legend" ref={wrapRef}>
       <span className={styles.glyphRow}>
-        <Glyph type="band" />
-        <span className={styles.label}>Department band</span>
-        <Glyph type="agent" />
-        <span className={styles.label}>Agent</span>
-        <Glyph type="featured" />
-        <span className={styles.label}>Featured agent</span>
-        <Glyph type="turn" />
-        <span className={styles.label}>Turn marker</span>
+        {MARKS.map(({ type, label }) => (
+          <span key={type} className={styles.mark}>
+            <Glyph type={type} />
+            <span className={styles.label}>{label}</span>
+          </span>
+        ))}
       </span>
       <button
         type="button"
@@ -84,6 +96,17 @@ export function VizLegendBar({ departments }: VizLegendBarProps) {
           <h3 id="viz-legend-heading" className={styles.popHeading}>
             What you&rsquo;re looking at
           </h3>
+          <section>
+            <h4>Marks on the grid</h4>
+            <ul className={styles.markList}>
+              {MARKS.map(({ type, label }) => (
+                <li key={type}>
+                  <Glyph type={type} />
+                  <span>{label}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
           <section>
             <h4>Departments (tile color)</h4>
             <ul className={styles.deptList}>
@@ -130,7 +153,7 @@ export function VizLegendBar({ departments }: VizLegendBarProps) {
   );
 }
 
-function Glyph({ type }: { type: 'band' | 'agent' | 'featured' | 'turn' }) {
+function Glyph({ type }: { type: GlyphType }) {
   switch (type) {
     case 'band':
       return <span className={`${styles.glyph} ${styles.band}`} aria-hidden="true" />;
