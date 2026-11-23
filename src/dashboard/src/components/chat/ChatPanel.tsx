@@ -1,3 +1,5 @@
+import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
+import { sessionProviderKeys } from '../settings/sessionProviderKeys';
 import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState } from '../../hooks/useGameState';
@@ -389,14 +391,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     const newHistory = [...currentHistory, { role: 'user', content: msg }];
     setHistoryFor(thread, () => newHistory);
     try {
-      // Forward any locally-saved BYO API keys so chat routes to the
-      // user's own provider account instead of the host's. Matches the
-      // contract on /setup and /compile. localStorage is written by
-      // the Settings panel on every key edit.
-      const storedKeys = (() => {
-        try { return JSON.parse(localStorage.getItem('paracosm:keyOverrides') || '{}') as Record<string, string>; }
-        catch { return {} as Record<string, string>; }
-      })();
+      const providerKeys = sessionProviderKeys(readTabKeyOverrides());
       const res = await fetch('/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -404,8 +399,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
           ...(leader ? { leader } : {}),
           message: msg,
           history: newHistory,
-          ...(storedKeys.openai ? { apiKey: storedKeys.openai } : {}),
-          ...(storedKeys.anthropic ? { anthropicKey: storedKeys.anthropic } : {}),
+          ...providerKeys,
         }),
       });
       const data = await res.json();

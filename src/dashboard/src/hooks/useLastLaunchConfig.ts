@@ -1,6 +1,6 @@
 /**
  * Centralized reader/writer for the dashboard's two launch-related
- * localStorage contracts. Keeping the key strings + payload shape in
+ * storage contracts. Keeping the key strings + payload shape in
  * one file prevents the kind of drift audit F22 flagged (multiple
  * call sites hand-rolling the same parse with subtly different
  * error handling).
@@ -15,7 +15,7 @@
 /** localStorage key holding the last config that succeeded on /setup. */
 export const LAST_LAUNCH_KEY = 'paracosm:lastLaunchConfig';
 
-/** localStorage key holding per-provider API key overrides. */
+/** sessionStorage key holding per-provider API key overrides. */
 export const KEY_OVERRIDES_KEY = 'paracosm:keyOverrides';
 
 /** localStorage key holding the actors of the run that the most recent
@@ -218,9 +218,59 @@ export function readKeyOverrides(storage: StorageLike): KeyOverrides {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    return parsed as KeyOverrides;
+    const overrides: KeyOverrides = {};
+    for (const provider of ['openai', 'anthropic', 'serper', 'firecrawl', 'tavily', 'cohere'] as const) {
+      if (typeof parsed[provider] === 'string') overrides[provider] = parsed[provider];
+    }
+    return overrides;
   } catch {
     return {};
+  }
+}
+
+/** Moves the previous persistent overrides into the current tab on dashboard startup. */
+export function migrateLegacyKeyOverrides(): void {
+  try {
+    const legacy = window.localStorage;
+    if (legacy.getItem(KEY_OVERRIDES_KEY) === null) return;
+    try {
+      writeTabKeyOverrides({ ...readKeyOverrides(legacy), ...readTabKeyOverrides() });
+    } finally {
+      legacy.removeItem(KEY_OVERRIDES_KEY);
+    }
+  } catch {
+    // Storage can be disabled by the browser.
+  }
+}
+
+/** Reads the key overrides available to this tab. */
+export function readTabKeyOverrides(): KeyOverrides {
+  try {
+    return readKeyOverrides(window.sessionStorage);
+  } catch {
+    return {};
+  }
+}
+
+/** Saves key fields to this tab, removing the entry when the fields are empty. */
+export function writeTabKeyOverrides(overrides: KeyOverrides): void {
+  try {
+    const storage = window.sessionStorage;
+    const filled = Object.fromEntries(Object.entries(overrides).filter(([, key]) => typeof key === 'string' && key !== ''));
+    if (Object.keys(filled).length) storage.setItem(KEY_OVERRIDES_KEY, JSON.stringify(filled));
+    else storage.removeItem(KEY_OVERRIDES_KEY);
+  } catch {
+    // The current form still works when the browser disables storage.
+  }
+}
+
+/** Removes keys from the tab and discards any legacy copy still present. */
+export function forgetTabKeyOverrides(): void {
+  writeTabKeyOverrides({});
+  try {
+    window.localStorage.removeItem(KEY_OVERRIDES_KEY);
+  } catch {
+    // The browser may disallow access to legacy storage.
   }
 }
 

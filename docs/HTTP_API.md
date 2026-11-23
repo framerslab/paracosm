@@ -385,6 +385,12 @@ Served on the hosted demo alone (`PARACOSM_HOSTED_DEMO=true`); elsewhere the pat
 - `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views in its current minute, or 32 forwards are open at once; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
+## `POST /forget-keys`
+
+Settings uses this endpoint when the visitor selects **Forget my keys**. It needs no request body. The server drops the run held for this visitor's dashboard cookie, stops it if it is running, and closes its pooled chat agents. The response reports `runConfigsDropped` and `chatAgentsDropped`. Saved replays and run history remain available.
+
+Model and search keys entered in Settings are kept for the current browser tab. Outside loopback, key-bearing requests require HTTPS. `GET /admin-config` reports `visitorKeyIdleMinutes`, the server's idle limit for a visitor-key chat agent.
+
 ## `POST /scenario/store`
 
 The dashboard's scenario editor route. Any visitor can store a scenario JSON in memory. The stored scenario is the visitor's own: the visitor is the `paracosm_visitor` cookie the dashboard gives a browser, and every caller that sends no such cookie is one visitor, the anonymous one. A `paracosm_visitor` cookie whose value is not a UUID counts as no cookie, so that caller is the anonymous visitor too. When the JSON is a runnable scenario package, that visitor's `GET /scenarios` lists it with `source: "memory"`, and their `GET /scenarios/:id`, `POST /scenario/switch`, `GET /scenario?id=`, `POST /setup` and the Quickstart routes take its id. No other visitor lists, reads or runs it, and `GET /admin-config` lists each visitor's own stored ids under `memoryScenarios`.

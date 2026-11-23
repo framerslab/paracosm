@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
+import type { TLSSocket } from 'node:tls';
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, unlinkSync, createReadStream, realpathSync, type Stats } from 'node:fs';
 import { resolve, dirname, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream';
@@ -303,6 +304,24 @@ function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<strin
   } catch {
     return true;
   }
+}
+
+const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
+
+/** Keys may travel over TLS or stay entirely on the current computer. */
+function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, keys: Record<string, unknown>): boolean {
+  if (!VISITOR_KEY_FIELDS.some(field => normalizeCredential(keys[field]) !== undefined)) return false;
+  if ((req.socket as TLSSocket).encrypted) return false;
+
+  const peer = req.socket.remoteAddress?.replace(/^::ffff:/, '') ?? '';
+  const proxyScheme = req.headers['x-forwarded-proto'];
+  const localPeer = LOOPBACK_HOSTNAMES.has(peer) || peer === '::1';
+  if (localPeer && proxyScheme === 'https') return false;
+  if (localPeer && proxyScheme === undefined && LOOPBACK_HOSTNAMES.has(hostHeaderName(req.headers.host))) return false;
+
+  res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ error: 'Send API keys over HTTPS, or use a dashboard on this computer.' }));
+  return true;
 }
 
 /** Uses the compiler's seed test, including truthy values that are not strings. */
@@ -1165,6 +1184,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
   // to revisit live in sessions.db through the auto-save path; that store
   // is canonical for replay, the live runs are not.
   const STALE_BUFFER_MS = options.staleBufferMs ?? 30 * 60 * 1000;
+  const visitorKeyIdleMinutes = STALE_BUFFER_MS / 60_000;
+  let chatAgentPool: typeof import('../runtime/agents/chat-agents.js') | undefined;
 
   // Bound each run's event buffer. At 300 actors × 20 turns a buffer
   // approaches 100k events at ~1-3KB per SSE message: 150MB+ resident in
@@ -1255,7 +1276,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     },
     // A dropped run's chat agents (their memories and histories) go with it.
     onDrop: run => {
-      import('../runtime/agents/chat-agents.js').then(m => m.clearPool(run.key)).catch(() => {});
+      chatAgentPool?.clearPool(run.key);
     },
   });
 
@@ -2414,7 +2435,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     }
 
     if (serverMode === 'hosted_demo' && req.method === 'POST' &&
-        (req.url?.startsWith('/api/quickstart/') || req.url === '/scenario/switch') &&
+        (req.url?.startsWith('/api/quickstart/') || req.url === '/scenario/switch' || req.url === '/forget-keys') &&
         fromAnotherSite(req, allowedOrigins)) {
       writeCrossSiteRefusal(res);
       return;
@@ -2884,6 +2905,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         adminWrite,
         hostedDemo,
         serverMode,
+        visitorKeyIdleMinutes,
         demoCaps: {
           maxTurns: DEMO_EXECUTION.maxTurns,
           maxPopulation: DEMO_EXECUTION.maxPopulation,
@@ -3067,6 +3089,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (req.url?.startsWith('/api/quickstart/') && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
+        if (body && typeof body === 'object' && refuseUnencryptedKeys(req, res, body as Record<string, unknown>)) return;
         const quickstartVisitor = readVisitorId(req);
         const quickstartDeps: QuickstartDeps = {
           installCompiledScenario: (compiledFromSeed, seedText) => {
@@ -3286,6 +3309,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           apiKey: normalizeCredential(userApiKey),
           anthropicKey: normalizeCredential(userAnthropicKey),
         };
+        if (refuseUnencryptedKeys(req, res, simulateCredentials)) return;
         const hasUserKeys = hasProviderCredentials(simulateCredentials);
         if (serverMode === 'hosted_demo' && !hasUserKeys && fromAnotherSite(req, allowedOrigins)) {
           writeCrossSiteRefusal(res);
@@ -3364,6 +3388,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { scenario: scenarioJson, provider: requestedProvider, model: requestedModel, seedText, seedUrl, webSearch, maxSearches, apiKey, anthropicKey } = body;
+        if (refuseUnencryptedKeys(req, res, { apiKey, anthropicKey })) return;
         if (!scenarioJson || typeof scenarioJson !== 'object') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'scenario JSON object required' }));
@@ -3648,6 +3673,17 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       return;
     }
 
+    if (req.url === '/forget-keys' && req.method === 'POST') {
+      const visitorId = readVisitorId(req);
+      const run = visitorId === ANONYMOUS_VISITOR ? undefined : liveRuns.current(visitorId);
+      const runConfigsDropped = run && (run.config || run.ownKeys) ? 1 : 0;
+      const chatAgentsDropped = run ? chatAgentPool?.clearPool(run.key) ?? 0 : 0;
+      if (run) liveRuns.clear(run, 'keys_forgotten');
+      res.writeHead(200, { 'Content-Type': 'application/json', ...PER_VISITOR_HEADERS });
+      res.end(JSON.stringify({ runConfigsDropped, chatAgentsDropped }));
+      return;
+    }
+
     if (req.url === '/setup' && req.method === 'GET') {
       res.writeHead(302, { Location: '/sim?tab=settings' });
       res.end();
@@ -3661,6 +3697,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const parsed = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { agentId, message, history, apiKey, anthropicKey, runKey: chatRunKey, leader: chatLeader } = parsed;
+        if (refuseUnencryptedKeys(req, res, { apiKey, anthropicKey })) return;
         if (!agentId || !message) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'agentId and message required' }));
@@ -3809,7 +3846,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         liveRuns.touch(chatRun);
 
         // Import chat agent system (lazy to avoid startup cost)
-        const chatAgents = await import('../runtime/agents/chat-agents.js');
+        const chatAgents = chatAgentPool ??= await import('../runtime/agents/chat-agents.js');
+        if (chatRun.dropped) {
+          res.writeHead(409, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ error: 'This run has been cleared.' }));
+          return;
+        }
         const { extractColonistMemories, extractColonistRoster, extractRunTurns } = chatAgents;
         const getOrCreateChatAgent = options.chatAgent ?? chatAgents.getOrCreateChatAgent;
 
@@ -3893,10 +3935,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const provider = chatRouting
           ? chatRouting.provider
           : resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
-        const { session, isNew } = await getOrCreateChatAgent(profile, memories, {
+        const { session, isNew, release } = await getOrCreateChatAgent(profile, memories, {
           provider,
           apiKey: chatCredentials.apiKey,
           anthropicKey: chatCredentials.anthropicKey,
+          visitorKeyIdleMs: STALE_BUFFER_MS,
+          isRunDropped: () => chatRun.dropped,
           ...(chatRouting ? { stayOnProvider: true } : {}),
           settlementNoun: runLabels?.settlementNoun,
           populationNoun: runLabels?.populationNoun,
@@ -3910,7 +3954,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         });
 
         // Send message through the agent session (full history + memory + RAG automatic)
-        const result = await session.send(message);
+        let result: Awaited<ReturnType<typeof session.send>>;
+        try {
+          result = await session.send(message);
+        } finally {
+          release?.();
+        }
 
         // Surface per-turn token usage + cost so the dashboard footer
         // can fold chat spend into the run-total display. Without this,
@@ -4407,6 +4456,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           actors?: unknown;
           forkFrom?: unknown;
         };
+        if (refuseUnencryptedKeys(req, res, config)) return;
 
         // The run's scenario: the one the body names (Settings and the
         // re-run button at the top level, the Quickstart tab under
@@ -4970,7 +5020,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const page = readFileSync(landingPath, 'utf-8').replace(
           /__PARACOSM_VERSION__/g,
           PARACOSM_VERSION,
-        );
+        ).replaceAll('__VISITOR_KEY_IDLE_MINUTES__', String(visitorKeyIdleMinutes));
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
         res.end(siteAnalytics ? withSiteAnalytics(page, analyticsPage(req)) : page);
         return;

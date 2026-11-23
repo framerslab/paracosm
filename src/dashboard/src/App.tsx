@@ -1336,7 +1336,9 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />
+              {replaySessionId
+                ? <p>Start your own run to chat with its characters.</p>
+                : <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />}
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now
