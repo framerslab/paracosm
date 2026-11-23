@@ -17,6 +17,9 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  // The paste form reads the room it has in the form's own type size.
+  container-type: inline-size;
+  font-size: var(--font-read);
 }
 
 .heading {

@@ -417,6 +417,31 @@
   }
 }
 
+// Write your own scenario's room, read in its own type size by the section
+// around it on the Run tab: with under 16 em (200 per cent text on a phone)
+// the form keeps a narrower edge, the three tabs a smaller side padding so
+// they keep one row, and the actors' cost and time stand on their own line
+// under the slider, where they wrap.
+@container (max-width: 16em) {
+  .seedInput.pasteOnly {
+    padding: 10px;
+
+    .tab {
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+
+    .actorCountRow {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .actorCountPreview {
+      grid-column: 1 / -1;
+      white-space: normal;
+    }
+  }
+}
+
 // At the day's limit, above the key: the two at-limit sentences and the link to Settings' key field.
 .atLimit {
   display: flex;
