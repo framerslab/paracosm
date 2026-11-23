@@ -1240,6 +1240,48 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
   });
 });
 
+/** Every count of departments a part of the screen states, in the words it shows and in its spoken names. */
+const departmentCounts = (part: Locator): Promise<number[]> => part.evaluate((el) => {
+  const said = [el.textContent ?? '', ...Array.from(el.querySelectorAll('[aria-label]'), (named) => named.getAttribute('aria-label') ?? '')];
+  return said.flatMap((words) => Array.from(words.matchAll(/(\d+)\s+departments?\b/g), (found) => Number(found[1])));
+});
+
+// Features 3 and 14: the scenario line states the departments the run uses, and the colony panel under it draws
+// the scenario's key people. Mars Genesis holds three figures a line could count: its own departments, the fewer
+// a run on the host's keys uses, and the departments its key people work in. The screen states one of them.
+screenTest('features 3 and 14: the scenario line and the colony panel state one count of departments', async ({ page }) => {
+  test.setTimeout(180_000);
+  const scenario = await serverScenario(page) as ScenarioAnswer & { departments: unknown[] };
+  const config = await (await page.request.get(`${SERVER}/admin-config`)).json() as { demoCaps?: { maxActiveDepartments?: number } };
+  const own = scenario.departments.length;
+  const cap = config.demoCaps?.maxActiveDepartments;
+  const among = new Set(keyPeopleOf(scenario).map((p) => p.department)).size;
+  // The stored scenario and the host's cap hold three different figures: 5 of its own, 3 on a free run, 4 among the key people.
+  expect({ own, cap, among }).toEqual({ own: 5, cap: 3, among: 4 });
+
+  const read = async (size: { width: number; height: number }, look: Look, runUses: number, figures: string) => {
+    await test.step(`${size.width} in the ${look} look: the run uses ${runUses} departments`, async () => {
+      const { root, colony } = await openColony(page, size, look);
+      await expect(root.getByTestId('scenario-figures')).toHaveText(figures);
+      const line = await departmentCounts(root.getByTestId('scenario-line'));
+      const panel = await departmentCounts(colony);
+      expect(line.length, 'the scenario line states the departments the run uses').toBeGreaterThan(0);
+      expect(
+        Array.from(new Set([...line, ...panel])),
+        `the two lines state one count of departments (the scenario line ${JSON.stringify(line)}, the colony panel ${JSON.stringify(panel)})`,
+      ).toEqual([runUses]);
+    });
+  };
+
+  // A free run: the host's cap.
+  await read(PHONE, 'dark', 3, FREE_FIGURES);
+  await read(WIDE, 'light', 3, FREE_FIGURES);
+  // A run on the visitor's own key: the scenario's own.
+  await saveKey(page);
+  await read(PHONE, 'light', 5, OWN_KEY_FIGURES);
+  await read(WIDE, 'dark', 5, OWN_KEY_FIGURES);
+});
+
 screenTest('feature 14: under reduced motion', async ({ page }) => {
   test.setTimeout(120_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
