@@ -17,7 +17,7 @@ import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
 import { useScenarioContext } from '../../App';
-import { keepActiveRunActors, readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import { keepActiveRunActors, readTabKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { compileScenarioWithPolling } from './compile-poll';
@@ -195,7 +195,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // their own keys are available. Mirrors how RerunPanel composes
     // the next-run body — the same /setup endpoint reads the same
     // field names (apiKey, anthropicKey, provider, models, economics).
-    const overrides = typeof window !== 'undefined' ? readKeyOverrides(window.localStorage) : {};
+    const overrides = typeof window !== 'undefined' ? readTabKeyOverrides() : {};
     const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
     // The provider keys as the server reads them: also sent to actor
     // generation, so the leaders are written on the visitor's key too.
@@ -419,7 +419,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // The visitor's own provider keys from Settings go to every step that
       // calls a model (the draft and its compile, the actors, the run), so
       // each runs on the visitor's key when they saved one.
-      const providerKeys = typeof window !== 'undefined' ? sessionProviderKeys(readKeyOverrides(window.localStorage)) : {};
+      const providerKeys = typeof window !== 'undefined' ? sessionProviderKeys(readTabKeyOverrides()) : {};
       const { scenario, scenarioId } = await compileScenarioWithPolling({ ...payload, ...providerKeys });
       setPhase({ kind: 'progress', stage: 'research', scenario });
       // Real grounding pass: hits Serper for 3 derived queries, attaches

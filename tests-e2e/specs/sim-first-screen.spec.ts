@@ -325,7 +325,7 @@ screenTest('feature 3: one h1, the paragraph and the figures on a free run', asy
 screenTest('feature 3: own key reads the scenario figures', async ({ page }) => {
   test.setTimeout(120_000);
   await page.addInitScript(() => {
-    window.localStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-test"}');
+    window.sessionStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-test"}');
   });
   for (const size of [PHONE, WIDE]) {
     for (const look of LOOKS) {
@@ -1525,7 +1525,7 @@ const STARTING = 'Starting…';
 
 /** A provider key saved in Settings, as this browser keeps it: the run is the visitor's own. */
 async function saveKey(page: Page): Promise<void> {
-  await page.addInitScript(() => { window.localStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-test"}'); });
+  await page.addInitScript(() => { window.sessionStorage.setItem('paracosm:keyOverrides', '{"openai":"sk-test"}'); });
 }
 
 /** The visitor's last launch, as Settings keeps it. */
@@ -3638,7 +3638,7 @@ const LOAD_FAILED = 'The other scenarios did not load.';
 const OFFLINE_ROW = 'You are offline. Choose it again when you are back online.';
 const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
-const NOTE_ADULTS = 'For adults. Under 18? Use it with a parent’s or guardian’s permission.';
+const NOTE_ADULTS = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";
 const LICENCE = 'Paracosm · Apache-2.0 · Frame.dev';
 const HELD = 'You have a draft scenario below. Run it there, or clear it to play Mars Genesis.';
 const FOOT = '[data-testid="page-foot"]';

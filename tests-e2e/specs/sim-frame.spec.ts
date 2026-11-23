@@ -272,7 +272,7 @@ test('feature 13: the foot ends every tab', async ({ page, context }) => {
         await openTab(page, tab);
         await expect(foot).toHaveCount(1);
         await expect(page.getByRole('main').getByRole('contentinfo')).toHaveCount(0);
-        await expect(foot).toContainText("For adults. Under 18? Use it with a parent’s or guardian’s permission.");
+        await expect(foot).toContainText("Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.");
         await expect(foot).toContainText('Paracosm · Apache-2.0 · Frame.dev');
         const before = (await foot.boundingBox())!.y;
         await foot.scrollIntoViewIfNeeded();
@@ -509,7 +509,7 @@ test('feature 1: the visitor’s state by who pays', async ({ page }, info) => {
     await page.setViewportSize({ width, height: 844 });
     await expect(visitor(page)).toHaveText(width < 600 ? 'No free run' : 'Free demo: no run left today', { useInnerText: true });
   }
-  await page.evaluate(() => localStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'test-provider-key' })));
+  await page.evaluate(() => sessionStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'test-provider-key' })));
   await page.reload();
   await expect(visitor(page)).toHaveText('Your key', { useInnerText: true });
   await page.setViewportSize({ width: 1440, height: 844 });

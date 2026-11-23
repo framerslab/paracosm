@@ -23,7 +23,10 @@ import {
   SETTINGS_LABEL_STYLE,
   SETTINGS_SECTION_HEADER_STYLE,
 } from './shared/settingsStyles';
-import { readActiveRunActors, readActiveRunScenarioId, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import {
+  forgetTabKeyOverrides, readActiveRunActors, readActiveRunScenarioId, readTabKeyOverrides,
+  writeActiveRunActors, writeTabKeyOverrides, type KeyOverrides,
+} from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
 import styles from './SettingsPanel.module.scss';
@@ -323,30 +326,33 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
   const [demoCaps, setDemoCaps] = useState<{ maxTurns: number; maxPopulation: number; maxActiveDepartments: number }>({
     maxTurns: 6, maxPopulation: 30, maxActiveDepartments: 3,
   });
-  // Keys persist in localStorage so users don't have to re-enter them on every
-  // page reload. Written on change, read on mount. The key itself never
-  // leaves the browser except as part of a /setup or /compile request body;
-  // it is never rendered back into the input and is submitted with
-  // autoComplete=off.
-  const [keyOverrides, setKeyOverrides] = useState<Record<string, string>>(() => {
+  const [keyOverrides, setKeyOverrides] = useState(readTabKeyOverrides);
+  const [keyIdleMinutes, setKeyIdleMinutes] = useState<number | null>(null);
+  const [forgettingKeys, setForgettingKeys] = useState(false);
+  const [keyNotice, setKeyNotice] = useState('');
+
+  function updateKey(provider: keyof KeyOverrides, value: string) {
+    const next = { ...keyOverrides, [provider]: value };
+    writeTabKeyOverrides(next);
+    setKeyOverrides(next);
+    setKeyNotice('');
+  }
+
+  async function forgetKeys() {
+    setForgettingKeys(true);
+    forgetTabKeyOverrides();
+    setKeyOverrides({});
+    setKeyNotice('');
     try {
-      const stored = localStorage.getItem('paracosm:keyOverrides');
-      if (stored) {
-        const parsed = JSON.parse(stored) as Record<string, string>;
-        return {
-          openai: parsed.openai || '', anthropic: parsed.anthropic || '',
-          serper: parsed.serper || '', firecrawl: parsed.firecrawl || '',
-          tavily: parsed.tavily || '', cohere: parsed.cohere || '',
-        };
-      }
-    } catch { /* localStorage unavailable or JSON malformed — fall through */ }
-    return { openai: '', anthropic: '', serper: '', firecrawl: '', tavily: '', cohere: '' };
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem('paracosm:keyOverrides', JSON.stringify(keyOverrides));
-    } catch { /* quota or privacy mode — silent */ }
-  }, [keyOverrides]);
+      const response = await fetch('/forget-keys', { method: 'POST' });
+      if (!response.ok) throw new Error('Server cleanup failed');
+      setKeyNotice('Keys forgotten. Your held run and chat agents have been cleared.');
+    } catch {
+      setKeyNotice('Keys cleared from this tab. Select Forget my keys again to retry server cleanup.');
+    } finally {
+      setForgettingKeys(false);
+    }
+  }
 
   // Per-tier model choices for BYO-key users. Initialised from defaults for
   // the currently selected provider; reset whenever the provider changes so
@@ -403,6 +409,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       .then(r => r.json())
       .then(data => {
         if (data.keys) setEnvKeys(data.keys);
+        if (typeof data.visitorKeyIdleMinutes === 'number') setKeyIdleMinutes(data.visitorKeyIdleMinutes);
         if (typeof data.hostedDemo === 'boolean') setHostedDemo(data.hostedDemo);
         if (typeof data.adminWrite === 'boolean') setAdminWrite(data.adminWrite);
         if (typeof data.serverMode === 'string') setServerMode(data.serverMode as DashboardServerMode);
@@ -766,7 +773,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
         <div className={styles.keysIntro}>
           <p className={styles.keysIntroPara}>
             <strong className={styles.keysIntroBoldNeutral}>How key resolution works:</strong> The server checks for keys in this order:
-            your session overrides below, then the server .env file. If a key exists in either place, it's used. Values entered here are never displayed back.
+            this tab's keys below, then the server .env file.
           </p>
           <p className={styles.keysIntroPara}>
             <strong className={styles.keysIntroBoldGreen}>Rate limiting:</strong> The hosted demo limits simulations per IP per day when using the server's API keys.
@@ -801,14 +808,29 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
                 id={`key-${key}`}
                 type="password"
                 autoComplete="off"
-                value={keyOverrides[key]}
-                onChange={e => setKeyOverrides(prev => ({ ...prev, [key]: e.target.value }))}
+                data-clarity-mask="True"
+                value={keyOverrides[key] ?? ''}
+                disabled={forgettingKeys}
+                onChange={e => updateKey(key, e.target.value)}
                 placeholder={envKeys[key] ? 'Using .env value' : 'Not configured'}
-                className={styles.input}
+                className={`${styles.input} ph-no-capture ph-mask`}
               />
               <div className={styles.fieldHint}>{desc}</div>
             </div>
           ))}
+        </div>
+        <button type="button" className={styles.leaderAddBtn} disabled={forgettingKeys} onClick={forgetKeys}>
+          Forget my keys
+        </button>
+        {keyNotice && <p className={styles.fieldHint} role="status">{keyNotice}</p>}
+        <div className={styles.keysIntro} data-testid="visitor-key-notes">
+          <p className={styles.keysIntroPara}>Runs on your key are billed to your OpenAI or Anthropic account, under your agreement with them.</p>
+          {keyIdleMinutes !== null && (
+            <p className={styles.keysIntroPara}>We send your key to our server for each run and chat you start. It stays in our server's memory while they are in use, for {keyIdleMinutes} minutes at most after you stop, and is never written to disk or to a log.</p>
+          )}
+          <p className={styles.keysIntroPara}>This browser tab keeps your key until you close it. &quot;Forget my keys&quot; removes it now.</p>
+          <p className={styles.keysIntroPara}>Use a separate key with a spending limit, and delete it at your provider when you are done.</p>
+          <p className={styles.keysIntroParaLast}>Or <a href="/#get-started">run paracosm on your own computer</a>, and your key never leaves it.</p>
         </div>
       </fieldset>
 
