@@ -49,6 +49,7 @@ const WIDTHS = [1440, 390, 320] as const;
 /** Below this width a key is a phone's: 44 px tall and wide or more. */
 const PHONE_BELOW = 900;
 const PHONE_TARGET = 44;
+const MIN_ROW_FONT = 13;
 
 const sizeOf = (width: number) => ({ width, height: width < PHONE_BELOW ? 844 : 900 });
 
@@ -110,7 +111,9 @@ interface RowRead {
   /** Each key and menu in the row, with its size. */
   keys: Array<{ name: string; width: number; height: number }>;
   /** The row's sliders, with their width and whether each stands inside the row. */
-  sliders: Array<{ name: string; width: number; inside: boolean }>;
+  sliders: Array<{ name: string; width: number; height: number; inside: boolean }>;
+  /** The type size of each visible text label or control. */
+  labels: Array<{ name: string; fontSize: number }>;
   /** The row's words, as a reader sees them. */
   text: string;
 }
@@ -145,8 +148,10 @@ async function readRow(row: Locator): Promise<RowRead> {
       }),
       sliders: Array.from(el.querySelectorAll('input[type="range"]')).filter(drawn).map((c) => {
         const r = c.getBoundingClientRect();
-        return { name: named(c), width: r.width, inside: inside(r) };
+        return { name: named(c), width: r.width, height: r.height, inside: inside(r) };
       }),
+      labels: Array.from(el.querySelectorAll('span, button, select')).filter(drawn)
+        .map(c => ({ name: named(c), fontSize: parseFloat(getComputedStyle(c).fontSize) })),
       text: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
     };
   });
@@ -286,6 +291,18 @@ async function expectScrollKeys(page: Page, row: Locator, where: string): Promis
 /** The Viz tab's play controls: the row that holds the Previous turn key. */
 const playRow = (page: Page) => page.getByRole('button', { name: 'Previous turn', exact: true }).locator('xpath=..');
 
+function expectReadableRow(read: RowRead, where: string): void {
+  const small = read.labels.filter(label => label.fontSize < MIN_ROW_FONT)
+    .map(label => `${label.name}: ${label.fontSize} px`);
+  expect.soft(small, `${where}: the row's labels are at least ${MIN_ROW_FONT} px`).toEqual([]);
+}
+
+function expectPhoneKeys(read: RowRead, where: string): void {
+  const small = read.keys.filter(key => key.width < PHONE_TARGET - 0.5 || key.height < PHONE_TARGET - 0.5)
+    .map(key => `${key.name}: ${key.width.toFixed(1)} × ${key.height.toFixed(1)} px`);
+  expect.soft(small, `${where}: every key is at least ${PHONE_TARGET} px wide and tall on a phone`).toEqual([]);
+}
+
 for (const look of LOOKS) {
   test(`the Viz play controls are one row inside the window at 320, 390 and 1440, with 44 px keys on a phone, in the ${look} look`, async ({ page, request }) => {
     test.setTimeout(240_000);
@@ -301,6 +318,7 @@ for (const look of LOOKS) {
         await picture(page, `${width}-${look}-viz-play-row`, row, 220);
         const where = `${width}, ${look}, the play controls`;
         const read = await expectOneRow(page, row, where);
+        expectReadableRow(read, where);
         expect.soft(read.scrolls, `${where}: the row fits without scrolling`).toBe(false);
         expect.soft(read.scrollWidth, `${where}: no part spills past the row (${read.scrollWidth} px of parts in ${read.clientWidth} px)`).toBeLessThanOrEqual(read.clientWidth + 1);
         expect.soft(read.text, `${where}: the row tells the turn`).toMatch(/T\d+\/\d+/);
@@ -308,8 +326,8 @@ for (const look of LOOKS) {
         expect.soft(slider?.inside, `${where}: the scrub slider stands inside the row`).toBe(true);
         expect.soft(slider?.width ?? 0, `${where}: the scrub slider is at least 44 px wide`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
         if (width < PHONE_BELOW) {
-          expect.soft(read.keys.filter(k => k.height < PHONE_TARGET - 0.5).map(k => `${k.name}: ${k.height.toFixed(1)} px`), `${where}: every key is 44 px tall on a phone`).toEqual([]);
-          expect.soft(read.keys.filter(k => k.width < PHONE_TARGET - 0.5).map(k => `${k.name}: ${k.width.toFixed(1)} px`), `${where}: every key is 44 px wide on a phone`).toEqual([]);
+          expectPhoneKeys(read, where);
+          expect.soft(slider?.height ?? 0, `${where}: the scrub slider is at least 44 px tall on a phone`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
         }
       });
     }
@@ -337,6 +355,8 @@ for (const look of LOOKS) {
         await picture(page, `${width}-${look}-viz-event-row`, row, 220);
         const where = `${width}, ${look}, the event row`;
         const read = await expectOneRow(page, row, where);
+        expectReadableRow(read, where);
+        if (width < PHONE_BELOW) expectPhoneKeys(read, where);
         // The test's own ground: on a phone the heading, the five filter keys
         // and the marks are wider than the row.
         if (width < PHONE_BELOW) expect(read.scrolls, `${where}: its parts are wider than a phone (${read.scrollWidth} px in ${read.clientWidth} px)`).toBe(true);
@@ -427,6 +447,14 @@ for (const look of LOOKS) {
       if (turn < last) {
         await stepBack(page).click();
         await expect(firstGrid(page, turn)).toBeAttached();
+        const latest = page.getByRole('button', { name: `Jump to latest turn (T${last})` });
+        const latestBox = await latest.boundingBox();
+        const rowBox = await playRow(page).boundingBox();
+        expect.soft(latestBox, `T${turn}: the jump to the latest turn is available`).not.toBeNull();
+        if (latestBox && rowBox) {
+          const overlaps = latestBox.y < rowBox.y + rowBox.height && latestBox.y + latestBox.height > rowBox.y;
+          expect.soft(overlaps, `T${turn}: the jump to the latest turn leaves the play controls uncovered`).toBe(false);
+        }
       }
       // A cohort run opens with the words folded.
       if (await foldKey(page).isVisible()) await foldKey(page).click();
@@ -469,6 +497,7 @@ for (const look of LOOKS) {
     });
     for (const { turn, folded, open } of turns) {
       expect.soft(folded.window, `T${turn}: the cohort grid has its window with the words folded`).toBeGreaterThan(0);
+      expect.soft(folded.shown, `T${turn}: the cohort grid itself is visible with the words folded`).toBeGreaterThan(0);
       expect.soft(open.wordsTop, `T${turn}: the words are on the page once opened`).not.toBeNull();
       if (open.wordsTop !== null) {
         expect.soft(open.wordsTop, `T${turn}: the words open below the living grid (words from ${open.wordsTop.toFixed(1)} px, the grid shown to ${open.gridBottom.toFixed(1)} px)`).toBeGreaterThanOrEqual(open.gridBottom - 0.5);
@@ -554,6 +583,24 @@ test('on a phone the play controls keep the turn\'s time when the turn has no ti
     await picture(page, `${width}-dark-viz-play-row-untitled-turn`);
     const read = await readRow(playRow(page));
     expect.soft(read.text, `${width}: with no banner above, the play controls still give the turn's time ("${label}")`).toContain(label!);
+  }
+});
+
+test('a titled turn shows its time in the banner at every width and in the play row on desktop', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  await openViz(page, request, 'pair', 'dark', sizeOf(1440), 60_000);
+  const narrative = page.getByRole('status', { name: 'Current turn narrative' });
+  const bannerTime = narrative.getByText(/^T2 · \S+$/, { exact: true });
+  await expect(bannerTime).toBeVisible();
+  const time = (await bannerTime.innerText()).split('·')[1].trim();
+  const timedTurn = `T2/2 · ${time}`;
+  const turn = playRow(page).getByText('T2/2', { exact: false });
+
+  for (const width of WIDTHS) {
+    await page.setViewportSize(sizeOf(width));
+    await expect(bannerTime).toBeVisible();
+    await expect.soft(turn, `${width}: the play row's label for the titled turn`)
+      .toHaveText(width === 1440 ? timedTurn : 'T2/2', { useInnerText: true });
   }
 });
 
