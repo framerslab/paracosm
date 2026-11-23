@@ -88,7 +88,7 @@
     "leader:b": "npx tsx src/cli/run-b.ts"
   },
   "dependencies": {
-    "@framers/agentos": "^0.19.3",
+    "@framers/agentos": "^0.19.8",
     "@framers/sql-storage-adapter": "^0.9.7",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "better-sqlite3": "^12.11.1",
