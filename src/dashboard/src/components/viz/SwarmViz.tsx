@@ -732,8 +732,14 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       // A dialog over the tab keeps its own keys, the forge view's trace and
-      // toolbox among them; Escape still closes the help.
-      if (e.key !== 'Escape' && target?.closest('[role="dialog"]')) return;
+      // toolbox among them; Escape still closes the help, and from inside the
+      // help, which holds focus while open, ? closes it as it says.
+      const dialog = target?.closest('[role="dialog"]');
+      const helpKey = e.key === '?' || (e.shiftKey && e.key === '/');
+      if (e.key !== 'Escape' && dialog && !(helpKey && dialog.hasAttribute('data-viz-help'))) return;
+      // While the help is open the panel behind it keeps still, wherever
+      // focus has gone: only Escape and ? reach the tab, to close it.
+      if (helpOpen && e.key !== 'Escape' && !helpKey) return;
       // Space presses the control that holds focus, as it does on any page.
       if ((e.key === ' ' || e.key === 'Spacebar') && target?.closest(PRESSABLE)) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); handleStepBack(); }
@@ -1124,11 +1130,13 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
         ref={vizRootRef}
         className={`viz-content ${styles.root}`}
       >
-        {/* The panel's parts in their order. Above 480 px this box lays out as
-            if absent. On a phone it scrolls as one, so the living grid shows
-            whole under the controls and, on a short screen, every control and
-            the turn's outcomes stay a scroll away; the drawers and notices
-            after it keep their places over the panel. */}
+        {/* The panel's parts in their order. Above 480 px and 500 px tall
+            this box lays out as if absent. On a phone, and on a screen too
+            short for the controls and the grid together (a phone on its
+            side), it scrolls as one, so the living grid shows under the
+            controls at its own size and every control and the turn's
+            outcomes stay a scroll away; the drawers and notices after it
+            keep their places over the panel. */}
         <div className={styles.body}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
@@ -1510,20 +1518,24 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
-        {/* Over the panel's foot wider than a phone; on a phone it stands in
-            the flow above the play controls, never over the grid. */}
+        {/* Just above the play controls: on a taller screen it floats over
+            the panel from a box of no height at their top, so it clears them
+            however tall the rows under it are; on a phone and on a short
+            screen it stands in the flow, never over the grid. */}
         {maxTurn > 1 && currentTurn < maxTurn - 1 && (
-          <button
-            type="button"
-            onClick={() => handleTurnChange(maxTurn - 1)}
-            aria-label={`Jump to latest turn (T${maxTurn})`}
-            className={styles.jumpLatest}
-          >
-            {'\u2193'} Latest · T{maxTurn}
-            <span className={styles.jumpLatestBehind}>
-              ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
-            </span>
-          </button>
+          <div className={styles.jumpLatestAnchor}>
+            <button
+              type="button"
+              onClick={() => handleTurnChange(maxTurn - 1)}
+              aria-label={`Jump to latest turn (T${maxTurn})`}
+              className={styles.jumpLatest}
+            >
+              {'\u2193'} Latest · T{maxTurn}
+              <span className={styles.jumpLatestBehind}>
+                ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
+              </span>
+            </button>
+          </div>
         )}
         <VizControls
           currentTurn={currentTurn}

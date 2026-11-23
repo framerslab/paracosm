@@ -46,9 +46,10 @@ $read-size: 15px;
   position: relative;
 }
 
-// The panel's parts in their order (SwarmViz.tsx). Above 480 px the box lays
-// out as if absent, so every part stands in the root's column as it always
-// has; on a phone it is the panel's one scroll (the end of this file).
+// The panel's parts in their order (SwarmViz.tsx). Above 480 px and 500 px
+// tall the box lays out as if absent, so every part stands in the root's
+// column as it always has; on a phone and on a short screen it is the panel's
+// one scroll (the end of this file).
 .body { display: contents; }
 
 .toolbarStrip {
@@ -365,10 +366,18 @@ $read-size: 15px;
   border: 0;
 }
 
+// The Latest key's place: a box of no height at the top of the play
+// controls, so the key floats just above them whatever the height of the
+// play controls and the keyboard legend under it.
+.jumpLatestAnchor {
+  position: relative;
+  height: 0;
+}
+
 .jumpLatest {
   position: absolute;
   right: 16px;
-  bottom: 72px;
+  bottom: 8px;
   padding: 6px 12px;
   background: var(--amber);
   color: var(--bg-deep);
@@ -590,16 +599,18 @@ $read-size: 15px;
   line-height: 1.5;
 }
 
-// On a phone the Viz panel scrolls as one. Its parts keep their own heights,
-// so the living grid stands whole under the controls at its drawn size
-// rather than in a window the controls squeeze, and on a short screen every
-// control and the turn's outcomes stay a scroll away. The pair view's row of
-// grids and the cohort view's box, each a scroll window of its own before,
-// lay out at their own height in that one scroll. The drawers and notices
-// after the box keep their places over the panel. The Latest key, over the
-// panel's foot wider than a phone, stands in the flow above the play
-// controls, where it covers nothing.
-@media (max-width: 480px) {
+// On a phone, and on a screen too short for the controls and the grid
+// together (a phone on its side with its browser's bars), the Viz panel
+// scrolls as one. Its parts keep their own heights, so the living grid stands
+// under the controls at its drawn size rather than in a window the controls
+// squeeze to nothing, and every control and the turn's outcomes stay a
+// scroll away. The pair view's row of grids and the cohort view's box, each a
+// scroll window of its own before, lay out at their own height in that one
+// scroll. The drawers and notices after the box keep their places over the
+// panel. The Latest key, floating just above the play controls on a taller
+// screen, stands in the flow above them, where it covers nothing; there it is
+// a phone key, 44 px tall, its words at 15 px.
+@media (max-width: 480px), (max-height: 500px) {
   .body {
     display: flex;
     flex-direction: column;
@@ -611,9 +622,34 @@ $read-size: 15px;
     > * { flex-shrink: 0; }
   }
 
+  .jumpLatestAnchor {
+    display: flex;
+    justify-content: flex-end;
+    height: auto;
+  }
+
   .jumpLatest {
     position: static;
-    align-self: flex-end;
     margin: 6px 12px;
+    min-height: 44px;
+    font-size: $read-size;
   }
+
+  .jumpLatestBehind { font-size: $read-size; }
+}
+
+// On a short screen the pair view's row of grids lays out at its own height
+// in the panel's one scroll, each grid's box at least as tall as a phone's
+// (420 px, LivingSwarmGrid.module.scss), so scrolled to, the grid fills the
+// panel's view. Wider than a phone the grids stand side by side as before.
+@media (max-height: 500px) {
+  .leadersRow,
+  .leadersRowNarrow {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .leadersRow > .sideWrap { min-height: 420px; }
+
+  .leadersRowNarrow > .sideWrap { flex: 0 0 auto; }
 }

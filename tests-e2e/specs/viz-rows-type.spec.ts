@@ -566,12 +566,23 @@ for (const look of LOOKS) {
             await painted(page);
             const turnAfter = await scrub.getAttribute('aria-valuetext');
             expect.soft(turnAfter, `${where}: the left arrow key leaves the turn behind the help overlay alone`).toBe(turnBefore);
+            // A click on the overlay's words keeps the panel behind it still too.
+            await helpDialog(page).getByText('Keyboard', { exact: true }).click();
+            await page.keyboard.press('ArrowLeft');
+            await painted(page);
+            expect.soft(await scrub.getAttribute('aria-valuetext'), `${where}: after a click on the overlay's words, the left arrow key still leaves the turn alone`).toBe(turnBefore);
             await page.keyboard.press('Escape');
             await expect(helpDialog(page)).toHaveCount(0);
             const focusBack = await all.evaluate(el => el === document.activeElement);
             expect.soft(focusBack, `${where}: closing the help overlay brings focus back to its key`).toBe(true);
-            // Puts the run back on its last turn when the arrow moved it.
-            if (turnAfter !== turnBefore) await stepOn(page).click();
+            // The overlay says ? toggles it: from inside it, ? closes it too.
+            await page.keyboard.press('Enter');
+            await expect(helpDialog(page)).toBeVisible();
+            await page.keyboard.press('?');
+            await expect.soft(helpDialog(page), `${where}: ? closes the help overlay from inside it`).toHaveCount(0);
+            if (await helpDialog(page).count()) await page.keyboard.press('Escape');
+            // Puts the run back on its last turn when the arrows moved it.
+            for (let i = 0; i < 3 && (await scrub.getAttribute('aria-valuetext')) !== turnBefore; i += 1) await stepOn(page).click();
           }
         }
       });
