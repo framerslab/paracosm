@@ -1574,7 +1574,8 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           </div>
         )}
         {/* The Latest key stays in the flow above the play controls. */}
-        <div className={styles.jumpLatestAnchor}>
+        {maxTurn > 1 && currentTurn < maxTurn - 1 && (
+          <div className={styles.jumpLatestAnchor}>
             <button
               type="button"
               onClick={() => handleTurnChange(maxTurn - 1)}
