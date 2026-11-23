@@ -5059,6 +5059,32 @@ screenTest('feature 14: with the server’s settings unread and no key, the colo
   }
 });
 
+// Feature 10: whose keys a run uses comes from the server's settings. While they are unread and no key is saved,
+// Start names no run: it waits, as the scenario line's figures and the colony's count do, and the page asks again.
+screenTest('feature 10: with the server’s settings unread and no key, Start waits', async ({ page }) => {
+  test.setTimeout(120_000);
+  let failed = 0;
+  await page.route('**/admin-config', (route: Route) => {
+    failed += 1;
+    return route.abort('failed');
+  });
+  try {
+    const root = await openRun(page, PHONE, 'dark');
+    await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+    // The first read has failed and the page has asked again: the screen now shows what it does with the settings unread.
+    await expect.poll(() => failed, { timeout: 30_000, message: 'the settings are asked for again' }).toBeGreaterThanOrEqual(2);
+    await expect(sizeParts(root).part.getByTestId('run-size-value')).toHaveText('2 leaders');
+    const { key, notice } = startParts(root);
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'waiting');
+    await expect(key).toBeDisabled();
+    // No notice says whose keys the run uses, and none says it is this server's.
+    await expect(notice).toHaveCount(0);
+    await expect(root).not.toContainText(SERVER_NOTICE);
+  } finally {
+    await page.unroute('**/admin-config');
+  }
+});
+
 // Feature 3, QA step 13, at a tablet's width: with the text doubled the figures do not fit one line, and none is cut.
 screenTest('200 per cent text at 600 px: the scenario line’s figures stay inside the block', async ({ page }) => {
   test.setTimeout(120_000);
