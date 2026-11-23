@@ -102,7 +102,11 @@ const LONGEST_TIMER_MS = 2_147_483_647;
 const SETTINGS_RETRY_FIRST_MS = 2_000;
 /** The longest gap between two tries of /admin-config. */
 const SETTINGS_RETRY_MAX_MS = 15_000;
-/** While a refusal is kept, a read of /rate-limit that failed is tried again after this long, then at twice the gap each time. */
+/**
+ * The count is asked for again after this long, then at twice the gap each
+ * time: a read of /rate-limit that failed while a refusal is kept, and a count
+ * with no run left whose reset time has passed by this page's clock.
+ */
 const COUNT_RETRY_FIRST_MS = 2_000;
 /** The longest gap between two of those tries. */
 const COUNT_RETRY_MAX_MS = 15_000;
@@ -139,21 +143,35 @@ export function ServerFactsProvider({ children }: { children: ReactNode }) {
 
   // With no free run left, the count is read again once its reset time has
   // come, so a page left open offers Start again without a reload. A reset
-  // time already past sets no timer: the count that named it is the newest.
+  // time that has already passed by this page's clock (an answer that came
+  // after the reset, or a clock ahead of the server's, whose read at the
+  // reset time the server still answers for the old day) is read again after
+  // a short wait, then at twice the gap each time, until the server names a
+  // later day or a run is left. The effect runs again with each answer.
   const noneLeft = limitMet || (rateLimit.status === 'ready' && rateLimit.answer?.remaining === 0);
-  const resetAt = rateLimit.status === 'ready' ? rateLimit.answer?.resetAt : undefined;
+  const countAnswer = rateLimit.status === 'ready' ? rateLimit.answer : undefined;
+  const pastResetWait = useRef(COUNT_RETRY_FIRST_MS);
   useEffect(() => {
-    if (!noneLeft || resetAt === undefined) return undefined;
-    const until = resetAt - Date.now();
-    if (until <= 0 || until + RESET_READ_MARGIN_MS > LONGEST_TIMER_MS) return undefined;
+    if (!noneLeft) pastResetWait.current = COUNT_RETRY_FIRST_MS;
+    if (!noneLeft || countAnswer === undefined) return undefined;
+    const until = countAnswer.resetAt - Date.now();
+    let wait: number;
+    if (until > 0) {
+      pastResetWait.current = COUNT_RETRY_FIRST_MS;
+      wait = until + RESET_READ_MARGIN_MS;
+      if (wait > LONGEST_TIMER_MS) return undefined;
+    } else {
+      wait = pastResetWait.current;
+      pastResetWait.current = Math.min(wait * 2, COUNT_RETRY_MAX_MS);
+    }
     const timer = window.setTimeout(() => {
       void refreshRateLimit().then((next) => {
         // A run is left again: a refusal kept from before the reset no longer holds.
         if (next.status === 'ready' && (next.answer?.remaining ?? 0) > 0) setLimitMet(false);
       });
-    }, until + RESET_READ_MARGIN_MS);
+    }, wait);
     return () => window.clearTimeout(timer);
-  }, [noneLeft, resetAt, refreshRateLimit]);
+  }, [noneLeft, countAnswer, refreshRateLimit]);
 
   // A kept refusal ends with any count for a later day than the refused
   // one that has a run left: the read straight after the refusal, a read
