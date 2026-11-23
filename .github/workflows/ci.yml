@@ -268,6 +268,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Visitor keys and age notices end-to-end test
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/visitor-keys-and-age.spec.ts --project=chromium-desktop
+
       - name: Dashboard downloads end-to-end test
         if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
         run: npx playwright test tests-e2e/specs/dashboard-downloads.spec.ts --project=chromium-desktop
