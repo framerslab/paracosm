@@ -5,6 +5,7 @@
  */
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { BranchDelta } from '../branches/BranchesTab.helpers.js';
+import { downloadJson } from '../../download';
 import { buildReplayShareUrl, type ShareTargetTab } from '../../hooks/shareUrl.helpers';
 
 export interface SeedUrlValidation {
@@ -135,13 +136,5 @@ export function buildQuickstartShareUrl(
  * (browsers require a direct event for Save-As style downloads).
  */
 export function downloadArtifactJson(artifact: RunArtifact, filename: string): void {
-  const blob = new Blob([JSON.stringify(artifact, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadJson(JSON.stringify(artifact, null, 2), filename);
 }

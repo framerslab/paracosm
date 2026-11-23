@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { downloadBlob, downloadJson } from '../../download';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState.js';
 import styles from './SwarmViz.module.scss';
 import { useScenarioContext, useDashboardNavigation } from '../../App';
@@ -593,14 +594,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       if (recRafRef.current) cancelAnimationFrame(recRafRef.current);
       recRafRef.current = 0;
       const blob = new Blob(recChunksRef.current, { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `paracosm-timelapse-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.webm`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadBlob(
+        blob,
+        `paracosm-timelapse-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.webm`,
+      );
     };
     recorderRef.current = rec;
     setRecording(true);
@@ -669,17 +666,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       snapshots: { a: snapsA, b: snapsB },
       events: { a: sideStateA?.events ?? [], b: sideStateB?.events ?? [] },
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `paracosm-replay-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadJson(
+      JSON.stringify(payload, null, 2),
+      `paracosm-replay-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`,
+    );
   }, [currentTurn, leaderA, leaderB, snapsA, snapsB, sideStateA, sideStateB]);
 
 
@@ -706,14 +696,10 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     out.toBlob(
       blob => {
         if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `paracosm-viz-t${currentTurn + 1}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        downloadBlob(
+          blob,
+          `paracosm-viz-t${currentTurn + 1}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.png`,
+        );
       },
       'image/png',
     );
