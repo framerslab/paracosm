@@ -200,3 +200,20 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
   expect(xmp[0]).toContain('http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia');
   expect(xmp[0]).toContain('"generator":"paracosm"');
 });
+
+test('Reports distinguishes authored decisions and department prose from a fallback with the same words', async ({ page }) => {
+  await openPair(page, 'light');
+  await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+  const report = page.getByRole('region', { name: 'Turn-by-turn report' });
+  await expectMark(report.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
+  await expectMark(report.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true }).first());
+
+  const summaries = report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true });
+  await expect(summaries.first()).toBeVisible();
+  const sources = await summaries.evaluateAll(nodes =>
+    nodes.map(node => Boolean(node.closest('[data-ai-generated="true"]'))),
+  );
+  expect(sources).toContain(true);
+  expect(sources).toContain(false);
+  await expect(page.locator(meta)).toHaveCount(1);
+});
