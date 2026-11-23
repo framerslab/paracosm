@@ -1363,6 +1363,9 @@ for (const look of LOOKS) {
     await scrollBack(page);
     await painted(page);
     expect.soft(await inView(playRow(page)), 'the full play row is in view before any scroll').toBe(true);
+    expect.soft(await inView(gridOf(page, run.turns)), 'the first canvas is also fully in view').toBe(true);
+    const other = viz(page).getByRole('img', { name: new RegExp(`^Dietrich Voss colony, turn ${run.turns}\\.`) });
+    expect.soft(await inView(other), 'the second canvas is also fully in view').toBe(true);
 
     const food = viz(page).getByText('FOOD', { exact: true });
     await expect(food).toHaveCount(2);
@@ -1517,8 +1520,10 @@ test('the trait radar fits all six 15 px axes in the drilldown', async ({ page, 
   await openRun(page, run, 'dark', wideDesktop);
   const spotlight = gridOf(page, run.turns).locator('xpath=../..').getByRole('button', { name: /^Spotlight:/ }).first();
   await spotlight.click();
-  const radar = viz(page).getByRole('img', { name: 'HEXACO profile radar' });
-  await expect(radar).toBeVisible();
+  const drilldown = viz(page).getByRole('dialog', { name: /drilldown$/ });
+  await expect(drilldown).toBeVisible();
+  const radar = drilldown.getByRole('img', { name: 'HEXACO profile radar' });
+  await radar.scrollIntoViewIfNeeded();
   const axes = await radar.evaluate(svg => {
     const bounds = svg.getBoundingClientRect();
     return Array.from(svg.querySelectorAll('text')).map(axis => {
