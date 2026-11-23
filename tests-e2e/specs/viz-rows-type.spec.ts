@@ -42,7 +42,13 @@
  *   panel scrolls as one (390 x 339, 844 x 339) a grid stands outside the
  *   panel's view, and the picture is as tall as the panel laid out in full,
  *   each grid drawn where it stands in it; at 1440 the picture is the
- *   panel's own view, at twice its size.
+ *   panel's own view, at twice its size. The timelapse's frames keep the
+ *   panel's proportions: what they draw is as wide for its height as in the
+ *   PNG export, as the recording starts and after the panel's height
+ *   changes under it.
+ * - On the Viz tab one press of ? opens one overlay, the tab's help, and a
+ *   second press closes it; on a tab without a help of its own ? opens the
+ *   page's Keyboard shortcuts overlay.
  *
  * The stored runs are tests-e2e/support/viz-replay-server.ts's, served with
  * VIZ_REPLAY_EVENT_STARTS=1 on a port of their own: the hosted demo's six
@@ -768,9 +774,91 @@ const drawnIn = (page: Page, png: Buffer, boxes: Box[]): Promise<boolean[]> => p
   });
 }, { b64: png.toString('base64'), boxes });
 
+/** How far a timelapse frame's proportions may stand from the PNG export's: the grids move as they are drawn, and the two are read a moment apart. */
+const PROPORTION_SLACK = 0.08;
+
+/** A box of pixels of a picture, and the picture's size. */
+interface DrawnBox { pictureWidth: number; pictureHeight: number; left: number; top: number; width: number; height: number }
+
+/** Keeps the canvas the timelapse records from, so a frame can be read as the recorder gets it. */
+const keepRecordedCanvas = (page: Page) => page.addInitScript(() => {
+  const capture = HTMLCanvasElement.prototype.captureStream;
+  HTMLCanvasElement.prototype.captureStream = function captureAndKeep(this: HTMLCanvasElement, rate?: number) {
+    (window as unknown as { recordedCanvas?: HTMLCanvasElement }).recordedCanvas = this;
+    return rate === undefined ? capture.call(this) : capture.call(this, rate);
+  };
+});
+
+/** The box of everything drawn on the timelapse's frame: every pixel that differs from its top left one. Null before a frame is drawn. */
+const recordedBox = (page: Page): Promise<DrawnBox | null> => page.evaluate(() => {
+  const canvas = (window as unknown as { recordedCanvas?: HTMLCanvasElement }).recordedCanvas;
+  const ctx = canvas?.getContext('2d');
+  if (!canvas || !ctx || canvas.width === 0 || canvas.height === 0) return null;
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let x0 = canvas.width;
+  let y0 = canvas.height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const i = (y * canvas.width + x) * 4;
+      if (data[i] === data[0] && data[i + 1] === data[1] && data[i + 2] === data[2]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return null;
+  return { pictureWidth: canvas.width, pictureHeight: canvas.height, left: x0, top: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+});
+
+/** The box of everything drawn in a PNG: every pixel that differs from its top left one. */
+const pngBox = (page: Page, png: Buffer): Promise<DrawnBox | null> => page.evaluate(async (b64) => {
+  const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(bitmap, 0, 0);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let x0 = canvas.width;
+  let y0 = canvas.height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const i = (y * canvas.width + x) * 4;
+      if (data[i] === data[0] && data[i + 1] === data[1] && data[i + 2] === data[2]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return null;
+  return { pictureWidth: canvas.width, pictureHeight: canvas.height, left: x0, top: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+}, png.toString('base64'));
+
+/** Opens the Export menu from its key in the More panel, and returns one of its actions. */
+async function exportAction(page: Page, name: RegExp): Promise<Locator> {
+  if (!(await morePanel(page).isVisible())) await moreKey(page).click();
+  await expect(morePanel(page)).toBeVisible();
+  const action = page.getByRole('menuitem', { name });
+  if (!(await action.isVisible())) {
+    const key = exportKey(page);
+    await key.scrollIntoViewIfNeeded();
+    await key.click();
+  }
+  await expect(action).toBeVisible();
+  return action;
+}
+
 for (const look of LOOKS) {
   test(`the PNG export holds every living grid whole where the Viz panel scrolls as one (390 x 339, 844 x 339), and is the panel's own view at 1440, in the ${look} look`, async ({ page, request }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(300_000);
+    await keepRecordedCanvas(page);
     const run = await pairRun(request);
     for (const size of EXPORT_SIZES) {
       await test.step(`${size.width} x ${size.height}`, async () => {
@@ -817,7 +905,73 @@ for (const look of LOOKS) {
         laidOut.grids.forEach((g, i) => {
           expect.soft(drawn[i], `${where}: grid ${i + 1} is drawn where it stands in the panel laid out in full (${g.top.toFixed(1)} to ${(g.top + g.height).toFixed(1)} px down)`).toBe(true);
         });
+
+        // The timelapse, where the panel scrolls as one on a phone: its frames keep the panel's proportions.
+        if (size !== SHORT) return;
+        const lapse = `${size.width} x ${size.height}, ${look}, the timelapse`;
+        const inPicture = await pngBox(page, png);
+        expect(inPicture, `${lapse}: the PNG export holds a drawing to compare with`).not.toBeNull();
+        const proportion = (box: DrawnBox) => box.width / box.height;
+        await (await exportAction(page, /^REC/)).click();
+        let frame: DrawnBox | null = null;
+        await expect.poll(async () => { frame = await recordedBox(page); return frame !== null; }, { message: `${lapse}: the recording draws its first frame`, timeout: 20_000 }).toBe(true);
+        await painted(page);
+        const atStart = (await recordedBox(page)) ?? frame!;
+        // The panel's height changes under the recording: the More panel closes.
+        await moreKey(page).click();
+        await expect(morePanel(page)).toBeHidden();
+        await painted(page);
+        await painted(page);
+        const afterChange = await recordedBox(page);
+        const [video] = await Promise.all([page.waitForEvent('download'), (await exportAction(page, /^STOP/)).click()]);
+        expect.soft(video.suggestedFilename(), `${lapse}: stopping it downloads the recording`).toMatch(/^paracosm-timelapse-.*\.webm$/);
+
+        test.info().annotations.push({
+          type: `the timelapse, ${size.width} x ${size.height}`,
+          description: `the PNG export draws ${inPicture!.width} x ${inPicture!.height} px; the first frame draws ${atStart.width} x ${atStart.height} px in a ${atStart.pictureWidth} x ${atStart.pictureHeight} px frame${afterChange ? `, and ${afterChange.width} x ${afterChange.height} px after the More panel closed` : ''}`,
+        });
+        const startRatio = proportion(atStart) / proportion(inPicture!);
+        expect.soft(Math.abs(startRatio - 1), `${lapse}: the first frame keeps the panel's proportions (${atStart.width} x ${atStart.height} px drawn, against ${inPicture!.width} x ${inPicture!.height} px in the PNG export: ${startRatio.toFixed(3)} times as wide for its height)`).toBeLessThanOrEqual(PROPORTION_SLACK);
+        expect.soft(afterChange, `${lapse}: a frame is drawn after the More panel closed`).not.toBeNull();
+        if (afterChange) {
+          const changeRatio = proportion(afterChange) / proportion(inPicture!);
+          expect.soft(Math.abs(changeRatio - 1), `${lapse}: the frame keeps the panel's proportions after the panel's height changed (${afterChange.width} x ${afterChange.height} px drawn: ${changeRatio.toFixed(3)} times as wide for its height)`).toBeLessThanOrEqual(PROPORTION_SLACK);
+        }
       });
     }
   });
 }
+
+// ── One press of ?, one overlay ──────────────────────────────────────────
+
+test('on the Viz tab one press of ? opens the help overlay alone and a second closes it; on a tab without a help of its own ? opens the Keyboard shortcuts overlay', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const run = await pairRun(request);
+  await openRun(page, run, 'dark', sizeAt(1440));
+  const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+  /** Takes focus off every control, so the key goes to the page. */
+  const blur = () => page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+
+  await blur();
+  await page.keyboard.press('?');
+  await painted(page);
+  await expect.soft(helpDialog(page), 'on the Viz tab ? opens the help overlay').toBeVisible();
+  await expect.soft(shortcuts, 'on the Viz tab the same press opens no second overlay').toHaveCount(0);
+  await page.keyboard.press('?');
+  await painted(page);
+  await expect.soft(helpDialog(page), 'a second ? closes the help overlay').toHaveCount(0);
+  await expect.soft(shortcuts, 'the second press opens no other overlay either').toHaveCount(0);
+  for (let i = 0; i < 2 && ((await shortcuts.count()) + (await helpDialog(page).count())) > 0; i += 1) await page.keyboard.press('Escape');
+
+  // A tab without a help of its own: ? opens the page's shortcuts overlay, and closes it again.
+  await page.goto(`${SERVER}/sim?tab=settings`);
+  await expect(page.locator('.viz-content')).toHaveCount(0);
+  // The page takes the key once it has mounted: press until the overlay shows.
+  await expect(async () => {
+    await blur();
+    if ((await shortcuts.count()) === 0) await page.keyboard.press('?');
+    await expect(shortcuts).toBeVisible({ timeout: 1_000 });
+  }, 'on the Settings tab ? opens the Keyboard shortcuts overlay').toPass({ timeout: 30_000 });
+  await page.keyboard.press('?');
+  await expect.soft(shortcuts, 'a second ? closes it').toHaveCount(0);
+});
