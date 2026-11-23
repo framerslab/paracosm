@@ -1,3 +1,10 @@
+import {
+  apiKeyForProvider,
+  resolveProviderFromCredentials,
+  type ProviderCredentialOptions,
+  type ProviderRoutingOptions,
+} from '../engine/provider/credentials.js';
+import { resolveProviderWithFallback } from '../engine/provider/resolver.js';
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { Department } from '../engine/core/state.js';
 import type { ScenarioPackage } from '../engine/types.js';
@@ -533,6 +540,32 @@ export function resolveSimulationModels(
     // forcing the orchestrator to fall back to a hardcoded gpt-4o-mini even
     // when the run is on Anthropic.
     agentReactions: normalizeModel(models?.agentReactions, defaults.agentReactions ?? defaults.departments),
+  };
+}
+
+type SimulationRoutingOptions = ProviderCredentialOptions & ProviderRoutingOptions & {
+  provider?: LlmProvider;
+  models?: Partial<SimulationModelConfig>;
+  costPreset?: CostPreset;
+};
+
+/** Resolve the provider and the five role assignments before a simulation starts. */
+export function resolveSimulationRouting(
+  options: SimulationRoutingOptions,
+  env?: NodeJS.ProcessEnv,
+  silent = false,
+) {
+  const requested = resolveProviderFromCredentials(options.provider, options, 'openai');
+  const { provider } = resolveProviderWithFallback(requested, {
+    apiKey: apiKeyForProvider(requested, options),
+    stayOnProvider: options.stayOnProvider,
+    env,
+    silent,
+  });
+  return {
+    provider,
+    apiKey: apiKeyForProvider(provider, options),
+    models: resolveSimulationModels(provider, options.models, options.costPreset),
   };
 }
 

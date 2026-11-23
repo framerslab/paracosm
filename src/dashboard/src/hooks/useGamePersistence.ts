@@ -1,3 +1,4 @@
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import { useCallback } from 'react';
 import { downloadJson } from '../download';
 import type { SimEvent } from './useSSE';
@@ -51,6 +52,7 @@ export type ParseResult =
 
 interface GameData {
   config: Record<string, unknown> | null;
+  provenance?: RunProvenance;
   events: SimEvent[];
   results: unknown[];
   /** End-of-sim LLM verdict — was being silently dropped from saves before. */
@@ -67,9 +69,10 @@ export function useGamePersistence(
   scenarioShortName: string,
   scenarioStamp?: SavedScenarioStamp,
 ) {
-  const save = useCallback((events: SimEvent[], results: unknown[], verdict?: Record<string, unknown> | null) => {
+  const save = useCallback((events: SimEvent[], results: unknown[], verdict?: Record<string, unknown> | null, provenance?: RunProvenance | null) => {
     const data: GameData = {
       config: null,
+      ...(provenance ? { provenance } : {}),
       events,
       results,
       verdict: verdict ?? null,

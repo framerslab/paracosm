@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RunArtifact } from '../../engine/schema/index.js';
+import { resolveSimulationRouting } from '../../cli/sim-config.js';
+import { ProviderKeyMissingError } from '../../engine/provider/resolver.js';
+import { makeRunProvenance, RunProvenanceSchema, type RunArtifact, type RunProvenance } from '../../engine/schema/index.js';
 import type { ParacosmServerMode } from '../server-mode.js';
 
 export interface RunRecord {
@@ -75,6 +77,66 @@ export function withoutOutputPath(artifact: RunArtifact): RunArtifact {
   const { outputPath, ...rest } = ext;
   void outputPath;
   return { ...artifact, scenarioExtensions: rest as RunArtifact['scenarioExtensions'] };
+}
+
+/** Resolve the same assignments as the runner without exposing its credentials. */
+export function resolveRunProvenance(
+  options: Parameters<typeof resolveSimulationRouting>[0],
+  env: NodeJS.ProcessEnv,
+): RunProvenance {
+  try {
+    return makeRunProvenance({ ...resolveSimulationRouting(options, env, true).models });
+  } catch (error) {
+    // Keep admitting runs as before. A missing key is reported by the runner.
+    if (error instanceof ProviderKeyMissingError) return makeRunProvenance({});
+    throw error;
+  }
+}
+
+/** Read a validated mark from recorded metadata. */
+export function readRunProvenance(value: unknown): RunProvenance | undefined {
+  return RunProvenanceSchema.safeParse(value).data;
+}
+
+/** Derive provenance from a recorded frame or the assignments it retained. */
+export function recordedFrameProvenance(data: unknown): RunProvenance | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+  const frame = data as { provenance?: unknown; artifact?: { provenance?: unknown }; config?: { models?: Record<string, unknown> } };
+  const known = readRunProvenance(frame.provenance) ?? readRunProvenance(frame.artifact?.provenance);
+  if (known) return known;
+
+  const models: Record<string, string> = {};
+  for (const role of ['commander', 'departments', 'judge', 'director', 'agentReactions']) {
+    const value = frame.config?.models?.[role];
+    if (typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$/.test(value)) models[role] = value;
+  }
+  return Object.keys(models).length > 0 ? makeRunProvenance(models) : undefined;
+}
+
+/** The provenance preserved in a stored sequence, when it recorded any. */
+export function recordedRunProvenance(frames: Iterable<string>): RunProvenance | undefined {
+  for (const frame of frames) {
+    const line = frame.split('\n', 2)[1];
+    if (!line?.startsWith('data: ')) continue;
+    try {
+      const provenance = recordedFrameProvenance(JSON.parse(line.slice(6)));
+      if (provenance) return provenance;
+    } catch { /* Historical frame has no readable payload. */ }
+  }
+  return undefined;
+}
+
+/** Add provenance without changing the SSE event name or frame delimiters. */
+export function withRunProvenance(frame: string, provenance: RunProvenance): string {
+  return frame.replace(/^data: ([^\r\n]*)/m, (line, raw: string) => {
+    try {
+      const data: unknown = JSON.parse(raw);
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        return `data: ${JSON.stringify({ ...data, provenance })}`;
+      }
+    } catch { /* Keep unreadable historical frames as stored. */ }
+    return line;
+  });
 }
 
 /** Projects the artifact in a stored result frame before it is sent to a caller. */

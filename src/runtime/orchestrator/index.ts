@@ -69,17 +69,14 @@ import type { ScenarioPackage } from '../../engine/types.js';
 import type { LlmProvider, ScenarioLabels, SimulationModelConfig } from '../../engine/types.js';
 import {
   DEFAULT_EXECUTION,
-  resolveSimulationModels,
+  resolveSimulationRouting,
   type CostPreset,
   type SimulationExecutionConfig,
   type StartingPolitics,
   type StartingResources,
 } from '../../cli/sim-config.js';
-import { resolveProviderWithFallback } from '../../engine/provider/resolver.js';
 import {
-  apiKeyForProvider,
   fallbackProvidersFor,
-  resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
 } from '../../engine/provider/credentials.js';
 import { applyCustomEventToCrisis, buildTimeSchedule } from '../util/runtime-helpers.js';
@@ -546,20 +543,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // values back. Either way, every `.hexaco.X` read below is safe.
   const leaderHexaco: HexacoProfile = leader.hexaco ?? traitsToHexaco(normalized.traitProfile.traits);
   const timePerTurn = opts.timePerTurn ?? opts.scenario?.setup?.defaultTimePerTurn ?? 1;
-  const requestedProvider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
-  const requestedProviderApiKey = apiKeyForProvider(requestedProvider, opts);
-  // Preflight env check. Falls back to the other supported provider if
-  // the requested one has no key; throws ProviderKeyMissingError when
-  // neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set, rather than
-  // hanging in a retry loop during the first LLM call. A run that stays on
-  // its provider (`stayOnProvider`, the hosted demo) never moves to another
-  // provider's key: its provider's missing key throws instead.
-  const resolvedProvider = resolveProviderWithFallback(requestedProvider, {
-    apiKey: requestedProviderApiKey,
-    stayOnProvider: opts.stayOnProvider,
-  });
-  const provider = resolvedProvider.provider;
-  const providerApiKey = apiKeyForProvider(provider, opts);
+  const { provider, apiKey: providerApiKey, models: modelConfig } = resolveSimulationRouting(opts);
   // The fallback chain every model call of the run passes AgentOS: none on
   // the run's own key or when the run stays on its provider.
   const callFallbackProviders = fallbackProvidersFor(providerApiKey, opts.stayOnProvider);
@@ -568,14 +552,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
     || 'leader';
   const sid = `${sc.labels.shortName}-v2-${archetypeSlug}`;
-  const modelConfig = resolveSimulationModels(provider, opts.models, opts.costPreset);
-  const provenance = makeRunProvenance({
-    commander: modelConfig.commander,
-    departments: modelConfig.departments,
-    judge: modelConfig.judge,
-    director: modelConfig.director,
-    agentReactions: modelConfig.agentReactions,
-  });
+  const provenance = makeRunProvenance({ ...modelConfig });
   // Cost tracking: accumulate token usage and estimated cost across all LLM calls
   // Cost tracker: per-site buckets + cache-aware fallback estimation.
   // Lives in cost-tracker.ts so the math has one home and the turn loop

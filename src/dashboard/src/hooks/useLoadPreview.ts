@@ -18,6 +18,7 @@ import {
   type PreviewMetadata,
   type PreviewState,
 } from './useLoadPreview.helpers.js';
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import type { SimEvent } from './useSSE';
 import type { ParseResult } from './useGamePersistence';
 
@@ -39,6 +40,7 @@ export interface UseLoadPreviewOptions {
     events: SimEvent[];
     results: unknown[];
     verdict: Record<string, unknown> | null;
+    provenance?: RunProvenance;
   }) => void;
   /** Called when a pick fails (non-JSON, empty events, parse error, too-new schema). */
   onError?: (reason: string) => void;
@@ -116,6 +118,7 @@ export function useLoadPreview(opts: UseLoadPreviewOptions): UseLoadPreviewApi {
       events?: SimEvent[];
       results?: unknown[];
       verdict?: Record<string, unknown> | null;
+      provenance?: RunProvenance;
     };
     dispatch({ type: 'confirm' });
     try {
@@ -123,6 +126,7 @@ export function useLoadPreview(opts: UseLoadPreviewOptions): UseLoadPreviewApi {
         events: (data.events ?? []) as SimEvent[],
         results: (data.results ?? []) as unknown[],
         verdict: (data.verdict ?? null) as Record<string, unknown> | null,
+        ...(data.provenance ? { provenance: data.provenance } : {}),
       });
     } finally {
       // Always close the modal, even if the caller's onConfirm throws.

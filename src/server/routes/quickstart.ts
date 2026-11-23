@@ -1,3 +1,4 @@
+import type { CostPreset } from '../../cli/sim-config.js';
 import { withoutOutputPath } from '../services/run-record.js';
 /**
  * Quickstart HTTP routes (Tier 5 onboarding). Three endpoints:
@@ -347,7 +348,9 @@ export interface QuickstartDeps {
    * caller's own key counts for its address under the run cap, as a /setup
    * run on one does, and keeps its provider and keys for its chats.
    */
-  openRun?: (scenario: ScenarioPackage, runKey?: string, calls?: QuickstartModelCalls) => OpenedRun | Promise<OpenedRun>;
+  openRun?: (
+    scenario: ScenarioPackage, runKey: string | undefined, calls: QuickstartModelCalls, costPreset: CostPreset,
+  ) => OpenedRun | Promise<OpenedRun>;
   /**
    * True when a run has already opened with this key. Pages tell runs apart
    * by key and read each key off the stream, so a request naming a used key
@@ -921,9 +924,10 @@ export async function handleSimulateIntervention(
   }
   // The caller's run, with its own buffer and viewers, so the dashboard's
   // gameState does not interleave it with whatever run came before.
+  const costPreset = hostLimits || calls.runModels ? 'economy' : options.costPreset ?? 'economy';
   let run: OpenedRun | null = null;
   try {
-    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls) : null;
+    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls, costPreset) : null;
   } catch (err) {
     hostLimits?.run.refund();
     if (err instanceof RunCapacityError) {
@@ -953,7 +957,6 @@ export async function handleSimulateIntervention(
   // routing's, which hold with the limiter off too), else the limits' turn
   // cap and the economy tier.
   const maxTurns = Math.min(options.maxTurns ?? 2, calls.maxTurns ?? hostLimits?.maxTurns ?? Number.POSITIVE_INFINITY);
-  const costPreset = hostLimits || calls.runModels ? 'economy' : options.costPreset ?? 'economy';
   send('status', {
     phase: 'parallel',
     maxTurns,

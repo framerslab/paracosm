@@ -72,7 +72,11 @@ import {
   withSiteAnalytics,
   type SiteAnalyticsIds,
 } from './site-analytics.js';
-import { createRunRecord, hashActorConfig, publicResultFrame, withoutBrief } from './services/run-record.js';
+import {
+  createRunRecord, hashActorConfig, publicResultFrame, recordedRunProvenance,
+  resolveRunProvenance, withoutBrief, withRunProvenance,
+} from './services/run-record.js';
+import { makeRunProvenance } from '../engine/schema/index.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -2156,9 +2160,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // and title calls are not an actor's. A run with no artifact costs
         // (a runner that hands none back) takes the cost its frames carry.
         const artifactCosts = [...run.artifactCosts.values()];
-        const override = artifactCosts.length > 0
-          ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) }
-          : undefined;
+        const override = {
+          provenance: run.provenance,
+          ...(artifactCosts.length > 0 ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) } : {}),
+        };
         result = await sessionStore.saveSession(events, override, { owner: sessionOwner(run.visitorId), runKey: run.key });
       } finally {
         savesCommitting.delete(commit);
@@ -2598,7 +2603,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
       });
-      res.write(`event: connected\ndata: ${JSON.stringify({ actorFilter, runKey: run?.key ?? null, visitorId })}\n\n`);
+      const connected = { actorFilter, runKey: run?.key ?? null, visitorId, ...(run ? { provenance: run.provenance } : {}) };
+      res.write(`event: connected\ndata: ${JSON.stringify(connected)}\n\n`);
       // Replay the run's buffered events so a new client catches up. The
       // trailing `replay_done` marker lets the client distinguish
       // historical-buffer events from truly live ones so toasts (transient
@@ -3212,12 +3218,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // alone, and it holds a capacity slot until `finish`. Its events go
           // through the broadcast bound to it, so a late event of a twin its
           // visitor has since replaced is discarded.
-          openRun: (scenario, runKey, calls) => {
+          openRun: (scenario, runKey, calls, costPreset) => {
             // A twin on the caller's own key skips the day limit, as a /setup
             // run on one does, so its address holds all but one of the run
             // slots; and it has no config to hold its keys, so the run keeps
             // them, in memory alone, for a chat that brings none.
-            const ownKeys = calls && !calls.hostPaid
+            const ownKeys = !calls.hostPaid
               ? {
                   provider: calls.provider,
                   ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
@@ -3230,6 +3236,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               scenario,
               seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
+              provenance: resolveRunProvenance({ ...calls, models: calls.runModels, costPreset }, env),
               runKey,
               ownKeyAddress: ownKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
               ownKeys,
@@ -4396,7 +4403,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // was reads it, on the hosted demo.
       const hideBrief = briefHiddenFrom(session, req);
       void (async () => {
-        let prevTs = session.events[0]?.ts ?? 0;
+        const provenance = session.meta.provenance
+          ?? recordedRunProvenance(session.events.map(event => event.sse))
+          ?? makeRunProvenance({});
+        if (session.events.length === 0) {
+          res.end(`event: provenance\ndata: ${JSON.stringify({ provenance })}\n\n`);
+          return;
+        }
+        let first = true;
+        let prevTs = session.events[0].ts;
         for (const ev of session.events) {
           if (cancelled || res.destroyed) return;
           if (!isInstant) {
@@ -4409,7 +4424,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // a reader that does not read holds a buffer's worth of the
             // session, never the whole of it.
             const frame = publicResultFrame(ev.sse);
-            if (!res.write(hideBrief ? withoutBrief(frame) : frame)) await waitForDrain(res);
+            const visible = hideBrief ? withoutBrief(frame) : frame;
+            const outgoing = first ? withRunProvenance(visible, provenance) : visible;
+            first = false;
+            if (!res.write(outgoing)) await waitForDrain(res);
           } catch {
             return;
           }
@@ -5406,6 +5424,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         scenario: runScenario,
         seedText: hooks?.seedText ?? null,
         config,
+        provenance: resolveRunProvenance(config, env),
         forkedFrom: config.forkFrom
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,
