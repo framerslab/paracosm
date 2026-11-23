@@ -2987,9 +2987,9 @@ const drawingOf = (canvas: Locator, first: string, second: string): Promise<{ dr
 interface RosterRecord { population: number; leaders: Record<string, string[]> }
 
 /** Presses Start on the ready first screen and waits for the page to open the run on the Sim tab. */
-async function startAndWatch(page: Page, root: Locator): Promise<void> {
+async function startAndWatch(page: Page, root: Locator, name: string | RegExp = START_FREE): Promise<void> {
   const { key } = startParts(root);
-  await expect(key).toHaveAccessibleName(START_FREE);
+  await expect(key).toHaveAccessibleName(name);
   await key.click();
   await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
 }
@@ -3002,7 +3002,7 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
       const documentStart = () => page.evaluate(() => performance.timeOrigin);
       const beforeLaunch = await documentStart();
       if (launch === 'Start with the page hand-off') {
-        await startAndWatch(page, root);
+        await startAndWatch(page, root, /^Start Atlas Lab:/);
         expect(await documentStart()).not.toBe(beforeLaunch);
       } else {
         await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
