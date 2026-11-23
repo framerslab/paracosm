@@ -25,7 +25,8 @@ const SHORTCUTS: Shortcut[] = [
 /**
  * Modal overlay listing all keyboard shortcuts. Toggled by `?` from
  * anywhere in the app (skips when focus is in an input/textarea so the
- * user can still type a literal `?`).
+ * user can still type a literal `?`, and when focus is inside another
+ * dialog, which keeps its own keys).
  */
 export function ShortcutsOverlay() {
   const [open, setOpen] = useState(false);
@@ -34,8 +35,12 @@ export function ShortcutsOverlay() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       const editable = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target as HTMLElement)?.isContentEditable;
+      // Another dialog that holds focus keeps its own keys: the Viz tab's
+      // help closes on ?, and this overlay does not open in its place.
+      const dialog = e.target instanceof Element ? e.target.closest('[role="dialog"]') : null;
+      const otherDialog = !!dialog && dialog.getAttribute('aria-label') !== 'Keyboard shortcuts';
 
-      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !editable) {
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !editable && !otherDialog) {
         e.preventDefault();
         setOpen(o => !o);
       } else if (e.key === 'Escape' && open) {
