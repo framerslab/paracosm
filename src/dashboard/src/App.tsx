@@ -949,7 +949,9 @@ function AppContent() {
 
   useSimSavedToast({ events: sse.events, userTriggeredRun });
 
-  const runExists = sse.events.length > 0 || launching;
+  // A Digital Twin can run in a different scenario and use its own event feed.
+  const showsDigitalTwin = interventionRunning !== null || interventionArtifact !== null;
+  const runExists = sse.events.length > 0 || launching || showsDigitalTwin;
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
@@ -1065,7 +1067,7 @@ function AppContent() {
                   sse={sse}
                   sessionId={replaySessionId ?? undefined}
                   onRunStarted={() => { leaveDigitalTwin(); setUserTriggeredRun(true); }}
-                  showsDigitalTwin={interventionRunning !== null || interventionArtifact !== null}
+                  showsDigitalTwin={showsDigitalTwin}
                   onInterventionStart={handleInterventionStart}
                   onInterventionResult={handleInterventionResult}
                   onInterventionError={handleInterventionError}
@@ -1256,9 +1258,9 @@ function AppContent() {
               chatCalls: chatUsage.calls,
             }}
             simStatus={{
-              isRunning: gameState.isRunning || launching,
-              isComplete: sse.isComplete,
-              isAborted: sse.isAborted,
+              isRunning: showsDigitalTwin ? interventionRunning !== null : gameState.isRunning || launching,
+              isComplete: showsDigitalTwin ? interventionArtifact !== null : sse.isComplete,
+              isAborted: !showsDigitalTwin && sse.isAborted,
               connectionStatus: sse.status,
               abortReason: sse.abortReason,
               providerError: sse.providerError,
