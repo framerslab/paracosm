@@ -111,6 +111,23 @@
   @include quiet-tone;
 }
 
+// The key line's room, read in its own type size: the three items need
+// about 18 em on one row, so with under 14 em (200 per cent text on a phone)
+// they stand one under another, each whole.
+.keyBox {
+  container-type: inline-size;
+  min-width: 0;
+  font-size: var(--font-read);
+}
+
+@container (max-width: 14em) {
+  .key {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
 // An item is never narrower than its longest word, so a word is never cut;
 // "Featured person" wraps at its space where the row is short.
 .keyItem {

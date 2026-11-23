@@ -52,27 +52,29 @@ function ColonyHeader({ figures, loading }: { figures?: string; loading?: boolea
 function ColonyKey() {
   const glyph = { color: 'var(--vis)' } as CSSProperties;
   return (
-    <ul className={styles.key} data-testid="colony-key" data-row="colony key">
-      <li className={styles.keyItem}>
-        <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <rect x="2" y="2" width="12" height="12" fill="currentColor" />
-        </svg>
-        <span>{COLONY_KEY.department}</span>
-      </li>
-      <li className={styles.keyItem}>
-        <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-        <span>{COLONY_KEY.person}</span>
-      </li>
-      <li className={styles.keyItem}>
-        <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.6" />
-          <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1" />
-        </svg>
-        <span>{COLONY_KEY.featured}</span>
-      </li>
-    </ul>
+    <div className={styles.keyBox}>
+      <ul className={styles.key} data-testid="colony-key" data-row="colony key">
+        <li className={styles.keyItem}>
+          <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <rect x="2" y="2" width="12" height="12" fill="currentColor" />
+          </svg>
+          <span>{COLONY_KEY.department}</span>
+        </li>
+        <li className={styles.keyItem}>
+          <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="8" cy="8" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <span>{COLONY_KEY.person}</span>
+        </li>
+        <li className={styles.keyItem}>
+          <svg className={styles.keyGlyph} style={glyph} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1" />
+          </svg>
+          <span>{COLONY_KEY.featured}</span>
+        </li>
+      </ul>
+    </div>
   );
 }
 

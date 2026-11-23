@@ -249,7 +249,10 @@
   line-height: 1.4;
   text-align: left;
   vertical-align: bottom;
-  overflow-wrap: break-word;
+  // A word wider than its column breaks inside it, so the table never stands
+  // past the card (200 per cent text on a phone); where the words fit, as at
+  // every width at 100 per cent, nothing breaks.
+  overflow-wrap: anywhere;
   @include quiet-tone;
 }
 
