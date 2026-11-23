@@ -20,6 +20,8 @@ export const SHARE_WHO_CAN_OPEN = 'Anyone who has this link and can reach this d
 /** Who can open a replay link made on a dashboard served at a local address. */
 export const SHARE_OPENS_ONLY_HERE = 'This link opens only on this computer: the dashboard is served at a local address.';
 
+const FOR_TEACHERS = "For teachers: run a simulation yourself and show it to your class, or share its replay link. A replay only plays back a finished run, and sends nothing new to an AI model. A student who starts their own run must be 13 or over and have a parent's or guardian's permission.";
+
 interface ShareLinkNoteProps {
   shared: SharedLink;
   onClose: () => void;
@@ -51,6 +53,7 @@ export function ShareLinkNote({ shared, onClose }: ShareLinkNoteProps) {
       <p className={styles.who}>
         {shareLinkOpensOnlyHere(shared.url) ? SHARE_OPENS_ONLY_HERE : SHARE_WHO_CAN_OPEN}
       </p>
+      <p className={styles.who}>{FOR_TEACHERS}</p>
       <button type="button" className={styles.close} onClick={onClose}>Close</button>
     </div>
   );

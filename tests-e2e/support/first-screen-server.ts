@@ -31,6 +31,7 @@
  * request here reaches a model: the pair runner is the stub below, and a
  * test that has Paracosm write leaders answers that request itself.
  */
+import { once } from 'node:events';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -39,6 +40,7 @@ import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
+import { withProviderWire } from '../../tests/cli/helpers/provider-wire.js';
 import { advanceKernelTurn, snapshotData } from './kernel-turn.js';
 
 const PORT = Number(process.env.PORT ?? 3470);
@@ -119,4 +121,8 @@ const server = createMarsServer({
     });
   },
 });
-server.listen(PORT);
+// The credential cleanup spec uses the real chat pool against a fixture provider.
+await withProviderWire(async () => {
+  server.listen(PORT);
+  await once(server, 'close');
+}, () => 'The engineering team kept the power on.');

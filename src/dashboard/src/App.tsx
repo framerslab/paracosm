@@ -446,6 +446,17 @@ function AppContent() {
     leaveOwnRun();
   }, [leaveOwnRun]);
 
+  // An accepted launch takes the visitor from saved playback to their
+  // own live stream. Other tab changes keep the replay address intact.
+  const showNewRun = useCallback(() => {
+    leaveDigitalTwin();
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('replay')) return;
+    url.searchParams.delete('replay');
+    window.history.replaceState(window.history.state, '', url.toString());
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, [leaveDigitalTwin]);
+
   const loadPreview = useLoadPreview({
     pickFile: async () => {
       const file = await persistence.pickFile();
@@ -1040,8 +1051,8 @@ function AppContent() {
         toast('error', 'Launch Failed', data.error || 'Unknown error');
       } else {
         emitLaunched(window, data.visitorId);
-        // The server took the run: it replaces the Digital Twin views.
-        leaveDigitalTwin();
+        // The server took the run: switch to its live stream.
+        showNewRun();
       }
       // Success path: leave launching=true; the effect above clears it
       // when the first SSE event arrives.
@@ -1049,12 +1060,12 @@ function AppContent() {
       setLaunching(false);
       toast('error', 'Launch Failed', String(err));
     }
-  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, leaveDigitalTwin, interventionArtifact]);
+  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, showNewRun, interventionArtifact]);
 
   return (
     <BranchesProvider>
     <DashboardNavigationContext.Provider value={navigateTab}>
-     <RunStartContext.Provider value={leaveDigitalTwin}>
+     <RunStartContext.Provider value={showNewRun}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
       <ScenarioLoadContext.Provider value={scenarioLoad}>
@@ -1336,7 +1347,9 @@ function AppContent() {
               tabIndex={-1}
               className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
             >
-              <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />
+              {replaySessionId
+                ? <p>Start your own run to chat with its characters.</p>
+                : <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />}
             </section>
 
             {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now

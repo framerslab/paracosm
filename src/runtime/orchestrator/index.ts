@@ -1,3 +1,4 @@
+import { GENERAL_AUDIENCE_GUIDANCE } from '../util/audience.js';
 import { writeRunOutput } from '../io/output-writer.js';
 import { buildRunArtifact } from '../io/build-artifact.js';
 import type {
@@ -821,7 +822,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     provider, model: modelConfig.commander,
     apiKey: providerApiKey,
     fallbackProviders: callFallbackProviders,
-    instructions: leader.instructions,
+    instructions: `${GENERAL_AUDIENCE_GUIDANCE}\n\n${leader.instructions}`,
     personality: { openness: leaderHexaco.openness, conscientiousness: leaderHexaco.conscientiousness, extraversion: leaderHexaco.extraversion, agreeableness: leaderHexaco.agreeableness, emotionality: leaderHexaco.emotionality, honesty: leaderHexaco.honestyHumility },
     maxSteps: opts.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
     // Commander outputs CommanderDecision JSON: rationale + reasoning +
@@ -968,7 +969,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     // every subsequent one hit the provider's prefix cache at 0.1x
     // billed rate on Anthropic. Combined across 5 depts x ~12 calls,
     // this is the single largest savings in the sim pipeline.
-    const deptSystemPrompt = cfg.instructions + forgeGuidance;
+    const deptSystemPrompt = `${GENERAL_AUDIENCE_GUIDANCE}\n\n${cfg.instructions}${forgeGuidance}`;
     const a = agent({
       provider,
       model: modelConfig.departments || cfg.defaultModel,

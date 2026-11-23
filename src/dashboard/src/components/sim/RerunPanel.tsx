@@ -15,7 +15,7 @@ import { useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import {
   buildNextRunConfig,
   isLastLaunchFor,
-  readKeyOverrides,
+  readTabKeyOverrides,
   readLastLaunchConfig,
   writeActiveRunActors,
   writeLastLaunchConfig,
@@ -46,7 +46,7 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
         alert(`No previous launch config found for ${scenario.labels.name}. Run once from Settings first.`);
         return;
       }
-      const overrides = readKeyOverrides(window.localStorage);
+      const overrides = readTabKeyOverrides();
       const next = buildNextRunConfig(prev, overrides);
       const res = await fetch('/setup', {
         method: 'POST',
