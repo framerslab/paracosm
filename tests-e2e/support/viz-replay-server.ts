@@ -93,6 +93,7 @@ interface ColonyTurn {
   deathCauses?: Record<string, number>;
   metrics: Record<string, number>;
   agents: Array<Record<string, unknown>>;
+  featuredReactions: Array<Record<string, unknown>>;
 }
 
 /** The mood each colonist who reacted under `leader` in `turn` gave, by agent id. */
@@ -152,6 +153,19 @@ function colony(seed: number, leader: string): ColonyTurn[] {
       deaths: deathEvents.length,
       deathCauses: Object.keys(deathCauses).length > 0 ? deathCauses : undefined,
       metrics: { ...after.metrics } as Record<string, number>,
+      featuredReactions: after.agents.filter(a => a.health.alive && a.narrative.featured).map(a => ({
+        agentId: a.core.id,
+        name: a.core.name,
+        mood: moods.get(a.core.id) ?? 'neutral',
+        hexaco: {
+          O: a.hexaco.openness,
+          C: a.hexaco.conscientiousness,
+          E: a.hexaco.extraversion,
+          A: a.hexaco.agreeableness,
+          Em: a.hexaco.emotionality,
+          HH: a.hexaco.honestyHumility,
+        },
+      })),
       agents: after.agents.map(a => ({
         agentId: a.core.id,
         name: a.core.name,
@@ -247,6 +261,8 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
     }),
     ...eventStart,
     ...between.map(e => sim(leader, e.type, { ...e.data, ...at })),
+    // Keep a recorded trait reading for the generated colony's featured people.
+    ...(HOSTED_CHROME ? [sim(leader, 'agent_reactions', { ...at, reactions: t.featuredReactions })] : []),
     sim(leader, 'turn_done', { ...at, metrics: t.metrics, toolsForged: 0, totalEvents: outcomes, ...usage, ...(t.deathCauses ? { deathCauses: t.deathCauses } : {}) }),
     sim(leader, 'systems_snapshot', { ...at, agents: t.agents, ...systemsSnapshotTotals(t.metrics), births: t.births, deaths: t.deaths }),
   ];

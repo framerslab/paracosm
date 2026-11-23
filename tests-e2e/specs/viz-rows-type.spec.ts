@@ -1332,3 +1332,234 @@ test('on the Viz tab one press of ? opens the help overlay alone and a second cl
   await page.keyboard.press('?');
   await expect.soft(shortcuts, 'a second ? closes it').toHaveCount(0);
 });
+
+// Wide Viz regressions use the hosted replay chrome and the stored Mars turns.
+const wideDesktop = { width: 1440, height: 900 };
+const comparisonChart = (page: Page) => viz(page).getByRole('img', { name: /^Timeline sparkline/ });
+const crisisCard = (page: Page) => viz(page).getByRole('status').filter({ hasText: /^⚡ Crisis/ });
+
+for (const look of LOOKS) {
+  test(`wide Viz comparison captures in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const run = await pairRun(request);
+    for (const size of [wideDesktop, { width: 1100, height: 900 }, PHONE]) {
+      await openRun(page, run, look, size);
+      await setWords(page, 'open');
+      await scrollBack(page);
+      await painted(page);
+      const phase = process.env.VIZ_WIDE_CAPTURE_PHASE ?? 'after';
+      await page.screenshot({
+        path: `test-pictures/viz-wide-and-stats/${phase}/${size.width}x${size.height}-${look}.png`,
+        animations: 'disabled',
+        scale: 'css',
+      });
+    }
+  });
+
+  test(`play controls and stat pairs read at 1440 x 900 with the turn text open in the ${look} look`, async ({ page, request }) => {
+    const run = await pairRun(request);
+    await openRun(page, run, look, wideDesktop);
+    await setWords(page, 'open');
+    await scrollBack(page);
+    await painted(page);
+    expect.soft(await inView(playRow(page)), 'the full play row is in view before any scroll').toBe(true);
+
+    const food = viz(page).getByText('FOOD', { exact: true });
+    await expect(food).toHaveCount(2);
+    for (const label of ['FOOD', 'MORALE', 'DEATHS', 'MOOD MIX', 'PAIRED', 'EARTH', 'NATIVE']) {
+      const gaps = await food.locator('xpath=../../..').getByText(label, { exact: true }).evaluateAll(labels => labels.map(key => {
+        const value = key.nextElementSibling!.getBoundingClientRect();
+        const box = key.getBoundingClientRect();
+        return value.top >= box.bottom ? value.top - box.bottom : value.left - box.right;
+      }));
+      expect(gaps, `${label} is present in both stats cards`).toHaveLength(2);
+      for (const gap of gaps) expect.soft(gap, `${label} has space before its value`).toBeGreaterThanOrEqual(4);
+    }
+  });
+}
+
+type RecordedSimFrame = { type: string; leader: string; data: Record<string, unknown> };
+
+async function storedStream(request: APIRequestContext, id: string): Promise<string> {
+  const response = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
+  expect(response.ok()).toBe(true);
+  return response.text();
+}
+
+function simFrames(stream: string): RecordedSimFrame[] {
+  return stream.split('\n\n').filter(frame => frame.startsWith('event: sim\n'))
+    .map(frame => JSON.parse(/^data: (.+)$/m.exec(frame)![1]) as RecordedSimFrame);
+}
+
+// Deliver the same stored frames on the live feed up to (but without) Complete.
+async function openLive(page: Page, request: APIRequestContext, run: { id: string; turns: number }, size: { width: number; height: number }) {
+  const stream = await storedStream(request, run.id);
+  const running = stream.split('\n\n')
+    .filter(frame => /^(event: (active_scenario|status|sim))\n/.test(frame)).join('\n\n');
+  await page.route('**/events', route => route.fulfill({
+    contentType: 'text/event-stream',
+    body: `event: connected\ndata: {}\n\n${running}\n\nevent: replay_done\ndata: {}\n\n`,
+  }));
+  await page.setViewportSize(size);
+  await page.goto(`${SERVER}/sim?tab=viz`);
+  await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
+  await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
+  await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
+}
+
+test('a live crisis appears before the comparison chart in stacked Viz', async ({ page, request }) => {
+  await openLive(page, request, await pairRun(request), PHONE);
+  const crisis = crisisCard(page);
+  const chart = comparisonChart(page);
+  await expect(crisis).toBeVisible();
+  await expect(chart).toBeVisible();
+  const chartBox = (await chart.boundingBox())!;
+  const notice = (await crisis.boundingBox())!;
+  expect(notice.y + notice.height).toBeLessThanOrEqual(chartBox.y);
+});
+
+interface PaintedName { text: string; left: number; top: number; right: number; bottom: number; size: number }
+
+async function observeGridPaint(page: Page) {
+  await page.addInitScript(() => {
+    const frames = new WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[] }>();
+    Object.assign(window, { vizPaintedFrames: frames });
+    const clearRect = CanvasRenderingContext2D.prototype.clearRect;
+    const fillRect = CanvasRenderingContext2D.prototype.fillRect;
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.clearRect = function (x, y, width, height) {
+      if (this.canvas.closest('.viz-content')) frames.set(this.canvas, { tiles: [], names: [] });
+      clearRect.call(this, x, y, width, height);
+    };
+    CanvasRenderingContext2D.prototype.fillRect = function (x, y, width, height) {
+      // Conway tiles are filled squares. The HUD bars and name plates are rectangular.
+      const frame = frames.get(this.canvas);
+      if (frame && width === height && width > 5) {
+        const dpr = this.getTransform().a;
+        const column = Math.floor((x + width / 2) * dpr * 12 / this.canvas.width);
+        const row = Math.floor((y + height / 2) * dpr * 6 / this.canvas.height);
+        frame.tiles.push(`${column},${row}`);
+      }
+      fillRect.call(this, x, y, width, height);
+    };
+    CanvasRenderingContext2D.prototype.fillText = function (value, x, y, maxWidth) {
+      const frame = frames.get(this.canvas);
+      if (frame && this.textAlign === 'center' && this.textBaseline === 'top') {
+        const size = Number(/([0-9.]+)px/.exec(this.font)?.[1]);
+        const width = this.measureText(value).width;
+        frame.names.push({ text: value, left: x - width / 2, top: y, right: x + width / 2, bottom: y + size, size });
+      }
+      if (maxWidth === undefined) fillText.call(this, value, x, y);
+      else fillText.call(this, value, x, y, maxWidth);
+    };
+  });
+}
+
+function gridPaint(grid: Locator) {
+  return grid.evaluate(node => {
+    const canvas = node as HTMLCanvasElement;
+    const { width, height } = canvas.getBoundingClientRect();
+    const frames = (window as unknown as {
+      vizPaintedFrames: WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[] }>;
+    }).vizPaintedFrames;
+    return { width, height, ...frames.get(canvas) };
+  });
+}
+
+for (const width of [1100, 1440]) {
+  test(`the living grid keeps its size and tiles through transient controls at ${width}`, async ({ page, request }) => {
+    test.setTimeout(90_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await observeGridPaint(page);
+    const run = await pairRun(request);
+    await openLive(page, request, run, { width, height: 900 });
+    const grid = gridOf(page, run.turns);
+    const spotlight = grid.locator('xpath=../..').getByRole('button', { name: /^Spotlight:/ }).first();
+    const notice = crisisCard(page);
+    await expect(spotlight).toBeVisible();
+    await expect(notice).toBeVisible();
+    await expect.poll(async () => (await gridPaint(grid)).tiles?.length ?? 0).toBeGreaterThan(0);
+    const initial = await gridPaint(grid);
+    const sameField = async (when: string) => {
+      await painted(page);
+      const { width, height, tiles } = await gridPaint(grid);
+      expect.soft({ width, height, tiles }, when).toEqual({
+        width: initial.width, height: initial.height, tiles: initial.tiles,
+      });
+    };
+
+    await notice.click();
+    await expect(notice).toHaveCount(0);
+    await sameField('after the live crisis is dismissed');
+    await expect(spotlight).toHaveCount(0, { timeout: 10_000 });
+    await sameField('after the spotlight expires');
+
+    await stepBack(page).click();
+    await expect(latestKey(page)).toBeVisible();
+    await painted(page);
+    const earlier = await gridPaint(gridOf(page, run.turns - 1));
+    expect.soft([earlier.width, earlier.height], 'with the Latest key in view').toEqual([initial.width, initial.height]);
+    await latestKey(page).click();
+    await expect(latestKey(page)).toHaveCount(0);
+    await sameField('after Latest returns to the original turn');
+
+    // Force a real canvas resize while the same turn stays selected. Tile
+    // indices stay the same even though their actual pixel positions change.
+    await page.setViewportSize({ width: width - 180, height: 900 });
+    await expect.poll(async () => (await gridPaint(grid)).width).not.toBe(initial.width);
+    await painted(page);
+    expect.soft((await gridPaint(grid)).tiles, 'the same Conway tiles after a resize').toEqual(initial.tiles);
+  });
+}
+
+test('the trait radar fits all six 15 px axes in the drilldown', async ({ page, request }) => {
+  const run = await pairRun(request);
+  await openRun(page, run, 'dark', wideDesktop);
+  const spotlight = gridOf(page, run.turns).locator('xpath=../..').getByRole('button', { name: /^Spotlight:/ }).first();
+  await spotlight.click();
+  const radar = viz(page).getByRole('img', { name: 'HEXACO profile radar' });
+  await expect(radar).toBeVisible();
+  const axes = await radar.evaluate(svg => {
+    const bounds = svg.getBoundingClientRect();
+    return Array.from(svg.querySelectorAll('text')).map(axis => {
+      const box = axis.getBoundingClientRect();
+      return {
+        axis: axis.textContent,
+        size: parseFloat(getComputedStyle(axis).fontSize),
+        fits: box.left >= bounds.left && box.right <= bounds.right && box.top >= bounds.top && box.bottom <= bounds.bottom,
+      };
+    });
+  });
+  expect(axes.map(a => a.axis)).toEqual(['O', 'C', 'E', 'A', 'Em', 'HH']);
+  for (const axis of axes) {
+    expect.soft(axis.size, `${axis.axis} font size`).toBe(15);
+    expect.soft(axis.fits, `${axis.axis} lies inside the SVG`).toBe(true);
+  }
+});
+
+test('painted names do not overlap in the densest stored Viz colony', async ({ page, request }) => {
+  const run = await pairRun(request);
+  const snapshots = simFrames(await storedStream(request, run.id))
+    .filter(frame => frame.type === 'systems_snapshot')
+    .map(({ leader, data }) => ({
+      leader, turn: Number(data.turn),
+      names: (data.agents as Array<{ name: string; alive: boolean; featured: boolean }>)
+        .filter(agent => agent.alive && agent.featured).map(agent => agent.name.split(/\s+/)[0]),
+    }));
+  const densest = snapshots.reduce((a, b) => b.names.length > a.names.length ? b : a);
+  expect(densest.names.length).toBeGreaterThan(1);
+  await observeGridPaint(page);
+  await openRun(page, run, 'dark', { width: 769, height: 900 });
+  for (let turn = run.turns; turn > densest.turn; turn -= 1) await stepBack(page).click();
+  const grid = viz(page).getByRole('img', { name: new RegExp(`^${densest.leader} colony, turn ${densest.turn}\\.`) });
+  await expect(grid).toBeAttached();
+  await painted(page);
+  const { names } = await gridPaint(grid);
+  const drawn = names!.filter(name => densest.names.includes(name.text));
+  expect(drawn.length, 'the name pass still paints multiple names').toBeGreaterThan(1);
+  const collisions = drawn.flatMap((a, index) => drawn.slice(index + 1)
+    .filter(b => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top)
+    .map(b => `${a.text} / ${b.text}`));
+  expect(collisions, `${densest.leader}, turn ${densest.turn}`).toEqual([]);
+  expect(drawn.every(name => name.size >= 15)).toBe(true);
+});
