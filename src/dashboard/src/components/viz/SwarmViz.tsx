@@ -1161,6 +1161,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       <div
         ref={vizRootRef}
         className={`viz-content ${styles.root}`}
+        // ? opens this tab's own help (the key listener above), so the
+        // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
+        data-own-help-key="?"
       >
         {/* The panel's parts in their order. Above 480 px and 500 px tall
             this box lays out as if absent. On a phone, and on a screen too
