@@ -1172,13 +1172,15 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // fallback events.
         (err) => reportProviderError(err, 'director'),
         // Feed per-schema retry telemetry.
-        (attempts, fellBack) => recordSchemaAttempt('DirectorEventBatch', attempts, fellBack),
+        (attempts, fellBack) => {
+          directorAuthored = !fellBack;
+          recordSchemaAttempt('DirectorEventBatch', attempts, fellBack);
+        },
         providerApiKey,
         opts.stayOnProvider,
       );
       turnEvents = batch.events;
       batchPacing = batch.pacing;
-      directorAuthored = batch.reasoning !== 'fallback';
       }
     }
 
