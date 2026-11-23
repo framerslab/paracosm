@@ -308,16 +308,23 @@ function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<strin
 
 const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
 
-/** Keys may travel over TLS or stay entirely on the current computer. */
-function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, keys: Record<string, unknown>): boolean {
+/**
+ * Keys travel over TLS or stay on this computer. A request came over HTTPS
+ * when its own connection is TLS, or when `X-Forwarded-Proto: https` comes
+ * from a proxy on this computer or from the proxy the operator named
+ * (`namedProxy`: PARACOSM_CLIENT_IP_HEADER is set). A browser that addressed
+ * this computer by a loopback name, with no proxy between, sends from this
+ * computer, through a container's published port too.
+ */
+function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, namedProxy: boolean, keys: Record<string, unknown>): boolean {
   if (!VISITOR_KEY_FIELDS.some(field => normalizeCredential(keys[field]) !== undefined)) return false;
   if ((req.socket as TLSSocket).encrypted) return false;
 
   const peer = req.socket.remoteAddress?.replace(/^::ffff:/, '') ?? '';
   const proxyScheme = req.headers['x-forwarded-proto'];
   const localPeer = LOOPBACK_HOSTNAMES.has(peer) || peer === '::1';
-  if (localPeer && proxyScheme === 'https') return false;
-  if (localPeer && proxyScheme === undefined && LOOPBACK_HOSTNAMES.has(hostHeaderName(req.headers.host))) return false;
+  if (proxyScheme === 'https' && (localPeer || namedProxy)) return false;
+  if (proxyScheme === undefined && LOOPBACK_HOSTNAMES.has(hostHeaderName(req.headers.host))) return false;
 
   res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({ error: 'Send API keys over HTTPS, or use a dashboard on this computer.' }));
@@ -3089,7 +3096,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (req.url?.startsWith('/api/quickstart/') && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
-        if (body && typeof body === 'object' && refuseUnencryptedKeys(req, res, body as Record<string, unknown>)) return;
+        if (body && typeof body === 'object' && refuseUnencryptedKeys(req, res, clientIpHeader !== null, body as Record<string, unknown>)) return;
         const quickstartVisitor = readVisitorId(req);
         const quickstartDeps: QuickstartDeps = {
           installCompiledScenario: (compiledFromSeed, seedText) => {
@@ -3309,7 +3316,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           apiKey: normalizeCredential(userApiKey),
           anthropicKey: normalizeCredential(userAnthropicKey),
         };
-        if (refuseUnencryptedKeys(req, res, simulateCredentials)) return;
+        if (refuseUnencryptedKeys(req, res, clientIpHeader !== null, simulateCredentials)) return;
         const hasUserKeys = hasProviderCredentials(simulateCredentials);
         if (serverMode === 'hosted_demo' && !hasUserKeys && fromAnotherSite(req, allowedOrigins)) {
           writeCrossSiteRefusal(res);
@@ -3388,7 +3395,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const body = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { scenario: scenarioJson, provider: requestedProvider, model: requestedModel, seedText, seedUrl, webSearch, maxSearches, apiKey, anthropicKey } = body;
-        if (refuseUnencryptedKeys(req, res, { apiKey, anthropicKey })) return;
+        if (refuseUnencryptedKeys(req, res, clientIpHeader !== null, { apiKey, anthropicKey })) return;
         if (!scenarioJson || typeof scenarioJson !== 'object') {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'scenario JSON object required' }));
@@ -3697,7 +3704,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       try {
         const parsed = JSON.parse(await readBody(req, maxRequestBodyBytes));
         const { agentId, message, history, apiKey, anthropicKey, runKey: chatRunKey, leader: chatLeader } = parsed;
-        if (refuseUnencryptedKeys(req, res, { apiKey, anthropicKey })) return;
+        if (refuseUnencryptedKeys(req, res, clientIpHeader !== null, { apiKey, anthropicKey })) return;
         if (!agentId || !message) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'agentId and message required' }));
@@ -4451,7 +4458,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           actors?: unknown;
           forkFrom?: unknown;
         };
-        if (refuseUnencryptedKeys(req, res, config)) return;
+        if (refuseUnencryptedKeys(req, res, clientIpHeader !== null, config)) return;
 
         // The run's scenario: the one the body names (Settings and the
         // re-run button at the top level, the Quickstart tab under
