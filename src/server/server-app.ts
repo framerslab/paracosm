@@ -3978,6 +3978,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
         // Send message through the agent session (full history + memory + RAG automatic)
         const result = await session.send(message).finally(() => release?.());
+        const { model: responseModel, modelId } = result as { model?: unknown; modelId?: unknown };
+        const reportedModel = responseModel ?? modelId;
+        const chatModel = typeof reportedModel === 'string' && reportedModel.trim() ? reportedModel : model;
 
         // Surface per-turn token usage + cost so the dashboard footer
         // can fold chat spend into the run-total display. Without this,
@@ -3987,7 +3990,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           reply: result.text,
-          ...(model ? { aiAuthorship: { model, fields: ['reply'] } } : {}),
+          ...(chatModel ? { aiAuthorship: { model: chatModel, fields: ['reply'] } } : {}),
           colonist: profile.name,
           memorySeeded: memories.length,
           firstMessage: isNew,

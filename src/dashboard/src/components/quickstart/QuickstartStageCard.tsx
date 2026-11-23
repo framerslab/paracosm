@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 /**
  * Single expandable stage card rendered by the Quickstart progress
  * panel. The card has three regions:
@@ -153,7 +154,7 @@ export function QuickstartStageCard({
               <span className={styles.lineGlyph}>{line.glyph}</span>
               {line.tag && <span className={styles.lineTag}>{line.tag}</span>}
               {line.actor && <span className={styles.lineActor}>{line.actor}</span>}
-              <span className={styles.lineBody}>{line.body}</span>
+              <AiWritten className={styles.lineBody} authored={line.authored === true}>{line.body}</AiWritten>
             </div>
           ))}
         </div>

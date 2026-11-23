@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 import { useRunExportProvenance } from '../shared/RunReportDownloads';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ProcessedEvent } from '../../hooks/useGameState';
@@ -64,6 +65,12 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
   const provenance = useRunExportProvenance();
   const headingId = useId();
   const text = useMemo(() => recordText(frames), [frames]);
+  const authored = frames.some(frame => {
+    if (!frame || typeof frame !== 'object') return false;
+    const data = frame as Record<string, unknown>;
+    return (Array.isArray(data.aiWrittenFields) && data.aiWrittenFields.length > 0) ||
+      (typeof data.timestamp === 'string' && typeof data.description === 'string' && data.description.length > 0);
+  });
   const [said, setSaid] = useState<Said>(null);
   const clearRef = useRef<number | null>(null);
   /** Each copy is numbered, so a late answer to an earlier press says nothing. */
@@ -127,15 +134,17 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
               {said ? words[said] : null}
             </p>
           </div>
-          <pre
-            className={styles.record}
-            data-raw-record
-            translate="no"
-            tabIndex={0}
-            aria-label={RECORD_WORDS.rawRecord}
-          >
-            {text}
-          </pre>
+          <AiWritten as="div" authored={authored}>
+            <pre
+              className={styles.record}
+              data-raw-record
+              translate="no"
+              tabIndex={0}
+              aria-label={RECORD_WORDS.rawRecord}
+            >
+              {text}
+            </pre>
+          </AiWritten>
         </>
       )}
     </section>

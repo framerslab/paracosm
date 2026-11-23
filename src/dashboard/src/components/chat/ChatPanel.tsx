@@ -1,4 +1,4 @@
-import { AiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
 import { sessionProviderKeys } from '../settings/sessionProviderKeys';
 import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
@@ -62,7 +62,7 @@ function valenceBorderColor(valence: string): string {
 
 function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; events: GameState; scenario: { labels: { eventNoun?: string; eventNounSingular?: string } } }) {
   // Collect event titles from every leader's timeline, deduped by turn.
-  const eventTimeline: Array<{ turn: number; time: number; title: string; category: string }> = [];
+  const eventTimeline: Array<{ turn: number; time: number; title: string; category: string; authored: boolean }> = [];
   for (const actorName of events.actorIds) {
     const sideState = events.actors[actorName];
     if (!sideState) continue;
@@ -74,6 +74,7 @@ function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; e
             turn,
             time: evt.data.time as number || 0,
             title: String(evt.data.title),
+            authored: isAiWritten(evt.data, 'title'),
             category: String(evt.data.category || ''),
           });
         }
@@ -101,7 +102,7 @@ function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; e
           {eventTimeline.map(e => (
             <div key={e.turn} className={styles.eventRow}>
               <span className={styles.eventTurn}>T{e.turn} {e.time}</span>
-              <span className={styles.eventTitle}>{e.title}</span>
+              <AiWritten className={styles.eventTitle} authored={e.authored}>{e.title}</AiWritten>
               {e.category && <span className={styles.eventCategory}>{e.category}</span>}
             </div>
           ))}
