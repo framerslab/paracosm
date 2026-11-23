@@ -68,12 +68,14 @@ export interface CompileOptions extends RuntimeCredentialOptions {
    * Restore a saved compiled scenario instead of compiling it: the server's
    * boot restore sets this for each saved scenario. When `hookSources` were
    * generated under the current compile schema version, every hook is
-   * rebuilt from them; otherwise, when the disk cache holds hooks for this
-   * exact scenario JSON, from the cache under the model that wrote them.
-   * Either way no provider is resolved and no model is called: a hook
-   * neither holds gets the compiler's own fallback for it, as the compile
-   * that saved the scenario did. When neither holds a hook, the scenario is
-   * compiled as the other options say.
+   * rebuilt from them alone, a record that names no hook included;
+   * otherwise, when the disk cache holds one or more hooks of this exact
+   * scenario JSON that restore, from those under the model that wrote them.
+   * Either way no provider is resolved and no model is called: a hook that
+   * source does not hold, or holds in a form the hook runner refuses, gets
+   * the compiler's own fallback for it, as the compile that saved the
+   * scenario did. With neither, the scenario is compiled as the other
+   * options say.
    */
   restore?: { hookSources?: CompiledHookSources };
 }

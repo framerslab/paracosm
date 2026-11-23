@@ -3106,8 +3106,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             makeRoomAfter(sc.id);
             // Auto-persist to disk so the catalog survives server
             // restarts. The hooks themselves are excluded (functions
-            // don't serialize) but compileScenario regenerates them
-            // from the local hook-source cache for free at boot.
+            // don't serialize); their sources are saved beside the
+            // scenario (`_persistHooks`), and boot rebuilds the hooks
+            // from them with no model call.
             // Persistence metadata (compiledAt, truncated seedText)
             // travels alongside the scenario for catalog rendering.
             // Best-effort: filesystem failures stay silent so a read-

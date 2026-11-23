@@ -94,30 +94,49 @@ async function buildDefaultGenerateText(provider: LlmProvider, model: string, ap
 
 /**
  * The text function of a restore. It calls no model and answers every
- * request with nothing, so a hook that neither the saved sources nor the
- * cache hold gets its generator's own fallback, as it did in the compile
- * whose model calls for it failed.
+ * request with nothing, so a hook the restore's sources do not hold, or
+ * hold in a form the hook runner refuses, gets its generator's own
+ * fallback, as it did in the compile whose model calls for it failed.
  */
 const callsNoModel: GenerateTextFn = async () => '';
 
+/** What a restore's log line says it does with a saved hook the hook runner refuses. */
+const RESTORE_KEEPS_FALLBACK = "the restore keeps the compiler's fallback for it";
+
 /**
- * Where a restore takes its hooks from: the saved sources, when they were
- * generated under the current compile schema version; else the disk cache,
- * when it holds hooks of this exact scenario JSON, under the model that
- * wrote them. Null when neither holds a hook. Sources of an older schema
- * version are not used: raising the version generates the hooks again.
+ * Where a restore takes its hooks from, and the only place it takes them
+ * from: the saved sources, when they were generated under the current
+ * compile schema version, a record that names no hook included (a compile
+ * that kept every hook on its fallback); else the hooks the disk cache
+ * holds for this exact scenario JSON, under the model that wrote them,
+ * when one or more of them restores. Null otherwise, and the scenario is
+ * compiled. Sources of an older schema version are not used: raising the
+ * version generates the hooks again.
  */
 function restoreFrom(
   json: Record<string, unknown>,
   saved: CompiledHookSources | undefined,
   cache: boolean,
   cacheDir: string,
-): { model: string; saved?: Partial<Record<HookName, string>> } | null {
-  if (saved && saved.schemaVersion === COMPILE_SCHEMA_VERSION && Object.keys(saved.hooks).length > 0) {
+): { model: string; saved: Partial<Record<HookName, string>> } | null {
+  if (saved && saved.schemaVersion === COMPILE_SCHEMA_VERSION) {
     return { model: saved.model, saved: saved.hooks };
   }
   const cachedModel = cache ? cachedHooksModel(json, cacheDir) : null;
-  return cachedModel === null ? null : { model: cachedModel };
+  if (cachedModel === null) return null;
+  const cached: Partial<Record<HookName, string>> = {};
+  for (const hookName of HOOK_NAMES) {
+    const source = readCache(json, hookName, cachedModel, cacheDir);
+    if (source !== null) cached[hookName] = source;
+  }
+  // A cache whose hook files hold nothing the compiler can restore (empty
+  // files, or hooks the runner refuses) is no restore: the scenario is
+  // compiled, as it would be with no cache at all.
+  const restorable = HOOK_NAMES.some(hookName => {
+    const source = cached[hookName];
+    return source !== undefined && restoreHookFromCache(hookName, source, null) !== null;
+  });
+  return restorable ? { model: cachedModel, saved: cached } : null;
 }
 
 /**
@@ -159,7 +178,10 @@ const CODE_HOOKS: ReadonlySet<string> = new Set(['progression', 'prompts', 'fing
  * empty it. Checking each cached hook here, and generating again only the
  * ones refused, keeps a compiled scenario's other hooks with no model
  * call; raising the schema version would generate every hook of every
- * compiled scenario again, at the next compile or the server's boot.
+ * compiled scenario again, at the next compile or the server's boot. A
+ * restore (`CompileOptions.restore`) calls no model: it checks its saved
+ * hooks the same way and keeps the compiler's fallback for each one
+ * refused.
  */
 function cachedHookRefusal(hookName: string, source: string): string | null {
   if (!CODE_HOOKS.has(hookName)) return null;
@@ -172,11 +194,22 @@ function cachedHookRefusal(hookName: string, source: string): string | null {
   return removed === null ? null : `it names ${removed}, which the hook's context does not hold`;
 }
 
-/** Restore a hook from cached source text. Returns the hook assignment or null if parse fails. */
-function restoreHookFromCache(hookName: string, source: string): Partial<ScenarioHooks> | null {
+/**
+ * Restore a hook from cached or saved source text. Returns the hook
+ * assignment, or null if the hook runner refuses it or it does not parse.
+ * A refusal is logged with `whenRefused`, what the caller does next; null
+ * logs nothing.
+ */
+function restoreHookFromCache(
+  hookName: string,
+  source: string,
+  whenRefused: string | null = 'generating it again',
+): Partial<ScenarioHooks> | null {
   const refusal = cachedHookRefusal(hookName, source);
   if (refusal !== null) {
-    console.warn(`[compile] the cached ${hookName} hook is not restored, the hook runner refuses it (${refusal}); generating it again`);
+    if (whenRefused !== null) {
+      console.warn(`[compile] the cached ${hookName} hook is not restored, the hook runner refuses it (${refusal}); ${whenRefused}`);
+    }
     return null;
   }
   try {
@@ -252,8 +285,9 @@ export async function compileScenario(
   // A restore of a saved compiled scenario (`options.restore`) rebuilds the
   // hooks from its saved sources, or from the disk cache, under the model
   // that generated them: no provider is resolved and no model is called, so
-  // a host restores it whatever keys it holds. When neither holds a hook,
-  // the scenario compiles as the other options say.
+  // a host restores it whatever keys it holds. With no saved sources of the
+  // current schema version and no cached hook that restores, the scenario
+  // compiles as the other options say.
   const restoring = options.restore
     ? restoreFrom(json, options.restore.hookSources, cache, cacheDir)
     : null;
@@ -318,11 +352,12 @@ export async function compileScenario(
   // `'// No-op: generation failed'` was cached for `progression`, then
   // crashed the sandbox at parse on every subsequent simulate.
   await Promise.all(HOOK_NAMES.map(async (hookName) => {
-    // A restore takes the hook's saved source first, checked as a cached
-    // source is (`restoreHookFromCache`).
-    const savedSource = restoring?.saved?.[hookName];
+    // A restore takes the hook from its saved source alone, checked as a
+    // cached source is (`restoreHookFromCache`); a hook it does not hold,
+    // or holds in a form the runner refuses, keeps the compiler's fallback.
+    const savedSource = restoring?.saved[hookName];
     if (savedSource !== undefined) {
-      const restored = restoreHookFromCache(hookName, savedSource);
+      const restored = restoreHookFromCache(hookName, savedSource, RESTORE_KEEPS_FALLBACK);
       if (restored) {
         onProgress?.(hookName, 'cached');
         Object.assign(hooks, restored);
@@ -340,8 +375,9 @@ export async function compileScenario(
     // that fails at simulate-time. It also refuses a code hook the hook
     // runner refuses, or one that names a built-in the runner's context
     // does not hold (`cachedHookRefusal`), so only that hook is generated
-    // again and the scenario's other cached hooks are kept.
-    if (cache) {
+    // again and the scenario's other cached hooks are kept. A restore read
+    // the cache already, when it restores from it (`restoreFrom`).
+    if (cache && !restoring) {
       const cached = readCache(json, hookName, model, cacheDir);
       if (cached !== null) {
         const restored = restoreHookFromCache(hookName, cached);

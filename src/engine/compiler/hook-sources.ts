@@ -33,7 +33,11 @@ export interface CompiledHookSources {
   schemaVersion: number;
   /** The model that generated them. */
   model: string;
-  /** Each hook's source by hook name. A hook the compile left on its fallback has none. */
+  /**
+   * Each hook's source by hook name. A hook the compile left on its fallback
+   * has none, so a compile that kept every hook on its fallback has a record
+   * that names no hook.
+   */
   hooks: Partial<Record<HookName, string>>;
 }
 
@@ -58,8 +62,10 @@ export function hookSourcesOf(scenario: { hooks?: unknown }): CompiledHookSource
 /**
  * Hook sources read back from a saved compiled scenario, or undefined when
  * the value does not hold them: a schema version that is an integer, a model
- * name, and a source string for one or more of {@link HOOK_NAMES}. Any other
- * key under `hooks` is left out.
+ * name, and a `hooks` object. Its source strings for {@link HOOK_NAMES} are
+ * kept and any other key under `hooks` is left out; a record that names no
+ * hook is kept as such, the record of a compile that kept every hook on its
+ * fallback.
  */
 export function readHookSources(value: unknown): CompiledHookSources | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
@@ -73,5 +79,5 @@ export function readHookSources(value: unknown): CompiledHookSources | undefined
     const source = (hooks as Record<string, unknown>)[name];
     if (typeof source === 'string' && source.trim() !== '') saved[name] = source;
   }
-  return Object.keys(saved).length > 0 ? { schemaVersion, model, hooks: saved } : undefined;
+  return { schemaVersion, model, hooks: saved };
 }

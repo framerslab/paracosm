@@ -16,7 +16,8 @@
  * runnable scenario on any host without calling a model. A file written
  * before files carried their hooks is restored from the compiler's disk
  * cache (`.paracosm/cache/`) under the model that wrote it, with no model
- * call, and compiled again only when that cache holds none of its hooks.
+ * call, and compiled again only when that cache holds none of its hooks
+ * that the compiler can restore.
  *
  * @module paracosm/cli/persisted-compiled-scenarios
  */
@@ -71,7 +72,8 @@ export interface PersistedCompiledDraft {
   draft: Record<string, unknown>;
   meta: PersistedCompiledMeta;
   /** The hook sources saved with it; absent in a file written before
-   *  files carried them, or when the compile kept none. */
+   *  files carried them. A record that names no hook is a compile that
+   *  kept every hook on its fallback. */
   hookSources?: CompiledHookSources;
 }
 
@@ -169,13 +171,14 @@ export function persistCompiledScenario(
       seedText: seedText && seedText.length > 0 ? seedText.slice(0, 1000) : null,
     };
     // The hooks' sources, when this process compiled or restored the
-    // scenario and kept one or more, so a restart restores its hooks
-    // without a model call.
+    // scenario, so a restart restores its hooks without a model call. A
+    // compile that kept every hook on its fallback saves a record that names
+    // no hook, which restores those fallbacks.
     const hookSources = hookSourcesOf(scenario);
     const payload = {
       ...stripHooks(scenario),
       _persistMeta: meta,
-      ...(hookSources && Object.keys(hookSources.hooks).length > 0 ? { _persistHooks: hookSources } : {}),
+      ...(hookSources ? { _persistHooks: hookSources } : {}),
     };
     const filePath = resolve(dir, `${scenario.id}.json`);
     writeFileSync(filePath, JSON.stringify(payload, null, 2));
