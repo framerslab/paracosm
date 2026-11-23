@@ -5016,6 +5016,40 @@ screenTest('feature 10: at the reset time the page reads the count again', async
   }
 });
 
+// Feature 10: a count with no run left whose reset time has already passed by the page's clock (an answer that
+// came after the reset, or a page clock ahead of the server's) is read again until the server names a later day,
+// so Start comes back without a press or a reload.
+screenTest('feature 10: a count whose reset time has passed by the page\'s clock is read again until the day turns', async ({ page }) => {
+  test.setTimeout(120_000);
+  // The server's day reset two seconds before the page's clock reads now; it answers that day until the test turns it.
+  const resetAt = Date.now() - 2_000;
+  let turned = false;
+  let reads = 0;
+  await page.route('**/rate-limit', (route: Route) => {
+    reads += 1;
+    return turned
+      ? route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } })
+      : route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt } });
+  });
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const band = root.getByTestId('start-band');
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    // The page asks again by itself while the server still answers the day that has passed by the page's clock.
+    await expect.poll(() => reads, { timeout: 20_000, message: 'the count is asked for again' }).toBeGreaterThanOrEqual(2);
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    // The server's day turns. No press and no reload: a later read brings Start back.
+    turned = true;
+    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 45_000 });
+    const { key } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/rate-limit');
+  }
+});
+
 // Feature 10: a press the server refuses at the day's limit is kept, and the count is read again for the reset time.
 // When that read fails, the page asks again by itself, so Start comes back once the day has reset: whether a count
 // was read before the press or not, since the refusal names the time the day's count resets.
