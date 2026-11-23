@@ -580,6 +580,10 @@ for (const look of LOOKS) {
             await expect(helpDialog(page)).toBeVisible();
             await page.keyboard.press('?');
             await expect.soft(helpDialog(page), `${where}: ? closes the help overlay from inside it`).toHaveCount(0);
+            // The same ? opens no other overlay in its place.
+            const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts', exact: true });
+            await expect.soft(shortcuts, `${where}: ? from inside the help overlay opens no other overlay`).toHaveCount(0);
+            if (await shortcuts.count()) await page.keyboard.press('Escape');
             if (await helpDialog(page).count()) await page.keyboard.press('Escape');
             // Puts the run back on its last turn when the arrows moved it.
             for (let i = 0; i < 3 && (await scrub.getAttribute('aria-valuetext')) !== turnBefore; i += 1) await stepOn(page).click();
