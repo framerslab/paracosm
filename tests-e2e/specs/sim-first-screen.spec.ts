@@ -187,10 +187,10 @@ const MIDDLE_BAND = 'Middle band 0.35 to 0.65';
 const HEXACO_NOTE = 'HEXACO is a six-trait personality model. The six scores above are this leader’s.';
 const NO_WRITTEN_LEADERS = 'This scenario has no written leaders. Paracosm writes them when you press Start.';
 
-/** The shared colony panel on a free run of Mars Genesis: its five key people stand in four departments. */
-const COLONY_FIGURES = '5 key people · 4 departments';
+/** The shared colony panel on a free run of Mars Genesis: its header names the five key people, and no count of departments. */
+const COLONY_FIGURES = '5 key people';
 const COLONY_CAPTION = 'Both colonies start with the same 30 people, these 5 among them. Each leader’s decisions make them diverge.';
-const COLONY_SPOKEN = 'The colony at turn 0: 5 of its 30 people, in 4 departments, the same for every leader';
+const COLONY_SPOKEN = 'The colony at turn 0: 5 of its 30 people, the same for every leader';
 const COLONY_KEY = ['Department', 'Person', 'Featured person'];
 const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is drawn when the run starts.';
 /** The field's height at each width the panel is laid out for. */
@@ -1500,7 +1500,7 @@ screenTest('feature 14: waits for the scenario', async ({ page }) => {
       release();
       await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost' })).toBeVisible();
       await expect(colony.locator('[data-person]')).toHaveText(lunar.map((p) => p.name));
-      await expect(colony.getByTestId('colony-figures')).toHaveText(`${lunar.length} key people · ${new Set(lunar.map((p) => p.department)).size} departments`);
+      await expect(colony.getByTestId('colony-figures')).toHaveText(`${lunar.length} key people`);
       await expect(root.locator('canvas')).toHaveCount(1);
       const after = await box(colony);
       expect(Math.abs(after.height - before.height)).toBeLessThan(PHONE.height * 0.1);

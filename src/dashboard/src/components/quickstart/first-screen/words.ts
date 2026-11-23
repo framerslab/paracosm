@@ -118,9 +118,13 @@ export const LOADING_LEADER = {
 /** The panel's header mark, in the grid's own type. */
 export const TURN_ZERO_MARK = 'TURN 0';
 
-/** The panel's figures: "5 key people · 4 departments". */
-export function colonyFigures(o: { keyPeople: number; departments: number }): string {
-  return `${countOf(o.keyPeople, 'key person', 'key people').replace(' ', NBSP)} · ${countOf(o.departments, 'department', 'departments')}`;
+/**
+ * The panel's figures: "5 key people". The panel states no count of
+ * departments: the scenario line's figures state the departments the run
+ * uses, and that is the one count of them on the screen.
+ */
+export function colonyFigures(o: { keyPeople: number }): string {
+  return countOf(o.keyPeople, 'key person', 'key people').replace(' ', NBSP);
 }
 
 /**
@@ -135,10 +139,9 @@ export function colonyCaption(o: { leaders: number; population: number; keyPeopl
 }
 
 /** The panel's spoken name, the text alternative of its drawing. */
-export function colonySpoken(o: { population: number; keyPeople: number; departments: number }): string {
+export function colonySpoken(o: { population: number; keyPeople: number }): string {
   const people = `${o.population} ${o.population === 1 ? 'person' : 'people'}`;
-  const departments = `${o.departments} ${o.departments === 1 ? 'department' : 'departments'}`;
-  return `The colony at turn 0: ${o.keyPeople} of its ${people}, in ${departments}, the same for every leader`;
+  return `The colony at turn 0: ${o.keyPeople} of its ${people}, the same for every leader`;
 }
 
 /** Said in the panel's frame when the scenario names no key people. */
