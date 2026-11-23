@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { sendForgeEvent } from '../../analytics/forgeEvents';
+import { downloadJson } from '../../download';
 import { useToolContext, type ToolEntry } from '../../hooks/useToolRegistry';
 import { pickedActors } from './actorPicker.helpers';
 import { useToolboxView } from './forgeViewContext';
@@ -50,17 +51,6 @@ export function exportRows(rows: ToolEntry[]): Array<Record<string, unknown>> {
     actor: actorLabel(e.actorIndex),
     actorName: e.actorName,
   }));
-}
-
-/** Saves the rows as a JSON file through a link the page presses itself. */
-function downloadRows(rows: ToolEntry[]): void {
-  const blob = new Blob([JSON.stringify(exportRows(rows), null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = TOOLBOX_FILE_NAME;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 /** Past this many rows, Export JSON says it is exporting while it writes the file. */
@@ -114,7 +104,7 @@ export function ToolboxDialog({ covered, onClose }: ToolboxDialogProps) {
     const rows = filterRows(registry.list, show, find, pickedActors(actors, registry.actors.length));
     const save = () => {
       try {
-        downloadRows(rows);
+        downloadJson(JSON.stringify(exportRows(rows), null, 2), TOOLBOX_FILE_NAME);
         setExported({ state: 'idle' });
       } catch {
         setExported({ state: 'failed' });

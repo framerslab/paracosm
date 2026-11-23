@@ -34,6 +34,16 @@
  *
  * GET /sessions lists the two stored runs; /sim?replay=<id> plays one through
  * the server's own /sessions/:id/replay.
+ *
+ * With VIZ_REPLAY_EVENT_STARTS=1 each commander's turn also carries the
+ * event_start frame the orchestrator sends as the turn's first event begins
+ * (src/runtime/orchestrator/index.ts): its title, description and category
+ * are the turn_start's, which the orchestrator takes from that same event.
+ * The hosted demo's recording keeps no event_start frames, so without them
+ * the Viz tab draws no event row; the live replays draw one. The spec that
+ * lays out the rows above the living grid on a phone
+ * (tests-e2e/specs/viz-rows-type.spec.ts) reads the runs this way, from a
+ * server of its own.
  */
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -45,6 +55,9 @@ import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { ageInYears } from '../../src/engine/core/time-unit.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { systemsSnapshotTotals } from '../../src/runtime/orchestrator/outcome-effects.js';
+
+/** Whether each turn carries its first event's event_start frame, as a live run's does. */
+const EVENT_STARTS = process.env.VIZ_REPLAY_EVENT_STARTS === '1';
 
 const appDir = mkdtempSync(join(tmpdir(), 'paracosm-e2e-viz-replay-'));
 const runsDir = join(appDir, 'runs');
@@ -198,6 +211,20 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
   const between = mine.filter(e => e.type !== 'turn_start' && e.type !== 'systems_snapshot');
   const outcomes = between.filter(e => e.type === 'outcome').length;
   const at = { turn: t.turn, time: t.time };
+  // The first event's event_start, as the orchestrator sends it after the turn_start.
+  const eventStart = EVENT_STARTS && start?.data.title
+    ? [sim(leader, 'event_start', {
+        ...at,
+        eventIndex: 0,
+        totalEvents: outcomes,
+        title: start.data.title,
+        description: start.data.crisis ?? '',
+        category: start.data.category ?? '',
+        emergent: start.data.emergent ?? false,
+        turnSummary: start.data.turnSummary ?? '',
+        pacing: start.data.pacing ?? 'normal',
+      })]
+    : [];
   return [
     sim(leader, 'turn_start', {
       ...at,
@@ -212,6 +239,7 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
       totalEvents: outcomes,
       pacing: start?.data.pacing ?? 'normal',
     }),
+    ...eventStart,
     ...between.map(e => sim(leader, e.type, { ...e.data, ...at })),
     sim(leader, 'turn_done', { ...at, metrics: t.metrics, toolsForged: 0, totalEvents: outcomes, ...(t.deathCauses ? { deathCauses: t.deathCauses } : {}) }),
     sim(leader, 'systems_snapshot', { ...at, agents: t.agents, ...systemsSnapshotTotals(t.metrics), births: t.births, deaths: t.deaths }),

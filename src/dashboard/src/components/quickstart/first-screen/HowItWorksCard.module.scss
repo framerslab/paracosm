@@ -1,0 +1,517 @@
+// The How it works card. On a phone (under 600 px) a sheet from the bottom
+// edge, at most four fifths of the window's height, with each drawing under
+// its line. From 600 px a panel under the header's key at the right edge:
+// 480 px wide with a 140 px column of drawings, 760 px with a 240 px column
+// from 1,100 px, and 960 px from 1,440 px, where the three drawings stand in
+// one band over the six lines in two columns of three.
+//
+// Every colour is a token; the quiet tone is --text-2 in the dark look and
+// --text-3 in the light look. The accent marks the bar and the chance alone.
+// The card's words scroll inside its own height, and Close stays at its
+// foot. It fades in and out in 150 ms, with a 16 px rise as a sheet, and at
+// once under reduced motion.
+
+@use './shape' as *;
+
+// The room the numbers of the list take at the left of its lines.
+$indent: 32px;
+// The band of drawings at the wide width, and what stands over it.
+$band: 124px;
+$wide-pad: 24px;
+$wide-title: 28px;
+$wide-gap: 24px;
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-top);
+  // The page's own ground laid over the page, so the sheet stands out from it.
+  background: color-mix(in srgb, var(--bg-deep) 60%, transparent);
+  animation: scrimIn 150ms ease-out both;
+
+  &[data-leaving] {
+    animation-name: scrimOut;
+    pointer-events: none;
+  }
+}
+
+.card {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--sheet-bottom, 0px);
+  z-index: var(--z-modal-top);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  max-height: min(80vh, calc(100vh - var(--sheet-bottom, 0px) - 16px));
+  max-height: min(80dvh, calc(100dvh - var(--sheet-bottom, 0px) - 16px));
+  border: solid var(--edge-control);
+  border-width: 1px 0 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  text-align: left;
+  animation: sheetIn 150ms ease-out both;
+
+  &[data-leaving] {
+    animation-name: sheetOut;
+    pointer-events: none;
+  }
+}
+
+.body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 16px 16px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  // The sheet's own scroll never moves the page behind it.
+  overscroll-behavior: contain;
+
+  // The ring of keyboard focus is drawn inside the card's edge.
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+}
+
+.title {
+  margin: 0 0 12px;
+  font-family: var(--sans);
+  font-size: var(--font-2xl);
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0 0 0 $indent;
+  list-style: decimal outside;
+}
+
+.item {
+  min-width: 0;
+  padding: 0;
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-1);
+
+  &::marker {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 12px;
+  min-width: 0;
+}
+
+.line {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  color: var(--text-1);
+  // A word wider than the sheet at large text breaks; it never widens the sheet.
+  overflow-wrap: anywhere;
+}
+
+// One drawing. On a phone it is the sheet's width, so it starts at the
+// sheet's own edge and not at the lines' indent.
+.drawing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin-left: -$indent;
+}
+
+.sample {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  @include quiet-tone;
+}
+
+// The bar: a track from 0 to 100, the leader's bar a tick at 36 and the
+// bold option's chance a dot at 80, both in the accent.
+.track {
+  position: relative;
+  display: block;
+  height: 12px;
+  margin: 8px 8px;
+  border: 1px solid var(--edge-control);
+  border-radius: 3px;
+}
+
+.barMark {
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  left: 36%;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 1px;
+  background: var(--amber);
+}
+
+.chanceMark {
+  position: absolute;
+  top: 50%;
+  left: 80%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.barKey {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.keyItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  @include quiet-tone;
+}
+
+.barGlyph {
+  flex: none;
+  width: 4px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--amber);
+}
+
+.chanceGlyph {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+// The stamp, as the run screen prints it: capitals in the ink inside a
+// hairline frame, never turned.
+.stampWords {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--edge-control);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+// The four scores, two across.
+.scoreRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.score {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+}
+
+.scoreName {
+  min-width: 0;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  @include quiet-tone;
+}
+
+.scoreValue {
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+.scoreTrack {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border: 1px solid var(--edge-control);
+  border-radius: 3px;
+}
+
+.scoreFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--edge-control);
+
+  &[data-score='5'] { width: 50%; }
+  &[data-score='6'] { width: 60%; }
+  &[data-score='7'] { width: 70%; }
+  &[data-score='8'] { width: 80%; }
+}
+
+.foot {
+  flex: none;
+  display: flex;
+  padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--edge-control);
+}
+
+.close {
+  width: 100%;
+  min-width: 96px;
+  min-height: 48px;
+  padding: 0 20px;
+  border: 1px solid var(--edge-control);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 400;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--bg-panel);
+  }
+
+  &:active {
+    background: var(--bg-deep);
+  }
+}
+
+// At 200 per cent text a phone's sheet is half as wide: one score a row.
+@media (max-width: 239.98px) {
+  .scoreRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+// Tablet: a panel under the header's key, each drawing at its line's right.
+@media (min-width: 600px) {
+  .card {
+    top: var(--card-top, 52px);
+    right: 16px;
+    bottom: auto;
+    left: auto;
+    z-index: var(--z-popover);
+    width: 480px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - var(--card-top, 52px) - 16px);
+    max-height: calc(100dvh - var(--card-top, 52px) - 16px);
+    border-width: 1px;
+    border-radius: 8px;
+    animation-name: panelIn;
+
+    &[data-leaving] {
+      animation-name: panelOut;
+    }
+  }
+
+  .body {
+    padding: 20px 20px 12px;
+  }
+
+  .row[data-drawn] {
+    grid-template-columns: minmax(0, 1fr) 140px;
+    column-gap: 16px;
+    align-items: start;
+  }
+
+  .drawing {
+    margin-left: 0;
+  }
+
+  .stampWords {
+    font-size: var(--font-read-body);
+  }
+
+  // In the narrow column each score has a row of its own.
+  .scoreRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .foot {
+    justify-content: flex-end;
+    padding: 12px 20px 20px;
+  }
+
+  .close {
+    width: auto;
+    min-height: 44px;
+  }
+}
+
+// Desktop: a wider panel and a wider column of drawings.
+@media (min-width: 1100px) {
+  .card {
+    width: 760px;
+  }
+
+  .row[data-drawn] {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    column-gap: 24px;
+  }
+
+  .scoreRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+// Wide: the three drawings side by side in one band under the title, and
+// under them the six lines in two columns of three. Each drawing keeps its
+// place after its own line in the page's order.
+@media (min-width: 1440px) {
+  .card {
+    width: 960px;
+  }
+
+  .body {
+    padding: $wide-pad $wide-pad 12px;
+  }
+
+  .title {
+    height: $wide-title;
+    margin: 0;
+    line-height: $wide-title;
+  }
+
+  .lines {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(3, auto);
+    grid-auto-flow: column;
+    gap: 16px 48px;
+    margin-top: calc(12px + #{$band} + 20px);
+  }
+
+  .row[data-drawn] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .drawing {
+    position: absolute;
+    top: calc(#{$wide-pad} + #{$wide-title} + 12px);
+    width: calc((100% - 2 * #{$wide-pad} - 2 * #{$wide-gap}) / 3);
+    height: $band;
+    margin-left: 0;
+  }
+
+  .bar {
+    left: $wide-pad;
+  }
+
+  .stamp {
+    left: calc(#{$wide-pad} + (100% - 2 * #{$wide-pad} - 2 * #{$wide-gap}) / 3 + #{$wide-gap});
+  }
+
+  .scores {
+    left: calc(#{$wide-pad} + 2 * ((100% - 2 * #{$wide-pad} - 2 * #{$wide-gap}) / 3 + #{$wide-gap}));
+  }
+
+  .foot {
+    padding: 12px $wide-pad $wide-pad;
+  }
+}
+
+@keyframes scrimIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scrimOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheetOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes panelOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .card,
+  .scrim[data-leaving],
+  .card[data-leaving] {
+    animation: none;
+  }
+}

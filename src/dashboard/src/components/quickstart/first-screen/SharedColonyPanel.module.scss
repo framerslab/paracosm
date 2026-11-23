@@ -1,0 +1,183 @@
+// The shared colony panel: phone from 320 px, tablet from 600 px, desktop
+// from 1,100 px, wide from 1,440 px. A flat panel on the page's own ground:
+// the header in the ink, the caption and the key line in the quiet tone,
+// the field edged in the control edge. The field's height is set here and
+// read by the grid (--grid-field-height).
+@use './shape' as *;
+
+@include loading-shape-keyframes;
+
+.panel {
+  --grid-field-height: 190px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-1);
+  font-family: var(--sans);
+}
+
+// The header over the field, 8 px apart, as the grid lays its own out.
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+// The turn mark, in the grid's own type, and the figures; the figures wrap
+// under the mark where the two do not fit one line.
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 16px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.turn {
+  font-family: var(--mono);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+
+.figures {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-1);
+}
+
+// The frame that stands for the field while the scenario loads, or when the
+// scenario names no key people: the field's size and edge, no canvas.
+.frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: var(--grid-field-height);
+  padding: 12px 16px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-md);
+}
+
+// Empty cells, twelve across and six down, as the grid's own cells stand.
+.cells {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--edge-control) 30%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--edge-control) 30%, transparent) 1px, transparent 1px);
+  background-size: calc(100% / 12) calc(100% / 6);
+}
+
+.empty {
+  max-width: 44ch;
+  font-size: var(--font-read-body);
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-1);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.caption {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  text-wrap: pretty;
+  @include quiet-tone;
+}
+
+// The key line: one row at every width; a long word wraps inside its item.
+.key {
+  list-style: none;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  @include quiet-tone;
+}
+
+// The key line's room, read in its own type size: the three items need
+// about 18 em on one row, so with under 14 em (200 per cent text on a phone)
+// they stand one under another, each whole.
+.keyBox {
+  container-type: inline-size;
+  min-width: 0;
+  font-size: var(--font-read);
+}
+
+@container (max-width: 14em) {
+  .key {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}
+
+// An item is never narrower than its longest word, so a word is never cut;
+// "Featured person" wraps at its space where the row is short.
+.keyItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.keyGlyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.shape {
+  @include loading-shape;
+}
+
+@media (max-width: 359.98px) {
+  .panel {
+    --grid-field-height: 170px;
+  }
+
+  // Each mark over its word, so the three items fit the column in one row.
+  .key {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .keyItem {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+
+@media (min-width: 600px) {
+  .panel {
+    --grid-field-height: 200px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .panel {
+    --grid-field-height: 250px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .panel {
+    --grid-field-height: 280px;
+  }
+}

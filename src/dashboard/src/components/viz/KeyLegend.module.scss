@@ -1,0 +1,90 @@
+// The Viz tab's keyboard legend (KeyLegend.tsx): one row at every width from
+// 320 px, in the legend's own faces and colours, its words at 15 px, the size
+// nothing in the Viz rows goes under. Where its hints do not all fit, the row
+// keeps the first ones and a key that opens the full list; below 900 px that
+// key is 44 px tall and wide.
+
+$read-size: 15px;
+
+.row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 10px 4px;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--border);
+  font-size: $read-size;
+  font-family: var(--mono);
+  color: var(--text-4);
+  letter-spacing: 0.08em;
+}
+
+.hint {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.key {
+  padding: 1px 5px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: $read-size;
+  color: var(--text-3);
+}
+
+.label { color: var(--text-4); }
+
+// The key to the full list: the legend's own key chip, as a button.
+.allKeys {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 12px;
+  min-height: 32px;
+  background: var(--bg-card);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: $read-size;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover { color: var(--text-1); }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 899.98px) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+// The hidden copy that measures every hint and the key at the row's type:
+// laid out at its own width, out of the flow, never seen or read out.
+.copy {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: max-content;
+  height: 0;
+  padding: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+}

@@ -1,0 +1,212 @@
+@use './shape' as *;
+
+@include loading-shape-keyframes;
+
+// Other scenarios: a heading over cards, one across on a phone, two from
+// 600 px, three from 1,100 px and four from 1,440 px.
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.subheading {
+  margin: 8px 0 0;
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  @media (min-width: 600px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 1100px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  @media (min-width: 1440px) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+// A row's card: the whole card is the key, its name at the top and its
+// figures at its foot, so a pair of cards stands at one height.
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  padding: 16px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-family: var(--sans);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+button.card {
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  &[aria-disabled='true'] {
+    cursor: default;
+
+    &:hover {
+      border-color: var(--edge-control);
+    }
+  }
+}
+
+.name {
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.state,
+.figures {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  @include quiet-tone;
+}
+
+.line {
+  margin: 0;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+// A did-not-load or offline line: the drawn mark beside the words, and Try again.
+.problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+
+  .line {
+    flex: 1 1 12em;
+    min-width: 0;
+  }
+}
+
+.mark {
+  flex: none;
+}
+
+.tryAgain,
+.showAll {
+  flex: none;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+
+  &[aria-disabled='true'] {
+    cursor: default;
+    @include quiet-tone;
+  }
+}
+
+.tryAgain {
+  min-width: 96px;
+}
+
+.showAll {
+  align-self: flex-start;
+  min-width: 120px;
+}
+
+// A row of Yours: the key that opens its details, under its card.
+.detail {
+  align-self: flex-start;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// The three row shapes while the list loads, at a row's size.
+.shape {
+  min-height: 80px;
+  border-radius: var(--radius-xl);
+  @include loading-shape;
+}
+
+// The page's heading takes focus after a row's reload; it shows no ring for it.
+:global([data-testid='run-first-screen'] h1[tabindex='-1']:focus:not(:focus-visible)) {
+  outline: none;
+}

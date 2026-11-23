@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties } from 'react';
 import { useMediaQuery, PHONE_QUERY } from './useMediaQuery.js';
 import { useScenarioLabels } from '../../../hooks/useScenarioLabels.js';
 import styles from './GridHelpOverlay.module.scss';
@@ -12,20 +12,51 @@ interface GridHelpOverlayProps {
  * Legend + keyboard shortcuts modal. Opens via `?`. Explains what the
  * colors/flares/rings mean so a first-time viewer isn't staring at
  * unlabeled blobs. Dismisses via Esc or backdrop click.
+ *
+ * As it opens, focus moves to its Close key and stays inside it, a click on
+ * its words included, so the Viz tab's own keys (the arrows scrub the turn)
+ * leave the panel behind it alone; as it closes, focus goes back to the key
+ * that opened it.
  */
 export function GridHelpOverlay({ open, onClose }: GridHelpOverlayProps) {
   const phone = useMediaQuery(PHONE_QUERY);
   const labels = useScenarioLabels();
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus({ preventScroll: true });
+    return () => {
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const dialogCls = [styles.dialog, phone ? styles.phone : ''].filter(Boolean).join(' ');
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Grid viz help" onClick={onClose} className={styles.backdrop}>
-      <div onClick={e => e.stopPropagation()} className={dialogCls}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Grid viz help"
+      data-viz-help=""
+      onClick={onClose}
+      // The Close key is the overlay's one key, so Tab keeps focus on it.
+      onKeyDown={e => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          closeRef.current?.focus({ preventScroll: true });
+        }
+      }}
+      className={styles.backdrop}
+    >
+      {/* Focusable, so a click on its words keeps focus inside the overlay. */}
+      <div tabIndex={-1} onClick={e => e.stopPropagation()} className={dialogCls}>
         <div className={styles.header}>
           <h2 className={styles.title}>Living {labels.Place} Grid — Legend</h2>
-          <button type="button" onClick={onClose} aria-label="Close help" className={styles.closeBtn}>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close help" className={styles.closeBtn}>
             ×
           </button>
         </div>

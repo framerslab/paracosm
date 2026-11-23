@@ -34,16 +34,16 @@ export default defineConfig({
     // many runs it holds.
     // So does the dashboard display spec, whose Library server counts the
     // replays its tests run. The toolbox log and share link spec, the forged
-    // tool view spec, the Viz living grid spec, the phone rows and grid
-    // window spec, the phone rows more spec and the run view toast and Event
-    // Log chip spec set each width they check themselves, so one project runs
-    // them. So does the saved run replay spec, which reads the one shared-run
-    // server.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    // tool view spec, the Viz living grid spec, the Run tab's first screen
+    // spec, the phone rows and grid window spec, the phone rows more spec, the
+    // run view toast and Event Log chip spec and the Viz rows and type spec set
+    // each width they check themselves, so one project runs them. So does
+    // the saved run replay spec, which reads the one shared-run server.
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined
@@ -141,6 +141,28 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        // The hosted demo's server, with one run a day for each internet
+        // address and a stub pair runner, for the Run tab's first screen spec;
+        // a second port, 3472, answers what each run's snapshots held.
+        {
+          command: 'PORT=3470 npx tsx tests-e2e/support/first-screen-server.ts',
+          url: 'http://127.0.0.1:3470/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The same server with stored Mars Genesis runs of 3, 24 and 300
+        // leaders, one turn each from the engine's kernel, for the first
+        // screen spec's cases that open a larger run on the Sim tab.
+        {
+          command: 'PORT=3471 npx tsx tests-e2e/support/cohort-replay-server.ts',
+          url: 'http://127.0.0.1:3471/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
         // The same server with one finished Mars Genesis pair run of six turns
         // stored as a session, for the spec that reads the run view's toasts
         // and the Event Log as it opens after a forged tool's Show in Event
@@ -148,6 +170,18 @@ export default defineConfig({
         {
           command: 'PORT=3468 npx tsx tests-e2e/support/six-turn-run-server.ts',
           url: 'http://127.0.0.1:3468/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+        // The Viz tab's two stored runs with each turn's event_start frame, as
+        // a live run sends it, so the Viz tab draws the event row the live
+        // replays draw above the living grid, for the spec that lays out the
+        // Viz tab on a phone and a short screen.
+        {
+          command: 'PORT=3473 VIZ_REPLAY_EVENT_STARTS=1 npx tsx tests-e2e/support/viz-replay-server.ts',
+          url: 'http://127.0.0.1:3473/health',
           timeout: 180_000,
           reuseExistingServer: !process.env.CI,
           stdout: 'pipe',

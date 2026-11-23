@@ -8,6 +8,9 @@
  * with "Actor A" and "Actor B" in units named "Colony Alpha" and "Colony
  * Beta".
  *
+ * A new run starts from the Run tab's Start, from Settings' Launch, or from
+ * a finished run's Run again; each waits for GET /scenario.
+ *
  * The page talks to the real server, with its own browser context
  * switched to Atlas Lab. /setup is intercepted, so nothing here starts a
  * run or calls a model; the body the real server takes is covered in
@@ -16,6 +19,7 @@
  * one another's scenario.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { openRunTab, pressStart, startKey } from '../support/start-run.js';
 
 // Each browser context holds its own pick, so the tests need no order.
 test.describe.configure({ mode: 'parallel' });
@@ -51,8 +55,6 @@ async function holdScenario(page: Page): Promise<() => void> {
 }
 
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
-const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
 
 test.describe('Run controls @run', () => {
@@ -63,19 +65,28 @@ test.describe('Run controls @run', () => {
     expect(switched.ok()).toBe(true);
   });
 
-  test("Run New Simulation posts Atlas Lab's leaders, in units named for a lab", async ({ page }) => {
+  test("Start posts Atlas Lab's leaders, for Atlas Lab", async ({ page }) => {
     const bodies = await captureSetup(page);
     await page.goto('/sim?tab=sim');
+    await pressStart(page);
+
+    // Start posts the scenario's written leaders and the scenario's id; the
+    // server names each leader's unit for the scenario
+    // (tests/cli/dashboard-run-payload.test.ts).
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0].quickstart?.scenarioId).toBe('atlas-lab');
+    expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
+  });
+
+  test('the RUN menu opens clear of its own tooltip', async ({ page }) => {
+    await page.goto('/sim?tab=sim');
+    await runMenuButton(page).hover();
+    await expect(page.getByRole('tooltip')).toBeVisible();
     await runMenuButton(page).click();
-    await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
+    await expect(page.getByRole('menu', { name: 'Run actions' })).toBeVisible();
     // The pointer has not left the RUN button: its tooltip must not sit
     // over the menu it just opened.
-    await runNewItem(page).click();
-
-    await expect.poll(() => bodies.length).toBe(1);
-    expect(bodies[0].scenarioId).toBe('atlas-lab');
-    expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
-    expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta']);
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
   });
 
   test("Settings launches Atlas Lab's leaders, in units named for a lab", async ({ page }) => {
@@ -92,27 +103,24 @@ test.describe('Run controls @run', () => {
     expect(bodies[0].actors.map(a => a.unit)).toEqual(['Lab Alpha', 'Lab Beta']);
   });
 
-  test('the Sim tab Run and the Run menu wait for GET /scenario', async ({ page }) => {
+  test('Start waits for GET /scenario', async ({ page }) => {
     const bodies = await captureSetup(page);
     const release = await holdScenario(page);
     await page.goto('/sim?tab=sim');
+    await openRunTab(page);
 
-    await expect(emptyStateRun(page)).toBeDisabled();
-    await expect(emptyStateRun(page)).toHaveText(/Loading scenario/);
-    await runMenuButton(page).click();
-    await expect(runNewItem(page)).toBeDisabled();
-    await expect(runNewItem(page)).toHaveText(/Loading scenario/);
+    await expect(startKey(page)).toBeDisabled();
+    // A press made in the page reaches the key while it says it is unavailable, and posts nothing.
+    await startKey(page).evaluate(el => (el as HTMLElement).click());
     expect(bodies).toHaveLength(0);
 
     release();
-    await expect(runNewItem(page)).toBeEnabled();
-    await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
-    await page.keyboard.press('Escape');
-    await expect(emptyStateRun(page)).toBeEnabled();
-    await emptyStateRun(page).click();
+    await expect(startKey(page)).toBeEnabled();
+    await expect(startKey(page)).toHaveAccessibleName(/^Start Atlas Lab\b/);
+    await startKey(page).click();
 
     await expect.poll(() => bodies.length).toBe(1);
-    expect(bodies[0].scenarioId).toBe('atlas-lab');
+    expect(bodies[0].quickstart?.scenarioId).toBe('atlas-lab');
     expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
   });
 
@@ -304,7 +312,7 @@ test.describe('Run controls @run', () => {
     expect(bodies[0].seed).toBe(8);
   });
 
-  test('a failed GET /scenario keeps Run waiting, and the page tries again', async ({ page }) => {
+  test('a failed GET /scenario keeps Start waiting, and the page tries again', async ({ page }) => {
     let answered = 0;
     let release = () => {};
     const released = new Promise<void>(resolve => { release = resolve; });
@@ -320,60 +328,44 @@ test.describe('Run controls @run', () => {
     const failed = page.waitForResponse(r => r.url().endsWith('/scenario') && r.status() === 500);
     await page.goto('/sim?tab=sim');
     await failed;
+    await openRunTab(page);
 
-    await expect(emptyStateRun(page)).toBeDisabled();
+    await expect(startKey(page)).toBeDisabled();
     await expect.poll(() => answered, { timeout: 15_000 }).toBeGreaterThan(1);
-    await expect(emptyStateRun(page)).toBeDisabled();
+    await expect(startKey(page)).toBeDisabled();
 
     release();
-    await expect(emptyStateRun(page)).toBeEnabled();
+    await expect(startKey(page)).toBeEnabled();
   });
 
-  test('the run the catalog hands across its reload waits for GET /scenario', async ({ page }) => {
+  test('a run an earlier page left waiting across a reload starts nothing', async ({ page }) => {
     const bodies = await captureSetup(page);
-    // The catalog's Run stashes this and reloads after /scenario/switch.
+    // Pages before the scenario list stashed a run here and started it after the reload.
     await page.addInitScript(() => {
       if (sessionStorage.getItem('e2e:seeded')) return;
       sessionStorage.setItem('e2e:seeded', '1');
       sessionStorage.setItem('paracosm:catalogPendingRun', JSON.stringify({ scenarioId: 'atlas-lab', actorCount: 2, ts: Date.now() }));
     });
     await page.goto('/sim?tab=quickstart');
-
-    await expect.poll(() => bodies.length).toBe(1);
-    expect(bodies[0].quickstart?.scenarioId).toBe('atlas-lab');
-    expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
-  });
-
-  test('a run the catalog handed across its reload for another scenario does not start', async ({ page }) => {
-    const bodies = await captureSetup(page);
-    // This tab asked for Deep Ocean Station; another switch made Atlas Lab
-    // active before the reload's GET /scenario.
-    await page.addInitScript(() => {
-      if (sessionStorage.getItem('e2e:seeded')) return;
-      sessionStorage.setItem('e2e:seeded', '1');
-      sessionStorage.setItem('paracosm:catalogPendingRun', JSON.stringify({ scenarioId: 'deep-ocean-station', actorCount: 2, ts: Date.now() }));
-    });
-    await page.goto('/sim?tab=quickstart');
-
-    await expect(page.getByText('Scenario changed', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Atlas Lab', exact: true })).toBeVisible();
+    await expect(startKey(page)).toBeEnabled();
+    await page.waitForTimeout(1_000);
     expect(bodies).toHaveLength(0);
-    expect(await page.evaluate(() => sessionStorage.getItem('paracosm:catalogPendingRun'))).toBeNull();
   });
 
-  test('a catalog switch whose answer is lost leaves no run for the next load', async ({ page }) => {
+  test('a scenario row whose switch answer is lost keeps the scenario and runs nothing', async ({ page }) => {
     const bodies = await captureSetup(page);
     // The switch's answer never reaches the page, so no cookie is set.
     await page.route('**/scenario/switch', route => route.abort());
     await page.goto('/sim?tab=quickstart');
-    await page.getByRole('button', { name: /against Deep Ocean Station$/ }).click();
-    await expect(page.getByText('Scenario switch failed', { exact: true })).toBeVisible();
-    expect(await page.evaluate(() => sessionStorage.getItem('paracosm:catalogPendingRun'))).toBeNull();
+    const list = page.getByTestId('other-scenarios');
+    await list.getByRole('button', { name: 'Load Deep Ocean Station', exact: true }).click();
+    await expect(list.locator('[data-scenario="deep-ocean-station"]').getByRole('status')).toHaveText('Deep Ocean Station did not load.');
 
     // The reload finds the page's own pick, Atlas Lab, and runs nothing.
     await page.reload();
-    await expect(page.getByRole('heading', { name: /loaded scenario: Atlas Lab$/ })).toBeVisible();
-    // The loaded scenario's card and its catalog card both offer the run.
-    await expect(page.getByRole('button', { name: /against Atlas Lab$/ }).first()).toBeEnabled();
+    await expect(page.getByRole('heading', { level: 1, name: 'Atlas Lab', exact: true })).toBeVisible();
+    await expect(startKey(page)).toBeEnabled();
     await page.waitForTimeout(1_000);
     expect(bodies).toHaveLength(0);
   });

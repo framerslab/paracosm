@@ -3,6 +3,7 @@ import type { ProcessedEvent } from '../../hooks/useGameState';
 import type { ToolEntry } from '../../hooks/useToolRegistry';
 import { writeClipboardText } from '../../hooks/writeClipboardText';
 import { sendForgeEvent } from '../../analytics/forgeEvents';
+import { downloadJson } from '../../download';
 import { RECORD_WORDS, recordFileName } from './forgeWords';
 import styles from './stations/stations.module.scss';
 
@@ -91,14 +92,7 @@ export function RecordPanel({ entry, frames, onShowInEventLog }: RecordPanelProp
     if (text === null) return;
     sendForgeEvent({ name: 'forge_record_export', what: 'record_download' });
     try {
-      const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = recordFileName(entry.name);
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      downloadJson(text, recordFileName(entry.name));
       say(null);
     } catch {
       say('downloadFailed');

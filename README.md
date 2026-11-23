@@ -172,7 +172,7 @@ const { actors, artifacts } = await wm.quickstart({ actorCount: 3 });
 artifacts.forEach((a, i) => console.log(actors[i].name, a.fingerprint));
 ```
 
-In the dashboard, Quickstart is the default landing tab. A user pastes a brief, drops a PDF, or supplies a URL, and three streaming actors arrive within a minute of first click. A curated library of HEXACO archetypes ships at `paracosm.ACTOR_PRESETS` for programmatic `wm.batch` sweeps.
+In the dashboard, the Run tab opens on the loaded scenario: its two leaders with their HEXACO scores and written orders, its colony at turn 0 in the living grid, and one Start key. Under it, Other scenarios loads another scenario, and Write your own scenario takes a pasted brief, a URL or a PDF, compiles it through the same path and runs it. A curated library of HEXACO archetypes ships at `paracosm.ACTOR_PRESETS` for programmatic `wm.batch` sweeps.
 
 ---
 
