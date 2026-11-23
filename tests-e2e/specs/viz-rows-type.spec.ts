@@ -566,6 +566,12 @@ for (const look of LOOKS) {
             await painted(page);
             const turnAfter = await scrub.getAttribute('aria-valuetext');
             expect.soft(turnAfter, `${where}: the left arrow key leaves the turn behind the help overlay alone`).toBe(turnBefore);
+            // D, the diff overlay's key, leaves the panel behind it alone too.
+            const diffShown = () => page.evaluate(() => window.localStorage.getItem('paracosm:vizDiffOverlay'));
+            const diffBefore = await diffShown();
+            await page.keyboard.press('d');
+            await painted(page);
+            expect.soft(await diffShown(), `${where}: D leaves the diff overlay behind the help overlay alone`).toBe(diffBefore);
             // A click on the overlay's words keeps the panel behind it still too.
             await helpDialog(page).getByText('Keyboard', { exact: true }).click();
             await page.keyboard.press('ArrowLeft');
