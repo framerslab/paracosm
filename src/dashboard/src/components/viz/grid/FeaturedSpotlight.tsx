@@ -68,9 +68,8 @@ export function FeaturedSpotlight({
       style={{
         ...(inFlow
           ? { alignSelf: 'flex-end' }
-          : { position: 'absolute', bottom: 12, right: 12 }),
+          : { position: 'absolute', bottom: 12, right: 12, flexDirection: 'column' }),
         display: 'flex',
-        flexDirection: 'column',
         gap: 4,
         pointerEvents: 'none',
         zIndex: 7,

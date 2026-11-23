@@ -85,11 +85,31 @@
       flex: 0 0 248px;
     }
 
-    > [data-grid-spotlight] { order: -1; }
+    .spotlightSlot > [data-grid-spotlight] {
+      order: -1;
+      flex-direction: column;
+    }
   }
 }
 
 .vizPanel .canvasWrap { min-height: 200px; }
+
+.spotlightSlot { display: contents; }
+
+@media (width > 768px) {
+  .spotlightSlot {
+    display: flex;
+    flex: 0 0 30px;
+    justify-content: flex-end;
+    min-width: 0;
+  }
+
+  .spotlightSlot > [data-grid-spotlight] {
+    flex-direction: row;
+
+    > button { min-width: 0; }
+  }
+}
 
 .canvas {
   position: absolute;

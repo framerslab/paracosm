@@ -305,6 +305,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Capture Viz with the original dashboard source
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        env:
+          BASE_DASHBOARD: 7b2f0e71e864c1fdbbe32f78abfc66c7fec015d6
+          VIZ_WIDE_CAPTURE_PHASE: before
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_DASHBOARD"
+          trap 'git restore --source=HEAD --worktree -- src/dashboard' EXIT
+          git restore --source="$BASE_DASHBOARD" --worktree -- src/dashboard
+          npx playwright test tests-e2e/specs/viz-rows-type.spec.ts --project=chromium-desktop --grep 'wide Viz comparison captures'
+
+      - name: Upload the wide Viz comparison pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viz-wide-and-stats-pictures
+          path: test-pictures/viz-wide-and-stats/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The install the server runs after a deploy, as deploy.yml's server-install
   # job runs it: the production dependencies from the lockfile on Node 22, in
   # an image with no make, compiler or Python.

@@ -59,6 +59,55 @@ $read-size: 15px;
   > * { flex-shrink: 0; }
 }
 
+.content,
+.transientRow,
+.notices {
+  display: contents;
+}
+
+@media (width > 768px) {
+  // Keep the notices and the Latest key in a shared slot. Appearance,
+  // dismissal and wrapping leave the space for the fields constant.
+  .transientRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    flex: 0 0 56px;
+    min-height: 0;
+    gap: 8px;
+  }
+
+  .notices {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow-y: auto;
+    padding-inline: 8px;
+    scrollbar-width: thin;
+
+    > * { flex: 0 0 auto; }
+  }
+
+  .transientRow .toast { align-self: flex-start; }
+  .transientRow .jumpLatestAnchor { grid-column: 2; }
+}
+
+@media (width > 768px) and (height > 500px) {
+  // Keep playback in view while the narrative and grids share their own
+  // scroll area. On narrow and short windows they still scroll together.
+  .body { overflow: hidden; }
+
+  .content {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden auto;
+    scrollbar-gutter: stable;
+
+    > * { flex-shrink: 0; }
+  }
+}
+
 .toolbarStrip {
   padding: 6px 10px 4px;
   background: var(--bg-deep);

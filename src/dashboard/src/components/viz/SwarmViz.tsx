@@ -97,18 +97,24 @@ const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [ro
 /**
  * The Viz panel as a picture holds it, for the PNG export and the timelapse.
  *
- * Include the body's full height and undo its scroll offset when placing
- * its canvases. The short
- * layout moves the whole panel with the dashboard scroll. Canvas positions
- * relative to the panel stay the same as the dashboard scrolls.
+ * Undo the body's scroll offset when placing its canvases. On compact
+ * layouts the whole body scrolls, including playback. On desktop only the
+ * content area scrolls, so extend the picture only if a canvas needs room.
  */
 function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
   const view = root.getBoundingClientRect();
-  const beyondView = body ? Math.max(0, body.scrollHeight - body.clientHeight) : 0;
+  const desktop = body?.classList.contains(styles.content);
+  const beyondView = body && !desktop ? Math.max(0, body.scrollHeight - body.clientHeight) : 0;
   const scrolled = body ? body.scrollTop : 0;
+  const height = body && desktop
+    ? Array.from(body.querySelectorAll('canvas')).reduce((bottom, canvas) => {
+        const rect = canvas.getBoundingClientRect();
+        return rect.height > 0 ? Math.max(bottom, rect.bottom - view.top + scrolled) : bottom;
+      }, view.height)
+    : view.height + beyondView;
   return {
     width: view.width,
-    height: view.height + beyondView,
+    height,
     /** Where a canvas stands in the picture, in CSS px; null for one that is not shown. */
     place(canvas: HTMLCanvasElement): { x: number; y: number; width: number; height: number } | null {
       const r = canvas.getBoundingClientRect();
@@ -923,6 +929,8 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   // the user switched from a running sim (hooks fire) to the empty
   // state (hooks don't fire), producing React error #310.
   const narrow = useMediaQuery(NARROW_QUERY);
+  const short = useMediaQuery('(max-height: 500px)');
+  const splitPlayback = !narrow && !short;
   const phone = useMediaQuery(PHONE_QUERY);
   // Below 900 px the toolbar's diff and help keys stand in its More panel.
   const touchKeys = useMediaQuery(TOUCH_KEYS_QUERY);
@@ -1161,9 +1169,8 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
         data-own-help-key="?"
       >
-        {/* The panel scrolls here when its content needs room. On short
-            screens the dashboard shell scrolls with the panel. */}
-        <div ref={vizBodyRef} className={styles.body} data-viz-layout="">
+        <div ref={splitPlayback ? undefined : vizBodyRef} className={styles.body} data-viz-layout="">
+        <div ref={splitPlayback ? vizBodyRef : undefined} className={styles.content}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
@@ -1526,74 +1533,79 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         </div>
         )}
         {narrow && eventRow}
-        {narrow && comparison}
-        {!isReplay && alertToast && (
-          <div
-            key={alertToast.key}
-            role="status"
-            aria-live="assertive"
-            onClick={() => setAlertToast(null)}
-            className={styles.toast}
-            style={{
-              '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-              '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-            } as CSSProperties}
-            title="Click to dismiss"
-          >
-            <div
-              className={styles.toastKicker}
-              style={{
-                '--kicker-color': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-              } as CSSProperties}
-            >
-              <span>{alertToast.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
-              <span className={styles.toastKickerMeta}>
-                {alertToast.side.toUpperCase()} · T{alertToast.turn}
-              </span>
-            </div>
-            <div className={styles.toastBody}>{alertToast.message}</div>
+        <div className={styles.transientRow}>
+          <div className={styles.notices}>
+            {!isReplay && alertToast && (
+              <div
+                key={alertToast.key}
+                role="status"
+                aria-live="assertive"
+                onClick={() => setAlertToast(null)}
+                className={styles.toast}
+                style={{
+                  '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+                  '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                } as CSSProperties}
+                title="Click to dismiss"
+              >
+                <div
+                  className={styles.toastKicker}
+                  style={{
+                    '--kicker-color': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                  } as CSSProperties}
+                >
+                  <span>{alertToast.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
+                  <span className={styles.toastKickerMeta}>
+                    {alertToast.side.toUpperCase()} · T{alertToast.turn}
+                  </span>
+                </div>
+                <div className={styles.toastBody}>{alertToast.message}</div>
+              </div>
+            )}
+            {!isReplay && crisisToast && (
+              <div
+                key={crisisToast.key}
+                role="status"
+                aria-live="polite"
+                onClick={() => setCrisisToast(null)}
+                className={styles.toast}
+                style={{
+                  '--side-color': crisisToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+                  '--left-accent': 'var(--rust)',
+                } as CSSProperties}
+                title="Click to dismiss"
+              >
+                <div className={styles.toastKicker}>
+                  <span>⚡ Crisis</span>
+                  <span className={styles.toastKickerMeta}>
+                    {crisisToast.side.toUpperCase()} · T{crisisToast.turn} · {crisisToast.category}
+                  </span>
+                </div>
+                <div className={styles.toastBodyMd}>
+                  {crisisToast.title || `${crisisToast.category} crisis unfolding`}
+                </div>
+              </div>
+            )}
           </div>
-        )}
-        {!isReplay && crisisToast && (
-          <div
-            key={crisisToast.key}
-            role="status"
-            aria-live="polite"
-            onClick={() => setCrisisToast(null)}
-            className={styles.toast}
-            style={{
-              '--side-color': crisisToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-              '--left-accent': 'var(--rust)',
-            } as CSSProperties}
-            title="Click to dismiss"
-          >
-            <div className={styles.toastKicker}>
-              <span>⚡ Crisis</span>
-              <span className={styles.toastKickerMeta}>
-                {crisisToast.side.toUpperCase()} · T{crisisToast.turn} · {crisisToast.category}
-              </span>
+          {narrow && comparison}
+          {/* The Latest key stays in the flow above the play controls. */}
+          {maxTurn > 1 && currentTurn < maxTurn - 1 && (
+            <div className={styles.jumpLatestAnchor}>
+              <button
+                type="button"
+                onClick={() => handleTurnChange(maxTurn - 1)}
+                aria-label={`Jump to latest turn (T${maxTurn})`}
+                className={styles.jumpLatest}
+              >
+                {'\u2193'} Latest · T{maxTurn}
+                <span className={styles.jumpLatestBehind}>
+                  ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
+                </span>
+              </button>
             </div>
-            <div className={styles.toastBodyMd}>
-              {crisisToast.title || `${crisisToast.category} crisis unfolding`}
-            </div>
-          </div>
-        )}
-        {/* The Latest key stays in the flow above the play controls. */}
-        {maxTurn > 1 && currentTurn < maxTurn - 1 && (
-          <div className={styles.jumpLatestAnchor}>
-            <button
-              type="button"
-              onClick={() => handleTurnChange(maxTurn - 1)}
-              aria-label={`Jump to latest turn (T${maxTurn})`}
-              className={styles.jumpLatest}
-            >
-              {'\u2193'} Latest · T{maxTurn}
-              <span className={styles.jumpLatestBehind}>
-                ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
-              </span>
-            </button>
-          </div>
-        )}
+          )}
+        </div>
+        </div>
         <VizControls
           currentTurn={currentTurn}
           maxTurn={maxTurn}

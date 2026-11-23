@@ -10,28 +10,21 @@ interface HexacoRadarProps {
 
 const AXES: Array<keyof HexacoProfile> = ['O', 'C', 'E', 'A', 'Em', 'HH'];
 
-function pointFor(values: HexacoProfile, size: number): string {
-  const cx = size / 2;
-  const cy = size / 2;
-  const radius = size / 2 - 8;
-  return AXES.map((axis, i) => {
-    const angle = (Math.PI * 2 * i) / AXES.length - Math.PI / 2;
-    const v = Math.max(0, Math.min(1, values[axis]));
-    const r = radius * v;
-    return `${cx + Math.cos(angle) * r},${cy + Math.sin(angle) * r}`;
-  }).join(' ');
+const LABEL_SIZE = 15;
+const LABEL_INSET = 12;
+const LABEL_CLEARANCE = 14;
+
+function polarPoint(center: number, radius: number, i: number) {
+  const angle = (Math.PI * 2 * i) / AXES.length - Math.PI / 2;
+  return { x: center + Math.cos(angle) * radius, y: center + Math.sin(angle) * radius };
 }
 
-function axisLabel(axis: keyof HexacoProfile, size: number, i: number): { x: number; y: number; label: string } {
-  const cx = size / 2;
-  const cy = size / 2;
-  const radius = size / 2;
-  const angle = (Math.PI * 2 * i) / AXES.length - Math.PI / 2;
-  return {
-    x: cx + Math.cos(angle) * radius,
-    y: cy + Math.sin(angle) * radius,
-    label: axis,
-  };
+function polygonPoints(values: HexacoProfile, center: number, radius: number): string {
+  return AXES.map((axis, i) => {
+    const value = Math.max(0, Math.min(1, values[axis]));
+    const { x, y } = polarPoint(center, radius * value, i);
+    return `${x},${y}`;
+  }).join(' ');
 }
 
 /**
@@ -39,18 +32,18 @@ function axisLabel(axis: keyof HexacoProfile, size: number, i: number): { x: num
  * colony mean (if provided). Pure SVG; no canvas dependency.
  */
 export function HexacoRadar({ profile, colonyMean, size = 160 }: HexacoRadarProps) {
-  const profilePoints = pointFor(profile, size);
-  const meanPoints = colonyMean ? pointFor(colonyMean, size) : null;
-  const cx = size / 2;
-  const cy = size / 2;
-  const gridRadius = size / 2 - 8;
+  const center = size / 2;
+  const labelRadius = center - LABEL_INSET;
+  const gridRadius = labelRadius - LABEL_CLEARANCE;
+  const profilePoints = polygonPoints(profile, center, gridRadius);
+  const meanPoints = colonyMean ? polygonPoints(colonyMean, center, gridRadius) : null;
   return (
     <svg width={size} height={size} role="img" aria-label="HEXACO profile radar">
       {[0.25, 0.5, 0.75, 1.0].map(p => (
         <circle
           key={p}
-          cx={cx}
-          cy={cy}
+          cx={center}
+          cy={center}
           r={gridRadius * p}
           fill="none"
           stroke="var(--border)"
@@ -58,19 +51,19 @@ export function HexacoRadar({ profile, colonyMean, size = 160 }: HexacoRadarProp
         />
       ))}
       {AXES.map((axis, i) => {
-        const p = axisLabel(axis, size, i);
+        const { x, y } = polarPoint(center, labelRadius, i);
         return (
           <text
             key={axis}
-            x={p.x}
-            y={p.y}
-            fontSize="9"
+            x={x}
+            y={y}
+            fontSize={LABEL_SIZE}
             fontFamily="var(--mono)"
             fill="var(--text-3)"
             textAnchor="middle"
             dominantBaseline="middle"
           >
-            {p.label}
+            {axis}
           </text>
         );
       })}

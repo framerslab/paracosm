@@ -585,7 +585,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
     const filterChanged = eventFilter !== lastGolFilterRef.current;
     const actorChanged = actorName !== lastGolActorRef.current;
     const sizeKey = `${size.w}x${size.h}`;
-    const fieldResized = (resting || vizPanel) && sizeKey !== lastGolSizeRef.current;
+    const fieldResized = resting && sizeKey !== lastGolSizeRef.current;
     const prevGolTurn = lastGolTurnRef.current;
     if (turnChanged || modeChanged || filterChanged || actorChanged || fieldResized) {
       lastGolSizeRef.current = sizeKey;
@@ -1496,7 +1496,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
           onOpenChat={onOpenChat}
         />
       </div>
-      {vizPanel && spotlight}
+      {vizPanel && !domNames && <div className={styles.spotlightSlot}>{spotlight}</div>}
     </div>
   );
 }
