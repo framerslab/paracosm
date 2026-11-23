@@ -488,6 +488,9 @@ for (const look of LOOKS) {
       await openRun(page, run, look, size);
       await setWords(page, 'open');
       await scrollBack(page);
+      if (size === SHORT) {
+        await gridOf(page, run.turns).evaluate(el => el.scrollIntoView({ block: 'start', inline: 'nearest' }));
+      }
       await painted(page);
       await picture(page, `comparison-${size.width}x${size.height}-${look}`);
     }
