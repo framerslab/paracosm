@@ -18,6 +18,19 @@
   flex-direction: column;
 }
 
+// On a short Viz screen the replay chrome, panel and footer share the
+// dashboard scroll. The grid can use the full window as it scrolls past.
+@media (max-height: 500px) {
+  .vizShortScroll {
+    overflow-y: auto;
+
+    .main {
+      flex: 1 0 auto;
+      overflow: visible;
+    }
+  }
+}
+
 .chatSurfaceHidden { display: none; }
 .chatSurfaceVisible {
   display: flex;

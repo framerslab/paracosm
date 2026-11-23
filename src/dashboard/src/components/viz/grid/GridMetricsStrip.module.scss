@@ -11,7 +11,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: var(--viz-read-size, var(--font-2xs));
   color: var(--text-3);
 }
 
@@ -54,7 +54,7 @@
 
 .moraleValue {
   font-weight: 800;
-  font-size: var(--font-md);
+  font-size: var(--viz-read-size, var(--font-md));
   // --morale-color set inline based on threshold.
   color: var(--morale-color, var(--text-2));
 }
@@ -89,7 +89,7 @@
 }
 
 .moodEmpty {
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   color: var(--text-4);
 }
 
@@ -109,7 +109,7 @@
 }
 
 .moodLegend {
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -146,7 +146,7 @@
 .ageScale {
   display: flex;
   justify-content: space-between;
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   color: var(--text-4);
 }
 
@@ -159,7 +159,7 @@
 }
 
 .deptLabel {
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   color: var(--text-4);
   letter-spacing: 0.08em;
   text-transform: uppercase;

@@ -5,6 +5,7 @@ interface FeaturedSpotlightProps {
   snapshot: TurnSnapshot | undefined;
   previousSnapshot: TurnSnapshot | undefined;
   sideColor: string;
+  inFlow?: boolean;
   /** Fires when the spotlighted colonist is clicked. Parent typically
    *  opens their drilldown. */
   onSelect?: (colonist: CellSnapshot) => void;
@@ -25,6 +26,7 @@ export function FeaturedSpotlight({
   snapshot,
   previousSnapshot,
   sideColor,
+  inFlow = false,
   onSelect,
 }: FeaturedSpotlightProps) {
   const [spotlights, setSpotlights] = useState<Spotlight[]>([]);
@@ -62,16 +64,17 @@ export function FeaturedSpotlight({
   return (
     <div
       aria-live="polite"
+      data-grid-spotlight={inFlow ? '' : undefined}
       style={{
-        position: 'absolute',
-        bottom: 12,
-        right: 12,
+        ...(inFlow
+          ? { alignSelf: 'flex-end' }
+          : { position: 'absolute', bottom: 12, right: 12 }),
         display: 'flex',
         flexDirection: 'column',
         gap: 4,
         pointerEvents: 'none',
         zIndex: 7,
-        maxWidth: 240,
+        maxWidth: inFlow ? '100%' : 240,
       }}
     >
       {visible.map(sp => (
@@ -92,7 +95,7 @@ export function FeaturedSpotlight({
             borderLeft: `3px solid ${sideColor}`,
             borderRadius: 3,
             fontFamily: 'var(--mono)',
-            fontSize: 'var(--font-xs)',
+            fontSize: 'var(--viz-read-size, var(--font-xs))',
             color: 'var(--text-2)',
             textAlign: 'left',
             cursor: 'pointer',
@@ -104,11 +107,11 @@ export function FeaturedSpotlight({
             maxWidth: '100%',
           }}
         >
-          <span style={{ color: sideColor, fontSize: 'var(--font-2xs)', flexShrink: 0 }} aria-hidden="true">★</span>
+          <span style={{ color: sideColor, fontSize: 'var(--viz-read-size, var(--font-2xs))', flexShrink: 0 }} aria-hidden="true">★</span>
           <span style={{ color: 'var(--text-1)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {sp.cell.name}
           </span>
-          <span style={{ color: 'var(--text-3)', fontSize: 'var(--font-2xs)', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <span style={{ color: 'var(--text-3)', fontSize: 'var(--viz-read-size, var(--font-2xs))', flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
             {sp.cell.department}
           </span>
         </button>

@@ -45,6 +45,10 @@ $read-size: 15px;
 .scrub {
   flex: 1 1 0;
   min-width: 44px;
+
+  @media (max-width: 899.98px) {
+    min-height: 44px;
+  }
 }
 
 .turn {

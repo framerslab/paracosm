@@ -2,6 +2,9 @@
 // Each column has a sticky-ish color-banded header and a fixed-width
 // LivingSwarmGrid (lazy-mounted) below. The track itself is the
 // horizontal scroller; the page's vertical scroll is unaffected.
+//
+// The Viz panel sets --viz-read-size (15 px) for every word in it; the
+// Run tab's track of one panel a leader keeps the dashboard's own sizes.
 
 .track {
   position: relative;
@@ -108,7 +111,7 @@
 
 .columnHeaderSlot {
   font-family: var(--mono);
-  font-size: var(--font-xs);
+  font-size: var(--viz-read-size, var(--font-xs));
   font-weight: 800;
   color: var(--actor-color, var(--amber));
   letter-spacing: 0.06em;
@@ -123,7 +126,7 @@
 }
 
 .columnHeaderName {
-  font-size: var(--font-sm);
+  font-size: var(--viz-read-size, var(--font-sm));
   font-weight: 700;
   color: var(--text-1);
   white-space: nowrap;
@@ -133,7 +136,7 @@
 
 .columnHeaderArchetype {
   font-family: var(--mono);
-  font-size: var(--font-3xs);
+  font-size: var(--viz-read-size, var(--font-3xs));
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -144,7 +147,7 @@
 
 .columnHeaderPop {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: var(--viz-read-size, var(--font-2xs));
   color: var(--text-2);
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -202,7 +205,7 @@
 
 .columnPlaceholderLabel {
   font-family: var(--mono);
-  font-size: var(--font-2xs);
+  font-size: var(--viz-read-size, var(--font-2xs));
   color: var(--text-3);
   letter-spacing: 0.06em;
   text-transform: uppercase;

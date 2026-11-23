@@ -11,15 +11,17 @@
 .legend {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px;
   align-items: baseline;
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-family: var(--mono);
-  color: var(--text-4);
+  color: var(--text-2);
   letter-spacing: 0.08em;
   margin-bottom: 2px;
 }
 
-.legendRight { display: flex; gap: 10px; }
+.legendRight { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .legendA { color: var(--vis); }
 .legendB { color: var(--eng); }
@@ -45,7 +47,7 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   font-family: var(--mono);
-  font-size: var(--font-3xs);
+  font-size: 15px;
   color: var(--text-2);
   pointer-events: none;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
@@ -55,7 +57,7 @@
 }
 
 .tooltipTurn {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   font-weight: 800;
   color: var(--amber);
   letter-spacing: 0.08em;

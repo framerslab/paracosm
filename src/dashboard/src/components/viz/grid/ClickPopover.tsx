@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { CellSnapshot, TurnSnapshot } from '../viz-types.js';
 import { HexacoRadar } from '../HexacoRadar.js';
 import { useMediaQuery, PHONE_QUERY } from './useMediaQuery.js';
@@ -15,6 +15,7 @@ export interface ClickPopoverPayload {
 
 interface ClickPopoverProps {
   payload: ClickPopoverPayload | null;
+  keepHeaderInView?: boolean;
   /** Container size so the popover can flip when near an edge. */
   containerW: number;
   containerH: number;
@@ -53,6 +54,7 @@ function topHexacoAxes(h: HexacoShape | undefined): string {
 export function ClickPopover(props: ClickPopoverProps) {
   const {
     payload,
+    keepHeaderInView = false,
     containerW,
     containerH,
     sideColor,
@@ -61,7 +63,17 @@ export function ClickPopover(props: ClickPopoverProps) {
     onClose,
     onOpenChat,
   } = props;
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+
+  // In the Viz panel a drilldown can open from a spotlight below the grid,
+  // with the grid scrolled above the view at any screen height: the header,
+  // with the name and the Close key, is brought into view. `nearest` leaves
+  // a header already in view where it stands.
+  useLayoutEffect(() => {
+    if (keepHeaderInView && payload) {
+      headerRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [keepHeaderInView, payload]);
 
   useEffect(() => {
     if (!payload) return;
@@ -145,13 +157,12 @@ export function ClickPopover(props: ClickPopoverProps) {
     <>
       <div onClick={onClose} className={styles.backdrop} />
       <div
-        ref={rootRef}
         role="dialog"
         aria-label={`${cell.name} drilldown`}
         className={styles.popover}
         style={popStyle}
       >
-        <div className={styles.headerRow}>
+        <div ref={headerRef} className={styles.headerRow}>
           <div>
             <div className={styles.headerName}>{cell.name}</div>
             <div className={styles.headerSubline}>

@@ -33,7 +33,7 @@
 
 .title {
   margin: 0;
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 800;
   color: var(--amber);
   letter-spacing: 0.1em;
@@ -49,7 +49,7 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   cursor: pointer;
-  font-size: var(--font-md);
+  font-size: 15px;
   line-height: 1;
   padding: 0;
 }
@@ -73,7 +73,7 @@
 }
 
 .sideName {
-  font-size: var(--font-xs);
+  font-size: 15px;
   font-weight: 800;
   color: var(--side-color, var(--amber));
   letter-spacing: 0.08em;
@@ -95,7 +95,7 @@
 }
 
 .cellLabel {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   color: var(--text-4);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -103,7 +103,7 @@
 }
 
 .cellValue {
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 800;
   font-family: var(--mono);
   // --val-color set inline.
@@ -112,7 +112,7 @@
 
 .empty {
   color: var(--text-4);
-  font-size: var(--font-xs);
+  font-size: 15px;
 }
 
 .divergenceBox {
@@ -128,7 +128,7 @@
 }
 
 .divergenceLabel {
-  font-size: var(--font-3xs);
+  font-size: 15px;
   color: var(--text-4);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -141,7 +141,11 @@
 }
 
 .divergenceCopy {
-  font-size: var(--font-xs);
+  font-size: 15px;
   color: var(--text-3);
   line-height: 1.5;
+}
+
+@media (max-height: 500px) {
+  .backdrop { position: fixed; }
 }

@@ -2,6 +2,7 @@ import type { TurnSnapshot, GridPosition, CellSnapshot } from '../viz-types.js';
 
 export interface HudOpts {
   actorName: string;
+  textSize?: number;
   sideColor: string;
   /** Overlay canvas logical width/height for corner placement. */
   width: number;
@@ -65,24 +66,32 @@ export function drawHud(
   snapshot: TurnSnapshot | undefined,
   opts: HudOpts,
 ): void {
+  const textSize = opts.textSize ?? 10;
+  const font = `${textSize}px ui-monospace, monospace`;
   ctx.save();
-  ctx.font = '10px ui-monospace, monospace';
+  ctx.font = font;
   ctx.fillStyle = opts.sideColor;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
   const nameText = opts.actorName.toUpperCase();
-  ctx.fillText(nameText, 10, 10);
-  const nameWidth = ctx.measureText(nameText).width;
+  const maxNameWidth = opts.textSize ? Math.max(1, opts.width - 82) : opts.width;
+  const nameWidth = Math.min(maxNameWidth, ctx.measureText(nameText).width);
+  ctx.fillText(nameText, 10, 10, maxNameWidth);
 
   // Archetype chip next to the name.
   const archetype = (opts.actorArchetype || '').trim().replace(/^The\s+/i, '');
-  if (archetype) {
-    ctx.font = 'bold 8px ui-monospace, monospace';
+  // With a text size set, the chip's width is estimated before it is drawn:
+  // 0.61 em for each monospace character of its words plus two characters,
+  // and 28 px for the name's 10 px inset, the 8 px gap after the name and
+  // the chip's 5 px padding on each side (chipX and padX below). A chip that
+  // would not fit beside the name inside maxNameWidth is left out.
+  if (archetype && (!opts.textSize || nameWidth + (archetype.length + 2) * textSize * 0.61 + 28 < maxNameWidth)) {
+    ctx.font = `bold ${opts.textSize ?? 8}px ui-monospace, monospace`;
     const chipText = archetype.toUpperCase();
     const tw = ctx.measureText(chipText).width;
     const chipX = 10 + nameWidth + 8;
     const chipY = 9;
-    const chipH = 13;
+    const chipH = (opts.textSize ?? 8) + 5;
     const padX = 5;
     ctx.fillStyle = opts.labelBg ?? `rgba(10, 8, 6, 0.5)`;
     ctx.fillRect(chipX, chipY, tw + padX * 2, chipH);
@@ -93,7 +102,7 @@ export function drawHud(
     ctx.textBaseline = 'middle';
     ctx.fillText(chipText, chipX + padX, chipY + chipH / 2 + 0.5);
     ctx.textBaseline = 'top';
-    ctx.font = '10px ui-monospace, monospace';
+    ctx.font = font;
   }
 
   // Turn + time + settlement-age line.
@@ -105,7 +114,7 @@ export function drawHud(
       ? `T${snapshot?.turn ?? 0} · ${time} · ${unit} ${Math.max(0, time - opts.startTime)}`
       : `T${snapshot?.turn ?? 0} · ${time}`
     : `T${snapshot?.turn ?? 0}`;
-  ctx.fillText(timeLabel, 10, 24);
+  ctx.fillText(timeLabel, 10, 14 + textSize);
 
   if (!snapshot) {
     ctx.restore();
@@ -130,7 +139,7 @@ export function drawHud(
       slot.ys.push(p.y);
       byDept.set(dept, slot);
     }
-    ctx.font = 'bold 9px ui-monospace, monospace';
+    ctx.font = `bold ${opts.textSize ?? 9}px ui-monospace, monospace`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
 
@@ -151,13 +160,14 @@ export function drawHud(
         dept,
         cx,
         w: metrics.width + padX * 2,
-        h: 14,
+        h: (opts.textSize ?? 9) + 5,
         label,
         idealY,
       });
     }
     pending.sort((a, b) => a.idealY - b.idealY);
     const placed: Placed[] = [];
+    const stepY = (opts.textSize ?? 9) + 7;
     const overlaps = (a: { cx: number; w: number; y: number; h: number }, b: Placed): boolean => {
       return (
         Math.abs(a.cx - b.cx) < (a.w + b.w) / 2 + 2 &&
@@ -166,10 +176,10 @@ export function drawHud(
     };
     for (const p of pending) {
       let y = p.idealY;
-      // Try pushing up first, then down, in 16px steps.
+      // Try pushing up first, then down by one label height and gap.
       for (let step = 0; step < 10; step++) {
-        const up = p.idealY - step * 16;
-        const down = p.idealY + step * 16;
+        const up = p.idealY - step * stepY;
+        const down = p.idealY + step * stepY;
         const candY = step === 0 ? p.idealY : up >= 10 ? up : down;
         const collided = placed.some(other =>
           overlaps({ cx: p.cx, w: p.w, y: candY, h: p.h }, other),
@@ -199,7 +209,7 @@ export function drawHud(
   // collided with both the metrics strip (redundant readout) and the
   // corner buttons (visual overlap).
 
-  ctx.font = '10px ui-monospace, monospace';
+  ctx.font = font;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
   ctx.fillStyle = opts.sideColor;
@@ -214,13 +224,13 @@ export function drawHud(
       : popDelta < 0
       ? 'rgba(196, 74, 30, 0.95)'
       : 'rgba(216, 204, 176, 0.75)';
-  ctx.fillText(`POP ${snapshot.population}`, 10, opts.height - 20);
+  ctx.fillText(`POP ${snapshot.population}`, 10, opts.height - 10 - textSize);
   if (popTrend) {
     // Trend arrow rendered separately so it takes the delta color.
     const popText = `POP ${snapshot.population}`;
     const offset = ctx.measureText(popText).width + 6;
     ctx.fillStyle = popTrendColor;
-    ctx.fillText(`${popTrend}${Math.abs(popDelta)}`, 10 + offset, opts.height - 20);
+    ctx.fillText(`${popTrend}${Math.abs(popDelta)}`, 10 + offset, opts.height - 10 - textSize);
     ctx.fillStyle = opts.sideColor;
   }
   if (snapshot.deaths > 0 || snapshot.births > 0) {
