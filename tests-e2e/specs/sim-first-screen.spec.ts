@@ -5018,16 +5018,22 @@ screenTest('feature 10: at the reset time the page reads the count again', async
 
 // Feature 10: a count with no run left whose reset time has already passed by the page's clock (an answer that
 // came after the reset, or a page clock ahead of the server's) is read again until the server names a later day,
-// so Start comes back without a press or a reload.
+// so Start comes back without a press or a reload. A read that fails on the way keeps the day's count as the server
+// last said it, and the page asks again.
 screenTest('feature 10: a count whose reset time has passed by the page\'s clock is read again until the day turns', async ({ page }) => {
   test.setTimeout(120_000);
   // The server's day reset two seconds before the page's clock reads now; it answers that day until the test turns it.
   const resetAt = Date.now() - 2_000;
-  let turned = false;
+  let server: 'old day' | 'down' | 'later day' = 'old day';
   let reads = 0;
+  let failed = 0;
   await page.route('**/rate-limit', (route: Route) => {
     reads += 1;
-    return turned
+    if (server === 'down') {
+      failed += 1;
+      return route.abort('failed');
+    }
+    return server === 'later day'
       ? route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } })
       : route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt } });
   });
@@ -5038,8 +5044,12 @@ screenTest('feature 10: a count whose reset time has passed by the page\'s clock
     // The page asks again by itself while the server still answers the day that has passed by the page's clock.
     await expect.poll(() => reads, { timeout: 20_000, message: 'the count is asked for again' }).toBeGreaterThanOrEqual(2);
     await expect(band).toHaveAttribute('data-state', 'limit');
+    // The count cannot be read for a while: the page keeps the day's count it has and asks again.
+    server = 'down';
+    await expect.poll(() => failed, { timeout: 30_000, message: 'the count is asked for again after a read that failed' }).toBeGreaterThanOrEqual(2);
+    await expect(band).toHaveAttribute('data-state', 'limit');
     // The server's day turns. No press and no reload: a later read brings Start back.
-    turned = true;
+    server = 'later day';
     await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 45_000 });
     const { key } = startParts(root);
     await expect(key).toHaveAccessibleName(START_FREE);
@@ -5059,11 +5069,13 @@ for (const before of ['a count read before the press', 'no count read before the
     // The day the press is refused in resets an hour from now; the test says when it has reset.
     const resetAt = Date.now() + 3_600_000;
     let stage: 'before' | 'refused' | 'reset' = 'before';
+    let failedAfterRefusal = 0;
     await page.route('**/rate-limit', (route: Route) => {
       if (stage === 'reset') return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
       if (stage === 'before' && before === 'a count read before the press') {
         return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt } });
       }
+      if (stage === 'refused') failedAfterRefusal += 1;
       return route.abort('failed');
     });
     // The run's own refusal at the day's limit, as the server answers it.
@@ -5085,6 +5097,8 @@ for (const before of ['a count read before the press', 'no count read before the
       await expect(band).toHaveAttribute('data-state', 'limit');
       await scrollToBandPlace(root);
       await expect(root.getByTestId('at-limit-reset')).toHaveText(NO_RUN_LEFT);
+      // The read straight after the refusal fails, and so does one the page asks for again by itself.
+      await expect.poll(() => failedAfterRefusal, { timeout: 30_000, message: 'the count is asked for again after the refusal' }).toBeGreaterThanOrEqual(2);
       // The day resets. No press and no reload: the page asks for the count again until it answers.
       stage = 'reset';
       await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
