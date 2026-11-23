@@ -93,6 +93,34 @@ function hasEcologyReadings(snap: TurnSnapshot | undefined): boolean {
 const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"]';
 
 /**
+ * The Viz panel as a picture holds it, for the PNG export and the timelapse.
+ *
+ * On a phone and on a short screen the panel's parts scroll as one (`body`,
+ * styles.body), so a grid can stand outside the panel's view. The picture is
+ * then as tall as the panel with that scroll laid out in full, and `place`
+ * gives each canvas inside the scroll the place it has in it, wherever the
+ * scroll stands, so every grid is drawn whole. Where the panel does not
+ * scroll, the box has no layout of its own and reads zero throughout: the
+ * picture is the panel's own view and every canvas stands where it is seen.
+ */
+function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
+  const view = root.getBoundingClientRect();
+  const beyondView = body ? Math.max(0, body.scrollHeight - body.clientHeight) : 0;
+  const scrolled = body ? body.scrollTop : 0;
+  return {
+    width: view.width,
+    height: view.height + beyondView,
+    /** Where a canvas stands in the picture, in CSS px; null for one that is not shown. */
+    place(canvas: HTMLCanvasElement): { x: number; y: number; width: number; height: number } | null {
+      const r = canvas.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return null;
+      const inScroll = !!body && body.contains(canvas);
+      return { x: r.left - view.left, y: r.top - view.top + (inScroll ? scrolled : 0), width: r.width, height: r.height };
+    },
+  };
+}
+
+/**
  * VIZ tab composition root. Owns playhead state, grid mode, palette,
  * chronicle filter, focused-side, and timelapse recording. Delegates
  * everything visual to LivingSwarmGrid (canvas + HUD + popovers) and
@@ -547,6 +575,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // Timelapse recording state. Uses MediaRecorder on a composite
   // canvas stream so the user can capture a short webm of the viz.
   const vizRootRef = useRef<HTMLDivElement | null>(null);
+  // The panel's one scroll on a phone and on a short screen (styles.body).
+  const vizBodyRef = useRef<HTMLDivElement | null>(null);
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<Blob[]>([]);
@@ -556,9 +586,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const startTimelapse = useCallback(() => {
     const root = vizRootRef.current;
     if (!root) return;
-    const rect = root.getBoundingClientRect();
-    const width = Math.max(640, Math.round(rect.width));
-    const height = Math.max(360, Math.round(rect.height));
+    const whole = panelLaidOut(root, vizBodyRef.current);
+    const width = Math.max(640, Math.round(whole.width));
+    const height = Math.max(360, Math.round(whole.height));
     const composite = document.createElement('canvas');
     composite.width = width;
     composite.height = height;
@@ -607,20 +637,14 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       if (!cctx) return;
       cctx.fillStyle = getComputedStyle(r).getPropertyValue('--bg-deep').trim() || '#0a0806';
       cctx.fillRect(0, 0, c.width, c.height);
-      const rootRect = r.getBoundingClientRect();
-      const sx = c.width / Math.max(1, rootRect.width);
-      const sy = c.height / Math.max(1, rootRect.height);
+      const whole = panelLaidOut(r, vizBodyRef.current);
+      const sx = c.width / Math.max(1, whole.width);
+      const sy = c.height / Math.max(1, whole.height);
       const allCanvases = Array.from(r.querySelectorAll('canvas')) as HTMLCanvasElement[];
       for (const cv of allCanvases) {
-        const cr = cv.getBoundingClientRect();
-        if (cr.width === 0 || cr.height === 0) continue;
-        cctx.drawImage(
-          cv,
-          (cr.left - rootRect.left) * sx,
-          (cr.top - rootRect.top) * sy,
-          cr.width * sx,
-          cr.height * sy,
-        );
+        const at = whole.place(cv);
+        if (!at) continue;
+        cctx.drawImage(cv, at.x * sx, at.y * sy, at.width * sx, at.height * sy);
       }
       recRafRef.current = requestAnimationFrame(loop);
     };
@@ -681,20 +705,20 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     if (!root) return;
     const allCanvases = Array.from(root.querySelectorAll('canvas')) as HTMLCanvasElement[];
     if (allCanvases.length === 0) return;
-    const rootRect = root.getBoundingClientRect();
+    const whole = panelLaidOut(root, vizBodyRef.current);
     const scale = 2;
     const out = document.createElement('canvas');
-    out.width = Math.round(rootRect.width * scale);
-    out.height = Math.round(rootRect.height * scale);
+    out.width = Math.round(whole.width * scale);
+    out.height = Math.round(whole.height * scale);
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.fillStyle = getComputedStyle(root).getPropertyValue('--bg-deep').trim() || '#0a0806';
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.scale(scale, scale);
     for (const c of allCanvases) {
-      const r = c.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      ctx.drawImage(c, r.left - rootRect.left, r.top - rootRect.top, r.width, r.height);
+      const at = whole.place(c);
+      if (!at) continue;
+      ctx.drawImage(c, at.x, at.y, at.width, at.height);
     }
     out.toBlob(
       blob => {
@@ -1139,7 +1163,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             controls at its own size and every control and the turn's
             outcomes stay a scroll away; the drawers and notices after it
             keep their places over the panel. */}
-        <div className={styles.body}>
+        <div ref={vizBodyRef} className={styles.body}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
