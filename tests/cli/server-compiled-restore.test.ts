@@ -193,13 +193,13 @@ async function restart(scenarioDir: string, keys: HostKeys, body: (api: RunServe
   }
 }
 
-/** The list once both saved scenarios are in it. */
-function restored(api: RunServer): Promise<Listed[]> {
+/** The list once `count` saved scenarios, both by default, are in it. */
+function restored(api: RunServer, count = 2): Promise<Listed[]> {
   const page = api.cookied();
   return waitFor(async () => {
     const entries = await listedCompiled(page);
-    return entries.length === 2 ? entries : null;
-  }, 'both saved compiled scenarios to be listed after the restart', 10_000);
+    return entries.length === count ? entries : null;
+  }, count === 2 ? 'both saved compiled scenarios to be listed after the restart' : `${count} saved compiled scenario(s) to be listed after the restart`, 10_000);
 }
 
 function assertNoModelCall(calls: readonly WireCall[], what: string): void {
@@ -277,4 +277,60 @@ test('a saved scenario compiled on a model the host cannot serve is listed after
       );
     });
   });
+});
+
+/**
+ * Answers every hook request with text no hook parser takes, so each of
+ * the seven hooks ends on the compiler's fallback: the compile succeeds and
+ * keeps no hook.
+ */
+const NO_HOOK: WireReply = (call: WireCall) => (call.text.includes('You are generating ') ? 'not a hook' : undefined);
+
+test('a saved scenario whose compile kept every hook on its fallback is listed after a restart on any host, and the restore calls no model', async () => {
+  const cwd = process.cwd();
+  const root = mkdtempSync(join(tmpdir(), 'paracosm-compiled-restore-'));
+  const scenarioDir = join(root, 'scenarios');
+  mkdirSync(join(scenarioDir, 'compiled'), { recursive: true });
+  process.chdir(root);
+  _resetCompileJobsForTest();
+  try {
+    // The visitor's Quickstart compile on their own Anthropic key, on a
+    // hosted demo whose host holds an OpenAI key, gets no hook it can keep.
+    const listed = await (async (): Promise<Listed[]> => {
+      const restoreKeys = setHostKeys({ OPENAI_API_KEY: HOST_OPENAI_KEY });
+      try {
+        return await withProviderWire(async () => {
+          const api = await hostedDemo(scenarioDir, { OPENAI_API_KEY: HOST_OPENAI_KEY });
+          try {
+            const page = api.cookied();
+            await quickstartOnVisitorKey(page);
+            const entries = await listedCompiled(page);
+            assert.deepEqual(entries.map(e => e.id), [ORCHARD]);
+            return entries;
+          } finally {
+            await api.close();
+            rmSync(api.appDir, { recursive: true, force: true });
+          }
+        }, NO_HOOK, NO_HOOK);
+      } finally {
+        restoreKeys();
+      }
+    })();
+    assert.ok(existsSync(join(scenarioDir, 'compiled', `${ORCHARD}.json`)), 'the visitor\'s compile is saved');
+
+    for (const [host, keys] of [
+      ['no key', {}],
+      ['an Anthropic key only', { ANTHROPIC_API_KEY: HOST_ANTHROPIC_KEY }],
+      ['the host OpenAI key', { OPENAI_API_KEY: HOST_OPENAI_KEY }],
+    ] as const) {
+      await restart(scenarioDir, keys, async (api, calls) => {
+        assert.deepEqual(await restored(api, 1), listed, `a host with ${host}`);
+        assertNoModelCall(calls, `the restore on a host with ${host}`);
+      });
+    }
+  } finally {
+    process.chdir(cwd);
+    _resetCompileJobsForTest();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

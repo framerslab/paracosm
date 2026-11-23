@@ -1,7 +1,9 @@
 /**
  * A restore (`CompileOptions.restore`) reads a scenario's hooks back from
  * the disk cache with no model call, and generates them again, as a compile
- * does, when the cache's manifest names hook files that are gone.
+ * does, when the cache holds no hook it can restore: the manifest names hook
+ * files that are gone, or files that hold nothing. A restore from a saved
+ * record takes its hooks from that record alone.
  *
  * Compiles the deep-ocean station (scenarios/submarine.json) with a stub
  * model that answers each code hook with a working function, the director
@@ -10,11 +12,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileScenario } from '../../../src/engine/compiler/index.js';
+import { COMPILE_SCHEMA_VERSION } from '../../../src/engine/compiler/cache.js';
+import { hookSourcesOf } from '../../../src/engine/compiler/hook-sources.js';
 import type { GenerateTextFn } from '../../../src/engine/compiler/types.js';
 import type { ScenarioHooks } from '../../../src/engine/types.js';
 
@@ -82,6 +86,55 @@ test('a restore reads the hooks back from the cache with no model call, and gene
     const compiled = await compileScenario(submarine, { cache: true, cacheDir, generateText: emptied.generateText, restore: {} });
     assert.ok(emptied.calls() > 0, 'with no cached hook file left, the hooks are generated again');
     assert.equal(departmentLines(compiled.hooks), WORKING_LINES, 'the compile holds a generated department prompt, not the fallback');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a restore whose cached hook files hold nothing generates the hooks again', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-restore-'));
+  try {
+    await compileScenario(submarine, { cache: true, cacheDir, generateText: stubModel().generateText });
+
+    // The manifest stays and names the hooks; every hook file it names is
+    // left empty, as a write cut short leaves it.
+    const [folder] = readdirSync(cacheDir);
+    const emptiedFiles = readdirSync(join(cacheDir, folder)).filter(name => name !== 'manifest.json');
+    assert.ok(emptiedFiles.length > 0, 'the cache held hook files');
+    for (const name of emptiedFiles) writeFileSync(join(cacheDir, folder, name), '');
+
+    const again = stubModel();
+    const compiled = await compileScenario(submarine, { cache: true, cacheDir, generateText: again.generateText, restore: {} });
+    assert.ok(again.calls() > 0, 'with every cached hook file empty, the hooks are generated again');
+    assert.equal(departmentLines(compiled.hooks), WORKING_LINES, 'the compile holds a generated department prompt, not the fallback');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('a restore from a saved record takes its hooks from the record alone, not from the cache', async () => {
+  const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-restore-'));
+  try {
+    const first = await compileScenario(submarine, { cache: true, cacheDir, generateText: stubModel().generateText });
+    const model = hookSourcesOf(first)?.model;
+    assert.ok(model, 'the compile recorded the model of its hooks');
+
+    // The record of a compile that kept its progression hook and left every
+    // other hook on its fallback, under the model the cache holds hooks of
+    // this same scenario JSON under.
+    const fromRecord = stubModel();
+    const restored = await compileScenario(submarine, {
+      cache: true,
+      cacheDir,
+      generateText: fromRecord.generateText,
+      restore: { hookSources: { schemaVersion: COMPILE_SCHEMA_VERSION, model, hooks: { progression: '(ctx) => {}' } } },
+    });
+    assert.equal(fromRecord.calls(), 0, 'a restore from a saved record calls no model');
+    assert.notEqual(
+      departmentLines(restored.hooks),
+      WORKING_LINES,
+      'the record holds no department prompt, so the restore keeps the fallback the saved compile had, not the hook the cache holds',
+    );
   } finally {
     rmSync(cacheDir, { recursive: true, force: true });
   }

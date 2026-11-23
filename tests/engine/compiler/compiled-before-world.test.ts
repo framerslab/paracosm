@@ -39,6 +39,7 @@ import {
   type PersistedCompiledDraft,
 } from '../../../src/cli/persisted-compiled-scenarios.js';
 import { scenarioKeyPersonnel } from '../../../src/cli/sim-config.js';
+import { hookSourcesOf } from '../../../src/engine/compiler/hook-sources.js';
 import { loadCompilerFixture } from './helpers/stub-model-compile.js';
 
 /** A model that returns no hook, so every hook is the compiler's own fallback. No model is called. */
@@ -96,11 +97,16 @@ test('the saved orchard scenario is what the compiler and the server\'s writer p
   try {
     const written = persistCompiledScenario(dir, compiled, null);
     assert.ok(written, 'persistCompiledScenario wrote the scenario');
-    const file = JSON.parse(readFileSync(written.filePath, 'utf-8')) as Record<string, unknown>;
+    const { _persistHooks: hookRecord, ...file } = JSON.parse(readFileSync(written.filePath, 'utf-8')) as Record<string, unknown>;
+    // The compile kept every hook on its fallback. The writer saves its hook
+    // record all the same, naming no hook, so a restart restores it with no
+    // model call; the fixture was recorded before files carried that record.
+    assert.deepEqual(hookRecord, hookSourcesOf(compiled), 'the writer saves the compile\'s hook record');
+    assert.deepEqual((hookRecord as { hooks?: unknown } | undefined)?.hooks, {}, 'the record names no hook');
     assert.deepEqual(
       withoutCompiledAt(file),
       withoutCompiledAt(saved),
-      'the file the writer wrote, but for its compiledAt, is the committed fixture',
+      'the file the writer wrote, but for its compiledAt and its hook record, is the committed fixture',
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
