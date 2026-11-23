@@ -58,6 +58,7 @@ import { systemsSnapshotTotals } from '../../src/runtime/orchestrator/outcome-ef
 
 /** Whether each turn carries its first event's event_start frame, as a live run's does. */
 const EVENT_STARTS = process.env.VIZ_REPLAY_EVENT_STARTS === '1';
+const HOSTED_CHROME = process.env.VIZ_REPLAY_HOSTED_CHROME === '1';
 
 const appDir = mkdtempSync(join(tmpdir(), 'paracosm-e2e-viz-replay-'));
 const runsDir = join(appDir, 'runs');
@@ -211,6 +212,11 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
   const between = mine.filter(e => e.type !== 'turn_start' && e.type !== 'systems_snapshot');
   const outcomes = between.filter(e => e.type === 'outcome').length;
   const at = { turn: t.turn, time: t.time };
+  // The recording omits usage. Use fixture totals in the per-leader
+  // cumulative shape the dashboard consumes from a completed turn.
+  const usage = HOSTED_CHROME ? {
+    _cost: { totalTokens: t.turn * 15_000, totalCostUSD: t.turn * 0.02, llmCalls: t.turn * 10 },
+  } : {};
   // The first event's event_start, as the orchestrator sends it after the turn_start.
   const eventStart = EVENT_STARTS && start?.data.title
     ? [sim(leader, 'event_start', {
@@ -241,7 +247,7 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
     }),
     ...eventStart,
     ...between.map(e => sim(leader, e.type, { ...e.data, ...at })),
-    sim(leader, 'turn_done', { ...at, metrics: t.metrics, toolsForged: 0, totalEvents: outcomes, ...(t.deathCauses ? { deathCauses: t.deathCauses } : {}) }),
+    sim(leader, 'turn_done', { ...at, metrics: t.metrics, toolsForged: 0, totalEvents: outcomes, ...usage, ...(t.deathCauses ? { deathCauses: t.deathCauses } : {}) }),
     sim(leader, 'systems_snapshot', { ...at, agents: t.agents, ...systemsSnapshotTotals(t.metrics), births: t.births, deaths: t.deaths }),
   ];
 }
@@ -266,7 +272,7 @@ await sessionStore.saveSession(events, {
   scenarioName: marsScenario.labels.name,
   leaderA: LEADERS[0].name,
   leaderB: LEADERS[1].name,
-});
+}, { pinned: HOSTED_CHROME });
 
 // The second stored run: the same two colonies and a third, Yuki Tanaka's, on
 // the first seed past the pair's search, with Dietrich Voss's words.
@@ -290,13 +296,14 @@ await sessionStore.saveSession(cohortFrames.map((sse, i) => ({ ts: cohortStartTs
   scenarioName: marsScenario.labels.name,
   leaderA: LEADERS[0].name,
   leaderB: LEADERS[1].name,
-});
+}, { pinned: HOSTED_CHROME });
 
 mkdirSync(runsDir, { recursive: true });
 const runHistoryStore = createSqliteRunHistoryStore({ dbPath: join(appDir, 'runs.db') });
 
 const server = createMarsServer({
-  env: { ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: runsDir, PARACOSM_HOSTED_DEMO: '' },
+  env: { ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: runsDir, PARACOSM_HOSTED_DEMO: HOSTED_CHROME ? 'true' : '' },
+  siteAnalyticsIds: HOSTED_CHROME ? { ga: 'G-E2E0TEST00', clarity: 'e2econsent' } : undefined,
   maxSimsPerDay: 0,
   runHistoryStore,
   sessionStore,

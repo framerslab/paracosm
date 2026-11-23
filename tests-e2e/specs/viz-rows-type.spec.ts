@@ -68,7 +68,8 @@ import { LOOKS, useLook, type Look } from '../support/forge-view-pages';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored runs live on local servers of their own.');
 
-test.use({ deviceScaleFactor: 2 });
+// The hosted consent script keeps its footer control under a privacy signal.
+test.use({ deviceScaleFactor: 2, extraHTTPHeaders: { DNT: '1' } });
 
 const PICTURES = 'test-pictures/viz-rows-type';
 /** The stored runs with each turn's event_start frame: viz-replay-server.ts with VIZ_REPLAY_EVENT_STARTS=1. */
@@ -76,6 +77,7 @@ const SERVER = 'http://127.0.0.1:3473';
 const ARIA = 'Aria Chen';
 
 const PHONE = { width: 390, height: 844 };
+const TABLETS = [{ width: 600, height: 844 }, { width: 768, height: 1024 }];
 const SHORT = { width: 390, height: 339 };
 /** A phone on its side with its browser's bars: as wide as the rows' 844 x 390, as short as the short screen. */
 const SIDE = { width: 844, height: 339 };
@@ -140,7 +142,8 @@ async function pairRun(request: APIRequestContext): Promise<{ id: string; turns:
 }
 
 /** Aria Chen's living grid on one turn. */
-const gridOf = (page: Page, turn: number) => page.getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${turn}\\.`) });
+const viz = (page: Page) => page.locator('.viz-content');
+const gridOf = (page: Page, turn: number) => viz(page).getByRole('img', { name: new RegExp(`^${ARIA} colony, turn ${turn}\\.`) });
 const foldKey = (page: Page) => page.getByRole('button', { name: 'Collapse per-actor outcomes', exact: true });
 const openKey = (page: Page) => page.getByRole('button', { name: 'Expand per-actor outcomes', exact: true });
 const stepBack = (page: Page) => page.getByRole('button', { name: 'Previous turn', exact: true });
@@ -175,6 +178,9 @@ async function openRun(page: Page, run: { id: string; turns: number }, look: Loo
   await lookShown(page, look);
   await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
   await expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout: 60_000 });
+  await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
+  await expect(page.getByRole('contentinfo').getByText(/^\d+k tokens$/)).toBeVisible();
+  await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
 }
 
 /** Opens or folds the turn's words. */
@@ -213,7 +219,7 @@ interface GridRead {
 
 async function readGrid(page: Page): Promise<GridRead | null> {
   return page.evaluate(() => {
-    const canvas = Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"] canvas'))
+    const canvas = Array.from(document.querySelectorAll('.viz-content [data-testid^="living-colony-grid-"] canvas'))
       .find(c => c.getBoundingClientRect().height > 0) as HTMLElement | undefined;
     if (!canvas) return null;
     const region = canvas.closest('[data-testid^="living-colony-grid-"]')!;
@@ -269,50 +275,66 @@ async function readGrid(page: Page): Promise<GridRead | null> {
 }
 
 for (const look of LOOKS) {
-  test(`at 390 x 844 the whole living grid is in view before any scroll on every turn, with the turn's words open and folded, in the ${look} look`, async ({ page, request }) => {
-    test.setTimeout(240_000);
-    const run = await pairRun(request);
-    await openRun(page, run, look, PHONE);
-    await expect(eventRow(page), 'the run draws the event row the live replays draw above the grid').toBeVisible();
+  for (const size of [PHONE, ...TABLETS]) {
+    const dimensions = `${size.width}x${size.height}`;
+    test(`at ${size.width} x ${size.height} the whole living grid is in view before any scroll on every turn, with the turn's words open and folded, in the ${look} look`, async ({ page, request }) => {
+      test.setTimeout(240_000);
+      const run = await pairRun(request);
+      await openRun(page, run, look, size);
+      await expect(eventRow(page), 'the run draws the event row the live replays draw above the grid').toBeVisible();
 
-    const reads: Array<{ turn: number; words: 'open' | 'folded'; read: GridRead | null }> = [];
-    for (let turn = run.turns; turn >= 1; turn -= 1) {
-      if (turn < run.turns) {
-        await stepBack(page).click();
-        await expect(gridOf(page, turn)).toBeAttached();
+      const reads: Array<{ turn: number; words: 'open' | 'folded'; read: GridRead | null }> = [];
+      for (let turn = run.turns; turn >= 1; turn -= 1) {
+        if (turn < run.turns) {
+          await stepBack(page).click();
+          await expect(gridOf(page, turn)).toBeAttached();
+        }
+        for (const words of ['open', 'folded'] as const) {
+          await setWords(page, words);
+          await scrollBack(page);
+          await painted(page);
+          if (turn === run.turns) await picture(page, `${dimensions}-${look}-first-sight-words-${words}`);
+          reads.push({ turn, words, read: await readGrid(page) });
+          if (size === PHONE) {
+            const widths = await gridOf(page, turn).evaluate(canvas => {
+              const field = canvas.parentElement!;
+              const region = field.parentElement!;
+              const style = getComputedStyle(region);
+              return {
+                field: field.getBoundingClientRect().width,
+                available: canvas.closest('.viz-content')!.clientWidth -
+                  parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+              };
+            });
+            expect.soft(Math.abs(widths.field - widths.available), `T${turn}, words ${words}: the grid fills the phone panel within its padding`).toBeLessThanOrEqual(1);
+          }
+        }
       }
-      for (const words of ['open', 'folded'] as const) {
-        await setWords(page, words);
-        await scrollBack(page);
-        await painted(page);
-        if (turn === run.turns) await picture(page, `390x844-${look}-first-sight-words-${words}`);
-        reads.push({ turn, words, read: await readGrid(page) });
+
+      // A picture of the turn whose grid starts lowest, with its words open.
+      const lowest = reads.reduce((a, b) => ((b.read?.top ?? 0) > (a.read?.top ?? 0) ? b : a));
+      for (let turn = 1; turn < lowest.turn; turn += 1) await stepOn(page).click();
+      await expect(gridOf(page, lowest.turn)).toBeAttached();
+      await setWords(page, 'open');
+      await scrollBack(page);
+      await painted(page);
+      await picture(page, `${dimensions}-${look}-first-sight-lowest-grid`);
+
+      test.info().annotations.push({
+        type: `the grid at first sight, ${dimensions}`,
+        description: reads.map(({ turn, words, read }) => `T${turn} words ${words}: ${read ? `${read.shownHeight.toFixed(1)} of ${read.height.toFixed(1)} px shown, from ${read.top.toFixed(1)} px` : 'no grid'}`).join('; '),
+      });
+      for (const { turn, words, read } of reads) {
+        const where = `T${turn}, words ${words}`;
+        expect.soft(read, `${where}: the living grid is drawn`).not.toBeNull();
+        if (!read) continue;
+        expect.soft(read.height, `${where}: the grid keeps its drawn size (${read.height.toFixed(1)} px tall)`).toBeGreaterThanOrEqual(GRID_AT_LEAST);
+        expect.soft(read.shownHeight, `${where}: the whole grid is in view before any scroll (${read.shownHeight.toFixed(1)} of its ${read.height.toFixed(1)} px, the grid starting ${read.top.toFixed(1)} px down)`).toBeGreaterThanOrEqual(read.height - 0.5);
+        expect.soft(read.shownWidth, `${where}: the whole width of the grid is in view (${read.shownWidth.toFixed(1)} of ${read.width.toFixed(1)} px)`).toBeGreaterThanOrEqual(read.width - 0.5);
+        expect.soft(read.over, `${where}: nothing is drawn over the grid`).toEqual([]);
       }
-    }
-
-    // A picture of the turn whose grid starts lowest, with its words open.
-    const lowest = reads.reduce((a, b) => ((b.read?.top ?? 0) > (a.read?.top ?? 0) ? b : a));
-    for (let turn = 1; turn < lowest.turn; turn += 1) await stepOn(page).click();
-    await expect(gridOf(page, lowest.turn)).toBeAttached();
-    await setWords(page, 'open');
-    await scrollBack(page);
-    await painted(page);
-    await picture(page, `390x844-${look}-first-sight-lowest-grid`);
-
-    test.info().annotations.push({
-      type: 'the grid at first sight, 390 x 844',
-      description: reads.map(({ turn, words, read }) => `T${turn} words ${words}: ${read ? `${read.shownHeight.toFixed(1)} of ${read.height.toFixed(1)} px shown, from ${read.top.toFixed(1)} px` : 'no grid'}`).join('; '),
     });
-    for (const { turn, words, read } of reads) {
-      const where = `T${turn}, words ${words}`;
-      expect.soft(read, `${where}: the living grid is drawn`).not.toBeNull();
-      if (!read) continue;
-      expect.soft(read.height, `${where}: the grid keeps its drawn size (${read.height.toFixed(1)} px tall)`).toBeGreaterThanOrEqual(GRID_AT_LEAST);
-      expect.soft(read.shownHeight, `${where}: the whole grid is in view before any scroll (${read.shownHeight.toFixed(1)} of its ${read.height.toFixed(1)} px, the grid starting ${read.top.toFixed(1)} px down)`).toBeGreaterThanOrEqual(read.height - 0.5);
-      expect.soft(read.shownWidth, `${where}: the whole width of the grid is in view (${read.shownWidth.toFixed(1)} of ${read.width.toFixed(1)} px)`).toBeGreaterThanOrEqual(read.width - 0.5);
-      expect.soft(read.over, `${where}: nothing is drawn over the grid`).toEqual([]);
-    }
-  });
+  }
 }
 
 // ── A short screen ───────────────────────────────────────────────────────
@@ -456,6 +478,90 @@ for (const look of LOOKS) {
     expect.soft(legendInView, 'at the Viz panel\'s end the keyboard legend is in view').toBe(true);
   });
 }
+
+// The screenshot matrix uses the same stored replay and footer as the checks.
+for (const look of LOOKS) {
+  test(`replay comparison pictures in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const run = await pairRun(request);
+    for (const size of [...TABLETS, SHORT, sizeAt(1440)]) {
+      await openRun(page, run, look, size);
+      await setWords(page, 'open');
+      await scrollBack(page);
+      await painted(page);
+      await picture(page, `comparison-${size.width}x${size.height}-${look}`);
+    }
+  });
+
+  test(`a replay never puts a crisis card over the LIVING control or grid in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const run = await pairRun(request);
+    await page.addInitScript(() => {
+      const notices = { crisis: false };
+      Object.assign(window, { notices });
+      new MutationObserver(() => {
+        notices.crisis ||= Array.from(document.querySelectorAll('.viz-content [role="status"]'))
+          .some(el => el.textContent?.startsWith('⚡ Crisis'));
+      }).observe(document, { childList: true, subtree: true });
+    });
+    // Keep the real replay stream, with enough time between frames for the
+    // interface to paint while a recorded crisis is still in flight.
+    await page.route(url => url.pathname === `/sessions/${run.id}/replay`, route => {
+      const url = new URL(route.request().url());
+      url.searchParams.set('speed', '10');
+      return route.continue({ url: url.href });
+    });
+    for (const size of [PHONE, SHORT, SIDE]) {
+      await openRun(page, run, look, size);
+      const crisis = await page.evaluate(() => (window as unknown as { notices: { crisis: boolean } }).notices.crisis);
+      expect.soft(crisis, `${size.width}x${size.height}: recorded crises stay in the turn narrative`).toBe(false);
+      await expect(viz(page).getByRole('status', { name: 'Current turn narrative' })).toBeVisible();
+    }
+  });
+
+  test(`a spotlight at the foot of the grid opens with its drilldown header in view in the ${look} look`, async ({ page, request }) => {
+    test.setTimeout(180_000);
+    const run = await pairRun(request);
+    await openRun(page, run, look, SHORT);
+    const spotlight = viz(page).getByRole('button', { name: /^Spotlight:/ }).last();
+    await spotlight.evaluate(el => el.scrollIntoView({ block: 'end', inline: 'nearest' }));
+    await spotlight.click();
+    const dialog = viz(page).getByRole('dialog', { name: /drilldown$/ });
+    const header = dialog.getByRole('button', { name: 'Close drilldown' }).locator('xpath=..');
+    await expect(header).toBeVisible();
+    expect(await inView(header), 'the drilldown name and Close key are inside the short window').toBe(true);
+  });
+}
+
+test('the light phone replay shows the toolbar ground at full brightness', async ({ page, request }) => {
+  const run = await pairRun(request);
+  await openRun(page, run, 'light', PHONE);
+  await painted(page);
+  const hint = viz(page).getByText('Full field + colonist seeds + all events', { exact: true });
+  const { x, y, ground } = await hint.evaluate(el => {
+    const strip = el.parentElement!;
+    const rect = strip.getBoundingClientRect();
+    return {
+      x: Math.floor(rect.left + 3),
+      y: Math.floor(el.getBoundingClientRect().top + el.clientHeight / 2),
+      ground: getComputedStyle(strip).backgroundColor,
+    };
+  });
+  const pixel = await page.screenshot({ clip: { x, y, width: 1, height: 1 }, animations: 'disabled', scale: 'css' });
+  const colours = await page.evaluate(async ({ png, ground }) => {
+    const bytes = Uint8Array.from(atob(png), ch => ch.charCodeAt(0));
+    const image = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(image, 0, 0);
+    ctx.fillStyle = ground;
+    ctx.fillRect(1, 0, 1, 1);
+    return Array.from(ctx.getImageData(0, 0, 2, 1).data);
+  }, { png: pixel.toString('base64'), ground });
+  expect(colours.slice(0, 4)).toEqual(colours.slice(4));
+});
 
 // ── The keyboard legend ──────────────────────────────────────────────────
 
@@ -641,6 +747,10 @@ for (const look of LOOKS) {
           await scrollBack(page);
           await chooseMode(page, mode);
           const where = `${width}, ${look}, ${mode}`;
+          if (mode === 'living') {
+            const hint = viz(page).getByText('Full field + colonist seeds + all events', { exact: true });
+            await expect.soft(hint, `${where}: the mode description is 15 px`).toHaveCSS('font-size', '15px');
+          }
           // The toolbar, with the arrow keys it shows when it scrolls.
           const toolbar = vizToolbar(page).locator('xpath=..');
           await moreKey(page).click();
@@ -721,7 +831,7 @@ interface Box { left: number; top: number; width: number; height: number }
 const readPanel = (page: Page): Promise<{ width: number; height: number; grids: Box[] }> => page.evaluate(() => {
   const panel = document.querySelector('.viz-content')!.getBoundingClientRect();
   const grids: Array<{ left: number; top: number; width: number; height: number }> = [];
-  for (const region of Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"]'))) {
+  for (const region of Array.from(document.querySelectorAll('.viz-content [data-testid^="living-colony-grid-"]'))) {
     // The grid's drawing: the largest canvas of its region.
     const drawn = Array.from(region.querySelectorAll('canvas'))
       .map(c => c.getBoundingClientRect())
@@ -734,7 +844,7 @@ const readPanel = (page: Page): Promise<{ width: number; height: number; grids: 
 
 /** Waits until every shown living grid holds its drawing: a canvas of it with more than one colour. */
 const gridsDrawn = (page: Page) => page.waitForFunction(() => {
-  const regions = Array.from(document.querySelectorAll('[data-testid^="living-colony-grid-"]'))
+  const regions = Array.from(document.querySelectorAll('.viz-content [data-testid^="living-colony-grid-"]'))
     .filter(region => region.getBoundingClientRect().height > 0);
   return regions.length > 0 && regions.every(region => Array.from(region.querySelectorAll('canvas')).some((canvas) => {
     if (canvas.width === 0 || canvas.height === 0) return false;
