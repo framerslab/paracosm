@@ -952,7 +952,7 @@ function AppContent() {
 
   // A Digital Twin can run in a different scenario and use its own event feed.
   const showsDigitalTwin = interventionRunning !== null || interventionArtifact !== null;
-  const runExists = sse.events.length > 0 || launching || showsDigitalTwin;
+  const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
@@ -1026,6 +1026,7 @@ function AppContent() {
               tabIndex={-1}
               className={styles.main}
               role="main"
+              data-run-connection={sse.status}
               aria-label={`${activeTab} view`}
             >
               {/* SR-only h1 anchors the heading hierarchy per tab. Sighted
