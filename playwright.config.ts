@@ -39,11 +39,11 @@ export default defineConfig({
     // the run view toast and Event Log chip spec set each width they check
     // themselves, so one project runs them. So does the saved run replay
     // spec, which reads the one shared-run server.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined

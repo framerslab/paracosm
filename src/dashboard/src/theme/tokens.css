@@ -10,22 +10,85 @@
 
   /* === SKIP NAVIGATION (a11y) === */
   .skip-to-content {
-    position: absolute;
-    left: -9999px;
-    top: 0;
+    position: fixed;
+    inset-block-start: 0;
+    inset-inline-start: 0;
     z-index: 999999;
-    padding: 8px 16px;
-    background: var(--amber);
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--frame-target-size);
+    min-inline-size: var(--frame-skip-width);
+    padding-inline: var(--frame-side-padding);
+    background: var(--text-1);
     color: var(--bg-deep);
-    font-weight: 700;
-    font-size: 14px;
+    font: 600 var(--font-read)/1.4 var(--sans);
     text-decoration: none;
     border-radius: 0 0 var(--radius-md) var(--radius-md);
-    font-family: var(--sans);
+    clip-path: inset(50%);
   }
-  .skip-to-content:focus {
-    left: 50%;
-    transform: translateX(-50%);
+  .skip-to-content:is(:focus, :hover, :active) {
+    clip-path: none;
+  }
+
+  .boot-row {
+    block-size: var(--frame-row-height);
+    background: var(--bg-deep);
+    border-block-end: var(--frame-rule-width) solid var(--edge-control);
+  }
+
+  .boot-row-inner,
+  .boot-failed {
+    max-inline-size: calc(var(--frame-column) + 2 * var(--frame-side-padding));
+    margin-inline: auto;
+    padding-inline: var(--frame-side-padding);
+  }
+
+  .boot-row-inner {
+    display: flex;
+    align-items: center;
+    block-size: 100%;
+  }
+
+  .boot-home {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--frame-gap);
+    min-block-size: var(--frame-target-size);
+    min-inline-size: var(--frame-target-size);
+    color: var(--text-1);
+    font: 600 var(--font-read)/1.4 var(--mono);
+    letter-spacing: 0.08em;
+    text-decoration: none;
+  }
+
+  .boot-home img,
+  .boot-failed svg {
+    flex: none;
+    inline-size: var(--frame-glyph-size);
+    block-size: var(--frame-glyph-size);
+  }
+
+  .boot-wordmark { display: none; }
+  .boot-wordmark span { color: var(--amber); }
+  @media (min-width: 430px) {
+    .boot-wordmark { display: inline; }
+  }
+
+  .boot-failed:not([hidden]) {
+    display: flex;
+    align-items: baseline;
+    gap: var(--frame-gap);
+    padding-block: var(--frame-gap);
+    color: var(--text-1);
+    font: 400 var(--font-read-body)/1.55 var(--sans);
+  }
+
+  .boot-failed a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--frame-target-size);
+    text-decoration: underline;
   }
 
   /* === SCREEN-READER ONLY (a11y) ===
@@ -97,8 +160,18 @@
     color-scheme: dark;
 
     /* === FONTS === */
-    --sans: 'Inter', system-ui, -apple-system, sans-serif;
-    --mono: 'JetBrains Mono', 'SF Mono', Menlo, 'Cascadia Code', monospace;
+    --sans: 'Inter', 'Inter Fallback', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'JetBrains Mono Fallback', 'SF Mono', Menlo, 'Cascadia Code', monospace;
+
+    /* === PAGE FRAME === */
+    --frame-row-height: 56px;
+    --frame-target-size: 44px;
+    --frame-skip-width: 200px;
+    --frame-column: 1200px;
+    --frame-side-padding: 16px;
+    --frame-gap: 8px;
+    --frame-rule-width: 1px;
+    --frame-glyph-size: 24px;
 
     /* === TYPE SCALE — nine canonical sizes ===
        Use the token, not the px value, so the dashboard reads at one
@@ -294,6 +367,10 @@
   }
   @media (min-width: 1440px) {
     :root { --font-display: 40px; }
+  }
+
+  @media (min-width: 600px) {
+    :root { --frame-side-padding: 24px; }
   }
 
   /* === LIGHT MODE — warm sepia, aged parchment, WCAG AA compliant === */

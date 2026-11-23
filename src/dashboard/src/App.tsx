@@ -1062,11 +1062,6 @@ function AppContent() {
         <ToolRegistryContext.Provider value={toolRegistry}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
-        {/* Skip link: keyboard users land on this first, jumping past
-            the long tab/header chrome to the active tabpanel. The CSS
-            visually hides it until :focus per the .skip-to-content
-            class in theme/tokens.css. */}
-        <a className="skip-to-content" href="#main-content">Skip to main content</a>
         <div className={`scanline-overlay ${styles.shell}`}>
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
