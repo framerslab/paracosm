@@ -23,15 +23,13 @@ const STORAGE_KEY = 'paracosm:simSavedToastFingerprint';
 
 export interface UseSimSavedToastOptions {
   events: SimEvent[];
-  tourActive: boolean;
   /** True only after the user clicked Run during this session. */
   userTriggeredRun: boolean;
 }
 
-export function useSimSavedToast({ events, tourActive, userTriggeredRun }: UseSimSavedToastOptions): void {
+export function useSimSavedToast({ events, userTriggeredRun }: UseSimSavedToastOptions): void {
   const { toast } = useToast();
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     const savedEvent = events.find((e) => e.type === 'sim_saved');
     if (!savedEvent) return;
@@ -55,5 +53,5 @@ export function useSimSavedToast({ events, tourActive, userTriggeredRun }: UseSi
         toast('info', 'Not cached', `Skipped: ${reason.replace(/_/g, ' ')}.`);
       }
     }
-  }, [events, tourActive, userTriggeredRun, toast]);
+  }, [events, userTriggeredRun, toast]);
 }

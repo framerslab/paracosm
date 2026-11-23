@@ -15,6 +15,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 
 const OTHER_HOST = 'runs.example.test';
 const RUN_URL = `https://${OTHER_HOST}/shared/run.json`;
@@ -202,9 +203,9 @@ test.describe('after a load link is cancelled', () => {
         { type: 'turn_done', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
       ],
     };
-    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    await openTab(page, 'studio');
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('menuitem', { name: /Load from file/ }).click();
+    await page.getByRole('button', { name: 'Open a run file', exact: true }).click();
     await (await chooser).setFiles({ name: 'own-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(ownRun)) });
 
     // The link's autoload=1 was for the link's file, which the visitor

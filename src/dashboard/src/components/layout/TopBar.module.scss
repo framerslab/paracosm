@@ -141,31 +141,6 @@
 
 // GitHub button uses :hover instead of mouse-event handlers that
 // mutated inline styles. Same visual; cleaner separation.
-.github {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px 2px 8px;
-  border-radius: 3px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-2);
-  font-family: var(--mono);
-  font-size: var(--font-2xs);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-decoration: none;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-
-.github:hover {
-  border-color: var(--amber);
-  color: var(--amber);
-  background: rgba(232, 180, 74, 0.06);
-}
-
-.githubIcon { flex-shrink: 0; }
-
 .tourBtn {
   // Holds the key's words where they are kept for a screen reader alone.
   position: relative;
@@ -184,19 +159,6 @@
   &[aria-expanded='true'] {
     border-color: var(--amber);
   }
-}
-
-.launchingChip {
-  padding: 3px 14px;
-  border-radius: 4px;
-  background: var(--bg-card);
-  color: var(--text-3);
-  border: 1px solid var(--border);
-  font-size: var(--font-xs);
-  font-weight: 700;
-  font-family: var(--mono);
-  letter-spacing: 0.5px;
-  cursor: wait;
 }
 
 .toolBtn {
@@ -300,4 +262,23 @@
   color: var(--text-3);
   border: 1px solid var(--border);
   font-size: var(--font-xs);
+}
+
+.helpIcon { display: none; }
+
+@media (max-width: 1200px) {
+  .helpLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .helpIcon { display: inline; }
+}
+
+@media (max-width: 640px) {
+  .statusText { display: none; }
 }

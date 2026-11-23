@@ -5,9 +5,7 @@ import type { GameState, ActorSideState } from '../../hooks/useGameState';
 import type { useSSE } from '../../hooks/useSSE';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Tooltip } from '../shared/Tooltip';
-import { RunMenu } from './RunMenu';
 import { HOW_IT_WORKS } from '../quickstart/first-screen/words';
-import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import styles from './TopBar.module.scss';
 
 /**
@@ -22,7 +20,6 @@ interface TopBarProps {
   sse: SseState;
   gameState: GameState;
   onSave?: () => void;
-  onLoad?: () => void;
   onClear?: () => void;
   /**
    * Asks the server to delete its stored runs, saved sessions and run
@@ -54,14 +51,7 @@ interface TopBarProps {
    * exists, so the handler doesn't have to defend against null ids.
    */
   onShareViz?: () => void;
-  /** F14 local-history props, forwarded to the RunMenu's history section. */
-  history?: LocalHistoryEntry[];
-  onRestoreHistory?: (entry: LocalHistoryEntry) => void;
-  onClearHistory?: () => void;
-  /** True while a run is starting and its first SSE event has not
-   *  arrived. Hides the RUN menu meanwhile; `gameState.isRunning` hides
-   *  it once the run sends events, and this covers the gap. */
-  launching?: boolean;
+  runExists: boolean;
 }
 
 /**
@@ -85,7 +75,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onClear, onWipeServer, onRunActionsOpen, onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, runExists }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -95,7 +85,10 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
   // matching the previous gating on each individual button.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRootRef = useRef<HTMLDivElement | null>(null);
-  const overflowMenuRef = useFocusTrap<HTMLDivElement>(overflowOpen);
+  const overflowMenuRef = useFocusTrap<HTMLDivElement>(overflowOpen && runExists);
+  useEffect(() => {
+    if (!runExists) setOverflowOpen(false);
+  }, [runExists]);
   useEffect(() => {
     if (overflowOpen) onRunActionsOpen?.();
   }, [overflowOpen, onRunActionsOpen]);
@@ -389,23 +382,6 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
 
       {/* Right: Actions + status + theme */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* GitHub CTA — :hover inverts to amber. The mouse-event handler
-            mutating inline styles was a workaround pre-CSS-module; the
-            module's :hover rule does the same job without React state. */}
-        <a
-          href="https://github.com/framerslab/paracosm"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`topbar-github ${styles.github}`}
-          title="Star Paracosm on GitHub"
-          aria-label="Open Paracosm on GitHub"
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={styles.githubIcon}>
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
-          </svg>
-          <span className="topbar-github-label">GITHUB</span>
-        </a>
-
         {/* How it works: opens the one card that states the rules of a
             run, and closes it. Its words name it; where the row has no
             room for them they give way to the question mark and stay as
@@ -415,47 +391,15 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
             ref={howItWorksKeyRef}
             type="button"
             onClick={onHowItWorks}
-            className={`topbar-tour ${styles.tourBtn}`}
+            className={styles.tourBtn}
             aria-expanded={howItWorksOpen}
             aria-haspopup="dialog"
           >
-            <span className="topbar-tour-label">{HOW_IT_WORKS}</span>
-            <span className="topbar-tour-icon" aria-hidden="true" style={{ display: 'none' }}>{'?'}</span>
+            <span className={styles.helpLabel}>{HOW_IT_WORKS}</span>
+            <span className={styles.helpIcon} aria-hidden="true">{'?'}</span>
           </button>
         )}
-        {/* The RUN menu: saved runs, this browser's history and Load from
-            file. It starts no run; the Run tab's Start does. Hidden while a
-            run is starting or running, so a run on screen is not replaced
-            by a loaded one mid-run; a 'LAUNCHING...' chip stands in its
-            place while a run starts, so the bar does not look frozen. */}
-        {!gameState.isRunning && !launching && (
-          <RunMenu
-            onLoadFromFile={onLoad}
-            history={history}
-            onRestoreHistory={onRestoreHistory}
-            onClearHistory={onClearHistory}
-            liveStateHasEvents={sse.events.length > 0}
-          />
-        )}
-        {launching && !gameState.isRunning && (
-          <span
-            className={styles.launchingChip}
-            role="status"
-            aria-live="polite"
-          >
-            LAUNCHING…
-          </span>
-        )}
-        {/* Save / Copy / Clear consolidated behind a single overflow
-            menu so they don't fight for horizontal space with RUN /
-            GITHUB / TOUR / status / theme. Visible only when a run
-            has emitted events (same gating the 3 separate buttons
-            had before). */}
-        {/* Clear always opens the menu, so Clear local data and, where
-            it shows, Delete server data are there even with an empty
-            local buffer. Save/Copy still require an active run; their
-            individual buttons inside the menu are gated separately. */}
-        {((hasEvents && (onSave || onCopy || onShareViz)) || onClear) && (
+        {runExists && (
           <div ref={overflowRootRef} className={styles.overflowAnchor}>
             <button
               type="button"
@@ -537,11 +481,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
 
         <span className={styles.divider} aria-hidden="true">|</span>
 
-        {/* Status. The text label hides under .topbar-status-text at
-            narrow viewports (<640px) so the colored dot alone signals
-            connection state on phones; the title attribute still
-            carries the full explanation for hover, and the aria-label
-            keeps screen-reader semantics intact. */}
+        {/* The compact connection status keeps its accessible name on phones. */}
         <span
           className={styles.statusPill}
           style={{ '--status-color': statusColor } as CSSProperties}
@@ -551,7 +491,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
           title={statusTitle}
         >
           <span aria-hidden="true">{sse.status === 'connected' && !sse.isComplete ? '●' : '○'}</span>
-          <span className={`topbar-status-text ${styles.statusText}`}>{statusText}</span>
+          <span className={styles.statusText}>{statusText}</span>
         </span>
 
         {/* Theme toggle */}

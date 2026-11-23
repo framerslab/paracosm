@@ -1,3 +1,4 @@
+import { StoredDataControls } from './StoredDataControls';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -184,6 +185,9 @@ const MIN_ACTORS = 2;
 const MAX_ACTORS = 8;
 
 export interface SettingsPanelProps {
+  onClearLocal?: () => void;
+  onWipeServer?: () => void;
+  onOpenStoredData?: () => void;
   /** SSE events to feed the embedded EventLogPanel sub-tab. Optional
    *  so callers that don't care about Log (or mount Settings before the
    *  SSE pipe is ready) can omit it; the sub-tab just renders an empty
@@ -195,7 +199,7 @@ export interface SettingsPanelProps {
   initialSubTab?: SettingsSubTab;
 }
 
-export function SettingsPanel({ events = [], initialSubTab = 'config' }: SettingsPanelProps = {}) {
+export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
   // Persist sub-tab in the URL so refresh / shared links land back on
   // the user's last open panel. 'config' is the default — omit the
@@ -866,6 +870,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
           </legend>
           <AdminTokenField />
         </fieldset>
+      )}
+
+      {onClearLocal && (
+        <StoredDataControls onClearLocal={onClearLocal} onWipeServer={onWipeServer} onOpen={onOpenStoredData} />
       )}
 
       {/* Scenario Editor: create, import, export, compile. Its own

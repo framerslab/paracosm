@@ -85,9 +85,8 @@
  *   (tests-e2e/support/cohort-replay-server.ts, port 3471), shows the track
  *   of one panel a leader, and the page does not scroll sideways.
  * - Under reduced motion a panel holds still between turns.
- * - Start is the one control that starts a new run: the RUN menu keeps its
- *   saved runs and Load from file, and the Sim tab's empty state offers no
- *   run and no tour.
+ * - Start is the one control that starts a new run: saved runs are in Library,
+ *   run files open in Studio, and the Sim tab's empty state offers no run or tour.
  * - No tour opens by itself on a first visit.
  *
  * How it works (feature 11):
@@ -147,6 +146,7 @@
  * which CI uploads.
  */
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { FIRST_SCREEN, axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 import { spacingFaults } from '../support/readability.js';
 
@@ -3150,17 +3150,12 @@ screenTest('one Start', async ({ page }) => {
       await expect(sim.getByText(/guided tour/i)).toHaveCount(0);
       await expect(sim.getByRole('button', { name: 'Load Prior Run', exact: true })).toBeVisible();
 
-      // The RUN menu keeps its saved runs and Load from file, and starts no new run.
       const header = page.getByRole('banner');
-      await pressInPage(header.getByRole('button', { name: 'RUN', exact: true }));
-      const menu = page.getByRole('menu', { name: 'Run actions' });
-      await expect(menu).toBeVisible();
-      await expect(menu.getByRole('menuitem', { name: /Run New Simulation/ })).toHaveCount(0);
-      await expect(menu.getByRole('menuitem', { name: /Run Saved Simulation/ })).toHaveCount(1);
-      await expect(menu.getByRole('menuitem', { name: /Load from file/ })).toHaveCount(1);
-      await expect(menu.getByRole('menuitem')).toHaveCount(2);
-      await page.keyboard.press('Escape');
-      await expect(menu).toHaveCount(0);
+      await expect(header.getByRole('button', { name: 'RUN', exact: true })).toHaveCount(0);
+      await openTab(page, 'library');
+      await expect(page.getByRole('heading', { name: 'Saved runs' })).toBeVisible();
+      await openTab(page, 'studio');
+      await expect(page.getByRole('button', { name: 'Open a run file' })).toBeVisible();
       // No key of the header opens a tour.
       await expect(header.getByRole('button', { name: /tour/i })).toHaveCount(0);
 
@@ -4737,7 +4732,7 @@ screenTest('pictures: Watch on the stub pair at 390 and 1,440 in both looks', as
 
 /* States a visitor reaches by an ordinary path after the first screen has loaded. */
 
-// Feature 13: the foot's Analytics choices control is the page's one control, moved between the footers.
+// Feature 13: the same foot holds the page's one Analytics choices control across tabs.
 screenTest('feature 13: Analytics choices stays through a change of tab', async ({ page }) => {
   test.setTimeout(120_000);
   await openReadyAt(page, '/sim', WIDE, 'dark');
@@ -4746,10 +4741,10 @@ screenTest('feature 13: Analytics choices stays through a change of tab', async 
   await expect(inFoot).toBeVisible();
   for (const visit of [1, 2]) {
     await test.step(`to Watch and back, visit ${visit}`, async () => {
-      await page.locator('#tab-sim').click();
+      await openTab(page, 'sim');
       await expect(page.locator('#tabpanel-sim')).toBeVisible();
       await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
-      await page.locator('#tab-quickstart').click();
+      await openTab(page, 'quickstart');
       await expect(page.locator(FIRST_SCREEN)).toBeVisible();
       await expect(inFoot, 'the Run tab’s foot offers the control again').toBeVisible();
     });

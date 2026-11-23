@@ -32,7 +32,6 @@ export interface UseTerminalToastOptions {
   resultsCount: number;
   hasVerdict: boolean;
   replayDone: boolean;
-  tourActive: boolean;
   /** True only after the user clicked Run during this session. */
   userTriggeredRun: boolean;
   /**
@@ -51,13 +50,11 @@ export function useTerminalToast({
   resultsCount,
   hasVerdict,
   replayDone,
-  tourActive,
   userTriggeredRun,
   verdict,
 }: UseTerminalToastOptions): void {
   const { toast } = useToast();
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!isComplete && !isAborted) return;
     if (!replayDone) return;
@@ -75,7 +72,7 @@ export function useTerminalToast({
     } else {
       toast('success', 'Simulation complete', 'Open the Reports tab for the verdict + full breakdown.');
     }
-  }, [isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, userTriggeredRun, toast]);
 
   // Verdict toast — separate effect so the winner announcement fires
   // even when the verdict arrives a beat AFTER the terminal toast
@@ -83,7 +80,6 @@ export function useTerminalToast({
   // so the gap can be 5-30s). Fingerprinted independently so the two
   // toasts don't clobber each other's dedup.
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!verdict || typeof verdict !== 'object') return;
     if (!replayDone) return;
@@ -140,5 +136,5 @@ export function useTerminalToast({
       : (isTie ? 'Verdict: tie' : `${winnerName} wins`);
     const body = headline || 'Click the verdict banner for the full breakdown.';
     toast('success', title, body);
-  }, [verdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [verdict, replayDone, userTriggeredRun, toast]);
 }

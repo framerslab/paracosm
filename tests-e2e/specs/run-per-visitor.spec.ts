@@ -14,6 +14,7 @@
  * order.
  */
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { noRunOnPage, openRunTab, pressStart, startKey } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The scripted runner runs on a local server of its own.');
@@ -22,7 +23,6 @@ test.use({ baseURL: BASE });
 test.describe.configure({ mode: 'serial' });
 
 const RUN_MS = 30_000;
-const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 const pill = (page: Page, text: string) => page.getByRole('status', { name: new RegExp(`^${text}\\.`) }).first();
 /** Text the page shows: its hidden panels (another tab's header, the Settings form) hold the names too. */
 const shown = (page: Page, text: string) => page.getByText(text).filter({ visible: true });
@@ -124,7 +124,7 @@ test.describe('Run per visitor @runs', () => {
       await a.page.getByRole('button', { name: 'Open run actions menu' }).click();
       await a.page.getByRole('menuitem', { name: 'Clear local data' }).click();
       // Clearing opens Settings when no admin token is stored; the Sim tab is empty.
-      await a.page.getByRole('tab', { name: 'SIM', exact: true }).click();
+      await openTab(a.page, 'sim');
       await expect(noRunOnPage(a.page)).toBeVisible();
       await expect.poll(async () => (await results(a.page)).runKey).toBeNull();
 
@@ -149,9 +149,9 @@ test.describe('Run per visitor @runs', () => {
       await a.page.getByRole('button', { name: 'Open run actions menu' }).click();
       await a.page.getByRole('menuitem', { name: 'Save', exact: true }).click();
       const file = await (await download).path();
-      await runMenuButton(a.page).click();
+      await openTab(a.page, 'studio');
       const chooser = a.page.waitForEvent('filechooser');
-      await a.page.getByRole('menuitem', { name: /Load from file/ }).click();
+      await a.page.getByRole('button', { name: 'Open a run file', exact: true }).click();
       await (await chooser).setFiles(file);
       await a.page.getByRole('dialog', { name: 'Load simulation' })
         .getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
@@ -179,7 +179,7 @@ test.describe('Run per visitor @runs', () => {
     try {
       await pressRun(a.page);
       await expectComplete(a.page);
-      await a.page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+      await openTab(a.page, 'chat');
       await a.page.getByRole('button', { name: /Lena Ortiz/ }).first().click();
       await expect(shown(a.page, 'I lived through this simulation').first()).toBeVisible();
     } finally {

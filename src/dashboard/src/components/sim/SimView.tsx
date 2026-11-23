@@ -57,14 +57,6 @@ interface SimViewProps {
   /** Clears the intervention artifact so SimView returns to the standard
    *  parallel-actor layout. */
   onInterventionDismiss?: () => void;
-  /** Pins the layout to a fixed value, overriding the auto-default and
-   *  any previous user pick. The GuidedTour passes 'side-by-side' so its
-   *  highlight selectors (`.leaders-row`, `.sim-columns`,
-   *  `[aria-label="Colony statistics"]`) always exist — without this,
-   *  a viewer who had previously run a 3+ actor sim would see the tour
-   *  attempt to highlight nodes that the constellation layout never
-   *  renders, and the tour would silently no-op past Sim. */
-  forceLayout?: SimLayout;
 }
 
 // LeaderColumn (the per-leader scrolling-column helper) was removed
@@ -115,7 +107,7 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
+export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
   const scenario = useScenarioContext();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
@@ -171,7 +163,7 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
       setLayoutState('constellation');
     }
   }, [state.actorIds.length, layoutState]);
-  const layout: SimLayout = forceLayout ?? layoutState;
+  const layout = layoutState;
 
   const [drillInActor, setDrillInActor] = useState<string | null>(null);
   const drillInIndex = drillInActor ? state.actorIds.indexOf(drillInActor) : 0;

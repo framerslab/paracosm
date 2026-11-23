@@ -1,23 +1,27 @@
-@use './shape' as *;
+@use '../quickstart/first-screen/shape' as *;
 
 // The foot: stacked on a phone; from 600 px the links and Analytics choices
 // at the left and the licence line at the right; from 1,100 px one row.
 .foot {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  gap: var(--frame-gap);
   width: 100%;
-  max-width: 1200px;
-  margin: 48px auto 0;
-  padding: 24px 0 max(24px, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
+  max-width: calc(var(--frame-column) + 2 * var(--frame-side-padding));
+  margin-inline: auto;
+  padding: var(--frame-side-padding);
+  padding-bottom: max(var(--frame-side-padding), env(safe-area-inset-bottom));
+  border-top: var(--frame-rule-width) solid var(--edge-control);
+  background: var(--bg-deep);
   font-family: var(--sans);
 }
 
 .adults {
   margin: 0;
-  font-size: var(--font-read);
-  line-height: 1.4;
+  font-size: var(--font-read-body);
+  line-height: 1.55;
   color: var(--text-1);
 }
 
@@ -25,14 +29,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--frame-gap);
   min-width: 0;
 
   @media (min-width: 600px) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    column-gap: 24px;
+    column-gap: var(--frame-side-padding);
     row-gap: 8px;
 
     .nav {
@@ -56,7 +60,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 24px;
+    gap: var(--frame-side-padding);
 
     .licence {
       margin-left: auto;
@@ -69,20 +73,26 @@
   position: relative;
   align-self: stretch;
   min-width: 0;
+
+  @media (min-width: 1100px) {
+    flex: 1;
+  }
+
+  > .menu {
+    inset-inline-end: 0;
+  }
 }
 
 // The links stay one row at every width: 8 px apart under 360 px, 16 px from 360 px.
 .links {
   display: flex;
   flex-wrap: nowrap;
+  > * { flex-shrink: 0; }
   align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: var(--frame-gap);
 
   @media (min-width: 360px) {
-    gap: 16px;
+    gap: calc(2 * var(--frame-gap));
   }
 }
 
@@ -90,8 +100,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--frame-target-size);
+  min-height: var(--frame-target-size);
   padding: 0 4px;
   box-sizing: border-box;
   font-size: var(--font-read);
@@ -140,8 +150,8 @@
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 96px;
-  min-height: 44px;
+  min-width: calc(2 * var(--frame-target-size) + var(--frame-gap));
+  min-height: var(--frame-target-size);
   padding: 0 4px;
   border: 1px solid var(--edge-control);
   border-radius: var(--radius-xl);
@@ -175,13 +185,13 @@
   list-style: none;
   border: 1px solid var(--edge-control);
   border-radius: var(--radius-xl);
-  background: var(--bg-card);
+  background: var(--bg-panel);
 }
 
 .menuItem {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--frame-target-size);
   padding: 0 16px;
   font-size: var(--font-read);
   line-height: 1.4;
@@ -210,8 +220,8 @@
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--frame-target-size);
+    min-height: var(--frame-target-size);
     padding: 0 4px;
     border: 0;
     background: none;

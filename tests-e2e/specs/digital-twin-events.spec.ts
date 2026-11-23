@@ -26,6 +26,7 @@
  * too: the server holds nothing of that run to show again.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
 import { noRunOnPage, pressStart } from '../support/start-run.js';
 
@@ -46,7 +47,6 @@ const playback = (page: Page, position: number) => page.getByRole('heading', { n
 const dismiss = (page: Page) => page.getByRole('button', { name: 'Clear · run another' });
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
 const pairRunning = (page: Page) => page.getByRole('status', { name: /^Simulation status: Running\./ });
-const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 /** What the Run tab says above Start when the server refuses the run. */
 const RUN_DID_NOT_START = 'The run did not start. Press Start again.';
 const stat = (page: Page, label: string) => page.locator('[class*="statsBar"]').getByText(label, { exact: true }).locator('xpath=..');
@@ -125,11 +125,11 @@ async function startPairRun(page: Page): Promise<void> {
   await expect(page).toHaveURL(/[?&]tab=sim\b/);
 }
 
-/** Loads a saved run from a file through the RUN menu, taking whatever the page shows. */
+/** Loads a saved run from a file through Studio, taking whatever the page shows. */
 async function loadSavedRun(page: Page): Promise<void> {
-  await runMenuButton(page).click();
+  await openTab(page, 'studio');
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('menuitem', { name: /Load from file/ }).click();
+  await page.getByRole('button', { name: 'Open a run file', exact: true }).click();
   await (await chooser).setFiles(savedRun());
   await page.getByRole('button', { name: /^(Load|Replace current simulation)$/ }).click();
 }
@@ -236,7 +236,7 @@ test.describe('Digital Twin events @twin', () => {
     // The refused press stays on the Run tab and says so above Start.
     await pressStart(page);
     await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expectProgressOfWholeRun(page);
 
     release();
@@ -251,7 +251,7 @@ test.describe('Digital Twin events @twin', () => {
 
     await pressStart(page);
     await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
   });
@@ -269,7 +269,7 @@ test.describe('Digital Twin events @twin', () => {
     release();
     await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
     await twinAnswerHandled(page);
-    await page.getByRole('tab', { name: 'QUICKSTART', exact: true }).click();
+    await openTab(page, 'quickstart');
     await expect(page.getByRole('button', { name: 'Patient · treatment' })).toBeVisible();
     await expect(page.getByText(TWIN_ENGINE_ERROR)).toHaveCount(0);
     await expect(page.getByText('Digital twin failed')).toHaveCount(0);
@@ -292,7 +292,7 @@ test.describe('Digital Twin events @twin', () => {
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Clear local data/ }).click();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
@@ -308,7 +308,7 @@ test.describe('Digital Twin events @twin', () => {
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: 'Delete server data' }).click();
     await expect(page.getByText(/ files deleted on the server\./).first()).toBeVisible();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
@@ -334,7 +334,7 @@ test.describe('Digital Twin events @twin', () => {
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Clear local data/ }).click();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await twinAnswerHandled(page);
     await expect(running(page)).toHaveCount(0);

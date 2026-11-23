@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { ARIA, pairRunFrames } from '../support/pair-run.js';
 import { framesToSimEvents } from '../support/run-frames.js';
 
@@ -23,10 +24,10 @@ const savedRun = {
 async function loadSavedRun(page: Page) {
   await page.goto('/sim?tab=sim');
   await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
-  await page.getByRole('button', { name: 'RUN', exact: true }).click();
+  await openTab(page, 'studio');
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
-    page.getByRole('menuitem', { name: /Load from file/ }).click(),
+    page.getByRole('button', { name: 'Open a run file', exact: true }).click(),
   ]);
   await chooser.setFiles({
     name: 'saved-run.json',

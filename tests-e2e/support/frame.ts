@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import type { DashboardTab } from '../../src/dashboard/src/tab-routing.js';
 
 export const SERVERS = {
   dashboard: 'http://127.0.0.1:3456',
@@ -25,8 +26,6 @@ export async function lookOf(page: Page): Promise<{ light: boolean; scheme: stri
     metas: Array.from(document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'), (meta) => meta.content),
   }));
 }
-
-import type { DashboardTab } from '../../src/dashboard/src/tab-routing.js';
 
 /** Opens a dashboard tab by its accessible key. */
 export async function openTab(page: Page, tab: DashboardTab): Promise<void> {

@@ -150,12 +150,12 @@ async function geometry(page: Page) {
 const runMenu = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^REPLAYING/i });
 const runStatus = (page: Page) => page.getByRole('region', { name: 'Run status' });
-const savedPair = (page: Page) => page.getByRole('link', { name: /Aria Chen.*Dietrich Voss.*Mars Genesis/i });
+const savedPair = (page: Page) => page.getByRole('region', { name: 'Saved runs' })
+  .getByRole('link', { name: /(?=.*Aria Chen)(?=.*Dietrich Voss)(?=.*Mars Genesis)/i });
 const start = (page: Page) => page.getByRole('button', { name: /^Start\b/i });
 
 test('the RUN menu leaves, and saved runs are in Library', async ({ page }) => {
   await page.goto(SERVERS.replay + '/sim');
-  await expect(page.getByRole('tab', { name: 'QUICKSTART' })).toBeVisible();
   for (const tab of ['quickstart', 'sim', 'reports', 'settings', 'studio', 'library'] as const) {
     await openTab(page, tab);
     await expect(runMenu(page)).toHaveCount(0);
@@ -189,6 +189,7 @@ test('runs kept in this browser are in Library', async ({ page }) => {
   await answer;
   await expect(page).toHaveURL(/[?&]tab=library/);
   await expect(runStatus(page)).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
   await local.getByRole('button', { name: 'Clear this list' }).click();
   await expect(local).toHaveCount(0);
 });
@@ -271,7 +272,7 @@ test('feature 13: the foot ends every tab', async ({ page, context }) => {
         await openTab(page, tab);
         await expect(foot).toHaveCount(1);
         await expect(page.getByRole('main').getByRole('contentinfo')).toHaveCount(0);
-        await expect(foot).toContainText("For adults. Under 18? Use it with a parent's or guardian's permission.");
+        await expect(foot).toContainText("For adults. Under 18? Use it with a parent’s or guardian’s permission.");
         await expect(foot).toContainText('Paracosm · Apache-2.0 · Frame.dev');
         const before = (await foot.boundingBox())!.y;
         await foot.scrollIntoViewIfNeeded();
@@ -331,9 +332,13 @@ test('the run’s status bar shows only while a run exists', async ({ page }) =>
   await page.goto(SERVERS.demo + '/sim');
   await expect(start(page)).toBeEnabled();
   await expect(runStatus(page)).toHaveCount(0);
-  await start(page).click();
-  await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
-  await expect(page.getByRole('contentinfo')).toHaveCount(1);
+  try {
+    await start(page).click();
+    await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
+    await expect(page.getByRole('contentinfo')).toHaveCount(1);
+  } finally {
+    await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+  }
 });
 
 test('one way to start a run, and Start lands on Watch', async ({ page }) => {
@@ -343,9 +348,13 @@ test('one way to start a run, and Start lands on Watch', async ({ page }) => {
     await page.goto(SERVERS.demo + '/sim');
     await expect(start(page)).toHaveCount(1);
     await expect(page.getByRole('button', { name: /^(RUN|Run New Simulation|Run Simulation)$/ })).toHaveCount(0);
-    await start(page).click();
-    await expect(page).toHaveURL(/[?&]tab=sim/);
-    await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+    try {
+      await start(page).click();
+      await expect(page).toHaveURL(/[?&]tab=sim/);
+      await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+    } finally {
+      await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+    }
   }
 });
 

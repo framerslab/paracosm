@@ -1,22 +1,21 @@
 import { type CSSProperties } from 'react';
 import { useMediaQuery, PHONE_QUERY } from '../viz/grid/useMediaQuery';
-import styles from './Footer.module.scss';
-import { hasConsentBar, useConsentControl } from './consentControl';
+import styles from './RunStatusBar.module.scss';
 
-interface FooterAbortReason {
+interface RunStatusBarAbortReason {
   reason: string;
   completedTurns?: number;
 }
 
-interface FooterProviderError {
+interface RunStatusBarProviderError {
   message: string;
 }
 
-interface FooterProps {
+interface RunStatusBarProps {
   cost?: { totalTokens: number; totalCostUSD: number; llmCalls: number };
   /**
    * Optional per-source split of the cost total. When provided, the
-   * Footer's cost span gains a hover tooltip that breaks down the
+   * RunStatusBar's cost span gains a hover tooltip that breaks down the
    * number into sim vs chat components so users can debug where
    * spend is coming from. Keys are USD; any key <= 0 is omitted
    * from the tooltip line.
@@ -32,8 +31,8 @@ interface FooterProps {
     isComplete: boolean;
     isAborted: boolean;
     connectionStatus: 'connecting' | 'connected' | 'error' | 'replay_not_found';
-    abortReason?: FooterAbortReason | null;
-    providerError?: FooterProviderError | null;
+    abortReason?: RunStatusBarAbortReason | null;
+    providerError?: RunStatusBarProviderError | null;
   };
 }
 
@@ -50,7 +49,7 @@ function abortReasonLabel(raw: string): string {
   }
 }
 
-function StatusChip({ s }: { s: NonNullable<FooterProps['simStatus']> }) {
+function StatusChip({ s }: { s: NonNullable<RunStatusBarProps['simStatus']> }) {
   const color = s.isAborted
     ? 'var(--amber)'
     : s.isComplete
@@ -113,8 +112,8 @@ function formatUsdShort(u: number): string {
 }
 
 function buildCostTooltip(
-  cost: NonNullable<FooterProps['cost']>,
-  breakdown: FooterProps['costBreakdown'],
+  cost: NonNullable<RunStatusBarProps['cost']>,
+  breakdown: RunStatusBarProps['costBreakdown'],
 ): string {
   const lines: string[] = [
     `Total: ${formatUsdShort(cost.totalCostUSD)} · ${cost.totalTokens.toLocaleString()} tokens · ${cost.llmCalls} calls`,
@@ -128,23 +127,12 @@ function buildCostTooltip(
   return lines.join('\n');
 }
 
-export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
+/** Shows the status and cost of the open run. */
+export function RunStatusBar({ cost, costBreakdown, simStatus }: RunStatusBarProps) {
   const isPhone = useMediaQuery(PHONE_QUERY);
-  const consentBar = hasConsentBar();
-  const consentSlot = useConsentControl();
-  const cls = ['shrink-0', styles.footer, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
+  const cls = ['shrink-0', styles.bar, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
   return (
-    <footer className={cls} role="contentinfo">
-      {!isPhone && (
-        <nav aria-label="Footer links" className={styles.nav}>
-          <a href="https://agentos.sh/en" target="_blank" rel="noopener" className={styles.navLink}>agentos.sh</a>
-          <a href="https://github.com/framerslab/paracosm" target="_blank" rel="noopener" className={styles.navLink}>github</a>
-          <a href="https://www.npmjs.com/package/paracosm" target="_blank" rel="noopener" className={styles.navLink}>npm</a>
-          <a href="/docs" className={styles.navLink}>docs</a>
-          <a href="https://agentos.sh/blog" target="_blank" rel="noopener" className={styles.navLink}>blog</a>
-        </nav>
-      )}
-
+    <section className={cls} aria-label="Run status">
       {simStatus && <StatusChip s={simStatus} />}
 
       {cost && (cost.totalTokens > 0 || cost.llmCalls > 0) && (
@@ -163,14 +151,6 @@ export function Footer({ cost, costBreakdown, simStatus }: FooterProps) {
         </span>
       )}
 
-      {consentBar && <span ref={consentSlot} className={styles.consentSlot} />}
-
-      {!isPhone && (
-        <span>
-          <span className={styles.brand}>PARA<span className={styles.brandAccent}>COSM</span></span>
-          {' '}&middot; Apache-2.0 &middot; <a href="https://frame.dev" target="_blank" rel="noopener" className={styles.brandLink}>Frame.dev</a>
-        </span>
-      )}
-    </footer>
+    </section>
   );
 }

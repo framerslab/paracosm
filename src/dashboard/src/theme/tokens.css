@@ -717,33 +717,14 @@
   /* === RESPONSIVE — MOBILE FIRST === */
 
   /* Tablet and below */
-  /* Wider than 1024 but still narrow enough that the full topbar
-     (logo + PARACOSM + AGENTOS + | + scenario name + turn meta +
-     progress bar + GITHUB + HOW IT WORKS + RUN + Save + Copy + Load
-     + Clear + status + theme) overflows. At ~1440 the scenario name
-     already starts kissing the turn meta block once a sim is mid-
-     run. Drop AGENTOS + scenario name here, before the collision. */
+  /* Make room for the controls when the top bar narrows. */
   @media (max-width: 1440px) {
     .topbar-agentos { display: none !important; }
     .topbar-scenario { display: none !important; }
   }
 
-  /* Narrow desktop / tablet landscape. At this width even without
-     the scenario name the tour-label + some action labels start
-     overlapping, so fold the tour button to an icon + drop the
-     per-turn progress bar. */
+  /* Keep the turn figures but omit their progress line at this width. */
   @media (max-width: 1200px) {
-    /* The key's words stay as its name for a screen reader while the
-       question mark stands in for them. */
-    .topbar-tour-label {
-      position: absolute !important;
-      width: 1px !important;
-      height: 1px !important;
-      overflow: hidden !important;
-      clip-path: inset(50%) !important;
-      white-space: nowrap !important;
-    }
-    .topbar-tour-icon { display: inline !important; }
     .topbar-progress { display: none !important; }
   }
 
@@ -844,19 +825,9 @@
     .tab-bar button { flex-shrink: 0 !important; min-width: 44px !important; }
   }
 
-  /* Narrow tablet portrait / phone landscape. The mid-row of T / Y / S
-     meta tokens + the GITHUB chip + the status pill all fight the
-     PARACOSM logo for horizontal space below ~640px and used to render
-     overlapping. Drop the meta tokens (still visible on the StatsBar
-     pills below the topbar) and collapse GITHUB to icon-only here so
-     the brand never collides with the action cluster. */
+  /* Narrow tablet portrait and phone landscape. */
   @media (max-width: 640px) {
     .topbar-meta { display: none !important; }
-    .topbar-github-label { display: none !important; }
-    .topbar-github { padding-left: 7px !important; padding-right: 7px !important; }
-    /* Hide the "Live"/"Complete" status text; the colored dot still
-       conveys state, freeing room for the overflow menu + theme toggle. */
-    .topbar-status-text { display: none !important; }
 
     /* Chat sidebar collapses on phones (was at 768px and stranded the
        tablet chat empty-state under a 180px-tall roster strip). At
@@ -864,17 +835,6 @@
        better than the side-by-side roster + window. */
     .chat-layout { flex-direction: column !important; }
     .chat-sidebar { width: 100% !important; max-height: 180px !important; }
-
-    /* Footer wraps onto multiple rows below ~640px because the nav
-       links + status chip + cost span + brand attribution can't fit a
-       single row. Justify-content: flex-start so wrapped rows hug the
-       left edge instead of leaving uneven gaps from space-between, and
-       tighten padding for phone density. */
-    footer[role="contentinfo"] {
-      justify-content: flex-start !important;
-      padding: 6px 12px !important;
-      row-gap: 6px !important;
-    }
   }
 
   /* Phone */

@@ -33,6 +33,7 @@
  * test-pictures/toolbox-log-and-share-link/, which CI uploads.
  */
 import { test, expect, type Locator, type Page, type APIRequestContext } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored run lives on a local server of its own.');
 
@@ -624,7 +625,7 @@ for (const size of WIDTHS) {
       await expectLogFilteredToLandingTool(page);
 
       // A second press, from the other toolbox, replaces the first tool's filter with its own.
-      await page.locator('#tab-sim').click();
+      await openTab(page, 'sim');
       await showInEventLog(page, await openSimToolbox(page), WATER);
 
       const log = eventLog(page);
@@ -743,7 +744,6 @@ test.describe('the run actions menu', () => {
     await expectShareNote(page, id, 'Link copied.');
     await page.screenshot({ path: `${PICTURES}/1440-dark-run-actions-share-link-shown.png` });
     // The note covers none of the top bar's keys.
-    await page.getByRole('button', { name: 'RUN', exact: true }).click({ trial: true, timeout: 5_000 });
     await page.getByRole('button', { name: 'Open run actions menu' }).click({ trial: true, timeout: 5_000 });
 
     // The note is about this run: once the page leaves the replay, it goes.

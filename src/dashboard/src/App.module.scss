@@ -12,7 +12,17 @@
   color: var(--text-1);
 }
 
+.page {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+}
+
 .main {
+  flex: 0 0 100%;
+  overflow: hidden;
   background: var(--bg-deep);
   display: flex;
   flex-direction: column;
