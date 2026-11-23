@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { downloadJson } from '../download';
 import type { SimEvent } from './useSSE';
 import { migrateLegacyEventShape } from './migrateLegacyEventShape';
 import {
@@ -79,12 +80,7 @@ export function useGamePersistence(
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ...(scenarioStamp ? { scenario: scenarioStamp } : {}),
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${scenarioShortName}-${events.length}events.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadJson(JSON.stringify(data, null, 2), `${scenarioShortName}-${events.length}events.json`);
   }, [scenarioShortName, scenarioStamp]);
 
   /**

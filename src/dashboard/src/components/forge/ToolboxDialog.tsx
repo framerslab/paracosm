@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { sendForgeEvent } from '../../analytics/forgeEvents';
+import { downloadJson } from '../../download';
 import { useToolContext, type ToolEntry } from '../../hooks/useToolRegistry';
 import { pickedActors } from './actorPicker.helpers';
-import { downloadJson } from './downloadJson';
 import { useToolboxView } from './forgeViewContext';
 import {
   CLOSE_TOOLBOX,
