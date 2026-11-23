@@ -2994,6 +2994,30 @@ async function startAndWatch(page: Page, root: Locator, name: string | RegExp = 
   await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
 }
 
+/**
+ * The finished Atlas Lab pair as its page shows it: the run's state, the
+ * verdict banner, and each finish notice once. Answers the state line and
+ * the notices' region for what a test checks next.
+ */
+async function expectAtlasVerdictAndNotices(page: Page): Promise<{ complete: Locator; notifications: Locator }> {
+  const complete = page.getByRole('status', { name: /^Complete\./ });
+  await expect(complete).toBeVisible();
+  const banner = page.getByRole('status', { name: 'Simulation verdict' });
+  await expect(banner).toBeVisible();
+  await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
+  await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
+
+  const notifications = page.getByRole('status', { name: 'Notifications' });
+  const titles = ['Simulation complete', 'Priya Kapoor wins', 'Saved to cache'];
+  for (const title of titles) {
+    const notice = notifications.getByText(title, { exact: true });
+    await expect(notice).toBeVisible();
+    await expect(notice).toHaveCount(1);
+  }
+  await expect(notifications.getByText('Priya ships a cleaner model', { exact: true })).toBeVisible();
+  return { complete, notifications };
+}
+
 for (const launch of ['Start with the page hand-off', 'Launch simulation in place'] as const) {
   screenTest(`an Atlas Lab pair shows its verdict and notices after ${launch}`, async ({ page }) => {
     await switchScenario(page, 'atlas-lab');
@@ -3013,21 +3037,7 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
         expect(await documentStart()).toBe(beforeLaunch);
       }
 
-      const complete = page.getByRole('status', { name: /^Complete\./ });
-      await expect(complete).toBeVisible();
-      const banner = page.getByRole('status', { name: 'Simulation verdict' });
-      await expect(banner).toBeVisible();
-      await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
-      await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
-
-      const notifications = page.getByRole('status', { name: 'Notifications' });
-      const titles = ['Simulation complete', 'Priya Kapoor wins', 'Saved to cache'];
-      for (const title of titles) {
-        const notice = notifications.getByText(title, { exact: true });
-        await expect(notice).toBeVisible();
-        await expect(notice).toHaveCount(1);
-      }
-      await expect(notifications.getByText('Priya ships a cleaner model', { exact: true })).toBeVisible();
+      const { complete, notifications } = await expectAtlasVerdictAndNotices(page);
 
       // A separate page load of the finished run must not announce it again.
       await page.reload();
@@ -3038,6 +3048,45 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
     }
   });
 }
+
+screenTest('an Atlas Lab pair shows its verdict and notices after Run again', async ({ page, context }, info) => {
+  test.setTimeout(120_000);
+  await switchScenario(page, 'atlas-lab');
+  try {
+    await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
+    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    const launch = page.getByRole('button', { name: 'Launch simulation', exact: true });
+    await expect(launch).toBeEnabled();
+    await launch.click();
+    await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+    // The first run ends as the in-place case above checks it. Its notices
+    // are on record in this tab when the second run ends.
+    await expectAtlasVerdictAndNotices(page);
+
+    // The day holds one run for an internet address, so the second run comes from another.
+    await secondAddress(context, info, 2);
+    const documentStart = () => page.evaluate(() => performance.timeOrigin);
+    const beforeRerun = await documentStart();
+    const again = page.getByText('Spin up a new run').locator('..').getByRole('button');
+    await expect(again).toBeEnabled();
+    await expect(again).toHaveText(/Run again/);
+    // Run again opens its run through a page load, as Start does.
+    const loaded = page.waitForEvent('load');
+    await again.click();
+    await loaded;
+    expect(await documentStart()).not.toBe(beforeRerun);
+
+    // The second run ends with its own banner and each of its notices once.
+    const { complete, notifications } = await expectAtlasVerdictAndNotices(page);
+
+    // A separate page load of the finished run must not announce it again.
+    await page.reload();
+    await expect(complete).toBeVisible();
+    await expect(notifications).toBeEmpty();
+  } finally {
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
 
 screenTest('feature 14: Watch shows the pair on the first frame', async ({ page, context }, info) => {
   test.setTimeout(240_000);
