@@ -32,6 +32,8 @@ test('a held run restored after a restart replays result artifacts without outpu
     const frames: string[] = [];
     registry.replay({ write: (frame: string) => { frames.push(frame); return true; } } as ServerResponse, run, null);
     const data = JSON.parse(frames[0].split('\n')[1].slice(6));
+    assert.equal(frames[0].split('\n')[0], 'event: result');
+    assert.deepEqual(data.provenance, { aiGenerated: true, generator: 'paracosm', models: {} });
     assert.deepEqual(data.artifact.scenarioExtensions, { label: 'kept' });
     assert.equal(frames[1], complete);
   } finally {
@@ -188,4 +190,171 @@ test('kernel replay retains run identity inputs and marks a fresh artifact witho
   assert.equal(full.metadata.seed, legacy.metadata.seed);
   assert.deepEqual(full.fingerprint, legacy.fingerprint);
   assert.deepEqual(full.provenance, { aiGenerated: true, generator: 'paracosm', models: {} });
+});
+
+function parseFrames(text: string): Array<{ event: string; data: Record<string, unknown> }> {
+  return text.split('\n\n').filter(frame => frame.startsWith('event: ')).map(frame => {
+    const [event, data] = frame.split('\n');
+    return { event: event.slice(7), data: JSON.parse(data.slice(6)) };
+  });
+}
+
+const emptyMark = { aiGenerated: true, generator: 'paracosm', models: {} };
+
+test('live and saved pair streams carry the roles of the bound run through an actor reconnect', async () => {
+  const { mars, settingsBody, openStream, readReplay, withVisitors, waitFor } = await import('./helpers/run-server.js');
+  const markFor = (commander: string) => ({
+    aiGenerated: true,
+    generator: 'paracosm',
+    models: { ...roleOverrides, commander, director: commander },
+  });
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  await withVisitors(async ({ cookied }) => {
+    const visitors = [cookied(), cookied()];
+    const idle = await openStream(visitors[0]);
+    try {
+      assert.equal(idle.frames[0]?.event, 'connected');
+      assert.equal(idle.frames[0]?.data.provenance, undefined);
+    } finally {
+      idle.close();
+    }
+
+    const launches = await Promise.all(visitors.map(async (visitor, index) => {
+      const commander = index === 0 ? 'gpt-4o' : 'gpt-4o-mini';
+      const response = await visitor.post('/setup', {
+        ...settingsBody(mars),
+        provider: 'openai',
+        apiKey: 'placeholder-key-for-a-test',
+        models: { ...roleOverrides, commander, director: commander },
+      });
+      assert.equal(response.status, 200, await response.clone().text());
+      const { runKey } = await response.json();
+      return { visitor, runKey, provenance: markFor(commander) };
+    }));
+
+    try {
+      for (const { visitor, runKey, provenance } of launches) {
+        const stream = await openStream(visitor, `?runKey=${runKey}`);
+        try {
+          assert.equal(stream.frames[0]?.event, 'connected');
+          assert.deepEqual(stream.frames[0]?.data.provenance, provenance);
+          assert.equal(stream.frames[1]?.event, 'active_scenario');
+          assert.deepEqual(stream.frames[1]?.data.provenance, provenance);
+        } finally {
+          stream.close();
+        }
+      }
+    } finally {
+      release();
+    }
+
+    for (const { visitor, runKey, provenance } of launches) {
+      const query = `?runKey=${runKey}&actor=${encodeURIComponent(mars.presets[0].leaders[0].name)}`;
+      const session = await waitFor(async () => {
+        const response = await visitor.get('/sessions');
+        const body = await response.json() as { sessions: Array<{ id: string; provenance?: unknown }> };
+        return body.sessions.find(row => row.id);
+      }, 'the saved run', 5000);
+      const reconnect = await readReplay(visitor, query);
+      assert.deepEqual(reconnect.connected.provenance, provenance);
+      assert.equal(reconnect[0]?.event, 'active_scenario');
+      assert.deepEqual(reconnect[0]?.data.provenance, provenance);
+      assert.ok(reconnect.every(frame => frame.event !== 'sim' || frame.data.leader === mars.presets[0].leaders[0].name));
+      assert.ok(reconnect.length < 12, 'the actor reconnect reads the trimmed buffer');
+      assert.deepEqual(session.provenance, provenance);
+
+      const replay = await visitor.get(`/sessions/${session.id}/replay`);
+      assert.equal(replay.status, 200);
+      const frames = parseFrames(await replay.text());
+      assert.equal(frames[0]?.event, 'active_scenario');
+      assert.deepEqual(frames[0]?.data.provenance, provenance);
+      assert.equal(frames.filter(frame => frame.event === 'sim').length, 12);
+    }
+  }, {
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'placeholder-host-key', PARACOSM_EVENT_BUFFER_MAX: '5' },
+    extra: { getDigitalTwinWorld: async () => null, generateText: async () => ({ text: 'Saved pair' }) },
+    runner: async (config, broadcast) => {
+      await ready;
+      for (let turn = 1; turn <= config.turns; turn++) {
+        for (const actor of config.actors) {
+          broadcast('sim', { type: 'turn_done', leader: actor.name, data: { turn, time: turn } }, actor.name);
+        }
+      }
+      broadcast('complete', { timestamp: '2026-04-26T00:01:30.000Z' });
+    },
+  });
+});
+
+test('saved replay marks a leading historical result and an empty session without exposing private fields', async () => {
+  const { withVisitors } = await import('./helpers/run-server.js');
+  const { openSessionStore } = await import('../../src/server/stores/session.js');
+  const { randomUUID, createHash } = await import('node:crypto');
+  const owner = createHash('sha256').update(randomUUID()).digest('hex');
+  const store = openSessionStore(':memory:', 10, { databaseOptions: { type: 'memory' } });
+  const frame = (event: string, data: unknown, ts: number) => ({ ts, sse: `event: ${event}\ndata: ${JSON.stringify(data)}\n\n` });
+  const old = await store.saveSession([
+    frame('result', { leader: 'Aria', artifact: { scenarioExtensions: { outputPath: '/private/run.json', label: 'kept' } } }, 1000),
+    frame('active_scenario', { id: marsScenario.id, seedText: 'Private scenario brief' }, 1020),
+  ], undefined, { owner });
+  const empty = await store.saveSession([], undefined, { owner });
+  await withVisitors(async ({ cookied }) => {
+    for (const query of ['', '?speed=2']) {
+      const response = await cookied().get(`/sessions/${old.id}/replay${query}`);
+      assert.equal(response.status, 200);
+      const frames = parseFrames(await response.text());
+      assert.equal(frames[0]?.event, 'result');
+      assert.deepEqual(frames[0]?.data.provenance, emptyMark);
+      assert.deepEqual(frames[0]?.data.artifact, { scenarioExtensions: { label: 'kept' } });
+      assert.equal(frames[1]?.data.seedText, null);
+    }
+    const response = await cookied().get(`/sessions/${empty.id}/replay`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(parseFrames(await response.text()), [{ event: 'provenance', data: { provenance: emptyMark } }]);
+  }, {
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'placeholder-host-key' },
+    extra: { sessionStore: store, getDigitalTwinWorld: async () => null },
+  });
+});
+
+test('the Digital Twin stream opens with the economy assignments used by its runner', async () => {
+  const { openStream, withVisitors } = await import('./helpers/run-server.js');
+  const models = {
+    commander: 'gpt-5.4-nano', departments: 'gpt-4o', judge: 'gpt-5.4-nano',
+    director: 'gpt-5.4-nano', agentReactions: 'gpt-5.4-nano',
+  };
+  const provenance = { aiGenerated: true, generator: 'paracosm', models };
+  let costPreset: unknown;
+  await withVisitors(async ({ cookied }) => {
+    const visitor = cookied();
+    const runKey = 'economy-twin';
+    const launch = await visitor.post('/api/quickstart/simulate-intervention', {
+      runKey,
+      apiKey: 'placeholder-key-for-a-test',
+      subject: { id: 'colony', name: 'Colony' },
+      intervention: { id: 'reserve', name: 'Power reserve' },
+      options: { costPreset: 'economy' },
+    });
+    assert.equal(launch.status, 200, await launch.clone().text());
+    assert.equal(costPreset, 'economy');
+    const stream = await openStream(visitor, `?runKey=${runKey}`);
+    try {
+      assert.equal(stream.frames[0]?.event, 'connected');
+      assert.deepEqual(stream.frames[0]?.data.provenance, provenance);
+      assert.equal(stream.frames[1]?.event, 'active_scenario');
+      assert.deepEqual(stream.frames[1]?.data.provenance, provenance);
+    } finally {
+      stream.close();
+    }
+  }, {
+    extra: {
+      getDigitalTwinWorld: async () => ({
+        scenario: marsScenario,
+        intervene: async (options: { costPreset: unknown }) => {
+          costPreset = options.costPreset;
+          return { metadata: { runId: 'twin-fixture', scenario: { id: marsScenario.id } }, trajectory: { timepoints: [] } };
+        },
+      }),
+    },
+  });
 });
