@@ -757,11 +757,14 @@ test('feature 2: large text', async ({ page }) => {
   await expect(nav).toHaveAttribute('data-row-fold', '2');
   const previous = nav.getByRole('button', { name: 'Previous sections' });
   const next = sections(page).getByRole('button', { name: 'Next sections' });
+  const row = nav.locator('[data-fade-end]');
+  await expect.poll(() => row.evaluate(element => element.clientWidth)).toBeGreaterThan(0);
+  await expect.poll(() => row.evaluate(element => element.scrollLeft)).toBe(0);
+  await expect.poll(() => row.evaluate(element => element.scrollWidth - element.clientWidth)).toBeGreaterThan(1);
   await expect(previous).toBeDisabled();
   await expect(next).toBeEnabled();
-  await expect.poll(() => nav.locator('[data-fade-end]').evaluate(row => row.scrollWidth > row.clientWidth)).toBe(true);
   for (const key of [previous, next]) expect(await key.boundingBox()).toMatchObject({ width: 44, height: 44 });
-  const scroll = () => sections(page).locator('[data-fade-end]').evaluate(row => row.scrollLeft / row.clientWidth);
+  const scroll = () => row.evaluate(element => element.scrollLeft / element.clientWidth);
   await next.click();
   await expect.poll(scroll).toBeGreaterThan(0.7);
 });

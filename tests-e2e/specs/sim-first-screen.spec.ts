@@ -3000,7 +3000,8 @@ async function startAndWatch(page: Page, root: Locator, name: string | RegExp = 
  * the notices' region for what a test checks next.
  */
 async function expectAtlasVerdictAndNotices(page: Page): Promise<{ complete: Locator; notifications: Locator }> {
-  const complete = page.getByRole('status', { name: /^Complete\./ });
+  const complete = page.getByRole('region', { name: 'Run status' })
+    .getByRole('status', { name: /^Simulation status: Complete\./ });
   await expect(complete).toBeVisible();
   const banner = page.getByRole('status', { name: 'Simulation verdict' });
   await expect(banner).toBeVisible();
@@ -3029,7 +3030,7 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
         await startAndWatch(page, root, /^Start Atlas Lab:/);
         expect(await documentStart()).not.toBe(beforeLaunch);
       } else {
-        await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+        await openTab(page, 'settings');
         const button = page.getByRole('button', { name: 'Launch simulation', exact: true });
         await expect(button).toBeEnabled();
         await button.click();
@@ -3054,7 +3055,7 @@ screenTest('an Atlas Lab pair shows its verdict and notices after Run again', as
   await switchScenario(page, 'atlas-lab');
   try {
     await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
-    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await openTab(page, 'settings');
     const launch = page.getByRole('button', { name: 'Launch simulation', exact: true });
     await expect(launch).toBeEnabled();
     await launch.click();
