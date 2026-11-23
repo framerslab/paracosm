@@ -9,6 +9,7 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
+import { PageFoot } from './first-screen/PageFoot';
 import type { LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
@@ -17,7 +18,7 @@ import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
 import { useScenarioContext } from '../../App';
-import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import { keepActiveRunActors, readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { compileScenarioWithPolling } from './compile-poll';
@@ -238,8 +239,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // scenarios ship no preset leaders, so without this fallback the
       // ActorBar renders the alphabetic placeholder until the status
       // event with `phase: 'parallel'` lands and useGameState pairs the
-      // names against state.actorIds.
+      // names against state.actorIds. A launch the server refuses puts
+      // back the leaders stored before it.
+      let restoreActors: () => void = () => undefined;
       if (typeof window !== 'undefined') {
+        restoreActors = keepActiveRunActors(window.localStorage);
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
       opts?.onStage?.('starting');
@@ -259,6 +263,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         if (!setupRes.ok) {
           const body = await setupRes.json().catch(() => ({} as { error?: string }));
           if (opts) {
+            restoreActors();
             opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
             return;
           }
@@ -281,8 +286,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
           return;
         }
         // An answer that opens no run is a run that did not start.
+        restoreActors();
         opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
       } catch (err) {
+        restoreActors();
         if (opts) {
           opts.onFailure?.({ networkError: true });
           return;
@@ -303,6 +310,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // loaded scenario's id, then /setup.
     if (!opts) setPhase({ kind: 'progress', stage: 'actors' });
     opts?.onStage?.('writing', actorCount);
+    // Set once the leaders are stored: a launch the server refuses puts back those stored before it.
+    let restoreActors: () => void = () => undefined;
     try {
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
@@ -335,6 +344,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
 
       if (!keepsTwin) await sse.reset();
       if (typeof window !== 'undefined') {
+        restoreActors = keepActiveRunActors(window.localStorage);
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
       opts?.onStage?.('starting');
@@ -353,6 +363,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       if (!setupRes.ok) {
         const body = await setupRes.json().catch(() => ({} as { error?: string }));
         if (opts) {
+          restoreActors();
           opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
           return;
         }
@@ -367,8 +378,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
         return;
       }
+      restoreActors();
       opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
     } catch (err) {
+      restoreActors();
       if (opts) {
         opts.onFailure?.({ networkError: true });
         return;
@@ -639,6 +652,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
           )}
         </>
       )}
+      {/* The first screen ends in its own foot; while a run starts or shows
+          its results, the same foot ends the tab. */}
+      {phase.kind !== 'input' && <PageFoot />}
     </div>
   );
 }

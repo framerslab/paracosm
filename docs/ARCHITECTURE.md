@@ -579,7 +579,7 @@ The Run tab (`/sim`) opens on one screen a first-time visitor reads from the top
 | Part | Files | What it does |
 |---|---|---|
 | The screen | `RunFirstScreen.tsx` | Lays the parts out in order inside `[data-testid="run-first-screen"]`, with the page's foot after it |
-| The server's answers | `useServerFacts.tsx` | `GET /rate-limit`, `GET /admin-config` and `GET /sessions`, each asked once a page and each field checked before it is used |
+| The server's answers | `useServerFacts.tsx` | `GET /rate-limit`, `GET /admin-config` and `GET /sessions`, each asked once a page and each field checked before it is used. With no free run left, the count is read again once its reset time has come. A read of `/admin-config` that failed is tried again after 2 seconds, then at longer gaps up to 15 |
 | The launch | `effectiveLaunch.ts` | Who pays for the run and the turns, people and departments it takes |
 | The scenario line | `ScenarioLine.tsx` | The scenario's name as the page's one `h1`, three sentences written for the run's size, and the run's figures |
 | The colony at turn 0 | `SharedColonyPanel.tsx`, `startingColony.ts` | The living grid at rest, its cells the scenario's key people |
@@ -589,7 +589,7 @@ The Run tab (`/sim`) opens on one screen a first-time visitor reads from the top
 | Start | `StartBand.tsx`, `launchFailure.ts` | The one key that starts a run, the run line, who pays, the day's limit and each failure |
 | Other scenarios | `OtherScenarios.tsx` | A list that loads a scenario through `POST /scenario/switch` and a reload, and runs none |
 | Write your own scenario | `SeedInput.tsx` (`variant="pasteOnly"`) | The paste, URL and PDF form, which compiles a scenario from a brief and runs it |
-| The foot | `PageFoot.tsx`, `layout/consentControl.ts` | The adults line, the site's links (Docs, GitHub and npm under More links when the four do not fit one row), Analytics choices and the licence line |
+| The foot | `PageFoot.tsx`, `layout/consentControl.ts` | The adults line, the site's links (Docs, GitHub and npm under More links when the four do not fit one row), Analytics choices and the licence line. It ends the Run tab in every state: under the first screen, and under a run's progress and results. The Analytics choices control is one element, kept by `consentControl.ts` and moved to the footer on screen |
 | How it works | `HowItWorksCard.tsx` | The card the header's key opens on every tab |
 
 **One launch for the words and the request.** `effectiveLaunch` works out the run Start launches from the server's answers and what the visitor saved in Settings. `payer` is `own` when the visitor saved a provider key, `host` on the hosted demo with none, and `server` on a self-hosted server with none. A run on the host's keys is a pair at the host's caps (`demoCaps` from `GET /admin-config`); any other run takes the scenario's own figures and the turns the visitor last launched with. The scenario line's figures, Start's second line, the notice and the `POST /setup` body all read the same result, so the screen never says one run and starts another. Storage that throws, or holds a value that does not parse, reads as nothing saved.

@@ -15,9 +15,17 @@ import { useEffect, useRef } from 'react';
 /** The mounted slots, oldest first. */
 const slots: HTMLElement[] = [];
 
+/**
+ * The control, kept once it is found. A slot that leaves the page takes the
+ * control out of the document with it, and an effect's cleanup runs after
+ * that, when a lookup by id no longer finds it.
+ */
+let kept: HTMLElement | null = null;
+
 /** Puts the control in the newest slot, or back in its own place. */
 function placeControl(): void {
-  const control = document.getElementById('pcc-reopen');
+  kept = document.getElementById('pcc-reopen') ?? kept;
+  const control = kept;
   const home = document.getElementById('pcc-shell');
   const target = slots[slots.length - 1] ?? home;
   if (control && target && control.parentElement !== target) target.appendChild(control);

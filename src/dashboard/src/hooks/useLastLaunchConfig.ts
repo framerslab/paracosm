@@ -151,6 +151,33 @@ export function writeActiveRunActors(
 
 /** The scenario the stored actors were launched on, or `null` when it
  *  was not recorded. */
+/**
+ * Keeps the stored leaders and scenario of the run on screen as they are
+ * now, and returns a function that puts them back. A launch writes its
+ * leaders before it posts the run, so a launch the server refuses calls
+ * this function and the stored leaders stay those of a run that exists.
+ */
+export function keepActiveRunActors(storage: StorageLike): () => void {
+  let actors: string | null = null;
+  let scenarioId: string | null = null;
+  try {
+    actors = storage.getItem(ACTIVE_RUN_ACTORS_KEY);
+    scenarioId = storage.getItem(ACTIVE_RUN_SCENARIO_KEY);
+  } catch {
+    return () => undefined;
+  }
+  return () => {
+    try {
+      if (actors === null) storage.removeItem?.(ACTIVE_RUN_ACTORS_KEY);
+      else storage.setItem(ACTIVE_RUN_ACTORS_KEY, actors);
+      if (scenarioId === null) storage.removeItem?.(ACTIVE_RUN_SCENARIO_KEY);
+      else storage.setItem(ACTIVE_RUN_SCENARIO_KEY, scenarioId);
+    } catch {
+      // Storage that cannot be written keeps what it holds.
+    }
+  };
+}
+
 export function readActiveRunScenarioId(storage: StorageLike): string | null {
   try {
     return storage.getItem(ACTIVE_RUN_SCENARIO_KEY) || null;
