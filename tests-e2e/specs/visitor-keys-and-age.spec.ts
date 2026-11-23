@@ -90,11 +90,19 @@ test('Forget my keys empties the fields and both stores and drops the held run',
   await page.evaluate(({ slot, marker }) => { localStorage.setItem(slot, JSON.stringify({ openai: marker })); },
     { slot: SLOT, marker: MARKER });
 
-  const forgotten = page.waitForResponse(response => new URL(response.url()).pathname === '/forget-keys');
+  let forgotten: { status: number; body: unknown } | undefined;
+  await page.route(`${RUN_SERVER}/forget-keys`, async route => {
+    // Forward the real click's request and read the full server response
+    // before the page processes the cleanup and refreshes its live stream.
+    const answer = await route.fetch();
+    forgotten = { status: answer.status(), body: await answer.json() };
+    await route.fulfill({ response: answer });
+  });
   await keyGroup(page).getByRole('button', { name: 'Forget my keys', exact: true }).click();
-  const answer = await forgotten;
-  expect(answer.ok()).toBe(true);
-  expect(await answer.json()).toEqual({ runConfigsDropped: 1, chatAgentsDropped: 1 });
+  await expect.poll(() => forgotten).toEqual({
+    status: 200, body: { runConfigsDropped: 1, chatAgentsDropped: 1 },
+  });
+  await expect(keyGroup(page).getByRole('status')).toHaveText('Keys forgotten. Your held run and chat agents have been cleared.');
   for (const provider of PROVIDERS) await expect(field(page, provider)).toHaveValue('');
   expect(await stores(page)).toEqual({ local: null, session: null });
   const results = await page.request.get(`${RUN_SERVER}/results`);
