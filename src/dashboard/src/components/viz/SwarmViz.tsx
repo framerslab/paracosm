@@ -9,6 +9,7 @@ import { useVizSnapshots } from './useVizSnapshots.js';
 import { CohortSwarmGrid } from './CohortSwarmGrid.js';
 import { TurnBanner, turnHeadline } from './TurnBanner.js';
 import { VizControls } from './VizControls.js';
+import { KeyLegend, type KeyHint } from './KeyLegend.js';
 import { LivingSwarmGrid } from './grid/LivingSwarmGrid.js';
 import { GridModePills, gridModeHint, type GridMode } from './grid/GridModePills.js';
 import { GridHelpOverlay } from './grid/GridHelpOverlay.js';
@@ -70,14 +71,6 @@ function aggregateByDept(snap: TurnSnapshot | undefined): DiffCell[] {
   return out;
 }
 
-function Kbd({ k, v }: { k: string; v: string }) {
-  return (
-    <span className={styles.kbd}>
-      <kbd className={styles.kbdKey}>{k}</kbd>
-      <span className={styles.kbdLabel}>{v}</span>
-    </span>
-  );
-}
 import {
   computeDivergence,
   type CellSnapshot,
@@ -99,6 +92,34 @@ function hasEcologyReadings(snap: TurnSnapshot | undefined): boolean {
 
 /** A control Space presses: the tab's playback shortcut leaves Space to it. */
 const PRESSABLE = 'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"]';
+
+/**
+ * The Viz panel as a picture holds it, for the PNG export and the timelapse.
+ *
+ * On a phone and on a short screen the panel's parts scroll as one (`body`,
+ * styles.body), so a grid can stand outside the panel's view. The picture is
+ * then as tall as the panel with that scroll laid out in full, and `place`
+ * gives each canvas inside the scroll the place it has in it, wherever the
+ * scroll stands, so every grid is drawn whole. Where the panel does not
+ * scroll, the box has no layout of its own and reads zero throughout: the
+ * picture is the panel's own view and every canvas stands where it is seen.
+ */
+function panelLaidOut(root: HTMLElement, body: HTMLElement | null) {
+  const view = root.getBoundingClientRect();
+  const beyondView = body ? Math.max(0, body.scrollHeight - body.clientHeight) : 0;
+  const scrolled = body ? body.scrollTop : 0;
+  return {
+    width: view.width,
+    height: view.height + beyondView,
+    /** Where a canvas stands in the picture, in CSS px; null for one that is not shown. */
+    place(canvas: HTMLCanvasElement): { x: number; y: number; width: number; height: number } | null {
+      const r = canvas.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return null;
+      const inScroll = !!body && body.contains(canvas);
+      return { x: r.left - view.left, y: r.top - view.top + (inScroll ? scrolled : 0), width: r.width, height: r.height };
+    },
+  };
+}
 
 /**
  * VIZ tab composition root. Owns playhead state, grid mode, palette,
@@ -555,6 +576,8 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   // Timelapse recording state. Uses MediaRecorder on a composite
   // canvas stream so the user can capture a short webm of the viz.
   const vizRootRef = useRef<HTMLDivElement | null>(null);
+  // The panel's one scroll on a phone and on a short screen (styles.body).
+  const vizBodyRef = useRef<HTMLDivElement | null>(null);
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recChunksRef = useRef<Blob[]>([]);
@@ -564,9 +587,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   const startTimelapse = useCallback(() => {
     const root = vizRootRef.current;
     if (!root) return;
-    const rect = root.getBoundingClientRect();
-    const width = Math.max(640, Math.round(rect.width));
-    const height = Math.max(360, Math.round(rect.height));
+    const whole = panelLaidOut(root, vizBodyRef.current);
+    const width = Math.max(640, Math.round(whole.width));
+    const height = Math.max(360, Math.round(whole.height));
     const composite = document.createElement('canvas');
     composite.width = width;
     composite.height = height;
@@ -611,20 +634,20 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       if (!cctx) return;
       cctx.fillStyle = getComputedStyle(r).getPropertyValue('--bg-deep').trim() || '#0a0806';
       cctx.fillRect(0, 0, c.width, c.height);
-      const rootRect = r.getBoundingClientRect();
-      const sx = c.width / Math.max(1, rootRect.width);
-      const sy = c.height / Math.max(1, rootRect.height);
+      const whole = panelLaidOut(r, vizBodyRef.current);
+      // One scale for both axes, the panel centred in the frame. The frame's
+      // size is set as the recording starts (640 x 360 at least); the panel
+      // can be narrower than it, and its size can change under the recording
+      // (a turn's words, the More panel), so the grids keep their proportions
+      // and the frame's spare room stays the background's.
+      const scale = Math.min(c.width / Math.max(1, whole.width), c.height / Math.max(1, whole.height));
+      const left = (c.width - whole.width * scale) / 2;
+      const top = (c.height - whole.height * scale) / 2;
       const allCanvases = Array.from(r.querySelectorAll('canvas')) as HTMLCanvasElement[];
       for (const cv of allCanvases) {
-        const cr = cv.getBoundingClientRect();
-        if (cr.width === 0 || cr.height === 0) continue;
-        cctx.drawImage(
-          cv,
-          (cr.left - rootRect.left) * sx,
-          (cr.top - rootRect.top) * sy,
-          cr.width * sx,
-          cr.height * sy,
-        );
+        const at = whole.place(cv);
+        if (!at) continue;
+        cctx.drawImage(cv, left + at.x * scale, top + at.y * scale, at.width * scale, at.height * scale);
       }
       recRafRef.current = requestAnimationFrame(loop);
     };
@@ -678,20 +701,20 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     if (!root) return;
     const allCanvases = Array.from(root.querySelectorAll('canvas')) as HTMLCanvasElement[];
     if (allCanvases.length === 0) return;
-    const rootRect = root.getBoundingClientRect();
+    const whole = panelLaidOut(root, vizBodyRef.current);
     const scale = 2;
     const out = document.createElement('canvas');
-    out.width = Math.round(rootRect.width * scale);
-    out.height = Math.round(rootRect.height * scale);
+    out.width = Math.round(whole.width * scale);
+    out.height = Math.round(whole.height * scale);
     const ctx = out.getContext('2d');
     if (!ctx) return;
     ctx.fillStyle = getComputedStyle(root).getPropertyValue('--bg-deep').trim() || '#0a0806';
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.scale(scale, scale);
     for (const c of allCanvases) {
-      const r = c.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      ctx.drawImage(c, r.left - rootRect.left, r.top - rootRect.top, r.width, r.height);
+      const at = whole.place(c);
+      if (!at) continue;
+      ctx.drawImage(c, at.x, at.y, at.width, at.height);
     }
     out.toBlob(
       blob => {
@@ -725,8 +748,14 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       // A dialog over the tab keeps its own keys, the forge view's trace and
-      // toolbox among them; Escape still closes the help.
-      if (e.key !== 'Escape' && target?.closest('[role="dialog"]')) return;
+      // toolbox among them; Escape still closes the help, and from inside the
+      // help, which holds focus while open, ? closes it as it says.
+      const dialog = target?.closest('[role="dialog"]');
+      const helpKey = e.key === '?' || (e.shiftKey && e.key === '/');
+      if (e.key !== 'Escape' && dialog && !(helpKey && dialog.hasAttribute('data-viz-help'))) return;
+      // While the help is open the panel behind it keeps still, wherever
+      // focus has gone: only Escape and ? reach the tab, to close it.
+      if (helpOpen && e.key !== 'Escape' && !helpKey) return;
       // Space presses the control that holds focus, as it does on any page.
       if ((e.key === ' ' || e.key === 'Spacebar') && target?.closest(PRESSABLE)) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); handleStepBack(); }
@@ -986,11 +1015,13 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
   }, []);
 
   // D hotkey toggle. Skipped while typing in inputs / textareas / contenteditable
-  // so the user's search query doesn't get interrupted.
+  // so the user's search query doesn't get interrupted, and, like the tab's
+  // other keys, while the help or another dialog is over the tab.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof Element ? e.target : null;
       if (target && target.matches('input, textarea, [contenteditable=true]')) return;
+      if (helpOpen || target?.closest('[role="dialog"]')) return;
       if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         setDiffOverlay(!diffOverlayOn);
@@ -998,7 +1029,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [diffOverlayOn, setDiffOverlay]);
+  }, [diffOverlayOn, helpOpen, setDiffOverlay]);
 
   // Per-department diff at the current turn. Computed only when the
   // overlay is on — useMemo dependency on diffOverlayOn means the heavy
@@ -1009,6 +1040,17 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
     const bCells = aggregateByDept(snapsB[currentTurn]);
     return computeCellDiff(aCells, bCells);
   }, [diffOverlayOn, snapsA, snapsB, currentTurn]);
+
+  // The keyboard legend's hints, most useful first: a narrow row keeps the
+  // first ones and a key to the help overlay's full list.
+  const legendHints = useMemo<KeyHint[]>(() => [
+    { k: '?', v: 'help' },
+    { k: '1-5', v: 'mode' },
+    { k: '\u2190 \u2192', v: 'scrub turn' },
+    { k: 'space', v: 'play / pause' },
+    { k: 'click', v: `${scenarioLabels.person} drilldown` },
+    { k: 'esc', v: 'close popover' },
+  ], [scenarioLabels.person]);
 
   if (maxTurn === 0) {
     // Running but no first-turn snapshot yet: the run starts with
@@ -1093,9 +1135,9 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       ? Help
     </button>
   );
-  // On a phone the turn's lines stand below the living grid in its scroll
-  // window, in the pair view (one grid at a time) and in the cohort view, so
-  // opening them never shrinks the grid's window.
+  // On a phone the turn's lines stand below the living grid, in the pair
+  // view (one grid at a time) and in the cohort view, so opening them never
+  // moves the grid or covers it.
   const linesBelowGrid = phone;
   // The banner names the turn and its time only on a turn with a title; on a
   // phone the play controls leave the time to it only then.
@@ -1105,7 +1147,18 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
       <div
         ref={vizRootRef}
         className={`viz-content ${styles.root}`}
+        // ? opens this tab's own help (the key listener above), so the
+        // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
+        data-own-help-key="?"
       >
+        {/* The panel's parts in their order. Above 480 px and 500 px tall
+            this box lays out as if absent. On a phone, and on a screen too
+            short for the controls and the grid together (a phone on its
+            side), it scrolls as one, so the living grid shows under the
+            controls at its own size and every control and the turn's
+            outcomes stay a scroll away; the drawers and notices after it
+            keep their places over the panel. */}
+        <div ref={vizBodyRef} className={styles.body}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
@@ -1486,6 +1539,25 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
+        {/* Just above the play controls: on a taller screen it floats over
+            the panel from a box of no height at their top, so it clears them
+            however tall the rows under it are; on a phone and on a short
+            screen it stands in the flow, never over the grid. */}
+        {maxTurn > 1 && currentTurn < maxTurn - 1 && (
+          <div className={styles.jumpLatestAnchor}>
+            <button
+              type="button"
+              onClick={() => handleTurnChange(maxTurn - 1)}
+              aria-label={`Jump to latest turn (T${maxTurn})`}
+              className={styles.jumpLatest}
+            >
+              {'\u2193'} Latest · T{maxTurn}
+              <span className={styles.jumpLatestBehind}>
+                ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
+              </span>
+            </button>
+          </div>
+        )}
         <VizControls
           currentTurn={currentTurn}
           maxTurn={maxTurn}
@@ -1499,14 +1571,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
           onStepForward={handleStepForward}
           onSpeedChange={setSpeed}
         />
-        <div className={styles.footerKeys}>
-          <Kbd k="?" v="help" />
-          <Kbd k="1-5" v="mode" />
-          <Kbd k="← →" v="scrub turn" />
-          <Kbd k="space" v="play / pause" />
-          <Kbd k="click" v={`${scenarioLabels.person} drilldown`} />
-          <Kbd k="esc" v="close popover" />
-        </div>
+        <KeyLegend hints={legendHints} onShowAll={() => setHelpOpen(true)} />
         {/* Off-screen aria-live region announces turn deltas to
             screen readers without visual change. Only updates when
             the turn index changes. */}
@@ -1519,19 +1584,7 @@ export function SwarmViz({ state, onNavigateToChat }: SwarmVizProps) {
             ? `Turn ${Math.max(snapA.turn, snapB.turn)}. ${leaderA?.name ?? 'A'} ${scenarioLabels.place}: ${snapA.cells.filter(c => c.alive).length} alive, ${snapA.births} born, ${snapA.deaths} died, morale ${Math.round(snapA.morale * 100)}%. ${leaderB?.name ?? 'B'} ${scenarioLabels.place}: ${snapB.cells.filter(c => c.alive).length} alive, ${snapB.births} born, ${snapB.deaths} died, morale ${Math.round(snapB.morale * 100)}%.`
             : ''}
         </div>
-        {maxTurn > 1 && currentTurn < maxTurn - 1 && (
-          <button
-            type="button"
-            onClick={() => handleTurnChange(maxTurn - 1)}
-            aria-label={`Jump to latest turn (T${maxTurn})`}
-            className={styles.jumpLatest}
-          >
-            {'\u2193'} Latest · T{maxTurn}
-            <span className={styles.jumpLatestBehind}>
-              ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
-            </span>
-          </button>
-        )}
+        </div>
         <GridHelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
         <GridSettingsDrawer
           open={settingsOpen}
