@@ -3683,8 +3683,11 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     if (req.url === '/forget-keys' && req.method === 'POST') {
       const visitorId = readVisitorId(req);
       const run = visitorId === ANONYMOUS_VISITOR ? undefined : liveRuns.current(visitorId);
+      // The run their chats went to: their own, else on a local server the
+      // shared run they watch, whose agents go and which stays.
+      const chatRun = visitorId === ANONYMOUS_VISITOR ? undefined : liveRuns.watched(visitorId);
       const runConfigsDropped = run && (run.config || run.ownKeys) ? 1 : 0;
-      const chatAgentsDropped = run ? chatAgentPool?.clearPool(run.key) ?? 0 : 0;
+      const chatAgentsDropped = chatRun ? chatAgentPool?.clearPool(chatRun.key) ?? 0 : 0;
       if (run) liveRuns.clear(run, 'keys_forgotten');
       res.writeHead(200, { 'Content-Type': 'application/json', ...PER_VISITOR_HEADERS });
       res.end(JSON.stringify({ runConfigsDropped, chatAgentsDropped }));
