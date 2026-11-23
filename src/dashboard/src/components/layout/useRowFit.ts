@@ -18,7 +18,9 @@ export function useRowFit(row: RefObject<HTMLElement | null>, steps: number): nu
       let step = 0;
       while (step < steps) {
         const probe = probes.find(candidate => candidate.dataset.fitStep === String(step));
-        element.dataset.rowFold = String(step);
+        // The inert probes already reflect their own layout. Switching the
+        // visible row while measuring them resizes a nested scroller.
+        if (!probe) element.dataset.rowFold = String(step);
         const width = probe?.getBoundingClientRect().width ?? element.scrollWidth;
         if (width <= room + 1) break;
         step++;

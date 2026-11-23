@@ -8,12 +8,17 @@
 
   position: relative;
   min-inline-size: 0;
+  overflow: clip;
+  overflow-clip-margin: calc(2 * var(--section-focus));
   grid-row: 2;
   grid-column: 1 / -1;
   color: var(--text-1);
 
   @media (width < 360px) { --section-letter-spacing: normal; }
-  @media (width < 600px) { --section-gap: 0px; }
+  @media (width < 600px) {
+    --section-gap: 0px;
+    --section-key-inset: calc(2 * var(--frame-rule-width));
+  }
 }
 
 .root:is([data-row-fold='1'], [data-row-fold='2']) [data-reports] {
