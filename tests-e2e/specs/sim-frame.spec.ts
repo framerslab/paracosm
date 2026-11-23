@@ -561,7 +561,7 @@ test('feature 1: large text in the header', async ({ page }) => {
     await scaleText(page, 2);
     await expect(how(page)).toBeVisible();
     await expect.poll(() => spacingFaults(banner(page))).toEqual({ cut: [], overlaps: [] });
-    expect(await banner(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await expect.poll(() => banner(page).evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   }
 });
 
@@ -743,6 +743,7 @@ test('feature 2: large text', async ({ page }) => {
   await page.goto(SIM);
   await expect(sections(page)).toBeVisible();
   await scaleText(page, 2);
+  await expect(sections(page)).toHaveAttribute('data-row-fold', '1');
   await expect(sectionLink(page, 'Reports')).toHaveCount(0);
   await expect(sections(page).getByRole('button', { name: 'Next sections' })).toHaveCount(0);
   await expect.poll(() => spacingFaults(sections(page))).toEqual({ cut: [], overlaps: [] });
@@ -799,6 +800,8 @@ test('reduced motion: MORE and the row move at once', async ({ page }) => {
   await expect(menu).toHaveCSS('opacity', '1');
   expect(await menu.evaluate(element => element.getAnimations().length)).toBe(0);
   await page.keyboard.press('Escape');
+  await expect(more(page)).toBeFocused();
+  await home(page).focus();
   await scaleText(page, 4);
   const next = sections(page).getByRole('button', { name: 'Next sections' });
   await expect(next).toBeEnabled();
