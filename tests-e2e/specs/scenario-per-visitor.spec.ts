@@ -14,6 +14,7 @@
  * page sees.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { waitForRunConnection } from '../support/frame.js';
 
 interface SetupBody {
   actors: Array<{ name: string }>;
@@ -250,7 +251,7 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(finishedRun(page)).toHaveCount(0);
 
     body = runBody('atlas-lab', 'Marcus Reinhardt');
-    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
   });
 
   test("a new run in the page's scenario starts clean after the run it replaced", async ({ page }) => {
@@ -277,13 +278,11 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect.poll(() => served).toBeGreaterThan(opened + 1);
 
     body = runBody('atlas-lab', 'run-2', 'Marcus Reinhardt');
-    await expect(page.getByRole('status', { name: /^Interrupted\./ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Interrupted\./ }).first()).toBeVisible();
 
-    // Each mocked stream ends after its replay, so the pill of a run in
-    // progress reads Reconnecting more often than Live between connects.
     body = runBody('mars-genesis', 'run-3', 'Aria Chen');
-    await expect(page.getByRole('status', { name: /^Interrupted\./ })).toHaveCount(0);
-    await expect(page.getByRole('status', { name: /^(Live|Reconnecting)\./ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Interrupted\./ })).toHaveCount(0);
+    await expect(page.getByRole('status', { name: /^Simulation status: Running\./ }).first()).toBeVisible();
   });
 
   test('a page keeps the run it holds while a fork of it runs', async ({ page }) => {
@@ -313,12 +312,12 @@ test.describe('Scenario per visitor @scenario', () => {
     });
     await openSettings(page);
     await page.getByRole('tab', { name: 'SIM', exact: true }).click();
-    await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ }).first()).toBeVisible();
 
     body = forkRun;
     const forked = served;
     await expect.poll(() => served).toBeGreaterThan(forked + 1);
-    await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ }).first()).toBeVisible();
   });
 
   test("a loaded run offers a fork only in the page's own scenario", async ({ page, baseURL }) => {
@@ -332,7 +331,7 @@ test.describe('Scenario per visitor @scenario', () => {
     await page.route('**/saved-runs/*.json', async route => {
       // The live feed's first connect clears the page's events, so the
       // saved run is answered once the feed is up, or it can be cleared.
-      await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+      await waitForRunConnection(page);
       const id = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.json$/, '');
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runs[id]) });
     });
@@ -376,7 +375,7 @@ test.describe('Scenario per visitor @scenario', () => {
     await page.route('**/saved-runs/*.json', async route => {
       // The live feed's first connect clears the page's events, so the
       // saved run is answered once the feed has delivered the buffered run.
-      await expect(page.getByRole('status', { name: /^Complete\./ }).first()).toBeVisible();
+      await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ }).first()).toBeVisible();
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(savedRun('mars-genesis', 'Mars Genesis', 'Aria Chen')) });
     });
     await page.goto(`/sim?load=${encodeURIComponent(`${baseURL}/saved-runs/mars-genesis.json`)}&autoload=1&tab=reports`);

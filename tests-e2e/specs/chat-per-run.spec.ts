@@ -167,7 +167,7 @@ test.describe('Chat threads per run @chat', () => {
     await chatOnce(page, chatRequests);
 
     body = runStream('chat-run-elsewhere', 'hopeful', { id: 'atlas-lab', name: 'Atlas Lab' });
-    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
     const seen = served;
     await expect.poll(() => served).toBeGreaterThan(seen + 1);
 

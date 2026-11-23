@@ -23,6 +23,8 @@ test.use({ baseURL: 'http://127.0.0.1:3458' });
 test.describe.configure({ mode: 'default' });
 
 const running = (page: Page) => page.getByRole('region', { name: 'Run status' }).getByRole('status', { name: /^Simulation status: Running\./ });
+const runProgress = (page: Page) =>
+  page.getByRole('region', { name: 'Run status' }).getByRole('progressbar', { name: /^Simulation progress, turn 1 of \d+$/ });
 const progress = (page: Page, maxTurns: number | RegExp) =>
   page.getByText(typeof maxTurns === 'number' ? `Turn 1 / ${maxTurns}` : maxTurns, { exact: true });
 
@@ -36,11 +38,13 @@ test.describe('Run status events @status', () => {
 
     await expect(running(page)).toBeVisible();
     await expect(progress(page, /^Turn 1 \/ \d+$/)).toBeVisible();
+    await expect(runProgress(page)).toBeVisible();
 
     // A page that opens during the run is handed both frames in the replay.
     await page.reload();
     await expect(running(page)).toBeVisible();
     await expect(progress(page, /^Turn 1 \/ \d+$/)).toBeVisible();
+    await expect(runProgress(page)).toBeVisible();
   });
 
   test('a page that reconnects during a run keeps it running', async ({ page }) => {

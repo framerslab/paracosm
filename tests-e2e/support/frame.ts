@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import type { DashboardTab } from '../../src/dashboard/src/tab-routing.js';
 
 export const SERVERS = {
@@ -45,4 +45,9 @@ export async function scaleText(page: Page, factor: number): Promise<void> {
       if (lineHeight.endsWith('px')) element.style.setProperty('line-height', parseFloat(lineHeight) * scale + 'px', 'important');
     }
   }, factor);
+}
+
+/** Waits for the dashboard to process the run feed's connection frame before loading a file. */
+export async function waitForRunConnection(page: Page): Promise<void> {
+  await expect(page.getByRole('main')).toHaveAttribute('data-run-connection', 'connected');
 }

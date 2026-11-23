@@ -174,7 +174,7 @@ async function openRun(page: Page, run: { id: string; turns: number }, look: Loo
   await page.goto(`${SERVER}/sim?replay=${encodeURIComponent(run.id)}&tab=viz`);
   await lookShown(page, look);
   await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
-  await expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout: 60_000 });
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeAttached({ timeout: 60_000 });
 }
 
 /** Opens or folds the turn's words. */

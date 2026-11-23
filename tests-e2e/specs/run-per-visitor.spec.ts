@@ -23,7 +23,7 @@ test.use({ baseURL: BASE });
 test.describe.configure({ mode: 'serial' });
 
 const RUN_MS = 30_000;
-const pill = (page: Page, text: string) => page.getByRole('status', { name: new RegExp(`^${text}\\.`) }).first();
+const pill = (page: Page, text: string) => page.getByRole('status', { name: new RegExp(`^Simulation status: ${text}\\.`) }).first();
 /** Text the page shows: its hidden panels (another tab's header, the Settings form) hold the names too. */
 const shown = (page: Page, text: string) => page.getByText(text).filter({ visible: true });
 const finishedRun = (page: Page) => shown(page, 'Spin up a new run').first();
