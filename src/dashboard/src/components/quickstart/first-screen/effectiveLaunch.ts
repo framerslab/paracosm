@@ -268,9 +268,16 @@ export function effectiveLaunch(
   body.captureSnapshots = true;
   body.quickstart = { scenarioId: scenario.id };
 
-  // The words name a provider and models only for a run the visitor's last launch shapes.
-  const shaped = who !== 'host';
-  const provider = shaped && typeof lastProvider === 'string' && lastProvider.trim() ? lastProvider : undefined;
+  // The words name a provider and models only for a run the visitor's last
+  // launch shapes. One saved key decides the provider the server runs on,
+  // whatever the last launch named (inferProviderFromKeys in
+  // src/cli/sim-config.ts), so a last launch on the other provider names
+  // neither: its models are not the ones the run uses.
+  const keys = sessionProviderKeys(overrides);
+  const keyed = keys.apiKey && !keys.anthropicKey ? 'openai' : keys.anthropicKey && !keys.apiKey ? 'anthropic' : undefined;
+  const named = typeof lastProvider === 'string' && lastProvider.trim() ? lastProvider : undefined;
+  const shaped = who !== 'host' && (keyed === undefined || named?.trim().toLowerCase() === keyed);
+  const provider = shaped ? named : undefined;
   const models = shaped ? namedModels(lastModels) : undefined;
   const lastBatch: unknown = isRecord(lastEconomics) ? lastEconomics.batch : undefined;
   const batchSet: unknown = isRecord(lastBatch) ? lastBatch.maxConcurrency : undefined;
