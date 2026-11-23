@@ -126,7 +126,7 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
     if (new URL(request.url()).pathname === '/chat') chats.push(request.url());
   });
   await note.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
   await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent chat', exact: true })).toHaveCount(0);
   expect(chats).toEqual([]);
