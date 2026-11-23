@@ -2205,6 +2205,15 @@ screenTest('feature 10: own key and self-hosted', async ({ page }) => {
     const root = await openReadyAt(page, '/sim?size=24', WIDE, 'dark');
     await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models. Your run uses OpenAI (model-a, model-b) from your Settings, which set the real price.');
   });
+
+  // The server runs on the provider whose one key the visitor saved, whatever their last launch named. With that
+  // last launch still saved and an Anthropic key alone, the notice names Anthropic and the estimate names no other.
+  await test.step('one saved key of another provider than the last launch’s: the estimate names no provider or models', async () => {
+    await page.addInitScript(() => { window.localStorage.setItem('paracosm:keyOverrides', '{"anthropic":"test-anthropic-key"}'); });
+    const root = await openReadyAt(page, '/sim?size=24', WIDE, 'dark');
+    await expect(root.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE.replace('OpenAI', 'Anthropic'));
+    await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.');
+  });
 });
 
 screenTest('feature 10: a keyed run of 3 writes its leaders, then starts', async ({ page }) => {
