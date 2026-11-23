@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { measureReadability } from '../support/first-screen-measure.js';
+import { axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, scaleText } from '../support/frame.js';
-import { FIGURES, measureText } from '../support/readability.js';
+import { FIGURES, measureText, spacingFaults } from '../support/readability.js';
 
 const LOOKS = ['light', 'dark'] as const;
 type Look = typeof LOOKS[number];
@@ -381,5 +381,185 @@ test('no tour', async ({ browser }) => {
     }));
   } finally {
     await context.close();
+  }
+});
+
+const banner = (page: Page) => page.locator('#root').getByRole('banner');
+const home = (page: Page) => banner(page).getByRole('link', { name: 'Paracosm home' });
+const how = (page: Page) => banner(page).getByRole('button', { name: 'How it works', exact: true });
+const switchLook = (page: Page, look?: Look) => banner(page).getByRole('button', {
+  name: look ? `Switch to ${look} look` : /^Switch to (light|dark) look$/,
+});
+const visitor = (page: Page) => banner(page).getByRole('status');
+const demo = SERVERS.demo + '/sim';
+
+test('feature 1: the row on a first visit', async ({ page }) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.85' });
+  for (const [width, look] of [[1440, 'light'], [390, 'dark']] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: look });
+    await page.goto(demo);
+    await expect(visitor(page)).toHaveText(look === 'light' ? 'Free demo: 1 run left today' : '1 free run', { useInnerText: true });
+    expect(await lookOf(page)).toEqual(EXPECTED_LOOK[look]);
+    if (look === 'light') await expect(home(page)).toHaveText('PARACOSM');
+    await expect(how(page)).toBeVisible();
+    await expect(switchLook(page, look === 'light' ? 'dark' : 'light')).toBeVisible();
+    await page.waitForTimeout(10_000);
+    await expect(page.locator('[data-tour-overlay]')).toHaveCount(0);
+    await expect(page.getByRole('dialog', { name: /Guided tour/i })).toHaveCount(0);
+  }
+});
+
+test('feature 1: the switch keeps the choice', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto(SIM);
+  await switchLook(page, 'dark').click();
+  expect(await lookOf(page)).toEqual(EXPECTED_LOOK.dark);
+  for (const locator of [page.locator('html'), banner(page)]) {
+    expect(await locator.evaluate(el => getComputedStyle(el).transitionDuration)).toBe('0s');
+  }
+  await page.reload();
+  await expect(switchLook(page, 'light')).toBeVisible();
+  expect(await lookOf(page)).toEqual(EXPECTED_LOOK.dark);
+});
+
+test('feature 1: one row from 320 px', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.86' });
+  for (const look of LOOKS) {
+    await page.emulateMedia({ colorScheme: look });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(demo);
+    for (const width of [320, 360, 390, 430, 480, 768]) {
+      await test.step(`${width} px, ${look}`, async () => {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
+        await expect(visitor(page)).toHaveAttribute('aria-live', 'polite');
+        await expect(home(page).locator('img')).toHaveAttribute('src', '/favicon.svg');
+        if (width < 430) await expect(home(page).getByText('PARA')).toBeHidden();
+        else await expect(home(page).getByText('PARA')).toBeVisible();
+        await expect(how(page)).toHaveText(width < 360 ? '' : 'How it works', { useInnerText: true });
+        const row = banner(page).locator('[data-row="Header"]');
+        expect((await row.boundingBox())!.height).toBe(56);
+        expect(await rowsOnOneRow(page)).toEqual([]);
+        expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await expect(start(page)).toHaveCount(1);
+        await expect(banner(page).getByRole('button')).toHaveCount(2);
+      });
+    }
+  }
+});
+
+test('feature 1: names, sizes and the live tokens', async ({ page }) => {
+  test.setTimeout(90_000);
+  for (const look of LOOKS) {
+    await page.emulateMedia({ colorScheme: look });
+    await page.setViewportSize({ width: 1440, height: 844 });
+    await page.goto(SIM);
+    await expect(home(page)).toBeVisible();
+    await expect(how(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(switchLook(page, look === 'light' ? 'dark' : 'light')).toBeVisible();
+    await expect(banner(page)).toHaveCSS('background-color', EXPECTED_LOOK[look].ground);
+    await expect(home(page)).toHaveCSS('color', look === 'light' ? 'rgb(26, 18, 8)' : 'rgb(245, 240, 228)');
+    await expect(home(page).getByText('COSM')).toHaveCSS('color', look === 'light' ? 'rgb(107, 71, 0)' : 'rgb(232, 180, 74)');
+    expect(await measureReadability(page, '[role="banner"]')).toEqual([]);
+    expect(await axeFindings(page, '[role="banner"]')).toEqual([]);
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const [brand, help, toggle] = await Promise.all([home(page).boundingBox(), how(page).boundingBox(), switchLook(page).boundingBox()]);
+      expect(brand!.height).toBeGreaterThanOrEqual(44);
+      expect(help!.height).toBeGreaterThanOrEqual(44);
+      if (width === 320) expect(help!.width).toBe(44);
+      else expect(help!.width).toBeGreaterThanOrEqual(120);
+      expect(toggle).toMatchObject({ width: 44, height: 44 });
+      expect(toggle!.x - help!.x - help!.width).toBeCloseTo(8);
+    }
+  }
+});
+
+test('feature 1: the visitor’s state by who pays', async ({ page }, info) => {
+  test.setTimeout(90_000);
+  await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${87 + info.retry}` });
+  await page.setViewportSize({ width: 768, height: 844 });
+  await page.goto(demo);
+  await expect(visitor(page)).toHaveText('Free demo: 1 run left today', { useInnerText: true });
+  const keys = () => Promise.all([home(page).boundingBox(), how(page).boundingBox(), switchLook(page).boundingBox()]);
+  const before = await keys();
+  await page.route('**/rate-limit', route => route.abort());
+  await page.reload();
+  await expect(visitor(page)).toHaveText('', { useInnerText: true });
+  await expect(switchLook(page)).toBeVisible();
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  expect(await keys()).toEqual(before);
+  await page.unroute('**/rate-limit');
+  await page.reload();
+  await expect(start(page)).toBeEnabled();
+  try {
+    await start(page).click();
+    await expect(page).toHaveURL(/[?&]tab=sim/);
+    await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+  } finally {
+    await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+  }
+  await page.goto(demo);
+  for (const width of [768, 1440, 320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(visitor(page)).toHaveText(width < 600 ? 'No free run' : 'Free demo: no run left today', { useInnerText: true });
+  }
+  await page.evaluate(() => localStorage.setItem('paracosm:keyOverrides', JSON.stringify({ openai: 'test-provider-key' })));
+  await page.reload();
+  await expect(visitor(page)).toHaveText('Your key', { useInnerText: true });
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await expect(visitor(page)).toHaveText('Your API key', { useInnerText: true });
+  await page.goto(SIM);
+  await expect(visitor(page)).toHaveText("This server's API keys", { useInnerText: true });
+  await page.setViewportSize({ width: 320, height: 844 });
+  await expect(visitor(page)).toHaveText('Server keys', { useInnerText: true });
+});
+
+test('feature 1: the same row on every tab, and offline', async ({ page, context }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(SIM);
+    await expect(visitor(page)).toContainText(width < 600 ? 'Server keys' : "This server's API keys");
+    await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    const keys = () => Promise.all([home(page).boundingBox(), how(page).boundingBox(), switchLook(page).boundingBox()]);
+    const before = await keys();
+    for (const tab of ['sim', 'reports'] as const) {
+      await openTab(page, tab);
+      await expect(page).toHaveURL(new RegExp(`[?&]tab=${tab}\\b`));
+      expect(await keys()).toEqual(before);
+    }
+    await context.setOffline(true);
+    try {
+      const card = page.getByRole('dialog', { name: 'How it works' });
+      await how(page).click();
+      await expect(card).toBeVisible();
+      await expect(how(page)).toHaveAttribute('aria-expanded', 'true');
+      const key = (await how(page).boundingBox())!;
+      await page.mouse.click(key.x + key.width / 2, key.y + key.height / 2);
+      await expect(card).toHaveCount(0);
+      await expect(how(page)).toHaveAttribute('aria-expanded', 'false');
+      const opposite = (await lookOf(page)).light ? 'dark' : 'light';
+      await switchLook(page, opposite).click();
+      expect(await lookOf(page)).toEqual(EXPECTED_LOOK[opposite]);
+    } finally {
+      await context.setOffline(false);
+    }
+  }
+});
+
+test('feature 1: large text in the header', async ({ page }) => {
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(SIM);
+    await expect(switchLook(page)).toBeVisible();
+    await scaleText(page, 2);
+    await expect(how(page)).toBeVisible();
+    await expect.poll(() => spacingFaults(banner(page))).toEqual({ cut: [], overlaps: [] });
+    expect(await banner(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   }
 });
