@@ -4,7 +4,7 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import test from 'node:test';
 import { format } from 'node:util';
-import { clearPool, getPoolStats } from '../../src/runtime/agents/chat-agents.js';
+import { clearPool, getPoolStats, type ChatAgentOptions, type ColonistMemoryEntry, type ColonistProfile } from '../../src/runtime/agents/chat-agents.js';
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { BroadcastFn } from '../../src/cli/pair-runner.js';
 import type { RunArtifact } from '../../src/engine/schema/index.js';
@@ -62,6 +62,46 @@ test("a visitor-key agent has its own idle deadline even while the run is watche
       }
     }, options);
   }, () => 'The engineering team kept the power on.');
+});
+
+test("a finished run's keys go after the idle time while its page stays open", async t => {
+  const agents: ChatAgentOptions[] = [];
+  await withVisitors(async ({ cookied }) => {
+    const visitor = cookied();
+    const runKey = await launch(visitor);
+    // The visitor's page stays open on the finished run, so the run is kept.
+    const page = new AbortController();
+    const stream = await visitor.get('/events', { signal: page.signal });
+    assert.equal(stream.status, 200);
+    const chatWithoutKey = async () => {
+      const response = await visitor.post('/chat', { ...CHAT, runKey });
+      await response.body?.cancel();
+    };
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    try {
+      await chatWithoutKey();
+      assert.equal(agents.length, 1);
+      assert.equal(agents[0].apiKey, KEY, "on the hosted demo a chat with no key runs on the run's key");
+      t.mock.timers.tick(IDLE_MS + 1);
+      assert.equal((await visitor.json<{ runKey: string }>('/results')).runKey, runKey, 'the open page keeps the run');
+      await chatWithoutKey();
+      assert.equal(agents.length, 2);
+      assert.notEqual(agents[1].apiKey, KEY, "the run's key went after the idle time");
+    } finally {
+      t.mock.timers.reset();
+      page.abort();
+    }
+  }, {
+    ...options,
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: 'host-model-key-fixture' },
+    extra: {
+      ...options.extra,
+      chatAgent: async (_profile: ColonistProfile, _memories: ColonistMemoryEntry[], opts: ChatAgentOptions) => {
+        agents.push(opts);
+        return { session: { send: async () => ({ text: 'Stub reply.', usage: {} }) }, isNew: true };
+      },
+    },
+  });
 });
 
 test("forgetting keys drops the visitor's run and pooled agent alone", async t => {
