@@ -564,3 +564,231 @@ test('feature 1: large text in the header', async ({ page }) => {
     expect(await banner(page).evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   }
 });
+
+const sections = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
+const more = (page: Page) => sections(page).getByRole('button', { has: page.locator('[data-more-label]') });
+const sectionLink = (page: Page, name: string) => sections(page).getByRole('link', { name, exact: true });
+const sectionMenu = (page: Page) => page.getByRole('menu', { name: 'Sections' });
+const menuItem = (page: Page, name: string) => sectionMenu(page).getByRole('menuitem', { name, exact: true });
+
+test('feature 2: four keys on one row', async ({ page }) => {
+  for (const look of LOOKS) {
+    await page.emulateMedia({ colorScheme: look });
+    await page.goto(SIM);
+    for (const width of [320, 360, 390, 430, 480, 768]) {
+      await page.setViewportSize({ width, height: 844 });
+      const keys = sections(page).getByRole('link').or(more(page));
+      await expect(keys).toHaveCount(4);
+      await expect(keys).toHaveText(['Run', 'Watch', 'Reports', 'More']);
+      const boxes = await Promise.all((await keys.all()).map(key => key.boundingBox()));
+      for (const [index, key] of (await keys.all()).entries()) {
+        await expect(key).toHaveCSS('font-family', /JetBrains Mono/);
+        await expect(key).toHaveCSS('font-size', '15px');
+        await expect(key).toHaveCSS('text-transform', 'uppercase');
+        await expect(key).toHaveCSS('letter-spacing', width < 360 ? 'normal' : '1px');
+        expect(boxes[index]!.y).toBe(boxes[0]!.y);
+        if (width === 320) {
+          expect(boxes[index]!.height).toBe(48);
+          expect(boxes[index]!.width).toBeGreaterThanOrEqual(72);
+        }
+      }
+      await expect(sections(page).getByRole('button', { name: 'Next sections' })).toHaveCount(0);
+      expect(await sections(page).evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    }
+  }
+});
+
+test('feature 2 and 1: one bar from 1,100 px, two rows on a tablet', async ({ page }) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.96' });
+  await page.goto(demo);
+  for (const width of [1440, 1100, 768, 600, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
+    const [brand, nav, help, toggle] = await Promise.all(
+      [home(page), sections(page), how(page), switchLook(page)].map(key => key.boundingBox()),
+    );
+    expect(brand!.x).toBeLessThan(help!.x);
+    expect(help!.x).toBeLessThan(toggle!.x);
+    if (width >= 1100) {
+      expect((await banner(page).boundingBox())!.height).toBe(56);
+      expect(nav!.x).toBeGreaterThan(brand!.x);
+      expect(nav!.x + nav!.width).toBeLessThan(help!.x);
+      if (width === 1440) expect(brand!.x).toBe(120);
+    } else {
+      expect(nav!.y).toBeGreaterThan(brand!.y + brand!.height);
+    }
+  }
+  await more(page).click();
+  await expect(sectionMenu(page).getByText('Free demo: 1 run left today', { exact: true })).toBeVisible();
+});
+
+test('feature 2: MORE lists six tabs and three links', async ({ page }) => {
+  await page.goto(SIM);
+  const menu = sectionMenu(page);
+  const labels = ['Studio', 'Visualization', 'Chat', 'Library', 'Settings', 'About', 'Docs', 'GitHub', 'npm'];
+  const descriptions = [
+    'Open run files and branch a run.', 'Everyone in the run, drawn as a living map.',
+    'Talk with a character from the run.', 'Your saved runs.', 'Leaders, models and your own API key.',
+    'What Paracosm is.', 'The API reference and guides.', 'The source code.', 'The package to install.',
+  ];
+  for (const [width, menuWidth] of [[390, 390], [600, 320], [1100, 360], [1440, 520]]) {
+    await page.setViewportSize({ width, height: 844 });
+    await more(page).click();
+    expect((await menu.boundingBox())!.width).toBe(menuWidth);
+    if (width === 390) await expect(menu).toHaveCSS('position', 'fixed');
+    await expect(menu.getByRole('menuitem')).toHaveCount(labels.length);
+    await expect(menu.getByRole('separator')).toHaveCount(1);
+    for (const [index, label] of labels.entries()) {
+      await expect(menuItem(page, label)).toHaveAccessibleDescription(descriptions[index]!);
+    }
+    await expect(menuItem(page, 'Docs')).toHaveAttribute('href', '/docs');
+    for (const [label, href] of [
+      ['GitHub', 'https://github.com/framerslab/paracosm'],
+      ['npm', 'https://www.npmjs.com/package/paracosm'],
+    ]) {
+      await expect(menuItem(page, label!)).toHaveAttribute('href', href!);
+      await expect(menuItem(page, label!)).toHaveAttribute('target', '_blank');
+      await expect(menuItem(page, label!)).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+    await page.keyboard.press('Escape');
+  }
+  await more(page).click();
+  await menuItem(page, 'Settings').click();
+  await expect(page).toHaveURL(/[?&]tab=settings/);
+  await expect(more(page)).toHaveAccessibleName('SETTINGS');
+  await expect(more(page)).toHaveAttribute('aria-current', 'page');
+
+  await page.route('**/scenario', async route => {
+    const response = await route.fetch();
+    const scenario = await response.json();
+    await route.fulfill({ response, json: { ...scenario, policies: { ...scenario.policies, characterChat: false } } });
+  });
+  await page.goto(SIM);
+  await expect(page.getByTestId('scenario-figures')).toBeVisible();
+  await more(page).click();
+  await expect(menuItem(page, 'Chat')).toHaveCount(0);
+});
+
+test('feature 2: RUN, by keyboard, saved links and old addresses', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await page.goto(SIM + '?tab=sim');
+  await expect(sectionLink(page, 'Watch')).toHaveAttribute('aria-current', 'page');
+  await sectionLink(page, 'Run').click();
+  await expect(page).toHaveURL(/[?&]tab=quickstart/);
+  await expect(sectionLink(page, 'Run')).toHaveAttribute('aria-current', 'page');
+  await sectionLink(page, 'Reports').focus();
+  await page.keyboard.press('Tab');
+  await expect(more(page)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menuItem(page, 'Studio')).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(menuItem(page, 'Visualization')).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(menuItem(page, 'npm')).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(menuItem(page, 'Studio')).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(sectionMenu(page)).toBeHidden();
+  await expect(more(page)).toBeFocused();
+
+  for (const [suffix, name] of [['?tab=library', 'Library'], ['?tab=branches', 'Studio'], ['?tab=log', 'Settings'], ['#sim', 'Watch']]) {
+    await page.goto(SIM + suffix);
+    await expect(page.getByRole('main', { name })).toBeVisible();
+    if (name !== 'Watch') await expect(more(page)).toHaveAccessibleName(name!.toUpperCase());
+  }
+  await page.goto(SIM + '?tab=branches');
+  await expect(page.getByRole('tab', { name: 'Branches' })).toHaveAttribute('aria-selected', 'true');
+  await page.goto(SIM + '?tab=log');
+  await expect(page.getByRole('tab', { name: 'Event Log' })).toHaveAttribute('aria-selected', 'true');
+  await page.goto(SIM + '?tab=about');
+  await expect(page).toHaveURL(SERVERS.dashboard + '/');
+  await page.goto(SERVERS.replay + '/sim?tab=viz&replay=missing');
+  await expect(more(page)).toHaveAccessibleName('VISUALIZATION');
+
+  await page.setViewportSize({ width: 700, height: 844 });
+  await page.goto(SIM);
+  await more(page).click();
+  await expect(sectionMenu(page)).toBeVisible();
+  await page.setViewportSize({ width: 500, height: 844 });
+  await expect(sectionMenu(page)).toBeHidden();
+  await expect(more(page)).toBeFocused();
+});
+
+test('feature 2: the row read aloud', async ({ page }) => {
+  await page.goto(SIM);
+  await expect(sections(page)).toBeVisible();
+  await expect(sectionLink(page, 'Run')).toHaveAttribute('aria-current', 'page');
+  await expect(sectionLink(page, 'Watch')).toBeVisible();
+  await expect(sectionLink(page, 'Reports')).toBeVisible();
+  const key = sections(page).getByRole('button', { name: 'More', exact: true });
+  await expect(key).toHaveAttribute('aria-haspopup', 'menu');
+  await expect(key).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('feature 2: large text', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(SIM);
+  await expect(sections(page)).toBeVisible();
+  await scaleText(page, 2);
+  await expect(sectionLink(page, 'Reports')).toHaveCount(0);
+  await expect(sections(page).getByRole('button', { name: 'Next sections' })).toHaveCount(0);
+  await expect.poll(() => spacingFaults(sections(page))).toEqual({ cut: [], overlaps: [] });
+  await more(page).click();
+  await expect(sectionMenu(page).getByRole('menuitem').first()).toHaveAccessibleName('Reports');
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await expect(sections(page)).toBeVisible();
+  await scaleText(page, 4);
+  const previous = sections(page).getByRole('button', { name: 'Previous sections' });
+  const next = sections(page).getByRole('button', { name: 'Next sections' });
+  await expect(previous).toBeDisabled();
+  await expect(next).toBeEnabled();
+  for (const key of [previous, next]) expect(await key.boundingBox()).toMatchObject({ width: 44, height: 44 });
+  const scroll = () => sections(page).locator('[data-fade-end]').evaluate(row => row.scrollLeft / row.clientWidth);
+  await next.click();
+  await expect.poll(scroll).toBeGreaterThan(0.7);
+});
+
+test('feature 3: no old words from the header down', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(SIM);
+  const heading = page.getByRole('heading', { name: 'Other scenarios' });
+  await expect(heading).toBeAttached();
+  const words = await heading.evaluate(end => {
+    const range = document.createRange();
+    range.setStartBefore(document.querySelector('[role=banner]')!);
+    range.setEndAfter(end.closest('section') ?? end);
+    const fragment = range.cloneContents();
+    fragment.querySelectorAll('[data-testid="leader-orders"], [hidden], [aria-hidden=true], .sr-only')
+      .forEach(element => element.remove());
+    return fragment.textContent ?? '';
+  });
+  expect(words).not.toMatch(/\b(HEXACO|typed world|LLM|actor|seed|compile|Quickstart)\b/i);
+});
+
+test('the banner holds eight controls on the idle first screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(SIM);
+  await expect(banner(page).getByRole('link').or(banner(page).getByRole('button'))).toHaveCount(7);
+  await expect(page.getByRole('link', { name: 'Skip to main content' })).toHaveCount(1);
+});
+
+test('reduced motion: MORE and the row move at once', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(SIM);
+  await more(page).click();
+  const menu = sectionMenu(page);
+  await expect(menu).toHaveCSS('opacity', '1');
+  expect(await menu.evaluate(element => element.getAnimations().length)).toBe(0);
+  await page.keyboard.press('Escape');
+  await scaleText(page, 4);
+  const next = sections(page).getByRole('button', { name: 'Next sections' });
+  await expect(next).toBeEnabled();
+  const left = await next.evaluate(key => {
+    (key as HTMLButtonElement).click();
+    return key.parentElement!.querySelector('[data-fade-end]')!.scrollLeft;
+  });
+  expect(left).toBeGreaterThan(0);
+});
