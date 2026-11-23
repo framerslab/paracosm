@@ -752,10 +752,13 @@ test('feature 2: large text', async ({ page }) => {
   await page.reload();
   await expect(sections(page)).toBeVisible();
   await scaleText(page, 4);
-  const previous = sections(page).getByRole('button', { name: 'Previous sections' });
+  const nav = sections(page);
+  await expect(nav).toHaveAttribute('data-row-fold', '2');
+  const previous = nav.getByRole('button', { name: 'Previous sections' });
   const next = sections(page).getByRole('button', { name: 'Next sections' });
   await expect(previous).toBeDisabled();
   await expect(next).toBeEnabled();
+  await expect.poll(() => nav.locator('[data-fade-end]').evaluate(row => row.scrollWidth > row.clientWidth)).toBe(true);
   for (const key of [previous, next]) expect(await key.boundingBox()).toMatchObject({ width: 44, height: 44 });
   const scroll = () => sections(page).locator('[data-fade-end]').evaluate(row => row.scrollLeft / row.clientWidth);
   await next.click();
