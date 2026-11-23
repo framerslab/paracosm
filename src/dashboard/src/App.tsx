@@ -1,3 +1,4 @@
+import { AiWrittenPage } from './components/shared/AiWritten';
 import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
@@ -1471,7 +1472,7 @@ export function App() {
       <ThemeProvider>
         <ToastProvider>
           <RunTurnsProvider>
-            <AppContent />
+            <AiWrittenPage><AppContent /></AiWrittenPage>
           </RunTurnsProvider>
         </ToastProvider>
       </ThemeProvider>

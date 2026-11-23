@@ -127,6 +127,10 @@ export interface SimEventCostPayload {
  * events, degraded vs healthy paths, etc.). Adding a new field to a
  * payload is non-breaking; removing or renaming one is.
  */
+type EventAuthorship = Array<'title' | 'description' | 'turnSummary'>;
+type DecisionAuthorship = Array<'decision' | 'rationale' | 'reasoning'>;
+type ReportAuthorship = Array<'summary' | 'risks' | 'opportunities' | 'recommendedActions' | 'openQuestions'>;
+
 export interface SimEventPayloadMap {
   /** Fires once at the start of every turn. Title/crisis carry the first event's headline when `totalEvents > 0`. */
   turn_start: {
@@ -140,6 +144,7 @@ export interface SimEventPayloadMap {
     turnSummary?: string;
     totalEvents?: number;
     pacing?: unknown;
+    aiWrittenFields?: EventAuthorship;
   };
   /** Fires before each event within a turn. One turn can carry multiple events (up to `maxEventsPerTurn`). */
   event_start: {
@@ -151,6 +156,7 @@ export interface SimEventPayloadMap {
     emergent?: boolean;
     turnSummary?: string;
     pacing?: unknown;
+    aiWrittenFields?: EventAuthorship;
   };
   /** Department agent starts analyzing an event. `department` is the scenario-defined id. */
   specialist_start: { department: string; eventIndex: number };
@@ -164,6 +170,7 @@ export interface SimEventPayloadMap {
     risks: string[];
     forgedTools: unknown[];
     recommendedActions?: string[];
+    aiWrittenFields?: ReportAuthorship;
   };
   /** A department tried to forge a runtime tool. `approved` reflects the LLM-judge verdict. */
   forge_attempt: {
@@ -187,6 +194,7 @@ export interface SimEventPayloadMap {
     rationale: string;
     reasoning: string;
     selectedPolicies: unknown[];
+    aiWrittenFields?: DecisionAuthorship;
     selectedOptionId?: string;
     eventIndex: number;
   };
@@ -996,7 +1004,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome; barCheck?: BarCheck }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
   const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agents/agent-reactions.js').AgentReaction[] }> = [];
-  const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
+  const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent & { aiWrittenFields?: EventAuthorship }; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
   let turnPolicyLimited: NonNullable<TurnArtifact['policyEffectsLimited']> = [];
@@ -1082,6 +1090,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     const maxEvents = sc.setup.maxEventsPerTurn ?? 2;
     let turnEvents: DirectorEvent[];
     let batchPacing = 'normal';
+    let directorAuthored = false;
 
     const getMilestone = sc.hooks.getMilestoneEvent;
     const milestone = getMilestone?.(turn, maxTurns);
@@ -1166,6 +1175,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       );
       turnEvents = batch.events;
       batchPacing = batch.pacing;
+      directorAuthored = batch.reasoning !== 'fallback';
       }
     }
 
@@ -1187,7 +1197,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     console.log(`  Turn ${turn}/${maxTurns}. ${TimeNoun} ${time}: ${turnEvents.length} event(s) [${milestone ? 'MILESTONE' : 'EMERGENT'}]`);
     console.log(`${'─'.repeat(50)}`);
 
-    emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing });
+    emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing,
+      aiWrittenFields: directorAuthored ? ['title', 'description', 'turnSummary'] : [],
+    });
 
     // ── Inner event loop ──────────────────────────────────────────────
     let reactions: import('../agents/agent-reactions.js').AgentReaction[] = [];
@@ -1205,14 +1217,18 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
     for (let ei = 0; ei < turnEvents.length; ei++) {
       try {
-      let event = applyCustomEventToCrisis(turnEvents[ei], opts.customEvents ?? [], turn);
+      const originalEvent = turnEvents[ei];
+      const event = applyCustomEventToCrisis(originalEvent, opts.customEvents ?? [], turn);
+      const aiWrittenFields: EventAuthorship = directorAuthored ? ['title'] : [];
+      if (directorAuthored && event.description === originalEvent.description) aiWrittenFields.push('description');
+      if (directorAuthored && event.turnSummary === originalEvent.turnSummary) aiWrittenFields.push('turnSummary');
 
       // Update context so any forge_attempt SSE emitted during this event
       // (from inside parallel dept calls) is attributed to the right slot.
       currentEmitContext = { turn, time, eventIndex: ei };
 
       console.log(`  Event ${ei + 1}/${turnEvents.length}: ${event.title} (${event.category})`);
-      emit('event_start', { turn, time, eventIndex: ei, totalEvents: turnEvents.length, title: event.title, description: event.description?.slice(0, 200), category: event.category, emergent: !milestone, turnSummary: event.turnSummary, pacing: batchPacing });
+      emit('event_start', { turn, time, eventIndex: ei, totalEvents: turnEvents.length, title: event.title, description: event.description?.slice(0, 200), category: event.category, emergent: !milestone, turnSummary: event.turnSummary, pacing: batchPacing, aiWrittenFields });
       turnEventTitles.push(event.title);
 
       // Research
@@ -1310,7 +1326,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           // Cast schema-inferred result back to the legacy DepartmentReport
           // nominal type so downstream code (reports consumer, cost tracker,
           // citation plumbing) sees the same shape it always has.
-          const report = parsedDeptReport as unknown as DepartmentReport;
+          const aiWrittenFields: ReportAuthorship = sendResult.fromFallback
+            ? [] : ['summary', 'risks', 'opportunities', 'recommendedActions', 'openQuestions'];
+          const report = Object.assign(parsedDeptReport as unknown as DepartmentReport, { aiWrittenFields });
           // Citation provenance guarantee: when the LLM omits citations but the
           // research packet carried real sources, attribute them to the report.
           // This keeps the citation flow auditable end-to-end (seed → memory →
@@ -1496,7 +1514,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
               history: ledgerEntry.history,
             };
           });
-          emit('specialist_done', { turn, time, department: dept, summary: report.summary, eventIndex: ei, citations: report.citations.length, citationList: report.citations.slice(0, 5).map(c => ({ text: c.text, url: c.url, doi: c.doi })), risks: report.risks, forgedTools: validTools, recommendedActions: report.recommendedActions?.slice(0, 2) });
+          emit('specialist_done', { turn, time, department: dept, summary: report.summary, eventIndex: ei, citations: report.citations.length, citationList: report.citations.slice(0, 5).map(c => ({ text: c.text, url: c.url, doi: c.doi })), risks: report.risks, forgedTools: validTools, recommendedActions: report.recommendedActions?.slice(0, 2), aiWrittenFields });
           if (validTools.length) {
             const names = validTools.map(t => t.name).filter(Boolean);
             if (names.length) toolRegs[dept] = [...(toolRegs[dept] || []), ...names];
@@ -1649,7 +1667,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       if (decisionFallback) {
         console.log(`  [commander] schema fallback for turn ${turn} event ${ei + 1}`);
       }
-      const decision = decisionParsed as unknown as CommanderDecision;
+      const decisionAiWrittenFields: DecisionAuthorship = decisionFallback ? [] : ['decision', 'rationale', 'reasoning'];
+      const decision = Object.assign(decisionParsed as unknown as CommanderDecision, { aiWrittenFields: decisionAiWrittenFields });
       console.log(`  [commander] ${decision.decision.slice(0, 120)}...`);
       emit('decision_made', {
         turn, time,
@@ -1660,6 +1679,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
          *  rationale is the default compressed view. */
         reasoning: decision.reasoning ?? '',
         selectedPolicies: decision.selectedPolicies,
+        aiWrittenFields: decisionAiWrittenFields,
         eventIndex: ei,
       });
 
@@ -1737,7 +1757,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         turnPolicyEffects.push(...decision.selectedPolicies.map(p => typeof p === 'string' ? p : JSON.stringify(p)));
       }
       allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome, ...(barCheck ? { barCheck } : {}) });
-      allDirectorEvents.push({ turn, time, eventIndex: ei, event, pacing: batchPacing });
+      allDirectorEvents.push({ turn, time, eventIndex: ei, event: { ...event, aiWrittenFields }, pacing: batchPacing });
       lastOutcome = outcome;
       lastEventCategory = event.category;
 
@@ -2062,6 +2082,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     rationale: cd.decision.rationale ?? '',
     reasoning: cd.decision.reasoning,
     outcome: cd.outcome as Decision['outcome'],
+    aiWrittenFields: (cd.decision as CommanderDecision & { aiWrittenFields?: DecisionAuthorship })
+      .aiWrittenFields?.map(field => field === 'decision' ? 'choice' as const : field),
   }));
 
   const peSnapshot = providerErrorState as ClassifiedProviderError | null;

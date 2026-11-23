@@ -46,7 +46,8 @@ const server = createMarsServer({
       leaderA: config.actors[0], leaderB: config.actors[1],
       headline: 'The reserve carried the crew.',
       summary: 'Stored water protected the new crops.',
-      rationale: 'One leader kept more water available.',
+      keyDivergence: 'One leader kept more water available.',
+      scores: { a: {}, b: {} },
       finalStats: { a: {}, b: {}, metrics: [] },
     });
     broadcast('complete', { timestamp: completedAt });

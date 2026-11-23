@@ -556,6 +556,19 @@
             "type": "string",
             "minLength": 1
           },
+          "aiWrittenFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "summary",
+                "risks",
+                "opportunities",
+                "recommendedActions",
+                "openQuestions"
+              ]
+            }
+          },
           "trajectory": {
             "type": "string",
             "enum": [
@@ -740,6 +753,17 @@
           },
           "reasoning": {
             "type": "string"
+          },
+          "aiWrittenFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "choice",
+                "rationale",
+                "reasoning"
+              ]
+            }
           },
           "outcome": {
             "type": "string",

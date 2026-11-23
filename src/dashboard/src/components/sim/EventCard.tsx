@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { DecisionBarCheck, ProcessedEvent } from '../../hooks/useGameState';
@@ -63,7 +64,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
           className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}
         >
           <span className={styles.eventNumber}>EVENT {idx + 1}/{total}</span>
-          <span className={styles.eventStartTitle}>{title}</span>
+          <AiWritten className={styles.eventStartTitle} authored={isAiWritten(dd, "title")}>{title}</AiWritten>
           {category && <span className={styles.eventCategoryPill}>{category}</span>}
         </div>
       );
@@ -263,7 +264,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             </summary>
             <div className={styles.specBody}>
               {summary ? (
-                <div className={styles.specSummary}>{summary}</div>
+                <AiWritten as="div" className={styles.specSummary} authored={isAiWritten(dd, "summary")}>{summary}</AiWritten>
               ) : (risks.length === 0 && recs.length === 0) && (citeCount > 0 || allTools.length > 0) ? (
                 <div className={styles.specSummaryEmpty}>
                   Department analysis complete &mdash; no narrative summary returned, but
@@ -287,7 +288,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                       >
                         {String(r.severity || 'med').toUpperCase()}
                       </span>
-                      <span>{String(r.description || '')}</span>
+                      <AiWritten authored={Boolean(r.description) && isAiWritten(dd, "risks")}>{String(r.description || '')}</AiWritten>
                     </div>
                   ))}
                 </div>
@@ -297,7 +298,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 <div className={styles.specRecs}>
                   <div className={styles.specRecsLabel}>RECOMMENDATIONS</div>
                   {recs.slice(0, 3).map((rec, i) => (
-                    <div key={i} className={styles.specRecRow}>{rec}</div>
+                    <AiWritten as="div" key={i} className={styles.specRecRow} authored={isAiWritten(dd, "recommendedActions")}>{rec}</AiWritten>
                   ))}
                 </div>
               )}
@@ -474,7 +475,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             <Badge outcome={outcome} />
           </div>
           {/* Decision text */}
-          <div className={styles.outcomeText}>{decision}</div>
+          <AiWritten as="div" className={styles.outcomeText} authored={Boolean(decision) && isAiWritten(dd, "decision")}>{decision}</AiWritten>
           {/* The decision against the leader's bar, from the leader's result. */}
           {barCheck && (
             <div className={barCheck.departs ? `${styles.outcomeBar} ${styles.outcomeBarDeparts}` : styles.outcomeBar}>
@@ -505,10 +506,10 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               </summary>
               <div className={styles.outcomeReasoningBody}>
                 {reasoning && (
-                  <div className={styles.outcomeReasoningPre}>{reasoning}</div>
+                  <AiWritten as="div" className={styles.outcomeReasoningPre} authored={isAiWritten(dd, "reasoning")}>{reasoning}</AiWritten>
                 )}
-                {decision && <div>{decision}</div>}
-                {rationale && <div className={styles.outcomeRationale}>{rationale}</div>}
+                {decision && <AiWritten as="div" authored={isAiWritten(dd, "decision")}>{decision}</AiWritten>}
+                {rationale && <AiWritten as="div" className={styles.outcomeRationale} authored={isAiWritten(dd, "rationale")}>{rationale}</AiWritten>}
                 {policies.map((p, i) => <div key={i} className={styles.outcomePolicyLine}>&rarr; {p}</div>)}
               </div>
             </details>

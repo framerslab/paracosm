@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 /**
  * Event Log tab content. Scrollable list of every SSE event with
  * per-type color coding, a rich filter bar (F15) covering text search,
@@ -146,14 +147,14 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
               <span className={styles.type}>{e.type}</span>
               <span className={styles.leader}>{e.leader}</span>
               {e.data?.turn != null && <span className={styles.turn}>T{String(e.data.turn)}</span>}
-              {!!e.data?.title && <span className={styles.title}>{String(e.data.title)}</span>}
+              {!!e.data?.title && <AiWritten className={styles.title} authored={isAiWritten(e.data, "title")}>{String(e.data.title)}</AiWritten>}
               {!!e.data?.department && <span className={styles.department}>{String(e.data.department)}</span>}
               {!!e.data?.outcome && <span className={styles.outcome}>{String(e.data.outcome)}</span>}
             </summary>
             {hasData && (
-              <pre className={styles.dataBlock}>
-                {JSON.stringify(e.data, null, 2)}
-              </pre>
+              <AiWritten as="div" authored={Array.isArray(e.data.aiWrittenFields) && e.data.aiWrittenFields.length > 0}>
+                <pre className={styles.dataBlock}>{JSON.stringify(e.data, null, 2)}</pre>
+              </AiWritten>
             )}
           </details>
         );

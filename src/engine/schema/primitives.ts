@@ -358,10 +358,13 @@ export const SpecialistDetailSchema = z.object({
   openQuestions: z.array(z.string()).optional(),
 });
 
+export const ReportAiWrittenFieldsSchema = z.array(z.enum(["summary", "risks", "opportunities", "recommendedActions", "openQuestions"])).optional();
+
 export const SpecialistNoteSchema = z.object({
   /** Domain name: `"sleep"`, `"medical"`, `"engineering"`, `"governance"`. */
   domain: z.string().min(1),
   summary: z.string().min(1),
+  aiWrittenFields: ReportAiWrittenFieldsSchema,
   trajectory: z.enum(['positive', 'mixed', 'negative', 'neutral']).optional(),
   confidence: z.number().min(0).max(1).optional(),
   detail: SpecialistDetailSchema.optional(),
@@ -399,6 +402,8 @@ export const DecisionOutcomeSchema = z.enum([
   'conservative_failure',
 ]);
 
+const ChoiceAiWrittenFieldsSchema = z.array(z.enum(["choice", "rationale", "reasoning"])).optional();
+
 export const DecisionSchema = z.object({
   /** When the decision was made. Scenario time-units. */
   time: z.number(),
@@ -410,6 +415,7 @@ export const DecisionSchema = z.object({
   rationale: z.string().optional(),
   /** Full CoT reasoning. Paracosm populates; batch modes usually omit. */
   reasoning: z.string().optional(),
+  aiWrittenFields: ChoiceAiWrittenFieldsSchema,
   outcome: DecisionOutcomeSchema.optional(),
   scenarioExtensions: ScenarioExtensionsSchema,
 });
