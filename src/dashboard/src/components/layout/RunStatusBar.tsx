@@ -1,5 +1,6 @@
-import { type CSSProperties } from 'react';
+import type { ComponentProps, CSSProperties } from 'react';
 import { useMediaQuery, PHONE_QUERY } from '../viz/grid/useMediaQuery';
+import { RunProgress } from './RunProgress';
 import styles from './RunStatusBar.module.scss';
 
 interface RunStatusBarAbortReason {
@@ -12,6 +13,7 @@ interface RunStatusBarProviderError {
 }
 
 interface RunStatusBarProps {
+  progress: ComponentProps<typeof RunProgress>;
   cost?: { totalTokens: number; totalCostUSD: number; llmCalls: number };
   /**
    * Optional per-source split of the cost total. When provided, the
@@ -127,13 +129,14 @@ function buildCostTooltip(
   return lines.join('\n');
 }
 
-/** Shows the status and cost of the open run. */
-export function RunStatusBar({ cost, costBreakdown, simStatus }: RunStatusBarProps) {
+/** Shows the status, progress and cost of the open run. */
+export function RunStatusBar({ cost, costBreakdown, progress, simStatus }: RunStatusBarProps) {
   const isPhone = useMediaQuery(PHONE_QUERY);
   const cls = ['shrink-0', styles.bar, isPhone ? styles.phone : ''].filter(Boolean).join(' ');
   return (
     <section className={cls} aria-label="Run status">
       {simStatus && <StatusChip s={simStatus} />}
+      <RunProgress {...progress} />
 
       {cost && (cost.totalTokens > 0 || cost.llmCalls > 0) && (
         <span className={styles.cost} title={buildCostTooltip(cost, costBreakdown)}>

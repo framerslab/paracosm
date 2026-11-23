@@ -441,7 +441,7 @@ test('feature 1: one row from 320 px', async ({ page }) => {
         else await expect(home(page).getByText('PARA')).toBeVisible();
         await expect(how(page)).toHaveText(width < 360 ? '' : 'How it works', { useInnerText: true });
         const row = banner(page).locator('[data-row="Header"]');
-        expect((await row.boundingBox())!.height).toBe(56);
+        expect((await banner(page).boundingBox())!.height).toBe(56);
         expect(await rowsOnOneRow(page)).toEqual([]);
         expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -486,6 +486,7 @@ test('feature 1: the visitor’s state by who pays', async ({ page }, info) => {
   await page.goto(demo);
   await expect(visitor(page)).toHaveText('Free demo: 1 run left today', { useInnerText: true });
   const keys = () => Promise.all([home(page).boundingBox(), how(page).boundingBox(), switchLook(page).boundingBox()]);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
   const before = await keys();
   await page.route('**/rate-limit', route => route.abort());
   await page.reload();

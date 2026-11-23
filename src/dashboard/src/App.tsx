@@ -44,6 +44,7 @@ import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitatio
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
 import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
+import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
 import { TabBar } from './components/layout/TabBar';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 // Toolbar merged into TopBar
@@ -979,9 +980,7 @@ function AppContent() {
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
           <TopBar
-            scenario={scenario}
-            sse={sse}
-            gameState={gameState}
+            hasEvents={Object.values(gameState.actors).some(actor => actor.events.length > 0)}
             onSave={handleSave}
             onClear={handleClear}
             onWipeServer={wipeServer}
@@ -1246,6 +1245,7 @@ function AppContent() {
             <PageFoot />
           </div>
           {runExists && <RunStatusBar
+            progress={{ gameState, validationFallbacks: sse.validationFallbacks }}
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
@@ -1340,7 +1340,9 @@ export function App() {
       <ThemeProvider>
         <ToastProvider>
           <RunTurnsProvider>
-            <AppContent />
+            <ServerFactsProvider>
+              <AppContent />
+            </ServerFactsProvider>
           </RunTurnsProvider>
         </ToastProvider>
       </ThemeProvider>

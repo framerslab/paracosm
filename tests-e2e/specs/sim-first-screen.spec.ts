@@ -3344,7 +3344,7 @@ screenTest('feature 11: the card', async ({ page }) => {
     await openReadyAt(page, '/sim', WIDE, 'light');
     await howKey(page).click();
     await expect(howCard(page)).toBeVisible();
-    await page.getByRole('banner').getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+    await page.getByRole('banner').getByRole('button', { name: 'Switch to dark look', exact: true }).click();
     await expect(howCard(page)).toHaveCount(0);
     // The press reached the key it was made on: the page changed its look.
     await page.waitForFunction(() => !document.documentElement.classList.contains('light'));

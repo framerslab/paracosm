@@ -1,284 +1,198 @@
-// Migrated from inline `style={{}}` per the no-inline-styles convention.
-// Tooltip-internal styles + provider-status colors flow in via the
-// --status-color / --progress-pct CSS custom properties.
+@use '../quickstart/first-screen/shape' as *;
 
 .bar {
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  height: 44px;
+  flex: none;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  border-block-end: var(--frame-rule-width) solid var(--edge-control);
 }
 
-.logoLink {
-  display: flex;
+.row {
+  --header-help-width: calc(var(--frame-column) / 10);
+  --header-row-inset: calc((var(--frame-row-height) - var(--frame-target-size) - var(--frame-rule-width)) / 2);
+  --header-focus-size: calc(2 * var(--frame-rule-width));
+
+  display: grid;
+  grid-template-columns: max-content minmax(max-content, 1fr) max-content;
   align-items: center;
-  gap: 6px;
+  column-gap: var(--frame-gap);
+  min-block-size: calc(var(--frame-row-height) - var(--frame-rule-width));
+  max-inline-size: calc(var(--frame-column) + 2 * var(--frame-side-padding));
+  padding: var(--header-row-inset) var(--frame-side-padding);
+  margin-inline: auto;
+}
+
+.home,
+.button,
+.iconButton {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-block-size: var(--frame-target-size);
+  min-inline-size: var(--frame-target-size);
+  color: var(--text-1);
+}
+
+.home,
+.button,
+.iconButton,
+.overflowItem {
+  &:focus-visible {
+    outline: var(--header-focus-size) solid var(--amber);
+    outline-offset: var(--header-focus-size);
+  }
+}
+
+.home {
+  gap: var(--frame-gap);
+  font: 600 var(--font-read)/1.4 var(--mono);
+  letter-spacing: 0.08em;
   text-decoration: none;
+
+  &:hover .wordmark { text-decoration: underline; }
+  &:active { background: var(--bg-input); }
 }
 
-.logoSpan {
-  display: block;
+.logo {
   position: relative;
-  // --logo-size set inline (default 20).
-  width: var(--logo-size, 20px);
-  height: var(--logo-size, 20px);
+  display: block;
 }
 
-.logoImg { display: block; }
+.glyph {
+  display: block;
+  inline-size: var(--frame-glyph-size);
+  block-size: var(--frame-glyph-size);
+}
 
 .logoGlow {
   position: absolute;
   inset: -30%;
   border-radius: 50%;
   pointer-events: none;
-  // --logo-glow set inline based on theme.
-  background: radial-gradient(circle, var(--logo-glow, rgba(232, 180, 74, 0.15)) 0%, transparent 70%);
-}
+  background: radial-gradient(circle, var(--amber-glow), transparent 70%);
 
-.brand {
-  font-family: var(--mono);
-  font-size: var(--font-md);
-  font-weight: 700;
-  color: var(--text-1);
-  text-decoration: none;
-  letter-spacing: 0.08em;
-}
-
-.brandAccent { color: var(--amber); }
-
-.agentosTag {
-  font-size: var(--font-3xs);
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: var(--rust);
-  font-family: var(--mono);
-  text-decoration: none;
-}
-
-.divider {
-  color: var(--border);
-  font-size: var(--font-sm);
-}
-
-.scenarioName {
-  font-size: var(--font-sm);
-  font-weight: 700;
-  color: var(--amber);
-  font-family: var(--mono);
-}
-
-.center {
-  min-width: 0;
-}
-
-.meta {
-  font-size: var(--font-xs);
-  font-family: var(--mono);
-  color: var(--text-2);
-  min-width: 0;
-}
-
-.tokenInline {
-  display: inline-flex;
-  align-items: baseline;
-}
-
-.tokenLabel { color: var(--text-3); }
-.tokenValue { color: var(--text-1); }
-
-.progressTrack {
-  background: var(--border);
-}
-
-.progressFill {
-  // --progress-pct set inline as percentage string.
-  width: var(--progress-pct, 0%);
-  background: linear-gradient(90deg, var(--side-a), var(--side-b));
-}
-
-.tooltipTitle {
-  font-size: var(--font-md);
-  font-weight: 800;
-  color: var(--amber);
-  margin-bottom: 6px;
-}
-
-.fallbackBlock {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-}
-
-.fallbackRow {
-  font-family: var(--mono);
-  font-size: var(--font-xs);
-  color: var(--text-2);
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.fallbackRowMeta { color: var(--text-3); }
-
-.fallbackPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(232, 180, 74, 0.14);
-  border: 1px solid var(--amber);
-  color: var(--amber);
-  font-family: var(--mono);
-  font-size: var(--font-2xs);
-  font-weight: 700;
-}
-
-.tagline {
-  color: var(--text-3);
-  font-family: var(--mono);
-  font-size: var(--font-2xs);
-}
-
-// GitHub button uses :hover instead of mouse-event handlers that
-// mutated inline styles. Same visual; cleaner separation.
-.tourBtn {
-  // Holds the key's words where they are kept for a screen reader alone.
-  position: relative;
-  background: var(--bg-card);
-  color: var(--amber);
-  border: 1px solid var(--amber-dim, var(--border));
-  padding: 2px 10px;
-  border-radius: 3px;
-  font-size: var(--font-2xs);
-  cursor: pointer;
-  font-weight: 600;
-  font-family: var(--mono);
-  letter-spacing: 0.3px;
-
-  // While the card it opens is showing.
-  &[aria-expanded='true'] {
-    border-color: var(--amber);
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
   }
 }
 
-.toolBtn {
-  background: var(--bg-card);
-  color: var(--text-2);
-  border: 1px solid var(--border);
-  padding: 2px 10px;
-  border-radius: 3px;
-  font-size: var(--font-2xs);
-  cursor: pointer;
-  font-weight: 600;
-  font-family: var(--mono);
+.wordmark,
+.longState,
+.helpIcon { display: none; }
+
+.accent { color: var(--amber); }
+
+.visitor {
+  @include quiet-tone;
+
+  display: grid;
+  justify-self: start;
+  text-align: end;
+  font: 400 var(--font-read)/1.4 var(--sans);
+  white-space: nowrap;
+
+  > span,
+  &::before { grid-area: 1 / 1; }
+
+  &::before {
+    content: attr(data-reserve-short);
+    visibility: hidden;
+  }
 }
+
+.actions {
+  grid-column: -2;
+  display: flex;
+  align-items: center;
+  gap: var(--frame-gap);
+}
+
+.button,
+.iconButton {
+  border: var(--frame-rule-width) solid var(--edge-control);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  font: 600 var(--font-read)/1.4 var(--sans);
+  cursor: pointer;
+
+  &:hover { background: var(--bg-panel); }
+  &:active { background: var(--bg-input); }
+  &[aria-expanded='true'] { border-color: var(--amber); }
+}
+
+.help {
+  min-inline-size: var(--header-help-width);
+  padding-inline: var(--frame-gap);
+  white-space: nowrap;
+}
+
+.iconButton { inline-size: var(--frame-target-size); }
 
 .overflowAnchor { position: relative; }
 
-.overflowTrigger {
-  width: 28px;
-  padding: 2px 0;
-  line-height: 1;
-  font-size: var(--font-lg);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
 .overflowMenu {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 160px;
-  padding: 4px;
+  inset-block-start: calc(100% + var(--frame-gap));
+  inset-inline-end: 0;
+  display: grid;
+  inline-size: max-content;
+  padding: var(--frame-gap);
   background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  // Same layer as RunMenu (--z-popover): a topbar overflow popover.
+  border: var(--frame-rule-width) solid var(--edge-control);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   z-index: var(--z-popover);
-  outline: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .overflowItem {
-  text-align: left;
-  padding: 6px 10px;
-  background: transparent;
-  color: var(--text-2);
-  border: none;
+  min-block-size: var(--frame-target-size);
+  padding-inline: var(--frame-gap);
+  color: var(--text-1);
+  text-align: start;
+  font: 600 var(--font-read)/1.4 var(--sans);
   cursor: pointer;
-  font-family: var(--mono);
-  font-size: var(--font-lg);
-  font-weight: 600;
-  border-radius: 3px;
-  // One line each: the menu widens to its longest item.
-  white-space: nowrap;
+
+  &:hover { background: var(--bg-input); }
 }
 
-.overflowItemDanger {
-  text-align: left;
-  padding: 6px 10px;
-  background: transparent;
-  color: var(--rust);
-  border: none;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: var(--font-lg);
-  font-weight: 600;
-  border-radius: 3px;
-  // One line each: the menu widens to its longest item.
-  white-space: nowrap;
-}
-
-// The run actions menu's items: 14px text on one line everywhere, and
-// 44px targets on a touch screen at any width (a phone held sideways is
-// wider than 768px) and in a window 768px wide or less. The column and
-// the order stay as they are.
-@media (max-width: 768px), (pointer: coarse) {
-  .overflowItem,
-  .overflowItemDanger {
-    min-height: 44px;
+@media (width < 360px) {
+  .help {
+    min-inline-size: var(--frame-target-size);
+    padding-inline: 0;
   }
+  .helpLabel { display: none; }
+  .helpIcon { display: block; }
 }
 
-.statusPill {
-  font-size: var(--font-2xs);
-  font-family: var(--mono);
-  font-weight: 700;
-  cursor: help;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  // --status-color set inline based on isAborted/isComplete/status.
-  color: var(--status-color, var(--text-3));
+@media (min-width: 430px) {
+  .wordmark { display: inline; }
 }
 
-.statusText { margin-left: 4px; }
-
-.themeBtn {
-  background: var(--bg-card);
-  color: var(--text-3);
-  border: 1px solid var(--border);
-  font-size: var(--font-xs);
+@media (min-width: 600px) {
+  .longState { display: inline; }
+  .shortState { display: none; }
+  .visitor::before { content: attr(data-reserve-long); }
 }
 
-.helpIcon { display: none; }
+@media (min-width: 1100px) {
+  .visitor { justify-self: end; }
+}
 
-@media (max-width: 1200px) {
-  .helpLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+.row:is([data-row-fold='1'], [data-row-fold='2'], [data-row-fold='3']) .wordmark {
+  display: none;
+}
+
+.row:is([data-row-fold='2'], [data-row-fold='3']) {
+  .help {
+    min-inline-size: var(--frame-target-size);
+    padding-inline: 0;
   }
-
-  .helpIcon { display: inline; }
+  .helpLabel { display: none; }
+  .helpIcon { display: block; }
 }
 
-@media (max-width: 640px) {
-  .statusText { display: none; }
+.row[data-row-fold='3'] .visitor { display: none; }
+
+@media print {
+  .bar { display: none; }
 }

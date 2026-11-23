@@ -716,18 +716,6 @@
 
   /* === RESPONSIVE — MOBILE FIRST === */
 
-  /* Tablet and below */
-  /* Make room for the controls when the top bar narrows. */
-  @media (max-width: 1440px) {
-    .topbar-agentos { display: none !important; }
-    .topbar-scenario { display: none !important; }
-  }
-
-  /* Keep the turn figures but omit their progress line at this width. */
-  @media (max-width: 1200px) {
-    .topbar-progress { display: none !important; }
-  }
-
   /* Tablet / narrow laptop. Matches ReportSideNav's own desktop gate
      (min-width: 1024px): below this width the side rail renders as a
      horizontal pill strip, so flip the outer Reports flex container
@@ -740,17 +728,6 @@
   @media (max-width: 1023.98px) {
     .reports-layout { flex-direction: column !important; }
     .reports-layout > nav[aria-label="Report sections"] { order: -1 !important; }
-  }
-
-  /* Let the topbar's own flex children shrink below their content
-     width. Without min-width:0 on the flex items, long text blocks
-     refuse to shrink at all and the row blows past the viewport. */
-  .topbar > div { min-width: 0; }
-  .topbar-scenario {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 180px;
   }
 
   @media (max-width: 768px) {
@@ -797,10 +774,6 @@
     /* Reports padding */
     .reports-content { padding: 16px !important; }
 
-    /* TopBar compact. Further drops (agentos tag, scenario name, tour
-       label) already triggered by the 1024px block above. */
-    .topbar-center { display: none !important; }
-
     /* Timeline stacks */
     .timeline-row { flex-direction: column !important; max-height: 200px !important; }
 
@@ -827,8 +800,6 @@
 
   /* Narrow tablet portrait and phone landscape. */
   @media (max-width: 640px) {
-    .topbar-meta { display: none !important; }
-
     /* Chat sidebar collapses on phones (was at 768px and stranded the
        tablet chat empty-state under a 180px-tall roster strip). At
        640px the screen is narrow enough that vertical stack reads
@@ -981,7 +952,7 @@
       color: black !important;
       font-size: 10pt;
     }
-    .topbar, .tab-bar, .toolbar, footer, .skip-to-content {
+    .tab-bar, .toolbar, footer, .skip-to-content {
       display: none !important;
     }
   }

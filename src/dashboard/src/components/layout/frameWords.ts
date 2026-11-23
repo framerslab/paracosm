@@ -26,3 +26,17 @@ export const OPEN_RUN_FILE = 'Open a run file';
 export const OPEN_RUN_FILE_HINT = 'A run you saved with Save in the run actions menu, as a .json file.';
 /** Settings group for resetting dashboard and server data. */
 export const STORED_DATA = 'Stored data';
+
+/** Names and words in the dashboard banner. */
+export { HOW_IT_WORKS } from '../quickstart/first-screen/words';
+export const HOME_NAME = 'Paracosm home';
+export const SWITCH_TO_LIGHT = 'Switch to light look';
+export const SWITCH_TO_DARK = 'Switch to dark look';
+export const OWN_KEYS = { long: 'Your API key', short: 'Your key' };
+export const SERVER_KEYS = { long: "This server's API keys", short: 'Server keys' };
+export const NO_FREE_RUNS = { long: 'Free demo: no run left today', short: 'No free run' };
+/** The quota words for a positive run count. */
+export function freeRuns(remaining: number) {
+  const runs = remaining === 1 ? 'run' : 'runs';
+  return { long: `Free demo: ${remaining} ${runs} left today`, short: `${remaining} free ${runs}` };
+}

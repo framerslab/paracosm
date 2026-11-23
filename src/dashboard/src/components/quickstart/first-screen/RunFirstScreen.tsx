@@ -38,7 +38,7 @@ import { FREE_SIZE, sizeMode } from './runSize.helpers';
 import { ScenarioLine } from './ScenarioLine';
 import { SharedColonyPanel } from './SharedColonyPanel';
 import { StartBand, type StartRun } from './StartBand';
-import { noFreeRunLeft, ServerFactsProvider, useServerFacts } from './useServerFacts';
+import { noFreeRunLeft, useServerFacts } from './useServerFacts';
 import { useRunSetup } from './useRunSetup';
 import { WRITE_YOUR_OWN } from './words';
 import styles from './RunFirstScreen.module.scss';
@@ -117,9 +117,9 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
 
 export function RunFirstScreen({ onStart, onSeedReady, children }: RunFirstScreenProps) {
   return (
-    <ServerFactsProvider>
+    <>
       <FirstScreen onStart={onStart} onSeedReady={onSeedReady} />
       {children}
-    </ServerFactsProvider>
+    </>
   );
 }
