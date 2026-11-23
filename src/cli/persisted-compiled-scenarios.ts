@@ -8,12 +8,16 @@
  * post-compile draft (the scenario shape minus the function-typed
  * `hooks` field) to `${scenarioDir}/compiled/{id}.json` after every
  * successful compile, and exposes loaders so the server can lift those
- * drafts back into the catalog at boot. Hook source strings live in
- * the compiler's separate disk cache (`.paracosm/cache/`), so a boot-
- * time `compileScenario(draft, { cache: true })` re-hydrates the full
- * runnable scenario for free when the cache is warm — and at LLM cost
- * (~$0.10/draft) when it's cold (e.g. fresh deploy with no cache
- * volume mounted).
+ * drafts back into the catalog at boot. Each file also carries the
+ * source of every hook the compile restored or generated, the model that
+ * generated them and the compile schema version (`_persistHooks`, from
+ * the compiler's `hookSourcesOf`), so the boot restore
+ * (`compileScenario(draft, { restore: { hookSources } })`) rebuilds the
+ * runnable scenario on any host without calling a model. A file written
+ * before files carried their hooks is restored from the compiler's disk
+ * cache (`.paracosm/cache/`) under the model that wrote it, with no model
+ * call, and compiled again only when that cache holds none of its hooks
+ * that the compiler can restore.
  *
  * @module paracosm/cli/persisted-compiled-scenarios
  */
@@ -28,6 +32,7 @@ import {
 } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 import type { ScenarioPackage } from '../engine/types.js';
+import { hookSourcesOf, readHookSources, type CompiledHookSources } from '../engine/compiler/hook-sources.js';
 
 /**
  * Subdirectory under `scenarios/` where compile-from-seed scenarios
@@ -63,9 +68,13 @@ export interface PersistedCompiledMeta {
 export interface PersistedCompiledDraft {
   id: string;
   /** Scenario JSON minus the function-typed `hooks` field — runnable
-   *  through `compileScenario(draft, { cache: true })`. */
+   *  through `compileScenario(draft, { restore: { hookSources } })`. */
   draft: Record<string, unknown>;
   meta: PersistedCompiledMeta;
+  /** The hook sources saved with it; absent in a file written before
+   *  files carried them. A record that names no hook is a compile that
+   *  kept every hook on its fallback. */
+  hookSources?: CompiledHookSources;
 }
 
 /** Resolve the `compiled/` subdir path under a scenario root. */
@@ -161,9 +170,15 @@ export function persistCompiledScenario(
       compiledAt: new Date().toISOString(),
       seedText: seedText && seedText.length > 0 ? seedText.slice(0, 1000) : null,
     };
+    // The hooks' sources, when this process compiled or restored the
+    // scenario, so a restart restores its hooks without a model call. A
+    // compile that kept every hook on its fallback saves a record that names
+    // no hook, which restores those fallbacks.
+    const hookSources = hookSourcesOf(scenario);
     const payload = {
       ...stripHooks(scenario),
       _persistMeta: meta,
+      ...(hookSources ? { _persistHooks: hookSources } : {}),
     };
     const filePath = resolve(dir, `${scenario.id}.json`);
     writeFileSync(filePath, JSON.stringify(payload, null, 2));
@@ -227,10 +242,11 @@ export function loadPersistedCompiledDrafts(
         compiledAt: typeof persistMeta.compiledAt === 'string' ? persistMeta.compiledAt : fallbackCompiledAt,
         seedText: typeof persistMeta.seedText === 'string' ? persistMeta.seedText : null,
       };
-      // Strip the side-channel field so the draft passed to
+      // Strip the side-channel fields so the draft passed to
       // compileScenario matches the schema it expects.
-      const { _persistMeta: _meta, ...draft } = raw;
-      out.push({ id, draft, meta });
+      const { _persistMeta: _meta, _persistHooks: savedHooks, ...draft } = raw;
+      const hookSources = readHookSources(savedHooks);
+      out.push({ id, draft, meta, ...(hookSources ? { hookSources } : {}) });
     } catch (err) {
       console.warn(`[scenarios] skipping unreadable draft ${name}:`, err);
     }
