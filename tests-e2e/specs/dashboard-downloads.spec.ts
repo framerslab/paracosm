@@ -107,7 +107,7 @@ test('References downloads the cited source through an attached link', async ({ 
   await loadSavedRun(page);
   await page.getByRole('button', { name: 'Open References list (1 sources)' }).click();
   const dialog = page.getByRole('dialog', { name: 'References · 1' });
-  const data = await downloadJsonFrom(page, dialog.getByRole('button', { name: 'Export JSON', exact: true }), 'paracosm-references.json');
+  const data = await downloadJsonFrom(page, dialog.getByRole('button', { name: 'EXPORT JSON', exact: true }), 'paracosm-references.json');
   expect(data).toEqual([{
     ...citation,
     n: 1,
