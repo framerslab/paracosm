@@ -14,7 +14,9 @@
  * model call (`status` with `phase: 'starting'`, then `status` with
  * `phase: 'parallel'` and the leaders, then each leader's first
  * `turn_start`), then one `systems_snapshot` for each leader at turn 1, and
- * holds the run open until the server aborts it. The Digital Twin world,
+ * holds the run open until the server aborts it. The Atlas Lab pair instead
+ * finishes with a verdict so the run view can be checked through /setup
+ * and the live stream. The Digital Twin world,
  * which the server compiles with a model on boot, is none here. Its folders
  * are temporary ones and it keeps no run history.
  *
@@ -32,19 +34,28 @@
  * test that has Paracosm write leaders answers that request itself.
  */
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { judgePair, type VerdictCallOptions } from '../../src/cli/pair-runner.js';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
+import { VerdictSchema } from '../../src/runtime/validators/verdict.js';
 import { withProviderWire } from '../../tests/cli/helpers/provider-wire.js';
 import { advanceKernelTurn, snapshotData } from './kernel-turn.js';
 
 const PORT = Number(process.env.PORT ?? 3470);
 const ROSTER_PORT = Number(process.env.FIRST_SCREEN_ROSTER_PORT ?? 3472);
+
+// Use the recorded pair's artifacts to build the verdict with the real
+// judge. The fixture retains the inputs to the verdict call.
+const { runs: atlasPair } = JSON.parse(readFileSync(
+  new URL('../../tests/fixtures/verdict/atlas-lab-pair-2026-11-02.json', import.meta.url), 'utf8',
+)) as { runs: Array<{ leaderName: string; artifact: { finalState: { metrics: Record<string, number> } } }> };
 
 /** What one run's snapshots held: the run's population and, for each leader, the names in its roster. */
 interface RosterRecord {
@@ -94,6 +105,48 @@ const server = createMarsServer({
     });
     for (const leader of actors) {
       broadcast('sim', { type: 'turn_start', leader: leader.name, data: { turn: 1, time: startTime, title: 'Director generating...', crisis: '', births: 0, deaths: 0, metrics: {} } }, leader.name);
+    }
+    if (scenario?.id === 'atlas-lab' && actors.length === 2) {
+      const judged = actors.map((leader, index) => {
+        const recorded = atlasPair.find(run => run.leaderName === leader.name);
+        if (!recorded) throw new Error(`No recorded Atlas Lab run for ${leader.name}`);
+        return { leader, index, result: recorded.artifact };
+      });
+      const [a, b] = judged;
+      await delay(1_500, undefined, { signal }).catch(error => {
+        if (!signal?.aborted) throw error;
+      });
+      if (signal?.aborted) return;
+      for (let turn = 1; turn <= turns; turn++) {
+        for (const { leader, result } of judged) {
+          broadcast('sim', {
+            type: 'turn_done', leader: leader.name,
+            data: { turn, time: startTime + (turn - 1) * (config.timePerTurn ?? 0), metrics: result.finalState.metrics },
+          }, leader.name);
+        }
+      }
+      for (const { leader, result } of judged) {
+        broadcast('result', { leader: leader.name, summary: result.finalState.metrics }, leader.name);
+      }
+      const verdict = VerdictSchema.parse({
+        winner: 'B',
+        winnerName: b.leader.name,
+        headline: 'Priya ships a cleaner model',
+        summary: 'The release cleared more of the readiness checks.',
+        keyDivergence: 'Priya prioritized alignment checks before release.',
+        scores: {
+          a: { survival: 6, prosperity: 5, morale: 6, innovation: 6 },
+          b: { survival: 7, prosperity: 7, morale: 6, innovation: 6 },
+        },
+      });
+      await judgePair({
+        credentials: config, verdictModel: 'stub', turns, scenario, broadcast, a, b,
+        generateObjectImpl: (async () => ({
+          object: verdict, text: JSON.stringify(verdict), usage: {},
+        })) as VerdictCallOptions['generateObjectImpl'],
+      });
+      broadcast('complete', { timestamp: new Date().toISOString() });
+      return;
     }
     // Each leader's colony at the end of turn 1, from the run's own kernel.
     // A snapshot that cannot be built is logged and left out: the run stays

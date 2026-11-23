@@ -2994,6 +2994,51 @@ async function startAndWatch(page: Page, root: Locator): Promise<void> {
   await page.waitForURL((url) => url.searchParams.get('tab') === 'sim');
 }
 
+for (const launch of ['Start with the page hand-off', 'Launch simulation in place'] as const) {
+  screenTest(`an Atlas Lab pair shows its verdict and notices after ${launch}`, async ({ page }) => {
+    await switchScenario(page, 'atlas-lab');
+    try {
+      const root = await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
+      const documentStart = () => page.evaluate(() => performance.timeOrigin);
+      const beforeLaunch = await documentStart();
+      if (launch === 'Start with the page hand-off') {
+        await startAndWatch(page, root);
+        expect(await documentStart()).not.toBe(beforeLaunch);
+      } else {
+        await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+        const button = page.getByRole('button', { name: 'Launch simulation', exact: true });
+        await expect(button).toBeEnabled();
+        await button.click();
+        await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+        expect(await documentStart()).toBe(beforeLaunch);
+      }
+
+      const complete = page.getByRole('status', { name: /^Complete\./ });
+      await expect(complete).toBeVisible();
+      const banner = page.getByRole('status', { name: 'Simulation verdict' });
+      await expect(banner).toBeVisible();
+      await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
+      await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
+
+      const notifications = page.getByRole('status', { name: 'Notifications' });
+      const titles = ['Simulation complete', 'Priya Kapoor wins', 'Saved to cache'];
+      for (const title of titles) {
+        const notice = notifications.getByText(title, { exact: true });
+        await expect(notice).toBeVisible();
+        await expect(notice).toHaveCount(1);
+      }
+      await expect(notifications.getByText('Priya ships a cleaner model', { exact: true })).toBeVisible();
+
+      // A separate page load of the finished run must not announce it again.
+      await page.reload();
+      await expect(complete).toBeVisible();
+      await expect(notifications).toBeEmpty();
+    } finally {
+      await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+    }
+  });
+}
+
 screenTest('feature 14: Watch shows the pair on the first frame', async ({ page, context }, info) => {
   test.setTimeout(240_000);
   const featured = keyPeopleOf(await serverScenario(page)).filter((p) => p.featured).map((p) => p.name);
