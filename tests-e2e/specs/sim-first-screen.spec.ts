@@ -187,10 +187,10 @@ const MIDDLE_BAND = 'Middle band 0.35 to 0.65';
 const HEXACO_NOTE = 'HEXACO is a six-trait personality model. The six scores above are this leader’s.';
 const NO_WRITTEN_LEADERS = 'This scenario has no written leaders. Paracosm writes them when you press Start.';
 
-/** The shared colony panel on a free run of Mars Genesis: its five key people stand in four departments. */
-const COLONY_FIGURES = '5 key people · 4 departments';
+/** The shared colony panel on a free run of Mars Genesis: its header names the five key people, and no count of departments. */
+const COLONY_FIGURES = '5 key people';
 const COLONY_CAPTION = 'Both colonies start with the same 30 people, these 5 among them. Each leader’s decisions make them diverge.';
-const COLONY_SPOKEN = 'The colony at turn 0: 5 of its 30 people, in 4 departments, the same for every leader';
+const COLONY_SPOKEN = 'The colony at turn 0: 5 of its 30 people, the same for every leader';
 const COLONY_KEY = ['Department', 'Person', 'Featured person'];
 const NO_KEY_PEOPLE = 'This scenario names no key people. Its colony is drawn when the run starts.';
 /** The field's height at each width the panel is laid out for. */
@@ -1240,6 +1240,48 @@ screenTest('feature 14: one colony field, the key people, no ticks', async ({ pa
   });
 });
 
+/** Every count of departments a part of the screen states, in the words it shows and in its spoken names. */
+const departmentCounts = (part: Locator): Promise<number[]> => part.evaluate((el) => {
+  const said = [el.textContent ?? '', ...Array.from(el.querySelectorAll('[aria-label]'), (named) => named.getAttribute('aria-label') ?? '')];
+  return said.flatMap((words) => Array.from(words.matchAll(/(\d+)\s+departments?\b/g), (found) => Number(found[1])));
+});
+
+// Features 3 and 14: the scenario line states the departments the run uses, and the colony panel under it draws
+// the scenario's key people. Mars Genesis holds three figures a line could count: its own departments, the fewer
+// a run on the host's keys uses, and the departments its key people work in. The screen states one of them.
+screenTest('features 3 and 14: the scenario line and the colony panel state one count of departments', async ({ page }) => {
+  test.setTimeout(180_000);
+  const scenario = await serverScenario(page) as ScenarioAnswer & { departments: unknown[] };
+  const config = await (await page.request.get(`${SERVER}/admin-config`)).json() as { demoCaps?: { maxActiveDepartments?: number } };
+  const own = scenario.departments.length;
+  const cap = config.demoCaps?.maxActiveDepartments;
+  const among = new Set(keyPeopleOf(scenario).map((p) => p.department)).size;
+  // The stored scenario and the host's cap hold three different figures: 5 of its own, 3 on a free run, 4 among the key people.
+  expect({ own, cap, among }).toEqual({ own: 5, cap: 3, among: 4 });
+
+  const read = async (size: { width: number; height: number }, look: Look, runUses: number, figures: string) => {
+    await test.step(`${size.width} in the ${look} look: the run uses ${runUses} departments`, async () => {
+      const { root, colony } = await openColony(page, size, look);
+      await expect(root.getByTestId('scenario-figures')).toHaveText(figures);
+      const line = await departmentCounts(root.getByTestId('scenario-line'));
+      const panel = await departmentCounts(colony);
+      expect(line.length, 'the scenario line states the departments the run uses').toBeGreaterThan(0);
+      expect(
+        Array.from(new Set([...line, ...panel])),
+        `the two lines state one count of departments (the scenario line ${JSON.stringify(line)}, the colony panel ${JSON.stringify(panel)})`,
+      ).toEqual([runUses]);
+    });
+  };
+
+  // A free run: the host's cap.
+  await read(PHONE, 'dark', 3, FREE_FIGURES);
+  await read(WIDE, 'light', 3, FREE_FIGURES);
+  // A run on the visitor's own key: the scenario's own.
+  await saveKey(page);
+  await read(PHONE, 'light', 5, OWN_KEY_FIGURES);
+  await read(WIDE, 'dark', 5, OWN_KEY_FIGURES);
+});
+
 screenTest('feature 14: under reduced motion', async ({ page }) => {
   test.setTimeout(120_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -1458,7 +1500,7 @@ screenTest('feature 14: waits for the scenario', async ({ page }) => {
       release();
       await expect(root.getByRole('heading', { level: 1, name: 'Lunar Outpost' })).toBeVisible();
       await expect(colony.locator('[data-person]')).toHaveText(lunar.map((p) => p.name));
-      await expect(colony.getByTestId('colony-figures')).toHaveText(`${lunar.length} key people · ${new Set(lunar.map((p) => p.department)).size} departments`);
+      await expect(colony.getByTestId('colony-figures')).toHaveText(`${lunar.length} key people`);
       await expect(root.locator('canvas')).toHaveCount(1);
       const after = await box(colony);
       expect(Math.abs(after.height - before.height)).toBeLessThan(PHONE.height * 0.1);
@@ -2162,6 +2204,22 @@ screenTest('feature 10: own key and self-hosted', async ({ page }) => {
     await saveLastLaunch(page, { scenarioId: 'mars-genesis', provider: 'openai', models: { commander: 'model-a', departments: 'model-b' } });
     const root = await openReadyAt(page, '/sim?size=24', WIDE, 'dark');
     await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models. Your run uses OpenAI (model-a, model-b) from your Settings, which set the real price.');
+  });
+
+  // The server runs on the provider whose one key the visitor saved, whatever their last launch named. With that
+  // last launch still saved and an Anthropic key alone, the notice names Anthropic and the estimate names no other.
+  await test.step('one saved key of another provider than the last launch’s: the estimate names no provider or models', async () => {
+    // A page of its own: the page above writes an OpenAI key on each load, and two such scripts on one page run in no fixed order.
+    const own = await page.context().newPage();
+    try {
+      await own.addInitScript(() => { window.sessionStorage.setItem('paracosm:keyOverrides', '{"anthropic":"test-anthropic-key"}'); });
+      await saveLastLaunch(own, { scenarioId: 'mars-genesis', provider: 'openai', models: { commander: 'model-a', departments: 'model-b' } });
+      const root = await openReadyAt(own, '/sim?size=24', WIDE, 'dark');
+      await expect(root.getByTestId('notice-pays')).toHaveText(OWN_KEY_NOTICE.replace('OpenAI', 'Anthropic'));
+      await expect(root.getByTestId('start-estimate')).toHaveText('Estimated cost: about 14.50 USD on your key, from the mean cost of four pair runs measured on this demo’s economy models.');
+    } finally {
+      await own.close();
+    }
   });
 });
 
@@ -4884,6 +4942,44 @@ screenTest('feature 13: the foot ends the Run tab while a pasted scenario is wri
   }
 });
 
+// Feature 13: the control stands in the footer on screen. The Run tab stays mounted while another tab shows, and
+// a change of its state there gives it a new foot: that foot, out of view, does not take the control from the
+// footer the visitor sees.
+screenTest('feature 13: Analytics choices stays in the footer on screen while the Run tab changes out of view', async ({ page }) => {
+  test.setTimeout(120_000);
+  const held = gate();
+  await page.route('**/api/quickstart/compile-from-seed', async (route: Route) => { await held.opened; await route.abort(); });
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const part = root.getByTestId('write-your-own');
+    await part.locator('[data-quickstart-seed]').fill(DRAFT);
+    await part.getByRole('button', { name: 'Generate and run', exact: true }).click();
+    // The scenario is being written: the first screen has given way to the run's progress.
+    await expect(root).toHaveCount(0);
+
+    // The visitor opens Watch meanwhile, and that tab's footer offers the control.
+    await page.locator('#tab-sim').click();
+    await expect(page.locator('#tabpanel-sim')).toBeVisible();
+    const control = page.locator('#pcc-reopen');
+    await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
+
+    // The writing fails: out of view, the Run tab goes back to its first screen, which mounts a foot of its own.
+    held.open();
+    await expect(page.locator(FIRST_SCREEN)).toBeAttached();
+    await expect(page.locator(FIRST_SCREEN)).toBeHidden();
+    await expect(page.locator(FOOT)).toBeHidden();
+    await expect(control, 'the footer on screen keeps the control').toBeVisible();
+
+    // Back on the Run tab, its foot offers the control again.
+    await page.locator('#tab-quickstart').click();
+    await expect(page.locator(FIRST_SCREEN)).toBeVisible();
+    await expect(page.locator(FOOT).getByRole('button', { name: 'Analytics choices', exact: true })).toBeVisible();
+  } finally {
+    held.open();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
 // Feature 11, QA step 7: the sheet opens with focus on its title, and holds focus from there in both directions.
 screenTest('feature 11: Shift+Tab straight after the sheet opens stays inside it', async ({ page }) => {
   test.setTimeout(120_000);
@@ -4936,6 +5032,56 @@ screenTest('feature 10: a Start the server refuses leaves the stored leaders of 
   }
 });
 
+// Feature 10: the leaders a scenario does not write are written by a route with a day's limit of its own on the
+// hosted demo. Its refusal is not the day's limit of free runs: the run is still there, and so is Start.
+screenTest('feature 10: a refusal to write the leaders is not the day’s limit of free runs', async ({ page }) => {
+  test.setTimeout(120_000);
+  // A scenario that writes no leaders, as a compiled one does: Start has them written before it posts the run.
+  await routeScenario(page, (scenario) => {
+    for (const preset of scenario.presets) {
+      delete preset.leaders;
+      delete preset.actors;
+    }
+  });
+  let posted = 0;
+  const onRequest = (request: { method(): string; url(): string }) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === '/setup') posted += 1;
+  };
+  page.on('request', onRequest);
+  // The route's own refusal on the hosted demo, in the shape and the words the server answers it with.
+  await page.route('**/api/quickstart/generate-actors', (route: Route) => route.fulfill({
+    status: 429,
+    json: {
+      error: 'Rate limit exceeded. Maximum 20 Quickstart grounding, actor and URL requests per day.',
+      limit: 20,
+      remaining: 0,
+      resetAt: Date.now() + 3_600_000,
+    },
+  }));
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key } = startParts(root);
+    await expect(key).toBeEnabled();
+    const refusal = page.waitForResponse((res) => res.request().method() === 'POST' && new URL(res.url()).pathname === '/api/quickstart/generate-actors');
+    await key.click();
+    expect((await refusal).status()).toBe(429);
+
+    // The run did not start, and the page says so above Start, which can be pressed again.
+    await expect(root.getByTestId('start-failure')).toHaveText(DID_NOT_START);
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'ready');
+    await expect(key).toBeEnabled();
+    // The day's free run is not used: no at-limit paragraphs stand in Start's place, and the count says one is left.
+    await expect(root.getByTestId('at-limit')).toHaveCount(0);
+    expect((await dayCount(page)).remaining).toBe(1);
+    expect(posted, 'no run was posted').toBe(0);
+    await expect(page.locator('body')).not.toContainText('Rate limit exceeded');
+  } finally {
+    page.off('request', onRequest);
+    await page.unroute('**/api/quickstart/generate-actors');
+    await page.unroute('**/scenario');
+  }
+});
+
 // Feature 10: the at-limit state names a reset time, and the page reads the count again once that time has come.
 screenTest('feature 10: at the reset time the page reads the count again', async ({ page }) => {
   test.setTimeout(120_000);
@@ -4963,6 +5109,102 @@ screenTest('feature 10: at the reset time the page reads the count again', async
     await page.unroute('**/rate-limit');
   }
 });
+
+// Feature 10: a count with no run left whose reset time has already passed by the page's clock (an answer that
+// came after the reset, or a page clock ahead of the server's) is read again until the server names a later day,
+// so Start comes back without a press or a reload. A read that fails on the way keeps the day's count as the server
+// last said it, and the page asks again.
+screenTest('feature 10: a count whose reset time has passed by the page\'s clock is read again until the day turns', async ({ page }) => {
+  test.setTimeout(120_000);
+  // The server's day reset two seconds before the page's clock reads now; it answers that day until the test turns it.
+  const resetAt = Date.now() - 2_000;
+  let server: 'old day' | 'down' | 'later day' = 'old day';
+  let reads = 0;
+  let failed = 0;
+  await page.route('**/rate-limit', (route: Route) => {
+    reads += 1;
+    if (server === 'down') {
+      failed += 1;
+      return route.abort('failed');
+    }
+    return server === 'later day'
+      ? route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } })
+      : route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt } });
+  });
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const band = root.getByTestId('start-band');
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    // The page asks again by itself while the server still answers the day that has passed by the page's clock.
+    await expect.poll(() => reads, { timeout: 20_000, message: 'the count is asked for again' }).toBeGreaterThanOrEqual(2);
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    // The count cannot be read for a while: the page keeps the day's count it has and asks again.
+    server = 'down';
+    await expect.poll(() => failed, { timeout: 30_000, message: 'the count is asked for again after a read that failed' }).toBeGreaterThanOrEqual(2);
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    // The server's day turns. No press and no reload: a later read brings Start back.
+    server = 'later day';
+    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 45_000 });
+    const { key } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/rate-limit');
+  }
+});
+
+// Feature 10: a press the server refuses at the day's limit is kept, and the count is read again for the reset time.
+// When that read fails, the page asks again by itself, so Start comes back once the day has reset: whether a count
+// was read before the press or not, since the refusal names the time the day's count resets.
+for (const before of ['a count read before the press', 'no count read before the press'] as const) {
+  screenTest(`feature 10: after a refusal, a count that could not be read is asked for again (${before})`, async ({ page }) => {
+    test.setTimeout(150_000);
+    // The day the press is refused in resets an hour from now; the test says when it has reset.
+    const resetAt = Date.now() + 3_600_000;
+    let stage: 'before' | 'refused' | 'reset' = 'before';
+    let failedAfterRefusal = 0;
+    await page.route('**/rate-limit', (route: Route) => {
+      if (stage === 'reset') return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
+      if (stage === 'before' && before === 'a count read before the press') {
+        return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt } });
+      }
+      if (stage === 'refused') failedAfterRefusal += 1;
+      return route.abort('failed');
+    });
+    // The run's own refusal at the day's limit, as the server answers it.
+    await page.route('**/setup', (route: Route) => {
+      stage = 'refused';
+      return route.fulfill({
+        status: 429,
+        json: { error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0, resetAt },
+      });
+    });
+    try {
+      const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+      const band = root.getByTestId('start-band');
+      const { key } = startParts(root);
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+      await key.click();
+      // Refused: the at-limit paragraphs, with no reset time, since the count could not be read.
+      await expect(band).toHaveAttribute('data-state', 'limit');
+      await scrollToBandPlace(root);
+      await expect(root.getByTestId('at-limit-reset')).toHaveText(NO_RUN_LEFT);
+      // The read straight after the refusal fails, and so does one the page asks for again by itself.
+      await expect.poll(() => failedAfterRefusal, { timeout: 30_000, message: 'the count is asked for again after the refusal' }).toBeGreaterThanOrEqual(2);
+      // The day resets. No press and no reload: the page asks for the count again until it answers.
+      stage = 'reset';
+      await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 60_000 });
+      await expect(key).toHaveAccessibleName(START_FREE);
+      await expect(key).toBeEnabled();
+      await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+    } finally {
+      await page.unroute('**/rate-limit');
+      await page.unroute('**/setup');
+    }
+  });
+}
 
 // Features 3 and 10: whose keys a run uses comes from the server's settings, so a read that failed is asked again.
 screenTest('feature 10: a settings read that failed is asked again', async ({ page }) => {
@@ -5097,6 +5339,32 @@ screenTest('feature 14: with the server’s settings unread and no key, the colo
     await expect(colony.getByTestId('colony-caption'), 'no caption names a count of people').toHaveCount(0);
     await expect(colony.getByTestId('colony-figures')).toHaveCount(0);
     await expect(root.getByTestId('scenario-figures')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/admin-config');
+  }
+});
+
+// Feature 10: whose keys a run uses comes from the server's settings. While they are unread and no key is saved,
+// Start names no run: it waits, as the scenario line's figures and the colony's count do, and the page asks again.
+screenTest('feature 10: with the server’s settings unread and no key, Start waits', async ({ page }) => {
+  test.setTimeout(120_000);
+  let failed = 0;
+  await page.route('**/admin-config', (route: Route) => {
+    failed += 1;
+    return route.abort('failed');
+  });
+  try {
+    const root = await openRun(page, PHONE, 'dark');
+    await expect(root.getByRole('heading', { level: 1, name: 'Mars Genesis' })).toBeVisible();
+    // The first read has failed and the page has asked again: the screen now shows what it does with the settings unread.
+    await expect.poll(() => failed, { timeout: 30_000, message: 'the settings are asked for again' }).toBeGreaterThanOrEqual(2);
+    await expect(sizeParts(root).part.getByTestId('run-size-value')).toHaveText('2 leaders');
+    const { key, notice } = startParts(root);
+    await expect(root.getByTestId('start-band')).toHaveAttribute('data-state', 'waiting');
+    await expect(key).toBeDisabled();
+    // No notice says whose keys the run uses, and none says it is this server's.
+    await expect(notice).toHaveCount(0);
+    await expect(root).not.toContainText(SERVER_NOTICE);
   } finally {
     await page.unroute('**/admin-config');
   }

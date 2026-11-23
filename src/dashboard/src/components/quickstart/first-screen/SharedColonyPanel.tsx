@@ -9,7 +9,9 @@
  * grid's first colour, the accent amber. Each featured person's name is set
  * over the field as text. The key people are in every run of the scenario,
  * at the values the engine starts them with (startingColony.ts), so each
- * cell carries the run's own starting data.
+ * cell carries the run's own starting data. The header names the key people
+ * and no count of departments: the scenario line states the departments the
+ * run uses, the one count of them on the screen.
  *
  * Until the scenario has loaded, and the server has said whose keys a free
  * run uses, the panel is a frame of its final size. A scenario that names
@@ -22,7 +24,7 @@ import { useMemo, type CSSProperties } from 'react';
 import { useScenarioContext, useScenarioReady } from '../../../App';
 import { LivingSwarmGrid } from '../../viz/grid/LivingSwarmGrid';
 import { effectivePeople, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
-import { departmentCount, keyPeopleOf, keyPeopleSnapshot } from './startingColony';
+import { keyPeopleOf, keyPeopleSnapshot } from './startingColony';
 import { useServerFacts } from './useServerFacts';
 import {
   COLONY_KEY,
@@ -110,7 +112,7 @@ export function SharedColonyPanel({ size = 2 }: SharedColonyPanelProps) {
     return (
       <section className={styles.panel} data-testid="shared-colony" data-loading>
         <div className={styles.grid}>
-          <ColonyHeader figures={colonyFigures({ keyPeople: 5, departments: 4 })} loading />
+          <ColonyHeader figures={colonyFigures({ keyPeople: 5 })} loading />
           <div className={`${styles.frame} ${styles.cells}`} data-testid="colony-field" />
         </div>
         <p className={styles.caption} aria-hidden="true">
@@ -135,20 +137,19 @@ export function SharedColonyPanel({ size = 2 }: SharedColonyPanelProps) {
     );
   }
 
-  const departments = departmentCount(people);
   return (
     <section className={styles.panel} data-testid="shared-colony">
       <div className={styles.grid}>
         <LivingSwarmGrid
           snapshot={snapshot}
-          actorName={colonySpoken({ population, keyPeople: people.length, departments })}
+          actorName={colonySpoken({ population, keyPeople: people.length })}
           actorArchetype=""
           startTime={scenario.setup.defaultStartTime}
           side="a"
           sideColor="var(--vis)"
           mode="living"
           initialPopulation={population}
-          header={<ColonyHeader figures={colonyFigures({ keyPeople: people.length, departments })} />}
+          header={<ColonyHeader figures={colonyFigures({ keyPeople: people.length })} />}
           nameLabels="featured"
           resting
         />

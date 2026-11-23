@@ -447,7 +447,9 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
   const settings = readLaunchSettings(safeLocalStorage());
   const who = payer(facts, settings.overrides);
   // Whose keys a run uses is known once the visitor holds a key or the server has said whether it is the hosted demo.
-  const payerKnown = who === 'own' || facts.adminConfig.status !== 'loading';
+  // A read of the settings that failed leaves that unknown: the band waits, as the scenario line's figures do, while
+  // the page asks again, and never says a run on the host's keys is one on this server's.
+  const payerKnown = who === 'own' || facts.adminConfig.status === 'ready';
   const launch = ready && payerKnown ? effectiveLaunch(facts, scenario, settings, size, who) : null;
   const { rateLimit } = facts;
   const noneLeft = who === 'host' && noFreeRunLeft(facts);
@@ -471,6 +473,8 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
     pressed.current = true;
     setFailure(null);
     const outcome: { failure: LaunchFailureInput | null } = { failure: null };
+    // The reset time of the count this press acts on, kept with a refusal at the day's limit.
+    let dayResetAt = rateLimit.status === 'ready' ? rateLimit.answer?.resetAt : undefined;
     try {
       // From here until the run opens or fails, the screen holds as it is: the body posted is this scenario at this size.
       onBusy?.(true);
@@ -478,6 +482,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
         // The count may have been spent since the page read it: read it again, and post nothing when none is left.
         setStage('checking');
         const fresh = await rateLimit.refresh();
+        if (fresh.status === 'ready') dayResetAt = fresh.answer?.resetAt;
         if (fresh.status === 'ready' && fresh.answer?.remaining === 0) {
           setStage(null);
           onBusy?.(false);
@@ -505,7 +510,9 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
       const { kind } = classifyLaunchFailure({ ...outcome.failure, online: navigator.onLine });
       if (kind === 'limit' && who === 'host') {
         // The day's limit was met since the count was read: say it as the limit, with the reset time read again.
-        facts.markLimitMet();
+        // The refusal names when the day's count resets; a server that leaves it out leaves the count read before the press.
+        const named = outcome.failure.body?.resetAt;
+        facts.markLimitMet(typeof named === 'number' && Number.isInteger(named) && named > 0 ? named : dayResetAt);
         void rateLimit.refresh();
       } else {
         setFailure(kind === 'limit' ? 'other' : kind);

@@ -16,7 +16,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   HOST_PAID_LABEL_CHARS,
-  departmentCount,
   keyPeopleOf,
   keyPeopleSnapshot,
   type KeyPerson,
@@ -37,7 +36,6 @@ test('Mars Genesis: five key people in four departments, as the scenario writes 
   const people = keyPeopleOf(mars, 30, true);
   assert.deepEqual(people.map((p) => p.name), ['Dr. Yuki Tanaka', 'Erik Lindqvist', 'Amara Osei', 'Dr. Priya Singh', 'Carlos Fernandez']);
   assert.deepEqual(people.map((p) => p.department), ['medical', 'engineering', 'agriculture', 'psychology', 'engineering']);
-  assert.equal(departmentCount(people), 4);
   assert.deepEqual(keyPeopleOf(mars, mars.setup.defaultPopulation, false), people);
 });
 
@@ -76,7 +74,6 @@ test('no key people gives no cells', () => {
   assert.deepEqual(snapshot.cells, []);
   assert.equal(snapshot.population, 0);
   assert.equal(snapshot.turn, 0);
-  assert.equal(departmentCount([]), 0);
 });
 
 test('the people are the default preset\'s, else the first preset\'s', () => {
@@ -105,7 +102,5 @@ test('a run on the host\'s keys keeps the capped population\'s people and cuts e
   const keyed = keyPeopleOf(scenario, 2, false);
   assert.equal(keyed.length, 3);
   assert.equal(keyed[0].name, long);
-  // A person with no department stands in a group of its own, as the grid draws it.
-  assert.equal(departmentCount(keyed), 3);
   assert.equal(keyPeopleSnapshot(keyed, 0).cells[2].featured, false);
 });

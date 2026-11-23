@@ -197,6 +197,27 @@ test('effectiveLaunch: the visitor\'s keys, provider, models and economics go in
   }
 });
 
+test('effectiveLaunch: the words name the last launch\'s provider and models only when the saved key runs on that provider', () => {
+  const last = { scenarioId: 'mars-genesis', provider: 'openai', models: { commander: 'model-a', departments: 'model-b' } };
+  // One saved key decides the provider the server runs on (inferProviderFromKeys in src/cli/sim-config.ts), whatever the last launch named.
+  const other = effectiveLaunch(facts(true), mars, { overrides: { anthropic: 'test-anthropic-key' }, lastLaunch: last }, 24, 'own');
+  assert.equal(other.provider, undefined);
+  assert.equal(other.models, undefined);
+  // The body is the one the launch has always posted: the server works the provider out from it.
+  assert.equal(other.body.provider, 'openai');
+  assert.equal(other.body.anthropicKey, 'test-anthropic-key');
+  assert.deepEqual(other.body.models, last.models);
+
+  // The saved key is the last launch's provider's: both are named.
+  const same = effectiveLaunch(facts(true), mars, { overrides: { openai: 'sk-test' }, lastLaunch: last }, 24, 'own');
+  assert.equal(same.provider, 'openai');
+  assert.deepEqual(same.models, last.models);
+  // A key for each provider: the last launch's provider decides, on the page as on the server.
+  const both = effectiveLaunch(facts(true), mars, { overrides: { openai: 'sk-test', anthropic: 'test-anthropic-key' }, lastLaunch: { ...last, provider: 'anthropic' } }, 24, 'own');
+  assert.equal(both.provider, 'anthropic');
+  assert.deepEqual(both.models, last.models);
+});
+
 test('effectiveLaunch: a run larger than the written leaders posts none, so the launch writes them', () => {
   const settings = { overrides: { openai: 'sk-test' }, lastLaunch: null };
   const three = effectiveLaunch(facts(true), mars, settings, 3, 'own');

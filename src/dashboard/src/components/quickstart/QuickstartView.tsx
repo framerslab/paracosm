@@ -319,7 +319,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       if (!actorsRes.ok) {
         const body = await actorsRes.json().catch(() => ({} as { error?: string }));
         if (opts) {
-          opts.onFailure?.({ status: actorsRes.status, body: body as Record<string, unknown> });
+          opts.onFailure?.({ status: actorsRes.status, body: body as Record<string, unknown>, request: 'leaders' });
           return;
         }
         throw new Error(body.error ?? `Actor generation failed: HTTP ${actorsRes.status}`);
@@ -333,7 +333,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // pre-filtering valid 1-actor responses out at this layer.
       if (!actors || actors.length === 0) {
         if (opts) {
-          opts.onFailure?.({ status: actorsRes.status });
+          opts.onFailure?.({ status: actorsRes.status, request: 'leaders' });
           return;
         }
         throw new Error('Actor generation returned no actors');
