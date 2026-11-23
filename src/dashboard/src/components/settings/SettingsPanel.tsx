@@ -491,7 +491,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       }
       if (data.redirect) {
         // The server took the run: it replaces the Digital Twin views.
-        runStart();
+        runStart(typeof data.runKey === 'string' ? data.runKey : undefined);
         setStatus('Running...');
         emitLaunched(window, data.visitorId);
         const targetHref = resolveSetupRedirectHref(window.location.href, data.redirect);

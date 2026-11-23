@@ -48,6 +48,27 @@ type FlagStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 /** The tab's sessionStorage, read inside the callers' try: the read throws where storage is blocked. */
 const tabStorage = (): FlagStorage => window.sessionStorage;
 
+const RUN_HANDOFF_KEY = 'paracosm:runLaunchHandoff';
+
+/** Passes the accepted run's key to the next document in this tab. */
+export function markRunLaunchHandoff(runKey: unknown): void {
+  if (typeof runKey !== 'string' || runKey.length === 0) return;
+  try { tabStorage().setItem(RUN_HANDOFF_KEY, runKey); } catch { /* storage unavailable */ }
+}
+
+/** Reads the hand-off during render. The mounted page clears it after commit. */
+export function readRunLaunchHandoff(): string | null {
+  try { return tabStorage().getItem(RUN_HANDOFF_KEY); } catch { return null; }
+}
+
+/** Consumes the hand-off once the receiving page has kept its key in state. */
+export function clearRunLaunchHandoff(runKey: string): void {
+  try {
+    const storage = tabStorage();
+    if (storage.getItem(RUN_HANDOFF_KEY) === runKey) storage.removeItem(RUN_HANDOFF_KEY);
+  } catch { /* storage unavailable */ }
+}
+
 /**
  * Marks this tab as having just switched its scenario, right before the
  * reload that brings the new one up. The server still holds the visitor's
