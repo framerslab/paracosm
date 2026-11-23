@@ -49,7 +49,7 @@ const WIDTHS = [1440, 390, 320] as const;
 /** Below this width a key is a phone's: 44 px tall and wide or more. */
 const PHONE_BELOW = 900;
 const PHONE_TARGET = 44;
-const MIN_ROW_FONT = 13;
+const MIN_ROW_FONT = 15;
 
 const sizeOf = (width: number) => ({ width, height: width < PHONE_BELOW ? 844 : 900 });
 
@@ -385,6 +385,7 @@ interface CohortRead {
   window: number;
   /** How much of the first actor's living grid shows on the screen, inside every box that clips it. */
   shown: number;
+  height: number;
   /**
    * The bottom of the part of the first actor's living grid that shows. The
    * grid can be taller than its window, which then scrolls: the words stand
@@ -400,10 +401,10 @@ interface CohortRead {
 /** Reads the cohort view with every box around the grid scrolled back to its top. */
 async function readCohort(page: Page): Promise<CohortRead> {
   return page.evaluate((name) => {
-    const track = document.querySelector('[role="region"][aria-label^="Cohort swarm grid"]') as HTMLElement | null;
-    const canvas = Array.from(document.querySelectorAll('canvas[role="img"]'))
+    const track = document.querySelector('.viz-content [role="region"][aria-label^="Cohort swarm grid"]') as HTMLElement | null;
+    const canvas = Array.from(document.querySelectorAll('.viz-content canvas[role="img"]'))
       .find(c => (c.getAttribute('aria-label') ?? '').startsWith(`${name} colony, turn `) && c.getBoundingClientRect().height > 0) as HTMLElement | undefined;
-    if (!track || !canvas) return { window: -1, shown: -1, gridBottom: -1, wordsTop: null };
+    if (!track || !canvas) return { window: -1, shown: -1, height: 0, gridBottom: -1, wordsTop: null };
     const words = Array.from(document.querySelectorAll('[role="status"] div'))
       .find(d => (d.textContent ?? '').startsWith(`${name}: `)) as HTMLElement | undefined;
     for (const el of [canvas, words]) {
@@ -424,6 +425,7 @@ async function readCohort(page: Page): Promise<CohortRead> {
     return {
       window: track.clientHeight,
       shown: Math.max(0, bottom - top),
+      height: c.height,
       gridBottom: bottom > top ? bottom : Math.min(bottom, c.top),
       wordsTop: words ? words.getBoundingClientRect().top : null,
     };
@@ -488,16 +490,15 @@ for (const look of LOOKS) {
     await painted(page);
     await picture(page, `1440-${look}-cohort-words-open`);
 
-    // On a phone the cohort column's header and metrics fill much of the
-    // window above the grid itself, so how much of the grid shows is recorded
-    // for the reader rather than held to a figure; the window must be there.
+    // Read the first actor's living canvas against the whole window with
+    // the turn words in both states.
     test.info().annotations.push({
       type: 'cohort grid shown at 390 x 844, words folded',
       description: turns.map(({ turn, folded }) => `T${turn}: ${folded.shown.toFixed(1)} px of the grid in a ${folded.window.toFixed(1)} px window`).join('; '),
     });
     for (const { turn, folded, open } of turns) {
       expect.soft(folded.window, `T${turn}: the cohort grid has its window with the words folded`).toBeGreaterThan(0);
-      expect.soft(folded.shown, `T${turn}: the cohort grid itself is visible with the words folded`).toBeGreaterThan(0);
+      expect.soft(folded.shown, `T${turn}: the whole cohort grid is in view with the words folded`).toBeGreaterThanOrEqual(folded.height - 0.5);
       expect.soft(open.wordsTop, `T${turn}: the words are on the page once opened`).not.toBeNull();
       if (open.wordsTop !== null) {
         expect.soft(open.wordsTop, `T${turn}: the words open below the living grid (words from ${open.wordsTop.toFixed(1)} px, the grid shown to ${open.gridBottom.toFixed(1)} px)`).toBeGreaterThanOrEqual(open.gridBottom - 0.5);

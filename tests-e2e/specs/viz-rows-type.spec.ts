@@ -990,7 +990,7 @@ for (const look of LOOKS) {
         await key.click();
         await expect(pngAction(page)).toBeVisible();
         await painted(page);
-        const atExport = await readPanel(page);
+        const atExport = await readGrid(page);
         const [download] = await Promise.all([page.waitForEvent('download'), pngAction(page).click()]);
         await download.saveAs(`${PICTURES}/export-${size.width}x${size.height}-${look}.png`);
         const png = readFileSync(`${PICTURES}/export-${size.width}x${size.height}-${look}.png`);
@@ -1000,8 +1000,10 @@ for (const look of LOOKS) {
         // The test's own ground: the panel draws its grids, and where it scrolls as one a grid stands outside its view.
         expect(png.subarray(1, 4).toString('latin1'), `${where}: the download is a PNG`).toBe('PNG');
         expect(laidOut.grids.length, `${where}: the panel draws a living grid`).toBeGreaterThan(0);
-        const outside = atExport.grids.filter(g => g.top < -0.5 || g.top + g.height > atExport.height + 0.5).length;
-        if (scrolls) expect(outside, `${where}: a grid stands outside the panel's ${atExport.height.toFixed(1)} px view as the export is taken`).toBeGreaterThan(0);
+        if (scrolls) {
+          expect(atExport, `${where}: the grid has a drawing outside the scroll window`).not.toBeNull();
+          expect(atExport!.shownHeight, `${where}: the grid is clipped when the export is taken`).toBeLessThan(atExport!.height - 0.5);
+        }
 
         const lowest = Math.max(...laidOut.grids.map(g => g.top + g.height));
         test.info().annotations.push({
@@ -1030,9 +1032,16 @@ for (const look of LOOKS) {
         // The panel's height changes under the recording: the More panel closes.
         await moreKey(page).click();
         await expect(morePanel(page)).toBeHidden();
+        await playRow(page).evaluate(el => el.scrollIntoView({ block: 'start', inline: 'nearest' }));
         await painted(page);
         await painted(page);
+        const offscreen = await readGrid(page);
+        expect(offscreen?.shownHeight, `${lapse}: the recording continues with the grid entirely out of view`).toBe(0);
         const afterChange = await recordedBox(page);
+        if (afterChange) {
+          expect(afterChange.width, `${lapse}: the offscreen frame still contains the grid's pixels`).toBeGreaterThan(atStart.width * 0.8);
+          expect(afterChange.height, `${lapse}: the offscreen frame still contains the grid's full height`).toBeGreaterThan(atStart.height * 0.8);
+        }
         const [video] = await Promise.all([page.waitForEvent('download'), (await exportAction(page, /^STOP/)).click()]);
         expect.soft(video.suggestedFilename(), `${lapse}: stopping it downloads the recording`).toMatch(/^paracosm-timelapse-.*\.webm$/);
 
