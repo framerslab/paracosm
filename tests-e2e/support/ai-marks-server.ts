@@ -1,6 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ValidatedObjectOptions } from '../../src/llm/generateValidatedObject.js';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createSqliteRunHistoryStore } from '../../src/server/stores/sqlite-run-history.js';
 import { pairRunFrames, DEPARTMENTS } from './pair-run.js';
@@ -10,7 +11,21 @@ const appDir = mkdtempSync(join(tmpdir(), 'paracosm-marks-'));
 const knownFrames = framesToSimEvents(pairRunFrames()).filter(frame => frame.type !== 'status');
 const completedAt = '2026-11-23T00:01:00.000Z';
 
+const instructions = 'Check the water stores before each harvest.';
+const hexaco = { honestyHumility: 0.5, emotionality: 0.5, extraversion: 0.5, agreeableness: 0.5, conscientiousness: 0.5, openness: 0.5 };
+const actorObject = {
+  actors: ['Generated leader', 'Supplied leader'].map(name => ({ name, archetype: 'Engineer', unit: 'Water', instructions, hexaco })),
+};
+
 const server = createMarsServer({
+  generateActorObject: (async () => ({
+    object: actorObject, text: JSON.stringify(actorObject), model: 'test-leader-writer', usage: {},
+  })) as ValidatedObjectOptions<any>['_generateObjectImpl'],
+  chatAgent: (async () => ({
+    session: { send: async () => ({ text: 'The water stores are stable.' }) },
+    isNew: true,
+    model: 'test-chat',
+  })) as NonNullable<Parameters<typeof createMarsServer>[0]['chatAgent']>,
   env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '' },
   maxSimsPerDay: 0,
   runHistoryStore: createSqliteRunHistoryStore({ dbPath: join(appDir, 'history.db') }),
@@ -39,6 +54,10 @@ const server = createMarsServer({
         }
         broadcast('sim', { ...frame, data, leader: actor.name }, actor.name);
       }
+      const [agent] = crewOf(actor.name, 1, DEPARTMENTS, 1);
+      broadcast('sim', { type: 'agent_reactions', leader: actor.name, data: {
+        turn: 1, time: 2035, reactions: [{ ...agent, quote: 'The crew inspected the wells.' }],
+      } }, actor.name);
       broadcast('result', { leader: actor.name, summary: { population: 30, morale: 0.87 } }, actor.name);
     }
     broadcast('verdict', {

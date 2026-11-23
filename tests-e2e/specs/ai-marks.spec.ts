@@ -45,3 +45,30 @@ for (const width of [390, 1440]) {
     });
   }
 }
+
+test('generated leaders and successful chat replies carry their own source', async ({ page }) => {
+  await page.goto(origin + '/sim');
+  const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+    data: { scenarioId: 'mars-genesis', count: 2 },
+  });
+  expect(generated.ok()).toBeTruthy();
+  const { actors } = await generated.json();
+  expect(actors[0].aiAuthorship).toEqual({
+    model: 'test-leader-writer',
+    fields: expect.arrayContaining(['name', 'archetype', 'unit', 'instructions']),
+  });
+  delete actors[1].aiAuthorship;
+  await page.route('**/setup', async route => {
+    await route.continue({ postData: { ...route.request().postDataJSON(), actors } });
+  });
+  await openPair(page, 'dark');
+  await expect(page.getByText('Generated leader', { exact: true }).first()).toBeVisible();
+  const reply = await page.request.post(origin + '/chat', {
+    data: { agentId: 'generated-leader-crew-1', leader: 'Generated leader', message: 'How are the stores?' },
+  });
+  expect(reply.ok()).toBeTruthy();
+  expect(await reply.json()).toMatchObject({
+    reply: 'The water stores are stable.',
+    aiAuthorship: { model: 'test-chat', fields: ['reply'] },
+  });
+});
