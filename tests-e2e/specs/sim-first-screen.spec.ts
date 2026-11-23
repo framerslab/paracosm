@@ -4971,6 +4971,52 @@ screenTest('feature 10: at the reset time the page reads the count again', async
   }
 });
 
+// Feature 10: a press the server refuses at the day's limit is kept, and the count is read again for the reset time.
+// When that read fails, the page asks again by itself, so Start comes back once the day has reset.
+screenTest('feature 10: after a refusal, a count that could not be read is asked for again', async ({ page }) => {
+  test.setTimeout(150_000);
+  let resetAt = 0;
+  let refused = false;
+  await page.route('**/rate-limit', (route: Route) => {
+    // The day resets 12 seconds after the page's first read.
+    if (resetAt === 0) resetAt = Date.now() + 12_000;
+    // Until the press is refused, the count says a run is left.
+    if (!refused) return route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt } });
+    // After it, the count cannot be read until the day has reset; then a run is left again.
+    return Date.now() < resetAt
+      ? route.abort('failed')
+      : route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
+  });
+  // The run's own refusal at the day's limit, in the shape and the words the server answers it with.
+  await page.route('**/setup', (route: Route) => {
+    refused = true;
+    return route.fulfill({
+      status: 429,
+      json: { error: 'Rate limit exceeded. Maximum 1 simulations per day. Add your own API keys in Settings to remove this limit.', limit: 1, remaining: 0 },
+    });
+  });
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const band = root.getByTestId('start-band');
+    const { key } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await key.click();
+    // Refused: the at-limit paragraphs, with no reset time, since the count could not be read.
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    await scrollToBandPlace(root);
+    await expect(root.getByTestId('at-limit-reset')).toHaveText(NO_RUN_LEFT);
+    // No press and no reload: the page asks for the count again until it answers, and the day has reset by then.
+    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/rate-limit');
+    await page.unroute('**/setup');
+  }
+});
+
 // Features 3 and 10: whose keys a run uses comes from the server's settings, so a read that failed is asked again.
 screenTest('feature 10: a settings read that failed is asked again', async ({ page }) => {
   test.setTimeout(120_000);
