@@ -724,14 +724,14 @@ test('pair, cohort and fork persist every actor’s resolved model roles', async
             actors: selected,
             turns: 2,
             seed: 950,
-            initialPopulation: 30,
+            population: 30,
             liveSearch: false,
             captureSnapshots: false,
             provider: 'openai',
+            ...(kind === 'fork' ? { forkFrom: { parentArtifact, atTurn: 1 } } : {}),
           }, marsScenario),
           apiKey: 'placeholder-key-for-a-test',
           models,
-          ...(kind === 'fork' ? { forkFrom: { parentArtifact, atTurn: 1 } } : {}),
         };
         const { events, broadcast } = captureBroadcast();
         const artifacts: Array<{ name: string; artifact: typeof parentArtifact }> = [];

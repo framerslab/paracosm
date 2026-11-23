@@ -332,7 +332,7 @@ test('the Digital Twin stream opens with the economy assignments used by its run
       runKey,
       apiKey: 'placeholder-key-for-a-test',
       subject: { id: 'colony', name: 'Colony' },
-      intervention: { id: 'reserve', name: 'Power reserve' },
+      intervention: { id: 'reserve', name: 'Power reserve', description: 'Keep power in reserve.' },
       options: { costPreset: 'economy' },
     });
     assert.equal(launch.status, 200, await launch.clone().text());
