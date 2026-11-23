@@ -79,7 +79,7 @@ export function TabBar({ active, onTabChange, scenario, moreFirstLine, headerFol
         ))}
       </div>
       <OneRowScroller label={SECTIONS} previousName={PREVIOUS_SECTIONS} nextName={NEXT_SECTIONS}
-        className={styles.scroller} rowClassName={styles.keys}>
+        overflow={fold === 2} className={styles.scroller} rowClassName={styles.keys}>
         {PRIMARY_TABS.map(tab => (
           <a key={tab} className={styles.key} data-reports={tab === 'reports' ? '' : undefined}
             aria-label={TAB_NAMES[tab]} aria-current={active === tab ? 'page' : undefined}

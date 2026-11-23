@@ -20,6 +20,15 @@
   display: none;
 }
 
+.root[data-row-fold='2'] {
+  .keys { flex: 1 1 0; }
+
+  .keys > .key {
+    flex: 0 0 auto;
+    min-inline-size: max-content;
+  }
+}
+
 .keys,
 .probe {
   gap: var(--section-gap);

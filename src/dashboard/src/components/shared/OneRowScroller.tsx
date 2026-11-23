@@ -13,6 +13,8 @@ export interface OneRowScrollerProps {
   label: string;
   previousName?: string;
   nextName?: string;
+  /** Whether the row overflows, when its parent already measures its fit. */
+  overflow?: boolean;
   /** The row's keys, in order. */
   children: ReactNode;
   /** A class for the outer box, which holds the arrow keys and the row. */
@@ -40,7 +42,7 @@ const VIEW_SHARE = 0.8;
  */
 export function OneRowScroller({
   label, previousName = `Show previous ${label}`, nextName = `Show next ${label}`,
-  children, className, rowClassName, role, ariaLabel,
+  overflow, children, className, rowClassName, role, ariaLabel,
 }: OneRowScrollerProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const previousRef = useRef<HTMLButtonElement>(null);
@@ -61,7 +63,7 @@ export function OneRowScroller({
     const room = box.clientWidth
       - parseFloat(boxStyle.paddingLeft) - parseFloat(boxStyle.paddingRight)
       - parseFloat(style.marginLeft) - parseFloat(style.marginRight);
-    const scrolls = row.scrollWidth > room + 1;
+    const scrolls = overflow ?? (row.scrollWidth > room + 1);
     const end = row.scrollWidth - row.clientWidth;
     const previous = scrolls && row.scrollLeft > 1;
     const next = scrolls && row.scrollLeft < end - 1;
@@ -72,7 +74,7 @@ export function OneRowScroller({
     if (active === nextRef.current && !nextRef.current?.disabled && !next && previous) handFocusTo.current = 'previous';
     else if (active === previousRef.current && !previousRef.current?.disabled && !previous && next) handFocusTo.current = 'next';
     setEdges(e => (e.scrolls === scrolls && e.previous === previous && e.next === next ? e : { scrolls, previous, next }));
-  }, []);
+  }, [overflow]);
 
   useEffect(() => {
     const row = rowRef.current;
@@ -124,7 +126,7 @@ export function OneRowScroller({
     row.scrollTo({ left, behavior: reduced ? 'auto' : 'smooth' });
   };
 
-  const { scrolls } = edges;
+  const scrolls = overflow ?? edges.scrolls;
 
   return (
     <div className={[styles.scroller, className].filter(Boolean).join(' ')}>
