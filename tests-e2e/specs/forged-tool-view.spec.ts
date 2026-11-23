@@ -2119,6 +2119,31 @@ test.describe('the forged toolbox on the run\'s record', () => {
         await openPairSim(page, request, size, look);
         const toolbox = await openToolbox(page, 12);
         const exportKey = toolbox.getByRole('button', { name: 'Export JSON', exact: true });
+        const lifecycle = await page.evaluateHandle(() => {
+          const state = { attachedAtClick: false, detachedAfterClick: false, revokedAfterClick: false };
+          const click = HTMLAnchorElement.prototype.click;
+          const revoke = URL.revokeObjectURL;
+          const revoked = new Set<string>();
+          URL.revokeObjectURL = (url) => {
+            revoked.add(url);
+            revoke.call(URL, url);
+          };
+          HTMLAnchorElement.prototype.click = function () {
+            if (this.download === 'paracosm-toolbox.json') {
+              const link = this;
+              const url = link.href;
+              state.attachedAtClick = link.isConnected;
+              HTMLAnchorElement.prototype.click = click;
+              queueMicrotask(() => {
+                state.detachedAfterClick = !link.isConnected;
+                state.revokedAfterClick = revoked.has(url);
+                URL.revokeObjectURL = revoke;
+              });
+            }
+            click.call(this);
+          };
+          return state;
+        });
         const exported = async (): Promise<Array<Record<string, unknown>>> => {
           const [download] = await Promise.all([page.waitForEvent('download'), exportKey.click()]);
           expect(download.suggestedFilename()).toBe('paracosm-toolbox.json');
@@ -2127,6 +2152,12 @@ test.describe('the forged toolbox on the run\'s record', () => {
 
         // Every row, each with the fields the file has always held and the actor that holds the tool.
         const all = await exported();
+        expect(await lifecycle.jsonValue(), 'the export link and blob URL must survive the download click').toEqual({
+          attachedAtClick: true,
+          detachedAfterClick: true,
+          revokedAfterClick: false,
+        });
+        await lifecycle.dispose();
         expect(all.map(row => row.name)).toEqual(await namesOf(rowsOf(toolbox)));
         expect(all).toHaveLength(12);
         expect(all[0]).toMatchObject({
