@@ -21,6 +21,7 @@ import { useScenarioContext } from '../../App';
 import { keepActiveRunActors, readTabKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
+import { markRunLaunchHandoff } from '../../scenario-sync';
 import { compileScenarioWithPolling } from './compile-poll';
 import { sessionProviderKeys } from '../settings/sessionProviderKeys';
 import { atLimitAfter, atLimitReset } from './first-screen/words';
@@ -62,14 +63,8 @@ export interface QuickstartViewProps {
     reset: () => void | Promise<void>;
   };
   sessionId?: string;
-  /** Fires the moment the user clicks Generate so App.tsx can flip the
-   *  user-triggered-run gate that controls the verdict banner + the
-   *  terminal/sim-saved toasts. Without it, a Quickstart-started run
-   *  is treated like a stale rehydration and its outputs stay hidden
-   *  in the cross-tab views (VIZ, REPORTS, banner). App.tsx also leaves
-   *  the Digital Twin views here: a Quickstart launch runs on this tab for
-   *  minutes and ends in a page load when /setup takes the run, and a twin
-   *  answer during it would take the visitor to the SIM tab mid-launch. */
+  /** Leaves the Digital Twin views at launch so a late twin result cannot
+   *  navigate away while Quickstart prepares the run. */
   onRunStarted?: () => void;
   /** True while the SIM tab shows a Digital Twin's progress or result.
    *  The first screen's Start then leaves those views, and the page's
@@ -103,6 +98,14 @@ type Phase =
   | { kind: 'input' }
   | { kind: 'progress'; stage: Stage; scenario?: ScenarioPackage; actors?: ActorConfig[] }
   | { kind: 'results'; scenario: ScenarioPackage; actors: ActorConfig[]; artifacts: RunArtifact[] };
+
+function handOffLaunch(redirect: string, runKey: unknown): void {
+  // The receiving page uses the pending flag for the launch spinner and
+  // the run key to show that run's verdict and notices when it finishes.
+  try { window.localStorage.setItem('paracosm:launchPending', '1'); } catch { /* private mode */ }
+  markRunLaunchHandoff(runKey);
+  window.location.href = resolveSetupRedirectHref(window.location.href, redirect);
+}
 
 /**
  * Map a raw launch-error message (from /setup or /api/quickstart/*)
@@ -275,14 +278,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         // bare /sim lands on the QUICKSTART tab (the URL parser's
         // default), which is exactly where the user just came from,
         // making the click look silently broken.
-        const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string };
+        const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
         if (setupData.redirect) {
-          // Hand off launching state across the page reload — App reads
-          // this on mount so the Sim tab shows "Launching simulation..."
-          // instead of the empty "No simulation running" state during
-          // the 2-5s window between SSE connect and first event.
-          try { window.localStorage.setItem('paracosm:launchPending', '1'); } catch { /* private mode */ }
-          window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
+          handOffLaunch(setupData.redirect, setupData.runKey);
           return;
         }
         // An answer that opens no run is a run that did not start.
@@ -369,13 +367,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         }
         throw new Error(body.error ?? `Setup failed: HTTP ${setupRes.status}`);
       }
-      const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string };
+      const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
       if (setupData.redirect) {
-        // Mirror the preset fast-path: hand off launching state across
-        // the page reload so the Sim tab shows "Launching simulation…"
-        // instead of "No simulation running" during the SSE-connect window.
-        try { window.localStorage.setItem('paracosm:launchPending', '1'); } catch { /* private mode */ }
-        window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
+        handOffLaunch(setupData.redirect, setupData.runKey);
         return;
       }
       restoreActors();
@@ -396,10 +390,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
-    // Flip the user-triggered-run gate before any UI changes so the
-    // verdict banner + terminal/sim-saved toasts unlock for this
-    // session. Symmetric with handleRun's setUserTriggeredRun(true)
-    // in App.tsx.
     onRunStarted?.();
     // Clear local SSE buffer immediately. Without this, the
     // QuickstartProgress panel's "Run N simulations" stage card renders
@@ -493,10 +483,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // on Quickstart staring at the Progress panel until SSE results
       // landed; the loaded-scenario CTA already navigates so the two
       // entry points must behave the same way.
-      const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string };
+      const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
       if (setupData.redirect) {
-        try { window.localStorage.setItem('paracosm:launchPending', '1'); } catch { /* private mode */ }
-        window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
+        handOffLaunch(setupData.redirect, setupData.runKey);
         return;
       }
     } catch (err) {

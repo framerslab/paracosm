@@ -4,17 +4,14 @@
  * abort. Dedup'd across remounts via sessionStorage fingerprint so a
  * page reload after a completed run doesn't re-toast.
  *
- * Cold-load gate: requires `userTriggeredRun` (the user clicked Run
- * during this session). A page that loads with the run already
- * complete via server event-buffer replay or local persistence cache
- * does NOT toast — the user wasn't watching it finish, so announcing
- * it is noise.
+ * Requires a run launched from this page or handed off to it. A cold
+ * load can rehydrate an earlier run without announcing its result.
  *
  * Two distinct toasts:
  *   - Terminal toast: completion / abort outcome, with no verdict info.
  *   - Verdict toast: winner name + headline, fired only when the
- *     verdict landed (pair or cohort). Independent fingerprint so a
- *     cold-loaded run that already had a verdict announces both.
+ *     verdict landed (pair or cohort). Its own fingerprint lets the
+ *     verdict and the completion each announce once.
  *
  * Extracted from App.tsx.
  */
@@ -26,6 +23,7 @@ const STORAGE_KEY = 'paracosm:terminalToastFingerprint';
 const VERDICT_STORAGE_KEY = 'paracosm:verdictToastFingerprint';
 
 export interface UseTerminalToastOptions {
+  runKey: string | null;
   isComplete: boolean;
   isAborted: boolean;
   abortReason: AbortReasonState | null;
@@ -33,7 +31,7 @@ export interface UseTerminalToastOptions {
   hasVerdict: boolean;
   replayDone: boolean;
   tourActive: boolean;
-  /** True only after the user clicked Run during this session. */
+  /** True when the page launched this run or received its hand-off. */
   userTriggeredRun: boolean;
   /**
    * Full verdict payload — null while pending. Used to render the
@@ -45,6 +43,7 @@ export interface UseTerminalToastOptions {
 }
 
 export function useTerminalToast({
+  runKey,
   isComplete,
   isAborted,
   abortReason,
@@ -61,9 +60,9 @@ export function useTerminalToast({
     if (!userTriggeredRun) return;
     if (!isComplete && !isAborted) return;
     if (!replayDone) return;
-    const fingerprint = isAborted
+    const fingerprint = runKey ?? (isAborted
       ? `aborted:${abortReason?.reason ?? 'unknown'}:${abortReason?.leader ?? ''}:${abortReason?.turn ?? ''}`
-      : `complete:${resultsCount}:${hasVerdict ? 'v' : 'nv'}`;
+      : `complete:${resultsCount}:${hasVerdict ? 'v' : 'nv'}`);
     try {
       if (sessionStorage.getItem(STORAGE_KEY) === fingerprint) return;
       sessionStorage.setItem(STORAGE_KEY, fingerprint);
@@ -75,7 +74,7 @@ export function useTerminalToast({
     } else {
       toast('success', 'Simulation complete', 'Open the Reports tab for the verdict + full breakdown.');
     }
-  }, [isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [runKey, isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, tourActive, userTriggeredRun, toast]);
 
   // Verdict toast — separate effect so the winner announcement fires
   // even when the verdict arrives a beat AFTER the terminal toast
@@ -95,7 +94,7 @@ export function useTerminalToast({
       // Skipped-verdict toast — explains the missing banner so users
       // don't refresh the page assuming something hung.
       const reason = String((verdict as { reason?: unknown }).reason || 'unknown');
-      const fingerprint = `skipped:${reason}`;
+      const fingerprint = runKey ?? `skipped:${reason}`;
       try {
         if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
         sessionStorage.setItem(VERDICT_STORAGE_KEY, fingerprint);
@@ -127,7 +126,7 @@ export function useTerminalToast({
       const named = String((verdict as { winnerName?: unknown }).winnerName || '').trim();
       return named || `Leader ${winner}`;
     })();
-    const fingerprint = `${mode}:${winner}:${winnerName}:${headline}`;
+    const fingerprint = runKey ?? `${mode}:${winner}:${winnerName}:${headline}`;
     try {
       if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
       sessionStorage.setItem(VERDICT_STORAGE_KEY, fingerprint);
@@ -140,5 +139,5 @@ export function useTerminalToast({
       : (isTie ? 'Verdict: tie' : `${winnerName} wins`);
     const body = headline || 'Click the verdict banner for the full breakdown.';
     toast('success', title, body);
-  }, [verdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [runKey, verdict, replayDone, tourActive, userTriggeredRun, toast]);
 }
