@@ -57,6 +57,8 @@
  * - On a phone 560 px tall, taller than the short screen, a spotlight
  *   tapped with its grid scrolled above the view opens its drilldown with
  *   the name and the Close key in view.
+ * - Wider than 768 px the department donut in the colony's stats card says
+ *   its count at 15 px or more.
  * - The 15 px floor and the Viz layout stay inside the Viz panel: on the
  *   Run tab the track of one panel a leader keeps the dashboard's own size
  *   for a leader's name, and its grids paint their words below 15 px.
@@ -616,6 +618,15 @@ test('the living grid draws its labels at the Viz text size', async ({ page, req
   });
   await expect.poll(async () => (await sizes()).length).toBeGreaterThan(0);
   expect((await sizes()).filter(size => size < READ_SIZE)).toEqual([]);
+});
+
+test('the department donut in the colony\'s stats card says its count at the Viz text size', async ({ page, request }) => {
+  const run = await pairRun(request);
+  // Wider than 768 px the stats card carries the donut.
+  await openRun(page, run, 'dark', sizeAt(1440));
+  const count = viz(page).getByRole('img', { name: /^Department breakdown:/ }).first().locator('text');
+  await expect(count).toHaveText(/^\d+$/);
+  expect(await count.evaluate(el => parseFloat(getComputedStyle(el).fontSize)), 'the count of the colony\'s living members').toBeGreaterThanOrEqual(READ_SIZE);
 });
 
 test('the Viz panel\'s 15 px words stay in the Viz panel: the Run tab\'s track of one panel a leader keeps its own sizes', async ({ page, request }) => {
