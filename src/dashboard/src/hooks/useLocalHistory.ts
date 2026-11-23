@@ -79,7 +79,14 @@ export function useLocalHistory(
   // re-run because migrateLegacySlot returns null when the key is
   // empty or absent (and we remove it after the first successful pull).
   useEffect(() => {
-    const raw = storage.getItem(legacySlotKey(opts.scenarioShortName));
+    const key = legacySlotKey(opts.scenarioShortName);
+    let raw: string | null;
+    try {
+      raw = storage.getItem(key);
+    } catch {
+      // Storage is unavailable, so there is no legacy run to migrate.
+      return;
+    }
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
@@ -94,7 +101,7 @@ export function useLocalHistory(
     } catch {
       // Malformed legacy payload — drop it below.
     }
-    storage.removeItem(legacySlotKey(opts.scenarioShortName));
+    storage.removeItem(key);
   }, [opts.scenarioShortName, maxSize, storage]);
 
   const push = useCallback(
