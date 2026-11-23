@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../engine/types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolveSimulationRouting } from '../../cli/sim-config.js';
 import { ProviderKeyMissingError } from '../../engine/provider/resolver.js';
@@ -24,6 +25,7 @@ export interface RunRecord {
   mode?: 'turn-loop' | 'batch-trajectory' | 'batch-point';
   /** Captured leader display name for the gallery card. */
   actorName?: string;
+  aiAuthorship?: ActorAuthorship;
   /** Captured leader archetype for the gallery card. */
   actorArchetype?: string;
   /** UUID shared by all runs from one Quickstart submission. Set when the

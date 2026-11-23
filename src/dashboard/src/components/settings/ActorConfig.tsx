@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../../../engine/types.js';
 import { useId } from 'react';
 import { HexacoSlider } from './HexacoSlider';
 import { TraitModelNotice } from './TraitModelNotice';
@@ -8,6 +9,7 @@ export interface ActorFormData {
   archetype: string;
   unit: string;
   instructions: string;
+  aiAuthorship?: ActorAuthorship;
   hexaco: Record<string, number>;
 }
 
@@ -47,11 +49,17 @@ export function ActorConfig({ label, sideColor, data, onChange }: ActorConfigPro
   const instructionsId = `${idPrefix}-instructions`;
   const presetId = `${idPrefix}-preset`;
 
-  const update = (field: keyof ActorFormData, value: string) =>
-    onChange({ ...data, [field]: value });
+  const editAuthorship = (field: string) => {
+    if (!data.aiAuthorship) return undefined;
+    const fields = data.aiAuthorship.fields.filter(value => value !== field);
+    return fields.length ? { ...data.aiAuthorship, fields } : undefined;
+  };
+
+  const update = (field: 'name' | 'archetype' | 'unit' | 'instructions', value: string) =>
+    onChange({ ...data, [field]: value, aiAuthorship: data[field] === value ? data.aiAuthorship : editAuthorship(field) });
 
   const updateHexaco = (key: string, value: number) =>
-    onChange({ ...data, hexaco: { ...data.hexaco, [key]: value } });
+    onChange({ ...data, hexaco: { ...data.hexaco, [key]: value }, aiAuthorship: editAuthorship('hexaco') });
 
   return (
     <div

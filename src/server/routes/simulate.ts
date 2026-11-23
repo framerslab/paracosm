@@ -40,6 +40,10 @@ const LeaderSchema = z.object({
     honestyHumility: z.number().min(0).max(1),
   }),
   instructions: z.string().default(''),
+  aiAuthorship: z.object({
+    model: z.string().min(1).max(160),
+    fields: z.array(z.enum(['name', 'archetype', 'unit', 'hexaco', 'instructions'])).max(5),
+  }).optional(),
 });
 
 const SimulateOptionsSchema = z.object({

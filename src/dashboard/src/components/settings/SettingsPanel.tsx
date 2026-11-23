@@ -123,7 +123,7 @@ function defaultLeader(idx: number, scenario: ScenarioLabelsInput): ActorFormDat
 }
 
 /** A leader as /setup stored it after the last launch (readActiveRunActors). */
-type StoredLeader = { name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> };
+type StoredLeader = { aiAuthorship?: ActorFormData['aiAuthorship']; name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> };
 
 /**
  * The default preset's leaders. Server's projectScenarioForClient ships
@@ -171,6 +171,7 @@ function withPresetLeaders(
       archetype: preset.archetype,
       unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
       instructions: preset.instructions,
+      aiAuthorship: preset.aiAuthorship,
       hexaco: { ...preset.hexaco },
       ...edited,
     };
@@ -238,6 +239,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         archetype: fallback.archetype ?? '',
         unit: fallback.unit ?? leaderUnit(scenario, idx),
         instructions: fallback.instructions ?? '',
+        aiAuthorship: fallback.aiAuthorship,
         hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
       };
     });

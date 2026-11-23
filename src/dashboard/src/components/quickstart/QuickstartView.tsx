@@ -235,6 +235,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
         // engine that consumes them, so the keys match by contract.
         hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
         instructions: p.instructions,
+        ...(p.aiAuthorship ? { aiAuthorship: p.aiAuthorship } : {}),
       } as ActorConfig));
       if (!keepsTwin) await sse.reset();
       // Persist the actors we're about to launch so the SIM header

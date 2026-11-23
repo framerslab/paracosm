@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../../engine/types.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { subscribeScenarioUpdates } from '../scenario-sync';
 
@@ -53,8 +54,8 @@ export interface ScenarioClientPayload {
      *  the dashboard receives `leaders`, not `actors`. The legacy
      *  `actors` alias is preserved as optional so older code paths
      *  that expected it still typecheck while we migrate. */
-    leaders?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string }>;
-    actors?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string }>;
+    leaders?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string; aiAuthorship?: ActorAuthorship }>;
+    actors?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string; aiAuthorship?: ActorAuthorship }>;
     personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   }>;
   ui: {

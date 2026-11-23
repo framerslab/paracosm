@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
 import { sessionProviderKeys } from '../settings/sessionProviderKeys';
 import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
@@ -6,6 +7,7 @@ import type { GameState } from '../../hooks/useGameState';
 import styles from './ChatPanel.module.scss';
 
 interface ChatMessage {
+  authored?: boolean;
   role: 'user' | 'agent';
   name?: string;
   text: string;
@@ -403,8 +405,8 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
         }),
       });
       const data = await res.json();
-      if (data.reply) {
-        setMessagesFor(thread, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply }]);
+      if (res.ok && typeof data.reply === 'string' && data.reply) {
+        setMessagesFor(thread, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply, authored: true }]);
         setHistoryFor(thread, prev => [...prev, { role: 'assistant', content: data.reply }]);
         // Bubble the chat turn's token/cost usage up so the footer can
         // add it to the simulation-cost total. Failure-path responses
@@ -624,9 +626,9 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
               className={[styles.bubbleWrap, msg.role === 'user' ? styles.fromUser : styles.fromAgent].join(' ')}
             >
               {msg.name && <div className={styles.bubbleName}>{msg.name}</div>}
-              <div className={[styles.bubble, msg.role === 'user' ? styles.user : ''].filter(Boolean).join(' ')}>
+              <AiWritten as="div" authored={msg.authored === true} className={[styles.bubble, msg.role === 'user' ? styles.user : ''].filter(Boolean).join(' ')}>
                 {msg.text}
-              </div>
+              </AiWritten>
             </div>
           ))}
 

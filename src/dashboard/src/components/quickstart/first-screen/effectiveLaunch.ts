@@ -258,6 +258,7 @@ export function effectiveLaunch(
       archetype: leader.archetype,
       hexaco: leader.hexaco,
       instructions: leader.instructions,
+      ...(leader.aiAuthorship ? { aiAuthorship: leader.aiAuthorship } : {}),
     }));
   }
   body.turns = turns;

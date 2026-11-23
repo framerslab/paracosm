@@ -1,3 +1,4 @@
+import { AiWritten } from '../../shared/AiWritten';
 /**
  * The two leaders of a pair, before the run starts: each leader's place
  * figure, name, title, six scores as bars with their figures, and its
@@ -53,6 +54,7 @@ interface PairLeader {
   title: string;
   scores: Partial<Record<HexacoTrait, number>> | null;
   orders: string;
+  ordersAuthored?: boolean;
 }
 
 /**
@@ -73,6 +75,7 @@ export function pairOf(scenario: Pick<ScenarioClientPayload, 'presets'>): PairLe
       title: leader.archetype ?? '',
       scores: readScores(leader.hexaco),
       orders: leader.instructions ?? '',
+      ordersAuthored: leader.aiAuthorship?.fields.includes('instructions'),
     };
   });
 }
@@ -98,7 +101,7 @@ function Orders({ leader, noneWritten }: { leader: PairLeader; noneWritten: bool
   return (
     <>
       <Mark>{ORDERS_MARK}</Mark>
-      <blockquote className={styles.ordersText} data-text="body" data-testid="leader-orders">{leader.orders}</blockquote>
+      <blockquote className={styles.ordersText} data-text="body" data-testid="leader-orders"><AiWritten authored={leader.ordersAuthored === true}>{leader.orders}</AiWritten></blockquote>
       {leader.scores && <p className={styles.note} data-testid="hexaco-note">{HEXACO_NOTE}</p>}
     </>
   );

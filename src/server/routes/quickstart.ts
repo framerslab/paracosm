@@ -165,6 +165,10 @@ const LeaderSchema = z.object({
     honestyHumility: z.number().min(0).max(1),
   }),
   instructions: z.string().max(400).default(''),
+  aiAuthorship: z.object({
+    model: z.string().min(1).max(160),
+    fields: z.array(z.enum(['name', 'archetype', 'unit', 'hexaco', 'instructions'])).max(5),
+  }).optional(),
 });
 
 const SimulateInterventionSchema = z.object({
@@ -271,6 +275,7 @@ function isRefusal(value: QuickstartModelCalls | QuickstartRefusal): value is Qu
 }
 
 export interface QuickstartDeps {
+  generateActorObject?: NonNullable<Parameters<typeof generateQuickstartActors>[2]>['generateObjectImpl'];
   /** Installs a compiled scenario into the server catalog and persists it.
    *  It becomes nobody's pick by itself: the visitor who compiled it gets
    *  it through `pickHeaders` on the answers they receive. The optional
@@ -743,6 +748,7 @@ export async function handleGenerateActors(
   const count = maxActors !== undefined ? Math.min(parsed.data.count, maxActors) : parsed.data.count;
   try {
     const actors = await generateQuickstartActors(scenario, count, {
+      generateObjectImpl: deps.generateActorObject,
       provider: calls.provider,
       model: calls.model,
       apiKey: apiKeyForProvider(calls.provider, calls),
@@ -965,6 +971,7 @@ export async function handleSimulateIntervention(
       archetype: effectiveLeader.archetype,
       unit: effectiveLeader.unit,
       hexaco: effectiveLeader.hexaco,
+      aiAuthorship: effectiveLeader.aiAuthorship,
     }],
   });
   const onEvent = (event: { type: string; leader?: string }) => {

@@ -560,7 +560,10 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
     || 'leader';
   const sid = `${sc.labels.shortName}-v2-${archetypeSlug}`;
-  const provenance = makeRunProvenance({ ...modelConfig });
+  const provenance = makeRunProvenance({
+    ...modelConfig,
+    ...(leader.aiAuthorship?.fields.length ? { leaderWriter: leader.aiAuthorship.model } : {}),
+  });
   // Cost tracking: accumulate token usage and estimated cost across all LLM calls
   // Cost tracker: per-site buckets + cache-aware fallback estimation.
   // Lives in cost-tracker.ts so the math has one home and the turn loop
@@ -2139,6 +2142,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           name: leader.name,
           archetype: leader.archetype,
           unit: leader.unit,
+          ...(leader.aiAuthorship ? { aiAuthorship: leader.aiAuthorship } : {}),
           hexaco: commanderHexacoLive,
           hexacoBaseline: { ...leader.hexaco },
           hexacoHistory: commanderHexacoHistory,

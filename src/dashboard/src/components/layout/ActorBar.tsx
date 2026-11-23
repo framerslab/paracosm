@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 import * as React from 'react';
 import type { LeaderInfo, TurnEventInfo } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
@@ -271,7 +272,7 @@ export function ActorBar({
             </b>
             {unit && <div>Unit: {unit}</div>}
             {leader?.instructions && (
-              <div className={styles.tooltipInstructions}>{leader.instructions}</div>
+              <AiWritten as="div" className={styles.tooltipInstructions} authored={leader.aiAuthorship?.fields.includes("instructions") === true}>{leader.instructions}</AiWritten>
             )}
             {hasHexaco && (
               <div className={styles.tooltipTraitBlock}>
@@ -309,7 +310,9 @@ export function ActorBar({
                 .replace(/^"[^"]+"\.\s*/i, '')
                 .replace(/Your HEXACO profile drives your leadership.*$/i, '')
                 .trim();
-              if (bio) return `"${bio.slice(0, 80)}${bio.length > 80 ? '...' : ''}"`;
+              if (bio) return <AiWritten authored={leader.aiAuthorship?.fields.includes('instructions') === true}>
+                {`"${bio.slice(0, 80)}${bio.length > 80 ? '...' : ''}"`}
+              </AiWritten>;
             }
             // Empty-state hint: no quote, no bio, no sim activity yet.
             // Tells the user the card is alive and just waiting for data

@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../../engine/types.js';
 import { useMemo } from 'react';
 import type { SimEvent } from './useSSE';
 
@@ -32,6 +33,7 @@ export interface MetricsState {
 }
 
 export interface LeaderInfo {
+  aiAuthorship?: ActorAuthorship;
   name: string;
   archetype: string;
   unit: string;

@@ -831,7 +831,14 @@ function forkParentTimeline(
  * five traits undefined, and the rule threw on every decision of the run.
  * An actor without a HEXACO profile is returned as it came.
  */
-function withNeutralTraits(actor: ActorConfig): ActorConfig {
+function withNeutralTraits(input: ActorConfig): ActorConfig {
+  const { aiAuthorship, ...actor } = input;
+  const fields = ['name', 'archetype', 'unit', 'hexaco', 'instructions'];
+  if (typeof aiAuthorship?.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(aiAuthorship.model)
+      && Array.isArray(aiAuthorship.fields)) {
+    const authored = aiAuthorship.fields.filter(field => fields.includes(field));
+    if (authored.length) Object.assign(actor, { aiAuthorship: { model: aiAuthorship.model, fields: [...new Set(authored)] } });
+  }
   const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
   if (!given || typeof given !== 'object') return actor;
   const filled: string[] = [];

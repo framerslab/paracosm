@@ -25,7 +25,7 @@ export function enrichRunRecordFromArtifact(base: RunRecord, artifact: RunArtifa
     | {
         outputPath?: string;
         paracosmInternal?: {
-          leader?: { name?: string; archetype?: string };
+          leader?: { name?: string; archetype?: string; aiAuthorship?: RunRecord['aiAuthorship'] };
         };
       }
     | undefined;
@@ -39,7 +39,7 @@ export function enrichRunRecordFromArtifact(base: RunRecord, artifact: RunArtifa
   // artifacts that hand-roll the shape.
   const leader =
     ext?.paracosmInternal?.leader ??
-    (artifact as { leader?: { name?: string; archetype?: string } }).leader;
+    (artifact as { leader?: { name?: string; archetype?: string; aiAuthorship?: RunRecord['aiAuthorship'] } }).leader;
   const cost = (artifact as { cost?: { totalUSD?: number } }).cost;
 
   const startedAt = meta?.startedAt;
@@ -55,6 +55,7 @@ export function enrichRunRecordFromArtifact(base: RunRecord, artifact: RunArtifa
   if (meta?.mode === 'turn-loop' || meta?.mode === 'batch-trajectory' || meta?.mode === 'batch-point') {
     enriched.mode = meta.mode;
   }
+  if (leader?.aiAuthorship) enriched.aiAuthorship = leader.aiAuthorship;
   if (leader?.name) enriched.actorName = leader.name;
   if (leader?.archetype) enriched.actorArchetype = leader.archetype;
 

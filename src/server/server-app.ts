@@ -633,6 +633,7 @@ export interface CreateMarsServerOptions {
    * calls no model.
    */
   chatAgent?: typeof import('../runtime/agents/chat-agents.js').getOrCreateChatAgent;
+  generateActorObject?: QuickstartDeps['generateActorObject'];
   /**
    * Override the session store instance. Intended for tests; the
    * default production path opens a SQLite store at
@@ -3105,6 +3106,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (body && typeof body === 'object' && refuseUnencryptedKeys(req, res, clientIpHeader !== null, body as Record<string, unknown>)) return;
         const quickstartVisitor = readVisitorId(req);
         const quickstartDeps: QuickstartDeps = {
+          generateActorObject: options.generateActorObject,
           installCompiledScenario: (compiledFromSeed, seedText) => {
             const seed = typeof seedText === 'string' && seedText.trim().length > 0
               ? seedText.slice(0, 1000)
@@ -3952,7 +3954,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const provider = chatRouting
           ? chatRouting.provider
           : resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
-        const { session, isNew, release } = await getOrCreateChatAgent(profile, memories, {
+        const { session, isNew, release, model } = await getOrCreateChatAgent(profile, memories, {
           provider,
           apiKey: chatCredentials.apiKey,
           anthropicKey: chatCredentials.anthropicKey,
@@ -3981,6 +3983,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           reply: result.text,
+          ...(model ? { aiAuthorship: { model, fields: ['reply'] } } : {}),
           colonist: profile.name,
           memorySeeded: memories.length,
           firstMessage: isNew,

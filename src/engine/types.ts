@@ -407,7 +407,13 @@ export interface Scenario {
  * The legacy `ActorConfig` name is exported below as a `@deprecated`
  * type alias so 0.7.x callers compile unchanged. Drop in 1.0.
  */
+export interface ActorAuthorship {
+  model: string;
+  fields: string[];
+}
+
 export interface ActorConfig {
+  aiAuthorship?: ActorAuthorship;
   name: string;
   archetype: string;
   /**
