@@ -25,3 +25,25 @@ export async function lookOf(page: Page): Promise<{ light: boolean; scheme: stri
     metas: Array.from(document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'), (meta) => meta.content),
   }));
 }
+
+import type { DashboardTab } from '../../src/dashboard/src/tab-routing.js';
+
+/** Opens a dashboard tab by its accessible key. */
+export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
+  await page.getByRole('tab', { name: tab.toUpperCase(), exact: true }).click();
+}
+
+/** Scales the computed text sizes together, including fixed pixel line heights. */
+export async function scaleText(page: Page, factor: number): Promise<void> {
+  await page.evaluate((scale) => {
+    const entries = Array.from(document.querySelectorAll<HTMLElement>('body, body *')).flatMap(element => {
+      if (!(element instanceof HTMLElement)) return [];
+      const style = getComputedStyle(element);
+      return [{ element, fontSize: parseFloat(style.fontSize), lineHeight: style.lineHeight }];
+    });
+    for (const { element, fontSize, lineHeight } of entries) {
+      if (Number.isFinite(fontSize)) element.style.setProperty('font-size', fontSize * scale + 'px', 'important');
+      if (lineHeight.endsWith('px')) element.style.setProperty('line-height', parseFloat(lineHeight) * scale + 'px', 'important');
+    }
+  }, factor);
+}

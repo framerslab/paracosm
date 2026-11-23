@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { measureReadability } from '../support/first-screen-measure.js';
-import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf } from '../support/frame.js';
+import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, scaleText } from '../support/frame.js';
 import { FIGURES, measureText } from '../support/readability.js';
 
 const LOOKS = ['light', 'dark'] as const;
@@ -146,3 +146,231 @@ async function geometry(page: Page) {
   expect(family).toMatch(/^["']?Inter["']?,/);
   return { bannerHeight: (await banner.boundingBox())!.height, mainTop: (await main.boundingBox())!.y };
 }
+
+const runMenu = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
+const replayStatus = (page: Page) => page.getByRole('status').filter({ hasText: /^REPLAYING/i });
+const runStatus = (page: Page) => page.getByRole('region', { name: 'Run status' });
+const savedPair = (page: Page) => page.getByRole('link', { name: /Aria Chen.*Dietrich Voss.*Mars Genesis/i });
+const start = (page: Page) => page.getByRole('button', { name: /^Start\b/i });
+
+test('the RUN menu leaves, and saved runs are in Library', async ({ page }) => {
+  await page.goto(SERVERS.replay + '/sim');
+  await expect(page.getByRole('tab', { name: 'QUICKSTART' })).toBeVisible();
+  for (const tab of ['quickstart', 'sim', 'reports', 'settings', 'studio', 'library'] as const) {
+    await openTab(page, tab);
+    await expect(runMenu(page)).toHaveCount(0);
+  }
+  await expect(page.getByRole('heading', { name: 'Saved runs', exact: true })).toBeVisible();
+  await expect(savedPair(page)).toBeVisible();
+  const replay = new URL((await savedPair(page).getAttribute('href'))!, page.url());
+  expect(replay.searchParams.get('replay')).toBeTruthy();
+  expect(replay.searchParams.get('tab')).toBe('sim');
+  await savedPair(page).click();
+  await expect(page).toHaveURL(replay.href);
+  await expect(replayStatus(page)).toBeVisible();
+});
+
+test('runs kept in this browser are in Library', async ({ page }) => {
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  await savedPair(page).click();
+  await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Complete/ })).toBeVisible();
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  const local = page.getByRole('region', { name: 'Kept in this browser' });
+  const restore = local.getByRole('button', { name: 'Restore', exact: true }).first();
+  await expect(restore).toBeVisible();
+  await restore.click();
+  await expect(page).toHaveURL(/[?&]tab=sim/);
+  await expect(runStatus(page)).toBeVisible();
+  await openTab(page, 'library');
+  const question = page.waitForEvent('dialog');
+  const answer = question.then(dialog => dialog.dismiss());
+  await restore.click();
+  expect((await question).message()).toBe('Replace the run on screen with this one?');
+  await answer;
+  await expect(page).toHaveURL(/[?&]tab=library/);
+  await expect(runStatus(page)).toBeVisible();
+  await local.getByRole('button', { name: 'Clear this list' }).click();
+  await expect(local).toHaveCount(0);
+});
+
+test('a run file opens from Studio, or dropped anywhere', async ({ page }) => {
+  await page.goto(SIM);
+  await openTab(page, 'studio');
+  const contents = JSON.stringify({
+    schemaVersion: 3,
+    events: ['turn_start', 'turn_done'].map(type => ({
+      type, leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' },
+    })),
+  });
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.getByRole('button', { name: 'Open a run file', exact: true }).click(),
+  ]);
+  await chooser.setFiles({ name: 'run.json', mimeType: 'application/json', buffer: Buffer.from(contents) });
+  const preview = page.getByRole('dialog', { name: 'Load simulation' });
+  await expect(preview).toBeVisible();
+  await preview.getByRole('button', { name: 'Cancel' }).click();
+  await openTab(page, 'quickstart');
+  const dataTransfer = await page.evaluateHandle(body => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([body], 'run.json', { type: 'application/json' }));
+    return transfer;
+  }, contents);
+  await page.locator('body').dispatchEvent('drop', { dataTransfer });
+  await expect(preview).toBeVisible();
+});
+
+test('the run actions leave the idle page and stay in Settings', async ({ page }) => {
+  await page.goto(SERVERS.admin + '/sim?tab=settings');
+  const actions = page.getByRole('button', { name: 'Open run actions menu' });
+  const stored = page.getByRole('group', { name: 'Stored data' });
+  await expect(stored).toBeVisible();
+  await expect(actions).toHaveCount(0);
+  const questions: string[] = [];
+  page.on('dialog', async dialog => {
+    questions.push(dialog.message());
+    if (dialog.message().startsWith('Clear local data?')) await dialog.dismiss();
+    else await dialog.accept();
+  });
+  await stored.getByRole('button', { name: 'Clear local data' }).click();
+  expect(questions[0]).toMatch(/^Clear local data\?/);
+  await page.locator('#admin-token').fill('e2e-admin-token');
+  await page.getByRole('button', { name: 'Save admin token' }).click();
+  const wipe = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/admin/data/wipe');
+  await page.route('**/admin/data/wipe', route => route.fulfill({ status: 200, json: { ok: true } }));
+  await stored.getByRole('button', { name: 'Delete server data' }).click();
+  await wipe;
+  expect(questions[1]).toMatch(/^Delete server data\?/);
+
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  await savedPair(page).click();
+  await expect(runStatus(page)).toBeVisible();
+  await actions.click();
+  for (const name of ['Save', 'Share viz link', 'Copy', 'Clear local data']) {
+    await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
+  }
+});
+
+test('feature 13: the foot ends every tab', async ({ page, context }) => {
+  test.setTimeout(120_000);
+  const foot = page.getByRole('contentinfo');
+  const nav = foot.getByRole('navigation', { name: 'Site links' });
+  const pages = ['quickstart', 'sim', 'reports', 'studio', 'viz', 'library', 'settings'] as const;
+  const links = [
+    ['Docs', '/docs'],
+    ['GitHub', 'https://github.com/framerslab/paracosm'],
+    ['npm', 'https://www.npmjs.com/package/paracosm'],
+    ['Privacy', '/#privacy'],
+  ] as const;
+  for (const look of LOOKS) {
+    await page.emulateMedia({ colorScheme: look });
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(SIM);
+      for (const tab of pages) {
+        await openTab(page, tab);
+        await expect(foot).toHaveCount(1);
+        await expect(page.getByRole('main').getByRole('contentinfo')).toHaveCount(0);
+        await expect(foot).toContainText("For adults. Under 18? Use it with a parent's or guardian's permission.");
+        await expect(foot).toContainText('Paracosm · Apache-2.0 · Frame.dev');
+        const before = (await foot.boundingBox())!.y;
+        await foot.scrollIntoViewIfNeeded();
+        expect((await foot.boundingBox())!.y).toBeLessThan(before);
+        for (const [name, href] of links) {
+          const link = nav.getByRole('link', { name, exact: true });
+          await expect(link).toHaveAttribute('href', href);
+          expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          if (name === 'GitHub' || name === 'npm') await expect(link).toHaveAttribute('target', '_blank');
+        }
+        await expect(nav.getByRole('link', { name: 'Terms', exact: true })).toHaveCount(0);
+        await expect(foot.locator('img, canvas')).toHaveCount(0);
+        await expect(runStatus(page)).toHaveCount(0);
+        expect(await measureReadability(page, '[role="contentinfo"]')).toEqual([]);
+      }
+      await context.setOffline(true);
+      await expect(nav.getByRole('link')).toHaveText(links.map(([label]) => label));
+      await context.setOffline(false);
+    }
+    await page.goto(SIM);
+    for (const width of [320, 360, 390, 430, 480, 600, 768, 1100, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(nav.getByRole('link')).toHaveCount(4);
+      const boxes = await Promise.all((await nav.getByRole('link').all()).map(async link => (await link.boundingBox())!));
+      expect(boxes.every(box => Math.abs(box.y - boxes[0].y) <= 1)).toBe(true);
+      if (width === 320) expect(boxes[1].x - boxes[0].x - boxes[0].width).toBeGreaterThanOrEqual(8);
+      if (width >= 600) {
+        const licence = (await foot.getByTestId('foot-licence').boundingBox())!;
+        const last = boxes[boxes.length - 1];
+        expect(licence.x).toBeGreaterThan(last.x + last.width);
+      }
+      expect(await foot.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    }
+    await page.setViewportSize({ width: 320, height: 844 });
+    await scaleText(page, 2);
+    const more = nav.getByRole('button', { name: 'More links' });
+    await expect(nav.getByRole('link', { name: 'Privacy' })).toBeVisible();
+    await more.click();
+    await expect(nav.getByRole('menuitem')).toHaveText(['Docs', 'GitHub', 'npm']);
+  }
+});
+
+test('feature 13: one Analytics choices control', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(SERVERS.consent + '/sim?tab=reports');
+  await page.getByRole('button', { name: 'Reject all', exact: true }).click();
+  const choices = page.getByRole('button', { name: 'Analytics choices', exact: true });
+  await expect(choices).toHaveCount(1);
+  await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Analytics choices' }).getByRole('switch')).toHaveCount(3);
+  await page.goto(SIM);
+  await expect(choices).toHaveCount(0);
+});
+
+test('the run’s status bar shows only while a run exists', async ({ page }) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.82' });
+  await page.goto(SERVERS.demo + '/sim');
+  await expect(start(page)).toBeEnabled();
+  await expect(runStatus(page)).toHaveCount(0);
+  await start(page).click();
+  await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
+  await expect(page.getByRole('contentinfo')).toHaveCount(1);
+});
+
+test('one way to start a run, and Start lands on Watch', async ({ page }) => {
+  for (const [index, width] of [390, 1440].entries()) {
+    await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.' + (83 + index) });
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(SERVERS.demo + '/sim');
+    await expect(start(page)).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^(RUN|Run New Simulation|Run Simulation)$/ })).toHaveCount(0);
+    await start(page).click();
+    await expect(page).toHaveURL(/[?&]tab=sim/);
+    await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+  }
+});
+
+test('no tour', async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    await Promise.all([390, 1440].map(async width => {
+      const page = await context.newPage();
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(SIM);
+      const how = page.getByRole('button', { name: 'How it works', exact: true });
+      await expect(how).toBeVisible();
+      await page.waitForTimeout(30_000);
+      await expect(page.locator('[data-tour-overlay]')).toHaveCount(0);
+      await expect(page.getByRole('dialog', { name: /Guided tour/i })).toHaveCount(0);
+      await expect(page.getByText('Take the guided tour')).toHaveCount(0);
+      const card = page.getByRole('dialog', { name: 'How it works' });
+      await how.click();
+      await expect(card).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(card).toHaveCount(0);
+      await how.click();
+      await expect(card).toBeVisible();
+    }));
+  } finally {
+    await context.close();
+  }
+});
