@@ -1372,7 +1372,6 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           totalDepartments={scenario.departments.length}
         />
         {!narrow && eventRow}
-        {!narrow && comparison}
         {vizMode === 'pair' && phone && (
           <div
             role="tablist"
@@ -1533,6 +1532,9 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         </div>
         )}
         {narrow && eventRow}
+        {/* Keep the whole field above playback on desktop. The comparison
+            follows the stacked notices on narrow screens. */}
+        {!narrow && comparison}
         <div className={styles.transientRow}>
           <div className={styles.notices}>
             {!isReplay && alertToast && (
