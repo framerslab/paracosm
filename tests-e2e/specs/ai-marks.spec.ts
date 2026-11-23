@@ -1,4 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { crc32 } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -23,7 +26,9 @@ async function expectMark(text: Locator) {
   await expect(text).toBeVisible();
   const block = text.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
   await expect(block).toHaveCount(1);
-  await expect(block.getByText('AI-written', { exact: true })).toBeVisible();
+  const label = block.getByText('AI-written', { exact: true });
+  await expect(label).toHaveCount(1);
+  await expect(label).toBeVisible();
 }
 
 for (const width of [390, 1440]) {
@@ -75,6 +80,27 @@ test('generated leaders and successful chat replies carry their own source', asy
     reply: 'The water stores are stable.',
     aiAuthorship: { model: 'test-chat', fields: ['reply'] },
   });
+
+  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+  await page.getByRole('textbox', { name: 'Message Noor Aziz' }).fill('Check the reserve, please.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expectMark(page.getByText('The water stores are stable.', { exact: true }));
+  const question = page.getByText('Check the reserve, please.', { exact: true });
+  await expect(question).toBeVisible();
+  await expect(question.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
+
+  let sessionId: string | undefined;
+  await expect.poll(async () => {
+    const response = await page.request.get(origin + '/sessions');
+    if (!response.ok()) return false;
+    const { sessions } = await response.json();
+    sessionId = sessions.find((session: { id: string; leaderA?: string }) => session.leaderA === 'Generated leader')?.id;
+    return typeof sessionId === 'string';
+  }).toBe(true);
+  await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(sessionId!));
+  await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
+  await expect(page.locator(meta)).toHaveCount(1);
 });
 
 test('a selected run downloads readable HTML and PDF with the same provenance', async ({ page }) => {
@@ -113,7 +139,8 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
     page.waitForEvent('download'),
     dialog.getByRole('button', { name: 'Download PDF' }).click(),
   ]);
-  const pdf = await PDFDocument.load(readFileSync(await pdfDownload.path()));
+  const pdfBytes = readFileSync(await pdfDownload.path());
+  const pdf = await PDFDocument.load(pdfBytes);
   const stream = pdf.catalog.lookup(PDFName.of('Metadata'), PDFRawStream);
   const xmp = new TextDecoder().decode(stream.getContents());
   const embedded = await page.evaluate(source => {
@@ -121,4 +148,51 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
     return JSON.parse(xml.getElementsByTagNameNS('https://paracosm.agentos.sh/ns/provenance/1.0/', 'provenance')[0].textContent!);
   }, xmp);
   expect(embedded).toEqual(provenance);
+
+  const dashboardRequire = createRequire(new URL('../../src/dashboard/package.json', import.meta.url));
+  const pdfJs = await import(pathToFileURL(dashboardRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href);
+  const rendering = pdfJs.getDocument({ data: Uint8Array.from(pdfBytes), disableFontFace: true });
+  const report = await rendering.promise;
+  try {
+    const attachments = await report.getAttachments();
+    const json = JSON.parse(new TextDecoder().decode(attachments['run.json'].content));
+    expect(json.provenance).toEqual(provenance);
+    expect(json.decisions[0].choice).toBe(choice);
+    const rendered = await (await report.getPage(1)).getTextContent();
+    expect(rendered.items.some((item: { str?: string }) => item.str === 'AI-written')).toBe(true);
+  } finally {
+    await rendering.destroy();
+  }
+});
+
+test('the Viz PNG download carries one valid metadata chunk', async ({ page }) => {
+  await openPair(page, 'dark');
+  await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
+  await expect(page.locator('canvas').filter({ visible: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Export options' }).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('menuitem', { name: /^PNG/ }).click(),
+  ]);
+  const png = readFileSync(await download.path());
+  expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  const xmp: string[] = [];
+  let offset = 8;
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString('ascii', offset + 4, offset + 8);
+    const end = offset + 8 + length;
+    expect(end + 4).toBeLessThanOrEqual(png.length);
+    const keyword = 'XML:com.adobe.xmp';
+    if (type === 'iTXt' && png.toString('ascii', offset + 8, offset + 8 + keyword.length) === keyword) {
+      expect(crc32(png.subarray(offset + 4, end))).toBe(png.readUInt32BE(end));
+      const start = offset + 8 + keyword.length;
+      expect([...png.subarray(start, start + 5)]).toEqual([0, 0, 0, 0, 0]);
+      xmp.push(png.toString('utf8', start + 5, end));
+    }
+    offset = end + 4;
+  }
+  expect(xmp).toHaveLength(1);
+  expect(xmp[0]).toContain('http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia');
+  expect(xmp[0]).toContain('"generator":"paracosm"');
 });
