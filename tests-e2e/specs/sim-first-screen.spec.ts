@@ -4734,3 +4734,159 @@ screenTest('pictures: Watch on the stub pair at 390 and 1,440 in both looks', as
     await page.request.post(`${SERVER}/clear`).catch(() => undefined);
   }
 });
+
+/* States a visitor reaches by an ordinary path after the first screen has loaded. */
+
+// Feature 13: the foot's Analytics choices control is the page's one control, moved between the footers.
+screenTest('feature 13: Analytics choices stays through a change of tab', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openReadyAt(page, '/sim', WIDE, 'dark');
+  const inFoot = page.locator(FOOT).getByRole('button', { name: 'Analytics choices', exact: true });
+  const control = page.locator('#pcc-reopen');
+  await expect(inFoot).toBeVisible();
+  for (const visit of [1, 2]) {
+    await test.step(`to Watch and back, visit ${visit}`, async () => {
+      await page.locator('#tab-sim').click();
+      await expect(page.locator('#tabpanel-sim')).toBeVisible();
+      await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
+      await page.locator('#tab-quickstart').click();
+      await expect(page.locator(FIRST_SCREEN)).toBeVisible();
+      await expect(inFoot, 'the Run tab’s foot offers the control again').toBeVisible();
+    });
+  }
+  await test.step('the control still opens the choices', async () => {
+    await inFoot.scrollIntoViewIfNeeded();
+    await inFoot.click();
+    const bar = page.getByRole('region', { name: 'Analytics choices' });
+    await expect(bar).toBeVisible();
+    await bar.getByRole('button', { name: 'Reject all' }).click();
+    await expect(bar).toBeHidden();
+  });
+});
+
+// Feature 13: the foot ends the Run tab in every state of it, not only the first screen.
+screenTest('feature 13: the foot ends the Run tab while a pasted scenario is written', async ({ page }) => {
+  test.setTimeout(120_000);
+  const held = gate();
+  await page.route('**/api/quickstart/compile-from-seed', async (route: Route) => { await held.opened; await route.abort(); });
+  try {
+    const root = await openReadyAt(page, '/sim', WIDE, 'dark');
+    const part = root.getByTestId('write-your-own');
+    await part.locator('[data-quickstart-seed]').fill(DRAFT);
+    await part.getByRole('button', { name: 'Generate and run', exact: true }).click();
+    // The first screen gives way to the run's progress, whose h1 is the tab's name.
+    await expect(root).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1, name: 'Run', exact: true })).toBeAttached();
+    const foot = page.locator(FOOT);
+    await expect(foot).toBeVisible();
+    await expect(foot).toHaveRole('contentinfo');
+    await expect(foot.getByRole('navigation', { name: 'Site links', exact: true }).getByRole('link')).toHaveText(['Docs', 'GitHub', 'npm', 'Privacy']);
+    await expect(foot.getByRole('button', { name: 'Analytics choices', exact: true })).toBeVisible();
+    await expect(foot.getByTestId('foot-licence')).toHaveText(LICENCE);
+    await expect(page.getByRole('contentinfo').filter({ visible: true })).toHaveCount(1);
+  } finally {
+    held.open();
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
+});
+
+// Feature 11, QA step 7: the sheet opens with focus on its title, and holds focus from there in both directions.
+screenTest('feature 11: Shift+Tab straight after the sheet opens stays inside it', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openReadyAt(page, '/sim', PHONE, 'dark');
+  await howKey(page).click();
+  const card = howCard(page);
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute('aria-modal', 'true');
+  await expect(card.getByRole('heading', { level: 2, name: HOW_TITLE, exact: true })).toBeFocused();
+  for (let i = 0; i < 3; i += 1) {
+    await page.keyboard.press('Shift+Tab');
+    expect(await holdsFocus(card), `focus is inside the sheet after Shift+Tab ${i + 1} from its title`).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(howKey(page)).toBeFocused();
+});
+
+// Feature 10: the leaders the browser keeps for the run on screen are those of a run the server took.
+screenTest('feature 10: a Start the server refuses leaves the stored leaders of the last run', async ({ page }) => {
+  test.setTimeout(120_000);
+  const earlier = { actors: JSON.stringify([{ name: 'First leader of an earlier run' }, { name: 'Second leader of an earlier run' }]), scenario: 'an-earlier-scenario' };
+  await page.addInitScript((kept) => {
+    window.localStorage.setItem('paracosm:activeRunActors', kept.actors);
+    window.localStorage.setItem('paracosm:activeRunScenarioId', kept.scenario);
+  }, earlier);
+  const stored = () => page.evaluate(() => ({
+    actors: window.localStorage.getItem('paracosm:activeRunActors'),
+    scenario: window.localStorage.getItem('paracosm:activeRunScenarioId'),
+  }));
+  const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+  const { key } = startParts(root);
+  const refusals: Array<{ name: string; answer: (route: Route) => Promise<void>; words: string }> = [
+    { name: 'a busy server', answer: (route) => route.fulfill({ status: 503, json: { error: 'x' } }), words: SERVER_BUSY },
+    { name: 'no connection', answer: (route) => route.abort(), words: COULD_NOT_REACH },
+  ];
+  for (const refusal of refusals) {
+    await test.step(refusal.name, async () => {
+      await page.route('**/setup', refusal.answer);
+      try {
+        await expect(key).toHaveAccessibleName(START_FREE);
+        await key.click();
+        await expect(root.getByTestId('start-failure')).toHaveText(refusal.words);
+        await expect(key).toBeEnabled();
+        expect(await stored(), 'the stored leaders are the earlier run’s').toEqual(earlier);
+      } finally {
+        await page.unroute('**/setup');
+      }
+    });
+  }
+});
+
+// Feature 10: the at-limit state names a reset time, and the page reads the count again once that time has come.
+screenTest('feature 10: at the reset time the page reads the count again', async ({ page }) => {
+  test.setTimeout(120_000);
+  let resetAt = 0;
+  await page.route('**/rate-limit', (route: Route) => {
+    if (resetAt === 0) resetAt = Date.now() + 5_000;
+    return Date.now() < resetAt
+      ? route.fulfill({ json: { allowed: false, remaining: 0, limit: 1, resetAt } })
+      : route.fulfill({ json: { allowed: true, remaining: 1, limit: 1, resetAt: resetAt + 86_400_000 } });
+  });
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const band = root.getByTestId('start-band');
+    await expect(band).toHaveAttribute('data-state', 'limit');
+    await expect(root.getByTestId('scenario-sentences')).toHaveText(AT_LIMIT_SENTENCES);
+    // No press and no reload: the page asks again by itself once the reset time has passed.
+    await expect(band).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+    const { key } = startParts(root);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(key).toBeEnabled();
+    await expect(root.getByTestId('scenario-sentences')).toHaveText(PAIR_SENTENCES);
+    await expect(root.getByTestId('at-limit-reset')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/rate-limit');
+  }
+});
+
+// Features 3 and 10: whose keys a run uses comes from the server's settings, so a read that failed is asked again.
+screenTest('feature 10: a settings read that failed is asked again', async ({ page }) => {
+  test.setTimeout(120_000);
+  let failUntil = 0;
+  await page.route('**/admin-config', (route: Route) => {
+    if (failUntil === 0) failUntil = Date.now() + 1_500;
+    return Date.now() < failUntil ? route.abort('failed') : route.continue();
+  });
+  try {
+    const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+    const { key, notice } = startParts(root);
+    // No reload: once the settings are read, the run is the free run it is, with the host's figures.
+    await expect(notice).toContainText(FREE_RUN, { timeout: 30_000 });
+    await expect(notice).not.toContainText(SERVER_NOTICE);
+    await expect(key).toHaveAccessibleName(START_FREE);
+    await expect(root.getByTestId('scenario-figures')).toHaveText(FREE_FIGURES);
+    await expect(sizeParts(root).part.getByTestId('run-size-settings')).toHaveCount(0);
+  } finally {
+    await page.unroute('**/admin-config');
+  }
+});
