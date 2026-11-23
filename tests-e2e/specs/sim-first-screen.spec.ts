@@ -3809,10 +3809,24 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
     // While it loads, no other row takes a press.
     await expect(otherParts(root).part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(0);
     await picture(page, 'other-scenarios-loading-1440-dark');
+    // Let the scenario answer arrive before the shared payer read, so
+    // the scenario is known while the heading is still a loading shape.
+    const payerRead = gate();
+    await page.route('**/admin-config', async (route: Route) => {
+      await payerRead.opened;
+      await route.continue();
+    });
     const reloaded = page.waitForEvent('load');
     held.open();
-    await reloaded;
-    await page.unroute('**/scenario/switch');
+    try {
+      await reloaded;
+      await expect(row(LUNAR).getByTestId('row-state')).toHaveText('On screen now');
+      await expect(root.getByTestId('scenario-line')).toHaveAttribute('aria-busy', 'true');
+    } finally {
+      payerRead.open();
+      await page.unroute('**/admin-config');
+      await page.unroute('**/scenario/switch');
+    }
 
     // The page loads again at its top with that scenario: its name, its two leaders and its turns on Start.
     const heading = root.getByRole('heading', { level: 1, name: 'Lunar Outpost', exact: true });
