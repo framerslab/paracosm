@@ -139,6 +139,31 @@ test('an already-aborted public run records the effective fallback provider assi
   }
 });
 
+test('an actor writer role stays on the artifact for that profile', async () => {
+  const world = WorldModel.fromScenario(marsScenario);
+  const authored = { model: 'test-leader-writer', fields: ['archetype', 'instructions'] };
+  const abort = new AbortController();
+  abort.abort('user_aborted');
+  for (const source of [authored, undefined]) {
+    const events: SimEvent[] = [];
+    const artifact = await world.simulate({
+      actor: { ...marsLeaders[0], aiAuthorship: source },
+      maxTurns: 1,
+      seed: 950,
+      provider: 'openai',
+      apiKey: 'placeholder-key-for-a-test',
+      models: roleOverrides,
+      signal: abort.signal,
+      writeOutputFile: false,
+      onEvent: event => events.push(event),
+    });
+    const internal = artifact.scenarioExtensions?.paracosmInternal as { leader?: { aiAuthorship?: typeof authored } } | undefined;
+    assert.deepEqual(internal?.leader?.aiAuthorship, source);
+    assert.equal(artifact.provenance?.models.leaderWriter, source?.model);
+    assert.equal(events[0]?.provenance?.models.leaderWriter, source?.model);
+  }
+});
+
 test('a public batch writes role assignments for each member', async () => {
   const outputDir = mkdtempSync(join(tmpdir(), 'paracosm-role-batch-'));
   const originalDir = process.env.PARACOSM_OUTPUT_DIR;
