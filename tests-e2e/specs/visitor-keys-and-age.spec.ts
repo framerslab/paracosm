@@ -107,9 +107,11 @@ test('Run again sends the tab keys and keeps them out of the launch this device 
   await runAgain.click();
   await expect.poll(() => bodies.length).toBe(1);
   expect(bodies[0]).toMatchObject({ seed: 8, apiKey: MARKER, serperKey: SEARCH_MARKER });
-  await expect.poll(() => savedLaunch(page)).toMatchObject({ seed: 8 });
-  expect(JSON.stringify(await savedLaunch(page))).not.toContain(MARKER);
-  expect(JSON.stringify(await savedLaunch(page))).not.toContain(SEARCH_MARKER);
+  // Run again saves its launch, then reloads the page: one read covers both.
+  await expect.poll(async () => {
+    const saved = JSON.stringify(await savedLaunch(page));
+    return { savedNextSeed: saved.includes('"seed":8'), holdsAKey: saved.includes(MARKER) || saved.includes(SEARCH_MARKER) };
+  }).toEqual({ savedNextSeed: true, holdsAKey: false });
 
   // Forgotten keys never ride along on the next Run again.
   await page.goto(`${RUN_SERVER}/sim?tab=settings`);
