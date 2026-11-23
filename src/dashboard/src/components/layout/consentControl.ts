@@ -5,8 +5,11 @@
  *
  * The Run tab's foot and the other tabs' footer each hold a slot. The Run
  * tab stays mounted while another tab shows, so both slots can be mounted at
- * once: the control stands in the one mounted last, and goes back to the one
- * before it, or to its place outside #root, when that one leaves.
+ * once: the control stands in the newest slot that is on screen, and goes
+ * back to the one before it, or to its place outside #root, when that one
+ * leaves. A slot inside a tab that is not showing is not on screen, so a
+ * foot the hidden Run tab mounts (its first screen coming back after a
+ * failed compile) does not take the control from the footer in view.
  *
  * @module paracosm/dashboard/layout/consentControl
  */
@@ -22,12 +25,23 @@ const slots: HTMLElement[] = [];
  */
 let kept: HTMLElement | null = null;
 
-/** Puts the control in the newest slot, or back in its own place. */
+/** Whether a slot is on screen: one inside a tab that is not showing (display: none) has no offset parent. */
+const onScreen = (slot: HTMLElement): boolean => slot.offsetParent !== null;
+
+/** The newest slot on screen; with none on screen, the newest. */
+function newestSlot(): HTMLElement | undefined {
+  for (let at = slots.length - 1; at >= 0; at -= 1) {
+    if (onScreen(slots[at])) return slots[at];
+  }
+  return slots[slots.length - 1];
+}
+
+/** Puts the control in the newest slot on screen, or back in its own place. */
 function placeControl(): void {
   kept = document.getElementById('pcc-reopen') ?? kept;
   const control = kept;
   const home = document.getElementById('pcc-shell');
-  const target = slots[slots.length - 1] ?? home;
+  const target = newestSlot() ?? home;
   if (control && target && control.parentElement !== target) target.appendChild(control);
 }
 
