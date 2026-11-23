@@ -4,6 +4,7 @@
  * it on the Sim tab.
  */
 import { expect, type Locator, type Page } from '@playwright/test';
+import { openTab } from './frame.js';
 
 /** The Run tab's Start key. */
 export const startKey = (page: Page): Locator => page.getByTestId('start-key');
@@ -13,7 +14,7 @@ export const noRunOnPage = (page: Page): Locator => page.getByText('No simulatio
 
 /** Opens the Run tab from any tab of the page. */
 export async function openRunTab(page: Page): Promise<void> {
-  await page.locator('#tab-quickstart').click();
+  await openTab(page, 'quickstart');
 }
 
 /** Opens the Run tab and presses Start once it can be pressed. */

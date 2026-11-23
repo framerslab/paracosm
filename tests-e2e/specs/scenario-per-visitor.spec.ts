@@ -1,3 +1,4 @@
+import { openTab } from '../support/frame.js';
 /**
  * Each visitor keeps the scenario they picked.
  *
@@ -121,7 +122,7 @@ test.describe('Scenario per visitor @scenario', () => {
     await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
     await expect(firstName(page)).toHaveValue('Marcus Reinhardt');
 
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const reloaded = served;
     await expect.poll(() => served).toBeGreaterThan(reloaded + 1);
     await expect(finishedRun(page)).toHaveCount(0);
@@ -129,7 +130,7 @@ test.describe('Scenario per visitor @scenario', () => {
 
     // A plain reload is no switch: the page shows what the server holds.
     await page.reload();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expect(finishedRun(page)).toBeVisible();
   });
 
@@ -157,7 +158,7 @@ test.describe('Scenario per visitor @scenario', () => {
 
     await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
     await expect(page.getByText(/Compiled: atlas-lab/)).toBeVisible();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const compiled = served;
     await expect.poll(() => served).toBeGreaterThan(compiled + 1);
     await expect(finishedRun(page)).toHaveCount(0);
@@ -193,7 +194,7 @@ test.describe('Scenario per visitor @scenario', () => {
     });
     await openSettings(page);
     await expect(firstName(page)).toHaveValue('Aria Chen');
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const opened = served;
     await expect.poll(() => served).toBeGreaterThan(opened + 1);
     await expect(finishedRun(page)).toHaveCount(0);
@@ -217,7 +218,7 @@ test.describe('Scenario per visitor @scenario', () => {
     await page.locator('#scenario-select').selectOption('atlas-lab');
     await expect(page.getByRole('heading', { name: 'Atlas Lab', exact: true }).first()).toBeVisible();
     await expect(firstName(page)).toHaveValue('Marcus Reinhardt');
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const reloaded = served;
     await expect.poll(() => served).toBeGreaterThan(reloaded + 1);
     await expect(finishedRun(page)).toHaveCount(0);
@@ -245,7 +246,7 @@ test.describe('Scenario per visitor @scenario', () => {
       return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
     });
     await openSettings(page);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const opened = served;
     await expect.poll(() => served).toBeGreaterThan(opened + 1);
     await expect(finishedRun(page)).toHaveCount(0);
@@ -273,7 +274,7 @@ test.describe('Scenario per visitor @scenario', () => {
       return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
     });
     await openSettings(page);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     const opened = served;
     await expect.poll(() => served).toBeGreaterThan(opened + 1);
 
@@ -311,7 +312,7 @@ test.describe('Scenario per visitor @scenario', () => {
       return route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' }, body });
     });
     await openSettings(page);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ }).first()).toBeVisible();
 
     body = forkRun;

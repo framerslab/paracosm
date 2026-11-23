@@ -11,7 +11,8 @@ export function useRowFit(row: RefObject<HTMLElement | null>, steps: number): nu
   useLayoutEffect(() => {
     const element = row.current;
     if (!element) return;
-    const probes = [...element.querySelectorAll<HTMLElement>('[data-fit-step]')];
+    const probes = [...element.querySelectorAll<HTMLElement>('[data-fit-step]')]
+      .filter(probe => probe.closest('[data-row]') === element);
     const measure = () => {
       const room = element.clientWidth;
       let step = 0;
@@ -29,7 +30,8 @@ export function useRowFit(row: RefObject<HTMLElement | null>, steps: number): nu
     const observe = () => {
       sizes.disconnect();
       sizes.observe(element);
-      for (const key of probes.length ? probes : [...element.children]) sizes.observe(key);
+      const watched = probes.length ? probes : [...element.children, ...element.querySelectorAll('nav[data-row]')];
+      for (const key of watched) sizes.observe(key);
     };
     const keys = new MutationObserver(() => {
       observe();

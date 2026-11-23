@@ -1,5 +1,8 @@
+import * as React from 'react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import styles from './OneRowScroller.module.scss';
+
+void React;
 
 /** Props of {@link OneRowScroller}. */
 export interface OneRowScrollerProps {
@@ -8,6 +11,8 @@ export interface OneRowScrollerProps {
    * and "Show next <label>".
    */
   label: string;
+  previousName?: string;
+  nextName?: string;
   /** The row's keys, in order. */
   children: ReactNode;
   /** A class for the outer box, which holds the arrow keys and the row. */
@@ -33,7 +38,10 @@ const VIEW_SHARE = 0.8;
  * to the other, whether a press, a swipe or a trackpad moved the row. While
  * the keys fit, the row shows no arrow keys and no fade.
  */
-export function OneRowScroller({ label, children, className, rowClassName, role, ariaLabel }: OneRowScrollerProps) {
+export function OneRowScroller({
+  label, previousName = `Show previous ${label}`, nextName = `Show next ${label}`,
+  children, className, rowClassName, role, ariaLabel,
+}: OneRowScrollerProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   const previousRef = useRef<HTMLButtonElement>(null);
   const nextRef = useRef<HTMLButtonElement>(null);
@@ -125,8 +133,8 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
           ref={previousRef}
           type="button"
           className={styles.arrow}
-          aria-label={`Show previous ${label}`}
-          title={`Show previous ${label}`}
+          aria-label={previousName}
+          title={previousName}
           disabled={!edges.previous}
           onClick={() => step(-1)}
         >
@@ -148,8 +156,8 @@ export function OneRowScroller({ label, children, className, rowClassName, role,
           ref={nextRef}
           type="button"
           className={styles.arrow}
-          aria-label={`Show next ${label}`}
-          title={`Show next ${label}`}
+          aria-label={nextName}
+          title={nextName}
           disabled={!edges.next}
           onClick={() => step(1)}
         >

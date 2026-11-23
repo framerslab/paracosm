@@ -45,7 +45,7 @@ import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
 import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
 import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
-import { TabBar } from './components/layout/TabBar';
+import { TAB_NAMES } from './components/layout/frameWords';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 // Toolbar merged into TopBar
 import { SimView } from './components/sim/SimView';
@@ -195,25 +195,6 @@ function useReplaySessionId(): string | null {
     return () => window.removeEventListener('popstate', sync);
   }, []);
   return id;
-}
-
-/**
- * Human-readable heading per dashboard tab. Used for the SR-only `<h1>`
- * inside `<main>` so the heading outline is well-formed on every view.
- */
-function tabHeadingFor(tab: DashboardTab): string {
-  switch (tab) {
-    case 'quickstart': return 'Paracosm — Quickstart';
-    case 'studio':     return 'Paracosm — Studio';
-    case 'sim':        return 'Paracosm — Simulation';
-    case 'viz':        return 'Paracosm — Visualization';
-    case 'chat':       return 'Paracosm — Chat';
-    case 'reports':    return 'Paracosm — Reports';
-    case 'library':    return 'Paracosm — Library';
-    case 'settings':   return 'Paracosm — Settings';
-    case 'about':      return 'Paracosm — About';
-    default:           return 'Paracosm';
-  }
 }
 
 /** The events of a page that holds no run of its own in another scenario. */
@@ -991,6 +972,9 @@ function AppContent() {
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
           <TopBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            scenario={scenario}
             hasEvents={Object.values(gameState.actors).some(actor => actor.events.length > 0)}
             onSave={handleSave}
             onClear={handleClear}
@@ -1003,7 +987,6 @@ function AppContent() {
             onShareViz={currentSessionId ? handleShareViz : undefined}
             runExists={runExists}
           />
-          <TabBar active={activeTab} onTabChange={setActiveTab} scenario={scenario} />
           {/* In the page's flow under the tabs, so it covers none of the top bar's keys. */}
           {shareLink.shared && (
             <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
@@ -1038,17 +1021,17 @@ function AppContent() {
               className={styles.main}
               role="main"
               data-run-connection={sse.status}
-              aria-label={`${activeTab} view`}
+              aria-label={TAB_NAMES[activeTab]}
             >
               {/* SR-only h1 anchors the heading hierarchy per tab. Sighted
                   users see the visible TabBar + view chrome; AT users
                   land on a real <h1> on every tab so the page outline
-                  reads "Paracosm > <Tab Name>" instead of "no h1 found".
+                  reads the tab name instead of "no h1 found".
                   Per-tab views can still emit their own h2/h3 for
                   section structure. */}
               {/* The Run tab's first screen shows its own visible h1, the
                   scenario's name, so the page keeps one h1 there. */}
-              {activeTab !== 'quickstart' && <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>}
+              {activeTab !== 'quickstart' && <h1 className="sr-only">{TAB_NAMES[activeTab]}</h1>}
               {/* QuickstartView stays mounted across tab switches so an in-
                   flight compile/research/actors run survives navigation. The
                   handleSeedReady pipeline is a chain of long fetches (compile
@@ -1062,9 +1045,8 @@ function AppContent() {
                   slot. ChatPanel uses the same pattern to keep per-agent
                   threads alive. */}
               <section
-                role="tabpanel"
                 id="tabpanel-quickstart"
-                aria-labelledby="tab-quickstart"
+                aria-label={TAB_NAMES.quickstart}
                 hidden={activeTab !== 'quickstart'}
                 // tabIndex={-1}: panel contains its own focusable
                 // descendants (buttons, inputs, etc.), so per ARIA APG
@@ -1087,9 +1069,8 @@ function AppContent() {
 
               {activeTab === 'sim' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-sim"
-                  aria-labelledby="tab-sim"
+                  aria-label={TAB_NAMES.sim}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1114,9 +1095,8 @@ function AppContent() {
 
               {activeTab === 'viz' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-viz"
-                  aria-labelledby="tab-viz"
+                  aria-label={TAB_NAMES.viz}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1131,9 +1111,8 @@ function AppContent() {
 
               {activeTab === 'settings' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-settings"
-                  aria-labelledby="tab-settings"
+                  aria-label={TAB_NAMES.settings}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1154,9 +1133,8 @@ function AppContent() {
 
               {activeTab === 'reports' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-reports"
-                  aria-labelledby="tab-reports"
+                  aria-label={TAB_NAMES.reports}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1171,9 +1149,8 @@ function AppContent() {
 
               {activeTab === 'library' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-library"
-                  aria-labelledby="tab-library"
+                  aria-label={TAB_NAMES.library}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1204,9 +1181,8 @@ function AppContent() {
 
               {activeTab === 'studio' && (
                 <section
-                  role="tabpanel"
                   id="tabpanel-studio"
-                  aria-labelledby="tab-studio"
+                  aria-label={TAB_NAMES.studio}
                   // tabIndex={-1}: panel contains its own focusable
                   // descendants (buttons, inputs, etc.), so per ARIA APG
                   // we don't insert an extra Tab stop on the panel
@@ -1240,9 +1216,8 @@ function AppContent() {
                   or goes to /chat. A reconnect replays the same key and keeps
                   the threads. */}
               <section
-                role="tabpanel"
                 id="tabpanel-chat"
-                aria-labelledby="tab-chat"
+                aria-label={TAB_NAMES.chat}
                 tabIndex={-1}
                 className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
               >

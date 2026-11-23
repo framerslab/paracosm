@@ -1,4 +1,6 @@
 import { expect, type Page } from '@playwright/test';
+import { TAB_NAMES } from '../../src/dashboard/src/components/layout/frameWords.js';
+import type { ScenarioClientPayload } from '../../src/dashboard/src/hooks/useScenario.js';
 import type { DashboardTab } from '../../src/dashboard/src/tab-routing.js';
 
 export const SERVERS = {
@@ -29,7 +31,17 @@ export async function lookOf(page: Page): Promise<{ light: boolean; scheme: stri
 
 /** Opens a dashboard tab by its accessible key. */
 export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
-  await page.getByRole('tab', { name: tab.toUpperCase(), exact: true }).click();
+  const nav = page.getByRole('navigation', { name: 'Sections' });
+  const label = TAB_NAMES[tab];
+  await expect(nav).toBeVisible();
+  const link = nav.getByRole('link', { name: label, exact: true });
+  if (tab === 'quickstart' || tab === 'sim' || (tab === 'reports' && await link.isVisible())) {
+    await link.click();
+    return;
+  }
+  const key = nav.getByRole('button', { has: page.locator('[data-more-label]') });
+  if (await key.getAttribute('aria-expanded') !== 'true') await key.click();
+  await page.getByRole('menu', { name: 'Sections' }).getByRole('menuitem', { name: label, exact: true }).click();
 }
 
 /** Scales the computed text sizes together, including fixed pixel line heights. */
@@ -50,4 +62,13 @@ export async function scaleText(page: Page, factor: number): Promise<void> {
 /** Waits for the dashboard to process the run feed's connection frame before loading a file. */
 export async function waitForRunConnection(page: Page): Promise<void> {
   await expect(page.getByRole('main')).toHaveAttribute('data-run-connection', 'connected');
+}
+
+/** Changes selected facts on the real scenario response. */
+export async function routeScenario(page: Page, patch: (scenario: ScenarioClientPayload) => ScenarioClientPayload): Promise<void> {
+  await page.route('**/scenario', async route => {
+    const response = await route.fetch();
+    const scenario = await response.json() as ScenarioClientPayload;
+    await route.fulfill({ response, json: patch(scenario) });
+  });
 }

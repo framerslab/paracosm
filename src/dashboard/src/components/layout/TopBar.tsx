@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import type { ScenarioClientPayload } from '../../hooks/useScenario';
+import type { DashboardTab } from '../../tab-routing';
+import { TabBar } from './TabBar';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { HOME_NAME, HOW_IT_WORKS, NO_FREE_RUNS, SWITCH_TO_DARK, SWITCH_TO_LIGHT } from './frameWords';
@@ -7,7 +10,9 @@ import { useVisitorState } from './visitorState';
 import styles from './TopBar.module.scss';
 
 interface TopBarProps {
-  tabRow?: ReactNode;
+  activeTab: DashboardTab;
+  onTabChange: (tab: DashboardTab) => void;
+  scenario: ScenarioClientPayload;
   hasEvents: boolean;
   onSave?: () => void;
   onClear?: () => void;
@@ -60,14 +65,14 @@ function LookMark({ dark }: { dark: boolean }) {
 
 /** Shows the shared dashboard controls and the visitor's payer or quota. */
 export function TopBar({
-  tabRow, hasEvents, onSave, onClear, onWipeServer, onRunActionsOpen,
+  activeTab, onTabChange, scenario, hasEvents, onSave, onClear, onWipeServer, onRunActionsOpen,
   onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, runExists,
 }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const dark = resolved === 'dark';
   const visitor = useVisitorState();
   const row = useRef<HTMLDivElement>(null);
-  const fold = useRowFit(row, 3);
+  const fold = useRowFit(row, 4);
 
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowRootRef = useRef<HTMLDivElement | null>(null);
@@ -111,7 +116,10 @@ export function TopBar({
             PARA<span data-read-exception="wordmark" className={styles.accent}>COSM</span>
           </span>
         </a>
-        {tabRow}
+        <div className={styles.sections}>
+          <TabBar active={activeTab} onTabChange={onTabChange} scenario={scenario}
+            moreFirstLine={visitor?.long ?? null} headerFold={fold} />
+        </div>
         <div className={styles.visitor} role="status" aria-live="polite" aria-atomic="true"
           data-reserve-long={NO_FREE_RUNS.long} data-reserve-short={NO_FREE_RUNS.short}>
           <span className={styles.shortState}>{visitor?.short}</span>

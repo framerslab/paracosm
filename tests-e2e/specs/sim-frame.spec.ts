@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
-import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, scaleText } from '../support/frame.js';
+import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, routeScenario, scaleText } from '../support/frame.js';
 import { FIGURES, measureText, spacingFaults } from '../support/readability.js';
 
 const LOOKS = ['light', 'dark'] as const;
@@ -441,12 +441,12 @@ test('feature 1: one row from 320 px', async ({ page }) => {
         else await expect(home(page).getByText('PARA')).toBeVisible();
         await expect(how(page)).toHaveText(width < 360 ? '' : 'How it works', { useInnerText: true });
         const row = banner(page).locator('[data-row="Header"]');
-        expect((await banner(page).boundingBox())!.height).toBe(56);
+        expect((await sections(page).boundingBox())!.y - (await banner(page).boundingBox())!.y).toBe(55);
         expect(await rowsOnOneRow(page)).toEqual([]);
         expect(await row.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await expect(start(page)).toHaveCount(1);
-        await expect(banner(page).getByRole('button')).toHaveCount(2);
+        await expect(banner(page).getByRole('button')).toHaveCount(3);
       });
     }
   }
@@ -658,11 +658,9 @@ test('feature 2: MORE lists six tabs and three links', async ({ page }) => {
   await expect(more(page)).toHaveAccessibleName('SETTINGS');
   await expect(more(page)).toHaveAttribute('aria-current', 'page');
 
-  await page.route('**/scenario', async route => {
-    const response = await route.fetch();
-    const scenario = await response.json();
-    await route.fulfill({ response, json: { ...scenario, policies: { ...scenario.policies, characterChat: false } } });
-  });
+  await routeScenario(page, scenario => ({
+    ...scenario, policies: { ...scenario.policies, characterChat: false },
+  }));
   await page.goto(SIM);
   await expect(page.getByTestId('scenario-figures')).toBeVisible();
   await more(page).click();
@@ -712,6 +710,21 @@ test('feature 2: RUN, by keyboard, saved links and old addresses', async ({ page
   await page.setViewportSize({ width: 500, height: 844 });
   await expect(sectionMenu(page)).toBeHidden();
   await expect(more(page)).toBeFocused();
+
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.97' });
+  await page.goto(demo);
+  await expect(start(page)).toBeEnabled();
+  try {
+    await more(page).click();
+    await expect(sectionMenu(page)).toBeVisible();
+    // Activate Start without a pointer press, which would close the menu
+    // before the run changes tabs.
+    await start(page).evaluate(button => (button as HTMLButtonElement).click());
+    await expect(sectionLink(page, 'Watch')).toHaveAttribute('aria-current', 'page');
+    await expect(sectionMenu(page)).toBeHidden();
+  } finally {
+    await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+  }
 });
 
 test('feature 2: the row read aloud', async ({ page }) => {
@@ -760,7 +773,7 @@ test('feature 3: no old words from the header down', async ({ page }) => {
     range.setStartBefore(document.querySelector('[role=banner]')!);
     range.setEndAfter(end.closest('section') ?? end);
     const fragment = range.cloneContents();
-    fragment.querySelectorAll('[data-testid="leader-orders"], [hidden], [aria-hidden=true], .sr-only')
+    fragment.querySelectorAll('[data-testid="leader-orders"], [data-testid="hexaco-note"], [hidden], [aria-hidden=true], .sr-only')
       .forEach(element => element.remove());
     return fragment.textContent ?? '';
   });

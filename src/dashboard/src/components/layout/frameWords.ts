@@ -40,3 +40,32 @@ export function freeRuns(remaining: number) {
   const runs = remaining === 1 ? 'run' : 'runs';
   return { long: `Free demo: ${remaining} ${runs} left today`, short: `${remaining} free ${runs}` };
 }
+
+export const SECTIONS = 'Sections';
+export const MORE = 'More';
+export const PREVIOUS_SECTIONS = 'Previous sections';
+export const NEXT_SECTIONS = 'Next sections';
+export const TAB_NAMES = {
+  quickstart: 'Run',
+  sim: 'Watch',
+  reports: 'Reports',
+  studio: 'Studio',
+  viz: 'Visualization',
+  chat: 'Chat',
+  library: 'Library',
+  settings: 'Settings',
+  about: 'About',
+} as const;
+export const MORE_TAB_LINES = {
+  studio: 'Open run files and branch a run.',
+  viz: 'Everyone in the run, drawn as a living map.',
+  chat: 'Talk with a character from the run.',
+  library: 'Your saved runs.',
+  settings: 'Leaders, models and your own API key.',
+  about: 'What Paracosm is.',
+} as const;
+const MORE_LINK_LINES = ['The API reference and guides.', 'The source code.', 'The package to install.'];
+export const PACKAGE_LINKS = FOOT_LINKS.slice(0, 3).map((link, index) => ({
+  ...link,
+  description: MORE_LINK_LINES[index],
+}));

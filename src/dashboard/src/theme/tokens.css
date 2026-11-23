@@ -785,17 +785,6 @@
        widths where the set almost fit produced a jarring layout. */
     .stats-bar { overflow-x: auto !important; justify-content: flex-start !important; -webkit-overflow-scrolling: touch; }
 
-    /* TabBar stays a single row at every width now that labels switch
-       to icons below 900px in TabBar.module.scss. The bar horizontal-scrolls
-       past very narrow viewports (tab count × 44px min-width) so each tap
-       target stays readable rather than crushing into 24px slivers,
-       and `-webkit-overflow-scrolling: touch` keeps momentum on iOS. */
-    .tab-bar {
-      flex-wrap: nowrap !important;
-      overflow-x: auto !important;
-      -webkit-overflow-scrolling: touch;
-    }
-    .tab-bar button { flex-shrink: 0 !important; min-width: 44px !important; }
   }
 
   /* Narrow tablet portrait and phone landscape. */
@@ -829,10 +818,6 @@
     .pill-label-full { display: none !important; }
     .pill-label-short { display: inline !important; }
 
-    /* TabBar stays at the 44px touch floor on phones. Very narrow
-       viewports can scroll the row horizontally instead of shrinking
-       tap targets below a comfortable size. */
-    .tab-bar button { min-width: 44px !important; padding: 6px 0 !important; }
   }
 
   /* The short-label span stays hidden above phone breakpoint. */
@@ -952,7 +937,7 @@
       color: black !important;
       font-size: 10pt;
     }
-    .tab-bar, .toolbar, footer, .skip-to-content {
+    .toolbar, footer, .skip-to-content {
       display: none !important;
     }
   }

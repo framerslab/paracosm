@@ -281,12 +281,12 @@ test.describe('Chat threads per run @chat', () => {
     await expect(chat(page)).toHaveCount(0);
     expect(chatRequests).toHaveLength(1);
 
-    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await openTab(page, 'settings');
     const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Launch simulation', exact: true }).click();
     expect((await setup).ok()).toBe(true);
     await expect.poll(() => new URL(page.url()).searchParams.has('replay')).toBe(false);
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
     await expect(chat(page)).toBeVisible();
     await expect(thread(page).getByText(FIRST_MESSAGE)).toHaveCount(0);
     expect(chatRequests).toHaveLength(1);
