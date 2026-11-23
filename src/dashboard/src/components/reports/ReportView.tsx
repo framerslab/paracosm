@@ -560,7 +560,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
                   Run {turnCount} turn{turnCount === 1 ? '' : 's'} — verdict pending
                 </span>
               ) : null}
-              {headline && <span className={styles.tldrSub}>{headline}</span>}
+              {headline && <AiWritten className={styles.tldrSub} authored>{headline}</AiWritten>}
             </div>
             <div className={styles.tldrStats}>
               {stats.map(s => (
@@ -1170,9 +1170,9 @@ function TurnSharedFooter({ data, name, sideColor, showQuotes }: { data: TurnDat
                     {String(r.mood || '').toUpperCase()}
                   </span>
                 </div>
-                <div className={styles.reactionQuote}>
+                <AiWritten as="div" className={styles.reactionQuote} authored={Boolean(r.quote)}>
                   &ldquo;{String(r.quote || '')}&rdquo;
-                </div>
+                </AiWritten>
                 {!!r.role && (
                   <div className={styles.reactionRole}>
                     {String(r.role)} {r.department ? `in ${String(r.department)}` : ''}

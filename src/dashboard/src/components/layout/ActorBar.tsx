@@ -253,9 +253,9 @@ export function ActorBar({
           {slotLetter}
         </span>
         {archetype && (
-          <span className={styles.archetypeChip}>
+          <AiWritten className={styles.archetypeChip} authored={leader?.aiAuthorship?.fields.includes('archetype') === true}>
             {archetype.toUpperCase().replace(/^THE\s+/i, '')}
-          </span>
+          </AiWritten>
         )}
         {verdictPlacement && (
           <span

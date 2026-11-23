@@ -18,12 +18,14 @@ export function AiWritten({
   children,
   className,
   style,
+  title,
 }: {
   as?: MarkedElement;
   authored: boolean;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
+  title?: string;
 }) {
   const register = useContext(Registration);
   const label = useRef<HTMLSpanElement>(null);
@@ -33,7 +35,7 @@ export function AiWritten({
   }, [authored, register, Element]);
 
   return (
-    <Element className={className} style={style} data-ai-generated={authored ? 'true' : undefined}>
+    <Element className={className} style={style} title={title} data-ai-generated={authored ? 'true' : undefined}>
       {children}
       {authored && <> <span ref={label} className={styles.label}>AI-written</span></>}
     </Element>

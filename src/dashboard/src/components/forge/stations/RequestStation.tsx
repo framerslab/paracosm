@@ -1,3 +1,4 @@
+import { AiWritten } from '../../shared/AiWritten';
 import { useEffect, useId, useState, type CSSProperties, type MouseEvent } from 'react';
 import type { ForgeAttemptRecord, ToolEntry } from '../../../hooks/useToolRegistry';
 import { REQUEST_WORDS, actorLine, goToEvent } from '../forgeWords';
@@ -177,7 +178,9 @@ export function RequestStation({ entry, attempt, actor, onGoToEvent }: RequestSt
 
       <div className={styles.part}>
         <h3 id={doesId} className={styles.heading} data-text="heading">{REQUEST_WORDS.whatItDoes}</h3>
-        <p className={styles.body} data-text="body">{description}</p>
+        <p className={styles.body} data-text="body">
+          <AiWritten authored={Boolean(description) && Boolean(attempt?.description || entry.attempts.length)}>{description}</AiWritten>
+        </p>
       </div>
 
       <div className={styles.part}>

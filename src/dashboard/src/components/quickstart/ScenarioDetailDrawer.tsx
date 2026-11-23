@@ -623,7 +623,7 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
                     </ul>
                   )}
                   {leader.instructions && (
-                    <AiWritten as="p" className={styles.presetInstructions} authored={leader.aiAuthorship?.fields.includes("instructions") === true}>
+                    <AiWritten as="p" title={leader.instructions} className={styles.presetInstructions} authored={leader.aiAuthorship?.fields.includes("instructions") === true}>
                       {leader.instructions.length > 220
                         ? `${leader.instructions.slice(0, 220)}…`
                         : leader.instructions}

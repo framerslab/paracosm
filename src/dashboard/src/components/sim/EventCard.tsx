@@ -152,7 +152,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 {approved ? '✦ FORGED TOOL' : '↻ FORGE RETRY'}
               </span>
               <span className={styles.forgeDept}>{dept}</span>
-              <span className={styles.forgeDescription}>{description}</span>
+              <AiWritten className={styles.forgeDescription} authored={Boolean(dd.description)}>{description}</AiWritten>
               <span className={styles.forgeName}>{name} ({mode})</span>
               <span className={approved ? styles.forgeVerdictPass : styles.forgeVerdictFail}>
                 {approved ? `PASS ${confidence.toFixed(2)}` : 'RETRY'}
@@ -365,9 +365,9 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                         <span className={styles.toolSchemaBadge}>SCHEMA</span>
                       )}
                     </div>
-                    <span className={styles.toolDescription}>
+                    <AiWritten className={styles.toolDescription} authored={Boolean(t.description && t.firstForgedTurn != null)}>
                       {String(t.description || t.name || '')}
-                    </span>
+                    </AiWritten>
                     <span className={styles.toolNameLine}>
                       {t.name} {t.mode ? `(${t.mode})` : ''}
                     </span>
