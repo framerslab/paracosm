@@ -10,11 +10,12 @@
  *
  * The first test talks to the real server, over HTTP and SSE, with its pair
  * runner stubbed (tests-e2e/support/pair-run-server.ts), and starts the run
- * from the page's own Run button. The second serves the stream from here and
+ * from the Run tab's Start. The second serves the stream from here and
  * ends it after each replay, so the page reconnects and is handed the whole
  * run again, as a dropped connection is.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { noRunOnPage, pressStart } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stub pair runner runs on a local server of its own.');
 test.use({ baseURL: 'http://127.0.0.1:3458' });
@@ -25,14 +26,14 @@ const idle = (page: Page) => page.getByRole('status', { name: /^Simulation statu
 const progress = (page: Page, maxTurns: number | RegExp) =>
   page.getByText(typeof maxTurns === 'number' ? `Turn 1 / ${maxTurns}` : maxTurns, { exact: true });
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 
 test.describe('Run status events @status', () => {
   test('a run started from the page shows as running from its second status event on', async ({ page, request }) => {
     expect((await request.post('/clear')).ok()).toBe(true);
     await page.goto('/sim?tab=sim');
-    await expect(emptyStateRun(page)).toBeEnabled();
-    await emptyStateRun(page).click();
+    await expect(noRunOnPage(page)).toBeVisible();
+    await pressStart(page);
+    await expect(page).toHaveURL(/[?&]tab=sim\b/);
 
     await expect(running(page)).toBeVisible();
     await expect(progress(page, /^Turn 1 \/ \d+$/)).toBeVisible();

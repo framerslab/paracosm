@@ -8,11 +8,13 @@
  *
  * The pages talk to a real server whose runner is scripted
  * (tests-e2e/support/stub-runner-server.ts), through the real /setup, so no
- * model is called. That server runs at most two runs at once
+ * model is called. Each run starts from the Run tab's Start, which opens it
+ * on the Sim tab. That server runs at most two runs at once
  * (PARACOSM_MAX_RUNS=2), and its runs share that cap, so the tests run in
  * order.
  */
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { noRunOnPage, openRunTab, pressStart, startKey } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The scripted runner runs on a local server of its own.');
 const BASE = 'http://127.0.0.1:3459';
@@ -21,12 +23,12 @@ test.describe.configure({ mode: 'serial' });
 
 const RUN_MS = 30_000;
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
 const pill = (page: Page, text: string) => page.getByRole('status', { name: new RegExp(`^${text}\\.`) }).first();
 /** Text the page shows: its hidden panels (another tab's header, the Settings form) hold the names too. */
 const shown = (page: Page, text: string) => page.getByText(text).filter({ visible: true });
 const finishedRun = (page: Page) => shown(page, 'Spin up a new run').first();
-const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
+/** What the Run tab says above Start when every run slot on the server is in use. */
+const SLOTS_IN_USE = 'Every run slot on the server is in use. Press Start again in a minute.';
 
 interface Visit { context: BrowserContext; page: Page }
 
@@ -42,10 +44,14 @@ async function visit(browser: Browser, scenarioId?: string): Promise<Visit> {
   return { context, page };
 }
 
+/** The server's answer to the page's next POST /setup. */
+const setupAnswer = (page: Page) =>
+  page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/setup');
+
+/** Starts a run from the Run tab's Start; the page opens the run on the Sim tab. */
 async function pressRun(page: Page): Promise<void> {
-  await runMenuButton(page).click();
-  await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
-  await runNewItem(page).click();
+  await pressStart(page);
+  await expect(page).toHaveURL(/[?&]tab=sim\b/);
 }
 
 async function expectComplete(page: Page): Promise<void> {
@@ -119,7 +125,7 @@ test.describe('Run per visitor @runs', () => {
       await a.page.getByRole('menuitem', { name: 'Clear local data' }).click();
       // Clearing opens Settings when no admin token is stored; the Sim tab is empty.
       await a.page.getByRole('tab', { name: 'SIM', exact: true }).click();
-      await expect(emptyStateRun(a.page)).toBeVisible();
+      await expect(noRunOnPage(a.page)).toBeVisible();
       await expect.poll(async () => (await results(a.page)).runKey).toBeNull();
 
       await b.page.reload();
@@ -162,7 +168,7 @@ test.describe('Run per visitor @runs', () => {
 
       await expect(finishedRun(a.page)).toBeVisible();
       await expect(shown(a.page, 'Aria Chen').first()).toBeVisible();
-      await expect(emptyStateRun(a.page)).toHaveCount(0);
+      await expect(noRunOnPage(a.page)).toHaveCount(0);
     } finally {
       await a.context.close();
     }
@@ -186,11 +192,26 @@ test.describe('Run per visitor @runs', () => {
     const b = await visit(browser, 'atlas-lab');
     const c = await visit(browser);
     try {
-      await pressRun(a.page);
-      await pressRun(b.page);
+      // Each page has Start ready before any run starts: a scripted run
+      // lasts a few seconds, and the third press has to land while the
+      // first two runs are in flight.
+      for (const visitor of [a, b, c]) {
+        await openRunTab(visitor.page);
+        await expect(startKey(visitor.page)).toBeEnabled();
+      }
+      const aTaken = setupAnswer(a.page);
+      await startKey(a.page).click();
+      const bTaken = setupAnswer(b.page);
+      await startKey(b.page).click();
+      expect((await aTaken).status()).toBe(200);
+      expect((await bTaken).status()).toBe(200);
+      // The refused press stays on the Run tab and says why above Start.
+      await startKey(c.page).click();
+      await expect(c.page.getByTestId('start-failure')).toHaveText(SLOTS_IN_USE);
+      await expect(c.page).not.toHaveURL(/[?&]tab=sim\b/);
+      await expect(a.page).toHaveURL(/[?&]tab=sim\b/);
+      await expect(b.page).toHaveURL(/[?&]tab=sim\b/);
       await expect(shown(b.page, 'Marcus Reinhardt').first()).toBeVisible();
-      await pressRun(c.page);
-      await expect(shown(c.page, 'running 2 simulations right now, the most it runs at once').first()).toBeVisible();
       await expectComplete(a.page);
       await expectComplete(b.page);
     } finally {

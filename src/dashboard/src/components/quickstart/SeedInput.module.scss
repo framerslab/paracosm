@@ -1,4 +1,5 @@
 @use '../../theme/typography' as typo;
+@use './first-screen/shape' as shape;
 
 // Surfaced above LoadedScenarioCTA when the textarea has enough seed
 // content to compile a new scenario. Shifts the user toward the bottom
@@ -334,3 +335,135 @@
   white-space: nowrap;
 }
 
+
+// Write your own scenario on the Run tab: the paste form under the first
+// screen, its words at the first screen's size for other words, in the ink
+// or the quiet tone, and every field's and key's edge in the control edge.
+// It is an outlined key: the first screen's one filled key is Start.
+.seedInput.pasteOnly {
+  margin: 0;
+  color: var(--text-1);
+
+  * {
+    font-family: var(--sans);
+    font-size: var(--font-read);
+    line-height: 1.4;
+    letter-spacing: normal;
+    color: inherit;
+  }
+
+  .templatePickerLabel,
+  .hint label,
+  .charCount,
+  .actorCountLabel,
+  .actorCountPreview {
+    text-transform: none;
+    @include shape.quiet-tone;
+  }
+
+  .templatePickerSelect,
+  .textarea,
+  .input {
+    border-color: var(--edge-control);
+    color: var(--text-1);
+  }
+
+  .templatePickerSelect {
+    min-height: 44px;
+  }
+
+  .tab {
+    text-transform: none;
+    min-height: 44px;
+  }
+
+  .tabActive {
+    border-bottom-color: var(--amber);
+  }
+
+  .dropZone {
+    border-color: var(--edge-control);
+  }
+
+  .error {
+    background: transparent;
+    border-color: var(--edge-control);
+    color: var(--text-1);
+  }
+
+  .fetchButton,
+  .runButton {
+    min-height: 44px;
+    border: 1px solid var(--edge-control);
+    background: transparent;
+    color: var(--text-1);
+    font-weight: 600;
+
+    &:hover:not(:disabled):not([aria-disabled='true']) {
+      background: transparent;
+      border-color: var(--text-1);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--amber);
+    }
+
+    &:disabled,
+    &[aria-disabled='true'] {
+      opacity: 1;
+      cursor: default;
+      @include shape.quiet-tone;
+    }
+  }
+}
+
+// Write your own scenario's room, read in its own type size by the section
+// around it on the Run tab: with under 16 em (200 per cent text on a phone)
+// the form keeps a narrower edge, the three tabs a smaller side padding so
+// they keep one row, and the actors' cost and time stand on their own line
+// under the slider, where they wrap.
+@container (max-width: 16em) {
+  .seedInput.pasteOnly {
+    padding: 10px;
+
+    .tab {
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+
+    .actorCountRow {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .actorCountPreview {
+      grid-column: 1 / -1;
+      white-space: normal;
+    }
+  }
+}
+
+// At the day's limit, above the key: the two at-limit sentences and the link to Settings' key field.
+.atLimit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  p {
+    margin: 0;
+  }
+}
+
+.settingsLink {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-1);
+  }
+}

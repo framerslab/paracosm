@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { useTheme } from '../../theme/ThemeProvider';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import type { GameState, ActorSideState } from '../../hooks/useGameState';
@@ -6,6 +6,7 @@ import type { useSSE } from '../../hooks/useSSE';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Tooltip } from '../shared/Tooltip';
 import { RunMenu } from './RunMenu';
+import { HOW_IT_WORKS } from '../quickstart/first-screen/words';
 import type { LocalHistoryEntry } from '../../hooks/useLocalHistory.helpers';
 import styles from './TopBar.module.scss';
 
@@ -36,8 +37,14 @@ interface TopBarProps {
    * request.
    */
   onRunActionsOpen?: () => void;
-  onRun?: () => void;
-  onTour?: () => void;
+  /**
+   * Opens and closes the How it works card. The key shows where this is
+   * given, says whether the card is open, and is reached through
+   * `howItWorksKeyRef`, which the card stands under and returns focus to.
+   */
+  onHowItWorks?: () => void;
+  howItWorksOpen?: boolean;
+  howItWorksKeyRef?: RefObject<HTMLButtonElement | null>;
   onCopy?: () => void;
   /**
    * Build + copy a deep link to the current run that opens on the viz
@@ -51,10 +58,9 @@ interface TopBarProps {
   history?: LocalHistoryEntry[];
   onRestoreHistory?: (entry: LocalHistoryEntry) => void;
   onClearHistory?: () => void;
-  /** True while the /setup request is in flight but the first SSE
-   *  event hasn't yet arrived. Hides the RUN button so users can't
-   *  double-launch. `gameState.isRunning` already hides it after
-   *  the sim starts emitting events; this covers the gap. */
+  /** True while a run is starting and its first SSE event has not
+   *  arrived. Hides the RUN menu meanwhile; `gameState.isRunning` hides
+   *  it once the run sends events, and this covers the gap. */
   launching?: boolean;
 }
 
@@ -79,7 +85,7 @@ function ParacosmLogo({ size = 20 }: { size?: number }) {
   );
 }
 
-export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onRun, onTour, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
+export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWipeServer, onRunActionsOpen, onHowItWorks, howItWorksOpen = false, howItWorksKeyRef, onCopy, onShareViz, launching = false, history, onRestoreHistory, onClearHistory }: TopBarProps) {
   const { resolved, setTheme } = useTheme();
   const hasEvents = Object.values(gameState.actors).some((s: ActorSideState) => s.events.length > 0);
 
@@ -175,7 +181,7 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
     : sse.isComplete
     ? 'Run finished all turns. Verdict is broadcast in Reports.'
     : sse.status === 'connected'
-    ? 'Connected to the simulation server. Press RUN to start.'
+    ? 'Connected to the simulation server. No run in progress.'
     : sse.status === 'error'
     ? 'Reconnecting to the simulation server.'
     : 'Connecting to the simulation server.';
@@ -400,26 +406,30 @@ export function TopBar({ scenario, sse, gameState, onSave, onLoad, onClear, onWi
           <span className="topbar-github-label">GITHUB</span>
         </a>
 
-        {/* Tour button */}
-        {onTour && (
+        {/* How it works: opens the one card that states the rules of a
+            run, and closes it. Its words name it; where the row has no
+            room for them they give way to the question mark and stay as
+            the key's name. */}
+        {onHowItWorks && (
           <button
-            onClick={onTour}
+            ref={howItWorksKeyRef}
+            type="button"
+            onClick={onHowItWorks}
             className={`topbar-tour ${styles.tourBtn}`}
-            title="Interactive guided tour with sample data"
-            aria-label="Start guided tour"
+            aria-expanded={howItWorksOpen}
+            aria-haspopup="dialog"
           >
-            <span className="topbar-tour-label">HOW IT WORKS</span>
+            <span className="topbar-tour-label">{HOW_IT_WORKS}</span>
             <span className="topbar-tour-icon" aria-hidden="true" style={{ display: 'none' }}>{'?'}</span>
           </button>
         )}
-        {/* Run button. Hidden while isRunning OR launching so users
-            can't double-fire /setup (which would race against the
-            in-flight launch). Swaps to a disabled 'LAUNCHING...' chip
-            during the launching window so the UI doesn't appear
-            frozen — prior behaviour silently showed nothing. */}
-        {onRun && !gameState.isRunning && !launching && (
+        {/* The RUN menu: saved runs, this browser's history and Load from
+            file. It starts no run; the Run tab's Start does. Hidden while a
+            run is starting or running, so a run on screen is not replaced
+            by a loaded one mid-run; a 'LAUNCHING...' chip stands in its
+            place while a run starts, so the bar does not look frozen. */}
+        {!gameState.isRunning && !launching && (
           <RunMenu
-            onRun={onRun}
             onLoadFromFile={onLoad}
             history={history}
             onRestoreHistory={onRestoreHistory}

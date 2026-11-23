@@ -98,6 +98,10 @@ export interface ScenarioDetailDrawerProps {
    *  is responsible for routing through /scenario/switch + /setup
    *  the same way the catalog card's Run button does. */
   onRunScenario: (id: string, actorCount: number) => void;
+  /** False where the drawer only shows a scenario's details (the Run
+   *  tab's list, where a row loads a scenario and Start runs it): no
+   *  Actors slider and no Run key. */
+  showRun?: boolean;
   /** Fired on Esc, backdrop click, or close-button click. */
   onClose: () => void;
   /** Optional: fires after a successful admin delete so the parent
@@ -154,7 +158,7 @@ function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
 }
 
 export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Element | null {
-  const { scenario, disabled = false, initialActorCount = 2, onRunScenario, onClose, onDeleted, onRenamed } = props;
+  const { scenario, disabled = false, initialActorCount = 2, onRunScenario, showRun = true, onClose, onDeleted, onRenamed } = props;
   const open = scenario !== null;
   const [actorCount, setActorCount] = useState<number>(initialActorCount);
   const [recentRuns, setRecentRuns] = useState<RecentRunRow[]>([]);
@@ -686,32 +690,36 @@ export function ScenarioDetailDrawer(props: ScenarioDetailDrawerProps): JSX.Elem
         </section>
 
         <footer className={styles.footer}>
-          <div className={styles.actorRow}>
-            <label htmlFor={sliderId} className={styles.actorLabel}>
-              Actors
-            </label>
-            <input
-              id={sliderId}
-              type="range"
-              min={1}
-              max={300}
-              value={actorCount}
-              onChange={(e) => setActorCount(parseInt(e.target.value, 10))}
-              disabled={disabled}
-              className={styles.actorSlider}
-              aria-label="Number of parallel actors"
-            />
-            <span className={styles.actorValue}>{actorCount}</span>
-          </div>
-          <button
-            type="button"
-            className={styles.runButton}
-            onClick={() => onRunScenario(scenario.id, actorCount)}
-            disabled={disabled || deleting}
-            aria-label={`Run ${actorCount} actor${actorCount === 1 ? '' : 's'} against ${scenario.name}`}
-          >
-            Run {actorCount} {actorCount === 1 ? 'actor' : 'actors'} →
-          </button>
+          {showRun && (
+            <>
+              <div className={styles.actorRow}>
+                <label htmlFor={sliderId} className={styles.actorLabel}>
+                  Actors
+                </label>
+                <input
+                  id={sliderId}
+                  type="range"
+                  min={1}
+                  max={300}
+                  value={actorCount}
+                  onChange={(e) => setActorCount(parseInt(e.target.value, 10))}
+                  disabled={disabled}
+                  className={styles.actorSlider}
+                  aria-label="Number of parallel actors"
+                />
+                <span className={styles.actorValue}>{actorCount}</span>
+              </div>
+              <button
+                type="button"
+                className={styles.runButton}
+                onClick={() => onRunScenario(scenario.id, actorCount)}
+                disabled={disabled || deleting}
+                aria-label={`Run ${actorCount} actor${actorCount === 1 ? '' : 's'} against ${scenario.name}`}
+              >
+                Run {actorCount} {actorCount === 1 ? 'actor' : 'actors'} →
+              </button>
+            </>
+          )}
           {canDelete && (
             <button
               type="button"

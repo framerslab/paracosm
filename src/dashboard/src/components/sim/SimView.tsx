@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
-import { useScenarioContext, useScenarioReady } from '../../App';
+import { useScenarioContext } from '../../App';
 import { leaderUnit } from '../../hooks/useScenarioLabels.helpers';
 import { readActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { DigitalTwinPanel } from '../digital-twin/DigitalTwinPanel';
@@ -13,6 +13,7 @@ import { StatsBar } from '../layout/StatsBar';
 import { Timeline } from './Timeline';
 import { TurnGrid } from './TurnGrid';
 import { MultiActorTurnGrid } from './MultiActorTurnGrid';
+import { WatchGridPanels } from './WatchGridPanels';
 import { SimFooterBar } from './SimFooterBar';
 import { RerunPanel } from './RerunPanel';
 import { VerdictPanel } from './VerdictCard';
@@ -27,12 +28,6 @@ import styles from './SimView.module.scss';
 interface SimViewProps {
   state: GameState;
   sseStatus?: string;
-  onRun?: () => void;
-  /** Optional — opens the guided tour (demo replay) from the empty
-   *  state CTA. Without this, first-time users land on a dense
-   *  empty page with no affordance to learn what the dashboard
-   *  does before spending LLM credits on their own run. */
-  onTour?: () => void;
   verdict?: Record<string, unknown> | null;
   /** Names the run the page shows. What the verdict's export key said
    *  about one run never shows on the next, the same saved file loaded
@@ -120,9 +115,8 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, launching: launchingProp, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
+export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
   const scenario = useScenarioContext();
-  const scenarioReady = useScenarioReady();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
   // we replace the entire SIM body with DigitalTwinPanel. Single-actor
@@ -152,11 +146,6 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
   }
   const citationRegistry = useCitationContext();
   const toolRegistry = useToolContext();
-  // Local fallback only used when no parent-controlled launching flag is
-  // passed (legacy callers). The App now owns this state and threads it
-  // through so it survives tab navigation.
-  const [localLaunching, setLocalLaunching] = useState(false);
-  const launching = launchingProp ?? localLaunching;
 
   // Layout state. Default to side-by-side because the N-actor surface
   // (`MultiActorTurnGrid`) renders feature parity with the 2-actor
@@ -193,16 +182,6 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
   const sideB = secondId ? state.actors[secondId] : null;
   const hasEvents = Object.values(state.actors).some(s => s.events.length > 0);
   const showLoading = state.isRunning && !hasEvents;
-
-  // Clear local launching state once events start arriving or sim is running
-  useEffect(() => {
-    if ((hasEvents || state.isRunning) && launchingProp === undefined) setLocalLaunching(false);
-  }, [hasEvents, state.isRunning, launchingProp]);
-
-  const handleRun = useCallback(() => {
-    if (launchingProp === undefined) setLocalLaunching(true);
-    onRun?.();
-  }, [onRun, launchingProp]);
 
   // Fallback leader info for the live header. Two-step chain:
   //   1. Scenario presets (Mars Genesis / Lunar / etc. ship leaders).
@@ -470,7 +449,9 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
         </div>
       )}
 
-      {/* Empty state: connected but no events and no sim running */}
+      {/* Empty state: connected but no events and no sim running. A new
+          run starts from the Run tab's Start, the one control that starts
+          one; here a visitor loads a run they already have. */}
       {!state.isRunning && !state.isComplete && !hasEvents && sseStatus === 'connected' && !launching && !(typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('replay')) && (
         <div className={styles.centerState}>
           <div className={styles.centerStateHeadingLarger}>No simulation running</div>
@@ -478,15 +459,6 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
             Configure your commanders with different HEXACO personality profiles, choose a scenario, and launch from the Settings tab. Or load a previously saved simulation.
           </div>
           <div className={styles.emptyStateActions}>
-            {onRun && (
-              <button
-                onClick={handleRun}
-                disabled={launching || !scenarioReady}
-                className={styles.buttonRun}
-              >
-                {launching ? 'Launching…' : scenarioReady ? 'Run Simulation' : 'Loading scenario…'}
-              </button>
-            )}
             <button onClick={handleScrollToReplayCta} className={styles.buttonLoad}>
               Load Prior Run
             </button>
@@ -494,15 +466,6 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
               Settings
             </button>
           </div>
-          {onTour && (
-            <div className={styles.tourHint}>
-              First time here?{' '}
-              <button type="button" onClick={onTour} className={styles.tourLink}>
-                Take the guided tour →
-              </button>
-              <span className={styles.tourAside}>(canned demo, no LLM cost)</span>
-            </div>
-          )}
           {/* Surface saved-run replays right in the empty state so users
               who land on SIM without a running simulation can start
               watching a prior run with one click. */}
@@ -525,11 +488,20 @@ export function SimView({ state, sseStatus, onRun, onTour, verdict, shownRun, la
           `columnsVisible` so the grid doesn't render in the empty /
           launching state. Side-by-side layout only — constellation
           mode handles its own surface above. */}
+      {/* The living grid, each leader's own colony once the run has sent a
+          roster: a pair's two panels, or from 3 leaders the track of one
+          panel a leader, in either layout. It stands above the turn rows,
+          which keep a readable height under it. */}
+      {columnsVisible && <WatchGridPanels state={state} />}
       {columnsVisible && layout === 'side-by-side' && state.actorIds.length === 2 && (
-        <TurnGrid state={state} />
+        <div className={styles.turnRows}>
+          <TurnGrid state={state} />
+        </div>
       )}
       {columnsVisible && layout === 'side-by-side' && state.actorIds.length >= 3 && (
-        <MultiActorTurnGrid state={state} />
+        <div className={styles.turnRows}>
+          <MultiActorTurnGrid state={state} />
+        </div>
       )}
 
       {/* Verdict surfaces as a global top banner (App.tsx) and inline

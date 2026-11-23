@@ -149,11 +149,16 @@ async function compiledName(page: Page): Promise<string | undefined> {
   return body.scenarios.find(scenario => scenario.id === COMPILED_ID)?.name;
 }
 
-/** Opens the compiled scenario's details from the Quickstart catalog. */
+/** Opens the compiled scenario's details from the Run tab's list of other scenarios. */
 async function openCompiledDetails(page: Page): Promise<Locator> {
   await expect.poll(() => compiledName(page), 'the compiled scenario is in the catalog').toBe(COMPILED_NAME);
   await page.goto(`${ADMIN_BASE}/sim?tab=quickstart`);
-  await page.getByRole('button', { name: `View detail for ${COMPILED_NAME}` }).click();
+  // A compiled scenario is listed under Yours, after the bundled ones, so Show all opens its row when the first rows end before it.
+  const list = page.getByTestId('other-scenarios');
+  await expect(list.getByTestId('scenario-row').first()).toBeVisible();
+  const showAll = list.getByTestId('show-all');
+  if (await showAll.isVisible() && await showAll.getAttribute('aria-expanded') !== 'true') await showAll.click();
+  await list.getByRole('button', { name: `View detail for ${COMPILED_NAME}` }).click();
   const details = page.getByRole('dialog', { name: `Scenario detail: ${COMPILED_NAME}` });
   await expect(details).toBeVisible();
   return details;

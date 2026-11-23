@@ -1,0 +1,31 @@
+// The first screen's column: the window's width less the view's padding on a
+// phone, 1,200 px at most from the wide width.
+.screen {
+  display: flex;
+  flex-direction: column;
+  // Read by the Start band, whose bar follows the part before it.
+  --screen-gap: 24px;
+  gap: var(--screen-gap);
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+// Write your own scenario: the paste form under the list, under its heading.
+.writeYourOwn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  // The paste form reads the room it has in the form's own type size.
+  container-type: inline-size;
+  font-size: var(--font-read);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  color: var(--text-1);
+}

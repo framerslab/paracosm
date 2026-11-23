@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
+import { PAGE_TITLE } from './components/quickstart/first-screen/words';
 import { defaultRunSetup } from './run-payload';
 import { emitLaunched } from './scenario-sync';
 import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
@@ -59,13 +60,14 @@ import { Footer } from './components/layout/Footer';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
 import { GuidedTour } from './components/tour/GuidedTour';
+import { HowItWorksCard } from './components/quickstart/first-screen/HowItWorksCard';
+import { RunTurnsProvider } from './components/quickstart/first-screen/runTurns';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
   createToolLogHref,
   DASHBOARD_TABS,
   getDashboardTabAndSubFromHref,
-  getDashboardTabFromHref,
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
@@ -90,6 +92,23 @@ const ScenarioReadyContext = createContext(true);
  */
 export function useScenarioReady() {
   return useContext(ScenarioReadyContext);
+}
+
+/** Whether GET /scenario has failed since its last answer, and a way to ask again at once. */
+export interface ScenarioLoad {
+  failed: boolean;
+  /** Asks for the scenario now; settles when that answer is in. */
+  retryNow(): Promise<void>;
+}
+const ScenarioLoadContext = createContext<ScenarioLoad>({ failed: false, retryNow: () => Promise.resolve() });
+
+/**
+ * The scenario's load state: `failed` is true from a failed GET /scenario
+ * until one succeeds, while the page retries by itself. Outside App the
+ * scenario never failed.
+ */
+export function useScenarioLoad(): ScenarioLoad {
+  return useContext(ScenarioLoadContext);
 }
 
 /**
@@ -203,7 +222,8 @@ function tabHeadingFor(tab: DashboardTab): string {
 const NO_EVENTS: SimEvent[] = [];
 
 function AppContent() {
-  const { scenario, ready: scenarioReady } = useScenario();
+  const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
+  const scenarioLoad = useMemo<ScenarioLoad>(() => ({ failed: scenarioFailed, retryNow: retryScenario }), [scenarioFailed, retryScenario]);
   const replaySessionId = useReplaySessionId();
   // The live feed shows a run only in the page's scenario: the server holds
   // one run for every visitor, whichever scenario each one picked.
@@ -213,6 +233,12 @@ function AppContent() {
   const handleRunCleared = useCallback((runKey: string) => runClearedRef.current(runKey), []);
   const sse = useSSE({ replaySessionId, scenarioId: scenarioReady ? scenario.id : null, onRunCleared: handleRunCleared });
   const [tourActive, setTourActive] = useState(false);
+  // The How it works card: the header's key opens and closes it on every
+  // tab. Nothing opens it by itself.
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const howItWorksKeyRef = useRef<HTMLButtonElement | null>(null);
+  const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
+  const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
   // Global verdict banner. Closable by the user; dismissal is keyed
   // to the verdict's headline so a fresh run with a new verdict
@@ -231,18 +257,11 @@ function AppContent() {
     return () => window.removeEventListener('keydown', onKey);
   }, [verdictModalOpen]);
 
-  // Dynamic page title. The scenario fallback shipped with the dashboard
-  // happens to be the Mars Genesis demo, but using its name as the title
-  // outside of an actually-loaded Mars run leaks scenario-specific
-  // branding onto every fresh visit. Show a universal Paracosm title
-  // until the user has actually loaded a named scenario from a Quickstart
-  // run, a Library bundle, or the Studio drop zone.
+  // The page's title says what the page does, in the words of its
+  // description (src/dashboard/index.html), whichever scenario is loaded.
   useEffect(() => {
-    const isFallbackName = scenario.id === 'mars-genesis' && scenario.labels.name === 'Mars Genesis';
-    document.title = isFallbackName
-      ? 'Paracosm \u2014 Structured World Model for AI Agents'
-      : `${scenario.labels.name} \u2014 Paracosm`;
-  }, [scenario.id, scenario.labels.name]);
+    document.title = PAGE_TITLE;
+  }, []);
 
   // When tour is active, use demo events; otherwise use live SSE events.
   // How the Event Log scrolls (it opens at its top and follows new events
@@ -684,59 +703,10 @@ function AppContent() {
   // launch-stalled, rate-limited, and simulation errors. The server's
   // `replay_done` SSE marker stays in place for future transient UX.
 
-  // Where the user was looking before the tour took over. Captured at
-  // tour-start time and restored at tour-end time so manually clicking
-  // HOW IT WORKS from (e.g.) Reports doesn't dump the user back on Sim
-  // when the tour finishes.
+  // Where the visitor was looking before the guided tour took over, put
+  // back when the tour ends. Nothing opens the tour: no key starts it and it
+  // never starts by itself, on a first visit or any other.
   const preTourTabRef = useRef<DashboardTab | null>(null);
-  const handleTourStart = useCallback(() => {
-    preTourTabRef.current = activeTab;
-    setTourActive(true);
-    // The tour's first step calls onTabChange('quickstart') itself, so
-    // there's no need to force-route through 'sim' here. Skipping that
-    // intermediate hop removes a wasted re-render of SimView (which is
-    // expensive when real run data is loaded).
-  }, [activeTab]);
-
-  // Auto-start the GuidedTour on the user's FIRST visit to the sim
-  // page so new viewers get oriented without having to find the
-  // HOW IT WORKS button. Gated on a localStorage flag
-  // (`paracosm:tourSeen`) so returning users don't get the tour
-  // replayed every time they open the app.
-  //
-  // We set the flag IMMEDIATELY on auto-start fire (not just when
-  // the tour ends). Reason: React 19's StrictMode double-runs
-  // effects in dev, SPA navigations / query-param changes can
-  // remount AppContent, and various dismissal paths (click-away,
-  // Escape, browser back) don't all reliably call handleTourEnd
-  // before the component unmounts. Pinning the flag at fire-time
-  // guarantees once-ever auto-start behavior regardless of how
-  // the user exits the tour. Manual re-play via HOW IT WORKS still
-  // works since that path bypasses this effect.
-  //
-  // Mobile gate: skip auto-start below 640px.
-  useEffect(() => {
-    try {
-      if (localStorage.getItem('paracosm:tourSeen') === '1') return;
-      localStorage.setItem('paracosm:tourSeen', '1');
-    } catch {
-      return;
-    }
-    if (typeof window !== 'undefined' && window.innerWidth < 640) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      const currentTab = getDashboardTabFromHref(window.location.href);
-      if (currentTab !== 'quickstart') {
-        return;
-      }
-      preTourTabRef.current = currentTab;
-      setTourActive(true);
-    }, 600);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
 
   // Chat handoff from the VIZ drilldown. Sets the URL hash so
   // ChatPanel can read it on mount or on hashchange, then switches
@@ -749,19 +719,13 @@ function AppContent() {
 
   const handleTourEnd = useCallback(() => {
     setTourActive(false);
-    // Restore the tab the user was on before the tour started, so
-    // someone who clicked HOW IT WORKS from Reports / Library / etc.
-    // returns there instead of being dumped on Sim. Falls back to
-    // whatever the tour was last on if we never captured a pre-tour
-    // tab (e.g., auto-start path).
+    // Restore the tab the visitor was on before the tour started. Falls
+    // back to whatever tab the tour was last on when none was captured.
     if (preTourTabRef.current) {
       setActiveTab(preTourTabRef.current);
       preTourTabRef.current = null;
     }
-    // Mark the tour as seen so the auto-start useEffect above
-    // stops re-firing on every mount. Fires on both finish-flow
-    // and skip — either path means the user has been exposed to
-    // the walkthrough once.
+    // Mark the tour as seen, on both finish and skip.
     try {
       localStorage.setItem('paracosm:tourSeen', '1');
     } catch {
@@ -1025,12 +989,12 @@ function AppContent() {
 
   useSimSavedToast({ events: sse.events, tourActive, userTriggeredRun });
 
+  // The run the guided tour's last step starts, with the scenario's
+  // default settings. The Run tab's Start is the one control that starts a
+  // run; the tour, which nothing opens, is the only caller left here.
   const handleRun = useCallback(async () => {
-    // Guard against double-fire. The RUN button is also hidden
-    // visually when launching / isRunning (TopBar + SimView both
-    // check the flags) but a fast-click on the empty-state button
-    // between render ticks, or a kbd shortcut, could still slip
-    // through. An early return here is the authoritative gate.
+    // Guard against double-fire: an early return here is the
+    // authoritative gate.
     if (!scenarioReady) {
       toast('info', 'Loading scenario', 'The scenario is still loading. Run again in a moment.');
       return;
@@ -1093,6 +1057,7 @@ function AppContent() {
      <RunStartContext.Provider value={leaveDigitalTwin}>
       <ScenarioContext.Provider value={scenario}>
       <ScenarioReadyContext.Provider value={scenarioReady}>
+      <ScenarioLoadContext.Provider value={scenarioLoad}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
@@ -1124,8 +1089,9 @@ function AppContent() {
             onClear={handleClear}
             onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
             onRunActionsOpen={handleRunActionsOpen}
-            onRun={handleRun}
-            onTour={handleTourStart}
+            onHowItWorks={toggleHowItWorks}
+            howItWorksOpen={howItWorksOpen}
+            howItWorksKeyRef={howItWorksKeyRef}
             onCopy={handleCopySummary}
             onShareViz={currentSessionId ? handleShareViz : undefined}
             launching={launching}
@@ -1188,7 +1154,9 @@ function AppContent() {
                 reads "Paracosm > <Tab Name>" instead of "no h1 found".
                 Per-tab views can still emit their own h2/h3 for
                 section structure. */}
-            <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>
+            {/* The Run tab's first screen shows its own visible h1, the
+                scenario's name, so the page keeps one h1 there. */}
+            {activeTab !== 'quickstart' && <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>}
             {/* QuickstartView stays mounted across tab switches so an in-
                 flight compile/research/actors run survives navigation. The
                 handleSeedReady pipeline is a chain of long fetches (compile
@@ -1218,6 +1186,7 @@ function AppContent() {
                 sse={sse}
                 sessionId={replaySessionId ?? undefined}
                 onRunStarted={() => { leaveDigitalTwin(); setUserTriggeredRun(true); }}
+                showsDigitalTwin={interventionRunning !== null || interventionArtifact !== null}
                 onInterventionStart={handleInterventionStart}
                 onInterventionResult={handleInterventionResult}
                 onInterventionError={handleInterventionError}
@@ -1240,8 +1209,6 @@ function AppContent() {
                 <SimView
                   state={gameState}
                   sseStatus={sse.status}
-                  onRun={handleRun}
-                  onTour={handleTourStart}
                   verdict={sse.verdict}
                   shownRun={shownRun}
                   launching={launching}
@@ -1377,7 +1344,8 @@ function AppContent() {
 
             {/* About tab redirects to the landing page */}
           </main>
-          <Footer
+          {/* The Run tab ends in its own foot (first-screen/PageFoot). */}
+          {activeTab !== 'quickstart' && <Footer
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
@@ -1397,7 +1365,7 @@ function AppContent() {
               abortReason: sse.abortReason,
               providerError: sse.providerError,
             }}
-          />
+          />}
           {verdictModalOpen && sse.verdict && (
             <VerdictModal
               verdict={sse.verdict as Record<string, unknown>}
@@ -1431,10 +1399,12 @@ function AppContent() {
             />
           )}
           <ShortcutsOverlay />
+          <HowItWorksCard open={howItWorksOpen} onClose={closeHowItWorks} anchor={howItWorksKeyRef} />
         </div>
         </ForgeViewProvider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
+      </ScenarioLoadContext.Provider>
       </ScenarioReadyContext.Provider>
       </ScenarioContext.Provider>
      </RunStartContext.Provider>
@@ -1478,7 +1448,9 @@ export function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <ToastProvider>
-          <AppContent />
+          <RunTurnsProvider>
+            <AppContent />
+          </RunTurnsProvider>
         </ToastProvider>
       </ThemeProvider>
     </ErrorBoundary>
