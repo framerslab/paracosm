@@ -80,6 +80,11 @@ export function drawHud(
 
   // Archetype chip next to the name.
   const archetype = (opts.actorArchetype || '').trim().replace(/^The\s+/i, '');
+  // With a text size set, the chip's width is estimated before it is drawn:
+  // 0.61 em for each monospace character of its words plus two characters,
+  // and 28 px for the name's 10 px inset, the 8 px gap after the name and
+  // the chip's 5 px padding on each side (chipX and padX below). A chip that
+  // would not fit beside the name inside maxNameWidth is left out.
   if (archetype && (!opts.textSize || nameWidth + (archetype.length + 2) * textSize * 0.61 + 28 < maxNameWidth)) {
     ctx.font = `bold ${opts.textSize ?? 8}px ui-monospace, monospace`;
     const chipText = archetype.toUpperCase();

@@ -118,7 +118,9 @@ export function DeptDonut({
         y={cy}
         textAnchor="middle"
         dominantBaseline="central"
-        fontSize={10}
+        // A CSS variable does not resolve in an SVG presentation attribute:
+        // the Viz panel's size goes in the style, 10 px outside the panel.
+        style={{ fontSize: 'var(--viz-read-size, 10px)' }}
         fontFamily="ui-monospace, monospace"
         fontWeight={800}
         fill="var(--text-1)"

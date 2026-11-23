@@ -302,7 +302,9 @@ mkdirSync(runsDir, { recursive: true });
 const runHistoryStore = createSqliteRunHistoryStore({ dbPath: join(appDir, 'runs.db') });
 
 const server = createMarsServer({
-  env: { ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: runsDir, PARACOSM_HOSTED_DEMO: HOSTED_CHROME ? 'true' : '' },
+  // Platform mode wins over the hosted demo (src/server/server-mode.ts), so a
+  // PARACOSM_PLATFORM_API set in the shell is cleared here.
+  env: { ...process.env, APP_DIR: appDir, PARACOSM_OUTPUT_DIR: runsDir, PARACOSM_PLATFORM_API: '', PARACOSM_HOSTED_DEMO: HOSTED_CHROME ? 'true' : '' },
   siteAnalyticsIds: HOSTED_CHROME ? { ga: 'G-E2E0TEST00', clarity: 'e2econsent' } : undefined,
   maxSimsPerDay: 0,
   runHistoryStore,
