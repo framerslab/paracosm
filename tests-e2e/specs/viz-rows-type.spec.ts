@@ -49,6 +49,17 @@
  * - On the Viz tab one press of ? opens one overlay, the tab's help, and a
  *   second press closes it; on a tab without a help of its own ? opens the
  *   page's Keyboard shortcuts overlay.
+ * - At 600, 768 and 1440 the Viz legend row (the marks and the key to the
+ *   full legend) is one row: every mark it shows is whole and on one line,
+ *   its key's words are on one line, and below 900 px the key is 44 px
+ *   tall. The full legend names every mark, so a mark the row leaves out
+ *   is one key away.
+ * - On a phone 560 px tall, taller than the short screen, a spotlight
+ *   tapped with its grid scrolled above the view opens its drilldown with
+ *   the name and the Close key in view.
+ * - The 15 px floor and the Viz layout stay inside the Viz panel: on the
+ *   Run tab the track of one panel a leader keeps the dashboard's own size
+ *   for a leader's name, and its grids paint their words below 15 px.
  *
  * The stored runs are tests-e2e/support/viz-replay-server.ts's, served with
  * VIZ_REPLAY_EVENT_STARTS=1 on a port of their own: the hosted demo's six
@@ -58,8 +69,9 @@
  * grid as many rows above it as the live replays had; the other stored runs
  * draw no event row.
  *
- * Pictures at 390 x 844, 390 x 339, 844 x 339, 320, 600 and 1440 in both looks go to
- * test-pictures/viz-rows-type/, which CI uploads. Each is taken before its
+ * Pictures at 390 x 844, 390 x 339, 844 x 339, 320, 600 and 1440 in both looks, of
+ * the Viz legend row at 600, 768 and 1440, of the drilldown at 390 x 560 and of the
+ * Run tab's track go to test-pictures/viz-rows-type/, which CI uploads. Each is taken before its
  * checks, so a failing run leaves them too.
  */
 import { readFileSync } from 'node:fs';
@@ -79,6 +91,8 @@ const ARIA = 'Aria Chen';
 const PHONE = { width: 390, height: 844 };
 const TABLETS = [{ width: 600, height: 844 }, { width: 768, height: 1024 }];
 const SHORT = { width: 390, height: 339 };
+/** A phone taller than the short screen's 500 px, short enough that the panel scrolls past a grid. */
+const TALL_ENOUGH = { width: 390, height: 560 };
 /** A phone on its side with its browser's bars: as wide as the rows' 844 x 390, as short as the short screen. */
 const SIDE = { width: 844, height: 339 };
 /** Below this width a key is a phone's: 44 px tall and wide or more. */
@@ -139,6 +153,25 @@ async function pairRun(request: APIRequestContext): Promise<{ id: string; turns:
     return { id, turns: Math.max(...frames.filter(f => f.type === 'systems_snapshot').map(f => Number(f.data.turn))) };
   }
   throw new Error('The server stores no run with two commanders.');
+}
+
+/** The id of the stored run with three commanders, from the server's own replay route. */
+async function cohortRunId(request: APIRequestContext): Promise<string> {
+  const res = await request.get(`${SERVER}/sessions`);
+  expect(res.ok()).toBe(true);
+  const { sessions } = await res.json() as { sessions: Array<{ id: string }> };
+  for (const { id } of sessions) {
+    const replay = await request.get(`${SERVER}/sessions/${encodeURIComponent(id)}/replay`);
+    expect(replay.ok()).toBe(true);
+    const leaders = new Set<string>();
+    for (const chunk of (await replay.text()).split('\n\n')) {
+      const event = /^event: (.+)$/m.exec(chunk)?.[1];
+      const data = /^data: (.+)$/m.exec(chunk)?.[1];
+      if (event === 'sim' && data) leaders.add((JSON.parse(data) as { leader: string }).leader);
+    }
+    if (leaders.size === 3) return id;
+  }
+  throw new Error('The server stores no run with three commanders.');
 }
 
 /** Aria Chen's living grid on one turn. */
@@ -525,7 +558,7 @@ for (const look of LOOKS) {
     }
   });
 
-  test(`a spotlight at the foot of the grid opens with its drilldown header in view in the ${look} look`, async ({ page, request }) => {
+  test(`a spotlight opens its drilldown with the header in view at 390 x 339 and at 390 x 560 with the grid scrolled above, in the ${look} look`, async ({ page, request }) => {
     test.setTimeout(180_000);
     const run = await pairRun(request);
     await openRun(page, run, look, SHORT);
@@ -536,6 +569,26 @@ for (const look of LOOKS) {
     const header = dialog.getByRole('button', { name: 'Close drilldown' }).locator('xpath=..');
     await expect(header).toBeVisible();
     expect(await inView(header), 'the drilldown name and Close key are inside the short window').toBe(true);
+
+    // A phone taller than the short screen: the panel scrolls on its own, and
+    // the first spotlight stands at the top of its view with the whole of
+    // Aria Chen's grid above it.
+    await openRun(page, run, look, TALL_ENOUGH);
+    const first = viz(page).getByRole('button', { name: /^Spotlight:/ }).first();
+    await first.evaluate(el => el.scrollIntoView({ block: 'start', inline: 'nearest' }));
+    await painted(page);
+    // The test's own ground: Aria Chen's grid, where the drilldown opens, is above the panel's view.
+    const above = await gridOf(page, run.turns).evaluate((el) => {
+      const view = el.closest('[data-viz-layout]')!.getBoundingClientRect();
+      return el.getBoundingClientRect().bottom <= view.top + 1;
+    });
+    expect(above, 'Aria Chen\'s grid stands above the panel\'s view').toBe(true);
+    await first.click();
+    const opened = viz(page).getByRole('dialog', { name: /drilldown$/ });
+    const top = opened.getByRole('button', { name: 'Close drilldown' }).locator('xpath=..');
+    await expect(top).toBeVisible();
+    await picture(page, `drilldown-${TALL_ENOUGH.width}x${TALL_ENOUGH.height}-${look}`);
+    expect(await inView(top), `at ${TALL_ENOUGH.width} x ${TALL_ENOUGH.height} the drilldown name and Close key are in view`).toBe(true);
   });
 }
 
@@ -563,6 +616,44 @@ test('the living grid draws its labels at the Viz text size', async ({ page, req
   });
   await expect.poll(async () => (await sizes()).length).toBeGreaterThan(0);
   expect((await sizes()).filter(size => size < READ_SIZE)).toEqual([]);
+});
+
+test('the Viz panel\'s 15 px words stay in the Viz panel: the Run tab\'s track of one panel a leader keeps its own sizes', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const id = await cohortRunId(request);
+  await page.addInitScript(() => {
+    const sizes = new Set<number>();
+    Object.assign(window, { trackTextSizes: sizes });
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+      const size = /([0-9.]+)px/.exec(this.font)?.[1];
+      if (size && this.canvas.closest('[data-testid="watch-grid-track"]')) sizes.add(Number(size));
+      if (maxWidth === undefined) fillText.call(this, text, x, y);
+      else fillText.call(this, text, x, y, maxWidth);
+    };
+  });
+  await page.setViewportSize(sizeAt(1440));
+  await useLook(page, 'dark');
+  await page.goto(`${SERVER}/sim?replay=${encodeURIComponent(id)}&tab=sim`);
+  const track = page.getByTestId('watch-grid-track');
+  await expect(track).toBeVisible({ timeout: 60_000 });
+  await track.scrollIntoViewIfNeeded();
+  const name = track.getByText(ARIA, { exact: true }).first();
+  await expect(name).toBeVisible({ timeout: 60_000 });
+  await picture(page, 'run-tab-track-1440-dark', track);
+  // The dashboard's own size for a leader's name, read where the name stands.
+  const { size, own } = await name.evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = 'var(--font-sm)';
+    el.parentElement!.appendChild(probe);
+    const own = parseFloat(getComputedStyle(probe).fontSize);
+    probe.remove();
+    return { size: parseFloat(getComputedStyle(el).fontSize), own };
+  });
+  expect(size, 'a leader\'s name on the Run tab keeps the dashboard\'s own size').toBe(own);
+  const trackSizes = () => page.evaluate(() => [...(window as unknown as { trackTextSizes: Set<number> }).trackTextSizes]);
+  await expect.poll(async () => (await trackSizes()).length, { message: 'the track\'s grids paint their labels', timeout: 30_000 }).toBeGreaterThan(0);
+  expect((await trackSizes()).filter(s => s >= READ_SIZE), 'the track\'s grids paint their labels at the Run tab\'s own sizes, not the Viz panel\'s').toEqual([]);
 });
 
 test('the light phone replay shows the toolbar ground at full brightness', async ({ page, request }) => {
@@ -749,6 +840,102 @@ for (const look of LOOKS) {
     }
   });
 }
+
+// ── The Viz legend row ───────────────────────────────────────────────────
+
+/** The Viz legend row: the grid's marks and the key to the full legend. */
+const marksRow = (page: Page) => viz(page).locator('[aria-label="Visualization legend"]');
+
+/** The marks row as it is drawn: each run of its words, where it stands and how the row's boxes clip it. */
+interface MarksRead {
+  /** Each run of words outside the full legend, with its lines on the page and whether the row's clip shows it. */
+  words: Array<{ text: string; name: boolean; key: boolean; lines: number; top: number; bottom: number; shown: 'whole' | 'cut' | 'out' }>;
+  /** The key to the full legend. */
+  key: { width: number; height: number } | null;
+}
+
+async function readMarks(row: Locator): Promise<MarksRead> {
+  return row.evaluate((el) => {
+    const key = el.querySelector(':scope > button');
+    const words: MarksRead['words'] = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = (n.textContent ?? '').replace(/\s+/g, ' ').trim();
+      const parent = n.parentElement;
+      if (!text || !parent || parent.closest('[role="dialog"]')) continue;
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const rects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+      if (rects.length === 0) continue;
+      // The box the words are clipped to: every box from them to the row that clips.
+      let top = -Infinity;
+      let bottom = Infinity;
+      let left = -Infinity;
+      let right = Infinity;
+      for (let box: Element | null = parent; box; box = box === el ? null : box.parentElement) {
+        const cs = getComputedStyle(box);
+        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        const b = box.getBoundingClientRect();
+        top = Math.max(top, b.top + box.clientTop);
+        bottom = Math.min(bottom, b.top + box.clientTop + box.clientHeight);
+        left = Math.max(left, b.left + box.clientLeft);
+        right = Math.min(right, b.left + box.clientLeft + box.clientWidth);
+      }
+      const inside = rects.filter(r => r.bottom > top + 0.5 && r.top < bottom - 0.5 && r.right > left + 0.5 && r.left < right - 0.5);
+      const whole = inside.length === rects.length && rects.every(r => r.top >= top - 0.5 && r.bottom <= bottom + 0.5 && r.left >= left - 0.5 && r.right <= right + 0.5);
+      // Lines: the distinct tops of the words' boxes.
+      const tops = [...new Set(rects.map(r => Math.round(r.top)))];
+      words.push({
+        text: text.slice(0, 32),
+        name: !parent.closest('[aria-hidden="true"]') && !(key && key.contains(parent)),
+        key: !!key && key.contains(parent),
+        lines: tops.length,
+        top: Math.min(...rects.map(r => r.top)),
+        bottom: Math.max(...rects.map(r => r.bottom)),
+        shown: whole ? 'whole' : inside.length > 0 ? 'cut' : 'out',
+      });
+    }
+    const k = key?.getBoundingClientRect();
+    return { words, key: k ? { width: k.width, height: k.height } : null };
+  });
+}
+
+test('the Viz legend row is one row at 600, 768 and 1440, with every mark one key away in the full legend', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const run = await pairRun(request);
+  for (const size of [...TABLETS, sizeAt(1440)]) {
+    const where = `${size.width} x ${size.height}`;
+    await openRun(page, run, 'dark', size);
+    await scrollBack(page);
+    await painted(page);
+    const row = marksRow(page);
+    await expect(row).toBeVisible();
+    await picture(page, `marks-row-${size.width}-dark`, row);
+    const read = await readMarks(row);
+    const shown = read.words.filter(w => w.shown !== 'out');
+    expect.soft(read.words.filter(w => w.shown === 'cut').map(w => w.text), `${where}: no mark is cut by the row's edge`).toEqual([]);
+    expect.soft(shown.filter(w => w.lines > 1).map(w => `"${w.text}" on ${w.lines} lines`), `${where}: every name and the key's words stand on one line`).toEqual([]);
+    const oneLine = shown.length > 0 && Math.max(...shown.map(w => w.top)) < Math.min(...shown.map(w => w.bottom));
+    expect.soft(oneLine, `${where}: the marks and the key stand on one line: ${shown.map(w => `"${w.text}" at ${Math.round(w.top)}`).join(', ')}`).toBe(true);
+    expect.soft(shown.filter(w => w.name).length, `${where}: the row shows at least one mark`).toBeGreaterThan(0);
+    expect.soft(shown.some(w => w.key), `${where}: the key to the full legend shows`).toBe(true);
+    if (size.width < PHONE_BELOW) {
+      expect.soft(read.key?.height ?? 0, `${where}: the key to the full legend is ${PHONE_TARGET} px tall`).toBeGreaterThanOrEqual(PHONE_TARGET - 0.5);
+    }
+    expect.soft(await pageScroll(page), `${where}: the page does not scroll sideways`).toBeLessThanOrEqual(0);
+
+    // The full legend names every mark, the ones the row leaves out too.
+    const names = [...new Set(read.words.filter(w => w.name).map(w => w.text))];
+    await row.getByRole('button', { name: 'Show full legend' }).click();
+    const full = page.getByRole('dialog', { name: /looking at$/ });
+    await expect(full).toBeVisible();
+    for (const name of names) {
+      await expect.soft(full.getByText(name, { exact: true }), `${where}: the full legend names "${name}"`).toBeVisible();
+    }
+    await page.keyboard.press('Escape');
+    await expect(full).toBeHidden();
+  }
+});
 
 // ── The words of the Viz rows ────────────────────────────────────────────
 
