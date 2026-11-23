@@ -861,7 +861,10 @@ interface Box { left: number; top: number; width: number; height: number }
 
 /** The Viz panel's view and each shown living grid's place in it, in CSS px from the panel's top left. */
 const readPanel = (page: Page): Promise<{ width: number; height: number; grids: Box[] }> => page.evaluate(() => {
-  const panel = document.querySelector('.viz-content')!.getBoundingClientRect();
+  const root = document.querySelector('.viz-content')!;
+  const panel = root.getBoundingClientRect();
+  const body = root.querySelector('[data-viz-layout]');
+  const fullHeight = panel.height + (body ? Math.max(0, body.scrollHeight - body.clientHeight) : 0);
   const grids: Array<{ left: number; top: number; width: number; height: number }> = [];
   for (const region of Array.from(document.querySelectorAll('.viz-content [data-testid^="living-colony-grid-"]'))) {
     // The grid's drawing: the largest canvas of its region.
@@ -871,7 +874,7 @@ const readPanel = (page: Page): Promise<{ width: number; height: number; grids: 
       .sort((a, b) => b.width * b.height - a.width * a.height)[0];
     if (drawn) grids.push({ left: drawn.left - panel.left, top: drawn.top - panel.top, width: drawn.width, height: drawn.height });
   }
-  return { width: panel.width, height: panel.height, grids };
+  return { width: panel.width, height: fullHeight, grids };
 });
 
 /** Waits until every shown living grid holds its drawing: a canvas of it with more than one colour. */
@@ -1003,7 +1006,7 @@ async function exportAction(page: Page, name: RegExp): Promise<Locator> {
 }
 
 for (const look of LOOKS) {
-  test(`the PNG export holds every living grid whole where the Viz panel scrolls as one (390 x 339, 844 x 339), and is the panel's own view at 1440, in the ${look} look`, async ({ page, request }) => {
+  test(`the PNG export holds every living grid whole where the Viz panel scrolls as one (390 x 339, 844 x 339), and holds the side-by-side grids at 1440, in the ${look} look`, async ({ page, request }) => {
     test.setTimeout(300_000);
     await keepRecordedCanvas(page);
     const run = await pairRun(request);
@@ -1049,7 +1052,7 @@ for (const look of LOOKS) {
         });
         expect.soft(pictureWidth, `${where}: as wide as the panel at twice its size`).toBe(Math.round(laidOut.width * EXPORT_SCALE));
         expect.soft(pictureHeight, `${where}: tall enough to hold every grid whole (${pictureHeight} px for grids that end ${(lowest * EXPORT_SCALE).toFixed(1)} px down)`).toBeGreaterThanOrEqual(Math.floor(lowest * EXPORT_SCALE) - 1);
-        if (!scrolls) expect.soft(pictureHeight, `${where}: the panel's own view at twice its size`).toBe(Math.round(laidOut.height * EXPORT_SCALE));
+        if (!scrolls) expect.soft(pictureHeight, `${where}: the full panel at twice its size`).toBe(Math.round(laidOut.height * EXPORT_SCALE));
         const drawn = await drawnIn(page, png, laidOut.grids.map(g => ({ left: g.left * EXPORT_SCALE, top: g.top * EXPORT_SCALE, width: g.width * EXPORT_SCALE, height: g.height * EXPORT_SCALE })));
         laidOut.grids.forEach((g, i) => {
           expect.soft(drawn[i], `${where}: grid ${i + 1} is drawn where it stands in the panel laid out in full (${g.top.toFixed(1)} to ${(g.top + g.height).toFixed(1)} px down)`).toBe(true);
