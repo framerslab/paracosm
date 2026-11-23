@@ -167,6 +167,8 @@
 .githubIcon { flex-shrink: 0; }
 
 .tourBtn {
+  // Holds the key's words where they are kept for a screen reader alone.
+  position: relative;
   background: var(--bg-card);
   color: var(--amber);
   border: 1px solid var(--amber-dim, var(--border));
@@ -177,6 +179,11 @@
   font-weight: 600;
   font-family: var(--mono);
   letter-spacing: 0.3px;
+
+  // While the card it opens is showing.
+  &[aria-expanded='true'] {
+    border-color: var(--amber);
+  }
 }
 
 .launchingChip {

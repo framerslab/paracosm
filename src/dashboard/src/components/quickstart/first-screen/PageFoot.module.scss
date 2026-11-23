@@ -1,0 +1,234 @@
+@use './shape' as *;
+
+// The foot: stacked on a phone; from 600 px the links and Analytics choices
+// at the left and the licence line at the right; from 1,100 px one row.
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 48px auto 0;
+  padding: 24px 0 max(24px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+}
+
+.adults {
+  margin: 0;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+.parts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+
+  @media (min-width: 600px) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 24px;
+    row-gap: 8px;
+
+    .nav {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .choices {
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: start;
+    }
+
+    .licence {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+    }
+  }
+
+  @media (min-width: 1100px) {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+
+    .licence {
+      margin-left: auto;
+    }
+  }
+}
+
+// The navigation takes the column's whole width, the room the links are measured against.
+.nav {
+  position: relative;
+  align-self: stretch;
+  min-width: 0;
+}
+
+// The links stay one row at every width: 8 px apart under 360 px, 16 px from 360 px.
+.links {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  @media (min-width: 360px) {
+    gap: 16px;
+  }
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+// The full row of links, unseen and clipped to nothing, at the links' own
+// size: PageFoot reads its width to know whether the four fit one row.
+.measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fullRow {
+  width: max-content;
+}
+
+// More links: the key that holds Docs, GitHub and npm when the four links do
+// not fit one row, and the menu it opens above itself.
+.more {
+  position: relative;
+}
+
+.moreKey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 96px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+  }
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  box-sizing: border-box;
+  min-width: 100%;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+
+  &:link,
+  &:visited,
+  &:hover {
+    color: var(--text-1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: -2px;
+  }
+}
+
+.choices {
+  display: inline-flex;
+  align-items: center;
+
+  :global(button[data-consent-open]:not([hidden])) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: var(--text-1);
+    font-family: var(--sans);
+    font-size: var(--font-read);
+    font-weight: 400;
+    line-height: 1.4;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+}
+
+.licence {
+  margin: 0;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  @include quiet-tone;
+}

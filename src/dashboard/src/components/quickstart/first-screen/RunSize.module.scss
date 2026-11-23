@@ -1,0 +1,166 @@
+// The run's size, in the leaders' heading row: phone from 320 px, tablet
+// from 600 px, desktop from 1,100 px, wide from 1,440 px. Every colour is a
+// token: the mark, the size and the field's number in the ink, the lines
+// under the row in the quiet tone, the keys' and the field's edges in the
+// control edge, the field on the input ground.
+@use './shape' as *;
+
+@include loading-shape-keyframes;
+
+.size {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-1);
+  font-family: var(--sans);
+}
+
+// One row at every width from 320 px: the mark at the left, the size at the
+// right. Where the two cannot share a row (text at 200 per cent), the size
+// moves under the mark and its three controls keep a row of their own.
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 8px;
+  row-gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.triangle {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.value {
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+// The fewer key, the field and the more key, 8 px apart.
+.control {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--bg-card);
+  }
+
+  &:active {
+    background: var(--bg-panel);
+  }
+
+  &[aria-disabled='true'] {
+    cursor: default;
+    background: transparent;
+    @include quiet-tone;
+  }
+}
+
+.glyph {
+  display: block;
+  flex: none;
+}
+
+.field {
+  flex: none;
+  box-sizing: border-box;
+  width: 72px;
+  height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-lg);
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read-body);
+  line-height: 1.4;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+
+  &[aria-disabled='true'] {
+    cursor: default;
+  }
+}
+
+// The lines under the row: the free run's line, a bound's sentence, the
+// settings line.
+.line {
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  text-wrap: pretty;
+  @include quiet-tone;
+}
+
+// A refused number, in the ink beside the warning glyph.
+.refusal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  color: var(--text-1);
+}
+
+.warning {
+  flex: none;
+}
+
+.shape {
+  @include loading-shape;
+}
+
+// From the tablet width the lines stand under the size, at the row's right end.
+@media (min-width: 600px) {
+  .line {
+    text-align: right;
+  }
+
+  .refusal {
+    justify-content: flex-end;
+  }
+}

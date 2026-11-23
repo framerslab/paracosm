@@ -84,7 +84,7 @@ test('normalizeSimulationConfig takes omitted setup values and people from the s
       ['Dr. Sarah Anderson', 'medical'],
       ['James Mueller', 'engineering'],
       ['Dr. Yuki Nakamura', 'mining'],
-      ['Chen Wei', 'life-support'],
+      ['Qiao Lanfeng', 'life-support'],
       ['Maria Santos', 'communications'],
     ],
   );

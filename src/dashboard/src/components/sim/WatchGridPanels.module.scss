@@ -1,0 +1,60 @@
+// The living grid on the Sim tab, above the turn rows: a pair's two panels,
+// or the track of one panel a leader from 3 leaders. Phone from 320 px,
+// tablet from 768 px, desktop from 1,100 px.
+//
+// The panels stand in the Sim tab's own frame: the same hairline between
+// them as between the two leaders' bars above, on the tab's own ground.
+
+// A pair: one column on a phone, two from a tablet up, each panel under its
+// leader's bar.
+.pair {
+  // The height of each panel's field, under its figures strip.
+  --watch-field-height: 190px;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  flex: 0 0 auto;
+  min-width: 0;
+  background: var(--border);
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (min-width: 1100px) {
+    --watch-field-height: 200px;
+  }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-deep);
+}
+
+// The grid takes the height of its own parts: its figures strip at the
+// height its words need, then its field at the height set above. On the Viz
+// tab the grid fills a panel of a set height and asks for a minimum on a
+// phone, where one leader's panel shows at a time. Here two panels share the
+// screen with the turn rows, and on a phone the strip stands two columns
+// deep: a panel of a set height would leave the field almost none.
+.panel > div[data-testid^='living-colony-grid-'] {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.panel div[data-testid^='living-colony-field-'] {
+  flex: 0 0 auto;
+  height: var(--watch-field-height);
+}
+
+// From 3 leaders: the track keeps to the tab's width and scrolls its
+// panels sideways inside itself.
+.track {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--bg-deep);
+}

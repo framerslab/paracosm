@@ -1,0 +1,113 @@
+// A leader's six scores. Every colour is a token: the names and figures in
+// the quiet tone, the track's edge and a fill inside the middle band in the
+// control edge, a fill outside the band in the accent, the ticks in the ink.
+@use './shape' as *;
+
+.rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 148px) minmax(48px, 1fr) 4ch;
+  align-items: center;
+  column-gap: 12px;
+  min-height: 32px;
+  min-width: 0;
+}
+
+.name,
+.figure {
+  font-family: var(--sans);
+  font-size: var(--font-read);
+  line-height: 1.4;
+  font-weight: 400;
+  @include quiet-tone;
+}
+
+.name {
+  overflow-wrap: break-word;
+}
+
+.figure {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+// The track: an outlined bar the score fills from the left.
+.track {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 10px;
+  border: 1px solid var(--edge-control);
+  border-radius: 2px;
+}
+
+.short {
+  width: 48px;
+  flex: none;
+}
+
+.fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--score, 0) * 1%);
+  background: var(--edge-control);
+
+  &[data-outside='true'] {
+    background: var(--amber);
+  }
+}
+
+// The two ticks at the middle band's edges, a little taller than the track.
+.tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--text-1);
+  transform: translateX(-50%);
+}
+
+.tickLow {
+  left: 35%;
+}
+
+.tickHigh {
+  left: 65%;
+}
+
+// Wide, in a narrow column: the name and the figure on one line, the bar
+// under them across the column.
+@media (min-width: 1440px) {
+  .rows[data-stack-wide='true'] .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 6px;
+    row-gap: 4px;
+    padding: 4px 0;
+
+    .name {
+      grid-column: 1;
+      grid-row: 1;
+    }
+
+    .figure {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .track {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+}

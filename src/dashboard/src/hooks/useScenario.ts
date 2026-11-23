@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { subscribeScenarioUpdates } from '../scenario-sync';
 
 export interface ScenarioClientPayload {
@@ -36,6 +36,8 @@ export interface ScenarioClientPayload {
     defaultStartTime: number;
     defaultTimePerTurn?: number;
     defaultPopulation: number;
+    /** The most events a turn may hold; the engine reads 2 when a scenario names none. */
+    maxEventsPerTurn?: number;
   };
   departments: Array<{
     id: string;
@@ -106,33 +108,44 @@ const LONGEST_RETRY_MS = 15_000;
  * The active scenario. `scenario` is the Mars Genesis fallback until GET
  * /scenario answers, so the page has something to draw; `ready` is true
  * only while `scenario` is the server's answer. A run must wait for it:
- * the fallback's leaders and setup values belong to another world. A failed
- * fetch tries again, with `ready` false, until the server answers.
+ * the fallback's leaders and setup values belong to another world, and no
+ * part of the page may paint the fallback's name or figures as the
+ * scenario's. A failed fetch tries again, with `ready` false, after 2
+ * seconds and then at doubling gaps up to 15 seconds; `failed` is true from
+ * a failed fetch until one succeeds. `retryNow()` asks at once and settles
+ * when that answer is in; a page that comes back online asks at once too.
  */
 export function useScenario() {
   const [scenario, setScenario] = useState<ScenarioClientPayload>(MARS_FALLBACK);
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const loadRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   useEffect(() => {
     let latestRequest = 0;
     let failures = 0;
+    let lastFailed = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const loadScenario = () => {
+    const loadScenario = (): Promise<void> => {
       const request = ++latestRequest;
       clearTimeout(retryTimer);
       setReady(false);
       const tryAgain = () => {
         if (request !== latestRequest) return;
+        lastFailed = true;
+        setFailed(true);
         retryTimer = setTimeout(loadScenario, Math.min(FIRST_RETRY_MS * 2 ** failures, LONGEST_RETRY_MS));
         failures += 1;
       };
-      fetch('/scenario')
+      return fetch('/scenario')
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (request !== latestRequest) return;
           if (data?.id) {
             failures = 0;
+            lastFailed = false;
+            setFailed(false);
             setScenario(data);
             setReady(true);
           } else {
@@ -142,14 +155,23 @@ export function useScenario() {
         .catch(tryAgain);
     };
 
-    loadScenario();
+    loadRef.current = loadScenario;
+    const onOnline = () => {
+      if (lastFailed) void loadScenario();
+    };
+    void loadScenario();
     const unsubscribe = subscribeScenarioUpdates(window, loadScenario);
+    window.addEventListener('online', onOnline);
     return () => {
       latestRequest += 1;
       clearTimeout(retryTimer);
       unsubscribe();
+      window.removeEventListener('online', onOnline);
+      loadRef.current = () => Promise.resolve();
     };
   }, []);
 
-  return { scenario, ready };
+  const retryNow = useCallback((): Promise<void> => loadRef.current(), []);
+
+  return { scenario, ready, failed, retryNow };
 }

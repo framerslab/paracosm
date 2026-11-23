@@ -36,6 +36,11 @@ interface UseGridStateInputs {
   reuseCalls?: ReuseCall[];
   /** Event categories fired this turn (used for crisis flares). */
   eventCategories?: string[];
+  /**
+   * True for a panel at rest: no frame loop runs, and the canvas paints once
+   * for each change of what it draws.
+   */
+  still?: boolean;
 }
 
 interface GridStateHandle {
@@ -203,11 +208,12 @@ export function useGridState(
     };
   }, [containerRef]);
 
-  // rAF tick — bumps tickClock, advances flares. Under reduced motion
-  // the animation loop is suppressed; render still happens on snapshot
-  // change via a single bump below.
+  // rAF tick — bumps tickClock, advances flares. Under reduced motion,
+  // and for a panel at rest, the animation loop is suppressed; render
+  // still happens on snapshot change via a single bump below.
+  const still = inputs.still === true;
   useEffect(() => {
-    if (reducedMotion) {
+    if (reducedMotion || still) {
       // One render per snapshot change is enough under reduced motion;
       // bump tickClock so the canvas paints the current state.
       setTickClock(prev => prev + 1);
@@ -233,7 +239,7 @@ export function useGridState(
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [reducedMotion]);
+  }, [reducedMotion, still]);
 
   return { flares: activeFlares(flareQueueRef.current), tickClock };
 }

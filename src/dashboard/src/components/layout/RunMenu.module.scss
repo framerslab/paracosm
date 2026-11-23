@@ -84,38 +84,6 @@
   font-size: var(--font-md);
 }
 
-// Run New Simulation (primary)
-.runNewButton {
-  @extend .menuButton;
-  font-weight: 800;
-  color: #1a0d08;
-  background: linear-gradient(135deg, var(--rust), #c44a1e);
-  border: none;
-  text-shadow: 0 1px 0 rgba(255, 230, 210, 0.35);
-
-  &:hover {
-    filter: brightness(1.08);
-  }
-
-  &:disabled {
-    filter: saturate(0.4);
-    opacity: 0.75;
-    cursor: wait;
-  }
-}
-
-.runNewBadge {
-  font-size: var(--font-3xs);
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 3px;
-  background: rgba(26, 13, 8, 0.85);
-  color: #fff7ec;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-shadow: none;
-}
-
 // Run Saved Simulation (amber, disabled variants)
 .runSavedButton {
   @extend .menuButton;

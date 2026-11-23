@@ -14,11 +14,12 @@
  * progress view shows came over /events and nowhere else. That server holds
  * one run at a time, so the tests run in order.
  *
- * A run started from the page's Run controls replaces the Digital Twin views:
- * the result panel and the progress view stayed on the SIM tab over it, and a
- * twin's answer that came back after it brought the panel back. A run the
- * server refuses replaces nothing, and a run loaded from a file or a clear of
- * the page's local data replaces the views as a new run does.
+ * A run started from the Run tab's Start replaces the Digital Twin views:
+ * the page opens the run on the Sim tab. The result panel and the progress
+ * view once stayed on the SIM tab over a new run, and a twin's answer that
+ * came back after the page left it brought the panel back. A run the server
+ * refuses replaces nothing, and a run loaded from a file or a clear of the
+ * page's local data replaces the views as a new run does.
  *
  * Delete server data drops every finished run the server holds and tells the
  * pages showing one. A finished twin's result is such a view, so it empties
@@ -26,6 +27,7 @@
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
+import { noRunOnPage, pressStart } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stub engine runs on a local server of its own.');
 test.use({ baseURL: 'http://127.0.0.1:3457' });
@@ -42,11 +44,11 @@ const running = (page: Page) => page.getByRole('heading', { name: /Digital Twin 
 const result = (page: Page) => page.getByRole('heading', { name: 'Digital Twin · Intervention Result' });
 const playback = (page: Page, position: number) => page.getByRole('heading', { name: `Playback · ${position} / ${ROWS} events` });
 const dismiss = (page: Page) => page.getByRole('button', { name: 'Clear · run another' });
-const emptyStateRun = (page: Page) => page.getByRole('button', { name: /^(Run Simulation|Loading scenario)/ });
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
 const pairRunning = (page: Page) => page.getByRole('status', { name: /^Simulation status: Running\./ });
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
-const runNewItem = (page: Page) => page.getByRole('menuitem', { name: /Run New Simulation|Loading scenario/ });
+/** What the Run tab says above Start when the server refuses the run. */
+const RUN_DID_NOT_START = 'The run did not start. Press Start again.';
 const stat = (page: Page, label: string) => page.locator('[class*="statsBar"]').getByText(label, { exact: true }).locator('xpath=..');
 
 /** Opens the Digital Twin card and presses Run on its first preset. */
@@ -70,7 +72,8 @@ async function holdAnswer(page: Page, subjectId?: string): Promise<() => void> {
       ? { postData: JSON.stringify({ ...body, subject: { ...body.subject, id: subjectId } }) }
       : undefined);
     await released;
-    await route.fulfill({ response: answer });
+    // A page that has left for a run it started has dropped the request.
+    await route.fulfill({ response: answer }).catch(() => undefined);
   });
   return release;
 }
@@ -116,11 +119,19 @@ async function twinAnswerHandled(page: Page): Promise<void> {
   await expect(page.getByRole('button', { name: 'Run digital twin', includeHidden: true })).toHaveCount(1);
 }
 
-/** Starts a run from the RUN menu, as a visitor who wants another run does. */
-async function runNew(page: Page): Promise<void> {
+/** Starts a pair run from the Run tab's Start; the page opens the run on the Sim tab. */
+async function startPairRun(page: Page): Promise<void> {
+  await pressStart(page);
+  await expect(page).toHaveURL(/[?&]tab=sim\b/);
+}
+
+/** Loads a saved run from a file through the RUN menu, taking whatever the page shows. */
+async function loadSavedRun(page: Page): Promise<void> {
   await runMenuButton(page).click();
-  await expect(runNewItem(page)).toHaveText(/Run New Simulation/);
-  await runNewItem(page).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: /Load from file/ }).click();
+  await (await chooser).setFiles(savedRun());
+  await page.getByRole('button', { name: /^(Load|Replace current simulation)$/ }).click();
 }
 
 async function expectProgressOfWholeRun(page: Page): Promise<void> {
@@ -160,7 +171,7 @@ test.describe('Digital Twin events @twin', () => {
     // Clearing the result leaves the page as it was before the run.
     await dismiss(page).click();
     await expect(result(page)).toHaveCount(0);
-    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(noRunOnPage(page)).toBeVisible();
     await expect(finishedRun(page)).toHaveCount(0);
   });
 
@@ -169,7 +180,7 @@ test.describe('Digital Twin events @twin', () => {
     try {
       const otherPage = await other.newPage();
       await otherPage.goto('/sim?tab=sim');
-      await expect(emptyStateRun(otherPage)).toBeVisible();
+      await expect(noRunOnPage(otherPage)).toBeVisible();
 
       const release = await holdAnswer(page);
       await startRun(page);
@@ -177,40 +188,39 @@ test.describe('Digital Twin events @twin', () => {
       release();
       await expect(playback(page, ROWS)).toBeVisible();
 
-      await expect(emptyStateRun(otherPage)).toBeVisible();
+      await expect(noRunOnPage(otherPage)).toBeVisible();
       await expect(finishedRun(otherPage)).toHaveCount(0);
       await otherPage.reload();
-      await expect(emptyStateRun(otherPage)).toBeVisible();
+      await expect(noRunOnPage(otherPage)).toBeVisible();
       await expect(finishedRun(otherPage)).toHaveCount(0);
     } finally {
       await other.close();
     }
   });
 
-  test('a run started from the RUN menu replaces the result', async ({ page }) => {
+  test('a run started with Start replaces the result', async ({ page }) => {
     await startRun(page);
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
 
-    await runNew(page);
+    await startPairRun(page);
     await expect(pairRunning(page)).toBeVisible();
     await expect(result(page)).toHaveCount(0);
     await expect(running(page)).toHaveCount(0);
     await expect(page.getByText(/^Turn 1 \/ \d+$/)).toBeVisible();
   });
 
-  test('a run started during the twin\'s run replaces its progress, and the twin\'s late answer stays away', async ({ page }) => {
+  test('a run started during the twin\'s run replaces its progress', async ({ page }) => {
     const release = await holdAnswer(page);
     await startRun(page);
     await expectProgressOfWholeRun(page);
 
-    await runNew(page);
+    // The page leaves for the run it started, and with it the twin's request.
+    await startPairRun(page);
     await expect(pairRunning(page)).toBeVisible();
     await expect(running(page)).toHaveCount(0);
 
     release();
-    await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
-    await twinAnswerHandled(page);
     await expect(result(page)).toHaveCount(0);
     await expect(running(page)).toHaveCount(0);
     await expect(pairRunning(page)).toBeVisible();
@@ -223,8 +233,10 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expectProgressOfWholeRun(page);
 
-    await runNew(page);
-    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    // The refused press stays on the Run tab and says so above Start.
+    await pressStart(page);
+    await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
     await expectProgressOfWholeRun(page);
 
     release();
@@ -237,8 +249,9 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expect(playback(page, ROWS)).toBeVisible();
 
-    await runNew(page);
-    await expect(page.getByText('Rate Limited').first()).toBeVisible();
+    await pressStart(page);
+    await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
+    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
   });
@@ -248,8 +261,10 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expect(running(page)).toBeVisible();
 
-    await runNew(page);
-    await expect(pairRunning(page)).toBeVisible();
+    // The page leaves the twin for a run loaded from a file, and stays open.
+    await loadSavedRun(page);
+    await expect(running(page)).toHaveCount(0);
+    await expect(finishedRun(page)).toBeVisible();
 
     release();
     await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
@@ -264,11 +279,7 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expect(result(page)).toBeVisible();
 
-    await runMenuButton(page).click();
-    const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('menuitem', { name: /Load from file/ }).click();
-    await (await chooser).setFiles(savedRun());
-    await page.getByRole('button', { name: /^(Load|Replace current simulation)$/ }).click();
+    await loadSavedRun(page);
 
     await expect(result(page)).toHaveCount(0);
     await expect(finishedRun(page)).toBeVisible();
@@ -284,7 +295,7 @@ test.describe('Digital Twin events @twin', () => {
     await page.getByRole('tab', { name: 'SIM', exact: true }).click();
 
     await expect(result(page)).toHaveCount(0);
-    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(noRunOnPage(page)).toBeVisible();
   });
 
   test('Delete server data clears the result of a finished twin, whose run the server drops', async ({ page }) => {
@@ -300,7 +311,7 @@ test.describe('Digital Twin events @twin', () => {
     await page.getByRole('tab', { name: 'SIM', exact: true }).click();
 
     await expect(result(page)).toHaveCount(0);
-    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(noRunOnPage(page)).toBeVisible();
   });
 
   test('clearing local data while a twin still runs keeps the twin\'s later events out of the page\'s views', async ({ page }) => {
@@ -328,7 +339,7 @@ test.describe('Digital Twin events @twin', () => {
     await twinAnswerHandled(page);
     await expect(running(page)).toHaveCount(0);
     await expect(result(page)).toHaveCount(0);
-    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(noRunOnPage(page)).toBeVisible();
     await expect(page.getByText('Week 8 labs')).toHaveCount(0);
   });
 
@@ -340,7 +351,7 @@ test.describe('Digital Twin events @twin', () => {
     await startRun(page);
     await expect(page.getByText(TWIN_ENGINE_ERROR).filter({ visible: true }).first()).toBeVisible();
     await expect(running(page)).toHaveCount(0);
-    await expect(emptyStateRun(page)).toBeVisible();
+    await expect(noRunOnPage(page)).toBeVisible();
   });
 
   test('a run in the page\'s scenario that takes the feed leaves the twin\'s progress and playback as they were', async ({ page }) => {

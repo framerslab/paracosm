@@ -5,23 +5,25 @@
  * @module paracosm/dashboard/quickstart/QuickstartView
  */
 import { useState, useCallback, useEffect } from 'react';
-import { SeedInput } from './SeedInput';
 import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
+import { RunFirstScreen } from './first-screen/RunFirstScreen';
+import { PageFoot } from './first-screen/PageFoot';
+import type { LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
 import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
-import { useScenarioContext, useScenarioReady } from '../../App';
-import { readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
+import { useScenarioContext } from '../../App';
+import { keepActiveRunActors, readKeyOverrides, readLastLaunchConfig, writeActiveRunActors } from '../../hooks/useLastLaunchConfig';
 import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { compileScenarioWithPolling } from './compile-poll';
 import { sessionProviderKeys } from '../settings/sessionProviderKeys';
-import { markScenarioSwitched } from '../../scenario-sync';
+import { atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './QuickstartView.module.scss';
 
 /** Shape returned by /api/quickstart/ground-scenario, surfaced to the
@@ -69,6 +71,11 @@ export interface QuickstartViewProps {
    *  minutes and ends in a page load when /setup takes the run, and a twin
    *  answer during it would take the visitor to the SIM tab mid-launch. */
   onRunStarted?: () => void;
+  /** True while the SIM tab shows a Digital Twin's progress or result.
+   *  The first screen's Start then leaves those views, and the page's
+   *  events, as they are until the server takes the run it asks for: a run
+   *  the server refuses replaces nothing. */
+  showsDigitalTwin?: boolean;
   /** Forwarded to the InterventionDemoCard. When the digital-twin run
    *  completes, App.tsx receives the artifact, parks it in
    *  interventionArtifact state, and switches to the SIM tab so
@@ -112,7 +119,7 @@ function mapLaunchErrorToMessage(raw: string): string {
     return 'Server is temporarily unavailable (502/503/504). Try again in a moment.';
   }
   if (/HTTP 429|rate.?limit/i.test(raw)) {
-    return 'Hosted demo is rate-limited (3 runs/day). Drop your own API key in Settings to bypass — your saved keys flow into the run automatically.';
+    return `${atLimitReset()} ${atLimitAfter(false)}`;
   }
   if (/HTTP 401|HTTP 403|unauthor/i.test(raw)) {
     return 'Auth error talking to the LLM provider. Check your API key in Settings.';
@@ -133,9 +140,8 @@ function mapLaunchErrorToMessage(raw: string): string {
   return raw;
 }
 
-export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
+export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin = false, onInterventionResult, onInterventionStart, onInterventionError }: QuickstartViewProps) {
   const scenario = useScenarioContext();
-  const scenarioReady = useScenarioReady();
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>({ kind: 'input' });
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -150,34 +156,39 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   const [groundingSummary, setGroundingSummary] = useState<GroundingSummary | null>(null);
 
   /**
-   * Catalog-grid handoff key. When the user clicks Run on a card for
-   * a scenario that isn't currently active, we POST /scenario/switch
-   * and reload (so useScenario re-fetches /scenario, ScenarioContext
-   * re-binds, and every downstream surface picks up the new active
-   * scenario consistently). The reload destroys component state, so
-   * we stash the actor-count + intent in sessionStorage and re-run
-   * automatically on mount.
-   */
-  const CATALOG_PENDING_KEY = 'paracosm:catalogPendingRun';
-
-  /**
    * One-click run path: when the user clicks LoadedScenarioCTA, run
    * the loaded scenario directly. With presets ≥ requested actorCount,
    * skip compile + actor-generation and post straight to /setup. With
    * fewer presets (or none), route through generate-actors first, then
    * /setup. The CTA stays visible in both cases; only the wait time
    * differs (~0s vs ~30s).
+   *
+   * The first screen's Start passes `opts`: the body it worked out, and
+   * two callbacks. With them the first screen stays in view until the page
+   * moves to the run: no progress panel, no toast and no banner. Each stage
+   * (writing the leaders, starting) and each failed request (its status and
+   * parsed answer, or no answer at all) goes to the callbacks, and the first
+   * screen says it in its own words. Without `opts` nothing here changes.
+   *
+   * Start on a page that shows a Digital Twin keeps the twin until the
+   * server takes the run: the twin's views stay, and the page's events are
+   * not reset, so a run the server refuses replaces nothing. The run the
+   * server takes replaces the visitor's run there, and the page load that
+   * opens it leaves the twin.
    */
-  const handleLoadedScenarioRun = useCallback(async (actorCount: number) => {
+  const handleLoadedScenarioRun = useCallback(async (actorCount: number, opts?: LoadedRunOptions) => {
     setErrorBanner(null);
-    onRunStarted?.();
-    // Reset the local SSE buffer up front so the Progress panel never
-    // shows leftover events from a prior run while this one ramps up.
-    // The later sse.reset() right before the /setup fetch is kept as
-    // belt-and-suspenders for the brief window when actor-generation
-    // is still in flight. Each reset is awaited: an unawaited /clear can
-    // land after the /setup that follows and stop the new run.
-    await sse.reset();
+    const keepsTwin = Boolean(opts) && showsDigitalTwin;
+    if (!keepsTwin) {
+      onRunStarted?.();
+      // Reset the local SSE buffer up front so the Progress panel never
+      // shows leftover events from a prior run while this one ramps up.
+      // The later sse.reset() right before the /setup fetch is kept as
+      // belt-and-suspenders for the brief window when actor-generation
+      // is still in flight. Each reset is awaited: an unawaited /clear can
+      // land after the /setup that follows and stop the new run.
+      await sse.reset();
+    }
 
     // Inherit the user's Settings-tab choices (API keys, provider,
     // model picks, economics profile) so the CTA respects what the
@@ -210,7 +221,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // actor count. Skip compile + actor generation; post directly to
     // /setup with the preset's leader configs.
     if (presetCount >= actorCount) {
-      setPhase({ kind: 'progress', stage: 'running' });
+      if (!opts) setPhase({ kind: 'progress', stage: 'running' });
       const actors: ActorConfig[] = presetActors.slice(0, actorCount).map(p => ({
         name: p.name,
         archetype: p.archetype,
@@ -222,21 +233,25 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
         instructions: p.instructions,
       } as ActorConfig));
-      await sse.reset();
+      if (!keepsTwin) await sse.reset();
       // Persist the actors we're about to launch so the SIM header
       // carries names through the SSE connect-and-replay window. Compiled
       // scenarios ship no preset leaders, so without this fallback the
       // ActorBar renders the alphabetic placeholder until the status
       // event with `phase: 'parallel'` lands and useGameState pairs the
-      // names against state.actorIds.
+      // names against state.actorIds. A launch the server refuses puts
+      // back the leaders stored before it.
+      let restoreActors: () => void = () => undefined;
       if (typeof window !== 'undefined') {
+        restoreActors = keepActiveRunActors(window.localStorage);
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
+      opts?.onStage?.('starting');
       try {
         const setupRes = await fetch('/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
             ...settingsSpread,
             actors,
             turns: scenario.setup.defaultTurns,
@@ -247,6 +262,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         });
         if (!setupRes.ok) {
           const body = await setupRes.json().catch(() => ({} as { error?: string }));
+          if (opts) {
+            restoreActors();
+            opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
+            return;
+          }
           throw new Error(body.error ?? `Setup failed: HTTP ${setupRes.status}`);
         }
         // /setup returns { redirect: '/sim', ... } so the dashboard
@@ -265,7 +285,15 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
           window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
           return;
         }
+        // An answer that opens no run is a run that did not start.
+        restoreActors();
+        opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
       } catch (err) {
+        restoreActors();
+        if (opts) {
+          opts.onFailure?.({ networkError: true });
+          return;
+        }
         setPhase({ kind: 'input' });
         const raw = (err as Error)?.message ?? String(err);
         const friendly = mapLaunchErrorToMessage(raw);
@@ -280,7 +308,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
     // Fallback: scenario has fewer presets than requested. Use the
     // existing /api/quickstart/generate-actors endpoint with the
     // loaded scenario's id, then /setup.
-    setPhase({ kind: 'progress', stage: 'actors' });
+    if (!opts) setPhase({ kind: 'progress', stage: 'actors' });
+    opts?.onStage?.('writing', actorCount);
+    // Set once the leaders are stored: a launch the server refuses puts back those stored before it.
+    let restoreActors: () => void = () => undefined;
     try {
       const actorsRes = await fetch('/api/quickstart/generate-actors', {
         method: 'POST',
@@ -289,6 +320,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       });
       if (!actorsRes.ok) {
         const body = await actorsRes.json().catch(() => ({} as { error?: string }));
+        if (opts) {
+          opts.onFailure?.({ status: actorsRes.status, body: body as Record<string, unknown> });
+          return;
+        }
         throw new Error(body.error ?? `Actor generation failed: HTTP ${actorsRes.status}`);
       }
       const actorsData = (await actorsRes.json().catch(() => null)) as { actors?: ActorConfig[] } | null;
@@ -299,18 +334,24 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       // that error if the user picked an invalid count rather than
       // pre-filtering valid 1-actor responses out at this layer.
       if (!actors || actors.length === 0) {
+        if (opts) {
+          opts.onFailure?.({ status: actorsRes.status });
+          return;
+        }
         throw new Error('Actor generation returned no actors');
       }
-      setPhase({ kind: 'progress', stage: 'running' });
+      if (!opts) setPhase({ kind: 'progress', stage: 'running' });
 
-      await sse.reset();
+      if (!keepsTwin) await sse.reset();
       if (typeof window !== 'undefined') {
+        restoreActors = keepActiveRunActors(window.localStorage);
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
+      opts?.onStage?.('starting');
       const setupRes = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
           ...settingsSpread,
           actors,
           turns: scenario.setup.defaultTurns,
@@ -321,6 +362,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
       });
       if (!setupRes.ok) {
         const body = await setupRes.json().catch(() => ({} as { error?: string }));
+        if (opts) {
+          restoreActors();
+          opts.onFailure?.({ status: setupRes.status, body: body as Record<string, unknown> });
+          return;
+        }
         throw new Error(body.error ?? `Setup failed: HTTP ${setupRes.status}`);
       }
       const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string };
@@ -332,97 +378,21 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
         window.location.href = resolveSetupRedirectHref(window.location.href, setupData.redirect);
         return;
       }
+      restoreActors();
+      opts?.onFailure?.({ status: setupRes.status, body: setupData as Record<string, unknown> });
     } catch (err) {
+      restoreActors();
+      if (opts) {
+        opts.onFailure?.({ networkError: true });
+        return;
+      }
       setPhase({ kind: 'input' });
       const raw = (err as Error)?.message ?? String(err);
       const friendly = mapLaunchErrorToMessage(raw);
       setErrorBanner(friendly);
       toast('error', 'Launch failed', friendly, 8000);
     }
-  }, [scenario, sse, onRunStarted, toast]);
-
-  /**
-   * Catalog-grid handoff: clicking Run on a scenario card switches this
-   * visitor's scenario (if needed) and runs it. When the picked
-   * scenario is already active we just route through the same code
-   * path the LoadedScenarioCTA uses. When it's NOT active, we POST
-   * /scenario/switch + reload so useScenario re-fetches /scenario and
-   * ScenarioContext re-binds with the new labels/presets/policies; a
-   * sessionStorage handoff carries the actor-count across the reload
-   * so the run kicks off automatically on the next mount.
-   */
-  const handleCatalogRun = useCallback(async (id: string, actorCount: number) => {
-    if (id === scenario.id) {
-      void handleLoadedScenarioRun(actorCount);
-      return;
-    }
-    setErrorBanner(null);
-    onRunStarted?.();
-    try {
-      try {
-        sessionStorage.setItem(CATALOG_PENDING_KEY, JSON.stringify({ scenarioId: id, actorCount, ts: Date.now() }));
-      } catch {
-        // Private mode / quota: continue with the switch but the
-        // post-reload auto-run won't fire. User clicks Run again on
-        // the (now-active) CTA.
-      }
-      const res = await fetch('/scenario/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (!res.ok) {
-        try { sessionStorage.removeItem(CATALOG_PENDING_KEY); } catch { /* silent */ }
-        const body = await res.json().catch(() => ({} as { error?: string }));
-        throw new Error(body.error ?? `Scenario switch failed: HTTP ${res.status}`);
-      }
-      markScenarioSwitched();
-      window.location.reload();
-    } catch (err) {
-      // A lost answer means no cookie, so the reload finds the old
-      // scenario; the pending run is dropped so nothing runs by surprise.
-      try { sessionStorage.removeItem(CATALOG_PENDING_KEY); } catch { /* silent */ }
-      const friendly = mapLaunchErrorToMessage((err as Error)?.message ?? String(err));
-      setErrorBanner(friendly);
-      toast('error', 'Scenario switch failed', friendly, 8000);
-    }
-  }, [scenario.id, handleLoadedScenarioRun, onRunStarted, toast]);
-
-  // Auto-resume after a /scenario/switch reload. The catalog-grid Run
-  // path stashes { scenarioId, actorCount } in sessionStorage; on mount we
-  // read it back and trigger handleLoadedScenarioRun once, and only when
-  // the scenario that loaded is the one the person picked (another tab of
-  // the same browser can switch between theirs and the reload, since the
-  // pick is a cookie). The flag is
-  // consumed (removed) on read so a manual reload after an unrelated
-  // click never re-triggers a stale auto-run. It waits for GET /scenario:
-  // on mount the context still holds the Mars fallback, and a run named
-  // for it would run Mars.
-  useEffect(() => {
-    if (!scenarioReady) return;
-    let pending: { scenarioId?: unknown; actorCount?: unknown } | null = null;
-    try {
-      const raw = sessionStorage.getItem(CATALOG_PENDING_KEY);
-      if (!raw) return;
-      sessionStorage.removeItem(CATALOG_PENDING_KEY);
-      pending = JSON.parse(raw) as { scenarioId?: unknown; actorCount?: unknown };
-    } catch {
-      return;
-    }
-    if (pending?.scenarioId !== scenario.id) {
-      toast('error', 'Scenario changed', 'Another tab of this browser picked a different scenario before the run you picked could start, so nothing ran. Pick it in the catalog again.', 8000);
-      return;
-    }
-    const count = typeof pending?.actorCount === 'number' && pending.actorCount > 0
-      ? Math.min(300, Math.max(1, pending.actorCount))
-      : null;
-    if (count !== null) {
-      void handleLoadedScenarioRun(count);
-    }
-    // The flag is consumed above, so scenarioReady turning true again after
-    // a scenario update finds nothing to run.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarioReady]);
+  }, [scenario, sse, onRunStarted, showsDigitalTwin, toast]);
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
@@ -619,32 +589,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
   return (
     <div className={styles.view}>
       {phase.kind === 'input' && (
-        <>
-          <header className={styles.header}>
-            <h2>Quickstart</h2>
-            <p>Paste a what-if scenario. Paracosm compiles it into a typed world and runs LLM-driven decision-makers with measurable personalities against it, returning a replayable trajectory you can fork and compare.</p>
-            {/* Collapsed by default so the input form sits closer to the
-                fold. First-time users open it for the glossary; repeat
-                visitors keep it folded and skip the wall of definitions. */}
-            <details className={styles.howItWorks}>
-              <summary className={styles.howItWorksSummary}>How it works</summary>
-              <ul className={styles.glossary} aria-label="Key terms">
-                <li><strong>Scenario</strong> — the world Paracosm compiles from your prompt: departments, agents, events, starting state.</li>
-                <li><strong>Actor</strong> — an LLM decision-maker driving the scenario, weighted by a HEXACO personality vector.</li>
-                <li><strong>Run</strong> — one actor playing the scenario turn by turn. Paracosm runs N actors in parallel against the same world so you can compare divergent outcomes.</li>
-              </ul>
-              <p className={styles.timingHint}>
-                <strong>Heads-up:</strong> a fresh run takes <strong>2-5 minutes</strong> (compile, ground with citations, generate actors, simulate). For instant results, replay a cached run below.
-              </p>
-            </details>
-          </header>
+        <RunFirstScreen onStart={handleLoadedScenarioRun} onSeedReady={handleSeedReady}>
           {errorBanner && <p className={styles.errorBanner} role="alert">{errorBanner}</p>}
           <ReplayLastRunCTA />
-          <SeedInput
-            onSeedReady={handleSeedReady}
-            onLoadedScenarioRunStart={handleLoadedScenarioRun}
-            onCatalogRunStart={handleCatalogRun}
-          />
           {/* Digital-twin demo lives BELOW the seed input as a
               secondary path. Quickstart's primary use case is
               compile-a-scenario + run-three-actors; the dt card is a
@@ -663,8 +610,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
               }}
             />
           )}
-        </>
+        </RunFirstScreen>
       )}
+      {/* The first screen's h1 is the scenario's name; while a run starts
+          or shows its results, the tab's name is the page's h1. */}
+      {phase.kind !== 'input' && <h1 className="sr-only">Run</h1>}
       {phase.kind === 'progress' && (
         <QuickstartProgress
           stage={phase.stage}
@@ -702,6 +652,9 @@ export function QuickstartView({ sse, sessionId, onRunStarted, onInterventionRes
           )}
         </>
       )}
+      {/* The first screen ends in its own foot; while a run starts or shows
+          its results, the same foot ends the tab. */}
+      {phase.kind !== 'input' && <PageFoot />}
     </div>
   );
 }

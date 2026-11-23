@@ -24,6 +24,20 @@
   max-width: 100%;
 }
 
+// A panel at rest, before a run (the `resting` prop): it fills its holder
+// with no padding of its own and no phone minimum, and its field is flat,
+// edged in the control edge, with none of a run's morale border and glow.
+// The holder sets the field's height in --grid-field-height.
+.region.resting,
+.region.resting.narrow {
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
 .canvasWrap {
   flex: 1;
   position: relative;
@@ -42,12 +56,22 @@
   transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
+.resting .canvasWrap {
+  flex: 0 0 auto;
+  height: var(--grid-field-height, 240px);
+  background: transparent;
+  border: 1px solid var(--edge-control);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: none;
+}
+
 // On a phone the grid comes first in its box and the colony's stats card
 // stands under it, so the grid is in view as soon as the Viz panel is,
 // never below the card. The grid keeps the height it has wider: the box's
-// height less the card's.
+// height less the card's. A panel at rest keeps its header above the field.
 @media (max-width: 480px) {
-  .canvasWrap { order: -1; }
+  .region:not(.resting) .canvasWrap { order: -1; }
 }
 
 .canvas {
@@ -75,6 +99,84 @@
   opacity: var(--reveal-opacity, 1);
   transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
   z-index: 2;
+}
+
+// Nothing fades in under reduced motion: the panel shows at once.
+@media (prefers-reduced-motion: reduce) {
+  .revealCover {
+    transition: none;
+  }
+}
+
+// The people's names as text over the field (the `nameLabels` prop). The
+// layer itself takes no press; each name is a key.
+.people {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.nameLines {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+
+  line {
+    stroke: var(--edge-control);
+    stroke-width: 1;
+  }
+}
+
+// A name: 15 px in the ink on a plate of the page's ground, so it reads
+// over a cell. A name that is not standing shows on focus, on hover or on a
+// press.
+.person {
+  position: absolute;
+  left: var(--name-left, 0);
+  top: var(--name-top, 0);
+  max-width: calc(100% - 4px);
+  min-height: 24px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read, 15px);
+  line-height: 1.4;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto;
+
+  &[data-measured='false'] {
+    visibility: hidden;
+  }
+
+  &[data-standing='false'] {
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  &[data-standing='false']:focus,
+  &[data-standing='false'][data-active='true'] {
+    opacity: 1;
+  }
+
+  &:hover,
+  &[data-active='true'] {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  &:focus-visible {
+    outline-offset: 1px;
+  }
 }
 
 .cornerBtn {
