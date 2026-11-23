@@ -11,9 +11,9 @@
  * after each replay, so the page reconnects and is handed the run again, as a
  * dropped connection is. The second run is the same scenario, the same
  * leaders and the same person under a new run key. A run restored from the
- * page's history, and a saved session's replay the page switches to without
- * a reload, are runs of their own too. /chat is answered here too, so no
- * model is called.
+ * page's history is a run of its own too. A saved session replay leaves
+ * chat unavailable until the visitor starts a new simulation. /chat is
+ * answered here, so no model is called.
  */
 import { test, expect, type Page, type Request } from '@playwright/test';
 
@@ -222,7 +222,7 @@ test.describe('Chat threads per run @chat', () => {
     await expectFreshThread(page, chatRequests);
   });
 
-  test('a saved session the page switches to after a run restored from its history starts the same person\'s thread empty', async ({ page }) => {
+  test('a saved session replay closes chat until the visitor starts their own run', async ({ page }) => {
     // A Mars Genesis run restored from the RUN menu, then a saved session of
     // Mars Genesis with the same leaders and person, which the page switches
     // to without a reload, as the browser's Back and Forward buttons do.
@@ -273,7 +273,18 @@ test.describe('Chat threads per run @chat', () => {
       window.history.pushState({}, '', url.toString());
       window.dispatchEvent(new PopStateEvent('popstate'));
     }, SESSION);
-    await expect(person(page)).toContainText('HOPEFUL');
-    await expectFreshThread(page, chatRequests);
+    await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
+    await expect(chat(page)).toHaveCount(0);
+    expect(chatRequests).toHaveLength(1);
+
+    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup' && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Launch simulation', exact: true }).click();
+    expect((await setup).ok()).toBe(true);
+    await expect.poll(() => new URL(page.url()).searchParams.has('replay')).toBe(false);
+    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await expect(chat(page)).toBeVisible();
+    await expect(thread(page).getByText(FIRST_MESSAGE)).toHaveCount(0);
+    expect(chatRequests).toHaveLength(1);
   });
 });

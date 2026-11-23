@@ -13,7 +13,7 @@
 import type { ScenarioClientPayload } from '../../../hooks/useScenario.js';
 import {
   isLastLaunchFor,
-  readKeyOverrides,
+  readTabKeyOverrides,
   readLastLaunchConfig,
   type KeyOverrides,
 } from '../../../hooks/useLastLaunchConfig.js';
@@ -57,12 +57,7 @@ export function safeLocalStorage(): Storage | null {
  * JSON that does not parse, reads as nothing saved.
  */
 export function readLaunchSettings(storage: Storage | null): LaunchSettings {
-  if (!storage) return { overrides: {}, lastLaunch: null };
-  try {
-    return { overrides: readKeyOverrides(storage), lastLaunch: readLastLaunchConfig(storage) };
-  } catch {
-    return { overrides: {}, lastLaunch: null };
-  }
+  return { overrides: readTabKeyOverrides(), lastLaunch: storage ? readLastLaunchConfig(storage) : null };
 }
 
 /**

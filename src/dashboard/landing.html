@@ -891,6 +891,8 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     <h2 class="sec-title rv">Built by Frame.dev</h2>
     <p class="sec-desc rv" style="max-width:720px">Paracosm is built by <a href="https://frame.dev" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;text-underline-offset:2px">Frame.dev</a>. Sister projects: <a href="https://agentos.sh" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;text-underline-offset:2px">AgentOS</a> (the agent runtime paracosm runs on) and <a href="https://wilds.ai" target="_blank" rel="noopener" style="color:var(--amber);text-decoration:underline;text-underline-offset:2px">Wilds.ai</a> (AI-NPC game worlds).</p>
 
+    <p class="sec-desc rv">For teachers: run a simulation yourself and show it to your class, or share its replay link. A replay only plays back a finished run, and sends nothing new to an AI model. A student who starts their own run must be 13 or over and have a parent's or guardian's permission.</p>
+
     <div class="contact-grid" style="margin-top:24px">
       <div class="contact-card rv rv-d1">
         <h3>Enterprise &amp; partnerships</h3>
@@ -1139,7 +1141,17 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
     <p class="sec-desc rv" style="margin-bottom:24px">If your browser sends a privacy signal, Global Privacy Control or Do Not Track, these pages show no bar and run none of the three tools, the count included. Analytics choices then says so in place of the choices.</p>
     <p class="sec-desc rv" style="margin-bottom:24px">Strictly necessary, and always on: the dashboard sets two cookies of its own. <code>paracosm_scenario</code> is set when you pick a scenario or start a run in a scenario other than the one you picked. It holds only that scenario's id and lasts 30 days, so the dashboard reopens on your pick. <code>paracosm_visitor</code> holds a random id this server gives your browser the first time you open the dashboard, so a run you start stays with your own pages and shows on no one else's. It lasts 30 days and identifies your browser to this server alone.</p>
     <p class="sec-desc rv" style="margin-bottom:24px">To apply its usage limits, the server keeps your IP address with a count of your requests: runs, Digital Twin runs included, compiles, chat messages, run imports and other Quickstart requests such as generating leaders, grounding a scenario or reading a page. It counts a compile on your own model key too when that compile uses this site's web search or reads a page through it. Each count ends at the next UTC midnight, or at the next UTC hour for chat. The server deletes ended counts from memory at its hourly cleanup and then updates its saved copy. It also clears ended counts from the saved copy when it starts. It holds your address to limit simultaneous runs on your own model key and open live views, until the run is dropped or the view closes.</p>
+    <p class="sec-desc rv" style="margin-bottom:24px">If you add API keys, we use them for the runs and chats you start. This tab keeps them until it closes or you select Forget my keys. Our server holds them in memory while in use and for up to __VISITOR_KEY_IDLE_MINUTES__ minutes afterward, then drops them. Each key is sent only to the provider it belongs to.</p>
+    <p class="sec-desc rv" style="margin-bottom:24px">Paracosm is for a general audience. It is not directed to children under 13, and we do not knowingly collect personal information from them. If you believe a child under 13 has used it, write to <a href="mailto:team@frame.dev">team@frame.dev</a> and we will delete what we hold.</p>
     <p class="sec-desc rv" style="margin-bottom:0">A copy of Paracosm you install from npm or run from the repository loads none of these tools. Questions about this site's data go to <a href="mailto:team@frame.dev">team@frame.dev</a>.</p>
+  </div>
+</section>
+
+<section class="sec" id="terms">
+  <div class="sec-inner">
+    <h2 class="sec-title rv">Terms</h2>
+    <p class="sec-desc rv">If you add your own API key, you confirm it is yours and that your provider's terms let you use it here.</p>
+    <p class="sec-desc rv">Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.</p>
   </div>
 </section>
 
@@ -1172,6 +1184,7 @@ npm run dashboard     <span class="cm"># opens http://localhost:3456</span>
       <a href="https://wilds.ai/discord">Discord</a>
       <a href="mailto:team@frame.dev">team@frame.dev</a>
       <a href="#privacy">Privacy</a>
+      <a href="#terms">Terms</a>
       <button type="button" data-consent-open hidden>Analytics choices</button>
     </nav>
     <p class="ft-tagline" style="font-size:var(--font-2xs);color:var(--t3);text-align:center;max-width:620px;margin:14px auto 6px;line-height:1.6">Every actor carries its own goals, instructions, and HEXACO trait profile — not just personality. Same world, same kernel, same seed, divergent events and futures.</p>
