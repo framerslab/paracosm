@@ -15,9 +15,8 @@
 }
 
 .bar.phone {
-  padding-block: calc(2 * var(--frame-rule-width));
+  padding-block: var(--frame-rule-width);
   padding-inline: calc(var(--frame-side-padding) - var(--frame-gap) / 2);
-  row-gap: calc(var(--frame-gap) / 2);
 }
 
 .statusChip {
