@@ -169,6 +169,8 @@ export interface LaunchFailureInput {
   status?: number;
   body?: Record<string, unknown>;
   networkError?: boolean;
+  /** Which request failed: the one that has the leaders written, or the one that posts the run. Unset reads as the run's. */
+  request?: 'leaders' | 'setup';
 }
 
 /** What the first screen gives the launch, so the screen stays in view and says each stage and failure itself. */
