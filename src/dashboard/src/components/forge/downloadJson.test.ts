@@ -57,6 +57,7 @@ test('downloadJson clicks an attached link and keeps the blob URL available for 
   assert.deepEqual(revokeUrl.mock.calls[0].arguments, [url]);
   assert.equal(createUrl.mock.callCount(), 1);
   const [blob] = createUrl.mock.calls[0].arguments;
+  if (!(blob instanceof Blob)) throw new TypeError('the link is made from a Blob');
   assert.equal(blob.type, 'application/json');
   assert.equal(await blob.text(), json);
 });
