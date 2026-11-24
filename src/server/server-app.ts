@@ -2563,7 +2563,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       savedSessionIds,
       savedVerdict: async (id, actorName) => {
         const session = await sessionStore?.getSession(id).catch(() => null);
-        const event = session?.events.findLast(({ sse }) => /^event: (?:cohort_)?verdict\r?\n/.test(sse));
+        const event = session?.events.slice().reverse().find(({ sse }) => /^event: (?:cohort_)?verdict\r?\n/.test(sse));
         const json = event?.sse.split('\n').find(line => line.startsWith('data: '))?.slice(6);
         if (!json) return undefined;
         try {
