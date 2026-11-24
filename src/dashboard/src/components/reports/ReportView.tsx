@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 import { useMemo, useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
 import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
@@ -1076,7 +1076,7 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
       </div>
     ),
     decision: block.decision ? (
-      <AiWritten as="div" key="decision" className={styles.eventDecision} authored={isAiWritten(block.decisionAuthorship, "decision")}>{block.decision}</AiWritten>
+      <AiWritten as="div" key="decision" className={styles.eventDecision} authored={isAiWrittenPassage(block.decisionAuthorship, "decision", block.decision)}>{block.decision}</AiWritten>
     ) : null,
     outcome: block.outcome ? (
       <div key="outcome" className={styles.eventOutcomeRow}>
@@ -1091,7 +1091,7 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
     causality: block.rationale ? (
       <details key="causality" className={styles.eventDetails}>
         <summary className={styles.eventDetailsSummary} style={sideStyle}>Rationale</summary>
-        <AiWritten as="div" className={styles.eventRationale} style={sideStyle} authored={isAiWritten(block.decisionAuthorship, "rationale")}>{block.rationale}</AiWritten>
+        <AiWritten as="div" className={styles.eventRationale} style={sideStyle} authored={isAiWrittenPassage(block.decisionAuthorship, "rationale", block.rationale)}>{block.rationale}</AiWritten>
       </details>
     ) : null,
     departments: Object.keys(block.depts).length > 0 ? (
@@ -1106,7 +1106,7 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
                 <span className={styles.deptName}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</span>
                 <span className={styles.deptMeta}>{d.citations}c {d.tools}t</span>
               </div>
-              {d.summary && <AiWritten as="div" className={styles.deptSummary} authored={isAiWritten(d, "summary")}>{d.summary}</AiWritten>}
+              {d.summary && <AiWritten as="div" className={styles.deptSummary} authored={isAiWrittenPassage(d, "summary", d.summary)}>{d.summary}</AiWritten>}
               <CitationPills citations={d.citationList} label="" />
             </div>
           ))}

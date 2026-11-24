@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../../shared/AiWritten';
+import { AiWritten, isAiWrittenPassage } from '../../shared/AiWritten';
 import * as React from 'react';
 import styles from './diff.module.scss';
 import type { RunArtifact } from '../../../../../engine/schema/index.js';
@@ -70,8 +70,10 @@ function extractDecisions(artifact: RunArtifact): DecisionEntry[] {
   // rationale (preferring rationale over reasoning when both present).
   return ds
     .map((d) => ({
-      choiceAuthored: isAiWritten(d, 'choice'),
-      rationaleAuthored: isAiWritten(d, typeof d.rationale === 'string' ? 'rationale' : 'reasoning'),
+      choiceAuthored: isAiWrittenPassage(d, 'choice', d.choice),
+      rationaleAuthored: typeof d.rationale === 'string'
+        ? isAiWrittenPassage(d, 'rationale', d.rationale)
+        : isAiWrittenPassage(d, 'reasoning', d.reasoning),
       turn: typeof d.time === 'number' ? Math.round(d.time) : 0,
       decision: typeof d.choice === 'string' ? d.choice : '—',
       rationale: typeof d.rationale === 'string'

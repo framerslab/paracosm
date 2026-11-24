@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { DecisionBarCheck, ProcessedEvent } from '../../hooks/useGameState';
@@ -264,7 +264,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             </summary>
             <div className={styles.specBody}>
               {summary ? (
-                <AiWritten as="div" className={styles.specSummary} authored={isAiWritten(dd, "summary")}>{summary}</AiWritten>
+                <AiWritten as="div" className={styles.specSummary} authored={isAiWrittenPassage(dd, "summary", summary)}>{summary}</AiWritten>
               ) : (risks.length === 0 && recs.length === 0) && (citeCount > 0 || allTools.length > 0) ? (
                 <div className={styles.specSummaryEmpty}>
                   Department analysis complete &mdash; no narrative summary returned, but
@@ -288,7 +288,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                       >
                         {String(r.severity || 'med').toUpperCase()}
                       </span>
-                      <AiWritten authored={Boolean(r.description) && isAiWritten(dd, "risks")}>{String(r.description || '')}</AiWritten>
+                      <AiWritten authored={isAiWrittenPassage(dd, "risks", r.description)}>{String(r.description || '')}</AiWritten>
                     </div>
                   ))}
                 </div>
@@ -298,7 +298,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 <div className={styles.specRecs}>
                   <div className={styles.specRecsLabel}>RECOMMENDATIONS</div>
                   {recs.slice(0, 3).map((rec, i) => (
-                    <AiWritten as="div" key={i} className={styles.specRecRow} authored={isAiWritten(dd, "recommendedActions")}>{rec}</AiWritten>
+                    <AiWritten as="div" key={i} className={styles.specRecRow} authored={isAiWrittenPassage(dd, "recommendedActions", rec)}>{rec}</AiWritten>
                   ))}
                 </div>
               )}
@@ -475,7 +475,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             <Badge outcome={outcome} />
           </div>
           {/* Decision text */}
-          <AiWritten as="div" className={styles.outcomeText} authored={Boolean(decision) && isAiWritten(dd, "decision")}>{decision}</AiWritten>
+          <AiWritten as="div" className={styles.outcomeText} authored={isAiWrittenPassage(dd, "decision", decision)}>{decision}</AiWritten>
           {/* The decision against the leader's bar, from the leader's result. */}
           {barCheck && (
             <div className={barCheck.departs ? `${styles.outcomeBar} ${styles.outcomeBarDeparts}` : styles.outcomeBar}>
@@ -506,10 +506,10 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               </summary>
               <div className={styles.outcomeReasoningBody}>
                 {reasoning && (
-                  <AiWritten as="div" className={styles.outcomeReasoningPre} authored={isAiWritten(dd, "reasoning")}>{reasoning}</AiWritten>
+                  <AiWritten as="div" className={styles.outcomeReasoningPre} authored={isAiWrittenPassage(dd, "reasoning", reasoning)}>{reasoning}</AiWritten>
                 )}
-                {decision && <AiWritten as="div" authored={isAiWritten(dd, "decision")}>{decision}</AiWritten>}
-                {rationale && <AiWritten as="div" className={styles.outcomeRationale} authored={isAiWritten(dd, "rationale")}>{rationale}</AiWritten>}
+                {decision && <AiWritten as="div" authored={isAiWrittenPassage(dd, "decision", decision)}>{decision}</AiWritten>}
+                {rationale && <AiWritten as="div" className={styles.outcomeRationale} authored={isAiWrittenPassage(dd, "rationale", rationale)}>{rationale}</AiWritten>}
                 {policies.map((p, i) => <div key={i} className={styles.outcomePolicyLine}>&rarr; {p}</div>)}
               </div>
             </details>

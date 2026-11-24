@@ -520,6 +520,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
       connectedSourceRef.current = replaySessionId;
       runKeyRef.current = null;
       shownFromFileRef.current = false;
+      // A saved replay sends no `connected`, so its events are told apart
+      // from the last source's here: a key names no run, and a decision of
+      // the same leader, turn and event would be taken for a repeat.
+      seenEventKeysRef.current.clear();
       setState(prev => ({
         ...prev, ...emptyRun(), runKey: null, replayDone: false, loadedRuns: prev.loadedRuns + 1,
       }));
