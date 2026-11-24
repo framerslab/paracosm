@@ -6,6 +6,13 @@ export const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firec
 /** The refusal shown when a visitor key needs a secure connection. */
 export const VISITOR_KEY_TRANSPORT_REFUSAL = 'Send API keys over HTTPS, or use a dashboard on this computer.';
 
+/**
+ * The names a browser addresses this computer by, as a URL's hostname and a
+ * socket's address spell them. A visitor key sent to one of them stays on
+ * this computer, so it may travel without TLS.
+ */
+export const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
 /** Provider credentials accepted by hosted routes and runtime calls. */
 export interface ProviderCredentialOptions {
   /** OpenAI API key. Historical dashboard field name. */
@@ -48,6 +55,16 @@ export function normalizeCredential(value: unknown): string | undefined {
   const trimmed = value.trim();
   if (!trimmed || trimmed.includes('...')) return undefined;
   return trimmed;
+}
+
+/**
+ * True when a request body holds a usable key in one of the visitor key
+ * fields. A blank or masked value is no key. The server's refusal of a key
+ * sent without TLS and the dashboard's check before it sends one both ask
+ * this, so the page holds back what the server would refuse and no more.
+ */
+export function carriesVisitorKey(body: Readonly<Record<string, unknown>>): boolean {
+  return VISITOR_KEY_FIELDS.some(field => normalizeCredential(body[field]) !== undefined);
 }
 
 /** True when either supported LLM provider has a real explicit key. */

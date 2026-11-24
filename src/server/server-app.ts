@@ -24,11 +24,12 @@ import type { ScenarioPackage } from '../engine/types.js';
 import { clipOrderText, MAX_ORDER_CHARS } from '../engine/presets/fill-instructions.js';
 import {
   apiKeyForProvider,
+  carriesVisitorKey,
   credentialFingerprint,
   hasProviderCredentials,
+  LOOPBACK_HOSTNAMES,
   normalizeCredential,
   resolveProviderFromCredentials,
-  VISITOR_KEY_FIELDS,
   VISITOR_KEY_TRANSPORT_REFUSAL,
 } from '../engine/provider/credentials.js';
 import { hostedModelRouting, hostedRunModels } from './hosted-model-policy.js';
@@ -241,8 +242,6 @@ function sendPerVisitor(res: ServerResponse): void {
   for (const [name, value] of Object.entries(PER_VISITOR_HEADERS)) res.setHeader(name, value);
 }
 
-const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
 /** The hostname of a `Host` header value (`name:port`, `[v6]:port`), lowercased; '' when it has none. */
 function hostHeaderName(value: string | undefined): string {
   if (typeof value !== 'string' || value.length === 0) return '';
@@ -326,7 +325,7 @@ function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<strin
  * computer, through a container's published port too.
  */
 function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, namedProxy: boolean, keys: Record<string, unknown>): boolean {
-  if (!VISITOR_KEY_FIELDS.some(field => normalizeCredential(keys[field]) !== undefined)) return false;
+  if (!carriesVisitorKey(keys)) return false;
   if ((req.socket as TLSSocket).encrypted) return false;
 
   const peer = req.socket.remoteAddress?.replace(/^::ffff:/, '') ?? '';
