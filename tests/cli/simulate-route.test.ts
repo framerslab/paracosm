@@ -259,6 +259,10 @@ const filled = 'You are Test Leader, "Tester." Check the stores. Your HEXACO pro
 
 test('simulate sends orders to the commander subject to the server payer decision', async t => {
   const restore = setHostKeys({ OPENAI_API_KEY: testKey });
+  // The test servers' own output folder is checked below, so an output folder
+  // set in the shell is put aside for this test.
+  const ambientOutput = process.env.PARACOSM_OUTPUT_DIR;
+  delete process.env.PARACOSM_OUTPUT_DIR;
   const cases = [
     { name: 'omitted orders keep the description', expected: filled },
     { name: '399 written units', instructions: 'A'.repeat(398) + 'Y', expected: 'A'.repeat(398) + 'Y' },
@@ -307,6 +311,7 @@ test('simulate sends orders to the commander subject to the server payer decisio
     }
   } finally {
     restore();
+    if (ambientOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = ambientOutput;
   }
 });
 
