@@ -212,6 +212,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Mobile responsive end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/mobile-responsive.spec.ts --project=chromium-desktop
+
+      - name: Top bar flush end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/topbar-flush.spec.ts --project=chromium-desktop
+
       # Every row of keys is one row from 320 px (the Viz toolbar in each mode,
       # its More panel and the Sim tab's evidence row), with keys 44 px wide and
       # tall below 900 px; on a phone the turn's words never shrink the living

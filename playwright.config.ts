@@ -34,16 +34,16 @@ export default defineConfig({
     // many runs it holds.
     // So does the dashboard display spec, whose Library server counts the
     // replays its tests run. The toolbox log and share link spec, the forged
-    // tool view spec, the Viz living grid spec, the Run tab's first screen
+    // tool view spec, the Viz living grid spec, the mobile responsive spec, the Run tab's first screen
     // spec, the phone rows and grid window spec, the phone rows more spec, the
     // run view toast and Event Log chip spec and the Viz rows and type spec set
     // each width they check themselves, so one project runs them. So does
     // the saved run replay spec, which reads the one shared-run server.
-    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
+    { name: 'chromium-tablet',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Desktop Chrome'], viewport: { width: 768, height: 1024 } } },
     // Pixel 5 ships with the Chromium engine in Playwright's device
     // catalogue. iPhone 13 would force the webkit channel, which we
     // don't bundle (only chromium is installed via test:e2e:install).
-    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
+    { name: 'chromium-mobile',  testIgnore: /digital-twin-events|run-status-events|run-per-visitor|dashboard-display|toolbox-log-and-share-link|forged-tool-view|viz-living-grid|sim-first-screen|sim-frame|mobile-responsive|phone-rows-and-grid-window|phone-rows-more|saved-run-replay|run-view-toast-and-log-chip|viz-rows-type/, use: { ...devices['Pixel 5'] } },
   ],
   webServer: process.env.PARACOSM_E2E_BASE_URL
     ? undefined

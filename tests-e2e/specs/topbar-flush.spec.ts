@@ -15,8 +15,8 @@ test.describe('TopBar flush against viewport top @layout', () => {
     test(`TopBar.y === 0 on /sim?tab=${tab}`, async ({ page }) => {
       await page.goto(`/sim?tab=${tab}`);
       // Wait for the dashboard chrome to mount.
-      await expect(page.locator('[role=tablist]').first()).toBeVisible({ timeout: 15_000 });
-      const topBar = page.locator('header, [data-testid=top-bar]').first();
+      await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 15_000 });
+      const topBar = page.locator('#root').getByRole('banner');
       const box = await topBar.boundingBox();
       expect(box, 'TopBar must render with a bounding box').toBeTruthy();
       // Allow up to 1 px to account for sub-pixel rounding on certain
@@ -33,7 +33,7 @@ test.describe('TopBar flush against viewport top @layout', () => {
   // pushes the TopBar down.
   test('ReplayNotFoundBanner is visible (not a 0-height ghost) when ?replay points at a missing id', async ({ page }) => {
     await page.goto('/sim?tab=sim&replay=00000000-0000-0000-0000-000000000000');
-    await expect(page.locator('[role=tablist]').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 15_000 });
     // Either the active banner OR the not-found banner must be visible.
     const anyBanner = page.locator('[role=status], [role=alert]').filter({ hasText: /REPLAY/i });
     await expect(anyBanner.first()).toBeVisible({ timeout: 15_000 });

@@ -1025,3 +1025,119 @@ test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page })
     }
   }
 });
+
+test('sweep: the frame at 320, 390 and 1,440 px in both looks', async ({ page }) => {
+  test.setTimeout(240_000);
+  const foot = page.getByRole('contentinfo');
+  const chrome = ['[role="banner"]', '[role="contentinfo"]'];
+  const menu = '[role="menu"][aria-label="Sections"]';
+  const tabs = [
+    ['quickstart', 'Run'], ['sim', 'Watch'], ['reports', 'Reports'], ['library', 'Library'],
+  ] as const;
+
+  for (const look of LOOKS) {
+    await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
+    for (const width of [320, 390, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const [tab, name] of tabs) {
+        await test.step(`${name}, ${width} px, ${look}`, async () => {
+          await page.goto(`${demo}?tab=${tab}`);
+          await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
+          await expect(page.getByRole('main', { name, exact: true })).toBeVisible();
+          expect(await lookOf(page)).toEqual(EXPECTED_LOOK[look]);
+          expect(await rowsOnOneRow(page)).toEqual([]);
+          await expect(banner(page).locator('img')).toHaveAttribute('src', '/favicon.svg');
+          await expect(banner(page).locator('picture, canvas, video')).toHaveCount(0);
+          await expect(foot.locator('img, picture, canvas, video')).toHaveCount(0);
+
+          await foot.scrollIntoViewIfNeeded();
+          for (const root of chrome) {
+            expect(await measureReadability(page, root), root).toEqual([]);
+            expect(await axeFindings(page, root), root).toEqual([]);
+          }
+
+          await more(page).click();
+          await expect(sectionMenu(page)).toBeVisible();
+          // At phone widths the menu puts the description below each key's name.
+          if (width === 1440) expect(await rowsOnOneRow(page)).toEqual([]);
+          await expect(sectionMenu(page).locator('img, picture, canvas, video')).toHaveCount(0);
+          expect(await measureReadability(page, menu)).toEqual([]);
+          expect(await axeFindings(page, menu)).toEqual([]);
+          await expect.poll(() => page.evaluate(() => {
+            const root = document.documentElement;
+            return root.scrollWidth - root.clientWidth;
+          })).toBeLessThanOrEqual(1);
+
+          await page.keyboard.press('Escape');
+          await expect(sectionMenu(page)).toHaveCount(0);
+          await scaleText(page, 2);
+          for (const row of [banner(page), sections(page), foot]) {
+            await expect.poll(() => spacingFaults(row)).toEqual({ cut: [], overlaps: [] });
+          }
+        });
+      }
+    }
+  }
+});
+
+test('pictures', async ({ browser }, info) => {
+  test.setTimeout(120_000);
+  for (const [lookIndex, look] of LOOKS.entries()) {
+    for (const [widthIndex, width] of [390, 1440].entries()) {
+      await test.step(`${width} px, ${look}`, async () => {
+        const context = await browser.newContext({
+          viewport: { width, height: 844 },
+          deviceScaleFactor: 2,
+          colorScheme: look,
+          reducedMotion: 'reduce',
+          extraHTTPHeaders: { 'x-real-ip': `192.0.2.${120 + lookIndex * 2 + widthIndex + info.retry * 4}` },
+        });
+        const page = await context.newPage();
+        const capture = (state: string) => page.screenshot({
+          path: `test-pictures/sim-frame/${width}-${look}-${state}.png`,
+          animations: 'disabled',
+        });
+
+        try {
+          await page.goto(demo);
+          await expect(start(page)).toBeEnabled();
+          await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
+          await expect(page.getByTestId('scenario-figures')).toBeVisible();
+          await capture('free-run');
+
+          await more(page).click();
+          await expect(sectionMenu(page)).toBeVisible();
+          await capture('more');
+          await page.keyboard.press('Escape');
+
+          await openTab(page, 'sim');
+          await expect(emptyTitle(page, 'No run yet.')).toBeVisible();
+          await capture('empty-watch');
+
+          await page.getByRole('contentinfo').scrollIntoViewIfNeeded();
+          await capture('foot');
+
+          await page.route(tabScripts, route => route.abort());
+          await openTab(page, 'reports');
+          await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
+          await capture('tab-did-not-load');
+          await page.unroute(tabScripts);
+
+          await openTab(page, 'quickstart');
+          await expect(start(page)).toBeEnabled();
+          try {
+            await start(page).click();
+            await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+          } finally {
+            await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+          }
+          await page.goto(demo);
+          await expect(visitor(page)).toHaveText(width < 600 ? 'No free run' : 'Free demo: no run left today', { useInnerText: true });
+          await capture('no-free-run');
+        } finally {
+          await context.close();
+        }
+      });
+    }
+  }
+});
