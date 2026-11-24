@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DraftScenarioSchema } from './compile-from-seed.js';
 
 test('DraftScenarioSchema: accepts a well-formed draft', () => {
-  const result = DraftScenarioSchema.safeParse({
+  const draft = {
     id: 'submarine-habitat',
     labels: {
       name: 'Deep Ocean Habitat',
@@ -22,8 +22,20 @@ test('DraftScenarioSchema: accepts a well-formed draft', () => {
       { id: 'population', format: 'number' },
       { id: 'morale', format: 'percent' },
     ],
-  });
-  assert.equal(result.success, true);
+  };
+  const legacy = DraftScenarioSchema.parse(draft);
+  assert.equal(Object.hasOwn(legacy.labels, 'summary'), false);
+  assert.equal(Object.hasOwn(legacy.labels, 'fictionNote'), false);
+
+  const summary = 'Two captains weigh discovery against safety.';
+  const withSummary = DraftScenarioSchema.parse({ ...draft, labels: { ...draft.labels, summary } });
+  assert.equal(withSummary.labels.summary, summary);
+  assert.equal(Object.hasOwn(withSummary.labels, 'fictionNote'), false);
+
+  const fictionNote = 'Fictional station.';
+  const withNote = DraftScenarioSchema.parse({ ...draft, labels: { ...draft.labels, fictionNote } });
+  assert.equal(withNote.labels.fictionNote, fictionNote);
+  assert.equal(Object.hasOwn(withNote.labels, 'summary'), false);
 });
 
 test('DraftScenarioSchema: rejects non-kebab-case id', () => {
