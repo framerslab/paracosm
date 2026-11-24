@@ -97,13 +97,14 @@ export async function startServer(options: RunServerOptions = {}): Promise<RunSe
   const launches: Launch[] = [];
   const forkLaunches: Launch[] = [];
   const serverOptions = {
-    // Run files go under the server's own folder unless the test names one,
-    // so a real run (and the start-up retention sweep) never reaches <cwd>/output.
+    // Run files go under the server's own folder unless the test names one in
+    // options.env, so a real run and the start-up retention sweep never reach
+    // <cwd>/output or an output folder set in the shell.
     env: {
       ...process.env,
       APP_DIR: appDir,
       PARACOSM_HOSTED_DEMO: '',
-      PARACOSM_OUTPUT_DIR: process.env.PARACOSM_OUTPUT_DIR || join(appDir, 'runs'),
+      PARACOSM_OUTPUT_DIR: join(appDir, 'runs'),
       ...options.env,
     },
     maxSimsPerDay: options.maxSimsPerDay ?? 0,
