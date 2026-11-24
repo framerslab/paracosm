@@ -31,13 +31,13 @@ export async function lookOf(page: Page): Promise<{ light: boolean; scheme: stri
 
 /** Finds a section menu item by the visible title that precedes its description. */
 export function sectionMenuItem(page: Page, title: string) {
-  return page.getByRole('menu', { name: 'Sections' }).getByRole('menuitem')
+  return page.getByRole('menu', { name: 'Sections', exact: true }).getByRole('menuitem')
     .filter({ has: page.getByText(title, { exact: true }) });
 }
 
 /** Opens a dashboard tab by its accessible key. */
 export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
-  const nav = page.getByRole('navigation', { name: 'Sections' });
+  const nav = page.getByRole('navigation', { name: 'Sections', exact: true });
   const label = TAB_NAMES[tab];
   await expect(nav).toBeVisible();
   const link = nav.getByRole('link', { name: label, exact: true });

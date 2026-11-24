@@ -79,7 +79,7 @@ for (const width of [320, 390, 1440]) {
         const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
         await expectMark(decision);
         await expect(page.locator(meta)).toHaveCount(1);
-        await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+        await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
         await savedPairId(page, 'Aria Chen');
         const notifications = page.getByRole('status', { name: 'Notifications' });
         await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
@@ -583,6 +583,9 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
       Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2
       && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
     const clips = (overflow: string) => overflow === 'hidden' || overflow === 'clip';
+    const holdsFixed = (css: CSSStyleDeclaration) => css.transform !== 'none' || css.perspective !== 'none'
+      || css.filter !== 'none' || !['', 'none'].includes(css.getPropertyValue('backdrop-filter')) || /\b(layout|paint|strict|content)\b/.test(css.contain)
+      || /\b(transform|perspective|filter)\b/.test(css.willChange) || /size/.test(css.getPropertyValue('container-type'));
     const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
     const problems: string[] = [];
     for (const label of elements) {
@@ -600,10 +603,16 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
 
       // A scrollport can reveal the next passage when scrolled. Check
       // clipping inside that content, where scrolling cannot reveal it.
+      // A fixed box escapes the overflow of every ancestor that does not
+      // hold its containing block, so those ancestors cannot clip it.
       let checkX = true;
       let checkY = true;
+      let escaped = false;
       for (let ancestor: Element | null = label; ancestor && (checkX || checkY); ancestor = ancestor.parentElement) {
         const css = getComputedStyle(ancestor);
+        if (escaped && !holdsFixed(css)) continue;
+        escaped = false;
+        if (css.position === 'fixed') escaped = true;
         if (scrolls(css.overflowX) && ancestor.scrollWidth > ancestor.clientWidth) checkX = false;
         if (scrolls(css.overflowY) && ancestor.scrollHeight > ancestor.clientHeight) checkY = false;
         const rect = ancestor.getBoundingClientRect();
