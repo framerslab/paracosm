@@ -54,7 +54,9 @@ export function fillInstructions(actor: ActorInput): ActorConfig {
   const closing = modelId === 'hexaco'
     ? 'Your HEXACO profile drives your leadership style.'
     : 'Your trait profile drives your leadership style.';
-  const temperament = actor.description?.trim() || Object.values(ACTOR_PRESETS).find(
+  // A description that is not text (a posted roster is not checked field by field) counts as none.
+  const ownDescription = typeof actor.description === 'string' ? actor.description.trim() : '';
+  const temperament = ownDescription || Object.values(ACTOR_PRESETS).find(
     preset => preset.archetype.trim().toLowerCase() === archetype.toLowerCase(),
   )?.description || '';
   const cues = traitCues(actor, modelId);
