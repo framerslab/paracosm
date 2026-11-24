@@ -447,6 +447,31 @@ test('editing generated instructions clears their source and preserves the other
   await expect(human.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
 });
 
+test('applying a personality preset to a generated leader clears the source of its traits only', async ({ page }) => {
+  await page.goto(origin + '/sim?tab=settings');
+  const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+    data: { scenarioId: 'mars-genesis', count: 2 },
+  });
+  expect(generated.ok()).toBe(true);
+  const { actors } = await generated.json();
+  expect(actors[0].aiAuthorship.fields).toContain('hexaco');
+  await page.route('**/scenario', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, presets: [{ id: 'default', leaders: actors }] } });
+  });
+  await page.reload();
+  await page.getByRole('combobox', { name: 'Personality', exact: true }).first().selectOption('balanced');
+  const launch = page.waitForRequest(request => request.url() === origin + '/setup' && request.method() === 'POST');
+  await page.getByRole('button', { name: 'Launch simulation' }).click();
+  const [edited] = (await launch).postDataJSON().actors;
+  expect(edited.hexaco).toEqual({
+    openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, emotionality: 0.5, honestyHumility: 0.5,
+  });
+  expect(edited.aiAuthorship.fields).not.toContain('hexaco');
+  expect(edited.aiAuthorship.fields).toEqual(expect.arrayContaining(['name', 'archetype']));
+});
+
 for (const count of [24, 300]) {
   test(`a selected generated leader retains its mark in a cohort of ${count}`, async ({ page }) => {
     test.setTimeout(120_000);

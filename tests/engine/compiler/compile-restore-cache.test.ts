@@ -112,6 +112,25 @@ test('a restore whose cached hook files hold nothing generates the hooks again',
   }
 });
 
+test('hook sources saved before run artifacts gained provenance restore with no model call', async () => {
+  // Version 8 is what the previous release wrote into every saved compiled
+  // scenario. Run provenance changed the run artifact only, not a hook
+  // prompt, so a restart after the upgrade restores those hooks as saved.
+  const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-restore-'));
+  try {
+    const restoring = stubModel();
+    await compileScenario(submarine, {
+      cache: true,
+      cacheDir,
+      generateText: restoring.generateText,
+      restore: { hookSources: { schemaVersion: 8, model: 'saved-model', hooks: { progression: '(ctx) => {}' } } },
+    });
+    assert.equal(restoring.calls(), 0, 'a restart after the provenance release calls no model for a saved scenario');
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test('a restore from a saved record takes its hooks from the record alone, not from the cache', async () => {
   const cacheDir = mkdtempSync(join(tmpdir(), 'paracosm-compile-restore-'));
   try {
