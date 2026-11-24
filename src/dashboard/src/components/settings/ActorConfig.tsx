@@ -7,7 +7,8 @@ export interface ActorFormData {
   name: string;
   archetype: string;
   unit: string;
-  instructions: string;
+  instructions?: string;
+  description?: string;
   hexaco: Record<string, number>;
 }
 
@@ -77,7 +78,7 @@ export function ActorConfig({ label, sideColor, data, onChange }: ActorConfigPro
         <label htmlFor={instructionsId} className={styles.label}>Instructions</label>
         <textarea
           id={instructionsId}
-          value={data.instructions}
+          value={data.instructions ?? ''}
           onChange={e => update('instructions', e.target.value)}
           rows={3}
           className={styles.textarea}

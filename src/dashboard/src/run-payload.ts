@@ -11,12 +11,21 @@ interface RunActor {
   archetype: string;
   unit?: string;
   hexaco: Record<string, number>;
-  instructions: string;
+  instructions?: string;
+  description?: string;
+}
+
+/** Prepare a leader for launch, preserving written orders and omitting blank ones. */
+export function actorForLaunch<T extends { instructions?: string }>(
+  actor: T,
+): Omit<T, 'instructions'> & { instructions?: string } {
+  const { instructions, ...fields } = actor;
+  return instructions?.trim() ? { ...fields, instructions } : fields;
 }
 
 const PLACEHOLDER_ACTORS: RunActor[] = [
-  { name: 'Actor A', archetype: 'The Visionary', hexaco: { openness: 0.95, conscientiousness: 0.35, extraversion: 0.85, agreeableness: 0.55, emotionality: 0.3, honestyHumility: 0.65 }, instructions: '' },
-  { name: 'Actor B', archetype: 'The Engineer', hexaco: { openness: 0.25, conscientiousness: 0.97, extraversion: 0.3, agreeableness: 0.6, emotionality: 0.7, honestyHumility: 0.9 }, instructions: '' },
+  { name: 'Actor A', archetype: 'The Visionary', hexaco: { openness: 0.95, conscientiousness: 0.35, extraversion: 0.85, agreeableness: 0.55, emotionality: 0.3, honestyHumility: 0.65 } },
+  { name: 'Actor B', archetype: 'The Engineer', hexaco: { openness: 0.25, conscientiousness: 0.97, extraversion: 0.3, agreeableness: 0.6, emotionality: 0.7, honestyHumility: 0.9 } },
 ];
 
 /** The two leaders a one-click run starts with: the scenario's default preset, with a placeholder in a slot it leaves empty. */
@@ -25,7 +34,7 @@ export function defaultRunActors(scenario: ScenarioClientPayload): RunActor[] {
   const leaders = defaultPreset?.leaders ?? defaultPreset?.actors ?? [];
   return PLACEHOLDER_ACTORS.map((placeholder, i) => {
     const actor = leaders[i] ?? placeholder;
-    return { ...actor, unit: actor.unit ?? leaderUnit(scenario, i) };
+    return actorForLaunch({ ...actor, unit: actor.unit ?? leaderUnit(scenario, i) });
   });
 }
 

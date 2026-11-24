@@ -9,7 +9,7 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
-import type { LoadedRunOptions } from './first-screen/effectiveLaunch';
+import { presetLeadersForLaunch, type LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
 import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
@@ -216,7 +216,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       settingsSpread.economics = lastLaunch.economics;
     }
 
-    const presetActors = scenario.presets[0]?.leaders ?? scenario.presets[0]?.actors ?? [];
+    const presetActors = presetLeadersForLaunch(scenario, actorCount);
     const presetCount = presetActors.length;
 
     // Fast path: scenario has enough presets to fill the requested
@@ -224,17 +224,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // /setup with the preset's leader configs.
     if (presetCount >= actorCount) {
       if (!opts) setPhase({ kind: 'progress', stage: 'running' });
-      const actors: ActorConfig[] = presetActors.slice(0, actorCount).map(p => ({
-        name: p.name,
-        archetype: p.archetype,
-        // The scenario-payload preset's hexaco is a generic
-        // `Record<string, number>`; the engine's HexacoProfile expects
-        // named axes (openness/conscientiousness/etc.). Cast through
-        // unknown — the runtime values are produced by the same
-        // engine that consumes them, so the keys match by contract.
-        hexaco: p.hexaco as unknown as ActorConfig['hexaco'],
-        instructions: p.instructions,
-      } as ActorConfig));
+      const actors = presetActors;
       if (!keepsTwin) await sse.reset();
       // Persist the actors we're about to launch so the SIM header
       // carries names through the SSE connect-and-replay window. Compiled

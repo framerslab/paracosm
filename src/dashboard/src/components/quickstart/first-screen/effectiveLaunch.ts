@@ -11,6 +11,7 @@
  * @module paracosm/dashboard/quickstart/first-screen/effectiveLaunch
  */
 import type { ScenarioClientPayload } from '../../../hooks/useScenario.js';
+import { actorForLaunch } from '../../../run-payload.js';
 import {
   isLastLaunchFor,
   readTabKeyOverrides,
@@ -212,6 +213,11 @@ export function writtenLeaders(scenario: Pick<ScenarioClientPayload, 'presets'>)
   return scenario.presets[0]?.leaders ?? scenario.presets[0]?.actors ?? [];
 }
 
+/** Project the scenario's leaders for Start. The server assigns units by slot. */
+export function presetLeadersForLaunch(scenario: Pick<ScenarioClientPayload, 'presets'>, count: number) {
+  return writtenLeaders(scenario).slice(0, count).map(({ unit: _unit, ...leader }) => actorForLaunch(leader));
+}
+
 /** The saved models that are named, by role; undefined when none is. */
 function namedModels(models: unknown): Record<string, string> | undefined {
   if (!isRecord(models)) return undefined;
@@ -253,12 +259,7 @@ export function effectiveLaunch(
   if (isRecord(lastEconomics)) body.economics = lastEconomics;
   const written = writtenLeaders(scenario);
   if (written.length >= size) {
-    body.actors = written.slice(0, size).map((leader) => ({
-      name: leader.name,
-      archetype: leader.archetype,
-      hexaco: leader.hexaco,
-      instructions: leader.instructions,
-    }));
+    body.actors = presetLeadersForLaunch(scenario, size);
   }
   body.turns = turns;
   body.seed = scenario.setup.defaultSeed ?? DEFAULT_SEED;
