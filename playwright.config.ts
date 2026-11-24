@@ -98,6 +98,19 @@ export default defineConfig({
           stdout: 'pipe',
           stderr: 'pipe',
         },
+        // The scripted-runner server once more, for the visitor key spec's
+        // tests that start runs from a network address and from localhost.
+        // It is theirs alone, so they take no place on the capped server
+        // above. Each of the three projects runs the two tests that start a
+        // run, one run in flight each: six at once at most.
+        {
+          command: 'PORT=3475 PARACOSM_MAX_RUNS=6 npx tsx tests-e2e/support/stub-runner-server.ts',
+          url: 'http://127.0.0.1:3475/health',
+          timeout: 180_000,
+          reuseExistingServer: !process.env.CI,
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
         // The same server with three stored Mars Genesis runs in its Library,
         // for the spec that replays them and reads the replay counters.
         {

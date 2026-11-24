@@ -224,8 +224,9 @@ async function openShareNote(page: Page) {
   await page.getByRole('menuitem', { name: /Share viz link/ }).click();
 }
 
-
-const SCRIPTED_SERVER_PORT = 3459;
+// A scripted-runner server these tests have to themselves (playwright.config.ts): the runs they start take no place
+// on the server the run-per-visitor spec fills to its cap.
+const SCRIPTED_SERVER_PORT = 3475;
 const VISITOR_KEY = 'sk-test-0000';
 const REFUSAL = 'Send API keys over HTTPS, or use a dashboard on this computer.';
 
@@ -272,6 +273,11 @@ test('network HTTP keeps the visitor key in Settings through Start, Run again an
   const requests = recordRequests(page);
   await page.goto(`${networkDashboard()}/sim?tab=sim`);
   expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+
+  // A search field that holds only spaces is no key to the server, so it
+  // holds no run back here either.
+  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await field(page, 'serper').fill('   ');
 
   // Make a finished Mars Genesis run without a visitor key, using the real
   // scenario and /setup. That supplies both Run again and the Chat roster.
