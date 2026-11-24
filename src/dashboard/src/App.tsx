@@ -51,6 +51,8 @@ import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 import { SimView } from './components/sim/SimView';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import { ChatPanel } from './components/chat/ChatPanel';
+import type { SettingsPanelProps } from './components/settings/SettingsPanel';
+import type { StudioTabProps } from './components/studio/StudioTab';
 // The About tab has no panel here: setActiveTab sends it to the landing page at /
 import { PageFoot } from './components/layout/PageFoot';
 import { RunStatusBar } from './components/layout/RunStatusBar';
@@ -68,10 +70,17 @@ import {
 import styles from './App.module.scss';
 
 const ReportView = lazyTab(() => import('./components/reports/ReportView'), 'ReportView');
-const StudioTab = lazyTab(() => import('./components/studio/StudioTab'), 'StudioTab');
+const StudioTab = lazyTab<StudioTabProps, 'StudioTab'>(
+  () => import('./components/studio/StudioTab'), 'StudioTab',
+);
 const SwarmViz = lazyTab(() => import('./components/viz/SwarmViz'), 'SwarmViz');
-const LibraryTab = lazyTab(() => import('./components/library/LibraryTab'), 'LibraryTab');
-const SettingsPanel = lazyTab(() => import('./components/settings/SettingsPanel'), 'SettingsPanel');
+type LibraryTabProps = NonNullable<Parameters<typeof import('./components/library/LibraryTab').LibraryTab>[0]>;
+const LibraryTab = lazyTab<LibraryTabProps, 'LibraryTab'>(
+  () => import('./components/library/LibraryTab'), 'LibraryTab',
+);
+const SettingsPanel = lazyTab<SettingsPanelProps, 'SettingsPanel'>(
+  () => import('./components/settings/SettingsPanel'), 'SettingsPanel',
+);
 
 // Scenario context available to all components. Exported so SSR tests
 // can wrap their renders with a stubbed scenario value without booting

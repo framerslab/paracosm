@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { createElement, useEffect, useState, type ComponentType } from 'react';
 import { BrokenLinkMark } from '../quickstart/first-screen/marks';
 import { useOnline } from '../quickstart/first-screen/useOnline';
 import { TAB_LOADING, TAB_OFFLINE, TAB_FAILED, TRY_AGAIN, TRYING } from './frameWords';
@@ -66,8 +66,7 @@ export function lazyTab<P extends object, Name extends string>(
     }, [attempt, module, online]);
 
     if (module) {
-      const Tab = module[name];
-      return <Tab {...props} />;
+      return createElement<P>(module[name], props);
     }
 
     if (!online || failed || retrying) {
