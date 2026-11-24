@@ -531,8 +531,8 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
   const marks = (await measureText(page, surface, { unroundedContrast: true })).filter(mark => mark.text === 'AI-written');
   expect(marks.length).toBeGreaterThan(0);
   for (const mark of marks) {
-    expect(mark.px).toBeGreaterThanOrEqual(15);
-    expect(mark.ratio).toBeGreaterThanOrEqual(7);
+    expect(mark.px, mark.selector).toBeGreaterThanOrEqual(15);
+    expect(mark.ratio, mark.selector).toBeGreaterThanOrEqual(7);
   }
   const owners = await labels.evaluateAll(elements => elements.map(label => {
     const css = getComputedStyle(label);
@@ -668,6 +668,9 @@ for (const width of widths) {
       await page.getByRole('button', { name: 'Send', exact: true }).click();
       const chat = page.getByRole('log', { name: 'Messages with Noor Aziz' });
       await expectMark(chat.getByText('The water stores are stable.', { exact: true }));
+      const replyLabel = chat.getByText('AI-written', { exact: true }).last();
+      await replyLabel.scrollIntoViewIfNeeded();
+      await expect(replyLabel).toBeInViewport({ ratio: 1 });
       await expectReadableMarks(page, chat);
 
       await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(await savedPairId(page, generatedLeader)));
@@ -703,12 +706,13 @@ test('Studio and pinned comparison show each stored decision with its own label'
   await expect(page.getByText(/added to Library \(2 runs\)/)).toBeVisible();
   await page.getByRole('button', { name: 'Compare bundle', exact: true }).click();
   const grid = page.getByRole('region', { name: 'Bundle members grid' });
-  for (const name of leaders) {
+  const comparison = page.getByRole('region', { name: 'Decision rationale comparison' });
+  for (const [index, name] of leaders.entries()) {
     const pin = grid.getByRole('checkbox', { name: `Pin ${name} to compare` });
     await pin.press('Space');
     await expect(grid.getByRole('checkbox', { name: `Unpin ${name}` })).toBeChecked();
+    await expectMark(comparison.getByText(decisions[index], { exact: true }));
   }
-  const comparison = page.getByRole('region', { name: 'Decision rationale comparison' });
   for (const decision of decisions) await expectMark(comparison.getByText(decision, { exact: true }));
   await expect(page.locator(meta)).toHaveCount(1);
   await page.getByRole('button', { name: 'Close compare' }).click();
