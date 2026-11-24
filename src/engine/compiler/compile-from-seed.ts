@@ -21,7 +21,7 @@ import { compileScenario } from './index.js';
 import { seedDraftToScenarioJson } from './seed-draft-world.js';
 import { validateSeedWorld } from './validate.js';
 import type { CompileOptions } from './types.js';
-import type { ScenarioPackage } from '../types.js';
+import type { ScenarioLabels, ScenarioPackage } from '../types.js';
 import { apiKeyForProvider, resolveProviderFromCredentials } from '../provider/credentials.js';
 import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
 
@@ -67,8 +67,6 @@ export const DraftScenarioSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[a-z0-9-]+$/, 'kebab-case ids only'),
   labels: z.object({
     name: z.string().min(2).max(80),
-    summary: z.string().optional(),
-    fictionNote: z.string().optional(),
     populationNoun: z.string().min(2).max(32),
     settlementNoun: z.string().min(2).max(32),
     timeUnitNoun: z.string().min(2).max(24),
@@ -121,6 +119,8 @@ export interface CompileFromSeedInput {
   seedText: string;
   domainHint?: string;
   sourceUrl?: string;
+  /** Authored catalog labels supplied with the seed package. */
+  labels?: Pick<ScenarioLabels, 'summary' | 'fictionNote'>;
 }
 
 /**
@@ -222,6 +222,7 @@ export async function compileFromSeed(
   input: CompileFromSeedInput,
   options: CompileFromSeedOptions = {},
 ): Promise<ScenarioPackage> {
+  const { summary, fictionNote } = input.labels ?? {};
   const provider = resolveProviderFromCredentials(
     (options.draftProvider ?? options.provider) as CompileOptions['provider'],
     options,
@@ -284,5 +285,13 @@ export async function compileFromSeed(
     const kept = Object.prototype.hasOwnProperty.call(merged, key) ? merged[key] : [];
     categoryMapping[key] = kept.length > 0 ? [...kept] : [...topics];
   }
-  return { ...compiled, knowledge: { ...compiled.knowledge, categoryMapping } };
+  return {
+    ...compiled,
+    labels: {
+      ...compiled.labels,
+      ...(typeof summary === 'string' && summary.trim() ? { summary } : {}),
+      ...(typeof fictionNote === 'string' && fictionNote.trim() ? { fictionNote } : {}),
+    },
+    knowledge: { ...compiled.knowledge, categoryMapping },
+  };
 }
