@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DraftScenarioSchema } from './compile-from-seed.js';
+import { compileFromSeed, DraftScenarioSchema } from './compile-from-seed.js';
+import { isDraftRequest, isExtractionRequest, loadCompilerFixture, ORCHARD_SEED_TEXT } from '../../../tests/engine/compiler/helpers/stub-model-compile.js';
+import { withStubOpenAi, type StubReply } from '../../../tests/runtime/helpers/stub-openai-transport.js';
 
 test('DraftScenarioSchema: accepts a well-formed draft', () => {
   const draft = {
@@ -27,15 +29,35 @@ test('DraftScenarioSchema: accepts a well-formed draft', () => {
   assert.equal(Object.hasOwn(legacy.labels, 'summary'), false);
   assert.equal(Object.hasOwn(legacy.labels, 'fictionNote'), false);
 
-  const summary = 'Two captains weigh discovery against safety.';
-  const withSummary = DraftScenarioSchema.parse({ ...draft, labels: { ...draft.labels, summary } });
-  assert.equal(withSummary.labels.summary, summary);
-  assert.equal(Object.hasOwn(withSummary.labels, 'fictionNote'), false);
+  const extra = DraftScenarioSchema.parse({
+    ...draft,
+    labels: { ...draft.labels, summary: 'Model summary.', fictionNote: 'Model note.' },
+  });
+  assert.equal(Object.hasOwn(extra.labels, 'summary'), false);
+  assert.equal(Object.hasOwn(extra.labels, 'fictionNote'), false);
+});
 
-  const fictionNote = 'Fictional station.';
-  const withNote = DraftScenarioSchema.parse({ ...draft, labels: { ...draft.labels, fictionNote } });
-  assert.equal(withNote.labels.fictionNote, fictionNote);
-  assert.equal(Object.hasOwn(withNote.labels, 'summary'), false);
+test('compileFromSeed preserves authored labels from the input package', async () => {
+  const draft = loadCompilerFixture('draft-orchard-bare.json');
+  const extraction = loadCompilerFixture('extraction-orchard.json');
+  const reply: StubReply = request => {
+    if (isDraftRequest(request)) return JSON.stringify(draft);
+    if (isExtractionRequest(request)) return JSON.stringify(extraction);
+    return '{}';
+  };
+  const labels = { summary: 'A family tends an orchard.', fictionNote: 'Fictional orchard.' };
+  await withStubOpenAi(reply, async () => {
+    const input = { seedText: ORCHARD_SEED_TEXT, labels };
+    const scenario = await compileFromSeed(input, {
+      provider: 'openai',
+      model: 'gpt-4o',
+      apiKey: 'placeholder-key-for-a-test',
+      cache: false,
+      webSearch: false,
+    });
+    assert.equal(scenario.labels.summary, labels.summary);
+    assert.equal(scenario.labels.fictionNote, labels.fictionNote);
+  });
 });
 
 test('DraftScenarioSchema: rejects non-kebab-case id', () => {

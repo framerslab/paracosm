@@ -146,6 +146,8 @@
  * Each width and look saves pictures into test-pictures/sim-first-screen/,
  * which CI uploads.
  */
+import { readFileSync } from 'node:fs';
+import { compileScenario } from '../../src/engine/compiler/index.js';
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
 import { FIRST_SCREEN, axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 import { spacingFaults } from '../support/readability.js';
@@ -5561,9 +5563,15 @@ screenTest('catalog rows follow the payer', async ({ page }) => {
   await expect(ocean.getByTestId('row-leaders')).toHaveText('Leaders: Captain Ingrid Halvorsen and Commander Takeshi Morimoto');
   await expect(load('Lunar Outpost')).toHaveAccessibleDescription(/6 turns · 3 departments/);
   await expect(lunar.getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
-  await expect(ocean.getByTestId('row-figures')).toHaveText('6 turns · 2 departments');
+  await expect(ocean.getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
+
+  const twinDraft = JSON.parse(readFileSync(new URL('../../scenarios/t2d-glp1-protocol.json', import.meta.url), 'utf8'));
+  const twin = await compileScenario(twinDraft, { cache: false, generateText: async () => 'not a hook' });
+  const stored = await page.request.post(`${SERVER}/scenario/store`, { data: { scenario: twin, saveToDisk: false } });
+  expect(stored.ok()).toBe(true);
+  await page.reload();
   await showAll.click();
-  await expect(row('t2d-glp1-protocol').getByTestId('row-fiction-note')).toHaveText('Fiction. Not medical advice.');
+  await expect(row(twin.id).getByTestId('row-fiction-note')).toHaveText('Fiction. Not medical advice.');
   await expect(row('corporate-quarterly').getByTestId('row-fiction-note')).toHaveText('Fiction. Not financial advice.');
 
   await routeScenarios(page, rows => rows.map(item => {
@@ -5575,7 +5583,7 @@ screenTest('catalog rows follow the payer', async ({ page }) => {
   await page.reload();
   await expect(lunar.getByTestId('row-leaders')).toHaveText('Leaders: written by Paracosm when the run starts');
   await expect(lunar.getByTestId('row-figures')).toHaveText('4 turns · 2 departments');
-  await expect(ocean.getByTestId('row-figures')).toHaveText('2 departments');
+  await expect(ocean.getByTestId('row-figures')).toHaveText('3 departments');
   for (const line of ['row-summary', 'row-leaders', 'row-fiction-note']) {
     await expect(ocean.getByTestId(line)).toHaveCount(0);
   }

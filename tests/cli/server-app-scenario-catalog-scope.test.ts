@@ -34,12 +34,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { atlasLab, mars, readScenario, readReplay, settingsBody, startServer, waitFor, type RunServer } from './helpers/run-server.js';
 import type { Visitor } from './helpers/visitor.js';
+import { compileScenario } from '../../src/engine/compiler/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
 
 /** The limits the server holds the memory store to. */
@@ -208,6 +209,13 @@ test('catalog facts follow the resolved visitor row', async () => {
     const a = api.cookied();
     const b = api.cookied();
     await waitFor(() => entry(a, 'sparse-station'), 'the compiled row');
+    const twinFile = 't2d-glp1-protocol.json';
+    const twinDraft = JSON.parse(readFileSync(new URL(`../../scenarios/${twinFile}`, import.meta.url), 'utf8'));
+    assert.equal(await entry(a, twinDraft.id), undefined, 'the uncompiled Digital Twin stays out of the catalog');
+    const twin = await compileScenario(twinDraft, { cache: false, generateText: async () => 'not a hook' });
+    assert.equal((await store(a, twin)).status, 200);
+    assert.equal(await entry(b, twin.id), undefined, 'the compiled copy is visible to its visitor alone');
+
     const shared = await catalog(a);
     for (const [file, summary] of Object.entries(summaries)) {
       const row = shared.find(e => e.id === readScenario(file).id);
@@ -219,6 +227,8 @@ test('catalog facts follow the resolved visitor row', async () => {
     assert.ok(lunarRow);
     assert.equal(lunarRow.turns, 8);
     assert.equal(lunarRow.departments, 5);
+    const ocean = readScenario('submarine.json');
+    assert.equal(shared.find(row => row.id === ocean.id)?.departments, 5);
     assert.deepEqual(lunarRow.leaders, lunar.presets[0].leaders.map(leader => leader.name));
     assert.equal(shared.find(row => row.id === 'corporate-quarterly')?.fictionNote, 'Fiction. Not financial advice.');
     assert.equal(shared.find(row => row.id === 't2d-glp1-protocol')?.fictionNote, 'Fiction. Not medical advice.');
