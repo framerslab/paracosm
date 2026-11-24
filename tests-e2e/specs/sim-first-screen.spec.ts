@@ -5561,7 +5561,7 @@ screenTest('catalog rows follow the payer', async ({ page }) => {
   await expect(ocean.getByTestId('row-summary')).toHaveText('A research station on the sea floor. Two captains weigh discovery against safety.');
   await expect(lunar.getByTestId('row-leaders')).toHaveText('Leaders: Commander Sarah Lindgren and Commander Raj Patel');
   await expect(ocean.getByTestId('row-leaders')).toHaveText('Leaders: Captain Ingrid Halvorsen and Commander Takeshi Morimoto');
-  await expect(load('Lunar Outpost')).toHaveAccessibleDescription(/6 turns · 3 departments/);
+  await expect(load('Lunar Outpost')).toHaveAccessibleDescription(/6\s+turns, 3\s+departments/);
   await expect(lunar.getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
   await expect(ocean.getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
 
