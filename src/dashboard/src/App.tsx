@@ -957,17 +957,19 @@ function AppContent() {
     toast('error', 'Digital twin failed', message);
     return true;
   }, [sse, toast]);
+  const shownRunComplete = sse.isComplete && sse.finishRunKey === sse.runKey;
+  const shownRunVerdict = sse.verdictRunKey === sse.runKey ? sse.verdict : null;
   useTerminalToast({
     runKey: sse.runKey,
-    isComplete: sse.isComplete,
-    isAborted: sse.isAborted,
+    isComplete: shownRunComplete,
+    isAborted: sse.isAborted && sse.finishRunKey === sse.runKey,
     abortReason: sse.abortReason,
     resultsCount: sse.results.length,
-    hasVerdict: Boolean(sse.verdict),
+    hasVerdict: Boolean(shownRunVerdict),
     replayDone: sse.replayDone,
     tourActive,
     userTriggeredRun,
-    verdict: sse.verdict,
+    verdict: shownRunVerdict,
   });
 
   // Local cache fallback: write completed runs to localStorage keyed
@@ -980,7 +982,7 @@ function AppContent() {
   // scenarios doesn't trample prior scenario caches.
   useEffect(() => {
     if (tourActive) return;
-    if (!sse.isComplete) return;
+    if (!shownRunComplete) return;
     if (sse.events.length === 0) return;
     const fingerprint = `cached:${scenario.labels.shortName}:${sse.events.length}:${sse.isAborted ? 'a' : 'c'}`;
     const storageKey = 'paracosm:lastCachedRunFingerprint';
@@ -1006,7 +1008,7 @@ function AppContent() {
     tourActive,
   ]);
 
-  useSimSavedToast({ events: sse.events, tourActive, userTriggeredRun });
+  useSimSavedToast({ savedEvent: sse.simSaved, tourActive, userTriggeredRun });
 
   // The run the guided tour's last step starts, with the scenario's
   // default settings. The Run tab's Start is the one control that starts a
@@ -1141,7 +1143,8 @@ function AppContent() {
           {/* The banner and finish notices share the launch gate. */}
           {userTriggeredRun && (
             <VerdictBanner
-              verdict={sse.verdict}
+              verdict={shownRunVerdict}
+              runIdentity={shownRun}
               currentTurn={gameState.turn}
               maxTurns={gameState.maxTurns}
               dismissedKey={verdictDismissedKey}

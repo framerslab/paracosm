@@ -271,10 +271,10 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
           });
           return;
         }
-        const launched = (await res.json().catch(() => ({}))) as { visitorId?: string };
+        const launched = (await res.json().catch(() => ({}))) as { visitorId?: string; runKey?: string };
+        // The fork opens under its own key, including when launched from playback.
+        runStart(typeof launched.runKey === 'string' ? launched.runKey : undefined);
         emitLaunched(window, launched.visitorId);
-        // The server took the fork: it replaces the Digital Twin views.
-        runStart();
         // Branches is a sub-tab of Studio after the merge.
         navigate('studio');
       } catch (err) {

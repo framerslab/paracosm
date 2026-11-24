@@ -5,10 +5,8 @@
  * (`below_min_turns`) are silenced so aborted-too-early runs don't
  * spam the user.
  *
- * Cold-load gate: requires `userTriggeredRun` (the user clicked Run
- * during this session). A page that loads with `sim_saved` already
- * present in the rehydrated event buffer does NOT toast — the cache
- * write happened on a previous session.
+ * The page must have launched this run or received its hand-off.
+ * Opening a previous run for playback leaves the notice off.
  *
  * Dedup'd via sessionStorage fingerprint keyed on status + id + reason
  * so returning to the tab after a reload doesn't re-toast.
@@ -22,18 +20,17 @@ import type { SimEvent } from './useSSE';
 const STORAGE_KEY = 'paracosm:simSavedToastFingerprint';
 
 export interface UseSimSavedToastOptions {
-  events: SimEvent[];
+  savedEvent: SimEvent | null;
   tourActive: boolean;
-  /** True only after the user clicked Run during this session. */
+  /** True when the page launched this run or received its hand-off. */
   userTriggeredRun: boolean;
 }
 
-export function useSimSavedToast({ events, tourActive, userTriggeredRun }: UseSimSavedToastOptions): void {
+export function useSimSavedToast({ savedEvent, tourActive, userTriggeredRun }: UseSimSavedToastOptions): void {
   const { toast } = useToast();
   useEffect(() => {
     if (tourActive) return;
     if (!userTriggeredRun) return;
-    const savedEvent = events.find((e) => e.type === 'sim_saved');
     if (!savedEvent) return;
     const d = (savedEvent.data ?? {}) as Record<string, unknown>;
     const status = String(d.status ?? 'unknown');
@@ -55,5 +52,5 @@ export function useSimSavedToast({ events, tourActive, userTriggeredRun }: UseSi
         toast('info', 'Not cached', `Skipped: ${reason.replace(/_/g, ' ')}.`);
       }
     }
-  }, [events, tourActive, userTriggeredRun, toast]);
+  }, [savedEvent, tourActive, userTriggeredRun, toast]);
 }
