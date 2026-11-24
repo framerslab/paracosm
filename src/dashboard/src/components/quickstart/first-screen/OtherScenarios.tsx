@@ -203,7 +203,12 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
       <span className={styles.details} id={id}>
         {summary && <span className={styles.summary} data-testid="row-summary" data-text="body">{summary}</span>}
         {names && <span className={styles.detailLine} data-testid="row-leaders">{catalogLeaders(names)}</span>}
-        {figures && <span className={styles.figures} data-testid="row-figures">{figures}</span>}
+        {figures && (
+          <>
+            <span className={styles.figures} data-testid="row-figures" aria-hidden="true">{figures}</span>
+            <span className="sr-only">{catalogFigures(turns, departments, ', ')}</span>
+          </>
+        )}
         {note && <span className={styles.detailLine} data-testid="row-fiction-note">{note}</span>}
       </span>
     );

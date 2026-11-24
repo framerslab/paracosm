@@ -449,11 +449,11 @@ export const CHOOSE_WHEN_ONLINE = 'You are offline. Choose it again when you are
 export const departmentsLine = (n: number): string => countOf(n, 'department', 'departments');
 
 /** A catalog row's turns and departments, omitting figures the server has not supplied. */
-export function catalogFigures(turns?: number, departments?: number): string {
+export function catalogFigures(turns?: number, departments?: number, separator = ' · '): string {
   return [
     ...(turns === undefined ? [] : [countOf(turns, 'turn', 'turns')]),
     ...(departments === undefined ? [] : [departmentsLine(departments)]),
-  ].join(' · ');
+  ].join(separator);
 }
 
 const scenarioLeaderNames = new Intl.ListFormat('en', { type: 'conjunction' });
