@@ -14,11 +14,13 @@
  * that one engine. The judge is answered by the stub transport
  * (tests/runtime/helpers/stub-openai-transport.ts), so no network is reached;
  * it approves a forge only when every test case it reads ran
- * (`success=true`). Each forge prints one line, `{ ended, success, statuses }`,
+ * (`success=true`). Each forge writes one line to the result pipe (fd 3),
+ * `{ ended, success, statuses }`,
  * where `statuses` are the executor's answers to the forge's test cases in
  * order. The last line, `settled`, is printed from a timer, so it is reached
  * only when nothing the forges left behind holds the process first.
  */
+import { writeSync } from 'node:fs';
 import type { ForgedCodeExecutor } from '@framers/agentos';
 import { normalizeSimulationConfig } from '../../../src/cli/sim-config.js';
 import { createEmergentEngine } from '../../../src/runtime/orchestrator/emergent-setup.js';
@@ -72,7 +74,7 @@ async function forgeInTurn(): Promise<void> {
         } catch (err: unknown) {
           line = { ended: 'threw', message: err instanceof Error ? err.message : 'a value that is not an Error', statuses };
         }
-        process.stdout.write(`${JSON.stringify(line)}\n`);
+        writeSync(3, `${JSON.stringify(line)}\n`);
       }
     },
   );
@@ -81,11 +83,11 @@ async function forgeInTurn(): Promise<void> {
 forgeInTurn().then(
   () => {
     setTimeout(() => {
-      process.stdout.write('settled\n');
+      writeSync(3, 'settled\n');
     }, 50);
   },
   (err: unknown) => {
-    process.stdout.write(`${JSON.stringify({ ended: 'failed', message: err instanceof Error ? err.message : 'a value that is not an Error' })}\n`);
+    writeSync(3, `${JSON.stringify({ ended: 'failed', message: err instanceof Error ? err.message : 'a value that is not an Error' })}\n`);
     process.exitCode = 1;
   },
 );
