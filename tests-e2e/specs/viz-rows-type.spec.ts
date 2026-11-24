@@ -1409,15 +1409,37 @@ async function openLive(page: Page, request: APIRequestContext, run: { id: strin
   await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
 }
 
-test('a live crisis appears before the comparison chart in stacked Viz', async ({ page, request }) => {
-  await openLive(page, request, await pairRun(request), PHONE);
-  const crisis = crisisCard(page);
-  const chart = comparisonChart(page);
-  await expect(crisis).toBeVisible();
-  await expect(chart).toBeVisible();
-  const chartBox = (await chart.boundingBox())!;
-  const notice = (await crisis.boundingBox())!;
-  expect(notice.y + notice.height).toBeLessThanOrEqual(chartBox.y);
+for (const size of [PHONE, wideDesktop]) {
+  test(`a live crisis appears before the comparison chart at ${size.width} x ${size.height}`, async ({ page, request }) => {
+    await openLive(page, request, await pairRun(request), size);
+    const crisis = crisisCard(page);
+    const chart = comparisonChart(page);
+    await expect(crisis).toBeVisible();
+    await expect(chart).toBeVisible();
+    const chartBox = (await chart.boundingBox())!;
+    const notice = (await crisis.boundingBox())!;
+    expect(notice.y + notice.height).toBeLessThanOrEqual(chartBox.y);
+  });
+}
+
+// Wider than 768 px playback stays in view while the fields scroll. The
+// Latest key that a step back brings up must show beside it, not below the
+// scroll area.
+test('the Latest key shows with playback at 1440 x 900 with the turn text open', async ({ page, request }) => {
+  const run = await pairRun(request);
+  await openRun(page, run, 'dark', wideDesktop);
+  await setWords(page, 'open');
+  await scrollBack(page);
+  await painted(page);
+  await stepBack(page).click();
+  await expect(latestKey(page)).toBeVisible();
+  await painted(page);
+  expect.soft(await inView(latestKey(page)), 'the Latest key is in view before any scroll').toBe(true);
+  expect.soft(await inView(playRow(page)), 'the play row is in view').toBe(true);
+  expect.soft(await inView(gridOf(page, run.turns - 1)), 'the first field is still whole in view').toBe(true);
+  expectReadable(await expectOneRow(page, playRow(page), '1440 x 900, the play row with the Latest key', wideDesktop.width), '1440 x 900, the play row with the Latest key');
+  await latestKey(page).click();
+  await expect(latestKey(page)).toHaveCount(0);
 });
 
 // Wider than 768 px a notice stands in the row kept for it. The stored run's
@@ -1456,13 +1478,13 @@ interface PaintedName { text: string; left: number; top: number; right: number; 
 
 async function observeGridPaint(page: Page) {
   await page.addInitScript(() => {
-    const frames = new WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[] }>();
+    const frames = new WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[]; centers: Array<[number, number]> }>();
     Object.assign(window, { vizPaintedFrames: frames });
     const clearRect = CanvasRenderingContext2D.prototype.clearRect;
     const fillRect = CanvasRenderingContext2D.prototype.fillRect;
     const fillText = CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.clearRect = function (x, y, width, height) {
-      if (this.canvas.closest('.viz-content')) frames.set(this.canvas, { tiles: [], names: [] });
+      if (this.canvas.closest('.viz-content')) frames.set(this.canvas, { tiles: [], names: [], centers: [] });
       clearRect.call(this, x, y, width, height);
     };
     CanvasRenderingContext2D.prototype.fillRect = function (x, y, width, height) {
@@ -1473,6 +1495,7 @@ async function observeGridPaint(page: Page) {
         const column = Math.floor((x + width / 2) * dpr * 12 / this.canvas.width);
         const row = Math.floor((y + height / 2) * dpr * 6 / this.canvas.height);
         frame.tiles.push(`${column},${row}`);
+        frame.centers.push([(x + width / 2) * dpr / this.canvas.width, (y + height / 2) * dpr / this.canvas.height]);
       }
       fillRect.call(this, x, y, width, height);
     };
@@ -1496,7 +1519,7 @@ function gridPaint(grid: Locator) {
     const canvas = node as HTMLCanvasElement;
     const { width, height } = canvas.getBoundingClientRect();
     const frames = (window as unknown as {
-      vizPaintedFrames: WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[] }>;
+      vizPaintedFrames: WeakMap<HTMLCanvasElement, { tiles: string[]; names: PaintedName[]; centers: Array<[number, number]> }>;
     }).vizPaintedFrames;
     return { width, height, ...frames.get(canvas) };
   });
@@ -1547,6 +1570,44 @@ for (const width of [1100, 1440]) {
     expect.soft((await gridPaint(grid)).tiles, 'the same Conway tiles after a resize').toEqual(initial.tiles);
   });
 }
+
+// A resize keeps the Conway tiles. Hovering a tile names the colonist whose
+// seed drew it, so the same tile names the same colonist after the resize.
+test('a Conway tile names the same colonist after the field is resized', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await observeGridPaint(page);
+  const run = await pairRun(request);
+  await openRun(page, run, 'dark', wideDesktop);
+  await scrollBack(page);
+  const grid = gridOf(page, run.turns);
+  await expect.poll(async () => (await gridPaint(grid)).centers?.length ?? 0).toBeGreaterThan(0);
+  await painted(page);
+  const { width: before, centers } = await gridPaint(grid);
+  const step = Math.max(1, Math.floor(centers!.length / 24));
+  const sample = centers!.filter((_, index) => index % step === 0).slice(0, 24);
+  const tip = viz(page).getByText('\u25FC CONWAY CELL', { exact: true }).locator('xpath=..');
+  const readTiles = async () => {
+    const box = (await grid.boundingBox())!;
+    const read: string[] = [];
+    for (const [x, y] of sample) {
+      await page.mouse.move(box.x + x * box.width, box.y + y * box.height);
+      await painted(page);
+      // The tile and the colonist it names; empty where a glyph took the hover.
+      read.push(await tip.isVisible() ? (await tip.innerText()).split('\n').slice(1, 3).join(' | ') : '');
+    }
+    await page.mouse.move(0, 0);
+    return read;
+  };
+  const first = await readTiles();
+  await page.setViewportSize({ width: wideDesktop.width - 180, height: wideDesktop.height });
+  await expect.poll(async () => (await gridPaint(grid)).width).not.toBe(before);
+  await painted(page);
+  const second = await readTiles();
+  const pairs = first.map((name, index) => [name, second[index]]).filter(([a, b]) => a && b);
+  expect(pairs.length, 'tiles read before and after the resize').toBeGreaterThanOrEqual(5);
+  for (const [a, b] of pairs) expect.soft(b, 'the same tile after the resize').toBe(a);
+});
 
 test('the trait radar fits all six 15 px axes in the drilldown', async ({ page, request }) => {
   const run = await pairRun(request);
