@@ -97,6 +97,30 @@ import {
   type LiveRun,
 } from './live-runs.js';
 
+interface HostedScenarioFacts {
+  turns?: number;
+  leaders: string[];
+  summary?: string;
+  fictionNote?: string;
+}
+
+function hostedScenarioFacts(sc: ScenarioPackage): HostedScenarioFacts {
+  const text = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  const firstPreset = sc.presets?.[0]?.leaders;
+  const leaders = Array.isArray(firstPreset)
+    ? firstPreset.map(leader => text(leader?.name)).filter((name): name is string => name !== undefined)
+    : [];
+  const turns = sc.setup?.defaultTurns;
+  const summary = text(sc.labels?.summary);
+  const fictionNote = text(sc.labels?.fictionNote);
+  return {
+    leaders,
+    ...(Number.isSafeInteger(turns) && turns > 0 ? { turns } : {}),
+    ...(summary ? { summary } : {}),
+    ...(fictionNote ? { fictionNote } : {}),
+  };
+}
+
 function projectScenarioForClient(sc: ScenarioPackage) {
   return {
     id: sc.id,
@@ -2676,7 +2700,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
     // missing aggregate impl falls through to a 0 count rather than
     // failing the whole list.
     if (req.url === '/scenarios' && req.method === 'GET') {
-      type ScenarioListEntry = {
+      type ScenarioListEntry = Partial<HostedScenarioFacts> & {
         id: string;
         name: string;
         description: string;
@@ -2698,6 +2722,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           source: entry.source,
           compiledAt: meta?.compiledAt,
           seedText: briefFor(id, req, meta?.seedText),
+          ...(serverMode === 'hosted_demo' ? hostedScenarioFacts(sc) : {}),
         });
       }
       // The runnable scenarios this visitor stored in memory, theirs alone.
@@ -2709,6 +2734,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           description: describeCustomScenarioSource('memory'),
           departments: stored.departments?.length || 0,
           source: 'memory',
+          ...(serverMode === 'hosted_demo' ? hostedScenarioFacts(stored) : {}),
         });
       }
       // While the pick re-compiles after a restart, `active` is its id, so

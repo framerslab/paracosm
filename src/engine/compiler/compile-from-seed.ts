@@ -67,6 +67,8 @@ export const DraftScenarioSchema = z.object({
   id: z.string().min(3).max(64).regex(/^[a-z0-9-]+$/, 'kebab-case ids only'),
   labels: z.object({
     name: z.string().min(2).max(80),
+    summary: z.string().optional(),
+    fictionNote: z.string().optional(),
     populationNoun: z.string().min(2).max(32),
     settlementNoun: z.string().min(2).max(32),
     timeUnitNoun: z.string().min(2).max(24),

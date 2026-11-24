@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "engineArchetype": "closed_turn_based_settlement",
   "labels": {
+    "summary": "A crew at the Moon's south pole. Two commanders decide how hard to push.",
     "name": "Lunar Outpost",
     "shortName": "lunar",
     "populationNoun": "crew members",
