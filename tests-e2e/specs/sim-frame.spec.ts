@@ -1178,15 +1178,28 @@ test('pictures', async ({ browser }, info) => {
   }
 });
 
-/** Sets every text size to the page's own times `factor`, from the sizes it had before any scaling. */
+/**
+ * Sets every text size to the page's own times `factor`, from the sizes it
+ * had before any scaling. The reset and the new sizes land in one task, so
+ * the rows never measure the unscaled page in between.
+ */
 async function setTextScale(page: Page, factor: number): Promise<void> {
-  await page.evaluate(() => {
-    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body, body *'))) {
+  await page.evaluate((scale) => {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>('body, body *'));
+    for (const element of elements) {
       element.style.removeProperty('font-size');
       element.style.removeProperty('line-height');
     }
-  });
-  if (factor !== 1) await scaleText(page, factor);
+    if (scale === 1) return;
+    const sizes = elements.map(element => {
+      const style = getComputedStyle(element);
+      return { element, fontSize: parseFloat(style.fontSize), lineHeight: style.lineHeight };
+    });
+    for (const { element, fontSize, lineHeight } of sizes) {
+      if (Number.isFinite(fontSize)) element.style.setProperty('font-size', fontSize * scale + 'px', 'important');
+      if (lineHeight.endsWith('px')) element.style.setProperty('line-height', parseFloat(lineHeight) * scale + 'px', 'important');
+    }
+  }, factor);
 }
 
 test('feature 2: the More menu closes when the row refolds', async ({ page }) => {
@@ -1244,9 +1257,9 @@ test('feature 2: a tab whose stylesheet did not load, and Try again', async ({ p
   await page.unroute(styles);
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: tabFailure })).toHaveCount(0);
-  // Studio shows with every stylesheet it asked for, not unstyled.
-  await expect.poll(() => page.evaluate(urls => urls.every(url => Array.from(document.styleSheets)
-    .some(sheet => sheet.href === url && sheet.cssRules.length > 0)), refused)).toBe(true);
+  // Studio shows with every stylesheet it asked for loaded, not unstyled.
+  await expect.poll(() => page.evaluate(urls => urls.every(url => Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+    .some(link => link.href === url && link.sheet !== null)), refused)).toBe(true);
 });
 
 test('feature 13: a More links item that opens a new tab leaves focus on More links', async ({ page, context }) => {
