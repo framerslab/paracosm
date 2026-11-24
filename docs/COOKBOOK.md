@@ -812,7 +812,7 @@ const result = await wm.simulate({
 
 The static method validated the JSON against `ScenarioPackageSchema` and rebuilt the in-memory hooks from cached source text on the package. Validation failure throws synchronously with the same Zod error shape as `compileScenario`. Because hooks are restored from text, the model is portable across processes — you can compile on one machine, ship the JSON, and run on another with no behavioral drift.
 
-This is also the path the dashboard's Studio tab uses when a user drops a `.json` save file: parse, hand to `fromJson`, present.
+Open Studio from More to inspect a run artifact. To open a dashboard run saved as JSON, use Studio's **Open a run file** or drop the file anywhere on the dashboard.
 
 ---
 
@@ -822,9 +822,9 @@ A saved `.json` run can be turned into a shareable URL that auto-fetches the fil
 
 Four surfaces produce these links from inside the dashboard so you don't have to construct them by hand:
 
-- **TopBar ⋯ menu → Share viz link** — appears whenever the current run has a server-stored session id (either the sim just finished and `sim_saved` landed, or the dashboard is replaying a previously-shared link). Copies `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz`.
-- **Run detail drawer → Share viz link** — Library → Open on a run whose session was linked when it was saved. Same URL shape.
-- **Quickstart actor card → Copy viz share link** — per-actor button on the [Quickstart results](../src/dashboard/src/components/quickstart/QuickstartResults.tsx) panel. Same URL shape, different invocation point.
+- **Share viz link** in the header's run actions menu, while the open run has a saved replay. Copies `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz`.
+- **Share viz link** in the run detail drawer. Open Library from More, then open a run with a linked replay.
+- **Copy viz share link** on a leader's [results card](../src/dashboard/src/components/quickstart/QuickstartResults.tsx) in Run.
 - **Library card → Share**: on a run whose session was linked when it was saved. Same URL shape.
 
 Every route goes through the public `/sessions/:id/replay` SSE endpoint, so the viewer streams the stored run live; the recipient does not need to download a `.json` first. Anyone who has the link and can reach the dashboard that made it can watch the run; a link made on a dashboard served at `localhost` opens only on that computer. Every one of these keys shows the link in a field after the press, with whether it was copied and who can open it; when the browser refuses the clipboard or does not answer within three seconds, the note says so and the link stays in the field to copy by hand. The `?load=` URL shape below is the fallback for runs that exist as a static remote JSON instead of a server session.
