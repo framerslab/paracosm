@@ -22,6 +22,8 @@
  * The real `fetch` is put back however the run ends.
  */
 
+import { readWireMessages } from '../../runtime/helpers/stub-openai-transport.js';
+
 export type WireProvider = 'openai' | 'anthropic' | 'openrouter' | 'other';
 
 /** One request the stub received. */
@@ -36,6 +38,8 @@ export interface WireCall {
   key?: string;
   /** Every string in its JSON body, one a line: the system text, the messages, the instructions. */
   text: string;
+  system: string;
+  lastUser: string;
   /** True when the body asks for a stream. */
   stream: boolean;
 }
@@ -167,6 +171,7 @@ export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>
     }
     const strings: string[] = [];
     stringsOf(body, strings);
+    const { system, lastUser } = readWireMessages(body);
     const call: WireCall = {
       provider,
       url,
@@ -174,6 +179,8 @@ export async function withProviderWire<T>(run: (calls: WireCall[]) => Promise<T>
       model: typeof body.model === 'string' ? body.model : undefined,
       key: keyOf(provider, headers),
       text: strings.join('\n'),
+      system,
+      lastUser,
       stream: body.stream === true,
     };
     calls.push(call);

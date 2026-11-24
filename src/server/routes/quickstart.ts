@@ -16,6 +16,8 @@ import { withoutOutputPath } from '../services/run-record.js';
  * @module paracosm/cli/quickstart-routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { MAX_ORDER_CHARS } from '../../engine/presets/fill-instructions.js';
+import type { ActorInput } from '../../engine/types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
@@ -163,7 +165,8 @@ const LeaderSchema = z.object({
     emotionality: z.number().min(0).max(1),
     honestyHumility: z.number().min(0).max(1),
   }),
-  instructions: z.string().max(400).default(''),
+  instructions: z.string().max(MAX_ORDER_CHARS).optional(),
+  description: z.string().optional(),
 });
 
 const SimulateInterventionSchema = z.object({
@@ -198,7 +201,7 @@ const DEFAULT_DIGITAL_TWIN_LEADER: ActorConfig = {
     emotionality: 0.55,
     honestyHumility: 0.88,
   },
-  instructions: '',
+  instructions: 'You are Cautious Methodical Evaluator, "The Methodical Evaluator." Compare the proposed change with the starting conditions. Record uncertainty before drawing a conclusion. Your HEXACO profile drives your leadership style.',
 };
 
 /** The model a Quickstart draft, its hook compile's caller and its actors run on, by provider. */
@@ -899,8 +902,8 @@ export async function handleSimulateIntervention(
     }
   }
 
-  const effectiveLeader: ActorConfig = leader
-    ? { ...leader, unit: leader.unit ?? 'Lab leadership', instructions: leader.instructions ?? '' }
+  const effectiveLeader: ActorInput = leader
+    ? { ...leader, unit: leader.unit ?? 'Lab leadership' }
     : DEFAULT_DIGITAL_TWIN_LEADER;
 
   // Pages tell runs apart by key and read each key off the stream, so a

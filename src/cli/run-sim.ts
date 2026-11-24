@@ -13,7 +13,7 @@ import { parseCliRunOptions } from './cli-run-options.js';
 import { DEFAULT_KEY_PERSONNEL } from './sim-config.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { resolveActors, parseActorsFlag } from './actors-resolver.js';
-import type { ActorConfig } from './types.js';
+import type { ActorInput } from '../engine/types.js';
 
 /**
  * Load `.env` from the current working directory (CWD-scoped, not
@@ -35,7 +35,7 @@ function loadEnv(): void {
   }
 }
 
-function loadActors(argv: readonly string[]): ActorConfig[] {
+function loadActors(argv: readonly string[]): ActorInput[] {
   const explicitPath = parseActorsFlag(argv);
   try {
     const resolved = resolveActors({ explicitPath });
@@ -52,9 +52,9 @@ function loadActors(argv: readonly string[]): ActorConfig[] {
   }
 }
 
-function parseActorFromArgs(args: readonly string[]): Partial<ActorConfig> {
-  const actor: Partial<ActorConfig> & { hexaco?: Partial<ActorConfig['hexaco']> } = {};
-  const hexaco: Partial<ActorConfig['hexaco']> = {};
+function parseActorFromArgs(args: readonly string[]): Partial<ActorInput> {
+  const actor: Partial<ActorInput> & { hexaco?: Partial<ActorInput['hexaco']> } = {};
+  const hexaco: Partial<ActorInput['hexaco']> = {};
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     const next = args[i + 1];
@@ -69,8 +69,8 @@ function parseActorFromArgs(args: readonly string[]): Partial<ActorConfig> {
     else if (arg === '--emotionality' && next) { hexaco.emotionality = parseFloat(next); i += 1; }
     else if (arg === '--honesty' && next) { hexaco.honestyHumility = parseFloat(next); i += 1; }
   }
-  if (Object.keys(hexaco).length) actor.hexaco = hexaco as ActorConfig['hexaco'];
-  return actor as Partial<ActorConfig>;
+  if (Object.keys(hexaco).length) actor.hexaco = hexaco as ActorInput['hexaco'];
+  return actor as Partial<ActorInput>;
 }
 
 function getActorIndex(args: readonly string[]): number {
@@ -103,17 +103,13 @@ export async function runSim(argv: readonly string[]): Promise<number> {
   // traitProfile must be set on baseActor for the runtime to accept).
   const mergedHexaco =
     baseActor.hexaco || cliActor.hexaco
-      ? { ...(baseActor.hexaco ?? {}), ...(cliActor.hexaco ?? {}) } as ActorConfig['hexaco']
+      ? { ...(baseActor.hexaco ?? {}), ...(cliActor.hexaco ?? {}) } as ActorInput['hexaco']
       : undefined;
-  const actor: ActorConfig = {
+  const actor: ActorInput = {
     ...baseActor,
     ...cliActor,
     ...(mergedHexaco ? { hexaco: mergedHexaco } : {}),
   };
-
-  if (cliActor.name && !cliActor.instructions) {
-    actor.instructions = `You are ${actor.name}. ${actor.archetype}. Respond with JSON.`;
-  }
 
   process.stdout.write(`\n  Actor: ${actor.name} (${actor.archetype}): ${actor.unit}\n`);
   if (actor.hexaco) {

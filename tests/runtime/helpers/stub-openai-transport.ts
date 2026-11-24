@@ -73,22 +73,29 @@ function messagesOf(body: Record<string, unknown>): Message[] {
     .map(m => ({ role: typeof m.role === 'string' ? m.role : '', content: m.content }));
 }
 
-/** Read one request for the reply function. */
-function requestOf(url: string, path: string, body: Record<string, unknown>): StubRequest {
+/** Read the system and user text from a provider request without mixing their roles. */
+export function readWireMessages(body: Record<string, unknown>): Pick<StubRequest, 'system' | 'lastUser' | 'text'> {
   const messages = messagesOf(body);
-  const instructions = typeof body.instructions === 'string' && body.instructions ? [body.instructions] : [];
+  const instructions = [body.instructions, body.system].map(textOf).filter(Boolean);
   const system = [
     ...instructions,
     ...messages.filter(m => m.role === 'system' || m.role === 'developer').map(m => textOf(m.content)),
   ].join('\n\n');
   const users = messages.filter(m => m.role === 'user');
   return {
-    url,
-    path,
-    model: typeof body.model === 'string' ? body.model : 'gpt-4o',
     system,
     lastUser: textOf(users.at(-1)?.content),
     text: [...instructions, ...messages.map(m => textOf(m.content))].join('\n\n'),
+  };
+}
+
+/** Read one request for the reply function. */
+function requestOf(url: string, path: string, body: Record<string, unknown>): StubRequest {
+  return {
+    url,
+    path,
+    model: typeof body.model === 'string' ? body.model : 'gpt-4o',
+    ...readWireMessages(body),
     body,
   };
 }

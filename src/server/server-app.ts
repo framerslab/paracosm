@@ -6,7 +6,7 @@ import { resolve, dirname, relative, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { normalizeSimulationConfig, applyDemoCaps, DEMO_EXECUTION, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
+import { normalizeSimulationConfig, applyDemoCaps, countMissingOrders, DEMO_EXECUTION, type NormalizedSimulationConfig, type SimulationSetupPayload } from '../cli/sim-config.js';
 import { runPairSimulations, runForkSimulation, runBatchSimulations, type BroadcastFn, type RunnerOptions } from '../cli/pair-runner.js';
 import {
   handleFetchSeed, handleCompileFromSeed, handleCompileFromSeedStatus,
@@ -20,6 +20,7 @@ import { compileScenario as compileScenarioReal } from '../engine/compiler/index
 import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
+import { clipOrderText, MAX_ORDER_CHARS } from '../engine/presets/fill-instructions.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
@@ -666,6 +667,8 @@ export interface CreateMarsServerOptions {
  * already live).
  */
 export interface StartConfigHooks {
+  /** Count of admitted leaders whose source orders needed filling. */
+  filledOrderCount?: number;
   /**
    * The scenario the config was normalized for: the one the /setup body
    * named, a fork's parent's, or the visitor's pick. Absent: the server's
@@ -3374,7 +3377,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           runSimulation: async (leader, keyPersonnel, runOpts) => {
             const { runSimulation } = await import('../runtime/orchestrator/index.js');
-            return runSimulation(leader, keyPersonnel, { ...runOpts, outputDir: runsDir });
+            const actor = simulateRouting?.payer === 'host' && leader.instructions?.trim()
+              ? { ...leader, instructions: clipOrderText(leader.instructions) }
+              : leader;
+            return runSimulation(actor, keyPersonnel, { ...runOpts, outputDir: runsDir });
           },
         };
         await handleSimulate(req, res, body, deps, simulateCredentials, simulateRouting
@@ -4545,7 +4551,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // person, so such a caller's run gets a visitor id of its own, sent
         // back as its cookie and in the answer (runVisitorFor).
         const { visitorId, setCookie: visitorSetCookie } = runVisitorFor(req);
-        let simConfig = normalizeSimulationConfig(config as SimulationSetupPayload, runScenario);
+        const setup = config as SimulationSetupPayload;
+        let simConfig = normalizeSimulationConfig(setup, runScenario);
 
         // Spec 2B: validate fork preconditions against the supplied
         // parent artifact before spinning up the orchestrator.
@@ -4736,6 +4743,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               runKey: launchRunKey,
               ownKeyAddress: hasUserKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
               searchEnv: isHostedDemo ? {} : undefined,
+              filledOrderCount: countMissingOrders(
+                setup.actors.slice(0, launchConfig.actors.length),
+                setupRouting?.payer === 'host' ? MAX_ORDER_CHARS : undefined,
+              ),
             });
           } catch (err) {
             if (err instanceof RunCapacityError) return err;
@@ -5410,6 +5421,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,
       });
+      const filledOrderCount = hooks?.filledOrderCount ?? 0;
+      if (filledOrderCount > 0) console.log(`[orders] filled empty instructions for ${filledOrderCount} leader(s)`);
       // The run writes to its own buffer and viewers. Once its visitor has
       // replaced or cleared it, its last events and its end go nowhere.
       const runBroadcast = liveRuns.broadcastFor(run);

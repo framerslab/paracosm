@@ -19,7 +19,7 @@ import {
   estimateForkCost,
   parseCustomEvents,
 } from './ForkModal.helpers';
-import type { ActorConfig } from '../../../../engine/types.js';
+import type { ActorInput } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
 import styles from './ForkModal.module.scss';
 
@@ -27,7 +27,7 @@ import styles from './ForkModal.module.scss';
 export interface ForkConfirmPayload {
   parentArtifact: RunArtifact;
   atTurn: number;
-  leader: ActorConfig;
+  leader: ActorInput;
   seedOverride?: number;
   customEvents?: Array<{ turn: number; title: string; description: string }>;
 }
@@ -45,7 +45,7 @@ export interface ForkModalProps {
   /** Current session provider (from Settings). */
   provider: 'openai' | 'anthropic';
   /** Session-custom leaders (optional; from SettingsPanel state). */
-  sessionCustomLeaders?: ActorConfig[];
+  sessionCustomLeaders?: ActorInput[];
   /** Called with the validated payload when the user confirms. */
   onConfirm: (payload: ForkConfirmPayload) => void;
   /** Called when the user dismisses without confirming. */

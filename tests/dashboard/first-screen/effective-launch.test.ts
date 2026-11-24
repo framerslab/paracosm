@@ -261,3 +261,23 @@ test('Start\'s second line and spoken name follow who pays and the run\'s size',
   assert.equal(startSecondLine({ ...own, who: 'server', size: 300 }), `300${NBSP}leaders, 6${NBSP}turns, on this server’s API keys`);
   assert.equal(startSpoken({ ...own, who: 'server', scenario: 'Mars Genesis' }), 'Start Mars Genesis: 6 turns, on this server’s API keys');
 });
+
+test('effectiveLaunch preserves written orders and omits blank orders for both preset aliases', () => {
+  const preset = mars.presets[0];
+  const written = preset.leaders ?? [];
+  assert.equal(written.length, 2);
+  const instructions = '  Keep the reserve.\nWait.  ';
+  const leaders = [
+    { ...written[0], description: 'Check the stores.', instructions: ' \t\n' },
+    { ...written[1], instructions },
+  ];
+  for (const alias of ['leaders', 'actors'] as const) {
+    const scenario = { ...mars, presets: [{ id: preset.id, label: preset.label, [alias]: leaders }] };
+    const launch = effectiveLaunch(facts(false), scenario, { overrides: {}, lastLaunch: null }, 2, 'server');
+    const posted = JSON.parse(JSON.stringify(launch.body));
+    assert.deepEqual(posted.actors.map((actor: { name: string }) => actor.name), written.map(leader => leader.name));
+    assert.equal(Object.hasOwn(posted.actors[0], 'instructions'), false, alias);
+    assert.equal(posted.actors[0].description, 'Check the stores.', alias);
+    assert.equal(posted.actors[1].instructions, instructions, alias);
+  }
+});

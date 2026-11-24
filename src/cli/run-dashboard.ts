@@ -10,10 +10,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createMarsServer } from '../server/server-app.js';
 import { resolveServerMode } from '../server/server-mode.js';
-import { normalizeSimulationConfig } from './sim-config.js';
+import { countMissingOrders, normalizeSimulationConfig } from './sim-config.js';
 import { parseCliRunOptions } from './cli-run-options.js';
 import { resolveActors, parseActorsFlag } from './actors-resolver.js';
-import type { ActorConfig } from './types.js';
+import type { ActorInput } from '../engine/types.js';
 
 function loadEnvFromCwd(): void {
   const envPath = resolve(process.cwd(), '.env');
@@ -82,7 +82,7 @@ export async function runDashboard(argv: readonly string[]): Promise<number> {
   }
 
   const explicitPath = parseActorsFlag(argv);
-  let actors: ActorConfig[];
+  let actors: ActorInput[];
   try {
     const resolved = resolveActors({ explicitPath });
     actors = resolved.actors;
@@ -107,7 +107,7 @@ export async function runDashboard(argv: readonly string[]): Promise<number> {
     models: cliOptions.models,
   });
 
-  await server.startWithConfig(simConfig);
+  await server.startWithConfig(simConfig, { filledOrderCount: countMissingOrders(actors) });
   process.stdout.write(`\n  Simulations complete. Dashboard at http://localhost:${PORT}\n`);
   process.stdout.write(`  Run again at http://localhost:${PORT}/sim?tab=settings\n\n`);
   return 0;

@@ -157,8 +157,16 @@ test("the Run button keeps a one-leader preset's leader and fills only the empty
 
   try {
     await withServer(async ({ scenario, post, launches }) => {
-      assert.equal((await post('/setup', defaultRunSetup(await scenario('atlas-lab')))).status, 200);
+      const payload = await scenario('atlas-lab');
+      const posted = JSON.parse(JSON.stringify(defaultRunSetup(payload)));
+      const written = payload.presets[0].leaders?.[0].instructions;
+      assert.ok(written);
+      assert.equal(posted.actors[0].instructions, written);
+      assert.equal(Object.hasOwn(posted.actors[1], 'instructions'), false);
+      assert.equal((await post('/setup', posted)).status, 200);
       const config = await launched(launches);
+      assert.equal(config.actors[0].instructions, written);
+      assert.match(config.actors[1].instructions, /^You are Actor B, "The Engineer\."/);
       assert.deepEqual(config.actors.map(a => a.name), ['Marcus Reinhardt', 'Actor B']);
       assert.deepEqual(config.actors.map(a => a.unit), ['Lab Alpha', 'Lab Beta']);
     }, scenarioDir);

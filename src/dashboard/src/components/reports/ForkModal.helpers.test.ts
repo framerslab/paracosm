@@ -51,11 +51,15 @@ test('resolveLeaderPresets: incomplete HEXACO records are normalized with neutra
         name: 'Partial Leader',
         archetype: 'Partial',
         hexaco: { openness: 0.9 },
+        description: 'Check the stores.',
         instructions: '',
       }],
     }],
   } as typeof marsScenario;
   const [leader] = resolveLeaderPresets(scenario);
+  const posted = JSON.parse(JSON.stringify({ actors: [leader] }));
+  assert.equal(Object.hasOwn(posted.actors[0], 'instructions'), false);
+  assert.equal(posted.actors[0].description, 'Check the stores.');
   assert.equal(leader.hexaco?.openness, 0.9);
   assert.equal(leader.hexaco?.conscientiousness, 0.5);
   assert.equal(leader.hexaco?.honestyHumility, 0.5);

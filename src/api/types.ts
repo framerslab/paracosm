@@ -7,6 +7,7 @@
  */
 import type {
   ActorConfig,
+  ActorInput,
   ScenarioPackage,
   SimulationModelConfig,
 } from '../engine/types.js';
@@ -107,7 +108,7 @@ export interface RunManyResult {
  */
 export interface SimulateOptions extends InternalRunOptions {
   /** The actor whose decisions drive the simulation. */
-  actor: ActorConfig;
+  actor: ActorInput;
   /** Optional supporting cast for context retrieval. Default []. */
   keyPersonnel?: KeyPersonnel[];
 }

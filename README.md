@@ -123,7 +123,7 @@ const okafor = {
   name: 'Captain Okafor', archetype: 'The Innovator', unit: 'Station Beta',
   hexaco: { openness: 0.9, conscientiousness: 0.4, extraversion: 0.8,
             agreeableness: 0.5, emotionality: 0.3, honestyHumility: 0.6 },
-  instructions: 'You lead by experimentation. Push boundaries.',
+  description: 'Test one small change before expanding it.',
 };
 
 const [a, b] = await Promise.all(
@@ -133,6 +133,8 @@ const [a, b] = await Promise.all(
 );
 console.log(a.fingerprint, b.fingerprint); // diverges visibly within two turns
 ```
+
+The library uses written leader orders as provided. Omit `instructions` or leave it blank to have Paracosm fill it from the leader's name, archetype, optional `description` and trait scores. The same inputs produce the same orders without a model call. All ten built-in leader presets include their own written orders.
 
 ### Inspecting the agent swarm
 
