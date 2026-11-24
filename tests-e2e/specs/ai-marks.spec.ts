@@ -155,10 +155,11 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   const report = await rendering.promise;
   try {
     const attachments = await report.getAttachments();
-    const files = attachments instanceof Map ? Array.from(attachments.values()) : Object.values(attachments ?? {});
-    const runJson = files.find(file => file.filename === 'run.json');
+    const runJson = Array.from(attachments ?? []).find(([, file]) => file.filename === 'run.json');
     expect(runJson, 'the report includes the selected run as a JSON attachment').toBeDefined();
-    const json = JSON.parse(new TextDecoder().decode(runJson.content));
+    const bytes = await report.getAttachmentContent(runJson![0]);
+    expect(bytes?.byteLength, 'the selected run attachment has content').toBeGreaterThan(0);
+    const json = JSON.parse(new TextDecoder().decode(bytes!));
     expect(json.provenance).toEqual(provenance);
     expect(json.decisions[0].choice).toBe(choice);
     const rendered = await (await report.getPage(1)).getTextContent();
