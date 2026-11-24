@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { subscribeScenarioUpdates } from '../scenario-sync';
+import type { ScenarioPreset } from '../../../engine/types.js';
+
+type ScenarioClientLeader = NonNullable<ScenarioPreset['leaders']>[number] & { unit?: string };
 
 export interface ScenarioClientPayload {
   id: string;
@@ -53,8 +56,8 @@ export interface ScenarioClientPayload {
      *  the dashboard receives `leaders`, not `actors`. The legacy
      *  `actors` alias is preserved as optional so older code paths
      *  that expected it still typecheck while we migrate. */
-    leaders?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string }>;
-    actors?: Array<{ name: string; archetype: string; unit?: string; hexaco: Record<string, number>; instructions: string }>;
+    leaders?: ScenarioClientLeader[];
+    actors?: ScenarioClientLeader[];
     personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   }>;
   ui: {

@@ -285,7 +285,7 @@ export interface ScenarioPolicies {
 export interface ScenarioPreset {
   id: string;
   label: string;
-  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions: string }>;
+  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions?: string; description?: string }>;
   personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   startingState?: Partial<WorldState>;
 }
