@@ -133,6 +133,18 @@
   white-space: nowrap;
 }
 
+.subRow:has(.quote > [data-ai-generated='true']) {
+  flex-wrap: wrap;
+}
+
+.quote:has(> [data-ai-generated='true']) {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .awaiting {
   color: var(--text-3);
   font-style: normal;
