@@ -43,10 +43,13 @@ import { judgePair, type VerdictCallOptions } from '../../src/cli/pair-runner.js
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createMarsServer } from '../../src/server/server-app.js';
+import type { RunArtifact } from '../../src/engine/schema/index.js';
+import { openSessionStore } from '../../src/server/stores/session.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import { VerdictSchema } from '../../src/runtime/validators/verdict.js';
 import { withProviderWire } from '../../tests/cli/helpers/provider-wire.js';
 import { advanceKernelTurn, snapshotData } from './kernel-turn.js';
+import { frame, framesToSimEvents, sim } from './run-frames.js';
 
 const PORT = Number(process.env.PORT ?? 3470);
 const ROSTER_PORT = Number(process.env.FIRST_SCREEN_ROSTER_PORT ?? 3472);
@@ -55,13 +58,47 @@ const ROSTER_PORT = Number(process.env.FIRST_SCREEN_ROSTER_PORT ?? 3472);
 // judge. The fixture retains the inputs to the verdict call.
 const { runs: atlasPair } = JSON.parse(readFileSync(
   new URL('../../tests/fixtures/verdict/atlas-lab-pair-2026-11-02.json', import.meta.url), 'utf8',
-)) as { runs: Array<{ leaderName: string; artifact: { finalState: { metrics: Record<string, number> } } }> };
+)) as { runs: Array<{ leaderName: string; artifact: RunArtifact & { finalState: { metrics: Record<string, number> } } }> };
 
 /** What one run's snapshots held: the run's population and, for each leader, the names in its roster. */
 interface RosterRecord {
   population: number;
   leaders: Record<string, string[]>;
 }
+
+const root = mkdtempSync(join(tmpdir(), 'paracosm-e2e-first-screen-'));
+const appDir = join(root, 'app');
+const runsDir = join(root, 'output');
+mkdirSync(appDir);
+mkdirSync(runsDir);
+
+const sessionStore = openSessionStore(join(appDir, 'data', 'sessions.db'));
+const legacyVerdict = {
+  winner: 'A',
+  winnerName: 'Marcus Reinhardt',
+  headline: 'Marcus leads the archived run',
+};
+const legacyResults = atlasPair.map(({ leaderName, artifact }) => ({
+  leader: leaderName, summary: artifact.finalState.metrics,
+}));
+const legacyTurns = atlasPair.flatMap(({ leaderName, artifact }) => [
+  sim(leaderName, 'turn_start', { turn: 1, time: 1, title: 'Archived Atlas Lab turn' }),
+  sim(leaderName, 'turn_done', { turn: 1, time: 1, metrics: artifact.finalState.metrics }),
+]);
+const legacyFrames = [
+  frame('active_scenario', { id: 'atlas-lab', name: 'Atlas Lab' }),
+  ...legacyTurns,
+  ...legacyResults.map(result => frame('result', result)),
+  frame('verdict', legacyVerdict),
+  frame('complete', {}),
+];
+const recordedAt = Date.parse(atlasPair[0].artifact.metadata.startedAt);
+const { id: legacySessionId } = await sessionStore.saveSession(
+  legacyFrames.map((sse, index) => ({ ts: recordedAt + index, sse })),
+  undefined,
+  // Keep the fixture out of other tests' saved-run lists.
+  { owner: 'legacy-notice-fixture' },
+);
 
 const rosters: RosterRecord[] = [];
 const rosterServer = createServer((req, res) => {
@@ -70,18 +107,20 @@ const rosterServer = createServer((req, res) => {
     res.end(JSON.stringify(rosters));
     return;
   }
+  if (req.method === 'GET' && req.url === '/legacy-notice-fixture') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      id: legacySessionId,
+      file: { schemaVersion: 3, events: framesToSimEvents(legacyTurns), results: legacyResults, verdict: legacyVerdict },
+    }));
+    return;
+  }
   res.writeHead(404);
   res.end();
 });
 // A roster port that cannot open is logged, and the page's server starts all the same.
 rosterServer.on('error', (err) => { console.error('[first-screen-server] the roster port did not open:', err); });
 rosterServer.listen(ROSTER_PORT, '127.0.0.1');
-
-const root = mkdtempSync(join(tmpdir(), 'paracosm-e2e-first-screen-'));
-const appDir = join(root, 'app');
-const runsDir = join(root, 'output');
-mkdirSync(appDir);
-mkdirSync(runsDir);
 
 const server = createMarsServer({
   env: {
@@ -94,6 +133,25 @@ const server = createMarsServer({
     OPENAI_API_KEY: 'sk-first-screen-stand-in',
   },
   maxSimsPerDay: 1,
+  sessionStore,
+  runForkSimulation: async (config, broadcast) => {
+    const { actors: [leader], forkFrom, turns } = config;
+    if (!forkFrom) throw new Error('Expected a fork');
+    const parentRunId = forkFrom.parentArtifact.metadata.runId;
+    broadcast('status', { phase: 'starting', maxTurns: turns, fork: true });
+    broadcast('status', { phase: 'fork-running', leader, parentRunId, atTurn: forkFrom.atTurn });
+    await delay(750);
+    const summary = { population: config.initialPopulation, morale: 0.7 };
+    for (let turn = forkFrom.atTurn + 1; turn <= turns; turn++) {
+      broadcast('sim', { type: 'turn_done', leader: leader.name, data: { turn, time: turn, metrics: summary } }, leader.name);
+    }
+    const forkedFrom = { parentRunId, atTurn: forkFrom.atTurn };
+    const artifact = {
+      metadata: { ...forkFrom.parentArtifact.metadata, runId: `${parentRunId}-branch`, forkedFrom },
+    };
+    broadcast('result', { leader: leader.name, summary, forkedFrom, artifact }, leader.name);
+    broadcast('complete', { timestamp: new Date().toISOString(), fork: true });
+  },
   runHistoryStore: createNoopRunHistoryStore(),
   getDigitalTwinWorld: async () => null,
   runPairSimulations: async (config, broadcast, signal, scenario) => {
@@ -126,7 +184,14 @@ const server = createMarsServer({
         }
       }
       for (const { leader, result } of judged) {
-        broadcast('result', { leader: leader.name, summary: result.finalState.metrics }, leader.name);
+        const kernel = new SimulationKernel(config.seed, leader.name, [], { startTime, scenario });
+        const snapshots = Array.from({ length: turns }, (_, index) => {
+          const turn = index + 1;
+          kernel.advanceTurn(turn, startTime + index, scenario.hooks?.progressionHook);
+          return kernel.toSnapshot(scenario.id);
+        });
+        const artifact = { metadata: result.metadata, scenarioExtensions: { kernelSnapshotsPerTurn: snapshots } };
+        broadcast('result', { leader: leader.name, summary: result.finalState.metrics, artifact }, leader.name);
       }
       const verdict = VerdictSchema.parse({
         winner: 'B',
