@@ -455,3 +455,22 @@ test('the CLI name override puts the new name where the shipped orders name the 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('setup fills orders for a leader whose description is not text', async () => {
+  const body = settingsBody(mars);
+  await withVisitors(async api => {
+    const visitor = api.cookied();
+    const response = await visitor.post('/setup', {
+      ...body, turns: 1, actors: [{ ...mira, description: 5 }, body.actors[1]],
+    });
+    assert.equal(response.status, 200);
+    const { config } = await waitFor(() => api.launches[0], 'the launch');
+    assert.equal(config.actors[0].instructions,
+      'You are Mira, "The Surveyor." Your HEXACO profile drives your leadership style.');
+    await visitor.json('/results');
+  }, {
+    maxSimsPerDay: 2,
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: orderTestKey },
+    extra: { getDigitalTwinWorld: async () => null },
+  });
+});
