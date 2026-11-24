@@ -85,11 +85,14 @@
   text-align: left;
   line-height: 1.4;
   font-family: var(--sans);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
+  overflow-wrap: anywhere;
   width: 100%;
+
+  [data-ai-generated='true'] > [data-text='other'] {
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
 }
 
 // Static info text variant — same visual weight as `.headlineButton`

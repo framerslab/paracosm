@@ -60,6 +60,8 @@ $read-size: 15px;
 }
 
 .content,
+.firstSight,
+.replayPair,
 .transientRow,
 .notices {
   display: contents;
@@ -74,7 +76,7 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
   // Keep the live notices in a row of their own. Appearance, dismissal and
   // wrapping leave the space for the fields constant. The Latest key sits
   // in the play row (VizControls.tsx).
-  .transientRow {
+  .transientRow[data-live-notices] {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     flex: 0 0 $notice-row;
@@ -83,7 +85,7 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
   }
 
   // The alert and the crisis notice stand side by side, each whole.
-  .notices {
+  .transientRow[data-live-notices] .notices {
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -91,7 +93,7 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
     padding-inline: 8px;
   }
 
-  .transientRow .toast {
+  .transientRow[data-live-notices] :is(.toast, .alertRegion) {
     align-self: flex-start;
     flex: 0 1 520px;
     min-width: 0;
@@ -138,6 +140,22 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
     scrollbar-gutter: stable;
 
     > * { flex-shrink: 0; }
+  }
+}
+
+@media (width > 768px) and (height > 500px) {
+  // Give the replay's turn text and fields the space above playback first.
+  // Keep the usual field height when it fits and the panel scroll when short.
+  .replayPair {
+    display: flex;
+    flex-direction: column;
+    max-height: max(100%, 550px);
+    --viz-field-preferred-height: 200px;
+    --viz-field-min-height: 148px;
+
+    > * { flex-shrink: 0; }
+
+    > .leadersRow { flex: 0 1 auto; }
   }
 }
 
@@ -506,6 +524,18 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
   z-index: 30;
   cursor: pointer;
   animation: paracosm-toast-in 280ms ease-out;
+}
+
+.alertRegion {
+  display: flex;
+  align-self: center;
+  width: calc(100% - 24px);
+  max-width: 520px;
+}
+
+.notices .alertRegion > .toast {
+  flex: 1;
+  width: 100%;
 }
 
 .toastKicker {
