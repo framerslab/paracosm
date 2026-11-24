@@ -1074,6 +1074,17 @@ test('sweep: the frame at 320, 390 and 1,440 px in both looks', async ({ page })
           for (const row of [banner(page), sections(page), foot]) {
             await layoutExpect.poll(() => spacingFaults(row)).toEqual({ cut: [], overlaps: [] });
           }
+          const nav = sections(page);
+          if (await nav.getByRole('button', { name: 'Next sections', exact: true }).isVisible()) {
+            const viewport = nav.locator('[data-fade-start][data-fade-end]');
+            for (const key of await viewport.locator(':scope > :is(a, button):visible').all()) {
+              await key.scrollIntoViewIfNeeded();
+              const [box, view] = await Promise.all([key.boundingBox(), viewport.boundingBox()]);
+              expect(box!.x).toBeGreaterThanOrEqual(view!.x - 1);
+              expect(box!.x + box!.width).toBeLessThanOrEqual(view!.x + view!.width + 1);
+              expect(await spacingFaults(key)).toEqual({ cut: [], overlaps: [] });
+            }
+          }
         });
       }
     }
