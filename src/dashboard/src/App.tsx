@@ -1257,7 +1257,7 @@ function AppContent() {
                 tabIndex={-1}
                 className={styles.tabPanel}
               >
-                <SwarmViz state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
+                <SwarmViz key={shownRun} state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
               </section>
             )}
 
