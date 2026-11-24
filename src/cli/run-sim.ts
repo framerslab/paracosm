@@ -61,7 +61,8 @@ function parseActorFromArgs(args: readonly string[]): Partial<ActorInput> {
     if (arg === '--name' && next) { actor.name = next; i += 1; }
     else if (arg === '--archetype' && next) { actor.archetype = next; i += 1; }
     else if (arg === '--unit' && next) { actor.unit = next; i += 1; }
-    else if (arg === '--instructions' && next) { actor.instructions = next; i += 1; }
+    // An empty value is kept: it asks for orders filled from the actor's traits.
+    else if (arg === '--instructions' && next !== undefined) { actor.instructions = next; i += 1; }
     else if (arg === '--openness' && next) { hexaco.openness = parseFloat(next); i += 1; }
     else if (arg === '--conscientiousness' && next) { hexaco.conscientiousness = parseFloat(next); i += 1; }
     else if (arg === '--extraversion' && next) { hexaco.extraversion = parseFloat(next); i += 1; }
