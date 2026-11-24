@@ -1,47 +1,72 @@
-/**
- * JSON config round-trip via the public library-import endpoint.
- *
- * The dashboard's Studio tab accepts dropped RunArtifact JSONs and
- * POSTs them to `/api/v1/library/import`. This is the canonical user
- * path for "I have a saved artifact, get it into my library so I can
- * compare it side-by-side with a fresh run". A 5xx here is a deploy
- * regression; a strict 4xx with a clear validation message is OK and
- * documents the contract.
- */
-import { test, expect } from '@playwright/test';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import type { RunArtifact } from '../../src/engine/schema/index.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES = path.resolve(__dirname, '../../tests/fixtures');
+test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The writable Library runs on a local fixture server.');
+test.use({ baseURL: 'http://127.0.0.1:3460' });
 
-test('POST /api/v1/library/import accepts a single RunArtifact without 5xx', async ({ request }) => {
-  const artifact = JSON.parse(readFileSync(path.join(FIXTURES, 'runArtifact-v0.8-turn-loop.json'), 'utf-8')) as Record<string, unknown>;
-  const res = await request.post('/api/v1/library/import', {
-    data: { artifact },
-    failOnStatusCode: false,
-  });
-  // 2xx is the happy path. 4xx is acceptable IF the body explains
-  // which schema field rejected — that's a contract test, not a
-  // regression. 5xx is always a server crash.
-  expect(
-    res.status(),
-    `Server crash on round-trip import: ${res.status()}`,
-  ).toBeLessThan(500);
+function fixture<T>(name: string): T {
+  return JSON.parse(readFileSync(new URL(`../../tests/fixtures/${name}`, import.meta.url), 'utf8')) as T;
+}
+
+const single = fixture<RunArtifact>('runArtifact-v0.8-turn-loop.json');
+const bundle = fixture<RunArtifact[]>('runArtifact-v0.8-bundle.json');
+
+async function retrieve(request: APIRequestContext, runId: string): Promise<RunArtifact> {
+  const response = await request.get(`/api/v1/runs/${encodeURIComponent(runId)}`);
+  expect(response.status()).toBe(200);
+  return (await response.json()).artifact as RunArtifact;
+}
+
+test('a legacy turn-loop file opens its recorded decisions after a reload', async ({ page }) => {
+  await page.goto('/sim?tab=library');
+  const response = await page.request.post('/api/v1/library/import', { data: { artifact: single } });
+  expect(response.status()).toBe(201);
+  const { runId } = await response.json();
+  expect(runId).toBe(single.metadata.runId);
+  const imported = await retrieve(page.request, runId);
+  expect(imported.decisions).toEqual(single.decisions);
+  expect(imported).not.toHaveProperty('provenance');
+
+  await page.goto(`/sim?tab=library&runId=${encodeURIComponent(runId)}`);
+  const decision = page.getByRole('dialog', { name: 'Run detail' }).getByText('Conserve power', { exact: false });
+  await expect(decision).toBeVisible();
+  await page.reload();
+  await expect(decision).toBeVisible();
 });
 
-test('POST /api/v1/library/import accepts an artifact bundle without 5xx', async ({ request }) => {
-  const bundle = JSON.parse(readFileSync(path.join(FIXTURES, 'runArtifact-v0.8-bundle.json'), 'utf-8')) as { artifacts?: unknown[] } | unknown[];
-  const artifacts = Array.isArray(bundle) ? bundle : (bundle.artifacts ?? []);
-  test.skip(artifacts.length === 0, 'fixture has no artifacts');
+test('each member of a legacy bundle keeps its recorded metrics', async ({ page }) => {
+  await page.goto('/sim?tab=library');
+  const response = await page.request.post('/api/v1/library/import', { data: { artifacts: bundle } });
+  expect(response.status()).toBe(201);
+  const { runIds } = await response.json();
+  expect(runIds).toEqual(bundle.map(artifact => artifact.metadata.runId));
+  for (const [index, source] of bundle.entries()) {
+    const imported = await retrieve(page.request, runIds[index]);
+    expect(imported.trajectory?.timepoints?.map(point => point.worldSnapshot?.metrics))
+      .toEqual(source.trajectory?.timepoints?.map(point => point.worldSnapshot?.metrics));
+    expect(imported).not.toHaveProperty('provenance');
+  }
+});
 
-  const res = await request.post('/api/v1/library/import', {
-    data: { artifacts: artifacts.slice(0, 5) },
-    failOnStatusCode: false,
-  });
-  expect(
-    res.status(),
-    `Server crash on bundle round-trip: ${res.status()}`,
-  ).toBeLessThan(500);
+test('a marked file keeps its provenance and rejects invalid markers', async ({ page }) => {
+  await page.goto('/sim?tab=library');
+  const provenance = { aiGenerated: true, generator: 'paracosm', models: { commander: 'gpt-4o' } };
+  const artifact = { ...single, metadata: { ...single.metadata, runId: 'run_studio_fixture_marked' }, provenance };
+  const response = await page.request.post('/api/v1/library/import', { data: { artifact } });
+  expect(response.status()).toBe(201);
+  const { runId } = await response.json();
+  expect((await retrieve(page.request, runId)).provenance).toEqual(provenance);
+
+  for (const invalid of [
+    { ...provenance, aiGenerated: false },
+    { ...provenance, generator: 'other' },
+    { ...provenance, models: { commander: 42 } },
+    { ...provenance, models: { commander: '' } },
+  ]) {
+    const rejected = await page.request.post('/api/v1/library/import', {
+      data: { artifact: { ...artifact, provenance: invalid } },
+    });
+    expect(rejected.status()).toBe(400);
+  }
 });

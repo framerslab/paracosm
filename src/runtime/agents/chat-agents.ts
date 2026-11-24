@@ -141,6 +141,7 @@ export interface ChatAgentOptions {
 
 /** Pool entry for a live chat agent. */
 interface PoolEntry {
+  model: string;
   agent: ReturnType<typeof createAgent>;
   session: ReturnType<ReturnType<typeof createAgent>['session']>;
   lastUsed: number;
@@ -214,7 +215,7 @@ export async function getOrCreateChatAgent(
   colonist: ColonistProfile,
   memories: ColonistMemoryEntry[],
   opts: ChatAgentOptions,
-): Promise<{ session: PoolEntry['session']; isNew: boolean; release?: () => void }> {
+): Promise<{ session: PoolEntry['session']; model?: string; isNew: boolean; release?: () => void }> {
   const provider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
   const providerApiKey = apiKeyForProvider(provider, opts);
   const key = chatAgentPoolKey(colonist, opts);
@@ -222,12 +223,13 @@ export async function getOrCreateChatAgent(
   const idleMs = providerApiKey ? opts.visitorKeyIdleMs : undefined;
   const useEntry = (entry: PoolEntry, isNew: boolean) => {
     entry.lastUsed = Date.now();
-    if (idleMs === undefined) return { session: entry.session, isNew };
+    if (idleMs === undefined) return { session: entry.session, isNew, model: entry.model };
 
     if (entry.idleTimer !== undefined) clearTimeout(entry.idleTimer);
     entry.activeChats++;
     return {
       session: entry.session,
+      model: entry.model,
       isNew,
       release: () => {
         entry.lastUsed = Date.now();
@@ -314,7 +316,7 @@ export async function getOrCreateChatAgent(
   });
 
   const session = chatAgent.session(key);
-  const entry: PoolEntry = { agent: chatAgent, session, lastUsed: Date.now(), activeChats: 0, colonistName: colonist.name, runKey: opts.runKey };
+  const entry: PoolEntry = { agent: chatAgent, session, model, lastUsed: Date.now(), activeChats: 0, colonistName: colonist.name, runKey: opts.runKey };
   pool.set(key, entry);
 
   return useEntry(entry, true);

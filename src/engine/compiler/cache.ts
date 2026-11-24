@@ -64,6 +64,12 @@ const DEFAULT_CACHE_DIR = '.paracosm/cache';
  *   would apply it once a year of a long turn, so every cached hook
  *   regenerates (one-time ~$0.10 per previously-compiled scenario).
  *
+ * A change to the run artifact's shape needs no bump either: the schema
+ * breaking-change gate reads `RUN_ARTIFACT_SCHEMA_VERSION`
+ * (../schema/artifact.ts), and saved hook sources and cached hooks do not
+ * depend on the artifact. Raising this version compiles every saved
+ * scenario again at the next server start.
+ *
  * A change to the hook runner's own rules (sandbox-runner.ts), or to what
  * its context holds (own-context.ts), needs no bump: a compile checks
  * each cached code hook as it restores it, and generates again only a

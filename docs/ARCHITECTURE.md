@@ -439,6 +439,19 @@ In Paracosm, HEXACO influences:
 - **Trajectory cues**: commander, director, and department-head prompts all receive a one-line cue describing drift since turn 0 ("Since you took command, your personality has drifted substantially toward higher openness and measurably away from higher conscientiousness. Notice how recent decisions have shaped your judgment."). Threshold 0.05 matches the leader's per-turn cap.
 - **Chat memory retrieval**: AgentOS uses HEXACO to modulate which memories surface during character chat.
 
+### Leader orders
+
+A leader's `instructions` are the orders its commander receives, after the general-audience guidance, in its system message ([`orchestrator/index.ts`, line 829](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/runtime/orchestrator/index.ts#L829)). Written orders reach the run as written, whitespace included. Missing, empty or whitespace-only orders are filled by `fillInstructions` ([`fill-instructions.ts`, lines 39 to 77](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/engine/presets/fill-instructions.ts#L39-L77)), a pure function that reads no clock, random source, model or network, so the same leader always gets the same orders:
+
+- `You are <name>, "<archetype>."`, with the name cut to 80 UTF-16 code units and the archetype, with the full stop that ends it, to 61;
+- the leader's own `description`, or else the description of the built-in preset whose archetype matches, ignoring case and outer spaces, cut to fit and to 140 units at most;
+- one sentence for each trait the leader's trait model scores below 0.35 or above 0.65, in the model's axis order, from its registered cues, as many as fit. An explicit `traitProfile` is read before the legacy `hexaco` scores. A score of exactly 0.35 or 0.65 adds no sentence;
+- a closing line: `Your HEXACO profile drives your leadership style.`, or `Your trait profile drives your leadership style.` for another trait model.
+
+Each of the ten built-in presets carries written orders of its own. The fill runs in two places: setup normalization fills every actor before the hosted demo's caps ([`sim-config.ts`, line 957](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/cli/sim-config.ts#L957)), and `runSimulation` fills its leader on entry for callers that skip setup ([`orchestrator/index.ts`, lines 513 to 514](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/runtime/orchestrator/index.ts#L513-L514)). An actor whose orders were filled passes the second fill unchanged. A run that fills orders writes one log line with the count of leaders it filled, `[orders] filled empty instructions for N leader(s)`, and nothing more of the leader.
+
+A host-paid run cuts written orders to `MAX_ORDER_CHARS`, 400 UTF-16 code units, without splitting a surrogate pair (`clipOrderText`): `/setup` in the demo caps ([`sim-config.ts`, line 671](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/cli/sim-config.ts#L671)) and `/simulate` in its runner ([`server-app.ts`, lines 3380 to 3383](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/server/server-app.ts#L3380-L3383)). Orders left blank by the cut are filled. On `/setup` and `/simulate`, a run on a visitor's key or on a self-hosted server keeps its written orders whole. The Digital Twin route refuses orders over 400 units with a 400 ([`quickstart.ts`, line 168](https://github.com/framerslab/paracosm/blob/3a603290e67ddc17e2f56df9865fe74a1ecfa82f/src/server/routes/quickstart.ts#L168)). Filled orders fit within 400 units. `paracosm run --name` puts the new name wherever the old name appears as a whole in the chosen actor's written orders, never inside a longer word, unless `--instructions` gives new orders. An empty `--instructions` value has the orders filled.
+
 ### Parallel Execution
 
 Pair runs (exactly 2 commanders) fan out via `Promise.all` in `pair-runner.ts`. Cohort runs (3+ commanders) fan out through a bounded worker pool in `runBatchSimulations`, sized to `economics.batch.maxConcurrency` (default 8) so the swarm lands as a sequence of batches that stay within provider rate limits regardless of how many leaders are in flight. Within each commander's turn, all department analyses also run in parallel. This produces independent timelines from the same starting conditions:
@@ -775,6 +788,34 @@ await wm.simulate({ actor: leader, keyPersonnel: personnel, maxTurns: 8 });
 
 The runtime `scenario` parameter MUST be a compiled `ScenarioPackage` (has `hooks`), not the raw source JSON.
 
+### Output provenance
+
+New run artifacts carry a top-level `provenance` object in memory and in written JSON. The first public event sent to a library caller carries the same object. On the dashboard, the first delivered frame from `/events` and from `/sessions/:id/replay` carries the run's provenance, including when a reader reconnects or a saved stream starts after the run opened.
+
+```json
+{
+  "provenance": {
+    "aiGenerated": true,
+    "generator": "paracosm",
+    "models": {
+      "commander": "gpt-4o",
+      "departments": "gpt-4o-mini",
+      "judge": "gpt-4o",
+      "director": "gpt-4o",
+      "agentReactions": "gpt-4o-mini"
+    }
+  }
+}
+```
+
+The model IDs are the resolved assignments by role after fallback, so a stopped run can name a model without having called it. The artifact keeps that actor's assignments, including `leaderWriter` for a generated leader when recorded. A report can also identify the `verdict` model when it includes recorded verdict text. A generated scenario export records the `compiler` role from its recorded hook sources. An absent role means its model is unknown. The schema accepts historical artifacts without `provenance`. Re-exporting an older result uses the recorded IDs that are available and may produce an empty `models` map. Bundle members retain their own maps.
+
+An authored block on a dashboard page carries `data-ai-generated="true"` and one visible `AI-written` label. A page displaying any such block carries one `<meta name="ai-generated-content" content="partial">` in its head. Authorship follows the recorded source of the passage, including mixed records where only some fields were model-written.
+
+The References, Forge toolbox and Forge raw record JSON downloads now have roots `{provenance,references:[...]}`, `{provenance,tools:[...]}` and `{provenance,frames:[...]}`. Each array retains the displayed order. The raw record's view and clipboard retain the original frames. The scenario editor's **Save source JSON** action saves a human draft as provided.
+
+The selected run's HTML report includes the head meta, visible labels and a `{ "provenance": { ... } }` object in the inert `<script type="application/json" id="paracosm-provenance">` element. The PDF includes readable labels, an attached `run.json` report projection and an XMP stream in the catalog's `/Metadata` entry. Viz PNGs carry the same XMP format in an uncompressed `iTXt` chunk keyed by `XML:com.adobe.xmp`. The XMP property `provenance` in `https://paracosm.agentos.sh/ns/provenance/1.0/` contains the full provenance object. The IPTC `DigitalSourceType` resource is `http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia`.
+
 ### npm Package Exports
 
 | Import | What |
@@ -861,12 +902,12 @@ console.log(artifact.subject, artifact.intervention);
 
 ### Schema breaking-change gate (T6.2)
 
-`tests/engine/schema/breaking-change-gate.test.ts` fails any PR that diverges `RunArtifactSchema.shape` without bumping `COMPILE_SCHEMA_VERSION`. The committed snapshot fixture at `tests/engine/schema/run-artifact-schema-snapshot.json` is the canonical source of truth.
+`tests/engine/schema/breaking-change-gate.test.ts` fails any PR that diverges `RunArtifactSchema.shape` without bumping `RUN_ARTIFACT_SCHEMA_VERSION`. The committed snapshot fixture at `tests/engine/schema/run-artifact-schema-snapshot.json` is the canonical source of truth.
 
 Updating the schema:
 
 1. Edit the schema in `src/engine/schema/`.
-2. Bump `COMPILE_SCHEMA_VERSION` in `src/engine/compiler/cache.ts`.
+2. Bump `RUN_ARTIFACT_SCHEMA_VERSION` in `src/engine/schema/artifact.ts`. `COMPILE_SCHEMA_VERSION` keys generated hook sources and is raised only for a change to what a generated hook must do; raising it compiles every saved scenario again at the next server start.
 3. Run `npm run snapshot:schema` to regenerate the fixture.
 4. Commit the schema change, the version bump, and the fixture together.
 

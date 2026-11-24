@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import type { DecisionBarCheck, ProcessedEvent } from '../../hooks/useGameState';
@@ -63,7 +64,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
           className={[styles.eventStartRow, idx > 0 ? styles.notFirst : ''].filter(Boolean).join(' ')}
         >
           <span className={styles.eventNumber}>EVENT {idx + 1}/{total}</span>
-          <span className={styles.eventStartTitle}>{title}</span>
+          <AiWritten className={styles.eventStartTitle} authored={isAiWritten(dd, "title")}>{title}</AiWritten>
           {category && <span className={styles.eventCategoryPill}>{category}</span>}
         </div>
       );
@@ -151,7 +152,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 {approved ? '✦ FORGED TOOL' : '↻ FORGE RETRY'}
               </span>
               <span className={styles.forgeDept}>{dept}</span>
-              <span className={styles.forgeDescription}>{description}</span>
+              <AiWritten className={styles.forgeDescription} authored={Boolean(dd.description)}>{description}</AiWritten>
               <span className={styles.forgeName}>{name} ({mode})</span>
               <span className={approved ? styles.forgeVerdictPass : styles.forgeVerdictFail}>
                 {approved ? `PASS ${confidence.toFixed(2)}` : 'RETRY'}
@@ -263,7 +264,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             </summary>
             <div className={styles.specBody}>
               {summary ? (
-                <div className={styles.specSummary}>{summary}</div>
+                <AiWritten as="div" className={styles.specSummary} authored={isAiWritten(dd, "summary")}>{summary}</AiWritten>
               ) : (risks.length === 0 && recs.length === 0) && (citeCount > 0 || allTools.length > 0) ? (
                 <div className={styles.specSummaryEmpty}>
                   Department analysis complete &mdash; no narrative summary returned, but
@@ -287,7 +288,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                       >
                         {String(r.severity || 'med').toUpperCase()}
                       </span>
-                      <span>{String(r.description || '')}</span>
+                      <AiWritten authored={Boolean(r.description) && isAiWritten(dd, "risks")}>{String(r.description || '')}</AiWritten>
                     </div>
                   ))}
                 </div>
@@ -297,7 +298,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 <div className={styles.specRecs}>
                   <div className={styles.specRecsLabel}>RECOMMENDATIONS</div>
                   {recs.slice(0, 3).map((rec, i) => (
-                    <div key={i} className={styles.specRecRow}>{rec}</div>
+                    <AiWritten as="div" key={i} className={styles.specRecRow} authored={isAiWritten(dd, "recommendedActions")}>{rec}</AiWritten>
                   ))}
                 </div>
               )}
@@ -364,9 +365,9 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                         <span className={styles.toolSchemaBadge}>SCHEMA</span>
                       )}
                     </div>
-                    <span className={styles.toolDescription}>
+                    <AiWritten className={styles.toolDescription} authored={Boolean(t.description && t.firstForgedTurn != null)}>
                       {String(t.description || t.name || '')}
-                    </span>
+                    </AiWritten>
                     <span className={styles.toolNameLine}>
                       {t.name} {t.mode ? `(${t.mode})` : ''}
                     </span>
@@ -474,7 +475,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
             <Badge outcome={outcome} />
           </div>
           {/* Decision text */}
-          <div className={styles.outcomeText}>{decision}</div>
+          <AiWritten as="div" className={styles.outcomeText} authored={Boolean(decision) && isAiWritten(dd, "decision")}>{decision}</AiWritten>
           {/* The decision against the leader's bar, from the leader's result. */}
           {barCheck && (
             <div className={barCheck.departs ? `${styles.outcomeBar} ${styles.outcomeBarDeparts}` : styles.outcomeBar}>
@@ -505,10 +506,10 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               </summary>
               <div className={styles.outcomeReasoningBody}>
                 {reasoning && (
-                  <div className={styles.outcomeReasoningPre}>{reasoning}</div>
+                  <AiWritten as="div" className={styles.outcomeReasoningPre} authored={isAiWritten(dd, "reasoning")}>{reasoning}</AiWritten>
                 )}
-                {decision && <div>{decision}</div>}
-                {rationale && <div className={styles.outcomeRationale}>{rationale}</div>}
+                {decision && <AiWritten as="div" authored={isAiWritten(dd, "decision")}>{decision}</AiWritten>}
+                {rationale && <AiWritten as="div" className={styles.outcomeRationale} authored={isAiWritten(dd, "rationale")}>{rationale}</AiWritten>}
                 {policies.map((p, i) => <div key={i} className={styles.outcomePolicyLine}>&rarr; {p}</div>)}
               </div>
             </details>
@@ -587,7 +588,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                     <div className={styles.reactionTooltipMeta}>{r.role} in {r.department} {r.age ? `· Age ${r.age}` : ''}</div>
                     <div className={styles.reactionTooltipHexaco}>O:{r.hexaco?.O} C:{r.hexaco?.C} E:{r.hexaco?.E} A:{r.hexaco?.A} Em:{r.hexaco?.Em} HH:{r.hexaco?.HH}</div>
                     <div className={styles.reactionTooltipHealth}>Bone: {r.boneDensity}% · Radiation: {r.radiation}mSv · Psych: {r.psychScore}</div>
-                    <div className={styles.reactionTooltipQuote}>&ldquo;{r.quote}&rdquo;</div>
+                    <AiWritten as="div" authored={Boolean(r.quote)} className={styles.reactionTooltipQuote}>&ldquo;{r.quote}&rdquo;</AiWritten>
                     <div
                       className={styles.reactionTooltipMoodLine}
                       style={{ '--mood-color': moodColors[r.mood] || 'var(--text-3)' } as CSSProperties}
@@ -603,9 +604,9 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 }>
                   <div className={[styles.reactionRow, i < Math.min(reactions.length, 4) - 1 ? styles.notLast : ''].filter(Boolean).join(' ')}>
                     <span className={styles.reactionRowName} style={sideStyle}>{r.name}</span>
-                    <span className={styles.reactionRowQuote}>
+                    <AiWritten authored={Boolean(r.quote)} className={styles.reactionRowQuote}>
                       &ldquo;{String(r.quote || '')}&rdquo;
-                    </span>
+                    </AiWritten>
                     <span
                       className={styles.reactionRowMoodPill}
                       style={{ '--mood-color': moodColors[r.mood] || 'var(--text-3)' } as CSSProperties}
@@ -641,7 +642,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
                 <div>
                   <b className={styles.bulletinTooltipName} style={sideStyle}>{p.name}</b>{' '}
                   <span className={styles.bulletinTooltipRole}>{p.role} {p.department}</span>
-                  <div className={styles.bulletinTooltipBody}>{p.post}</div>
+                  <AiWritten as="div" authored={Boolean(p.post)} className={styles.bulletinTooltipBody}>{p.post}</AiWritten>
                   <div
                     className={styles.bulletinTooltipMood}
                     style={{ '--mood-color': moodColors[p.mood] || 'var(--text-3)' } as CSSProperties}
@@ -652,7 +653,7 @@ export function EventCard({ event, actorIndex, actorSlot }: EventCardProps) {
               }>
                 <div className={styles.bulletinRow}>
                   <span className={styles.bulletinName} style={sideStyle}>{p.name}</span>
-                  <span className={styles.bulletinPost}>{String(p.post || '')}</span>
+                  <AiWritten authored={Boolean(p.post)} className={styles.bulletinPost}>{String(p.post || '')}</AiWritten>
                   <span className={styles.bulletinLikes}>&hearts;{p.likes || 0}</span>
                 </div>
               </Tooltip>

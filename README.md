@@ -291,7 +291,7 @@ paracosm compile scenarios/lunar.json --seed-url <url> --max-searches 5
 paracosm init my-app --domain "Submarine crew of 8" --actors 3
 ```
 
-The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./config/actors.json`, then a bundled example. A back-compat `paracosm-dashboard` alias is shipped for existing scripts and Docker invocations.
+The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./config/actors.json`, then a bundled example. `--name` renames the chosen actor, and its written orders take the new name wherever they name the old one. A back-compat `paracosm-dashboard` alias is shipped for existing scripts and Docker invocations.
 
 ### Share a sim with a one-click link
 
@@ -334,7 +334,7 @@ The `?load=` and `?autoload=` params are stripped after the fetch resolves, so r
 
 ## The universal result contract
 
-Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point).
+Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point). New results expose `artifact.provenance` with `aiGenerated`, `generator`, and `models` by role.
 
 ```typescript
 import { RunArtifactSchema, type RunArtifact } from 'paracosm/schema';
@@ -349,6 +349,8 @@ switch (artifact.metadata.mode) {
   case 'batch-point':       // one-shot forecast: overview + risk flags
 }
 ```
+
+Written run JSON carries the same `provenance` fields as the returned artifact. Older files can be read without the field.
 
 For non-TypeScript consumers, `npm run export:json-schema` emits `schema/run-artifact.schema.json` and `schema/stream-event.schema.json`. Python projects generate Pydantic types via `datamodel-codegen`; any ecosystem with a JSON-Schema generator adopts cleanly.
 

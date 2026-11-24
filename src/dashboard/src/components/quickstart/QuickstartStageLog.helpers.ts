@@ -26,6 +26,7 @@ export interface LogLine {
   tag?: string;
   /** Free-form message body for the line. */
   body: string;
+  authored?: boolean;
   /** Tone drives the row's text color. */
   tone: 'pending' | 'info' | 'active' | 'done' | 'warn' | 'error';
   /** Optional actor name to group running-phase events under. */
@@ -95,17 +96,15 @@ function tagForEventType(type: string): string {
  * (department, title, decision, etc.) so every line carries something
  * useful. Empty string only when we genuinely have no signal.
  */
-function summarizeEventData(e: SimEvent): string {
-  const d = (e.data ?? {}) as Record<string, unknown>;
-  const summary = typeof d.summary === 'string' ? d.summary : '';
-  if (summary) return summary;
-  if (typeof d.department === 'string') return d.department;
-  if (typeof d.title === 'string') return d.title;
-  if (typeof d.decision === 'string') return d.decision;
-  if (typeof d.outcome === 'string') return d.outcome;
-  if (typeof d.eventType === 'string') return d.eventType;
-  if (typeof d.tool === 'string') return d.tool;
-  return '';
+function summarizeEventData(e: SimEvent) {
+  const data = e.data ?? {};
+  for (const field of ['summary', 'department', 'title', 'decision', 'outcome', 'eventType', 'tool']) {
+    const text = data[field];
+    if (typeof text === 'string' && (field !== 'summary' || text)) {
+      return { text, authored: Array.isArray(data.aiWrittenFields) && data.aiWrittenFields.includes(field) };
+    }
+  }
+  return { text: '', authored: false };
 }
 
 /**
@@ -120,7 +119,7 @@ function eventToLogLine(e: SimEvent): LogLine | null {
   const turn = e.turn ?? (e.data as { turn?: number } | null | undefined)?.turn;
   const actor = e.leader || (e.data as { actor?: string } | null | undefined)?.actor;
   const summary = summarizeEventData(e);
-  const body = summary || `${e.type} fired`;
+  const body = summary.text || `${e.type} fired`;
   // Use the in-sim turn number as the leftmost mono "timestamp" column.
   // Falls back to "—" for events that aren't turn-scoped (e.g. validation
   // fallbacks emitted between turns).
@@ -134,6 +133,7 @@ function eventToLogLine(e: SimEvent): LogLine | null {
       ? 'SALVAGE'
       : tagForEventType(e.type),
     body,
+    ...(summary.authored && summary.text ? { authored: true } : {}),
     tone: toneForEventType(e.type),
     actor: typeof actor === 'string' ? actor : undefined,
   };

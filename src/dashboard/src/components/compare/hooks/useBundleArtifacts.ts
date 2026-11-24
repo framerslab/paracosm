@@ -36,7 +36,12 @@ export function useBundleArtifacts(runIds: string[]): UseBundleArtifactsResult {
       fetch(`/api/v1/runs/${encodeURIComponent(id)}`, { signal: ctrl.signal })
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.json() as Promise<RunArtifact>;
+          const detail = await res.json() as { artifact?: RunArtifact } | null;
+          const artifact = detail?.artifact;
+          if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) {
+            throw new Error('Run artifact missing or invalid');
+          }
+          return artifact;
         })
         .then((artifact) => {
           setArtifacts((prev) => ({ ...prev, [id]: artifact }));

@@ -284,6 +284,7 @@ export async function runPairSimulations(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     })),
   });
 
@@ -435,6 +436,7 @@ export async function runForkSimulation(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     },
     parentRunId: simConfig.forkFrom.parentArtifact.metadata.runId,
     atTurn: simConfig.forkFrom.atTurn,
@@ -556,6 +558,7 @@ export async function runBatchSimulations(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     })),
   });
 
@@ -825,7 +828,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
   const colB = b.result.finalState?.metrics;
   try {
     const { prompt, words, rows } = pairVerdictRequest(turns, scenario, a, b);
-    const { object: verdict, fromFallback } = await generateValidatedObject({
+    const { object: verdict, fromFallback, model } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
@@ -848,6 +851,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
     } else {
       broadcast('verdict', {
         ...verdict,
+        verdictModel: model ?? verdictModel,
         leaderA: { name: a.leader.name, archetype: a.leader.archetype, unit: a.leader.unit },
         leaderB: { name: b.leader.name, archetype: b.leader.archetype, unit: b.leader.unit },
         settlementNoun: words.settlement,
@@ -931,7 +935,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
   const { credentials, verdictModel, turns, scenario, broadcast, runs: cleanRuns, generateObjectImpl } = opts;
   try {
     const { prompt, words, rows } = cohortVerdictRequest(turns, scenario, cleanRuns);
-    const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
+    const { object: cohortVerdict, fromFallback, model } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
@@ -961,6 +965,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
     } else {
       broadcast('cohort_verdict', {
         ...cohortVerdict,
+        verdictModel: model ?? verdictModel,
         actors: cleanRuns.map(({ leader, index }) => ({
           name: leader.name,
           archetype: leader.archetype,

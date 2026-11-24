@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../../engine/types.js';
 /**
  * Centralized reader/writer for the dashboard's two launch-related
  * storage contracts. Keeping the key strings + payload shape in
@@ -128,6 +129,8 @@ export function writeLastLaunchConfig(
  * already gates on `Object.values(h).some(v => v > 0)`.
  */
 export interface PersistedActor {
+  aiAuthorship?: ActorAuthorship;
+  instructions?: string;
   name?: string;
   archetype?: string;
   unit?: string;

@@ -118,6 +118,7 @@ interface ReadArg {
   region: number;
   /** rows: the selectors of the rows of keys. */
   rows: string[];
+  unroundedContrast?: boolean;
 }
 
 /**
@@ -197,7 +198,8 @@ function readSurface(root: Element, arg: ReadArg): unknown {
     if (paint[3] <= 0) return 1;
     const ground = groundOf(groundFrom);
     const drawn: RGBA = [paint[0], paint[1], paint[2], paint[3] * opacityTo(el, ground.from)];
-    return r2(ratioOf(over(drawn, ground.colour), ground.colour));
+    const ratio = ratioOf(over(drawn, ground.colour), ground.colour);
+    return arg.unroundedContrast ? ratio : r2(ratio);
   };
 
   const visibleNow = (el: Element, withOpacity: boolean): boolean => {
@@ -638,8 +640,8 @@ export async function settle(root: Locator): Promise<void> {
 }
 
 /** Every element with its own text: its role, size and contrast against the ground it is drawn on. */
-export async function measureText(_page: Page, root: Locator): Promise<TextMeasure[]> {
-  return read<TextMeasure[]>(root, { op: 'text' });
+export async function measureText(_page: Page, root: Locator, options: { unroundedContrast?: boolean } = {}): Promise<TextMeasure[]> {
+  return read<TextMeasure[]>(root, { op: 'text', ...options });
 }
 
 /** The glyphs ([aria-hidden] svg), the cells, bands, side marks and tracks, and the key and field edges, each against its ground. */

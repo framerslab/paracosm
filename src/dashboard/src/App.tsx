@@ -1,3 +1,5 @@
+import { RunExportProvenanceContext } from './components/shared/RunReportDownloads';
+import { AiWrittenPage } from './components/shared/AiWritten';
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
@@ -349,9 +351,9 @@ function AppContent() {
   const handleSave = useCallback(() => {
     // Include verdict in the export so reload restores the end-of-sim
     // judgment (previously dropped — saves looked incomplete on load).
-    persistence.save(sse.events, sse.results, sse.verdict);
+    persistence.save(sse.events, sse.results, sse.verdict, sse.provenance);
     toast('success', 'Saved', `${sse.events.length} events${sse.verdict ? ' + verdict' : ''} saved to file.`);
-  }, [sse.events, sse.results, sse.verdict, persistence, toast]);
+  }, [sse.events, sse.results, sse.verdict, sse.provenance, persistence, toast]);
 
   // Deep-link intent captured once at mount via useState lazy init.
   // Only populated when the initial URL has a valid `?load=<url>` param
@@ -448,9 +450,9 @@ function AppContent() {
     },
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
-    onConfirm: ({ events, results, verdict }) => {
+    onConfirm: ({ events, results, verdict, provenance }) => {
       leaveDigitalTwin();
-      sse.loadEvents(events, results, verdict);
+      sse.loadEvents(events, results, verdict, provenance);
       clearShareLink();
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
@@ -936,7 +938,9 @@ function AppContent() {
   useEffect(() => {
     if (!sse.isComplete) return;
     if (sse.events.length === 0) return;
-    const fingerprint = `cached:${scenario.labels.shortName}:${sse.events.length}:${sse.isAborted ? 'a' : 'c'}`;
+    const fingerprint = JSON.stringify([
+      scenario.labels.shortName, sse.runKey ?? replaySessionId, sse.events.length, sse.isAborted, sse.provenance,
+    ]);
     const storageKey = 'paracosm:lastCachedRunFingerprint';
     try {
       if (sessionStorage.getItem(storageKey) === fingerprint) return;
@@ -948,9 +952,13 @@ function AppContent() {
       events: sse.events,
       results: sse.results,
       verdict: sse.verdict,
+      provenance: sse.provenance,
     });
   }, [
     sse.isComplete,
+    sse.runKey,
+    replaySessionId,
+    sse.provenance,
     sse.isAborted,
     sse.events,
     sse.results,
@@ -979,6 +987,7 @@ function AppContent() {
       <ScenarioLoadContext.Provider value={scenarioLoad}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
+        <RunExportProvenanceContext.Provider value={sse.provenance}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
         <div className={`scanline-overlay ${styles.shell} ${activeTab === 'viz' ? styles.vizShortScroll : ''}`}>
@@ -1300,6 +1309,7 @@ function AppContent() {
           <HowItWorksCard open={howItWorksOpen} onClose={closeHowItWorks} anchor={howItWorksKeyRef} />
         </div>
         </ForgeViewProvider>
+        </RunExportProvenanceContext.Provider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
       </ScenarioLoadContext.Provider>
@@ -1348,7 +1358,7 @@ export function App() {
         <ToastProvider>
           <RunTurnsProvider>
             <ServerFactsProvider>
-              <AppContent />
+              <AiWrittenPage><AppContent /></AiWrittenPage>
             </ServerFactsProvider>
           </RunTurnsProvider>
         </ToastProvider>

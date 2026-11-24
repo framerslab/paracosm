@@ -47,6 +47,7 @@ export function resolveLeaderPresets(
     ...leader,
     unit: 'Forked Branch',
     hexaco: normalizeHexacoProfile(leader.hexaco),
+    ...(leader.aiAuthorship ? { aiAuthorship: { ...leader.aiAuthorship, fields: leader.aiAuthorship.fields.filter(field => field !== 'unit') } } : {}),
   }));
   return [...presetLeaders, ...sessionCustoms].map(actorForLaunch);
 }

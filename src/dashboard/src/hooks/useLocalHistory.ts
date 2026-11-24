@@ -7,6 +7,7 @@
  * @module paracosm/cli/dashboard/hooks/useLocalHistory
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import type { SimEvent } from './useSSE';
 import {
   DEFAULT_HISTORY_CAP,
@@ -42,6 +43,7 @@ export interface UseLocalHistoryApi {
     events: SimEvent[];
     results: unknown[];
     verdict?: Record<string, unknown> | null;
+    provenance?: RunProvenance | null;
   }): void;
   /** Drop a specific entry by id. No-op if id is missing. */
   remove(id: number): void;
@@ -57,6 +59,7 @@ export interface UseLocalHistoryApi {
       events: SimEvent[],
       results?: unknown[],
       verdict?: Record<string, unknown> | null,
+      provenance?: RunProvenance | null,
     ) => void,
   ): void;
 }
@@ -126,6 +129,7 @@ export function useLocalHistory(
       events: SimEvent[];
       results: unknown[];
       verdict?: Record<string, unknown> | null;
+      provenance?: RunProvenance | null;
     }) => {
       if (!params.events || params.events.length === 0) return;
       const entry: LocalHistoryEntry = {
@@ -134,6 +138,7 @@ export function useLocalHistory(
         events: params.events,
         results: params.results,
         verdict: params.verdict ?? null,
+        ...(params.provenance ? { provenance: params.provenance } : {}),
         scenarioShortName: opts.scenarioShortName,
         summary: summarizeEvents(params.events, params.results),
       };
@@ -169,9 +174,10 @@ export function useLocalHistory(
         events: SimEvent[],
         results?: unknown[],
         verdict?: Record<string, unknown> | null,
+        provenance?: RunProvenance | null,
       ) => void,
     ) => {
-      loadEvents(entry.events, entry.results, entry.verdict ?? null);
+      loadEvents(entry.events, entry.results, entry.verdict ?? null, ...(entry.provenance ? [entry.provenance] as const : []));
     },
     [],
   );

@@ -2,7 +2,10 @@ import type { HexacoProfile } from '../engine/core/state.js';
 import type { TraitProfile } from '../engine/traits/index.js';
 export type { HexacoProfile };
 
+import type { ActorAuthorship } from '../engine/types.js';
+
 export interface ActorConfig {
+  aiAuthorship?: ActorAuthorship;
   name: string;
   archetype: string;
   unit: string;

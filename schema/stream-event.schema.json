@@ -19,6 +19,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -43,7 +72,7 @@
             "deaths": {
               "type": "number"
             },
-            "systems": {
+            "metrics": {
               "type": "object",
               "propertyNames": {
                 "type": "string"
@@ -61,7 +90,18 @@
             "totalEvents": {
               "type": "number"
             },
-            "pacing": {}
+            "pacing": {},
+            "aiWrittenFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "title",
+                  "description",
+                  "turnSummary"
+                ]
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -90,6 +130,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -122,7 +191,18 @@
             "turnSummary": {
               "type": "string"
             },
-            "pacing": {}
+            "pacing": {},
+            "aiWrittenFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "title",
+                  "description",
+                  "turnSummary"
+                ]
+              }
+            }
           },
           "required": [
             "eventIndex",
@@ -157,6 +237,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -205,6 +314,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -266,6 +404,19 @@
             },
             "deptSummary": {
               "type": "string"
+            },
+            "aiWrittenFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "summary",
+                  "risks",
+                  "opportunities",
+                  "recommendedActions",
+                  "openQuestions"
+                ]
+              }
             }
           },
           "required": [
@@ -303,6 +454,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -393,6 +573,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -436,6 +645,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -462,6 +700,17 @@
               "type": "integer",
               "minimum": 0,
               "maximum": 9007199254740991
+            },
+            "aiWrittenFields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "decision",
+                  "rationale",
+                  "reasoning"
+                ]
+              }
             }
           },
           "required": [
@@ -498,6 +747,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -573,6 +851,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -641,6 +948,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -684,6 +1020,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -726,19 +1091,73 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
             "summary": {
               "type": "string"
             },
-            "systems": {
+            "metrics": {
               "type": "object",
               "propertyNames": {
                 "type": "string"
               },
               "additionalProperties": {
                 "type": "number"
+              }
+            },
+            "statuses": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "boolean"
+                ]
+              }
+            },
+            "environment": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": [
+                  "number",
+                  "string",
+                  "boolean"
+                ]
               }
             },
             "toolsForged": {
@@ -765,7 +1184,7 @@
             }
           },
           "required": [
-            "systems",
+            "metrics",
             "toolsForged"
           ],
           "additionalProperties": false
@@ -795,6 +1214,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -850,6 +1298,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -911,6 +1388,35 @@
         },
         "time": {
           "type": "number"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
         },
         "data": {
           "type": "object",
@@ -976,6 +1482,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -1038,6 +1573,35 @@
         "time": {
           "type": "number"
         },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "aiGenerated": {
+              "type": "boolean",
+              "const": true
+            },
+            "generator": {
+              "type": "string",
+              "const": "paracosm"
+            },
+            "models": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "aiGenerated",
+            "generator",
+            "models"
+          ],
+          "additionalProperties": false
+        },
         "data": {
           "type": "object",
           "properties": {
@@ -1052,7 +1616,7 @@
               "minimum": 0,
               "maximum": 9007199254740991
             },
-            "systems": {
+            "metrics": {
               "type": "object",
               "propertyNames": {
                 "type": "string"
@@ -1070,7 +1634,7 @@
           "required": [
             "reason",
             "completedTurns",
-            "systems",
+            "metrics",
             "toolsForged"
           ],
           "additionalProperties": false

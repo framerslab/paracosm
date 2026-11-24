@@ -128,7 +128,7 @@ async function withServer(env: Record<string, string>, body: (world: World) => P
     };
     await body({ api, store, startRun, admin: api.visitor({}, { 'X-Admin-Token': TOKEN }) });
   }, {
-    env,
+    env: { ...env, PARACOSM_OUTPUT_DIR: RUNS_DIR },
     extra: {
       ...NO_MODEL,
       runHistoryStore: store,

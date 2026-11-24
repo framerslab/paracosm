@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 /**
  * Full-verdict modal triggered from the global VerdictBanner. Renders
  * either the pair-mode VerdictDetails (A vs B scoreboard) or a cohort
@@ -68,8 +69,8 @@ export function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
     <div className={styles.cohortDetails}>
       <header className={styles.cohortHeader}>
         <div className={styles.cohortKicker}>★ Cohort of {actorCount} · Verdict</div>
-        <h2 className={styles.cohortHeadline}>{headline}</h2>
-        {summary && <p className={styles.cohortSummary}>{summary}</p>}
+        <AiWritten as="h2" className={styles.cohortHeadline} authored={Boolean(headline)}>{headline}</AiWritten>
+        {summary && <AiWritten as="p" className={styles.cohortSummary} authored>{summary}</AiWritten>}
         {keyDivergence && (
           <p className={styles.cohortDivergence}>
             <strong>Key divergence:</strong> {keyDivergence}
@@ -98,7 +99,7 @@ export function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
                     <span title="Morale">M {r.scores?.morale ?? '?'}</span>
                     <span title="Innovation">I {r.scores?.innovation ?? '?'}</span>
                   </div>
-                  {r.rationale && <p className={styles.cohortRankRationale}>{r.rationale}</p>}
+                  {r.rationale && <AiWritten as="p" className={styles.cohortRankRationale} authored>{r.rationale}</AiWritten>}
                 </div>
               </li>
             );
@@ -108,7 +109,7 @@ export function CohortVerdictDetails({ v }: { v: Record<string, unknown> }) {
       {reasoning && (
         <details className={styles.cohortReasoning}>
           <summary>Full reasoning</summary>
-          <pre>{reasoning}</pre>
+          <AiWritten as="pre" authored>{reasoning}</AiWritten>
         </details>
       )}
     </div>

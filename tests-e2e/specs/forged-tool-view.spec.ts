@@ -1170,7 +1170,10 @@ test.describe('Record and the attempts on the run\'s record', () => {
         ]);
         expect(download.suggestedFilename()).toBe(`${LANDING}-trace.json`);
         // The file holds the record the panel shows.
-        expect(JSON.parse(readFileSync(await download.path(), 'utf8'))).toEqual(record);
+        expect(JSON.parse(readFileSync(await download.path(), 'utf8'))).toEqual({
+          provenance: { aiGenerated: true, generator: 'paracosm', models: {} },
+          frames: record,
+        });
       });
     }
   });
@@ -2147,7 +2150,9 @@ test.describe('the forged toolbox on the run\'s record', () => {
         const exported = async (): Promise<Array<Record<string, unknown>>> => {
           const [download] = await Promise.all([page.waitForEvent('download'), exportKey.click()]);
           expect(download.suggestedFilename()).toBe('paracosm-toolbox.json');
-          return JSON.parse(readFileSync(await download.path(), 'utf8'));
+          const payload = JSON.parse(readFileSync(await download.path(), 'utf8'));
+          expect(payload.provenance).toEqual({ aiGenerated: true, generator: 'paracosm', models: {} });
+          return payload.tools;
         };
 
         // Every row, each with the fields the file has always held and the actor that holds the tool.
@@ -2945,7 +2950,7 @@ test.describe('the forged toolbox at 24 and 300 actors', () => {
       toolbox.getByRole('button', { name: 'Export JSON', exact: true }).click(),
     ]);
     expect(download.suggestedFilename()).toBe('paracosm-toolbox.json');
-    const rows = JSON.parse(readFileSync(await download.path(), 'utf8')) as Array<Record<string, unknown>>;
+    const rows = JSON.parse(readFileSync(await download.path(), 'utf8')).tools as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(3612);
     expect(new Set(rows.map(row => row.actor)).size).toBe(300);
     const said = await page.evaluate(() => (window as unknown as { exportSaid?: string[] }).exportSaid ?? []);
@@ -3356,7 +3361,7 @@ test.describe('one actor picker for the toolbox', () => {
           page.waitForEvent('download'),
           toolbox.getByRole('button', { name: 'Export JSON', exact: true }).click(),
         ]);
-        const rows = JSON.parse(readFileSync(await download.path(), 'utf8')) as Array<Record<string, unknown>>;
+        const rows = JSON.parse(readFileSync(await download.path(), 'utf8')).tools as Array<Record<string, unknown>>;
         expect(rows).toHaveLength(picked.reduce((sum, a) => sum + a.counts.tools, 0));
         expect([...new Set(rows.map(row => row.actor))]).toEqual(['A1', 'A3', 'A7']);
         await picture(page, `${size.width}-dark-f10-toolbox-3-of-24`);

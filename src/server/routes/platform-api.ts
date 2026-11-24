@@ -88,6 +88,7 @@ export interface HandlePlatformApiOptions {
    * link, so the Library offers no replay link that answers 404.
    */
   savedSessionIds?: (ids: readonly string[]) => Promise<ReadonlySet<string>>;
+  savedVerdict?: (id: string, actorName: string | undefined) => Promise<Record<string, unknown> | undefined>;
 }
 
 const OUTSIDE_RUNS_DIR_MESSAGE = 'The run\'s artifact file is outside the server\'s runs directory and is not read.';
@@ -362,9 +363,11 @@ export async function handlePlatformApiRoute(
         return true;
       }
       const [linked] = await withSavedSessionLinks([record], options.savedSessionIds);
+      const verdict = linked.sessionId ? await options.savedVerdict?.(linked.sessionId, linked.actorName) : undefined;
       res.writeHead(200, { 'Content-Type': 'application/json', ...options.corsHeaders });
       res.end(JSON.stringify({
         record: publicRunRecord(linked),
+        verdict,
         artifact: loaded.artifact && typeof loaded.artifact === 'object'
           ? withoutOutputPath(loaded.artifact as RunArtifact) : loaded.artifact,
       }));

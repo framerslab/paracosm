@@ -55,6 +55,7 @@ export interface QuickstartViewProps {
   sse: {
     events: SimEvent[];
     results: SseResultItem[];
+    verdict?: Record<string, unknown> | null;
     isComplete: boolean;
     isAborted: boolean;
     errors: string[];
@@ -618,6 +619,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
           <QuickstartResults
             actors={phase.actors}
             artifacts={phase.artifacts}
+            verdict={sse.results.some(result => result.artifact?.metadata.runId === phase.artifacts[0]?.metadata.runId)
+              ? sse.verdict : null}
             sessionId={sessionId}
             onSwap={handleSwap}
           />

@@ -15,11 +15,14 @@
  */
 import { z } from 'zod';
 
-import { ProviderErrorSchema } from './primitives.js';
+import { ProviderErrorSchema, ReportAiWrittenFieldsSchema, RunProvenanceSchema } from './primitives.js';
 
 // ---------------------------------------------------------------------------
 // Per-event data schemas — formalize the 17 payload shapes
 // ---------------------------------------------------------------------------
+
+const EventAiWrittenFieldsSchema = z.array(z.enum(["title", "description", "turnSummary"])).optional();
+const DecisionAiWrittenFieldsSchema = z.array(z.enum(["decision", "rationale", "reasoning"])).optional();
 
 const TurnStartDataSchema = z.object({
   summary: z.string().optional(),
@@ -34,6 +37,7 @@ const TurnStartDataSchema = z.object({
   turnSummary: z.string().optional(),
   totalEvents: z.number().optional(),
   pacing: z.unknown().optional(),
+  aiWrittenFields: EventAiWrittenFieldsSchema,
 });
 
 const EventStartDataSchema = z.object({
@@ -46,6 +50,7 @@ const EventStartDataSchema = z.object({
   emergent: z.boolean().optional(),
   turnSummary: z.string().optional(),
   pacing: z.unknown().optional(),
+  aiWrittenFields: EventAiWrittenFieldsSchema,
 });
 
 const SpecialistStartDataSchema = z.object({
@@ -69,6 +74,7 @@ const SpecialistDoneDataSchema = z.object({
   recommendedActions: z.array(z.string()).optional(),
   /** Optional full detail payload — populated when scenario emits rich reports. */
   deptSummary: z.string().optional(),
+  aiWrittenFields: ReportAiWrittenFieldsSchema,
 });
 
 const ForgeAttemptDataSchema = z.object({
@@ -99,6 +105,7 @@ const DecisionMadeDataSchema = z.object({
   selectedPolicies: z.array(z.unknown()),
   selectedOptionId: z.string().optional(),
   eventIndex: z.number().int().min(0),
+  aiWrittenFields: DecisionAiWrittenFieldsSchema,
 });
 
 const OutcomeDataSchema = z.object({
@@ -222,6 +229,7 @@ const envelope = <T extends z.ZodTypeAny>(type: string, data: T) =>
     leader: z.string(),
     turn: z.number().int().optional(),
     time: z.number().optional(),
+    provenance: RunProvenanceSchema.optional(),
     data,
   });
 

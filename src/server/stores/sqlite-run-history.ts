@@ -58,6 +58,7 @@ interface RunRow {
   mode: string | null;
   actor_name: string | null;
   actor_archetype: string | null;
+  ai_authorship: string | null;
   bundle_id: string | null;
   summary_trajectory: string | null;
   replay_attempts: number | null;
@@ -84,6 +85,12 @@ function rowToRecord(row: RunRow): RunRecord {
   if (row.mode !== null) record.mode = row.mode as RunRecord['mode'];
   if (row.actor_name !== null) record.actorName = row.actor_name;
   if (row.actor_archetype !== null) record.actorArchetype = row.actor_archetype;
+  if (row.ai_authorship) {
+    try {
+      const parsed = JSON.parse(row.ai_authorship);
+      if (parsed && typeof parsed.model === 'string' && Array.isArray(parsed.fields)) record.aiAuthorship = parsed;
+    } catch { /* Legacy or malformed metadata has no authorship. */ }
+  }
   if (row.bundle_id !== null) record.bundleId = row.bundle_id;
   if (row.session_id !== null) record.sessionId = row.session_id;
   if (row.summary_trajectory !== null) {
@@ -149,6 +156,7 @@ async function ensureRunsColumns(adapter: StorageAdapter): Promise<void> {
     ['mode', 'TEXT'],
     ['actor_name', 'TEXT'],
     ['actor_archetype', 'TEXT'],
+    ['ai_authorship', 'TEXT'],
     ['replay_attempts', 'INTEGER DEFAULT 0'],
     ['replay_matches', 'INTEGER DEFAULT 0'],
     ['bundle_id', 'TEXT'],
@@ -181,6 +189,7 @@ async function ensureRunsColumns(adapter: StorageAdapter): Promise<void> {
 async function ensureRunsOwnerColumnOnPostgres(adapter: StorageAdapter): Promise<void> {
   if (adapter.kind !== 'postgres' && adapter.kind !== 'supabase-postgres') return;
   await adapter.exec('ALTER TABLE runs ADD COLUMN IF NOT EXISTS owner TEXT');
+  await adapter.exec('ALTER TABLE runs ADD COLUMN IF NOT EXISTS ai_authorship TEXT');
 }
 
 async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
@@ -200,6 +209,7 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       mode                TEXT,
       actor_name          TEXT,
       actor_archetype     TEXT,
+      ai_authorship       TEXT,
       replay_attempts     INTEGER DEFAULT 0,
       replay_matches      INTEGER DEFAULT 0,
       bundle_id           TEXT,
@@ -249,6 +259,7 @@ function buildInsertParams(run: RunRecord, options: InsertRunOptions | undefined
     mode: run.mode ?? null,
     actorName: run.actorName ?? null,
     actorArchetype: run.actorArchetype ?? null,
+    aiAuthorship: run.aiAuthorship ? JSON.stringify(run.aiAuthorship) : null,
     bundleId: run.bundleId ?? null,
     summaryTrajectory: run.summaryTrajectory ? JSON.stringify(run.summaryTrajectory) : null,
     sessionId: run.sessionId ?? null,
@@ -260,12 +271,12 @@ const INSERT_RUN_SQL = `
   INSERT OR IGNORE INTO runs
     (run_id, created_at, scenario_id, scenario_version, actor_config_hash,
      economics_profile, source_mode, created_by,
-     artifact_path, cost_usd, duration_ms, mode, actor_name, actor_archetype,
+     artifact_path, cost_usd, duration_ms, mode, actor_name, actor_archetype, ai_authorship,
      bundle_id, summary_trajectory, session_id, owner)
   VALUES
     (@runId, @createdAt, @scenarioId, @scenarioVersion, @actorConfigHash,
      @economicsProfile, @sourceMode, @createdBy,
-     @artifactPath, @costUSD, @durationMs, @mode, @actorName, @actorArchetype,
+     @artifactPath, @costUSD, @durationMs, @mode, @actorName, @actorArchetype, @aiAuthorship,
      @bundleId, @summaryTrajectory, @sessionId, @owner)
 `;
 
