@@ -605,6 +605,7 @@ interface WrittenLeader { name: string; archetype: string; hexaco: Record<string
 interface KeyPerson { name: string; department: string; role: string; specialization: string; age: number; featured: boolean }
 interface ScenarioAnswer {
   id: string;
+  setup: { defaultTurns: number };
   labels: Record<string, unknown>;
   presets: Array<{ id: string; leaders?: WrittenLeader[]; actors?: WrittenLeader[]; personnel?: KeyPerson[] }>;
 }
@@ -1558,6 +1559,7 @@ const cohortCaption = (n: number) => `All ${n} colonies start with the same 100 
 const START_FREE = 'Start Mars Genesis: 6 turns, about 3 and a half minutes';
 const FREE_SECOND_LINE = '6 turns, about 3½ minutes';
 const FREE_RUN = 'This run is free: we pay for it.';
+const hostRunNotice = (turns = 6) => `${FREE_RUN} It runs on OpenAI (gpt-5.4-mini, gpt-5.4-nano) for ${turns} turns.`;
 const AI_AGENTS = 'The leaders are AI agents.';
 const AFTER_NO_SAVED_RUN = 'After that, add your own API key in Settings to run again today. Your provider bills you for those runs.';
 const OWN_KEY_NOTICE = 'This run uses your OpenAI API key, and your provider bills you. Runs on your key skip the daily limit and do not use your free runs. They are not held to this demo’s size, so they can be larger than the free run.';
@@ -1974,14 +1976,13 @@ screenTest('feature 10: Start on a free run', async ({ page }) => {
         expect(count.remaining).toBe(1);
         const ink = await tokenColour(page, '--text-1');
         const pays = notice.getByTestId('notice-pays');
-        await expect(pays).toHaveText(FREE_RUN);
+        await expect(pays).toHaveText(hostRunNotice());
         expect(await styleOf(pays)).toMatchObject({ size: 18, colour: ink });
         const counted = notice.getByTestId('notice-count');
         await expect(counted).toHaveText(`Free runs left today on your internet address: 1 of 1, shared by everyone using it. They reset at ${await clockTime(page, count.resetAt)}. A new run or a fork uses one.`);
         await expect(counted).toHaveAttribute('role', 'status');
         await expect(notice.getByTestId('notice-after')).toHaveText(AFTER_NO_SAVED_RUN);
-        // No sentence names a provider yet, and no dollar or token figure shows on a free run.
-        await expect(notice).not.toContainText('It runs on');
+        // No dollar or token figure shows on a free run.
         await expect(root).not.toContainText('USD');
         // A sample scenario's own name in the paste form's menu is no figure of a run's cost.
         expect(await wordsOf(root)).not.toContain('$');
@@ -2409,7 +2410,7 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
       const [resting, said, line] = await Promise.all([box(bar), box(notice), box(runLine)]);
       expect(said.y + said.height).toBeLessThanOrEqual(line.y + 1);
       expect(line.y + line.height).toBeLessThanOrEqual(resting.y + 1);
-      await expect(notice.getByTestId('notice-pays')).toHaveText(FREE_RUN);
+      await expect(notice.getByTestId('notice-pays')).toHaveText(hostRunNotice());
       await picture(page, `start-bar-resting-390-${look}`);
     });
   }
@@ -3371,13 +3372,13 @@ const HOW_CARD = '[data-testid="how-it-works-card"]';
  * word for a settlement; with neither, it reads as it does before the
  * scenario has loaded.
  */
-const howLines = (o: { turns?: number; settlement?: string } = {}): string[] => [
+const howLines = (o: { turns?: number; settlement?: string; batch?: number } = {}): string[] => [
   'Each leader follows its own orders, shown on its card. “See the full prompt” shows everything it was given.',
   'On each turn an AI leader reads the event and its departments’ reports, picks a bold or a safe option and writes why. Its rule is to take the bold option when that option’s chance reaches the leader’s bar, a number set by its personality. It breaks the rule only for a fact the odds leave out, and names that fact.',
   'RISKY or SAFE says which option it took. WIN or LOSS says whether it paid off.',
   `After ${o.turns === undefined ? 'the last turn' : `turn ${o.turns}`} a verdict names the winner or a tie, says why, and scores each ${o.settlement ?? 'side'} 0 to 10 for survival, prosperity, morale and innovation.`,
   'With two leaders, picking a winner is optional and changes nothing in the run.',
-  'With 3 or more leaders, each runs the scenario on its own. The report ranks them in quarters on morale, population and deaths, with no single winner.',
+  `With 3 or more leaders, each runs the scenario on its own${o.batch === undefined ? '' : `, ${o.batch} at a time`}. The report ranks them in quarters on morale, population and deaths, with no single winner.`,
 ];
 /** The three drawings of one sample turn, in the order of their lines (the second, third and fourth): what each says to a screen reader, and the words drawn on it. */
 const HOW_DRAWINGS = [
@@ -3385,7 +3386,7 @@ const HOW_DRAWINGS = [
   { alt: 'The stamp that turn earns: RISKY WIN, the bold option taken, and it paid off', words: ['Sample turn', 'RISKY WIN'] },
   { alt: 'Four sample scores out of 10: survival 7, prosperity 6, morale 8, innovation 5', words: ['Sample turn', 'Survival 7', 'Prosperity 6', 'Morale 8', 'Innovation 5'] },
 ] as const;
-const MARS_LINES = howLines({ turns: 6, settlement: 'colony' });
+const MARS_LINES = howLines({ turns: 6, settlement: 'colony', batch: 8 });
 
 /** The header's key that opens the card. */
 const howKey = (page: Page): Locator => page.getByRole('banner').getByRole('button', { name: HOW_TITLE, exact: true });
@@ -3548,8 +3549,7 @@ screenTest('feature 11: the card', async ({ page }) => {
   await page.unroute('**/rate-limit');
 
   // Feature 11, QA step 16: on the visitor's own key at 24 leaders the card
-  // reads the same; the sixth line says nothing of how many run at a time,
-  // which no answer of the server gives yet.
+  // reads the same batching rule.
   await saveKey(page);
   for (const [size, look] of [[PHONE, 'dark'], [WIDE, 'light']] as const) {
     await test.step(`own key at 24 leaders, ${size.width} in the ${look} look`, async () => {
@@ -3557,7 +3557,7 @@ screenTest('feature 11: the card', async ({ page }) => {
       await expect(sizeParts(root).field).toHaveValue('24');
       await howKey(page).click();
       const card = await expectHowCard(page, MARS_LINES);
-      await expect(card).not.toContainText('at a time');
+      await expect(card).toContainText('8 at a time');
       await picture(page, `how-it-works-own-key-24-${size.width}-${look}`);
     });
   }
@@ -3609,7 +3609,7 @@ screenTest('feature 11: from Watch and Reports, offline, Lunar Outpost', async (
       await expect(root.getByTestId('scenario-line').getByRole('status')).toHaveText(DID_NOT_LOAD);
       await answerConsent(page);
       await howKey(page).click();
-      await expectHowCard(page, howLines());
+      await expectHowCard(page, howLines({ batch: 8 }));
       await picture(page, `how-it-works-no-scenario-390-${look}`);
     });
   }
@@ -3622,13 +3622,13 @@ screenTest('feature 11: from Watch and Reports, offline, Lunar Outpost', async (
   await test.step('Lunar Outpost on a free run, 1440 in the dark look', async () => {
     await openReadyAt(page, '/sim', WIDE, 'dark', 'Lunar Outpost');
     await howKey(page).click();
-    await expectHowCard(page, howLines({ turns: 6, settlement: 'outpost' }));
+    await expectHowCard(page, howLines({ turns: 6, settlement: 'outpost', batch: 8 }));
   });
   await saveKey(page);
   await test.step('Lunar Outpost on the visitor’s own key, 1440 in the dark look', async () => {
     await openReadyAt(page, '/sim', WIDE, 'dark', 'Lunar Outpost');
     await howKey(page).click();
-    await expectHowCard(page, howLines({ turns: 8, settlement: 'outpost' }));
+    await expectHowCard(page, howLines({ turns: 8, settlement: 'outpost', batch: 8 }));
     await picture(page, 'how-it-works-lunar-outpost-1440-dark');
   });
 });
@@ -3805,7 +3805,17 @@ const FOOT = '[data-testid="page-foot"]';
 const DRAFT = 'A harbour town of four thousand people loses its ferry for a season. Two councils decide how to ration fuel, whom to send for help, and whether to open the old road through the hills before the storms come back.'.padEnd(220, '.');
 
 /** One row of GET /scenarios. */
-interface ScenarioRow { id: string; name: string; description?: string; departments?: number; source?: string }
+interface ScenarioRow {
+  id: string;
+  name: string;
+  description?: string;
+  departments?: number;
+  source?: string;
+  turns?: number;
+  leaders?: string[];
+  summary?: string;
+  fictionNote?: string;
+}
 
 /** Answers GET /scenarios with the server's own answer after `change` has edited its rows. */
 async function routeScenarios(page: Page, change: (rows: ScenarioRow[]) => ScenarioRow[]): Promise<void> {
@@ -3895,7 +3905,7 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
       await page.unroute('**/scenarios');
       await expect(rows.first()).toHaveAttribute('data-scenario', LUNAR);
       await expect(rows.first().getByTestId('row-name')).toHaveText('Lunar Outpost');
-      await expect(rows.first().getByTestId('row-figures')).toHaveText('3 departments');
+      await expect(rows.first().getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
       await expect(load('Lunar Outpost')).toBeVisible();
       expect((await styleOf(rows.first().getByTestId('row-name'))).size).toBe(18);
       expect((await styleOf(rows.first().getByTestId('row-figures'))).size).toBe(15);
@@ -5382,4 +5392,232 @@ screenTest('200 per cent text at 600 px: the scenario line’s figures stay insi
   await expect(root.getByTestId('scenario-figures').locator('[data-figure]')).toHaveCount(4);
   expect(await outside(line, '[data-figure]'), 'every figure stands inside the block').toEqual([]);
   expect(new Set(await tops()).size, 'the figures take more than one line').toBeGreaterThan(1);
+});
+
+/** Changes only the tested endpoint, after reading the actual answer. */
+async function editServerAnswer(
+  page: Page, path: string, edit: (body: Record<string, unknown>) => void | Promise<void>,
+): Promise<void> {
+  await page.route(`**/${path}`, async route => {
+    const response = await route.fetch();
+    const body = await response.json() as Record<string, unknown>;
+    await edit(body);
+    await route.fulfill({ response, json: body });
+  });
+}
+
+screenTest('host policy notice is all or nothing', async ({ page }) => {
+  test.setTimeout(120_000);
+  const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+  const { notice, key } = startParts(root);
+  const pays = notice.getByTestId('notice-pays');
+  const count = notice.getByTestId('notice-count');
+  const daily = await dayCount(page);
+  const countWords = `Free runs left today on your internet address: ${daily.remaining} of ${daily.limit}, shared by everyone using it. They reset at ${await clockTime(page, daily.resetAt)}. A new run or a fork uses one.`;
+  await expect(pays).toHaveText(hostRunNotice());
+  await expect(count).toHaveText(countWords);
+
+  const invalid = [
+    ['turns', undefined], ['provider', undefined], ['models', undefined],
+    ['provider', '  '], ['models', {}], ['models', { unrelated: 'gpt-5.4-mini' }], ['turns', 2.5],
+  ] as const;
+  for (const [field, value] of invalid) {
+    await editServerAnswer(page, 'rate-limit', body => {
+      if (value === undefined) delete body[field];
+      else body[field] = value;
+    });
+    await page.reload();
+    await expect(pays).toHaveText(FREE_RUN);
+    await expect(count).toHaveText(countWords);
+    await expect(notice.locator(':scope > *')).toHaveCount(3);
+    await expect(notice.locator('p')).toHaveCount(3);
+    expect(await count.evaluate(el => el.previousElementSibling?.getAttribute('data-testid'))).toBe('notice-pays');
+    await page.unroute('**/rate-limit');
+  }
+
+  // Use a shorter default on the same real scenario and submit through the real /setup path.
+  await routeScenario(page, scenario => { scenario.setup.defaultTurns = 4; });
+  await page.reload();
+  await expect(pays).toHaveText(hostRunNotice(4));
+  await expect(key.getByTestId('start-second')).toHaveText('4 turns, about 2½ minutes');
+  const launched = page.waitForResponse(response => response.url() === `${SERVER}/setup` && response.request().method() === 'POST');
+  await key.click();
+  const response = await launched;
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON().turns).toBe(4);
+  await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+  await page.unroute('**/scenario');
+
+  const local = await openReadyAt(page, `${SELF_HOSTED}/sim`, WIDE, 'dark', null);
+  await expect(startParts(local).notice.getByTestId('notice-pays')).toHaveText(SERVER_NOTICE);
+  await saveKey(page);
+  await openReadyAt(page, '/sim', PHONE, 'dark');
+  await expect(pays).toHaveText(OWN_KEY_NOTICE);
+  for (const [field, value] of invalid) {
+    await editServerAnswer(page, 'rate-limit', body => { body[field] = value; });
+    await page.reload();
+    await expect(pays).toHaveText(OWN_KEY_NOTICE);
+    await expect(count).toHaveCount(0);
+    await page.unroute('**/rate-limit');
+  }
+});
+
+screenTest('bounds change from 3 to 120', async ({ page }) => {
+  test.setTimeout(120_000);
+  const root = page.locator(FIRST_SCREEN);
+  const { part, field, more } = sizeParts(root);
+  const caps = (body: Record<string, unknown>) => {
+    body.demoCaps = { ...body.demoCaps as object, maxActors: 3 };
+    body.run = { minActors: 2, maxActors: 120, maxTurns: 100 };
+  };
+  await editServerAnswer(page, 'admin-config', caps);
+  for (const look of LOOKS) {
+    await openReadyAt(page, '/sim', PHONE, look);
+    await expect(part.getByTestId('run-size-value')).toHaveText('3 leaders');
+    await expect(part.getByTestId('run-size-line')).toHaveText('A free run has 3 leaders. With your own API key, a run can have up to 120.');
+  }
+  await page.unroute('**/admin-config');
+  for (const missing of ['demoCaps', 'run']) {
+    await editServerAnswer(page, 'admin-config', body => { caps(body); delete body[missing]; });
+    await page.reload();
+    await expect(activeStart(root)).toBeVisible();
+    await expect(part.getByTestId('run-size-line')).toHaveCount(0);
+    await page.unroute('**/admin-config');
+  }
+
+  const ready = gate();
+  await saveKey(page);
+  await editServerAnswer(page, 'admin-config', async body => { caps(body); await ready.opened; });
+  await page.goto('/sim?size=121');
+  await expect(part.getByTestId('run-size-value')).toBeVisible();
+  ready.open();
+  await expect(field).toHaveValue('2');
+  await expect(field).toHaveAttribute('aria-valuemax', '120');
+  await field.press('End');
+  await expect(field).toHaveValue('120');
+  await expect(more).toBeDisabled();
+  await expect(part.getByTestId('run-size-bound')).toHaveText('120 is the most a run takes.');
+  await page.reload();
+  await expect(field).toHaveValue('120');
+  await page.goto('/sim?size=24');
+  await expect(field).toHaveValue('24');
+  await page.goBack();
+  await expect(field).toHaveValue('120');
+  await page.goForward();
+  await expect(field).toHaveValue('24');
+});
+
+screenTest('How it works reads the batch', async ({ page }) => {
+  test.setTimeout(120_000);
+  await saveKey(page);
+  let batch: number | undefined = 5;
+  await editServerAnswer(page, 'admin-config', body => {
+    if (batch === undefined) delete body.batch;
+    else body.batch = { maxConcurrency: batch };
+  });
+  const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+  const checkBatch = async (value?: number) => {
+    await howKey(page).click();
+    await expectHowCard(page, howLines({ turns: 6, settlement: 'colony', batch: value }));
+    await howClose(page).click();
+    await expect(howCard(page)).toHaveCount(0);
+  };
+  await checkBatch(5);
+  batch = undefined;
+  await page.reload();
+  await expect(activeStart(root)).toBeVisible();
+  await checkBatch();
+  batch = 5;
+
+  const profile = async (economics: Record<string, unknown>) => {
+    await page.evaluate(value => localStorage.setItem('paracosm:lastLaunchConfig', JSON.stringify({ scenarioId: 'mars-genesis', economics: value })), economics);
+    await page.reload();
+    await expect(activeStart(root)).toBeVisible();
+  };
+  await profile({ profileId: 'quality' });
+  await checkBatch();
+  await profile({ profileId: 'quality', batch: { maxConcurrency: 4 } });
+  await checkBatch(4);
+  await profile({ profileId: 'quality', batch: { maxConcurrency: 4 }, batchConcurrency: 3 });
+  await checkBatch(3);
+
+  const launched = page.waitForResponse(response => response.url() === `${SERVER}/setup` && response.request().method() === 'POST');
+  await startParts(root).key.click();
+  const response = await launched;
+  expect(response.ok()).toBe(true);
+  expect(response.request().postDataJSON().economics).toEqual({ profileId: 'quality', batchConcurrency: 3 });
+});
+
+screenTest('catalog rows follow the payer', async ({ page }) => {
+  test.setTimeout(120_000);
+  const setups = countSetups(page);
+  const root = await openReadyAt(page, '/sim', PHONE, 'dark');
+  const { row, load, showAll, part } = otherParts(root);
+  const lunar = row(LUNAR);
+  const ocean = row('deep-ocean-station');
+  await expect(lunar.getByTestId('row-summary')).toHaveText("A crew at the Moon's south pole. Two commanders decide how hard to push.");
+  await expect(ocean.getByTestId('row-summary')).toHaveText('A research station on the sea floor. Two captains weigh discovery against safety.');
+  await expect(lunar.getByTestId('row-leaders')).toHaveText('Leaders: Commander Sarah Lindgren and Commander Raj Patel');
+  await expect(ocean.getByTestId('row-leaders')).toHaveText('Leaders: Captain Ingrid Halvorsen and Commander Takeshi Morimoto');
+  await expect(load('Lunar Outpost')).toHaveAccessibleDescription(/6 turns · 3 departments/);
+  await expect(lunar.getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
+  await expect(ocean.getByTestId('row-figures')).toHaveText('6 turns · 2 departments');
+  await showAll.click();
+  await expect(row('t2d-glp1-protocol').getByTestId('row-fiction-note')).toHaveText('Fiction. Not medical advice.');
+  await expect(row('corporate-quarterly').getByTestId('row-fiction-note')).toHaveText('Fiction. Not financial advice.');
+
+  await routeScenarios(page, rows => rows.map(item => {
+    if (item.id === LUNAR) return { ...item, turns: 4, departments: 2, leaders: [] };
+    if (item.id !== 'deep-ocean-station') return item;
+    const { leaders: _leaders, turns: _turns, summary: _summary, fictionNote: _note, ...legacy } = item;
+    return legacy;
+  }));
+  await page.reload();
+  await expect(lunar.getByTestId('row-leaders')).toHaveText('Leaders: written by Paracosm when the run starts');
+  await expect(lunar.getByTestId('row-figures')).toHaveText('4 turns · 2 departments');
+  await expect(ocean.getByTestId('row-figures')).toHaveText('2 departments');
+  for (const line of ['row-summary', 'row-leaders', 'row-fiction-note']) {
+    await expect(ocean.getByTestId(line)).toHaveCount(0);
+  }
+  await page.unroute('**/scenarios');
+
+  await saveKey(page);
+  await page.reload();
+  await expect(lunar.getByTestId('row-figures')).toHaveText('8 turns · 5 departments');
+  await load('Lunar Outpost').click();
+  await expect(root.getByRole('heading', { name: 'Lunar Outpost', level: 1 })).toBeFocused();
+  await expect(lunar.getByTestId('row-state')).toHaveText('On screen now');
+  await expect(lunar.getByTestId('row-figures')).toHaveText('8 turns · 5 departments');
+  await routeScenarios(page, rows => rows.filter(item => item.id === LUNAR));
+  await page.reload();
+  await expect(part).toHaveCount(0);
+  expect(setups()).toBe(0);
+});
+
+screenTest('pictures: hosted run and scenario details', async ({ page }) => {
+  test.setTimeout(180_000);
+  const capture = async (part: Locator, view: string, width: number, look: Look) => {
+    await expect(part).toBeVisible();
+    await part.evaluate(el => el.scrollIntoView({ block: 'center' }));
+    await picture(page, `server-answers/${view}-${width}-${look}`);
+  };
+  for (const keyed of [false, true]) {
+    if (keyed) await saveKey(page);
+    for (const size of [PHONE, WIDE]) {
+      for (const look of LOOKS) {
+        const root = await openReadyAt(page, '/sim', size, look);
+        const { part, row } = otherParts(root);
+        await expect(row(LUNAR).getByTestId('row-figures')).toHaveText(keyed ? '8 turns · 5 departments' : '6 turns · 3 departments');
+        await capture(part.getByRole('heading', { name: 'Other scenarios' }), keyed ? 'catalog-keyed' : 'catalog-free', size.width, look);
+        if (keyed) continue;
+        await capture(sizeParts(root).part, 'run-size', size.width, look);
+        await scrollToBandPlace(root);
+        await expect(startParts(root).notice.getByTestId('notice-pays')).toHaveText(hostRunNotice());
+        await capture(startParts(root).notice, 'run-notice', size.width, look);
+        await howKey(page).click();
+        const card = await expectHowCard(page, MARS_LINES);
+        await capture(card, 'how-it-works', size.width, look);
+      }
+    }
+  }
 });

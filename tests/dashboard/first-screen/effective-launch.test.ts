@@ -35,7 +35,7 @@ import {
   type LaunchScenarioWithLeaders,
 } from '../../../src/dashboard/src/components/quickstart/first-screen/effectiveLaunch.js';
 import { startSecondLine, startSpoken } from '../../../src/dashboard/src/components/quickstart/first-screen/words.js';
-import type { ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
+import { parseAdminConfig, parseRateLimit, type ServerFacts } from '../../../src/dashboard/src/components/quickstart/first-screen/useServerFacts.js';
 
 const scenarioFile = (name: string): LaunchScenarioWithLeaders =>
   JSON.parse(readFileSync(new URL(`../../../scenarios/${name}`, import.meta.url), 'utf-8')) as LaunchScenarioWithLeaders;
@@ -173,7 +173,7 @@ test('effectiveLaunch: the visitor\'s keys, provider, models and economics go in
   assert.equal(launch.body.serperKey, 'serper-key');
   assert.equal(launch.body.provider, 'anthropic');
   assert.deepEqual(launch.body.models, settings.lastLaunch.models);
-  assert.deepEqual(launch.body.economics, settings.lastLaunch.economics);
+  assert.deepEqual(launch.body.economics, { profileId: 'balanced', batchConcurrency: 5 });
   assert.equal(launch.body.turns, 12);
   assert.equal(launch.turns, 12);
   assert.equal(launch.body.seed, 950);
@@ -297,4 +297,31 @@ test('effectiveLaunch omits orders a hand-written scenario gives as something ot
   const posted = JSON.parse(JSON.stringify(launch.body));
   assert.deepEqual(posted.actors.map((actor: { name: string }) => actor.name), written.map(leader => leader.name));
   for (const actor of posted.actors) assert.equal(Object.hasOwn(actor, 'instructions'), false, actor.name);
+});
+
+test('the rate policy and run settings bound the turns sent by Start', () => {
+  const server = facts(true);
+  Object.assign(server.rateLimit, parseRateLimit({ allowed: true, remaining: 1, limit: 1, resetAt: 1, turns: 5 }));
+  server.adminConfig = parseAdminConfig({ hostedDemo: true, demoCaps: { maxTurns: 6 }, run: { maxTurns: 7 } });
+  const settings = { overrides: {}, lastLaunch: null };
+  assert.equal(effectiveLaunch(server, lunar, settings, 2, 'host').body.turns, 5);
+  const short = { ...lunar, setup: { ...lunar.setup, defaultTurns: 4 } };
+  assert.equal(effectiveLaunch(server, short, settings, 2, 'host').body.turns, 4);
+  assert.equal(effectiveLaunch(server, lunar, settings, 2, 'own').body.turns, 7);
+});
+
+test('batch uses the explicit request, saved resolution or default for the selected profile', () => {
+  const server = facts(true);
+  server.adminConfig = parseAdminConfig({ hostedDemo: true, batch: { maxConcurrency: 5 } });
+  for (const [economics, batch, posted] of [
+    [undefined, 5, undefined],
+    [{ profileId: 'quality' }, undefined, { profileId: 'quality' }],
+    [{ profileId: 'quality', batch: { maxConcurrency: 4 } }, 4, { profileId: 'quality', batchConcurrency: 4 }],
+    [{ profileId: 'quality', batch: { maxConcurrency: 4 }, batchConcurrency: 3 }, 3, { profileId: 'quality', batchConcurrency: 3 }],
+    [{ batchConcurrency: 1.5 }, 5, {}],
+  ] as const) {
+    const launch = effectiveLaunch(server, mars, { overrides: {}, lastLaunch: { economics } }, 24, 'own');
+    assert.equal(launch.batch, batch);
+    assert.deepEqual(launch.body.economics, posted);
+  }
 });
