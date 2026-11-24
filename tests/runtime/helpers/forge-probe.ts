@@ -10,11 +10,12 @@
  * engine is the one `createEmergentEngine` builds for a run, with the
  * run's `execution.sandboxTimeoutMs` when the request names one. The judge
  * is answered by the stub transport (tests/runtime/helpers/
- * stub-openai-transport.ts), so no network is reached. The first line
- * printed says how the forge ended and how long it took. The second line,
+ * stub-openai-transport.ts), so no network is reached. The first line on
+ * the result pipe (fd 3) says how the forge ended and how long it took. The second line,
  * `settled`, is printed from a timer, so it is reached only when nothing
  * the forge left behind holds the process first.
  */
+import { writeSync } from 'node:fs';
 import { createEmergentEngine } from '../../../src/runtime/orchestrator/emergent-setup.js';
 import { withStubOpenAi } from './stub-openai-transport.js';
 
@@ -52,8 +53,8 @@ withStubOpenAi(() => '{}', async () => {
   (result) => ({ ended: 'returned', success: result.success, error: result.error ?? null }),
   (err: unknown) => ({ ended: 'threw', message: err instanceof Error ? err.message : 'a value that is not an Error' }),
 ).then((line) => {
-  process.stdout.write(`${JSON.stringify({ ...line, ms: Date.now() - started })}\n`);
+  writeSync(3, `${JSON.stringify({ ...line, ms: Date.now() - started })}\n`);
   setTimeout(() => {
-    process.stdout.write('settled\n');
+    writeSync(3, 'settled\n');
   }, 50);
 });
