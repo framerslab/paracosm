@@ -13,7 +13,7 @@
 }
 
 .dialog {
-  background: linear-gradient(180deg, var(--bg-panel) 0%, var(--bg-deep) 100%);
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   border-top: 3px solid var(--accent, var(--amber));
   border-radius: 10px;
