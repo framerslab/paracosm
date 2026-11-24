@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 /**
  * Global verdict banner. Visible on every tab as soon as the verdict
  * LLM returns; closable per-verdict (a new run's headline re-shows the
@@ -163,7 +164,7 @@ export function VerdictBanner({
           className={styles.headlineButton}
           title="Click to open the full verdict breakdown"
         >
-          {headline || 'Verdict delivered — click to see full breakdown.'}
+          {headline ? <AiWritten authored>{headline}</AiWritten> : 'Verdict delivered — click to see full breakdown.'}
         </button>
         <div className={styles.turnLabel}>{turnLabel}</div>
       </div>

@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 /**
  * DigitalTwinPanel — renders a finished `simulateIntervention` artifact
  * inline in the SIM tab. Activates when the loaded artifact has both
@@ -160,17 +161,20 @@ const EVENT_LABELS: Record<string, string> = {
   complete: 'Complete',
 };
 
-function eventBody(event: { type: string; data: Record<string, unknown> }): string {
-  const d = event.data ?? {};
-  if (typeof d.title === 'string') return d.title;
-  if (typeof d.summary === 'string') return d.summary;
-  if (typeof d.name === 'string') return d.name;
-  if (typeof d.description === 'string') return d.description;
-  if (typeof d.outcome === 'string') return d.outcome;
-  if (typeof d.toolName === 'string') return d.toolName;
-  if (typeof d.department === 'string') return d.department;
-  return '';
+function eventBody(event: { data?: Record<string, unknown> }) {
+  const source = event.data ?? {};
+  for (const key of ['title', 'summary', 'name', 'description', 'outcome', 'toolName', 'department']) {
+    const text = source[key];
+    if (typeof text === 'string') return { text, authored: isAiWritten(source, key) };
+  }
+  return { text: '', authored: false };
 }
+
+function EventExcerpt({ event }: { event: { data?: Record<string, unknown> } }) {
+  const { text, authored } = eventBody(event);
+  return <AiWritten className={styles.playbackBody} authored={authored}>{text}</AiWritten>;
+}
+
 
 export function DigitalTwinPanel({ artifact, state, onDismiss }: DigitalTwinPanelProps) {
   const { subject, intervention, finalState, trajectory, cost, fingerprint, metadata } = artifact;
@@ -484,9 +488,7 @@ function DigitalTwinPlayback({ state }: { state?: GameState }) {
               <span className={styles.playbackType}>
                 {EVENT_LABELS[event.type] ?? event.type}
               </span>
-              <span className={styles.playbackBody}>
-                {eventBody(event)}
-              </span>
+              <EventExcerpt event={event} />
             </div>
           ))
         )}

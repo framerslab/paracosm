@@ -36,6 +36,8 @@ import { createDatabase, type StorageAdapter, type DatabaseOptions } from '@fram
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { RunProvenance } from '../../engine/schema/index.js';
+import { readRunProvenance, recordedFrameProvenance } from '../services/run-record.js';
 
 /** Default ring size of one owner's saved runs — pinned to the spec's "last 10 or so". */
 export const DEFAULT_MAX_SESSIONS = 10;
@@ -66,6 +68,7 @@ export interface SessionMeta {
   createdAt: number;
   scenarioId?: string;
   scenarioName?: string;
+  provenance?: RunProvenance;
   leaderA?: string;
   leaderB?: string;
   /** Number of turns the run completed before being saved. */
@@ -138,6 +141,7 @@ export interface ListSessionsScope {
 export interface SessionMetaOverride {
   scenarioId?: string;
   scenarioName?: string;
+  provenance?: RunProvenance;
   leaderA?: string;
   leaderB?: string;
   turnCount?: number;
@@ -252,7 +256,8 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
       owner TEXT,
       pinned INTEGER NOT NULL DEFAULT 0,
       seq INTEGER,
-      runKey TEXT
+      runKey TEXT,
+      provenance TEXT
     );
   `);
   await adapter.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_createdAt ON sessions(createdAt);`);
@@ -270,6 +275,7 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS pinned INTEGER NOT NULL DEFAULT 0');
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS seq INTEGER');
     await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS runKey TEXT');
+    await adapter.exec('ALTER TABLE sessions ADD COLUMN IF NOT EXISTS provenance TEXT');
   } else if (isSqliteAdapter(adapter)) {
     const columns = await adapter.all<{ name: string }>('PRAGMA table_info(sessions)');
     const addColumnIfMissing = async (name: string, ddl: string) => {
@@ -288,6 +294,7 @@ async function bootstrapSchema(adapter: StorageAdapter): Promise<void> {
     await addColumnIfMissing('pinned', 'ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
     await addColumnIfMissing('seq', 'ALTER TABLE sessions ADD COLUMN seq INTEGER');
     await addColumnIfMissing('runKey', 'ALTER TABLE sessions ADD COLUMN runKey TEXT');
+    await addColumnIfMissing('provenance', 'ALTER TABLE sessions ADD COLUMN provenance TEXT');
   }
   await adapter.exec('CREATE INDEX IF NOT EXISTS idx_sessions_seq ON sessions(seq)');
   await adapter.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_runKey ON sessions(runKey)');
@@ -372,6 +379,7 @@ export function openSessionStore(
     const id = randomUUID();
     const createdAt = Date.now();
     const derived = deriveMetadata(events);
+    const provenance = override?.provenance ?? derived.provenance;
     const eventCount = events.length;
     const durationMs = events.length >= 2
       ? events[events.length - 1].ts - events[0].ts
@@ -398,9 +406,9 @@ export function openSessionStore(
       const seq = (await lastSeq(trx)) + 1;
       await trx.run(
         `INSERT INTO sessions
-           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned, seq, runKey)
+           (id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, events, seedText, leaders, owner, pinned, seq, runKey, provenance)
          VALUES
-           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned, @seq, @runKey)`,
+           (@id, @createdAt, @scenarioId, @scenarioName, @leaderA, @leaderB, @turnCount, @eventCount, @durationMs, @totalCostUSD, @events, @seedText, @leaders, @owner, @pinned, @seq, @runKey, @provenance)`,
         {
           id,
           createdAt,
@@ -419,6 +427,7 @@ export function openSessionStore(
           pinned: pinned ? 1 : 0,
           seq,
           runKey,
+          provenance: provenance ? JSON.stringify(provenance) : null,
         },
       );
       // An admin-saved (pinned) row is neither counted nor evicted, and
@@ -438,7 +447,7 @@ export function openSessionStore(
 
     async listSessions(scope) {
       const adapter = await getAdapter();
-      const columns = 'id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, title, seedText, leaders, pinned';
+      const columns = 'id, createdAt, scenarioId, scenarioName, leaderA, leaderB, turnCount, eventCount, durationMs, totalCostUSD, title, seedText, leaders, pinned, provenance';
       const rows = scope === undefined
         ? await adapter.all<SessionMetaRow>(`SELECT ${columns} FROM sessions ORDER BY seq DESC`)
         : scope.owner === null
@@ -595,6 +604,7 @@ interface SessionMetaRow {
   createdAt: number;
   scenarioId: string | null;
   scenarioName: string | null;
+  provenance: string | null;
   leaderA: string | null;
   leaderB: string | null;
   turnCount: number | null;
@@ -629,6 +639,12 @@ function rowToMeta(row: SessionMetaRow): SessionMeta {
   if (row.title) meta.title = row.title;
   if (row.seedText) meta.seedText = row.seedText;
   if (row.pinned) meta.pinned = true;
+  if (row.provenance) {
+    try {
+      const provenance = readRunProvenance(JSON.parse(row.provenance));
+      if (provenance) meta.provenance = provenance;
+    } catch { /* Legacy or unreadable metadata stays absent. */ }
+  }
   if (row.leaders) {
     // Defensive: a corrupted row (manual edit, partial migration) should
     // not blow up the whole listing. Drop the field instead and let the
@@ -676,6 +692,8 @@ function deriveMetadata(events: TimestampedEvent[]): SessionMetaOverride {
     } catch {
       continue;
     }
+    if (!data || typeof data !== 'object') continue;
+    out.provenance ??= recordedFrameProvenance(data);
     // The orchestrator wraps every engine-emitted event in
     // `broadcast('sim', {type: <realType>, ...})`. So we treat the
     // nested `type` as the authoritative event kind for sim frames,

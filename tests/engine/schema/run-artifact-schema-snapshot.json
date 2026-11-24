@@ -1,6 +1,6 @@
 {
   "comment": "Schema snapshot for the breaking-change gate test. Regenerate via `npm run snapshot:schema`.",
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "shape": {
     "aborted": "optional(boolean)",
     "assumptions": "optional(array(string))",
@@ -16,6 +16,7 @@
     "leveragePoints": "optional(array(string))",
     "metadata": "object{completedAt:optional(string);forkedFrom:optional(object(...));mode:enum;runId:string;scenario:object{id:string;name:string;version:optional(string)};scenarioExtensions:optional(record);seed:optional(number);startedAt:string}",
     "overview": "optional(string)",
+    "provenance": "optional(object{aiGenerated:literal;generator:literal;models:record})",
     "providerError": "optional(nullable(object(...)))",
     "riskFlags": "optional(array(object(...)))",
     "scenarioExtensions": "optional(record)",

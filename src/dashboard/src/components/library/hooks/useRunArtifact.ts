@@ -7,6 +7,7 @@ export type ArtifactStatus = 'ok' | 'not_found' | 'unavailable' | 'unreadable' |
 export interface RunArtifactResult {
   record: RunRecord | null;
   artifact: RunArtifact | null;
+  verdict?: Record<string, unknown> | null;
   loading: boolean;
   error: string | null;
   status: ArtifactStatus;
@@ -23,12 +24,12 @@ export function useRunArtifact(runId: string | null): RunArtifactResult {
       return;
     }
     const ctrl = new AbortController();
-    setState(s => ({ ...s, loading: true, error: null }));
+    setState({ record: null, artifact: null, loading: true, error: null, status: null });
     fetch(`/api/v1/runs/${encodeURIComponent(runId)}`, { signal: ctrl.signal })
       .then(async r => {
         const body = await r.json().catch(() => ({}));
         if (r.ok) {
-          setState({ record: body.record, artifact: body.artifact, loading: false, error: null, status: 'ok' });
+          setState({ record: body.record, artifact: body.artifact, verdict: body.verdict, loading: false, error: null, status: 'ok' });
         } else if (r.status === 404) {
           setState({ record: null, artifact: null, loading: false, error: 'Run not found', status: 'not_found' });
         } else if (r.status === 410) {

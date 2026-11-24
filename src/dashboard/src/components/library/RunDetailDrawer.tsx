@@ -1,3 +1,5 @@
+import { AiWritten } from '../shared/AiWritten';
+import { RunReportDownloads } from '../shared/RunReportDownloads';
 import * as React from 'react';
 import styles from './RunDetailDrawer.module.scss';
 import { useRunArtifact } from './hooks/useRunArtifact.js';
@@ -27,7 +29,7 @@ export interface RunDetailDrawerProps {
 
 export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
   const { runId, open, onClose, onArtifactLoaded, onRunMissing, onReplayed } = props;
-  const { record, artifact, loading, error, status } = useRunArtifact(open ? runId : null);
+  const { record, artifact, verdict, loading, error, status } = useRunArtifact(open ? runId : null);
   const drawerRef = React.useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = React.useRef<HTMLElement | null>(null);
   const shareLink = useShareLink();
@@ -148,14 +150,18 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
                 <span className={styles.modeBadge} data-mode={artifact.metadata.mode}>{artifact.metadata.mode}</span>
                 <h2>{artifact.metadata.scenario.name}</h2>
                 <p>
-                  {record.actorName ?? 'Unknown'}
-                  {record.actorArchetype ? ` · ${record.actorArchetype}` : ''}
+                  <AiWritten authored={Array.isArray(record.aiAuthorship?.fields) &&
+                    record.aiAuthorship.fields.some(field => field === 'name' || field === 'archetype')}>
+                    {record.actorName ?? 'Unknown'}
+                    {record.actorArchetype ? ` · ${record.actorArchetype}` : ''}
+                  </AiWritten>
                 </p>
                 <p className={styles.meta}>
                   {(artifact.trajectory?.timepoints?.length ?? 0)} timepoints · {record.costUSD != null ? `$${record.costUSD.toFixed(2)}` : '-'} · {record.createdAt.slice(0, 19).replace('T', ' ')}
                 </p>
               </section>
 
+              <RunReportDownloads artifact={artifact} filename={artifact.metadata.runId} verdict={verdict} />
               <SwarmPanel artifact={artifact} />
 
               <section className={styles.detailBody}>

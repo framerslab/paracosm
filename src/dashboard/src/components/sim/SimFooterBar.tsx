@@ -1,3 +1,4 @@
+import { useRunExportProvenance } from '../shared/RunReportDownloads';
 import { useState, useCallback, useEffect, type MouseEvent, type ReactNode } from 'react';
 import { downloadJson } from '../../download';
 import type { CitationRegistry } from '../../hooks/useCitationRegistry';
@@ -33,6 +34,7 @@ interface SimFooterBarProps {
  * row, on the row's line when there is room and on a line of its own below.
  */
 export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: SimFooterBarProps) {
+  const provenance = useRunExportProvenance();
   const [open, setOpen] = useState<null | 'refs'>(null);
   const close = useCallback(() => setOpen(null), []);
   const { openToolbox } = useForgeView();
@@ -87,14 +89,14 @@ export function SimFooterBar({ citationRegistry, toolRegistry, layoutToggle }: S
             <ExportButton
               label="EXPORT JSON"
               filename="paracosm-references.json"
-              data={citationRegistry.list.map(e => ({
+              data={{ provenance, references: citationRegistry.list.map(e => ({
                 n: e.n,
                 text: e.text,
                 url: e.url,
                 doi: e.doi,
                 departments: [...e.departments],
                 actorNames: [...e.actorNames],
-              }))}
+              })) }}
             />
           }
         >

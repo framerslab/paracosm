@@ -1,3 +1,4 @@
+import type { ActorAuthorship } from '../../../engine/types.js';
 import { useMemo } from 'react';
 import type { SimEvent } from './useSSE';
 
@@ -32,6 +33,7 @@ export interface MetricsState {
 }
 
 export interface LeaderInfo {
+  aiAuthorship?: ActorAuthorship;
   name: string;
   archetype: string;
   unit: string;
@@ -48,6 +50,7 @@ export interface LeaderInfo {
  * `time` is legacy — tracked in audit F23 (generic time units).
  */
 export interface TurnEventInfo {
+  aiWrittenFields?: unknown;
   turn: number;
   time?: number;
   title: string;
@@ -104,6 +107,7 @@ export interface ActorSideState {
    *  lacked the field (older runs before the Zod migration). */
   pendingReasoning: string;
   pendingPolicies: string[];
+  pendingAiWrittenFields?: unknown;
   outcome: string | null;
   agentSnapshots: AgentSnapshot[][];
   currentEvents: Array<{ eventIndex: number; totalEvents: number; title: string; category: string }>;
@@ -486,6 +490,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
             category: info.category,
             emergent: dd.emergent as boolean || false,
             turnSummary: dd.turnSummary as string || '',
+            aiWrittenFields: dd.aiWrittenFields,
           };
         }
         s.events.push(processed);
@@ -504,6 +509,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.pendingRationale = '';
         s.pendingReasoning = '';
         s.pendingPolicies = [];
+        s.pendingAiWrittenFields = undefined;
         if (dd.turn) state.turn = dd.turn as number;
         if (dd.time) state.time = dd.time as number;
         if (dd.title && dd.title !== 'Director generating...') {
@@ -515,6 +521,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
             category: dd.category as string || '',
             emergent: dd.emergent as boolean || false,
             turnSummary: dd.turnSummary as string || '',
+            aiWrittenFields: dd.aiWrittenFields,
           };
         }
         if (dd.metrics) {
@@ -563,6 +570,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.pendingRationale = dd.rationale as string || '';
         s.pendingReasoning = dd.reasoning as string || '';
         s.pendingPolicies = (dd.selectedPolicies as string[]) || [];
+        s.pendingAiWrittenFields = dd.aiWrittenFields;
         break;
 
       case 'outcome': {
@@ -577,6 +585,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
             _rationale: s.pendingRationale,
             _reasoning: s.pendingReasoning,
             _policies: s.pendingPolicies,
+            aiWrittenFields: s.pendingAiWrittenFields,
           },
         });
         // Decision has resolved into an outcome — clear the pending
@@ -586,6 +595,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         s.pendingRationale = '';
         s.pendingReasoning = '';
         s.pendingPolicies = [];
+        s.pendingAiWrittenFields = undefined;
         break;
       }
 
@@ -650,6 +660,7 @@ export function computeGameState(sseEvents: SimEvent[], isComplete: boolean, res
         actor.pendingRationale = '';
         actor.pendingReasoning = '';
         actor.pendingPolicies = [];
+        actor.pendingAiWrittenFields = undefined;
       }
     }
   }

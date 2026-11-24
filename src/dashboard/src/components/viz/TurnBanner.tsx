@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { GameState, ActorSideState } from '../../hooks/useGameState.js';
@@ -32,6 +33,8 @@ interface LeaderTurnSummary {
   dominantDeaths?: number;
   moraleDelta: number;
   eventTitle: string;
+  titleAuthored: boolean;
+  decisionAuthored: boolean;
   eventCategory: string;
   time: number;
 }
@@ -54,6 +57,8 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
   let snapshotDeaths = 0;
   let moraleDelta = 0;
   let eventTitle = '';
+  let titleAuthored = false;
+  let decisionAuthored = false;
   let eventCategory = '';
   let time = 0;
 
@@ -61,14 +66,20 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
     const t = (evt.data?.turn as number | undefined) ?? -1;
     if (t !== turn + 1) continue;
     if (evt.type === 'turn_start' || evt.type === 'event_start') {
-      eventTitle = String(evt.data?.title ?? eventTitle);
+      if (typeof evt.data?.title === 'string') {
+        eventTitle = evt.data.title;
+        titleAuthored = isAiWritten(evt.data, 'title');
+      }
       eventCategory = String(evt.data?.category ?? eventCategory);
       time = Number(evt.data?.time ?? time);
     }
     if (evt.type === 'outcome') {
       outcome = String(evt.data?.outcome ?? outcome);
       const folded = evt.data?._decision;
-      if (typeof folded === 'string' && folded.length > 0) decision = folded;
+      if (typeof folded === 'string' && folded.length > 0) {
+        decision = folded;
+        decisionAuthored = isAiWritten(evt.data, 'decision');
+      }
       const morale = (evt.data?.systemDeltas as Record<string, unknown> | undefined)?.morale;
       if (typeof morale === 'number' && Number.isFinite(morale)) moraleDelta += morale;
     }
@@ -100,7 +111,7 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
     }
   }
 
-  return { actorName, decision, outcome, deaths, dominantCause, dominantDeaths, moraleDelta, eventTitle, eventCategory, time };
+  return { actorName, decision, outcome, deaths, dominantCause, dominantDeaths, moraleDelta, eventTitle, titleAuthored, decisionAuthored, eventCategory, time };
 }
 
 /**
@@ -150,7 +161,7 @@ export function TurnBanner({ state, currentTurn, linesTarget, cohortGridShown = 
   }, [state.actorIds, state.actors, currentTurn]);
 
   const populated = summaries.filter((entry): entry is { actorId: string; summary: LeaderTurnSummary } => entry.summary !== null);
-  const headline = populated.find(p => p.summary.eventTitle)?.summary.eventTitle || '';
+  const headline = populated.find(p => p.summary.eventTitle)?.summary;
   const category = populated.find(p => p.summary.eventCategory)?.summary.eventCategory || '';
   const time = populated.find(p => p.summary.time)?.summary.time || 0;
 
@@ -175,7 +186,7 @@ export function TurnBanner({ state, currentTurn, linesTarget, cohortGridShown = 
           <span className={styles.lineLabel}>
             {populated.length <= 2 ? (idx === 0 ? 'A' : 'B') : entry.summary.actorName}
           </span>
-          <span className={styles.lineBody}>: {humanizeOutcome(entry.summary)}</span>
+          <span className={styles.lineBody}>: <AiWritten authored={entry.summary.decisionAuthored}>{humanizeOutcome(entry.summary)}</AiWritten></span>
         </div>
       ))}
       {hidden > 0 && (
@@ -192,7 +203,7 @@ export function TurnBanner({ state, currentTurn, linesTarget, cohortGridShown = 
     <div role="status" aria-label="Current turn narrative" className={styles.banner}>
       <div className={styles.headline}>
         <span className={styles.turnLabel}>T{currentTurn + 1}{time ? ` \u00b7 ${time}` : ''}</span>
-        <span className={styles.title}>{headline}</span>
+        <AiWritten className={styles.title} authored={headline.titleAuthored}>{headline.eventTitle}</AiWritten>
         {category && <span className={styles.categoryPill}>{category}</span>}
         {canCollapse && (
           <button
