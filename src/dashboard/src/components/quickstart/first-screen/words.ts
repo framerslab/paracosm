@@ -258,6 +258,10 @@ export const RUN_END = { verdict: 'Verdict', report: 'Report' } as const;
 /** The notice's first sentence before a run on the host's keys. */
 export const NOTICE_FREE = 'This run is free: we pay for it.';
 
+/** The host's provider and models, when the server identifies the full policy. */
+export const hostRunPolicy = (provider: string, models: string, turns: number): string =>
+  `It runs on ${provider} (${models}) for ${countOf(turns, 'turn', 'turns')}.`;
+
 /** The first sentence of the note that says what the leaders are. */
 export const AI_AGENTS = 'The leaders are AI agents.';
 
@@ -443,6 +447,20 @@ export const CHOOSE_WHEN_ONLINE = 'You are offline. Choose it again when you are
 
 /** A row's figures: the departments a run of it uses. */
 export const departmentsLine = (n: number): string => countOf(n, 'department', 'departments');
+
+/** A catalog row's turns and departments, omitting figures the server has not supplied. */
+export function catalogFigures(turns?: number, departments?: number): string {
+  return [
+    ...(turns === undefined ? [] : [countOf(turns, 'turn', 'turns')]),
+    ...(departments === undefined ? [] : [departmentsLine(departments)]),
+  ].join(' · ');
+}
+
+const scenarioLeaderNames = new Intl.ListFormat('en', { type: 'conjunction' });
+
+/** The authored leaders listed in the catalog. */
+export const catalogLeaders = (names: string[]): string =>
+  `Leaders: ${names.length ? scenarioLeaderNames.format(names) : 'written by Paracosm when the run starts'}`;
 
 /** The key on a row of Yours that opens its details, where a compiled scenario is renamed or deleted. */
 export const VIEW_DETAIL = 'View detail';

@@ -6,31 +6,32 @@
  * @module paracosm/dashboard/quickstart/first-screen/useRunSetup
  */
 import { useCallback, useEffect, useState } from 'react';
-import { FREE_SIZE, RUN_SIZE_BOUNDS, searchWithSize, sizeFromSearch, stepSize } from './runSize.helpers';
+import { searchWithSize, sizeFromSearch, stepSize, type SizeBounds } from './runSize.helpers';
 
-const readSize = (): number => (typeof window === 'undefined' ? FREE_SIZE : sizeFromSearch(window.location.search));
+const readSearch = (): string => typeof window === 'undefined' ? '' : window.location.search;
 
-export function useRunSetup(): { size: number; setSize(n: number): void } {
-  const [size, setSizeState] = useState(readSize);
+/** Resolve the same address again whenever the server supplies new bounds. */
+export function useRunSetup({ min, max }: SizeBounds): { size: number; setSize(n: number): void } {
+  const [search, setSearch] = useState(readSearch);
 
   const setSize = useCallback((n: number) => {
-    const next = stepSize(Math.round(n), 0, RUN_SIZE_BOUNDS);
-    setSizeState(next);
+    const next = stepSize(Math.round(n), 0, { min, max });
+    const nextSearch = searchWithSize(readSearch(), next, min);
+    setSearch(nextSearch);
     try {
       const url = new URL(window.location.href);
-      url.search = searchWithSize(url.search, next);
+      url.search = nextSearch;
       window.history.replaceState(window.history.state, '', url.toString());
     } catch {
       // An address that cannot be written keeps the size in the page.
     }
-  }, []);
+  }, [min, max]);
 
-  // The browser's back and forward keys may bring another address.
   useEffect(() => {
-    const onPop = () => setSizeState(readSize());
+    const onPop = () => setSearch(readSearch());
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  return { size, setSize };
+  return { size: sizeFromSearch(search, { min, max }, min), setSize };
 }

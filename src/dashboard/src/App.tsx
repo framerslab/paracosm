@@ -62,6 +62,7 @@ import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
 import { GuidedTour } from './components/tour/GuidedTour';
 import { HowItWorksCard } from './components/quickstart/first-screen/HowItWorksCard';
 import { RunTurnsProvider } from './components/quickstart/first-screen/runTurns';
+import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
 import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
@@ -1465,7 +1466,9 @@ export function App() {
       <ThemeProvider>
         <ToastProvider>
           <RunTurnsProvider>
-            <AppContent />
+            <ServerFactsProvider>
+              <AppContent />
+            </ServerFactsProvider>
           </RunTurnsProvider>
         </ToastProvider>
       </ThemeProvider>

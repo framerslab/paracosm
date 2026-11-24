@@ -12,8 +12,7 @@
  * panel and reaches the page. Opening moves focus to the title; Close and
  * Escape return it to the header's key.
  *
- * Its words ship with the page and it asks the server for nothing, so it
- * opens whole with no network. The fourth line names the run's turns, which
+ * Its words ship with the page and use the server facts already read by the dashboard. The fourth line names the run's turns, which
  * the first screen tells the page, and the scenario's word for a
  * settlement; until the scenario has loaded it names neither.
  *
@@ -36,6 +35,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useScenarioContext, useScenarioReady } from '../../../App';
+import { effectiveBatch, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
+import { useServerFacts } from './useServerFacts';
 import { useRunTurns } from './runTurns';
 import {
   CLOSE,
@@ -153,6 +154,7 @@ export function HowItWorksCard({ open, onClose, anchor }: HowItWorksCardProps) {
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const turns = useRunTurns();
+  const facts = useServerFacts();
   const sheet = useSheet();
   const titleId = useId();
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -255,6 +257,7 @@ export function HowItWorksCard({ open, onClose, anchor }: HowItWorksCardProps) {
   const lines = howItWorksLines({
     turns: scenarioReady && turns !== null ? turns : undefined,
     settlement: scenarioReady ? scenario.labels.settlementNoun : undefined,
+    batch: effectiveBatch(facts, readLaunchSettings(safeLocalStorage())),
   });
 
   /** As a sheet, Tab and Shift+Tab stay inside it. */

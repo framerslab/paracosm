@@ -26,11 +26,15 @@ export interface RateLimitAnswer {
   limit: number;
   /** When the count resets, in milliseconds since the epoch. */
   resetAt: number;
+  turns?: number;
+  provider?: string;
+  models?: Record<string, string>;
 }
 
 /** The host's caps on a run on its keys. */
 export interface DemoCaps {
   maxTurns?: number;
+  maxActors?: number;
   maxPopulation?: number;
   maxActiveDepartments?: number;
 }
@@ -39,7 +43,13 @@ export interface DemoCaps {
 export type SessionRow = StoredSessionMeta & { pinned?: boolean };
 
 export type RateLimitState = { status: 'loading' | 'ready' | 'unlimited' | 'error'; answer?: RateLimitAnswer };
-type AdminConfigState = { status: 'loading' | 'ready' | 'error'; hostedDemo?: boolean; demoCaps?: DemoCaps };
+export interface AdminConfigState {
+  status: 'loading' | 'ready' | 'error';
+  hostedDemo?: boolean;
+  demoCaps?: DemoCaps;
+  run?: { minActors?: number; maxActors?: number; maxTurns?: number };
+  batch?: { maxConcurrency: number };
+}
 
 export interface ServerFacts {
   /** `refresh` asks again and answers what the server said, so a press of Start reads the count it acts on. */
@@ -63,7 +73,22 @@ export function noFreeRunLeft(facts: Pick<ServerFacts, 'rateLimit' | 'limitMet'>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isWhole = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const isWhole = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/** A positive count that can be represented exactly. */
+export const isPositiveCount = (value: unknown): value is number => isWhole(value) && value > 0;
+
+const RUN_ROLES = ['commander', 'departments', 'judge', 'director', 'agentReactions'] as const;
+
+function runModels(value: unknown): Record<string, string> | undefined {
+  if (!isObject(value)) return undefined;
+  const models: Record<string, string> = {};
+  for (const role of RUN_ROLES) {
+    const id = typeof value[role] === 'string' ? value[role].trim() : '';
+    if (/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id)) models[role] = id;
+  }
+  return Object.keys(models).length ? models : undefined;
+}
 
 /** GET /rate-limit's answer: unlimited, a whole count, or an error when a field is missing. */
 export function parseRateLimit(body: unknown): RateLimitState {
@@ -71,7 +96,17 @@ export function parseRateLimit(body: unknown): RateLimitState {
   if (body.unlimited === true) return { status: 'unlimited' };
   const { allowed, remaining, limit, resetAt } = body;
   if (typeof allowed !== 'boolean' || !isWhole(remaining) || !isWhole(limit) || !isWhole(resetAt)) return { status: 'error' };
-  return { status: 'ready', answer: { allowed, remaining, limit, resetAt } };
+  const provider = typeof body.provider === 'string' ? body.provider.trim() : '';
+  const models = runModels(body.models);
+  return {
+    status: 'ready',
+    answer: {
+      allowed, remaining, limit, resetAt,
+      ...(isPositiveCount(body.turns) ? { turns: body.turns } : {}),
+      ...(provider ? { provider } : {}),
+      ...(models ? { models } : {}),
+    },
+  };
 }
 
 /** GET /admin-config's answer: hostedDemo when it is a boolean, and each cap that is a whole number above 0. */
@@ -83,11 +118,24 @@ export function parseAdminConfig(body: unknown): AdminConfigState {
   const demoCaps = body.demoCaps;
   if (isObject(demoCaps)) {
     const caps: DemoCaps = {};
-    for (const key of ['maxTurns', 'maxPopulation', 'maxActiveDepartments'] as const) {
+    for (const key of ['maxTurns', 'maxPopulation', 'maxActiveDepartments', 'maxActors'] as const) {
       const value = demoCaps[key];
-      if (isWhole(value) && value > 0) caps[key] = value;
+      if (isPositiveCount(value)) caps[key] = value;
     }
     out.demoCaps = caps;
+  }
+  if (isObject(body.run)) {
+    const { minActors, maxActors, maxTurns } = body.run;
+    const run: NonNullable<AdminConfigState['run']> = {};
+    if (isPositiveCount(minActors) && isPositiveCount(maxActors) && minActors <= maxActors) {
+      run.minActors = minActors;
+      run.maxActors = maxActors;
+    }
+    if (isPositiveCount(maxTurns)) run.maxTurns = maxTurns;
+    if (Object.keys(run).length) out.run = run;
+  }
+  if (isObject(body.batch) && isPositiveCount(body.batch.maxConcurrency)) {
+    out.batch = { maxConcurrency: body.batch.maxConcurrency };
   }
   return out;
 }
