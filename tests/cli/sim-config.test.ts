@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSim } from '../../src/cli/run-sim.js';
+import { fillInstructions } from '../../src/engine/presets/fill-instructions.js';
 import type { ActorInput } from '../../src/engine/types.js';
 import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
 import { WorldModel } from '../../src/runtime/world-model/index.js';
@@ -456,6 +457,16 @@ test('the CLI name override puts the new name where the shipped orders name the 
       assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
       assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Ask William to check the reserve.')),
         'the orders keep the longer word');
+    }, promotionReply);
+
+    // An empty --instructions asks for orders filled for the new name.
+    const filledForRen = fillInstructions({ ...shipped, name: 'Ren', instructions: undefined }).instructions;
+    assert.ok(filledForRen.startsWith('You are Ren, "The Visionary."'));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', shippedPath, '--name', 'Ren', '--instructions', '', '--provider', 'openai']), 0);
+      const boot = commanderBootstraps(calls);
+      assert.ok(boot.some(call => ordersIn(call, filledForRen)), 'the filled orders reached the commander');
+      for (const call of boot) assert.ok(!call.system.includes('Commander Ren'), 'the file orders were not sent');
     }, promotionReply);
   } finally {
     restore();
