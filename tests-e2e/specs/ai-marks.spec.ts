@@ -431,3 +431,28 @@ for (const count of [24, 300]) {
     await expect(profile).toHaveCount(0);
   });
 }
+
+test('Watch, the event log and the verdict dialog each expose ownership on the displayed passage', async ({ page }) => {
+  await openPair(page, 'dark');
+  const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
+  await expectMark(decision);
+  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
+  await card.locator('summary').click();
+  await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
+  await expectMark(card.locator('details').getByText('Keep a reserve of water.', { exact: true }));
+
+  await expectMark(page.getByText('The reserve carried the crew.', { exact: true }).filter({ visible: true }).first());
+  await page.getByRole('button', { name: /View Full Verdict/ }).click();
+  const verdict = page.getByRole('dialog', { name: 'Simulation verdict' });
+  await expectMark(verdict.getByText('Stored water protected the new crops.', { exact: true }));
+  await expect(page.locator(meta)).toHaveCount(1);
+  await verdict.getByRole('button', { name: 'Close verdict' }).click();
+  await expect(verdict).toBeHidden();
+
+  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await page.getByRole('tab', { name: 'Event Log', exact: true }).click();
+  const log = page.getByRole('log', { name: 'Event log' });
+  const row = log.locator('details').filter({ hasText: 'Keep a reserve of water.' }).first();
+  await row.locator('summary').click();
+  await expectMark(row.locator('pre').filter({ hasText: 'Keep a reserve of water.' }));
+});
