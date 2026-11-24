@@ -20,13 +20,13 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ActorConfig } from './types.js';
+import type { ActorInput } from '../engine/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export interface ResolvedActors {
-  actors: ActorConfig[];
+  actors: ActorInput[];
   /** Absolute path of the file the actors were read from. Surfaces
    *  in CLI output so users know which file is actually in use. */
   sourcePath: string;
@@ -55,9 +55,9 @@ export function resolveActors(options: { explicitPath?: string } = {}): Resolved
 
   for (const { path, isExample } of candidates) {
     if (!existsSync(path)) continue;
-    let raw: { actors?: ActorConfig[] };
+    let raw: { actors?: ActorInput[] };
     try {
-      raw = JSON.parse(readFileSync(path, 'utf-8')) as { actors?: ActorConfig[] };
+      raw = JSON.parse(readFileSync(path, 'utf-8')) as { actors?: ActorInput[] };
     } catch (err) {
       // Surface the offending file path so users don't have to hunt
       // through the candidate list to figure out which JSON broke.

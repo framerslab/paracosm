@@ -25,7 +25,7 @@ import { openRunTab, pressStart, startKey } from '../support/start-run.js';
 test.describe.configure({ mode: 'parallel' });
 
 interface SetupBody {
-  actors: Array<{ name: string; unit?: string }>;
+  actors: Array<{ name: string; unit?: string; description?: string; instructions?: string }>;
   scenarioId?: string;
   startTime?: number;
   population?: number;
@@ -56,6 +56,82 @@ async function holdScenario(page: Page): Promise<() => void> {
 
 const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
+
+const orderSweeps = [320, 390, 1440].flatMap(width =>
+  (['light', 'dark'] as const).map(look => ({ width, look, reducedMotion: 'no-preference' as const })),
+);
+const reducedSweep = { width: 390, look: 'dark', reducedMotion: 'reduce' } as const;
+for (const { width, look, reducedMotion } of [...orderSweeps, reducedSweep]) {
+  test(`Run and Settings preserve leader orders at ${width} px in ${look} with ${reducedMotion}`, async ({ page }) => {
+    const bodies = await captureSetup(page);
+    const description = 'Check the stores.';
+    const instructions = '  Keep the reserve.\nWait.  ';
+    const scenarioId = 'mars-genesis';
+    const switched = await page.request.post('/scenario/switch', { data: { id: scenarioId } });
+    expect(switched.ok()).toBe(true);
+    const response = await page.request.get('/scenario');
+    expect(response.ok()).toBe(true);
+    const scenario = await response.json();
+    const preset = scenario.presets.find((entry: { id: string }) => entry.id === 'default');
+    const leaders = [
+      { ...preset.leaders[0], description, instructions: '' },
+      { ...preset.leaders[1], instructions },
+    ];
+    let useSavedRoster = false;
+    await page.route('**/scenario', route => route.fulfill({
+      json: { ...scenario, presets: useSavedRoster ? [] : [{ ...preset, leaders }] },
+    }));
+    await page.setViewportSize({ width, height: 960 });
+    await page.emulateMedia({ reducedMotion });
+    await page.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+
+    const checkOrders = (body: SetupBody) => {
+      expect(body.actors.map(actor => actor.name)).toEqual(['Aria Chen', 'Dietrich Voss']);
+      expect(Object.hasOwn(body.actors[0], 'instructions')).toBe(false);
+      expect(body.actors[0].description).toBe(description);
+      expect(body.actors[1].instructions).toBe(instructions);
+    };
+
+    await page.goto('/sim?tab=settings');
+    await openRunTab(page);
+    await expect(page.getByTestId('living-colony-grid-rest')).toBeVisible();
+    const comparison = page.getByTestId('leaders');
+    for (const name of ['Aria Chen', 'Dietrich Voss']) {
+      await expect(comparison.getByText(name, { exact: true }).first()).toBeVisible();
+    }
+    await pressStart(page);
+    await expect.poll(() => bodies.length).toBe(1);
+    await expect(page).toHaveURL(/[?&]tab=sim\b/);
+    expect(bodies[0].quickstart?.scenarioId).toBe(scenarioId);
+    checkOrders(bodies[0]);
+
+    await page.goto('/sim?tab=settings');
+    const orderFields = page.getByRole('textbox', { name: 'Instructions', exact: true });
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(orderFields.nth(1)).toHaveValue(instructions);
+    await orderFields.first().fill('Check the water.');
+    await orderFields.first().fill('   ');
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(2);
+    await expect(page).toHaveURL(/[?&]tab=sim\b/);
+    checkOrders(bodies[1]);
+
+    // A roster saved by an older dashboard can contain empty strings.
+    // With no preset, Settings restores the actual saved values.
+    await page.evaluate(({ actors, id }) => {
+      localStorage.setItem('paracosm:activeRunActors', JSON.stringify(actors));
+      localStorage.setItem('paracosm:activeRunScenarioId', id);
+    }, { actors: leaders, id: scenarioId });
+    useSavedRoster = true;
+    await page.goto('/sim?tab=settings');
+    await expect(settingsLaunch(page)).toBeEnabled();
+    await expect(orderFields.first()).toHaveValue('');
+    await expect(orderFields.nth(1)).toHaveValue(instructions);
+    await settingsLaunch(page).click();
+    await expect.poll(() => bodies.length).toBe(3);
+    checkOrders(bodies[2]);
+  });
+}
 
 test.describe('Run controls @run', () => {
   test.beforeEach(async ({ page }) => {

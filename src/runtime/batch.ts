@@ -2,13 +2,13 @@
  * Batch Runner — run multiple scenarios with typed configs and reproducible manifests.
  */
 
-import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../engine/types.js';
+import type { ScenarioPackage, ActorInput, LlmProvider, SimulationModelConfig } from '../engine/types.js';
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { CostPreset } from '../cli/sim-config.js';
 
 export interface BatchConfig {
   scenarios: ScenarioPackage[];
-  actors: ActorConfig[];
+  actors: ActorInput[];
   keyPersonnel?: KeyPersonnel[];
   turns: number;
   seed: number;

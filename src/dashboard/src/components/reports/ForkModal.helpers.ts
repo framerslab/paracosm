@@ -5,10 +5,11 @@
  *
  * @module reports/ForkModal.helpers
  */
-import type { ScenarioPackage, ActorConfig } from '../../../../engine/types.js';
+import type { ScenarioPackage, ActorInput } from '../../../../engine/types.js';
+import { actorForLaunch } from '../../run-payload.js';
 
-function normalizeHexacoProfile(hexaco: Record<string, number>): NonNullable<ActorConfig['hexaco']> {
-  const readTrait = (trait: keyof NonNullable<ActorConfig['hexaco']>) => {
+function normalizeHexacoProfile(hexaco: Record<string, number>): NonNullable<ActorInput['hexaco']> {
+  const readTrait = (trait: keyof NonNullable<ActorInput['hexaco']>) => {
     const value = hexaco[trait];
     return Number.isFinite(value) ? value : 0.5;
   };
@@ -35,22 +36,20 @@ function normalizeHexacoProfile(hexaco: Record<string, number>): NonNullable<Act
  *
  * @param scenario Currently-active scenario.
  * @param sessionCustoms Extra leaders the user built this session.
- * @returns Array of {@link ActorConfig}. Empty when scenario has
+ * @returns Array of {@link ActorInput}. Empty when scenario has
  *   no presets and no customs were supplied.
  */
 export function resolveLeaderPresets(
   scenario: ScenarioPackage,
-  sessionCustoms: ActorConfig[] = [],
-): ActorConfig[] {
-  const presetLeaders = (scenario.presets?.[0]?.leaders ?? []).map(l => ({
-    name: l.name,
-    archetype: l.archetype,
+  sessionCustoms: ActorInput[] = [],
+): ActorInput[] {
+  const presetLeaders = (scenario.presets?.[0]?.leaders ?? []).map(leader => ({
+    ...leader,
     unit: 'Forked Branch',
-    hexaco: normalizeHexacoProfile(l.hexaco),
-    instructions: l.instructions,
-    ...(l.aiAuthorship ? { aiAuthorship: { ...l.aiAuthorship, fields: l.aiAuthorship.fields.filter(field => field !== 'unit') } } : {}),
+    hexaco: normalizeHexacoProfile(leader.hexaco),
+    ...(leader.aiAuthorship ? { aiAuthorship: { ...leader.aiAuthorship, fields: leader.aiAuthorship.fields.filter(field => field !== 'unit') } } : {}),
   }));
-  return [...presetLeaders, ...sessionCustoms];
+  return [...presetLeaders, ...sessionCustoms].map(actorForLaunch);
 }
 
 /** Per-turn cost envelope in USD. Rough numbers anchored to the

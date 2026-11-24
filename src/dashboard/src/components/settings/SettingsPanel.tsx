@@ -4,6 +4,7 @@ import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { leaderUnit, type ScenarioLabelsInput } from '../../hooks/useScenarioLabels.helpers';
 import { getActorColorVar } from '../../hooks/useGameState';
 import { ActorConfig, type ActorFormData } from './ActorConfig';
+import { actorForLaunch } from '../../run-payload';
 import { ScenarioEditor } from './ScenarioEditor';
 import { AdminTokenField } from './AdminTokenField';
 import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
@@ -117,13 +118,12 @@ function defaultLeader(idx: number, scenario: ScenarioLabelsInput): ActorFormDat
     name: `Actor ${slotLetter}`,
     archetype: COHORT_ARCHETYPES[idx] ?? 'The Strategist',
     unit: leaderUnit(scenario, idx),
-    instructions: '',
     hexaco: { ...DEFAULT_HEXACO },
   };
 }
 
 /** A leader as /setup stored it after the last launch (readActiveRunActors). */
-type StoredLeader = { aiAuthorship?: ActorFormData['aiAuthorship']; name?: string; archetype?: string; unit?: string; instructions?: string; hexaco?: Record<string, number> };
+type StoredLeader = { aiAuthorship?: ActorFormData['aiAuthorship']; name?: string; archetype?: string; unit?: string; instructions?: string; description?: string; hexaco?: Record<string, number> };
 
 /**
  * The default preset's leaders. Server's projectScenarioForClient ships
@@ -171,6 +171,7 @@ function withPresetLeaders(
       archetype: preset.archetype,
       unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
       instructions: preset.instructions,
+      description: preset.description,
       aiAuthorship: preset.aiAuthorship,
       hexaco: { ...preset.hexaco },
       ...edited,
@@ -238,7 +239,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         name: fallback.name,
         archetype: fallback.archetype ?? '',
         unit: fallback.unit ?? leaderUnit(scenario, idx),
-        instructions: fallback.instructions ?? '',
+        instructions: fallback.instructions,
+        description: fallback.description,
         aiAuthorship: fallback.aiAuthorship,
         hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
       };
@@ -445,7 +447,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
     setStatus('Starting...');
     try {
       const config: Record<string, unknown> = {
-        actors: actors.map(a => ({ ...a, hexaco: a.hexaco })),
+        actors: actors.map(actorForLaunch),
         provider: effectiveProvider, turns, seed, startTime, timePerTurn: timePerTurn || undefined, population, liveSearch,
         activeDepartments: scenario.departments.map(d => d.id),
         economics: { profileId: effectiveEconomicsProfile },

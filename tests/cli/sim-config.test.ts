@@ -1,5 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runSim } from '../../src/cli/run-sim.js';
+import type { ActorInput } from '../../src/engine/types.js';
+import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
+import { WorldModel } from '../../src/runtime/world-model/index.js';
+import { openSessionStore } from '../../src/server/stores/session.js';
+import { readWireMessages } from '../runtime/helpers/stub-openai-transport.js';
+import { modelCalls, setHostKeys, withProviderWire, type WireCall } from './helpers/provider-wire.js';
+import { mars, settingsBody, waitFor, withVisitors } from './helpers/run-server.js';
 import { applyDemoCaps, DEFAULT_KEY_PERSONNEL, normalizeSimulationConfig, resolveSimulationModels } from '../../src/cli/sim-config.js';
 import { lunarScenario, marsScenario } from '../../src/engine/scenarios/index.js';
 
@@ -236,5 +247,183 @@ test('the run path\'s default people are Mars Genesis\'s preset people, in its o
   for (const person of DEFAULT_KEY_PERSONNEL) {
     assert.ok(departments.has(person.department), `${person.name} sits in ${person.department}, which Mars Genesis has`);
     assert.doesNotMatch(person.role, /\b(Chief|Head|Director)\b/, `${person.name} carries no head's title`);
+  }
+});
+
+const orderTestKey = 'openai-for-order-tests';
+const mira = {
+  ...leaderA,
+  name: 'Mira',
+  archetype: 'The Surveyor',
+  unit: 'North',
+  instructions: undefined,
+  description: 'Check the stores.',
+};
+const miraOrders = 'You are Mira, "The Surveyor." Check the stores. Your HEXACO profile drives your leadership style.';
+const writtenMarsLeaders = marsScenario.presets[0].leaders.map((leader, index) => ({
+  ...leader,
+  unit: index === 0 ? 'North' : 'South',
+}));
+const commanderBootstraps = (calls: readonly WireCall[]) => modelCalls(calls)
+  .filter(call => call.lastUser.includes('You receive department reports and make strategic decisions'));
+const promotionReply = (call: WireCall) => call.text.includes('You must promote') ? '{}' : undefined;
+const ordersIn = (call: WireCall, orders: string) => call.system.includes(GENERAL_AUDIENCE_GUIDANCE + '\n\n' + orders);
+
+test('the provider observer isolates system orders from the last user message', () => {
+  const user = [{ role: 'user', content: '  Keep the stores.\nWait.  ' }];
+  const system = [
+    { role: 'system', content: '  System.  ' },
+    { role: 'developer', content: [{ type: 'input_text', text: '\nDeveloper.' }] },
+  ];
+  const chat = readWireMessages({ messages: [...system, ...user] });
+  assert.equal(chat.lastUser, user[0].content);
+  assert.equal(chat.system, '  System.  \n\n\nDeveloper.');
+  assert.ok(!chat.system.includes(user[0].content));
+  assert.equal(readWireMessages({ instructions: 'Instructions.', input: [...system, ...user] }).system,
+    'Instructions.\n\n' + chat.system);
+  for (const anthropicSystem of ['Anthropic.', [{ type: 'text', text: 'Anthropic.' }]]) {
+    assert.equal(readWireMessages({ system: anthropicSystem, messages: user }).system, 'Anthropic.');
+  }
+});
+
+test('normalization fills every roster slot and preserves written orders and units', () => {
+  for (const size of [2, 24, 300]) {
+    const roster: ActorInput[] = Array.from({ length: size }, (_, index) => ({
+      ...mira,
+      name: `Mira ${index + 1}`,
+      unit: `Unit ${index + 1}`,
+      archetype: ' The Pragmatist ',
+      description: undefined,
+      hexaco: { openness: 0.9 } as ActorInput['hexaco'],
+      instructions: index === size - 1 ? ' \t\n' : undefined,
+    }));
+    if (size > 2) roster.splice(0, 2, ...writtenMarsLeaders);
+    const { actors } = normalizeSimulationConfig({ actors: roster }, marsScenario);
+    assert.equal(actors.length, size);
+    for (const [index, actor] of actors.entries()) {
+      assert.equal(actor.name, roster[index].name);
+      assert.equal(actor.unit, roster[index].unit);
+      assert.equal(actor.instructions, roster[index].instructions?.trim()
+        ? roster[index].instructions
+        : `You are ${actor.name}, "The Pragmatist." Leads by protocol and evidence. Safety margins first. You look for what this moment makes possible. Your HEXACO profile drives your leadership style.`);
+    }
+    const again = normalizeSimulationConfig({ actors }, marsScenario).actors;
+    for (const [index, actor] of again.entries()) assert.strictEqual(actor, actors[index]);
+  }
+  assert.deepEqual(normalizeSimulationConfig({ actors: writtenMarsLeaders }, marsScenario).actors, writtenMarsLeaders);
+  const forkFrom = { atTurn: 0, parentArtifact: {} } as NonNullable<Parameters<typeof normalizeSimulationConfig>[0]['forkFrom']>;
+  const fork = normalizeSimulationConfig({ actors: [mira], forkFrom }, marsScenario);
+  assert.equal(fork.actors[0].instructions, miraOrders);
+});
+
+test('setup sends generated and authored orders in separate commander system messages', async () => {
+  const restore = setHostKeys({ OPENAI_API_KEY: orderTestKey });
+  try {
+    await withProviderWire(async calls => {
+      await withVisitors(async api => {
+        const visitor = api.cookied();
+        const body = settingsBody(mars);
+        const written = body.actors[1].instructions;
+        const response = await visitor.post('/setup', {
+          ...body, turns: 1, actors: [mira, body.actors[1]],
+        });
+        assert.equal(response.status, 200);
+        await waitFor(async () => (await visitor.json<{ isComplete: boolean }>('/results')).isComplete,
+          'the setup run to finish', 120_000);
+
+        const boot = commanderBootstraps(calls);
+        const generated = boot.find(call => ordersIn(call, miraOrders));
+        const authored = boot.find(call => ordersIn(call, written));
+        assert.ok(generated, 'generated orders reached the commander');
+        assert.ok(authored, 'authored orders reached the commander');
+        assert.notStrictEqual(generated, authored);
+        assert.ok(authored.lastUser.includes('You demand evidence and contingency plans before committing'));
+      }, {
+        env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: orderTestKey },
+        extra: {
+          getDigitalTwinWorld: async () => null,
+          runPairSimulations: undefined,
+          sessionStore: openSessionStore(':memory:', 10, { databaseOptions: { type: 'memory' } }),
+          generateText: async () => ({ text: 'A saved run' }),
+        },
+      });
+    }, promotionReply);
+  } finally {
+    restore();
+  }
+});
+
+test('setup counts only admitted leaders whose orders need a fill', async t => {
+  const messages: string[] = [];
+  t.mock.method(console, 'log', (message: unknown) => {
+    if (typeof message === 'string' && message.startsWith('[orders]')) messages.push(message);
+  });
+  const body = settingsBody(mars);
+  await withVisitors(async api => {
+    const visitor = api.cookied();
+    const response = await visitor.post('/setup', {
+      ...body, turns: 1,
+      actors: [
+        mira,
+        { ...mira, name: 'Second', instructions: ' '.repeat(400) + 'Keep the reserve.' },
+        { ...mira, name: 'Third', instructions: '' },
+      ],
+    });
+    assert.equal(response.status, 200);
+    const { config } = await waitFor(() => api.launches[0], 'the admitted pair');
+    assert.deepEqual(config.actors.map(actor => actor.name), ['Mira', 'Second']);
+    assert.equal(config.actors[1].instructions, 'You are Second, "The Surveyor." Check the stores. Your HEXACO profile drives your leadership style.');
+    await visitor.json('/results');
+    assert.deepEqual(messages.splice(0), ['[orders] filled empty instructions for 2 leader(s)']);
+    assert.equal((await visitor.post('/setup', body)).status, 200);
+    assert.deepEqual(messages, []);
+    assert.equal((await visitor.post('/setup', { ...body, actors: [mira, mira] })).status, 429);
+    assert.deepEqual(messages, []);
+  }, {
+    maxSimsPerDay: 2,
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: orderTestKey },
+    extra: { getDigitalTwinWorld: async () => null },
+  });
+});
+
+test('the library fills orders when setup is skipped and logs one leader', async t => {
+  const messages: string[] = [];
+  t.mock.method(console, 'log', (message: unknown) => {
+    if (typeof message === 'string' && message.startsWith('[orders]')) messages.push(message);
+  });
+  await withProviderWire(async calls => {
+    const world = WorldModel.fromScenario(marsScenario);
+    await world.simulate({
+      actor: mira, apiKey: orderTestKey, provider: 'openai', maxTurns: 1,
+      writeOutputFile: false, keyPersonnel: DEFAULT_KEY_PERSONNEL,
+    });
+    assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, miraOrders)));
+    assert.deepEqual(messages, ['[orders] filled empty instructions for 1 leader(s)']);
+  }, promotionReply);
+});
+
+test('the CLI name override keeps file orders and fills blanks using the new name', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-cli-orders-'));
+  const file = join(dir, 'actors.json');
+  const oldOutput = process.env.PARACOSM_OUTPUT_DIR;
+  const restore = setHostKeys({ OPENAI_API_KEY: orderTestKey });
+  process.env.PARACOSM_OUTPUT_DIR = dir;
+  try {
+    const written = 'Keep both reserves.\nCheck the stores again.';
+    for (const [instructions, expected] of [
+      [written, written],
+      ['  \t', 'You are Ren, "The Surveyor." Check the stores. Your HEXACO profile drives your leadership style.'],
+    ]) {
+      writeFileSync(file, JSON.stringify({ actors: [{ ...mira, instructions }] }));
+      await withProviderWire(async calls => {
+        assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
+        assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, expected)));
+      }, promotionReply);
+    }
+  } finally {
+    restore();
+    if (oldOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = oldOutput;
+    else delete process.env.PARACOSM_OUTPUT_DIR;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

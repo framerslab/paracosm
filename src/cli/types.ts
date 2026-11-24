@@ -15,6 +15,7 @@ export interface ActorConfig {
   /** Pluggable trait profile naming a registered TraitModel. When set,
    * overrides `hexaco` for cue translation and drift. See engine/types.ts. */
   traitProfile?: TraitProfile;
+  description?: string;
   instructions: string;
 }
 

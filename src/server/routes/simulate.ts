@@ -16,7 +16,7 @@ import { withoutOutputPath } from '../services/run-record.js';
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
-import type { ScenarioPackage, ActorConfig, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
+import type { ScenarioPackage, ActorInput, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import type { CompileOptions } from '../../engine/compiler/types.js';
 import type { KeyPersonnel } from '../../engine/core/agent-generator.js';
@@ -39,7 +39,8 @@ const LeaderSchema = z.object({
     emotionality: z.number().min(0).max(1),
     honestyHumility: z.number().min(0).max(1),
   }),
-  instructions: z.string().default(''),
+  instructions: z.string().optional(),
+  description: z.string().optional(),
   aiAuthorship: z.object({
     model: z.string().min(1).max(160),
     fields: z.array(z.enum(['name', 'archetype', 'unit', 'hexaco', 'instructions'])).max(5),
@@ -132,7 +133,7 @@ export interface SimulateDeps {
   /** Compile a raw scenario draft into a runnable ScenarioPackage. */
   compileScenario: (raw: Record<string, unknown>, options: CompileOptions) => Promise<ScenarioPackage>;
   /** Run one leader against a scenario and return a RunArtifact. */
-  runSimulation: (leader: ActorConfig, keyPersonnel: KeyPersonnel[], options: SimulateRunOptions) => Promise<RunArtifact>;
+  runSimulation: (leader: ActorInput, keyPersonnel: KeyPersonnel[], options: SimulateRunOptions) => Promise<RunArtifact>;
 }
 
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
@@ -192,7 +193,7 @@ export async function handleSimulate(
   const startedAt = Date.now();
   let artifact: RunArtifact;
   try {
-    artifact = await deps.runSimulation(leader as ActorConfig, [], {
+    artifact = await deps.runSimulation(leader, [], {
       scenario: scenarioPkg,
       maxTurns: options.maxTurns,
       seed: options.seed,

@@ -8,9 +8,12 @@ import {
   _resetCompileJobsForTest,
   type QuickstartDeps,
 } from '../../src/server/routes/quickstart.js';
-import type { WorldModel } from '../../src/runtime/world-model/index.js';
+import { WorldModel } from '../../src/runtime/world-model/index.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage } from '../../src/engine/types.js';
+import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
+import { modelCalls, setHostKeys, withProviderWire } from './helpers/provider-wire.js';
+import { withVisitors } from './helpers/run-server.js';
 
 function fakeRes() {
   let status = 0;
@@ -485,4 +488,53 @@ test('a digital-twin answer omits outputPath without changing the engine artifac
   assert.equal(get().status, 200);
   assert.deepEqual(get().body.artifact.scenarioExtensions, { label: 'kept' });
   assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/twin-answer.json');
+});
+
+test('Digital Twin sends filled orders or the default evaluator orders to the commander', async () => {
+  const key = 'openai-for-twin-orders-test';
+  const restore = setHostKeys({ OPENAI_API_KEY: key });
+  const route = '/api/quickstart/simulate-intervention';
+  const body = { ...twinBody, options: { maxTurns: 1 } };
+  const { instructions: _instructions, ...leader } = marsScenario.presets[0].leaders[0];
+  const mira = { ...leader, name: 'Mira', archetype: 'The Surveyor' };
+  const closing = 'Your HEXACO profile drives your leadership style.';
+  const ariaOrders = 'You are Aria Chen, "The Visionary." Bets on bold experiments. Tolerates ambiguity. Casts a wide pattern net. You stay flat when others panic. You look for what this moment makes possible. You say it out loud rather than sit with it. ' + closing;
+  const cases = [
+    { leader, expected: ariaOrders },
+    { leader: { ...leader, instructions: ' \t\n\u00a0' }, expected: ariaOrders },
+    {
+      leader: { ...mira, description: 'Check the stores.' },
+      expected: 'You are Mira, "The Surveyor." Check the stores. You stay flat when others panic. You look for what this moment makes possible. You say it out loud rather than sit with it. ' + closing,
+    },
+    {
+      leader: undefined,
+      expected: 'You are Cautious Methodical Evaluator, "The Methodical Evaluator." Compare the proposed change with the starting conditions. Record uncertainty before drawing a conclusion. ' + closing,
+    },
+  ];
+  try {
+    await withVisitors(async api => {
+      for (const { leader: input, expected } of cases) {
+        await withProviderWire(async calls => {
+          const response = await api.cookied().post(route, { ...body, leader: input });
+          assert.equal(response.status, 200);
+          await response.json();
+          const boot = modelCalls(calls).filter(call =>
+            call.lastUser.includes('You receive department reports and make strategic decisions'));
+          assert.ok(boot.some(call => call.system.includes(GENERAL_AUDIENCE_GUIDANCE + '\n\n' + expected)),
+            'the expected orders reached the commander system message');
+        }, call => call.text.includes('You must promote') ? '{}' : undefined);
+      }
+
+      await withProviderWire(async calls => {
+        const response = await api.cookied().post(route, { ...body, leader: { ...leader, instructions: 'a'.repeat(401) } });
+        assert.equal(response.status, 400);
+        assert.equal(modelCalls(calls).length, 0);
+      });
+    }, {
+      env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: key },
+      extra: { getDigitalTwinWorld: async () => WorldModel.fromScenario(marsScenario) },
+    });
+  } finally {
+    restore();
+  }
 });

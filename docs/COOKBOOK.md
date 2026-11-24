@@ -210,6 +210,22 @@ Three structured-output `LeaderConfig` objects with HEXACO bounds enforced via Z
 
 Full actors: [`output/cookbook/02-output-actors.json`](../output/cookbook/02-output-actors.json).
 
+### Writing your own leader input
+
+Use `instructions` for orders you want the commander to receive verbatim. Leave the field out or blank to let Paracosm fill it from the name, archetype, temperament and traits. For example, pass either of these objects as the `actor` in `WorldModel.simulate`.
+
+```ts
+const leader = {
+  name: 'Aria Chen',
+  archetype: 'The Visionary',
+  unit: 'Colony Alpha',
+  hexaco: { openness: 0.95, conscientiousness: 0.35, extraversion: 0.85,
+            agreeableness: 0.55, emotionality: 0.30, honestyHumility: 0.65 },
+};
+const written = { ...leader, instructions: '  Keep the reserve.\nWait.  ' };
+const filledAtLaunch = { ...leader, description: 'Check the stores.' };
+```
+
 ### Output: artifacts (excerpt for Marin Kade)
 
 ```json
@@ -357,17 +373,25 @@ For non-SSE consumers (curl, Python integrations, third-party dashboards) the se
 ```bash
 PARACOSM_ENABLE_SIMULATE_ENDPOINT=true paracosm dashboard
 
-curl -X POST http://localhost:3456/simulate \
+jq -n --slurpfile scenario ./my-world.json '{
+  scenario: $scenario[0],
+  leader: {
+    name: "Aria Chen",
+    archetype: "The Visionary",
+    unit: "Colony Alpha",
+    hexaco: { openness: 0.95, conscientiousness: 0.35, extraversion: 0.85,
+              agreeableness: 0.55, emotionality: 0.30, honestyHumility: 0.65 },
+    description: "Check the stores."
+  },
+  options: { maxTurns: 2, seed: 7, captureSnapshots: false, provider: "openai", costPreset: "economy" }
+}' | curl -X POST http://localhost:3456/simulate \
   -H 'Content-Type: application/json' \
-  -H 'X-OpenAI-Key: sk-...' \
-  -d '{
-    "scenario": { ... },
-    "leader": { ... },
-    "options": { "maxTurns": 2, "seed": 7, "captureSnapshots": false, "provider": "openai", "costPreset": "economy" }
-  }'
+  --data-binary @-
 ```
 
-The runner calls this in-process: it boots `createMarsServer({ env })` on a random port, fetches against `localhost:<port>/simulate`, then closes the server. Full request: [`output/cookbook/05-input-http-simulate.json`](../output/cookbook/05-input-http-simulate.json).
+This request uses a local server with a provider key configured. The `leader` omits `instructions`, so the engine fills the orders using the supplied description and traits. Add `instructions` to send your own orders. On hosted requests paid by the host, `/simulate` limits written orders to 400 UTF-16 code units.
+
+The runner that produced the response below calls the endpoint in-process: it boots `createMarsServer({ env })` on a random port, fetches against `localhost:<port>/simulate`, then closes the server. Full request: [`output/cookbook/05-input-http-simulate.json`](../output/cookbook/05-input-http-simulate.json).
 
 ### Response (real captured)
 

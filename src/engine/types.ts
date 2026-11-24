@@ -285,7 +285,7 @@ export interface ScenarioPolicies {
 export interface ScenarioPreset {
   id: string;
   label: string;
-  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions: string; aiAuthorship?: ActorAuthorship }>;
+  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions?: string; description?: string; aiAuthorship?: ActorAuthorship }>;
   personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   startingState?: Partial<WorldState>;
 }
@@ -441,8 +441,12 @@ export interface ActorConfig {
    * `modelId: 'hexaco'`.
    */
   traitProfile?: TraitProfile;
+  description?: string;
   instructions: string;
 }
+
+/** A leader supplied before its orders are resolved. */
+export type ActorInput = Omit<ActorConfig, 'instructions'> & { instructions?: string };
 
 // ---------------------------------------------------------------------------
 // LLM provider types
