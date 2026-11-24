@@ -1401,25 +1401,21 @@ test('a Restore while a started run has sent nothing yet asks first', async ({ p
 });
 
 test('Delete server data appears once a failed admin read is answered, with Settings open', async ({ page }) => {
+  // A token is saved before the page loads, and every admin-config request fails until the server answers again.
   await page.addInitScript(() => localStorage.setItem('paracosm:adminToken', 'e2e-admin-token'));
   let failing = true;
-  let held = 0;
-  let release = () => {};
-  const released = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/admin-config', async route => {
-    if (!failing) return route.continue();
-    held += 1;
-    await released;
-    await route.fulfill({ status: 503, json: { error: 'unavailable' } });
-    held -= 1;
+  let asked = 0;
+  await page.route('**/admin-config', route => {
+    asked += 1;
+    return failing ? route.abort() : route.continue();
   });
   await page.goto(SERVERS.admin + '/sim?tab=settings');
   const stored = page.getByRole('group', { name: 'Stored data' });
   await expect(stored.getByRole('button', { name: 'Clear local data' })).toBeVisible();
-  // The page's reads fail after the Settings controls are on screen.
-  await expect.poll(() => held).toBeGreaterThan(0);
-  release();
-  await expect.poll(() => held).toBe(0);
+  await expect.poll(() => asked, 'the page, Settings and the editor each asked').toBeGreaterThanOrEqual(3);
+  await expect(stored.getByRole('button', { name: 'Delete server data' })).toHaveCount(0);
+
+  // The server answers again while Settings stays open: no reopen, no menu.
   failing = false;
-  await expect(stored.getByRole('button', { name: 'Delete server data' })).toBeVisible({ timeout: 20_000 });
+  await expect(stored.getByRole('button', { name: 'Delete server data' })).toBeVisible({ timeout: 30_000 });
 });
