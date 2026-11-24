@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 /**
  * Event Log tab content. Scrollable list of every SSE event with
  * per-type color coding, a rich filter bar (F15) covering text search,
@@ -137,6 +137,13 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
         const color = TYPE_COLORS[e.type] || 'var(--text-3)';
         const data = e.data ?? {};
         const hasData = Object.keys(data).length > 0;
+        // A frame saved before field-level source holds a decision or a
+        // department report whose text is the model's unless it fell back.
+        const rawAuthored = Array.isArray(data.aiWrittenFields)
+          ? data.aiWrittenFields.length > 0
+          : e.type === 'decision_made'
+            ? isAiWrittenPassage(data, 'decision', data.decision)
+            : e.type === 'specialist_done' && isAiWrittenPassage(data, 'summary', data.summary);
         return (
           <details
             key={i}
@@ -153,7 +160,7 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
               {!!e.data?.outcome && <span className={styles.outcome}>{String(e.data.outcome)}</span>}
             </summary>
             {hasData && (
-              <AiWritten as="div" authored={Array.isArray(data.aiWrittenFields) && data.aiWrittenFields.length > 0}>
+              <AiWritten as="div" authored={rawAuthored}>
                 <pre className={styles.dataBlock}>{JSON.stringify(data, null, 2)}</pre>
               </AiWritten>
             )}

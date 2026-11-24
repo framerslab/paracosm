@@ -1,5 +1,6 @@
 import type { RunArtifact, RunProvenance } from '../../../engine/schema/index.js';
 import { makeProvenanceXmp } from './media-metadata';
+import { isAiWrittenPassage } from '../components/shared/authorship';
 
 export const exportProvenance = (existing?: RunProvenance | null, verdict?: Record<string, unknown> | null): RunProvenance => ({
   aiGenerated: true,
@@ -57,16 +58,16 @@ function artifactPassages(artifact: RunArtifact): Passage[] {
   for (const decision of artifact.decisions ?? []) {
     for (const [field, heading] of [['choice', 'Decision'], ['rationale', 'Rationale'], ['reasoning', 'Reasoning']] as const) {
       const text = decision[field];
-      if (text) report.push({ heading, text, authored: decision.aiWrittenFields?.includes(field) ?? false });
+      if (text) report.push({ heading, text, authored: isAiWrittenPassage(decision, field, text) });
     }
   }
   for (const note of artifact.specialistNotes ?? []) {
-    report.push({ heading: note.domain, text: note.summary, authored: note.aiWrittenFields?.includes('summary') ?? false });
+    report.push({ heading: note.domain, text: note.summary, authored: isAiWrittenPassage(note, 'summary', note.summary) });
     for (const risk of note.detail?.risks ?? []) {
-      report.push({ heading: 'Risk', text: risk.description, authored: note.aiWrittenFields?.includes('risks') ?? false });
+      report.push({ heading: 'Risk', text: risk.description, authored: isAiWrittenPassage(note, 'risks', risk.description) });
     }
     for (const action of note.detail?.recommendedActions ?? []) {
-      report.push({ heading: 'Recommendation', text: action, authored: note.aiWrittenFields?.includes('recommendedActions') ?? false });
+      report.push({ heading: 'Recommendation', text: action, authored: isAiWrittenPassage(note, 'recommendedActions', action) });
     }
   }
   return report;

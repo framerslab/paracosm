@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { GameState, ActorSideState } from '../../hooks/useGameState.js';
@@ -78,7 +78,7 @@ function summarize(side: ActorSideState, turn: number): LeaderTurnSummary | null
       const folded = evt.data?._decision;
       if (typeof folded === 'string' && folded.length > 0) {
         decision = folded;
-        decisionAuthored = isAiWritten(evt.data, 'decision');
+        decisionAuthored = isAiWrittenPassage(evt.data, 'decision', folded);
       }
       const morale = (evt.data?.systemDeltas as Record<string, unknown> | undefined)?.morale;
       if (typeof morale === 'number' && Number.isFinite(morale)) moraleDelta += morale;
