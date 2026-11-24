@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { crc32 } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { measureText, settle, spacingFaults } from '../support/readability.js';
+import { measureText, settle } from '../support/readability.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The marking spec uses a writable fixture server.');
 
@@ -547,9 +547,56 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
     expect(owner.ownership).toBe(1);
     expect(owner.lineHeight).toBeGreaterThanOrEqual(owner.size * 1.4);
   }
-  const faults = await spacingFaults(surface);
-  expect(faults.cut.filter(fault => fault.includes('"AI-written"'))).toEqual([]);
-  expect(faults.overlaps.filter(fault => fault.includes('"AI-written"'))).toEqual([]);
+  const faults = await labels.evaluateAll(elements => {
+    const range = document.createRange();
+    const boxes = (node: Node) => {
+      range.selectNodeContents(node);
+      return Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
+    };
+    const overlaps = (a: DOMRect, b: DOMRect) =>
+      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2
+      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
+    const clips = (overflow: string) => overflow === 'hidden' || overflow === 'clip';
+    const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
+    const problems: string[] = [];
+    for (const label of elements) {
+      const owner = label.parentElement!;
+      const description = owner.textContent?.trim().slice(0, 100);
+      const labelBoxes = boxes(label);
+      const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
+      for (let adjacent = walker.nextNode(); adjacent; adjacent = walker.nextNode()) {
+        if (label.contains(adjacent) || !adjacent.textContent?.trim()) continue;
+        if (boxes(adjacent).some(rect => labelBoxes.some(mark => overlaps(rect, mark)))) {
+          problems.push(`Overlapping label in "${description}"`);
+          break;
+        }
+      }
+
+      // A scrollport can reveal the next passage when scrolled. Check
+      // clipping inside that content, where scrolling cannot reveal it.
+      let checkX = true;
+      let checkY = true;
+      for (let ancestor: Element | null = label; ancestor && (checkX || checkY); ancestor = ancestor.parentElement) {
+        const css = getComputedStyle(ancestor);
+        if (scrolls(css.overflowX) && ancestor.scrollWidth > ancestor.clientWidth) checkX = false;
+        if (scrolls(css.overflowY) && ancestor.scrollHeight > ancestor.clientHeight) checkY = false;
+        const rect = ancestor.getBoundingClientRect();
+        const left = rect.left + ancestor.clientLeft;
+        const top = rect.top + ancestor.clientTop;
+        const right = left + (ancestor.clientWidth || rect.width);
+        const bottom = top + (ancestor.clientHeight || rect.height);
+        if (labelBoxes.some(mark =>
+          (checkX && clips(css.overflowX) && (mark.left < left - 1 || mark.right > right + 1))
+          || (checkY && clips(css.overflowY) && (mark.top < top - 1 || mark.bottom > bottom + 1))
+        )) {
+          problems.push(`Clipped label in "${description}"`);
+          break;
+        }
+      }
+    }
+    return problems;
+  });
+  expect(faults).toEqual([]);
   await expect(page.locator(meta)).toHaveCount(1);
 }
 
@@ -656,7 +703,11 @@ test('Studio and pinned comparison show each stored decision with its own label'
   await expect(page.getByText(/added to Library \(2 runs\)/)).toBeVisible();
   await page.getByRole('button', { name: 'Compare bundle', exact: true }).click();
   const grid = page.getByRole('region', { name: 'Bundle members grid' });
-  for (const name of leaders) await grid.getByRole('checkbox', { name: `Pin ${name} to compare` }).check();
+  for (const name of leaders) {
+    const pin = grid.getByRole('checkbox', { name: `Pin ${name} to compare` });
+    await pin.press('Space');
+    await expect(grid.getByRole('checkbox', { name: `Unpin ${name}` })).toBeChecked();
+  }
   const comparison = page.getByRole('region', { name: 'Decision rationale comparison' });
   for (const decision of decisions) await expectMark(comparison.getByText(decision, { exact: true }));
   await expect(page.locator(meta)).toHaveCount(1);
@@ -668,7 +719,8 @@ test('Viz marks the model decision in the current turn narrative', async ({ page
   await openPair(page, 'dark');
   await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
   const narrative = page.getByRole('status', { name: 'Current turn narrative' });
-  const passage = narrative.getByText(/Keep a reserve of water/).locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
+  await page.getByLabel('Scrub timeline').press('Home');
+  const passage = narrative.getByText(/keep a reserve of water/i).locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
   await expect(passage).toBeVisible();
   await expect(passage.getByText('AI-written', { exact: true })).toHaveCount(1);
   await expect(page.locator(meta)).toHaveCount(1);
