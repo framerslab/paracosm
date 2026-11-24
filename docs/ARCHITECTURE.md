@@ -762,6 +762,34 @@ await wm.simulate({ actor: leader, keyPersonnel: personnel, maxTurns: 8 });
 
 The runtime `scenario` parameter MUST be a compiled `ScenarioPackage` (has `hooks`), not the raw source JSON.
 
+### Output provenance
+
+New run artifacts carry a top-level `provenance` object in memory and in written JSON. The first public event sent to a library caller carries the same object. On the dashboard, the first delivered frame from `/events` and from `/sessions/:id/replay` carries the run's provenance, including when a reader reconnects or a saved stream starts after the run opened.
+
+```json
+{
+  "provenance": {
+    "aiGenerated": true,
+    "generator": "paracosm",
+    "models": {
+      "commander": "gpt-4o",
+      "departments": "gpt-4o-mini",
+      "judge": "gpt-4o",
+      "director": "gpt-4o",
+      "agentReactions": "gpt-4o-mini"
+    }
+  }
+}
+```
+
+The model IDs are the resolved assignments by role after fallback, so a stopped run can name a model without having called it. The artifact keeps that actor's assignments, including `leaderWriter` for a generated leader when recorded. A report can also identify the `verdict` model when it includes recorded verdict text. A generated scenario export records the `compiler` role from its recorded hook sources. An absent role means its model is unknown. The schema accepts historical artifacts without `provenance`. Re-exporting an older result uses the recorded IDs that are available and may produce an empty `models` map. Bundle members retain their own maps.
+
+An authored block on a dashboard page carries `data-ai-generated="true"` and one visible `AI-written` label. A page displaying any such block carries one `<meta name="ai-generated-content" content="partial">` in its head. Authorship follows the recorded source of the passage, including mixed records where only some fields were model-written.
+
+The References, Forge toolbox and Forge raw record JSON downloads now have roots `{provenance,references:[...]}`, `{provenance,tools:[...]}` and `{provenance,frames:[...]}`. Each array retains the displayed order. The raw record's view and clipboard retain the original frames. The scenario editor's **Save source JSON** action saves a human draft as provided.
+
+The selected run's HTML report includes the head meta, visible labels and a `{ "provenance": { ... } }` object in the inert `<script type="application/json" id="paracosm-provenance">` element. The PDF includes readable labels, an attached `run.json` report projection and an XMP stream in the catalog's `/Metadata` entry. Viz PNGs carry the same XMP format in an uncompressed `iTXt` chunk keyed by `XML:com.adobe.xmp`. The XMP property `provenance` in `https://paracosm.agentos.sh/ns/provenance/1.0/` contains the full provenance object. The IPTC `DigitalSourceType` resource is `http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia`.
+
 ### npm Package Exports
 
 | Import | What |
