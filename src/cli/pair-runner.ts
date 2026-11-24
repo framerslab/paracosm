@@ -455,6 +455,9 @@ export async function runForkSimulation(
     broadcast('sim', event, lname);
   };
 
+  // An external stop or a terminal provider error ends the fork before its
+  // last turn. The engine returns such a run's artifact instead of throwing.
+  let cutShort = false;
   try {
     const result = await forkedWm.simulate({
       actor: leader,
@@ -486,6 +489,7 @@ export async function runForkSimulation(
       outputDir: runnerOptions.outputDir,
       searchEnv: runnerOptions.searchEnv,
     }, runSimulationImpl);
+    cutShort = (result as any)?.aborted === true || Boolean((result as any)?.providerError);
     broadcast('result', {
       leader: leaderTag(leader, 0),
       summary: {
@@ -516,7 +520,8 @@ export async function runForkSimulation(
     throw err;
   }
 
-  broadcast('complete', { timestamp: new Date().toISOString(), fork: true });
+  // A cut fork ends as a cut pair does, so the page shows it as interrupted.
+  broadcast('complete', { timestamp: new Date().toISOString(), fork: true, ...(cutShort ? { aborted: true } : {}) });
 }
 
 /**

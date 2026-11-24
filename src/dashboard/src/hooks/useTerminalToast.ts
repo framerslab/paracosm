@@ -64,7 +64,7 @@ export function useTerminalToast({
   // are written.
   const finishOwnerRef = useRef<NoticeOwner<string> | null>(null);
   const verdictOwnerRef = useRef<NoticeOwner<Record<string, unknown> | null> | null>(null);
-  const finish = finishSignal(isComplete, isAborted, resultsCount);
+  const finish = JSON.stringify([runKey, finishSignal(isComplete, isAborted, resultsCount)]);
   const heldVerdict = verdict ?? null;
   useEffect(() => {
     finishOwnerRef.current = noticeOwner(finishOwnerRef.current, finish, runKey);
@@ -110,6 +110,8 @@ export function useTerminalToast({
       // Skipped-verdict toast — explains the missing banner so users
       // don't refresh the page assuming something hung.
       const reason = String((verdict as { reason?: unknown }).reason || 'unknown');
+      // A single-actor fork already announces completion through the terminal notice.
+      if (reason === 'single_actor_fork') return;
       const fingerprint = judgedRunKey ?? `skipped:${reason}`;
       try {
         if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;

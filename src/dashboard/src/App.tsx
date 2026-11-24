@@ -217,6 +217,8 @@ const NO_EVENTS: SimEvent[] = [];
 const ADMIN_CONFIG_RETRY_FIRST_MS = 2_000;
 /** The longest gap between two reads of /admin-config for that gate. */
 const ADMIN_CONFIG_RETRY_MAX_MS = 15_000;
+/** What the verdict banner reads for a fork that ran to its end: a fork runs one leader and gets no verdict. */
+const FORK_ENDED: Record<string, unknown> = { skipped: true, reason: 'single_actor_fork' };
 
 function AppContent() {
   const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
@@ -240,9 +242,9 @@ function AppContent() {
   const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
   const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
-  // Global verdict banner. Closable by the user; dismissal is keyed
-  // to the verdict's headline so a fresh run with a new verdict
-  // re-shows the banner even after the previous one was dismissed.
+  // Global verdict banner. Closable by the user; a dismissal belongs to
+  // the run it was made on, so the next run's banner shows, the same
+  // winner and headline included.
   const [verdictDismissedKey, setVerdictDismissedKey] = useState<string | null>(null);
   const [verdictModalOpen, setVerdictModalOpen] = useState(false);
 
@@ -936,16 +938,23 @@ function AppContent() {
     toast('error', 'Digital twin failed', message);
     return true;
   }, [sse, toast]);
+  const shownRunComplete = sse.isComplete && sse.finishRunKey === sse.runKey;
+  // The verdict of the run the page shows. A fork that ran to its end has
+  // none of its own: its banner says so, and `sse.verdict` stays its
+  // parent's for Reports, the SIM tab and a saved file.
+  const ownVerdict = sse.verdictRunKey === sse.runKey ? sse.verdict : null;
+  const forkEnded = sse.forkOutcome !== null && sse.forkOutcome.runKey === sse.runKey;
+  const shownRunVerdict = ownVerdict ?? (forkEnded ? FORK_ENDED : null);
   useTerminalToast({
     runKey: sse.runKey,
-    isComplete: sse.isComplete,
-    isAborted: sse.isAborted,
+    isComplete: shownRunComplete,
+    isAborted: sse.isAborted && sse.finishRunKey === sse.runKey,
     abortReason: sse.abortReason,
     resultsCount: sse.results.length,
-    hasVerdict: Boolean(sse.verdict),
+    hasVerdict: Boolean(shownRunVerdict),
     replayDone: sse.replayDone,
     userTriggeredRun,
-    verdict: sse.verdict,
+    verdict: shownRunVerdict,
   });
 
   // Local cache fallback: write completed runs to localStorage keyed
@@ -957,7 +966,7 @@ function AppContent() {
   // same data; bounded by the scenarioShortName key so switching
   // scenarios doesn't trample prior scenario caches.
   useEffect(() => {
-    if (!sse.isComplete) return;
+    if (!shownRunComplete) return;
     if (sse.events.length === 0) return;
     const fingerprint = JSON.stringify([
       scenario.labels.shortName, sse.runKey ?? replaySessionId, sse.events.length, sse.isAborted, sse.provenance,
@@ -988,7 +997,7 @@ function AppContent() {
     history,
   ]);
 
-  useSimSavedToast({ events: sse.events, userTriggeredRun });
+  useSimSavedToast({ savedEvent: sse.simSaved, runKey: sse.runKey, userTriggeredRun });
 
   // A Digital Twin can run in a different scenario and use its own event feed.
   const showsDigitalTwin = interventionRunning !== null || interventionArtifact !== null;
@@ -1047,7 +1056,8 @@ function AppContent() {
           {/* The banner and finish notices share the launch gate. */}
           {userTriggeredRun && (
             <VerdictBanner
-              verdict={sse.verdict}
+              verdict={shownRunVerdict}
+              runIdentity={shownRun}
               currentTurn={gameState.turn}
               maxTurns={gameState.maxTurns}
               dismissedKey={verdictDismissedKey}

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import { LiveRunRegistry } from '../../src/server/live-runs.js';
 import { WorldModel, type RunArtifact } from '../../src/index.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
+import { recordHookSources } from '../../src/engine/compiler/hook-sources.js';
+import type { ScenarioPackage } from '../../src/engine/types.js';
 import type { SimEvent } from '../../src/runtime/orchestrator/index.js';
 import { withStubOpenAi } from '../runtime/helpers/stub-openai-transport.js';
 import { decisionTitleOf, reactionReply, recordedAriaReply } from '../runtime/helpers/stub-model-mars-run.js';
@@ -96,6 +98,47 @@ test('public simulation writes effective role assignments to the artifact and th
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }
+});
+
+test('a compiled scenario marks the milestone text its compiler wrote and names the compiler role', async () => {
+  await withStubOpenAi(({ lastUser }) => replyToMars(lastUser), async () => {
+    const run = async (scenario: ScenarioPackage) => {
+      const opening: unknown[] = [];
+      const artifact = await WorldModel.fromScenario(scenario).simulate({
+        actor: marsLeaders[0],
+        maxTurns: 2,
+        seed: 950,
+        initialPopulation: 30,
+        provider: 'openai',
+        apiKey: 'placeholder-key-for-a-test',
+        models: roleOverrides,
+        writeOutputFile: false,
+        onEvent: event => {
+          if (event.type === 'event_start' && event.data.turn === 1) opening.push(event.data.aiWrittenFields);
+        },
+      });
+      return { artifact, opening };
+    };
+
+    // Mars's milestones come from its own scenario file, written by a person.
+    const written = await run(marsScenario);
+    assert.ok(written.opening.length > 0);
+    for (const fields of written.opening) assert.deepEqual(fields, []);
+    assert.deepEqual(written.artifact.provenance, expectedMark);
+
+    // A compiled scenario's milestone hook is the compiler model's text.
+    const hooks = { ...marsScenario.hooks };
+    recordHookSources(hooks, { schemaVersion: 8, model: 'test-compiler', hooks: { milestones: 'compiled milestones' } });
+    const compiled = await run({ ...marsScenario, hooks });
+    assert.ok(compiled.opening.length > 0);
+    for (const fields of compiled.opening) {
+      assert.ok(Array.isArray(fields) && fields.includes('title') && fields.includes('description'));
+    }
+    assert.deepEqual(compiled.artifact.provenance, {
+      ...expectedMark,
+      models: { ...expectedMark.models, compiler: 'test-compiler' },
+    });
+  });
 });
 
 test('an already-aborted public run records the effective fallback provider assignments', async t => {

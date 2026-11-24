@@ -4,6 +4,7 @@ import type { ActorInput } from '../../engine/types.js';
 import { writeRunOutput } from '../io/output-writer.js';
 import { buildRunArtifact } from '../io/build-artifact.js';
 import { makeRunProvenance } from '../../engine/schema/provenance.js';
+import { hookSourcesOf } from '../../engine/compiler/hook-sources.js';
 import type {
   Decision,
   InterventionConfig,
@@ -564,9 +565,15 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
     || 'leader';
   const sid = `${sc.labels.shortName}-v2-${archetypeSlug}`;
+  // A compiled scenario's milestone events are text its compiler model
+  // wrote; a scenario's own milestones, and a compile that left the hook on
+  // its fallback, record no milestones source.
+  const compiledSources = hookSourcesOf(sc);
+  const compiledMilestones = compiledSources?.hooks.milestones ? compiledSources : undefined;
   const provenance = makeRunProvenance({
     ...modelConfig,
     ...(leader.aiAuthorship?.fields.length ? { leaderWriter: leader.aiAuthorship.model } : {}),
+    ...(compiledMilestones ? { compiler: compiledMilestones.model } : {}),
   });
   // Cost tracking: accumulate token usage and estimated cost across all LLM calls
   // Cost tracker: per-site buckets + cache-aware fallback estimation.
@@ -1097,7 +1104,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     const maxEvents = sc.setup.maxEventsPerTurn ?? 2;
     let turnEvents: DirectorEvent[];
     let batchPacing = 'normal';
-    let directorAuthored = false;
+    // Whether a model wrote this turn's events: the director, or the
+    // compiler of a compiled scenario's milestones.
+    let eventsAuthored = false;
 
     const getMilestone = sc.hooks.getMilestoneEvent;
     const milestone = getMilestone?.(turn, maxTurns);
@@ -1118,6 +1127,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         ? (turn === 1 ? effectKeys[0] : effectKeys[effectKeys.length - 1])
         : milestone.category;
       turnEvents = [{ ...milestone, category: forcedCategory, description: (milestone as any).description || (milestone as any).crisis || '' } as DirectorEvent];
+      eventsAuthored = compiledMilestones !== undefined;
     } else {
       const preState = kernel.getState();
       const alive = preState.agents.filter(c => c.health.alive);
@@ -1177,7 +1187,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         (err) => reportProviderError(err, 'director'),
         // Feed per-schema retry telemetry.
         (attempts, fellBack) => {
-          directorAuthored = !fellBack;
+          eventsAuthored = !fellBack;
           recordSchemaAttempt('DirectorEventBatch', attempts, fellBack);
         },
         providerApiKey,
@@ -1207,7 +1217,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     console.log(`${'─'.repeat(50)}`);
 
     emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing,
-      aiWrittenFields: directorAuthored ? ['title', 'description', 'turnSummary'] : [],
+      aiWrittenFields: eventsAuthored ? ['title', 'description', 'turnSummary'] : [],
     });
 
     // ── Inner event loop ──────────────────────────────────────────────
@@ -1228,9 +1238,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       try {
       const originalEvent = turnEvents[ei];
       const event = applyCustomEventToCrisis(originalEvent, opts.customEvents ?? [], turn);
-      const aiWrittenFields: EventAuthorship = directorAuthored ? ['title'] : [];
-      if (directorAuthored && event.description === originalEvent.description) aiWrittenFields.push('description');
-      if (directorAuthored && event.turnSummary === originalEvent.turnSummary) aiWrittenFields.push('turnSummary');
+      const aiWrittenFields: EventAuthorship = eventsAuthored ? ['title'] : [];
+      if (eventsAuthored && event.description === originalEvent.description) aiWrittenFields.push('description');
+      if (eventsAuthored && event.turnSummary === originalEvent.turnSummary) aiWrittenFields.push('turnSummary');
 
       // Update context so any forge_attempt SSE emitted during this event
       // (from inside parallel dept calls) is attributed to the right slot.

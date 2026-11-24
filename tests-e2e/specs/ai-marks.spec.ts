@@ -40,6 +40,23 @@ async function expectMark(text: Locator) {
   await expect(label).toBeVisible();
 }
 
+/** Every match of the text is shown with no marked block around it. */
+async function expectUnmarked(text: Locator) {
+  await expect(text.first()).toBeVisible();
+  expect(await text.evaluateAll(nodes => nodes.filter(node => node.closest('[data-ai-generated="true"]')).length)).toBe(0);
+}
+
+async function libraryRunId(page: Page, actor: string) {
+  let runId: string | undefined;
+  await expect.poll(async () => {
+    const response = await page.request.get(origin + '/api/v1/runs');
+    const { runs } = await response.json();
+    runId = runs.find((run: { actorName?: string }) => run.actorName === actor)?.runId;
+    return Boolean(runId);
+  }).toBe(true);
+  return runId!;
+}
+
 function pixelDifference(page: Page, expected: Buffer, actual: Buffer) {
   return page.evaluate(async pngs => {
     const decode = async (encoded: string) => {
@@ -761,13 +778,23 @@ test('Studio and pinned comparison show each stored decision with its own label'
     await firstUnpin.press('Space');
     await expect(firstPin).not.toBeChecked();
   }
-  for (const [index, name] of leaders.entries()) {
-    const pin = grid.getByRole('checkbox', { name: `Pin ${name} to compare` });
-    await pin.press('Space');
-    await expect(grid.getByRole('checkbox', { name: `Unpin ${name}` })).toBeChecked();
-    await expectMark(comparison.getByText(decisions[index], { exact: true }));
-  }
+  // The first run's read is held until the second run is pinned, so both
+  // reads are open together, and the first run failed its earlier reads.
+  let release = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route(detailUrl, async route => {
+    await held;
+    await route.continue().catch(() => undefined);
+  }, { times: 1 });
+  await firstPin.press('Space');
+  await expect(firstUnpin).toBeChecked();
+  await grid.getByRole('checkbox', { name: `Pin ${leaders[1]} to compare` }).press('Space');
+  await expect(grid.getByRole('checkbox', { name: `Unpin ${leaders[1]}` })).toBeChecked();
+  release();
+  const pinnedRuns = page.getByRole('region', { name: 'Pinned runs side-by-side' });
   for (const decision of decisions) await expectMark(comparison.getByText(decision, { exact: true }));
+  await expect(pinnedRuns.getByText('Run artifact missing or invalid', { exact: true })).toHaveCount(0);
+  await expect(pinnedRuns.getByText('loading…', { exact: true })).toHaveCount(0);
   await expect(page.locator(meta)).toHaveCount(1);
   await page.getByRole('button', { name: 'Close compare' }).click();
   await expect(page.locator(meta)).toHaveCount(0);
@@ -782,4 +809,89 @@ test('Viz marks the model decision in the current turn narrative', async ({ page
   await expect(passage).toBeVisible();
   await expect(passage.getByText('AI-written', { exact: true })).toHaveCount(1);
   await expect(page.locator(meta)).toHaveCount(1);
+});
+
+const fallbackDecision = 'Commander decision unavailable; defer to department consensus.';
+
+async function openLegacyPair(page: Page, secondLeader?: string) {
+  await page.route('**/setup', route => {
+    const launch = route.request().postDataJSON();
+    launch.actors[0].name = 'Legacy leader';
+    if (secondLeader) launch.actors[1].name = secondLeader;
+    return route.continue({ postData: launch });
+  });
+  await openPair(page, 'light');
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  const id = await savedPairId(page, 'Legacy leader');
+  await page.unroute('**/setup');
+  return id;
+}
+
+test('a run saved before field-level source marks its model passages and leaves fallback text unmarked', async ({ page }) => {
+  const id = await openLegacyPair(page, 'Legacy fallback leader');
+  await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(id));
+  const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
+  await expectMark(decision);
+  const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
+  await card.locator('summary').click();
+  await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
+  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+
+  await openTab(page, 'reports');
+  const report = page.getByRole('region', { name: 'Turn-by-turn report' });
+  await expectMark(report.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
+  await expectMark(report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true }).first());
+  await expectUnmarked(report.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await expectUnmarked(report.getByText('engineering report unavailable this turn.', { exact: true }).filter({ visible: true }));
+  await expect(page.locator(meta)).toHaveCount(1);
+
+  for (const [actor, authored] of [['Legacy leader', true], ['Legacy fallback leader', false]] as const) {
+    const runId = await libraryRunId(page, actor);
+    await page.goto(origin + '/sim?tab=library&runId=' + encodeURIComponent(runId));
+    const dialog = page.getByRole('dialog', { name: 'Run detail' });
+    if (authored) {
+      await expectMark(dialog.locator('[data-ai-generated="true"]').filter({ hasText: 'Keep a reserve of water.' }));
+      await expectMark(dialog.locator('[data-ai-generated="true"]').filter({ hasText: 'The next harvest needs a cushion.' }));
+    } else {
+      await expectUnmarked(dialog.getByText(fallbackDecision, { exact: false }));
+    }
+  }
+});
+
+test('a saved run opened in the same page after another run shows every one of its own events', async ({ browser, page }) => {
+  // The stored pair: its second leader shares a name with the pair the page plays next.
+  const recorder = await browser.newContext();
+  const id = await openLegacyPair(await recorder.newPage()).finally(() => recorder.close());
+  await openPair(page, 'light');
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+  await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true }).first()).toBeVisible();
+  // The page opens the stored pair the way its own address changes do.
+  await page.evaluate(replay => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('replay', replay);
+    window.history.pushState(window.history.state, '', url.toString());
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, id);
+  await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
+  await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
+  await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true })).toHaveCount(0);
+});
+
+test('the Library marks a generated archetype apart from the name a person gave the leader', async ({ page }) => {
+  await page.goto(origin + '/sim');
+  const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+    data: { scenarioId: 'mars-genesis', count: 2 },
+  });
+  expect(generated.ok()).toBe(true);
+  const { actors } = await generated.json();
+  actors[0].name = 'Renamed leader';
+  actors[0].aiAuthorship.fields = actors[0].aiAuthorship.fields.filter((field: string) => field !== 'name');
+  delete actors[1].aiAuthorship;
+  await page.route('**/setup', route => route.continue({ postData: { ...route.request().postDataJSON(), actors } }));
+  await openPair(page, 'light');
+  const runId = await libraryRunId(page, 'Renamed leader');
+  await page.goto(origin + '/sim?tab=library&runId=' + encodeURIComponent(runId));
+  const summary = page.getByRole('dialog', { name: 'Run detail' }).locator('section', { has: page.locator('h2') }).first();
+  await expectUnmarked(summary.getByText('Renamed leader', { exact: true }));
+  await expectMark(summary.getByText('Engineer', { exact: true }));
 });

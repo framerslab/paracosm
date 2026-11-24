@@ -20,10 +20,18 @@ const knownFrames = framesToSimEvents(pairRunFrames()).filter(frame => frame.typ
 const completedAt = '2026-11-23T00:01:00.000Z';
 
 const instructions = 'Check the water stores before each harvest.';
+/** The texts the runner writes when a decision or a department report call fails. */
+const fallbackDecision = 'Commander decision unavailable; defer to department consensus.';
+const fallbackReport = 'engineering report unavailable this turn.';
 const hexaco = { honestyHumility: 0.5, emotionality: 0.5, extraversion: 0.5, agreeableness: 0.5, conscientiousness: 0.5, openness: 0.5 };
 const run: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async (config, broadcast, _signal, _scenario, onArtifact) => {
     broadcast('status', { phase: 'parallel', maxTurns: config.turns, actors: config.actors });
+    // A pair stored before the runner recorded field-level source: no frame
+    // or artifact names which words a model wrote, and its second leader's
+    // calls fell back to the runner's fixed texts.
+    const legacy = config.actors[0].name === 'Legacy leader';
     for (const [side, actor] of config.actors.entries()) {
+      const fellBack = legacy && side === 1;
       const fixtureName = side === 0 ? 'Aria Chen' : 'Dietrich Voss';
       const frames = (config.actors.length > 2 && side > 1 ? [] : knownFrames).filter(frame => frame.leader === fixtureName && Number(frame.data.turn) <= config.turns);
       for (let turn = 3; turn <= config.turns && (side < 2 || config.actors.length === 2); turn++) {
@@ -35,14 +43,15 @@ const run: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async (c
       for (const frame of frames) {
         const data = { ...frame.data };
         if (frame.type === 'decision_made') {
-          data.decision = side === 0 ? 'Keep a reserve of water.' : 'Spend the reserve on new wells.';
-          data.rationale = side === 0 ? 'The next harvest needs a cushion.' : 'The crew needs a reliable well.';
+          data.decision = fellBack ? fallbackDecision : side === 0 ? 'Keep a reserve of water.' : 'Spend the reserve on new wells.';
+          data.rationale = fellBack ? '' : side === 0 ? 'The next harvest needs a cushion.' : 'The crew needs a reliable well.';
           data.reasoning = '';
           data.aiWrittenFields = ['decision', 'rationale'];
         } else if (frame.type === 'specialist_done' && data.department === 'engineering') {
-          data.summary = 'Pressure held overnight.';
+          data.summary = fellBack ? fallbackReport : 'Pressure held overnight.';
           data.aiWrittenFields = side === 0 ? ['summary'] : [];
         }
+        if (legacy) delete data.aiWrittenFields;
         broadcast('sim', { ...frame, data, leader: actor.name }, actor.name);
       }
       const [agent] = crewOf(actor.name, 1, DEPARTMENTS, 1);
@@ -50,14 +59,23 @@ const run: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async (c
         turn: 1, time: 2035, reactions: [{ ...agent, quote: 'The crew inspected the wells.' }],
       } }, actor.name);
       let artifact: RunArtifact | undefined;
-      if (config.actors[0].name === 'Report leader') {
+      if (['Report leader', 'Legacy leader', 'Renamed leader'].includes(config.actors[0].name)) {
         const runId = 'marks-' + randomUUID();
         const outputPath = join(runsDir, runId + '.json');
         artifact = {
           ...savedArtifact,
           metadata: { ...savedArtifact.metadata, runId },
-          provenance: { aiGenerated: true, generator: 'paracosm', models: { commander: side === 0 ? 'test-commander-a' : 'test-commander-b' } },
-          decisions: [{ ...savedArtifact.decisions[0], actor: actor.name, choice: 'Keep a reserve of water.', aiWrittenFields: ['choice'] }],
+          ...(legacy ? {} : {
+            provenance: { aiGenerated: true, generator: 'paracosm', models: { commander: side === 0 ? 'test-commander-a' : 'test-commander-b' } },
+          }),
+          decisions: legacy
+            ? [{
+                ...savedArtifact.decisions[0],
+                actor: actor.name,
+                choice: fellBack ? fallbackDecision : 'Keep a reserve of water.',
+                rationale: fellBack ? '' : 'The next harvest needs a cushion.',
+              }]
+            : [{ ...savedArtifact.decisions[0], actor: actor.name, choice: 'Keep a reserve of water.', aiWrittenFields: ['choice'] }],
           scenarioExtensions: { ...savedArtifact.scenarioExtensions, outputPath, paracosmInternal: { leader: actor } },
         };
         writeFileSync(outputPath, JSON.stringify(artifact));

@@ -701,6 +701,51 @@ for (const kind of ['pair', 'fork'] as const) {
   });
 }
 
+/** The frames a fork writes when the engine returns an artifact with these fields. No provider is called. */
+async function forkFramesFor(outcome: Record<string, unknown>): Promise<Array<{ event: string; data: any }>> {
+  const { runForkSimulation } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const snapshot = { snapshotVersion: 1, scenarioId: marsScenario.id, turn: 1, state: {}, rngState: 1, seed: 950, startTime: 2035, time: 2036 };
+  const parent = { metadata: { runId: 'parent' }, scenarioExtensions: { kernelSnapshotsPerTurn: [snapshot] } };
+  const config = normalizeSimulationConfig({
+    actors: marsScenario.presets[0].leaders.slice(0, 1), turns: 2, captureSnapshots: true,
+    forkFrom: { parentArtifact: parent, atTurn: 1 },
+  } as any, marsScenario);
+  const artifact = {
+    metadata: { runId: 'child', forkedFrom: { parentRunId: 'parent', atTurn: 1 } },
+    finalState: { metrics: {} }, citations: [], fingerprint: null,
+    scenarioExtensions: { outputPath: '/tmp/fork-output.json', kernelSnapshotsPerTurn: [snapshot] },
+    ...outcome,
+  } as any;
+  const { events, broadcast } = captureBroadcast();
+  await (runForkSimulation as (...args: any[]) => Promise<void>)(
+    config, broadcast, undefined, marsScenario, undefined, {}, async () => artifact,
+  );
+  return events;
+}
+
+for (const [cut, outcome] of [
+  ['a stop', { aborted: true }],
+  ['a terminal provider error', { providerError: { kind: 'quota', provider: 'openai', message: 'The account is out of credit.' } }],
+] as const) {
+  test(`a fork cut short by ${cut} ends as aborted`, async () => {
+    // The engine returns a cut run's artifact instead of throwing, and a pair
+    // ends such a run with `complete {aborted: true}`. A fork ended it as a
+    // finished run, so its page announced a completed simulation.
+    const complete = (await forkFramesFor(outcome)).filter(frame => frame.event === 'complete');
+    assert.equal(complete.length, 1);
+    assert.equal(complete[0].data.fork, true);
+    assert.equal(complete[0].data.aborted, true, 'the fork ends as aborted');
+  });
+}
+
+test('a fork that ran every turn ends as a finished fork', async () => {
+  const complete = (await forkFramesFor({})).filter(frame => frame.event === 'complete');
+  assert.equal(complete.length, 1);
+  assert.equal(complete[0].data.fork, true);
+  assert.equal(complete[0].data.aborted, undefined);
+});
+
 test('pair, cohort and fork persist every actor’s resolved model roles', async () => {
   const { runPairSimulations, runBatchSimulations, runForkSimulation } = await import('../../src/cli/pair-runner.js');
   const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');

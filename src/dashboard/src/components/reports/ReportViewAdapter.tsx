@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 /**
  * Static viewer for a stored turn-loop RunArtifact.
  *
@@ -29,8 +29,8 @@ function DecisionText({ decision }: { decision: StoredDecision }): JSX.Element |
   if (!choice && !decision.rationale) return null;
   return (
     <>
-      {choice && <AiWritten as="p" className={styles.decision} authored={isAiWritten(decision, "choice")}><strong>Decision:</strong> {choice}</AiWritten>}
-      {decision.rationale && <AiWritten as="p" className={styles.decision} authored={isAiWritten(decision, "rationale")}><strong>Rationale:</strong> {decision.rationale}</AiWritten>}
+      {choice && <AiWritten as="p" className={styles.decision} authored={isAiWrittenPassage(decision, "choice", choice)}><strong>Decision:</strong> {choice}</AiWritten>}
+      {decision.rationale && <AiWritten as="p" className={styles.decision} authored={isAiWrittenPassage(decision, "rationale", decision.rationale)}><strong>Rationale:</strong> {decision.rationale}</AiWritten>}
     </>
   );
 }

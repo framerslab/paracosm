@@ -1,4 +1,4 @@
-import { AiWritten, isAiWritten } from '../shared/AiWritten';
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import type { GameState, ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
@@ -58,8 +58,8 @@ function extractTurns(sideState: ActorSideState, isComplete: boolean): TurnEntry
       const t = turns.find(t => t.turn === evt.data.turn);
       if (t) {
         t.outcome = evt.data.outcome as string;
-        t.decisionAuthored = isAiWritten(evt.data, "decision");
         t.decision = (evt.data._decision as string) || '';
+        t.decisionAuthored = isAiWrittenPassage(evt.data, "decision", t.decision);
       }
     }
   }

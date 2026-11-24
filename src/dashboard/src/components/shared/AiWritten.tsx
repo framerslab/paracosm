@@ -12,6 +12,8 @@ export function isAiWritten(source: { aiWrittenFields?: unknown } | Record<strin
   return Array.isArray(source?.aiWrittenFields) && source.aiWrittenFields.includes(field);
 }
 
+export { isAiWrittenPassage } from './authorship';
+
 export function AiWritten({
   as: Element = 'span',
   authored,

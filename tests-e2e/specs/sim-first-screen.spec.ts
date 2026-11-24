@@ -200,7 +200,7 @@ const DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare lea
 let defined = 0;
 /**
  * A test of this spec: before its body runs, its context sends an internet
- * address of its own (198.51.100.n, three a test so each retry has its own).
+ * address of its own (three per test so each retry has its own).
  * Every test is a first visit: its browser holds nothing of an earlier one.
  */
 function screenTest(
@@ -209,7 +209,9 @@ function screenTest(
 ): void {
   const index = defined++;
   test(title, async ({ page, context, browser }, info) => {
-    await context.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${1 + index * 3 + info.retry}` });
+    const offset = index * 3 + info.retry;
+    const network = offset < 254 ? '198.51.100' : '192.0.2';
+    await context.setExtraHTTPHeaders({ 'x-real-ip': `${network}.${1 + offset % 254}` });
     await body({ page, context, browser }, info);
   });
 }
@@ -3107,6 +3109,130 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
     }
   });
 }
+
+/** Starts a run from Settings and returns its key from the accepted setup. */
+async function launchFromSettings(page: Page): Promise<string> {
+  await openTab(page, 'settings');
+  const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup');
+  await page.getByRole('button', { name: 'Launch simulation', exact: true }).click();
+  const response = await setup;
+  expect(response.ok()).toBe(true);
+  const { runKey } = await response.json() as { runKey: string };
+  await page.waitForURL(url => url.searchParams.get('tab') === 'sim' && !url.searchParams.has('replay'));
+  return runKey;
+}
+
+for (const source of ['stored replay', 'saved file'] as const) {
+  screenTest(`Settings announces only the new run after opening a keyless ${source}`, async ({ page }) => {
+    await switchScenario(page, 'atlas-lab');
+    try {
+      const fixture = await page.request.get(`${ROSTERS}/legacy-notice-fixture`);
+      expect(fixture.ok()).toBe(true);
+      const { id, file } = await fixture.json() as { id: string; file: unknown };
+      if (source === 'stored replay') {
+        await page.goto(`/sim?tab=sim&replay=${id}`);
+      } else {
+        const fileUrl = `${SERVER}/legacy-notice-fixture.json`;
+        await page.route(fileUrl, async route => {
+          await expect(page.locator('#main-content')).toHaveAttribute('data-run-connection', 'connected');
+          await route.fulfill({ json: file });
+        });
+        await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=sim`);
+      }
+      await answerConsent(page);
+      await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+      const notices = page.getByRole('status', { name: 'Notifications' });
+      const recorded = await notices.evaluateHandle(element => {
+        const additions: string[] = [];
+        const observer = new MutationObserver(records => {
+          for (const record of records) {
+            for (const node of record.addedNodes) additions.push(node.textContent ?? '');
+          }
+        });
+        observer.observe(element, { childList: true });
+        return additions;
+      });
+
+      const runKey = await launchFromSettings(page);
+      await expectAtlasVerdictAndNotices(page);
+      const messages = await recorded.jsonValue();
+      expect(messages.filter(message => message.includes('Simulation complete'))).toHaveLength(1);
+      expect(messages.join(' ')).not.toContain('Marcus leads the archived run');
+      expect(await page.evaluate(() => sessionStorage.getItem('paracosm:terminalToastFingerprint'))).toBe(runKey);
+    } finally {
+      await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+    }
+  });
+}
+
+for (const reload of [false, true]) {
+  screenTest(`a Branches fork announces its own outcome ${reload ? 'after reopening' : 'after launching'} the parent`, async ({ page, context }, info) => {
+    await switchScenario(page, 'atlas-lab');
+    try {
+      await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
+      const parentKey = await launchFromSettings(page);
+      await expectAtlasVerdictAndNotices(page);
+      const forkPage = reload ? await context.newPage() : page;
+      const notifications = forkPage.getByRole('status', { name: 'Notifications' });
+      if (reload) {
+        // A new tab shares the finished run and has no notice fingerprints.
+        await forkPage.goto(page.url());
+        await answerConsent(forkPage);
+        await expect(forkPage.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+        await expect(notifications).toBeEmpty();
+      } else {
+        const dismiss = notifications.getByRole('button', { name: 'Dismiss', exact: true }).first();
+        while (await dismiss.isVisible()) await dismiss.click();
+      }
+      await secondAddress(context, info, reload ? 24 : 23);
+      await openTab(forkPage, 'reports');
+      await forkPage.getByRole('button', { name: /^Fork at .* 1$/ }).first().click();
+      const setup = forkPage.waitForResponse(response => new URL(response.url()).pathname === '/setup');
+      await forkPage.getByRole('dialog').getByRole('button', { name: 'Fork', exact: true }).click();
+      const response = await setup;
+      expect(response.ok()).toBe(true);
+      const { runKey } = await response.json() as { runKey: string };
+      expect(runKey).not.toBe(parentKey);
+
+      const banner = forkPage.getByRole('status', { name: 'Verdict unavailable' });
+      await expect(banner).toContainText('A fork runs one leader');
+      await expect(notifications.getByText('Saved to cache', { exact: true })).toBeVisible();
+      await expect(notifications.getByText('Simulation complete', { exact: true })).toHaveCount(1);
+      await expect(notifications.getByText('Priya Kapoor wins', { exact: true })).toHaveCount(0);
+      await expect(notifications.getByText('Run finished', { exact: false })).toHaveCount(0);
+      expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:terminalToastFingerprint'))).toBe(runKey);
+      expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:verdictToastFingerprint'))).toBe(reload ? null : parentKey);
+
+      // The fork ends with no verdict of its own, and the pair's verdict stays in Reports.
+      await openTab(forkPage, 'reports');
+      const report = forkPage.getByRole('region', { name: 'Turn-by-turn report' });
+      await expect(report.getByText('Priya Kapoor wins', { exact: true }).first()).toBeVisible();
+      await expect(report.getByText('verdict pending', { exact: false })).toHaveCount(0);
+    } finally {
+      await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+    }
+  });
+}
+
+screenTest('a dismissed banner returns for a new run with the same winner and headline', async ({ page, context }, info) => {
+  await switchScenario(page, 'atlas-lab');
+  try {
+    await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
+    const firstKey = await launchFromSettings(page);
+    await expectAtlasVerdictAndNotices(page);
+    const banner = page.getByRole('status', { name: 'Simulation verdict' });
+    await banner.getByRole('button', { name: 'Dismiss verdict banner' }).click();
+    await expect(banner).toHaveCount(0);
+
+    await secondAddress(context, info, 25);
+    const nextKey = await launchFromSettings(page);
+    expect(nextKey).not.toBe(firstKey);
+    await expect(banner.getByText('Priya Kapoor wins', { exact: true })).toBeVisible();
+    await expect(banner.getByRole('button', { name: 'Priya ships a cleaner model' })).toBeVisible();
+  } finally {
+    await page.request.post(`${SERVER}/clear`).catch(() => undefined);
+  }
+});
 
 screenTest('an Atlas Lab pair shows its verdict and notices after Run again', async ({ page, context }, info) => {
   test.setTimeout(120_000);
