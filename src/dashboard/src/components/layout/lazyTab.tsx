@@ -21,14 +21,31 @@ function failedModuleUrl(error: unknown): URL | undefined {
 function reloadFailedStylesheets(): Promise<unknown> {
   const failed = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
     .filter(link => link.sheet === null && new URL(link.href, window.location.href).origin === window.location.origin);
-  return Promise.all(failed.map(link => new Promise<void>((resolve, reject) => {
+  return Promise.all(failed.map(reloadStylesheet));
+}
+
+/**
+ * The stylesheets being put back, by address, shared by every tab: a tab
+ * that retries while another tab's stylesheet is still on its way waits for
+ * that request. Replacing its link instead could leave the first tab's
+ * request without an answer for good.
+ */
+const stylesheetsReloading = new Map<string, Promise<void>>();
+
+function reloadStylesheet(link: HTMLLinkElement): Promise<void> {
+  const href = link.href;
+  const reloading = stylesheetsReloading.get(href);
+  if (reloading) return reloading;
+  const request = new Promise<void>((resolve, reject) => {
     const fresh = document.createElement('link');
     fresh.rel = 'stylesheet';
-    fresh.href = link.href;
+    fresh.href = href;
     fresh.addEventListener('load', () => resolve(), { once: true });
-    fresh.addEventListener('error', () => reject(new Error('Unable to load the stylesheet ' + link.href)), { once: true });
+    fresh.addEventListener('error', () => reject(new Error('Unable to load the stylesheet ' + href)), { once: true });
     link.replaceWith(fresh);
-  })));
+  }).finally(() => { stylesheetsReloading.delete(href); });
+  stylesheetsReloading.set(href, request);
+  return request;
 }
 
 /**

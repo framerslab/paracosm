@@ -9,15 +9,24 @@ export function RunProgress({ gameState, validationFallbacks }: {
   gameState: GameState;
   validationFallbacks: readonly ValidationFallbackBucket[];
 }) {
-  if (gameState.turn <= 0) return null;
+  // The turn's live region stays in the page from turn 0, empty until the
+  // first turn: a screen reader reads a region's changes, not the words of
+  // one that arrives with them.
+  const turnRegion = (
+    <span key="turn-region" className="sr-only" aria-live="polite">
+      {gameState.turn > 0 ? `Turn ${gameState.turn} of ${gameState.maxTurns}` : ''}
+    </span>
+  );
+  if (gameState.turn <= 0) return <>{turnRegion}</>;
   const progressPct = gameState.maxTurns > 0
     ? `${Math.round((gameState.turn / gameState.maxTurns) * 100)}%`
     : '0%';
 
   return (
+    <>
+    {/* Reads each new turn aloud, and only the turn: the time and seed stay quiet. */}
+    {turnRegion}
     <div className={styles.meta}>
-      {/* Reads each new turn aloud, and only the turn: the time and seed stay quiet. */}
-      <span className="sr-only" aria-live="polite">Turn {gameState.turn} of {gameState.maxTurns}</span>
       {/* The compact figures open tooltips with their full meaning. */}
       <Tooltip
         content={
@@ -166,5 +175,6 @@ export function RunProgress({ gameState, validationFallbacks }: {
         );
       })()}
     </div>
+    </>
   );
 }

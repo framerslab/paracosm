@@ -104,7 +104,7 @@ export function TopBar({
     };
   }, [overflowOpen]);
 
-  /** The menu's arrow keys, Home and End move between its actions, as a menu's keys do. */
+  /** The menu's arrow keys, Home and End move between its actions, as a menu's keys do; Tab closes it. */
   function moveInRunActions(event: ReactKeyboardEvent<HTMLDivElement>) {
     const actions = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'));
     if (!actions.length) return;
@@ -115,6 +115,12 @@ export function TopBar({
       case 'ArrowUp': next = at < 0 ? actions.length - 1 : (at + actions.length - 1) % actions.length; break;
       case 'Home': next = 0; break;
       case 'End': next = actions.length - 1; break;
+      case 'Tab':
+        // Tab leaves the menu, as it leaves the More menu: the focus trap
+        // hands focus back to the menu's key as the menu closes.
+        event.preventDefault();
+        setOverflowOpen(false);
+        return;
       default: return;
     }
     event.preventDefault();
