@@ -65,17 +65,18 @@ $read-size: 15px;
   display: contents;
 }
 
-// A notice in the shared row: its kicker line, a 2 px gap, two lines of its
-// body, 8 px of padding and its borders, plus 3 px for a symbol drawn from
-// a fallback font. The Latest key needs 56 px of it.
+// A notice in its row: its kicker line, a 2 px gap, two lines of its body,
+// 8 px of padding and its borders, plus 3 px for a symbol drawn from a
+// fallback font.
 $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
 
 @media (width > 768px) {
-  // Keep the notices and the Latest key in a shared slot. Appearance,
-  // dismissal and wrapping leave the space for the fields constant.
+  // Keep the live notices in a row of their own. Appearance, dismissal and
+  // wrapping leave the space for the fields constant. The Latest key sits
+  // in the play row (VizControls.tsx).
   .transientRow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     flex: 0 0 $notice-row;
     min-height: 0;
     gap: 8px;
@@ -121,8 +122,6 @@ $notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-
-  .transientRow .jumpLatestAnchor { grid-column: 2; }
 }
 
 @media (width > 768px) and (height > 500px) {

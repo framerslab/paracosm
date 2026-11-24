@@ -1144,6 +1144,21 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
   );
   // On the stacked layout the grid precedes the outcomes and comparisons.
   const linesBelowGrid = narrow;
+  const latestKey = maxTurn > 1 && currentTurn < maxTurn - 1 && (
+    <div className={styles.jumpLatestAnchor}>
+      <button
+        type="button"
+        onClick={() => handleTurnChange(maxTurn - 1)}
+        aria-label={`Jump to latest turn (T${maxTurn})`}
+        className={styles.jumpLatest}
+      >
+        {'\u2193'} Latest · T{maxTurn}
+        <span className={styles.jumpLatestBehind}>
+          ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
+        </span>
+      </button>
+    </div>
+  );
   const comparison = (
     <>
       <TimelineSparkline
@@ -1532,9 +1547,9 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         </div>
         )}
         {narrow && eventRow}
-        {/* Keep the whole field above playback on desktop. The comparison
-            follows the stacked notices on narrow screens. */}
-        {!narrow && comparison}
+        {/* Live notices come before the comparison on every layout. On
+            desktop the comparison follows the fields, which keeps both whole
+            fields above playback. */}
         <div className={styles.transientRow}>
           <div className={styles.notices}>
             {!isReplay && alertToast && (
@@ -1590,23 +1605,11 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
             )}
           </div>
           {narrow && comparison}
-          {/* The Latest key stays in the flow above the play controls. */}
-          {maxTurn > 1 && currentTurn < maxTurn - 1 && (
-            <div className={styles.jumpLatestAnchor}>
-              <button
-                type="button"
-                onClick={() => handleTurnChange(maxTurn - 1)}
-                aria-label={`Jump to latest turn (T${maxTurn})`}
-                className={styles.jumpLatest}
-              >
-                {'\u2193'} Latest · T{maxTurn}
-                <span className={styles.jumpLatestBehind}>
-                  ({maxTurn - 1 - currentTurn} turn{maxTurn - 1 - currentTurn === 1 ? '' : 's'} behind)
-                </span>
-              </button>
-            </div>
-          )}
+          {/* On a phone the Latest key stands in the flow above the play
+              controls. Wider than 768 px it sits in the play row. */}
+          {narrow && latestKey}
         </div>
+        {!narrow && comparison}
         </div>
         <VizControls
           currentTurn={currentTurn}
@@ -1620,6 +1623,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           onStepBack={handleStepBack}
           onStepForward={handleStepForward}
           onSpeedChange={setSpeed}
+          latest={narrow ? undefined : latestKey}
         />
         <KeyLegend hints={legendHints} onShowAll={() => setHelpOpen(true)} />
         {/* Off-screen aria-live region announces turn deltas to

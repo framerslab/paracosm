@@ -1008,7 +1008,8 @@ for (const look of LOOKS) {
         // The Latest key shows on a turn before the last. It covers no
         // control of the play controls at any width. On a phone it stands in
         // the flow above them, so it is a phone key: 44 px tall and wide,
-        // inside the window, its words at 15 px.
+        // inside the window, its words at 15 px. Wider than 768 px it sits
+        // in the play row.
         await stepBack(page).click();
         await expect(latestKey(page)).toBeVisible();
         await latestKey(page).evaluate((el) => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
@@ -1026,8 +1027,10 @@ for (const look of LOOKS) {
           return { width: r.width, height: r.height, left: r.left, right: r.right, top: r.top, bottom: r.bottom, inner: document.documentElement.clientWidth, words };
         });
         const where = `${width}, ${look}, the Latest key`;
+        // Wider than 768 px the key sits in the play row: it is not counted against itself.
         const covered = await playRow(page).evaluate((row, k) => Array.from(row.querySelectorAll('button, select, input'))
           .filter((c) => {
+            if ((c.getAttribute('aria-label') ?? '').startsWith('Jump to latest turn')) return false;
             const r = c.getBoundingClientRect();
             return r.width > 0 && r.height > 0 && r.left < k.right && r.right > k.left && r.top < k.bottom && r.bottom > k.top;
           })

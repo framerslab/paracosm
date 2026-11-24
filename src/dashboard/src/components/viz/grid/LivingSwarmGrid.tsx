@@ -291,6 +291,10 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
   // follow the canvas's size, and a resting panel draws the seed itself, so
   // it seeds again when its size changes.
   const lastGolSizeRef = useRef<string>('');
+  // The tile each living colonist seeded the Conway layer from. A Viz panel
+  // keeps its tiles through a resize while the people's places follow the
+  // new size, so a hovered tile is credited to the seed that drew it.
+  const golSeedTilesRef = useRef<Map<string, { col: number; row: number }>>(new Map());
   const lastFlareSignatureRef = useRef<string | null>(null);
   // Timestamp (performance.now) when the GoL tile fade started, or
   // -Infinity when no fade is active. Set on the first seed, on a jump of
@@ -594,6 +598,12 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
       lastGolFilterRef.current = eventFilter;
       lastGolActorRef.current = actorName;
       seedFromColonists(gol, snapshot.cells, positions, size.w, size.h, eventFilter);
+      const seedTiles = new Map<string, { col: number; row: number }>();
+      for (const c of snapshot.cells) {
+        const p = positions.get(c.agentId);
+        if (c.alive && p) seedTiles.set(c.agentId, cellToTile(p, size.w, size.h, gol.cols, gol.rows));
+      }
+      golSeedTilesRef.current = seedTiles;
       // Mode determines warmup depth so clicking a mode pill produces
       // a visibly different CA state: LIVING = stabilized (5 ticks),
       // MOOD = fresh seed (0 ticks, patterns sit unstabilized), FORGE
@@ -956,7 +966,7 @@ export function LivingSwarmGrid(props: LivingSwarmGridProps) {
                 if (!c.alive) continue;
                 const p = positions.get(c.agentId);
                 if (!p) continue;
-                const tile = cellToTile(p, size.w, size.h, cols, rows);
+                const tile = golSeedTilesRef.current.get(c.agentId) ?? cellToTile(p, size.w, size.h, cols, rows);
                 const d = (tile.col - golHit.col) ** 2 + (tile.row - golHit.row) ** 2;
                 if (d < bestDist) { bestDist = d; nearest = c; }
               }
