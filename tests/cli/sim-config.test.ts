@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runSim } from '../../src/cli/run-sim.js';
 import type { ActorInput } from '../../src/engine/types.js';
 import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
@@ -420,6 +421,33 @@ test('the CLI name override keeps file orders and fills blanks using the new nam
         assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, expected)));
       }, promotionReply);
     }
+  } finally {
+    restore();
+    if (oldOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = oldOutput;
+    else delete process.env.PARACOSM_OUTPUT_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the CLI name override puts the new name where the shipped orders name the old leader', async () => {
+  const shippedPath = fileURLToPath(new URL('../../config/actors.json', import.meta.url));
+  const [shipped] = (JSON.parse(readFileSync(shippedPath, 'utf-8')) as { actors: ActorInput[] }).actors;
+  const shippedOrders = shipped.instructions ?? '';
+  assert.equal(shipped.name, 'Aria Chen');
+  assert.ok(shippedOrders.includes('Aria Chen'), 'the shipped orders name their leader');
+  const expected = shippedOrders.split('Aria Chen').join('Ren');
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-cli-rename-'));
+  const oldOutput = process.env.PARACOSM_OUTPUT_DIR;
+  const restore = setHostKeys({ OPENAI_API_KEY: orderTestKey });
+  process.env.PARACOSM_OUTPUT_DIR = dir;
+  try {
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', shippedPath, '--name', 'Ren', '--provider', 'openai']), 0);
+      const boot = commanderBootstraps(calls);
+      assert.ok(boot.length > 0, 'the commander was started');
+      assert.ok(boot.some(call => ordersIn(call, expected)), 'the renamed orders reached the commander');
+      for (const call of boot) assert.ok(!call.system.includes('Aria Chen'), 'no commander call names the old leader');
+    }, promotionReply);
   } finally {
     restore();
     if (oldOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = oldOutput;
