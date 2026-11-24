@@ -82,10 +82,42 @@ test('generated leaders and successful chat replies carry their own source', asy
   });
 
   await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  const actor = page.getByRole('combobox', { name: 'Filter chat agents by lead actor' });
+  await actor.selectOption({ label: (await actor.locator('option').allTextContents()).find(label => label.startsWith('Generated leader ('))! });
   await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+  const greeting = page.getByText(/I lived through this simulation/).first();
+  await expect(greeting).toBeVisible();
+  await expect(greeting.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
+
+  let releaseReply!: () => void;
+  const pending = new Promise<void>(resolve => { releaseReply = resolve; });
+  const replyReceived = page.waitForResponse(response => response.url() === origin + '/chat');
+  const delay = async (route: import('@playwright/test').Route) => {
+    await pending;
+    await route.continue();
+  };
+  await page.route('**/chat', delay);
   await page.getByRole('textbox', { name: 'Message Noor Aziz' }).fill('Check the reserve, please.');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expectMark(page.getByText('The water stores are stable.', { exact: true }));
+  try {
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const typing = page.getByLabel('Noor Aziz is typing');
+    await expect(typing).toBeVisible();
+    await expect(typing.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
+    const other = (await actor.locator('option').allTextContents()).find(label => label.startsWith('Supplied leader ('))!;
+    await actor.selectOption({ label: other });
+    await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+    releaseReply();
+    expect((await replyReceived).ok()).toBe(true);
+    await expect(typing).toHaveCount(0);
+    await expect(page.getByText('The water stores are stable.', { exact: true })).toHaveCount(0);
+    const generated = (await actor.locator('option').allTextContents()).find(label => label.startsWith('Generated leader ('))!;
+    await actor.selectOption({ label: generated });
+    await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+    await expectMark(page.getByText('The water stores are stable.', { exact: true }));
+  } finally {
+    releaseReply();
+    await page.unroute('**/chat', delay);
+  }
   const question = page.getByText('Check the reserve, please.', { exact: true });
   await expect(question).toBeVisible();
   await expect(question.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
@@ -332,3 +364,70 @@ test('the Scenario Editor exports only the recorded compiler role for a generate
     aiGenerated: true, generator: 'paracosm', models: { compiler: 'test-compiler' },
   });
 });
+
+test('editing generated instructions clears their source and preserves the other generated fields', async ({ page }) => {
+  await page.goto(origin + '/sim?tab=settings');
+  const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+    data: { scenarioId: 'mars-genesis', count: 2 },
+  });
+  expect(generated.ok()).toBe(true);
+  const { actors } = await generated.json();
+  delete actors[1].aiAuthorship;
+  // Supply generated profiles as the settings roster while the real editor
+  // and launch request exercise field-level edits.
+  await page.route('**/scenario', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    await route.fulfill({ response, json: { ...body, presets: [{ id: 'default', leaders: actors }] } });
+  });
+  await page.reload();
+  const instructions = page.getByRole('textbox', { name: 'Instructions', exact: true }).first();
+  await expect(instructions).toHaveValue(actors[0].instructions);
+  await instructions.fill('Leave half the water in storage today.');
+  const launch = page.waitForRequest(request => request.url() === origin + '/setup' && request.method() === 'POST');
+  await page.getByRole('button', { name: 'Launch simulation' }).click();
+  const [edited, supplied] = (await launch).postDataJSON().actors;
+  expect(edited.instructions).toBe('Leave half the water in storage today.');
+  expect(edited.aiAuthorship).toEqual({
+    model: 'test-leader-writer',
+    fields: expect.arrayContaining(['name', 'archetype']),
+  });
+  expect(edited.aiAuthorship.fields).not.toContain('instructions');
+  expect(supplied.aiAuthorship).toBeUndefined();
+  await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
+  const authoredArchetype = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
+    .and(page.locator('[data-ai-generated="true"] > span')).first();
+  await expectMark(authoredArchetype);
+  const human = page.getByText('"Leave half the water in storage today."', { exact: true }).filter({ visible: true }).first();
+  await expect(human).toBeVisible();
+  await expect(human.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
+});
+
+for (const count of [24, 300]) {
+  test(`a selected generated leader retains its mark in a cohort of ${count}`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.goto(origin + '/sim');
+    const generated = await page.request.post(origin + '/api/quickstart/generate-actors', {
+      data: { scenarioId: 'mars-genesis', count },
+    });
+    expect(generated.ok()).toBe(true);
+    const { actors } = await generated.json();
+    expect(actors).toHaveLength(count);
+    expect(actors[count - 1].aiAuthorship.model).toBe('test-leader-writer');
+    await page.route('**/setup', route => route.continue({
+      postData: { ...route.request().postDataJSON(), actors, turns: 2 },
+    }));
+    await openPair(page, 'dark');
+    await expect(page.getByTestId('watch-grid-track').locator('[aria-label^="Living swarm grid for actor "]')).toHaveCount(count, { timeout: 60_000 });
+    await page.locator('button[data-layout="constellation"]').click();
+    const row = page.getByRole('row', { name: `Generated leader ${count}, Engineer`, exact: false });
+    await row.focus();
+    await expect(row).toBeFocused();
+    await row.press('Enter');
+    const profile = page.getByRole('dialog', { name: `Report for Generated leader ${count}` });
+    await expectMark(profile.getByText('ENGINEER', { exact: true }));
+    await expect(page.locator(meta)).toHaveCount(1);
+    await profile.getByRole('button', { name: 'Close drill-in' }).click();
+    await expect(profile).toHaveCount(0);
+  });
+}
