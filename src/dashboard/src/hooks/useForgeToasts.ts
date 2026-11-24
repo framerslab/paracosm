@@ -43,10 +43,6 @@ export interface UseForgeToastsOptions {
   /** True when the server has finished the SSE buffer replay on this
    *  connection. Toasts only fire for events received after this flips. */
   replayDone: boolean;
-  /** True while the guided tour is showing demo events; suppresses the
-   *  live-toast gate (demo events are canned and user already expects
-   *  them to fire as the tour advances). */
-  tourActive: boolean;
 }
 
 /**
@@ -70,7 +66,7 @@ function forgeToastsEnabled(): boolean {
   }
 }
 
-export function useForgeToasts({ events, replayDone, tourActive }: UseForgeToastsOptions): void {
+export function useForgeToasts({ events, replayDone }: UseForgeToastsOptions): void {
   // Power-user opt-in. The default-off behavior keeps the SIM panel
   // legible for first-time viewers; the inline PASS/FAIL pill on each
   // forge EventCard still surfaces every outcome where forge activity
@@ -104,8 +100,7 @@ export function useForgeToasts({ events, replayDone, tourActive }: UseForgeToast
   const toastedForgeKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const done = tourActive ? true : replayDone;
-    if (!done) return;
+    if (!replayDone) return;
     // `reset()` shrinks events back to zero. Realign the watermark so
     // the next stream is treated as live — without this the watermark
     // could stay at, say, 120 from the prior run and suppress every
@@ -113,17 +108,16 @@ export function useForgeToasts({ events, replayDone, tourActive }: UseForgeToast
     if (liveStartIndexRef.current === null || liveStartIndexRef.current > events.length) {
       liveStartIndexRef.current = events.length;
     }
-  }, [replayDone, events.length, tourActive]);
+  }, [replayDone, events.length]);
 
   useEffect(() => {
     if (!enabled) return;
     const seen = readSeen();
     const alreadyToasted = toastedForgeKeysRef.current;
-    const done = tourActive ? true : replayDone;
     // If replay hasn't finished yet OR the live-start watermark is still
     // unset, ALL current events are historical. Otherwise only events at
     // index >= watermark count as live.
-    const liveStart = done ? (liveStartIndexRef.current ?? Infinity) : Infinity;
+    const liveStart = replayDone ? (liveStartIndexRef.current ?? Infinity) : Infinity;
 
     // Stagger live toasts so a burst of forges in one commit doesn't
     // flash simultaneously. 450ms between pops reads as a sequence
@@ -164,5 +158,5 @@ export function useForgeToasts({ events, replayDone, tourActive }: UseForgeToast
       }, delay);
     }
     writeSeen(seen);
-  }, [enabled, events, toast, replayDone, tourActive, readSeen, writeSeen]);
+  }, [enabled, events, toast, replayDone, readSeen, writeSeen]);
 }

@@ -1529,7 +1529,7 @@ async function recordTraceNames(page: Page): Promise<void> {
 
 /** Waits until the replay has played in to its end: the page's run status reads Complete. */
 const replayComplete = (page: Page, timeout: number) =>
-  expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout });
+  expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeAttached({ timeout });
 
 const traceNamesSeen = (page: Page): Promise<string[]> =>
   page.evaluate(() => (window as unknown as { traceNames?: string[] }).traceNames ?? []);

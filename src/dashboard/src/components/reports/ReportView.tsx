@@ -32,6 +32,7 @@ import { MetricSparklines } from './MetricSparklines';
 import { ReportSideNav, type SideNavItem } from './ReportSideNav';
 import { collectMetricSeries, collectMetricSeriesCohort, collectRunStripData } from './reports-shared';
 import { getActorColorVar } from '../../hooks/useGameState';
+import { EmptyTab } from '../layout/EmptyTab';
 import styles from './ReportView.module.scss';
 import { emitLaunched } from '../../scenario-sync';
 
@@ -486,13 +487,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
         </div>
       );
     }
-    return (
-      <div className={styles.empty}>
-        <div className={styles.emptyMsg}>
-          Run a simulation first to see the report.
-        </div>
-      </div>
-    );
+    return <EmptyTab kind="reports" />;
   }
 
   return (

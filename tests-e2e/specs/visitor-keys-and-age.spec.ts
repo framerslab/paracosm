@@ -1,4 +1,5 @@
 import { networkInterfaces } from 'node:os';
+import { openTab } from '../support/frame.js';
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { mars, settingsBody } from '../../tests/cli/helpers/run-server.js';
 import { pressStart } from '../support/start-run.js';
@@ -79,7 +80,7 @@ test('the first dashboard load moves an old model and search key to tab storage'
   await expect(page.getByTestId('note-adults')).toBeAttached();
   await expect.poll(() => stores(page)).toEqual({ local: null, session: old });
   expect(await savedLaunch(page)).toEqual(settingsBody(mars));
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await openTab(page, 'settings');
   await expect(field(page, 'openai')).toHaveValue(MARKER);
   await expect(field(page, 'tavily')).toHaveValue(SEARCH_MARKER);
 });
@@ -208,7 +209,7 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
 
   await note.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await openTab(page, 'chat');
   await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent chat', exact: true })).toHaveCount(0);
   expect(chats).toEqual([]);
@@ -253,7 +254,7 @@ const againButton = (page: Page) => page.getByRole('button', { name: /Run again 
 const chatRegion = (page: Page) => page.getByRole('region', { name: 'Agent chat' });
 
 async function enterVisitorKey(page: Page): Promise<void> {
-  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await openTab(page, 'settings');
   await field(page, 'openai').fill(VISITOR_KEY);
 }
 
@@ -264,7 +265,7 @@ async function saveLastLaunch(page: Page): Promise<void> {
 }
 
 async function typeChat(page: Page): Promise<void> {
-  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await openTab(page, 'chat');
   await chatRegion(page).getByRole('button', { name: /Lena Ortiz/ }).first().click();
   await chatRegion(page).getByRole('textbox', { name: 'Message Lena Ortiz' }).fill('How is the greenhouse?');
 }
@@ -276,7 +277,7 @@ test('network HTTP keeps the visitor key in Settings through Start, Run again an
 
   // A search field that holds only spaces is no key to the server, so it
   // holds no run back here either.
-  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await openTab(page, 'settings');
   await field(page, 'serper').fill('   ');
 
   // Make a finished Mars Genesis run without a visitor key, using the real
@@ -292,13 +293,13 @@ test('network HTTP keeps the visitor key in Settings through Start, Run again an
   await chatRegion(page).getByRole('button', { name: 'Send', exact: true }).click();
   await expect.soft(chatRegion(page).getByText(REFUSAL, { exact: true })).toBeVisible();
 
-  await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+  await openTab(page, 'sim');
   await againButton(page).click();
   await expect.soft(againButton(page).locator('..').getByText(REFUSAL, { exact: true })).toBeVisible();
 
   await pressStart(page);
   await expect.soft(page.getByTestId('start-band').getByText(REFUSAL, { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await openTab(page, 'settings');
   await expect(field(page, 'openai')).toHaveValue(VISITOR_KEY);
   expectNoVisitorKey(requests);
 });

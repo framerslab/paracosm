@@ -318,3 +318,24 @@
     background: var(--surface-3, rgba(255, 255, 255, 0.06));
   }
 }
+
+.openRunFile {
+  color: var(--text-1);
+  font: 400 var(--font-read)/1.4 var(--sans);
+
+  p { margin: var(--frame-gap) 0 0; }
+
+  button {
+    min-height: var(--frame-target-size);
+    padding-inline: var(--frame-gap);
+    border: var(--frame-rule-width) solid var(--edge-control);
+    border-radius: var(--radius-md);
+    background: var(--bg-deep);
+    color: var(--text-1);
+    font: inherit;
+    cursor: pointer;
+
+    &:hover { border-color: var(--amber); }
+    &:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  }
+}

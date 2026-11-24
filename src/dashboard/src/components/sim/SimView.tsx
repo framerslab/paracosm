@@ -17,7 +17,8 @@ import { WatchGridPanels } from './WatchGridPanels';
 import { SimFooterBar } from './SimFooterBar';
 import { RerunPanel } from './RerunPanel';
 import { VerdictPanel } from './VerdictCard';
-import { LoadPriorRunsCTA } from '../settings/LoadPriorRunsCTA';
+import { EmptyTab } from '../layout/EmptyTab';
+import { useOnline } from '../quickstart/first-screen/useOnline';
 import { SimLayoutToggle, type SimLayout } from './SimLayoutToggle';
 import { ConstellationView } from './ConstellationView';
 import { ActorTable } from './ActorTable';
@@ -57,14 +58,6 @@ interface SimViewProps {
   /** Clears the intervention artifact so SimView returns to the standard
    *  parallel-actor layout. */
   onInterventionDismiss?: () => void;
-  /** Pins the layout to a fixed value, overriding the auto-default and
-   *  any previous user pick. The GuidedTour passes 'side-by-side' so its
-   *  highlight selectors (`.leaders-row`, `.sim-columns`,
-   *  `[aria-label="Colony statistics"]`) always exist — without this,
-   *  a viewer who had previously run a 3+ actor sim would see the tour
-   *  attempt to highlight nodes that the constellation layout never
-   *  renders, and the tour would silently no-op past Sim. */
-  forceLayout?: SimLayout;
 }
 
 // LeaderColumn (the per-leader scrolling-column helper) was removed
@@ -115,7 +108,7 @@ function IntroBar({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss, forceLayout }: SimViewProps) {
+export function SimView({ state, sseStatus, verdict, shownRun, launching = false, interventionArtifact, interventionRunning, interventionState = state, onInterventionDismiss }: SimViewProps) {
   const scenario = useScenarioContext();
   // Digital-twin short-circuit: when the dashboard receives an artifact
   // produced by simulateIntervention (subject + intervention populated),
@@ -171,7 +164,7 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
       setLayoutState('constellation');
     }
   }, [state.actorIds.length, layoutState]);
-  const layout: SimLayout = forceLayout ?? layoutState;
+  const layout = layoutState;
 
   const [drillInActor, setDrillInActor] = useState<string | null>(null);
   const drillInIndex = drillInActor ? state.actorIds.indexOf(drillInActor) : 0;
@@ -244,30 +237,11 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
     ? Math.min(100, Math.max(0, (state.turn / state.maxTurns) * 100))
     : 0;
 
-  const handleScrollToReplayCta = useCallback(() => {
-    // Prior UX tried to programmatically click the TopBar LOAD
-    // dropdown. That dropdown opens at the top of the screen while
-    // the user is looking at the empty state in the middle, so the
-    // click registered as "nothing happened" from the user's POV.
-    //
-    // Instead, scroll to the WATCH A PRIOR RUN card directly below.
-    const cta = document.querySelector<HTMLElement>(
-      '[data-paracosm-replay-cta="true"]',
-    );
-    if (!cta) return;
-    cta.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    // Flash the card border so the user's eye catches the landing
-    // spot (scroll alone is easy to miss on a long empty state).
-    cta.classList.add(styles.flashOn);
-    window.setTimeout(() => cta.classList.remove(styles.flashOn), 1200);
-  }, []);
-
-  const handleGoToSettings = useCallback(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('tab', 'settings');
-    window.history.replaceState({}, '', url.toString());
-    window.location.reload();
-  }, []);
+  const online = useOnline();
+  const replayRequested = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('replay');
+  if (!state.isRunning && !state.isComplete && !hasEvents && !launching && !replayRequested && (sseStatus === 'connected' || !online)) {
+    return <EmptyTab kind="watch" />;
+  }
 
   const columnsVisible = state.isRunning || state.isComplete || hasEvents || sseStatus === 'connected';
 
@@ -439,41 +413,12 @@ export function SimView({ state, sseStatus, verdict, shownRun, launching = false
           shortly. Showing the generic "No simulation running" copy here
           reads as a broken load. Mirror the SwarmViz fix from 147d55055
           (instant cached-run replay + replay-aware empty state). */}
-      {!state.isRunning && !state.isComplete && !hasEvents && sseStatus === 'connected' && !launching && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('replay') && (
+      {!state.isRunning && !state.isComplete && !hasEvents && sseStatus === 'connected' && !launching && replayRequested && (
         <div className={styles.centerState} role="status" aria-live="polite">
           <span className={`spinner ${styles.centerStateSpinnerSmall}`} aria-hidden="true" />
           <div className={styles.centerStateHeading}>Loading replay…</div>
           <div className={styles.centerStateCopy}>
             Streaming the cached run back from the server. Turns and events will populate as they arrive.
-          </div>
-        </div>
-      )}
-
-      {/* Empty state: connected but no events and no sim running. A new
-          run starts from the Run tab's Start, the one control that starts
-          one; here a visitor loads a run they already have. */}
-      {!state.isRunning && !state.isComplete && !hasEvents && sseStatus === 'connected' && !launching && !(typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('replay')) && (
-        <div className={styles.centerState}>
-          <div className={styles.centerStateHeadingLarger}>No simulation running</div>
-          <div className={styles.centerStateCopyWide}>
-            Configure your commanders with different HEXACO personality profiles, choose a scenario, and launch from the Settings tab. Or load a previously saved simulation.
-          </div>
-          <div className={styles.emptyStateActions}>
-            <button onClick={handleScrollToReplayCta} className={styles.buttonLoad}>
-              Load Prior Run
-            </button>
-            <button onClick={handleGoToSettings} className={styles.buttonSettings}>
-              Settings
-            </button>
-          </div>
-          {/* Surface saved-run replays right in the empty state so users
-              who land on SIM without a running simulation can start
-              watching a prior run with one click. */}
-          <div
-            data-paracosm-replay-cta="true"
-            className={`${styles.replayCtaWrap} ${styles.flashCard}`}
-          >
-            <LoadPriorRunsCTA />
           </div>
         </div>
       )}

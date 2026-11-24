@@ -212,10 +212,11 @@ async function openRun(page: Page, run: { id: string; turns: number }, look: Loo
   await page.goto(`${SERVER}/sim?replay=${encodeURIComponent(run.id)}&tab=viz`);
   await lookShown(page, look);
   await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
-  await expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout: 60_000 });
+  const status = page.getByRole('region', { name: 'Run status' });
+  await expect(status.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeAttached({ timeout: 60_000 });
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
-  await expect(page.getByRole('contentinfo').getByText(/^\d+k tokens$/)).toBeVisible();
-  await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
+  await expect(status.getByText(/^\d+k tokens$/)).toBeVisible();
+  await expect(status.getByText(/^\$\d+\.\d+$/)).toBeVisible();
 }
 
 /** Opens or folds the turn's words. */
@@ -450,8 +451,8 @@ for (const look of LOOKS) {
     await picture(page, `390x339-${look}-outcomes-scrolled-to`);
     const line = await ariaLine(page).textContent().catch(() => null);
 
-    // The panel's end: the play controls and the legend.
-    await wheelUntil(page, async () => false);
+    // The keyboard legend is at the panel's end, before the page footer.
+    await wheelUntil(page, () => inView(legend(page)));
     await painted(page);
     await picture(page, `390x339-${look}-panel-end`);
     const playInView = await inView(playRow(page));
@@ -497,7 +498,7 @@ for (const look of LOOKS) {
     const line = await ariaLineAnywhere(page).textContent().catch(() => null);
 
     // The panel's end: the play controls and the legend.
-    await wheelUntil(page, async () => false);
+    await wheelUntil(page, () => inView(legend(page)));
     await painted(page);
     await picture(page, `844x339-${look}-panel-end`);
     const playInView = await inView(playRow(page));
@@ -1409,7 +1410,7 @@ async function openLive(page: Page, request: APIRequestContext, run: { id: strin
   await page.goto(`${SERVER}/sim?tab=viz`);
   await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
-  await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Run status' }).getByText(/^\$\d+\.\d+$/)).toBeVisible();
 }
 
 for (const size of [PHONE, wideDesktop]) {

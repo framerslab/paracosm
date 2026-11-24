@@ -271,7 +271,15 @@ export function readTabKeyOverrides(): KeyOverrides {
   }
 }
 
-/** Saves key fields to this tab, removing the entry when the fields are empty. */
+/**
+ * The window event {@link writeTabKeyOverrides} sends after it saves the
+ * keys, to the readers in the window that wrote them. The browser's own
+ * `storage` event never reaches that window, and for session storage it
+ * reaches no other tab either: only same-origin frames in the same tab.
+ */
+export const KEY_OVERRIDES_CHANGED = 'paracosm:key-overrides-changed';
+
+/** Saves key fields to this tab, removing the entry when the fields are empty, and tells this tab's readers. */
 export function writeTabKeyOverrides(overrides: KeyOverrides): void {
   try {
     const storage = window.sessionStorage;
@@ -280,7 +288,9 @@ export function writeTabKeyOverrides(overrides: KeyOverrides): void {
     else storage.removeItem(KEY_OVERRIDES_KEY);
   } catch {
     // The current form still works when the browser disables storage.
+    return;
   }
+  window.dispatchEvent(new Event(KEY_OVERRIDES_CHANGED));
 }
 
 /** Removes keys from the tab and discards any legacy copy still present. */

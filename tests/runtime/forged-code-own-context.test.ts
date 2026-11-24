@@ -34,10 +34,12 @@ function forgeInOwnProcess(request: { code: string; sandboxTimeoutMs?: number },
   const out = spawnSync(process.execPath, ['--import', 'tsx', '--import', './scripts/test-css-stub.mjs', PROBE, JSON.stringify(request)], {
     cwd: ROOT,
     encoding: 'utf8',
+    // The probe writes its results to fd 3. AgentOS logs to stdout.
+    stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
     timeout: limitMs,
     killSignal: 'SIGKILL',
   });
-  const lines = (out.stdout ?? '').split('\n').filter(Boolean);
+  const lines = (out.output[3] ?? '').split('\n').filter(Boolean);
   let line: ForgeOutcome['line'] = null;
   try {
     line = lines[0] ? JSON.parse(lines[0]) : null;

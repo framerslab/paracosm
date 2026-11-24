@@ -83,7 +83,7 @@ const lookShown = (page: Page, look: Look) =>
 
 /** Waits until the replay has played in to its end: the page's run status reads Complete. */
 const replayComplete = (page: Page, timeout: number) =>
-  expect(page.locator('[role="status"][aria-label^="Complete."]').first()).toBeAttached({ timeout });
+  expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeAttached({ timeout });
 
 /** Lets the page lay out and paint twice after a change. */
 const painted = (page: Page) =>

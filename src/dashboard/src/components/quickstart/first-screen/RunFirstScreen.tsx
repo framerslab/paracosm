@@ -5,7 +5,7 @@
  * living grid at turn 0, drawn once), the run's size in the leaders'
  * heading row, the note that the leaders are fictional, the leaders, the AI
  * and adults notes, Start with its run line and notice, the other scenarios,
- * and Write your own scenario. The page's foot ends the tab.
+ * and Write your own scenario.
  *
  * The run's size is the visitor's to choose on their own key or on a server
  * that is not the hosted demo, and the address holds it; a run on the
@@ -32,14 +32,13 @@ import { FictionalNote, FirstScreenNotes } from './FirstScreenNotes';
 import { formatResetTime } from './launchFailure';
 import { LeaderPair } from './LeaderPair';
 import { OtherScenarios } from './OtherScenarios';
-import { PageFoot } from './PageFoot';
 import { RunSize } from './RunSize';
 import { useTellRunTurns } from './runTurns';
 import { FREE_SIZE, sizeMode } from './runSize.helpers';
 import { ScenarioLine } from './ScenarioLine';
 import { SharedColonyPanel } from './SharedColonyPanel';
 import { StartBand, type StartRun } from './StartBand';
-import { noFreeRunLeft, ServerFactsProvider, useServerFacts } from './useServerFacts';
+import { noFreeRunLeft, useServerFacts } from './useServerFacts';
 import { useRunSetup } from './useRunSetup';
 import { WRITE_YOUR_OWN } from './words';
 import styles from './RunFirstScreen.module.scss';
@@ -118,10 +117,9 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
 
 export function RunFirstScreen({ onStart, onSeedReady, children }: RunFirstScreenProps) {
   return (
-    <ServerFactsProvider>
+    <>
       <FirstScreen onStart={onStart} onSeedReady={onSeedReady} />
       {children}
-      <PageFoot />
-    </ServerFactsProvider>
+    </>
   );
 }
