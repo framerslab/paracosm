@@ -84,8 +84,7 @@ export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, on
     keys[next]?.focus();
   }
 
-  function renderItem(item: SectionMenuItem, index: number) {
-    const descriptionId = id + '-description-' + index;
+  function renderItem(item: SectionMenuItem) {
     return (
       <a
         key={item.href}
@@ -93,8 +92,6 @@ export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, on
         data-row={item.label}
         role="menuitem"
         tabIndex={-1}
-        aria-label={item.label}
-        aria-describedby={item.description ? descriptionId : undefined}
         aria-current={item.current ? 'page' : undefined}
         href={item.href}
         target={item.external ? '_blank' : undefined}
@@ -112,7 +109,7 @@ export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, on
         }}
       >
         <span className={styles.name}>{item.label}</span>
-        {item.description && <span className={styles.description} id={descriptionId}>{item.description}</span>}
+        {item.description && <span className={styles.description}>{item.description}</span>}
       </a>
     );
   }
@@ -123,7 +120,7 @@ export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, on
       {firstLine && <p className={styles.line}>{firstLine}</p>}
       {items.map(renderItem)}
       <div className={styles.rule} role="separator" aria-orientation="horizontal" />
-      {links.map((item, index) => renderItem(item, items.length + index))}
+      {links.map(renderItem)}
     </div>,
     document.body,
   );
