@@ -97,7 +97,15 @@ export async function startServer(options: RunServerOptions = {}): Promise<RunSe
   const launches: Launch[] = [];
   const forkLaunches: Launch[] = [];
   const serverOptions = {
-    env: { ...process.env, APP_DIR: appDir, PARACOSM_HOSTED_DEMO: '', ...options.env },
+    // Run files go under the server's own folder unless the test names one,
+    // so a real run (and the start-up retention sweep) never reaches <cwd>/output.
+    env: {
+      ...process.env,
+      APP_DIR: appDir,
+      PARACOSM_HOSTED_DEMO: '',
+      PARACOSM_OUTPUT_DIR: process.env.PARACOSM_OUTPUT_DIR || join(appDir, 'runs'),
+      ...options.env,
+    },
     maxSimsPerDay: options.maxSimsPerDay ?? 0,
     runHistoryStore: createNoopRunHistoryStore(),
     runPairSimulations: async (config: NormalizedSimulationConfig, broadcast: BroadcastFn, signal?: AbortSignal, scenario?: ScenarioPackage) => {
