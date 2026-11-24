@@ -458,6 +458,13 @@ test('the CLI name override puts the new name where the shipped orders name the 
       assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Ask William to check the reserve.')),
         'the orders keep the longer word');
     }, promotionReply);
+    // A combining mark after the name belongs to the longer word.
+    writeFileSync(file, JSON.stringify({ actors: [{ ...mira, name: '\u0930\u093e\u092e', instructions: 'You are \u0930\u093e\u092e. Read the \u0930\u093e\u092e\u093e\u092f\u0923 first.' }] }));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
+      assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Read the \u0930\u093e\u092e\u093e\u092f\u0923 first.')),
+        'the orders keep the word that goes on with a vowel sign');
+    }, promotionReply);
 
     // An empty --instructions asks for orders filled for the new name.
     const filledForRen = fillInstructions({ ...shipped, name: 'Ren', instructions: undefined }).instructions;
