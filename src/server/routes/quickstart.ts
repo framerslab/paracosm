@@ -21,6 +21,7 @@ import { MAX_ORDER_CHARS } from '../../engine/presets/fill-instructions.js';
 import type { ActorInput } from '../../engine/types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { AiAuthorshipInputSchema } from '../../engine/ai-authorship.js';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
 import { generateQuickstartActors } from '../../runtime/world-model/index.js';
 import { WorldModel } from '../../runtime/world-model/index.js';
@@ -168,10 +169,7 @@ const LeaderSchema = z.object({
   }),
   instructions: z.string().max(MAX_ORDER_CHARS).optional(),
   description: z.string().optional(),
-  aiAuthorship: z.object({
-    model: z.string().min(1).max(160),
-    fields: z.array(z.enum(['name', 'archetype', 'unit', 'hexaco', 'instructions'])).max(5),
-  }).optional(),
+  aiAuthorship: AiAuthorshipInputSchema.optional(),
 });
 
 const SimulateInterventionSchema = z.object({

@@ -889,12 +889,12 @@ console.log(artifact.subject, artifact.intervention);
 
 ### Schema breaking-change gate (T6.2)
 
-`tests/engine/schema/breaking-change-gate.test.ts` fails any PR that diverges `RunArtifactSchema.shape` without bumping `COMPILE_SCHEMA_VERSION`. The committed snapshot fixture at `tests/engine/schema/run-artifact-schema-snapshot.json` is the canonical source of truth.
+`tests/engine/schema/breaking-change-gate.test.ts` fails any PR that diverges `RunArtifactSchema.shape` without bumping `RUN_ARTIFACT_SCHEMA_VERSION`. The committed snapshot fixture at `tests/engine/schema/run-artifact-schema-snapshot.json` is the canonical source of truth.
 
 Updating the schema:
 
 1. Edit the schema in `src/engine/schema/`.
-2. Bump `COMPILE_SCHEMA_VERSION` in `src/engine/compiler/cache.ts`.
+2. Bump `RUN_ARTIFACT_SCHEMA_VERSION` in `src/engine/schema/artifact.ts`. `COMPILE_SCHEMA_VERSION` keys generated hook sources and is raised only for a change to what a generated hook must do; raising it compiles every saved scenario again at the next server start.
 3. Run `npm run snapshot:schema` to regenerate the fixture.
 4. Commit the schema change, the version bump, and the fixture together.
 

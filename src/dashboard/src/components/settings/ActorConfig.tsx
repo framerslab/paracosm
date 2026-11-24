@@ -101,7 +101,7 @@ export function ActorConfig({ label, sideColor, data, onChange }: ActorConfigPro
           className={`pc-select ${styles.presetSelect}`}
           onChange={e => {
             const p = PERSONALITY_PRESETS.find(p => p.id === e.target.value);
-            if (p) onChange({ ...data, hexaco: { ...p.hexaco } });
+            if (p) onChange({ ...data, hexaco: { ...p.hexaco }, aiAuthorship: editAuthorship('hexaco') });
           }}
           defaultValue=""
         >

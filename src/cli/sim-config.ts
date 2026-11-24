@@ -14,6 +14,7 @@ import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
 import type { HexacoProfile } from '../engine/core/state.js';
 import { hexacoModel } from '../engine/traits/hexaco.js';
+import { AI_AUTHORED_LEADER_FIELDS, AI_AUTHORSHIP_MODEL_PATTERN } from '../engine/ai-authorship.js';
 import {
   resolveEconomicsProfile,
   type ResolvedEconomicsProfile,
@@ -844,8 +845,8 @@ function withNeutralTraits(input: ActorInput): ActorInput {
   if (input.aiAuthorship !== undefined) {
     const { aiAuthorship, ...base } = input;
     actor = base;
-    const fields = ['name', 'archetype', 'unit', 'hexaco', 'instructions'];
-    if (typeof aiAuthorship?.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(aiAuthorship.model)
+    const fields: readonly string[] = AI_AUTHORED_LEADER_FIELDS;
+    if (typeof aiAuthorship?.model === 'string' && AI_AUTHORSHIP_MODEL_PATTERN.test(aiAuthorship.model)
         && Array.isArray(aiAuthorship.fields)) {
       const authored = aiAuthorship.fields.filter(field => fields.includes(field));
       if (authored.length) actor = { ...base, aiAuthorship: { model: aiAuthorship.model, fields: [...new Set(authored)] } };
