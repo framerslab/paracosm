@@ -6,6 +6,9 @@ import { handleSimulate, type SimulateDeps } from '../../src/server/routes/simul
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import type { ScenarioPackage, ActorConfig } from '../../src/engine/types.js';
 import type { RunArtifact } from '../../src/engine/schema/index.js';
+import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
+import { modelCalls, setHostKeys, withProviderWire } from './helpers/provider-wire.js';
+import { withVisitors } from './helpers/run-server.js';
 
 function fakeRes() {
   let status = 0;
@@ -245,4 +248,91 @@ test('a simulate answer omits outputPath without changing the engine artifact', 
   assert.equal(get().status, 200);
   assert.deepEqual(get().body.artifact.scenarioExtensions, { label: 'kept' });
   assert.equal(artifact.scenarioExtensions.outputPath, '/tmp/simulate-output.json');
+});
+
+const testKey = 'openai-for-simulate-orders-test';
+const visitorKey = 'visitor-openai-for-simulate-orders-test';
+const prefix = 'A'.repeat(399) + 'Z';
+const filled = 'You are Test Leader, "Tester." Check the stores. Your HEXACO profile drives your leadership style.';
+
+test('simulate sends orders to the commander subject to the server payer decision', async t => {
+  const restore = setHostKeys({ OPENAI_API_KEY: testKey });
+  const cases = [
+    { name: 'omitted orders keep the description', expected: filled },
+    { name: '399 written units', instructions: 'A'.repeat(398) + 'Y', expected: 'A'.repeat(398) + 'Y' },
+    { name: '400 written units', instructions: prefix, expected: prefix },
+    { name: '401 host-paid units', instructions: prefix + '!', expected: prefix, excluded: prefix + '!' },
+    { name: 'host cap with daily limit off', instructions: prefix + '!', expected: prefix, excluded: prefix + '!', unlimited: true },
+    { name: 'visitor keeps 401 units', instructions: prefix + '!', expected: prefix + '!', ownKey: visitorKey },
+    { name: 'self-hosted keeps 401 units', instructions: prefix + '!', expected: prefix + '!', selfHosted: true },
+    { name: 'a blank capped prefix gets filled', instructions: ' '.repeat(400) + 'Wait.', expected: filled, excluded: ' '.repeat(400) },
+    { name: 'a split surrogate pair is removed', instructions: 'a'.repeat(399) + '🌱x', expected: 'a'.repeat(399), excluded: 'a'.repeat(399) + '\ud83c' },
+  ];
+  try {
+    for (const entry of cases) {
+      await t.test(entry.name, async () => {
+        await withProviderWire(async calls => {
+          await withVisitors(async api => {
+            const response = await api.cookied(entry.ownKey ? { 'X-API-Key': entry.ownKey } : undefined).post('/simulate', {
+              scenario: { id: marsScenario.id },
+              leader: { ...fakeLeader(), description: 'Check the stores.', instructions: entry.instructions },
+              options: { maxTurns: 1, payer: 'visitor' },
+              payer: 'visitor',
+            });
+            assert.equal(response.status, 200);
+            await response.json();
+
+            const boot = modelCalls(calls).filter(call =>
+              call.lastUser.includes('You receive department reports and make strategic decisions'));
+            const commander = boot.find(call => call.system.includes(GENERAL_AUDIENCE_GUIDANCE + '\n\n' + entry.expected));
+            assert.ok(commander, 'the expected orders reached the commander system message');
+            if (entry.excluded) assert.ok(!commander.system.includes(entry.excluded));
+            assert.ok(commander.key === (entry.ownKey ?? testKey));
+          }, {
+            maxSimsPerDay: entry.unlimited ? 0 : 1,
+            env: {
+              PARACOSM_ENABLE_SIMULATE_ENDPOINT: 'true',
+              PARACOSM_HOSTED_DEMO: entry.selfHosted ? '' : 'true',
+              OPENAI_API_KEY: testKey,
+            },
+            compileScenario: async () => marsScenario,
+            extra: { getDigitalTwinWorld: async () => null },
+          });
+        }, call => call.text.includes('You must promote') ? '{}' : undefined);
+      });
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('simulate refuses a host-paid request without a host key before sending orders', async () => {
+  const restore = setHostKeys({});
+  try {
+    await withProviderWire(async calls => {
+      let compiles = 0;
+      await withVisitors(async api => {
+        const response = await api.cookied().post('/simulate', {
+          scenario: { id: marsScenario.id }, leader: fakeLeader({ instructions: prefix + '!' }),
+        });
+        assert.equal(response.status, 503);
+        assert.equal(compiles, 0);
+        assert.equal(modelCalls(calls).length, 0);
+      }, {
+        env: {
+          PARACOSM_ENABLE_SIMULATE_ENDPOINT: 'true',
+          PARACOSM_HOSTED_DEMO: 'true',
+          OPENAI_API_KEY: '',
+          ANTHROPIC_API_KEY: '',
+        },
+        compileScenario: async () => {
+          compiles += 1;
+          return marsScenario;
+        },
+        extra: { getDigitalTwinWorld: async () => null },
+      });
+    });
+  } finally {
+    restore();
+  }
 });
