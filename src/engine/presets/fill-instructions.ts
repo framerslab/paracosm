@@ -3,6 +3,13 @@ import '../traits/builtins.js';
 import { traitModelRegistry, withDefaults } from '../traits/index.js';
 import { ACTOR_PRESETS } from './index.js';
 
+/**
+ * The most UTF-16 code units of written orders a host-paid run sends.
+ * Host-paid `/setup` and `/simulate` cut longer orders to it with
+ * {@link clipOrderText}, and the Digital Twin route refuses longer ones with
+ * a 400. On `/setup` and `/simulate`, runs on a visitor's key and on a
+ * self-hosted server keep their written orders whole. Filled orders fit in it.
+ */
 export const MAX_ORDER_CHARS = 400;
 
 /** Cut at a UTF-16 budget without leaving half of a surrogate pair. */
