@@ -20,7 +20,7 @@ import { compileScenario as compileScenarioReal } from '../engine/compiler/index
 import { marsScenario } from '../engine/scenarios/index.js';
 import { lunarScenario } from '../engine/scenarios/index.js';
 import type { ScenarioPackage } from '../engine/types.js';
-import { MAX_ORDER_CHARS } from '../engine/presets/fill-instructions.js';
+import { clipOrderText, MAX_ORDER_CHARS } from '../engine/presets/fill-instructions.js';
 import {
   apiKeyForProvider,
   credentialFingerprint,
@@ -3377,7 +3377,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           },
           runSimulation: async (leader, keyPersonnel, runOpts) => {
             const { runSimulation } = await import('../runtime/orchestrator/index.js');
-            return runSimulation(leader, keyPersonnel, { ...runOpts, outputDir: runsDir });
+            const actor = simulateRouting?.payer === 'host' && leader.instructions?.trim()
+              ? { ...leader, instructions: clipOrderText(leader.instructions) }
+              : leader;
+            return runSimulation(actor, keyPersonnel, { ...runOpts, outputDir: runsDir });
           },
         };
         await handleSimulate(req, res, body, deps, simulateCredentials, simulateRouting
