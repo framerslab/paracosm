@@ -37,7 +37,7 @@ export function AiWritten({
   return (
     <Element className={className} style={style} title={title} data-ai-generated={authored ? 'true' : undefined}>
       {authored && (typeof children === 'string' || typeof children === 'number') ? <span>{children}</span> : children}
-      {authored && <> <span ref={label} className={styles.label}>AI-written</span></>}
+      {authored && <> <span ref={label} className={styles.label} data-text="other">AI-written</span></>}
     </Element>
   );
 }
