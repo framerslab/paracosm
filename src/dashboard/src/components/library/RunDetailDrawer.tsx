@@ -29,7 +29,7 @@ export interface RunDetailDrawerProps {
 
 export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
   const { runId, open, onClose, onArtifactLoaded, onRunMissing, onReplayed } = props;
-  const { record, artifact, loading, error, status } = useRunArtifact(open ? runId : null);
+  const { record, artifact, verdict, loading, error, status } = useRunArtifact(open ? runId : null);
   const drawerRef = React.useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = React.useRef<HTMLElement | null>(null);
   const shareLink = useShareLink();
@@ -161,7 +161,7 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
                 </p>
               </section>
 
-              <RunReportDownloads artifact={artifact} filename={artifact.metadata.runId} />
+              <RunReportDownloads artifact={artifact} filename={artifact.metadata.runId} verdict={verdict} />
               <SwarmPanel artifact={artifact} />
 
               <section className={styles.detailBody}>

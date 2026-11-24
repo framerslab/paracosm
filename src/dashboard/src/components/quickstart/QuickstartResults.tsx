@@ -27,6 +27,7 @@ import styles from './QuickstartResults.module.scss';
 export interface QuickstartResultsProps {
   actors: ActorConfig[];
   artifacts: RunArtifact[];
+  verdict?: Record<string, unknown> | null;
   sessionId?: string;
   onSwap: (actorIndex: number, preset: LeaderPreset) => void;
 }
@@ -36,7 +37,7 @@ const HEXACO_TRAITS: Array<keyof NonNullable<ActorConfig['hexaco']>> = [
   'agreeableness', 'emotionality', 'honestyHumility',
 ];
 
-export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: QuickstartResultsProps) {
+export function QuickstartResults({ actors, artifacts, verdict, sessionId, onSwap }: QuickstartResultsProps) {
   const { dispatch } = useBranchesContext();
   const navigate = useDashboardNavigation();
   const labels = useScenarioLabels();
@@ -153,6 +154,7 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
               timeLabelCap={labels.Time}
               shareEnabled={!!sessionId}
               reportFilename={reportFilename(i)}
+              verdict={verdict}
               onShare={() => handleShare(i)}
               shareNote={sharedFrom === i && shareLink.shared
                 ? <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
@@ -184,6 +186,7 @@ interface ActorResultCardProps {
   timeLabelCap: string;
   shareEnabled: boolean;
   reportFilename: string;
+  verdict?: Record<string, unknown> | null;
   onShare: () => void;
   /** The share note, when this card's key made it. */
   shareNote: ReactNode;
@@ -193,7 +196,7 @@ interface ActorResultCardProps {
 
 function ActorResultCard({
   actor, artifact, peers, timeLabel, timeLabelCap,
-  shareEnabled, shareNote, reportFilename, onShare, onFork, onRequestSwap,
+  shareEnabled, shareNote, reportFilename, verdict, onShare, onFork, onRequestSwap,
 }: ActorResultCardProps) {
   const deltas = useMemo(() => computeMedianDeltas(artifact, peers), [artifact, peers]);
   const turnsCompleted = artifact.trajectory?.timepoints?.length ?? 0;
@@ -245,7 +248,7 @@ function ActorResultCard({
         </ul>
       )}
       <div className={styles.actions}>
-        <RunReportDownloads artifact={artifact} filename={reportFilename} />
+        <RunReportDownloads artifact={artifact} filename={reportFilename} verdict={verdict} />
         <button
           type="button"
           onClick={onShare}

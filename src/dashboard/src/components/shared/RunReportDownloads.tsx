@@ -13,7 +13,11 @@ export function useRunExportProvenance(): RunProvenance {
   return useMemo(() => exportProvenance(provenance), [provenance]);
 }
 
-export function RunReportDownloads({ artifact, filename }: { artifact: RunArtifact; filename: string }) {
+export function RunReportDownloads({ artifact, filename, verdict }: {
+  artifact: RunArtifact;
+  filename: string;
+  verdict?: Record<string, unknown> | null;
+}) {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState(false);
 
@@ -23,8 +27,8 @@ export function RunReportDownloads({ artifact, filename }: { artifact: RunArtifa
     try {
       const marked = { ...artifact, provenance: exportProvenance(artifact.provenance) };
       if (format === 'json') downloadJson(JSON.stringify(marked, null, 2), `${filename}.json`);
-      if (format === 'html') downloadBlob(new Blob([makeRunReportHtml(marked)], { type: 'text/html;charset=utf-8' }), `${filename}.html`);
-      if (format === 'pdf') downloadBlob(new Blob([await makeRunReportPdf(marked)], { type: 'application/pdf' }), `${filename}.pdf`);
+      if (format === 'html') downloadBlob(new Blob([makeRunReportHtml(marked, verdict)], { type: 'text/html;charset=utf-8' }), `${filename}.html`);
+      if (format === 'pdf') downloadBlob(new Blob([await makeRunReportPdf(marked, verdict)], { type: 'application/pdf' }), `${filename}.pdf`);
     } catch {
       setError(true);
     } finally {

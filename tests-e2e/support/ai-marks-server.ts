@@ -58,7 +58,7 @@ const run: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async (c
           metadata: { ...savedArtifact.metadata, runId },
           provenance: { aiGenerated: true, generator: 'paracosm', models: { commander: side === 0 ? 'test-commander-a' : 'test-commander-b' } },
           decisions: [{ ...savedArtifact.decisions[0], actor: actor.name, choice: 'Keep a reserve of water.', aiWrittenFields: ['choice'] }],
-          scenarioExtensions: { ...savedArtifact.scenarioExtensions, outputPath },
+          scenarioExtensions: { ...savedArtifact.scenarioExtensions, outputPath, paracosmInternal: { leader: actor } },
         };
         writeFileSync(outputPath, JSON.stringify(artifact));
         await onArtifact?.(artifact, actor);

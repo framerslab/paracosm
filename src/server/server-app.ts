@@ -2561,6 +2561,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       scenarioLookup: (id) => lookupScenario(req, id),
       runScope: runScopeFor(req),
       savedSessionIds,
+      savedVerdict: async (id, actorName) => {
+        const session = await sessionStore?.getSession(id).catch(() => null);
+        const event = session?.events.findLast(({ sse }) => /^event: (?:cohort_)?verdict\r?\n/.test(sse));
+        const json = event?.sse.split('\n').find(line => line.startsWith('data: '))?.slice(6);
+        if (!json) return undefined;
+        try {
+          const verdict = JSON.parse(json) as Record<string, unknown>;
+          const fields = Object.fromEntries(
+            ['headline', 'summary', 'keyDivergence', 'reasoning', 'verdictModel']
+              .filter(field => typeof verdict[field] === 'string')
+              .map(field => [field, verdict[field]]),
+          );
+          const ranking = actorName && Array.isArray(verdict.rankings)
+            ? verdict.rankings.find(entry => entry?.actorName === actorName) : undefined;
+          if (typeof ranking?.rationale === 'string') {
+            return { ...fields, rankings: [{ actorName, rationale: ranking.rationale }] };
+          }
+          return fields;
+        } catch {
+          return undefined;
+        }
+      },
     })) {
       return;
     }

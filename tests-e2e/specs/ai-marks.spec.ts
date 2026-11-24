@@ -320,7 +320,7 @@ test('the Scenario Editor exports only the recorded compiler role for a generate
   } });
   expect(compiled.ok()).toBe(true);
   expect(await compiled.text()).toContain('event: complete');
-  expect((await page.request.post(origin + '/scenario/switch', { data: { scenarioId: id } })).ok()).toBe(true);
+  expect((await page.request.post(origin + '/scenario/switch', { data: { id } })).ok()).toBe(true);
   await page.reload();
   const [download] = await Promise.all([
     page.waitForEvent('download'),

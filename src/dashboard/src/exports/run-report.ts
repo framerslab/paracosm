@@ -16,7 +16,43 @@ interface Passage {
   authored: boolean;
 }
 
-function passages(artifact: RunArtifact): Passage[] {
+function verdictPassages(verdict: Record<string, unknown> | null | undefined, actor: string | undefined): Passage[] {
+  if (!verdict || verdict.skipped === true) return [];
+  const passages: Passage[] = [];
+  for (const [field, heading] of [
+    ['headline', 'Verdict'], ['summary', 'Verdict summary'], ['keyDivergence', 'Key divergence'], ['reasoning', 'Verdict reasoning'],
+  ] as const) {
+    const text = verdict[field];
+    if (typeof text === 'string' && text.trim()) passages.push({ heading, text, authored: true });
+  }
+  if (actor && Array.isArray(verdict.rankings)) {
+    const rank = verdict.rankings.find(entry => entry && entry.actorName === actor);
+    if (typeof rank?.rationale === 'string' && rank.rationale.trim()) {
+      passages.push({ heading: 'Ranking rationale', text: rank.rationale, authored: true });
+    }
+  }
+  return passages;
+}
+
+function selectedActor(artifact: RunArtifact): string | undefined {
+  const recorded = artifact.scenarioExtensions?.paracosmInternal as { leader?: { name?: unknown } } | undefined;
+  return typeof recorded?.leader?.name === 'string'
+    ? recorded.leader.name
+    : artifact.decisions?.find(decision => decision.actor)?.actor;
+}
+
+function projectReport(artifact: RunArtifact, verdict?: Record<string, unknown> | null) {
+  const actor = selectedActor(artifact);
+  const verdictText = verdictPassages(verdict, actor);
+  return {
+    title: [artifact.metadata.scenario.name, actor].filter(Boolean).join(' · '),
+    provenance: exportProvenance(artifact.provenance, verdictText.length ? verdict : null),
+    verdict: verdictText,
+    passages: [...artifactPassages(artifact), ...verdictText],
+  };
+}
+
+function artifactPassages(artifact: RunArtifact): Passage[] {
   const report: Passage[] = [];
   for (const decision of artifact.decisions ?? []) {
     for (const [field, heading] of [['choice', 'Decision'], ['rationale', 'Rationale'], ['reasoning', 'Reasoning']] as const) {
@@ -36,36 +72,32 @@ function passages(artifact: RunArtifact): Passage[] {
   return report;
 }
 
-function reportTitle(artifact: RunArtifact): string {
-  const actor = artifact.decisions?.find(decision => decision.actor)?.actor;
-  return [artifact.metadata.scenario.name, actor].filter(Boolean).join(' · ');
-}
-
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-export function makeRunReportHtml(artifact: RunArtifact): string {
-  const provenance = exportProvenance(artifact.provenance);
-  const title = escapeHtml(reportTitle(artifact));
-  const sections = passages(artifact).map(({ heading, text, authored }) =>
+export function makeRunReportHtml(artifact: RunArtifact, verdict?: Record<string, unknown> | null): string {
+  const report = projectReport(artifact, verdict);
+  const title = escapeHtml(report.title);
+  const sections = report.passages.map(({ heading, text, authored }) =>
     `<section><h2>${escapeHtml(heading)}</h2><p${authored ? ' data-ai-generated="true"' : ''}>${escapeHtml(text)}${authored ? ' <span>AI-written</span>' : ''}</p></section>`,
   );
-  const embedded = JSON.stringify({ provenance }).replaceAll('<', '\\u003c');
+  const embedded = JSON.stringify({ provenance: report.provenance }).replaceAll('<', '\\u003c');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="ai-generated-content" content="partial"><script type="application/json" id="paracosm-provenance">${embedded}</script></head><body><main><h1>${title}</h1>${sections.join('')}</main></body></html>`;
 }
 
-export async function makeRunReportPdf(artifact: RunArtifact): Promise<Uint8Array<ArrayBuffer>> {
+export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<string, unknown> | null): Promise<Uint8Array<ArrayBuffer>> {
   const { PDFDocument, PDFName, StandardFonts } = await import('pdf-lib');
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const provenance = exportProvenance(artifact.provenance);
+  const report = projectReport(artifact, verdict);
   const encoder = new TextEncoder();
-  const xml = doc.context.stream(encoder.encode(makeProvenanceXmp(provenance)), { Type: 'Metadata', Subtype: 'XML' });
+  const xml = doc.context.stream(encoder.encode(makeProvenanceXmp(report.provenance)), { Type: 'Metadata', Subtype: 'XML' });
   doc.catalog.set(PDFName.of('Metadata'), doc.context.register(xml));
   const attachment = {
     metadata: artifact.metadata,
-    provenance,
+    provenance: report.provenance,
+    ...(report.verdict.length ? { verdict: report.verdict } : {}),
     decisions: artifact.decisions?.map(({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields }) =>
       ({ time, actor, choice, rationale, reasoning, outcome, aiWrittenFields })),
     specialistNotes: artifact.specialistNotes?.map(({ domain, summary, detail, aiWrittenFields }) =>
@@ -117,8 +149,8 @@ export async function makeRunReportPdf(artifact: RunArtifact): Promise<Uint8Arra
       await draw(line);
     }
   };
-  await write(reportTitle(artifact));
-  for (const { heading, text, authored } of passages(artifact)) {
+  await write(report.title);
+  for (const { heading, text, authored } of report.passages) {
     await draw('');
     await write(heading);
     await write(text);
