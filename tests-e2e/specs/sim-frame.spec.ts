@@ -1378,7 +1378,15 @@ test('Settings opens where the browser refuses local storage', async ({ page }) 
   });
   await page.goto(SIM + '?tab=settings');
   await expect(page.getByRole('group', { name: 'Stored data' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Stored data' }).getByRole('button', { name: 'Clear local data' })).toBeVisible();
+  const clear = page.getByRole('group', { name: 'Stored data' }).getByRole('button', { name: 'Clear local data' });
+  await expect(clear).toBeVisible();
+  // Clear local data still lets go of the server run and resets the page.
+  await page.route('**/clear', route => route.fulfill({ status: 200, json: { ok: true } }));
+  const released = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === '/clear');
+  page.once('dialog', dialog => void dialog.accept());
+  await clear.click();
+  await released;
+  await expect(page.getByText('Local data cleared', { exact: true })).toBeVisible();
 });
 
 test('a Restore while a started run has sent nothing yet asks first', async ({ page }) => {
