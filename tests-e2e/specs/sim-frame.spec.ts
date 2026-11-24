@@ -917,8 +917,15 @@ test('feature 2: a tab that did not load, and Try again', async ({ page }) => {
     await new Promise(resolve => setTimeout(resolve, 2_000));
     await route.continue();
   });
+  const reportAssets: number[] = [];
+  page.on('response', response => {
+    if (/\/assets\/ReportView-[^/]+\.js$/.test(new URL(response.url()).pathname)) {
+      reportAssets.push(response.status());
+    }
+  });
   await retry.click();
   await expect(page.getByRole('button', { name: 'Trying…', exact: true })).toBeDisabled();
+  await expect.poll(() => reportAssets, { message: 'Reports retries the built script on the dashboard server' }).toContain(200);
   await expect(emptyTitle(page, 'No report yet.')).toBeVisible();
 });
 
