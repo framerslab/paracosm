@@ -46,7 +46,9 @@ for (const width of [320, 390]) {
       await openPair(page, look);
       await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
       const id = await savedPairId(page, leader);
-      await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(id));
+      const replay = await page.request.get(origin + '/sessions/' + encodeURIComponent(id) + '/replay');
+      expect(replay.ok()).toBe(true);
+      expect(await replay.text()).toContain(JSON.stringify(headline));
 
       const banner = page.getByRole('status', { name: 'Simulation verdict' });
       await expectMark(banner.getByText(headline, { exact: true }));

@@ -1538,7 +1538,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         {/* Live notices come before the comparison on every layout. On
             desktop the comparison follows the fields, which keeps both whole
             fields above playback. */}
-        <div className={styles.transientRow} data-live-notices={hasSnapshots && !isReplay ? '' : undefined}>
+        <div className={styles.transientRow} data-live-notices={hasSnapshots ? '' : undefined}>
           <div className={styles.notices}>
             <div
               role="status"
@@ -1547,31 +1547,31 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
               aria-atomic="true"
               className={showAlert ? styles.alertRegion : styles.srOnly}
             >
-            {showAlert && (
-              <div
-                key={showAlert.key}
-                onClick={() => setAlertToast(null)}
-                className={styles.toast}
-                style={{
-                  '--side-color': showAlert.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-                  '--left-accent': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-                } as CSSProperties}
-                title={`${showAlert.message} (click to dismiss)`}
-              >
+              {showAlert && (
                 <div
-                  className={styles.toastKicker}
+                  key={showAlert.key}
+                  onClick={() => setAlertToast(null)}
+                  className={styles.toast}
                   style={{
-                    '--kicker-color': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                    '--side-color': showAlert.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+                    '--left-accent': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
                   } as CSSProperties}
+                  title={`${showAlert.message} (click to dismiss)`}
                 >
-                  <span>{showAlert.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
-                  <span className={styles.toastKickerMeta}>
-                    {showAlert.side.toUpperCase()} · T{showAlert.turn}
-                  </span>
+                  <div
+                    className={styles.toastKicker}
+                    style={{
+                      '--kicker-color': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                    } as CSSProperties}
+                  >
+                    <span>{showAlert.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
+                    <span className={styles.toastKickerMeta}>
+                      {showAlert.side.toUpperCase()} · T{showAlert.turn}
+                    </span>
+                  </div>
+                  <div className={styles.toastBody}>{showAlert.message}</div>
                 </div>
-                <div className={styles.toastBody}>{showAlert.message}</div>
-              </div>
-            )}
+              )}
             </div>
             {hasSnapshots && !isReplay && crisisToast && (
               <div

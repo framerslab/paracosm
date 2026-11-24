@@ -93,7 +93,7 @@
 }
 
 .vizPanel .canvasWrap {
-  flex-basis: var(--viz-field-preferred-height, 0px);
+  flex-basis: var(--viz-field-preferred-height, 0%);
   min-height: var(--viz-field-min-height, 200px);
 }
 

@@ -1369,6 +1369,8 @@ test('the live Viz region exists before a morale alert and announces its words o
   expect(await status.evaluate((node, initial) => node === initial, mounted)).toBe(true);
   await expect(panel.getByText(message, { exact: true })).toHaveCount(1);
   await expect(words).toBeVisible();
+  await words.scrollIntoViewIfNeeded();
+  await picture(page, '390x844-dark-threshold-alert');
   await words.click();
   await expect(status).toBeEmpty();
 });

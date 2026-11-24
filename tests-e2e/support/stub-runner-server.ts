@@ -32,14 +32,15 @@ function step(ms: number, signal?: AbortSignal): Promise<boolean> {
 
 async function scriptedRun(config: NormalizedSimulationConfig, broadcast: BroadcastFn, signal?: AbortSignal): Promise<void> {
   const leaders = config.actors;
-  const vizThreshold = config.scenarioId === 'mars-genesis' && leaders[0]?.name === 'Morale test leader';
-  broadcast('status', { phase: 'starting', maxTurns: TURNS });
+  const vizThreshold = config.quickstart?.scenarioId === 'mars-genesis' && leaders[0]?.name === 'Morale test leader';
+  const turns = vizThreshold ? 3 : TURNS;
+  broadcast('status', { phase: 'starting', maxTurns: turns });
   broadcast('status', {
     phase: 'parallel',
-    maxTurns: TURNS,
+    maxTurns: turns,
     actors: leaders.map(l => ({ name: l.name, archetype: l.archetype, unit: l.unit, hexaco: l.hexaco })),
   });
-  for (let turn = 1; turn <= TURNS; turn++) {
+  for (let turn = 1; turn <= turns; turn++) {
     for (const l of leaders) {
       broadcast('sim', { type: 'turn_start', leader: l.name, data: { turn, time: turn, title: `${l.name}: turn ${turn}` } }, l.name);
     }
@@ -52,7 +53,7 @@ async function scriptedRun(config: NormalizedSimulationConfig, broadcast: Broadc
       broadcast('sim', { type: 'turn_done', leader: l.name, data: { turn, time: turn, metrics: { population: 100, morale: 0.7 } } }, l.name);
       if (vizThreshold) {
         const agents = crewOf(l.name, turn, DEPARTMENTS);
-        const morale = turn === 2 && l === leaders[0] ? 0.4 : 0.7;
+        const morale = turn >= 2 && l === leaders[0] ? 0.4 : 0.7;
         broadcast('sim', { type: 'systems_snapshot', leader: l.name, data: {
           turn, time: turn, agents, morale, population: agents.length, births: 0, deaths: 0,
         } }, l.name);
