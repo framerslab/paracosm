@@ -840,12 +840,16 @@ function forkParentTimeline(
  * An actor without a HEXACO profile is returned as it came.
  */
 function withNeutralTraits(input: ActorInput): ActorInput {
-  const { aiAuthorship, ...actor } = input;
-  const fields = ['name', 'archetype', 'unit', 'hexaco', 'instructions'];
-  if (typeof aiAuthorship?.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(aiAuthorship.model)
-      && Array.isArray(aiAuthorship.fields)) {
-    const authored = aiAuthorship.fields.filter(field => fields.includes(field));
-    if (authored.length) Object.assign(actor, { aiAuthorship: { model: aiAuthorship.model, fields: [...new Set(authored)] } });
+  let actor = input;
+  if (input.aiAuthorship !== undefined) {
+    const { aiAuthorship, ...base } = input;
+    actor = base;
+    const fields = ['name', 'archetype', 'unit', 'hexaco', 'instructions'];
+    if (typeof aiAuthorship?.model === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/.test(aiAuthorship.model)
+        && Array.isArray(aiAuthorship.fields)) {
+      const authored = aiAuthorship.fields.filter(field => fields.includes(field));
+      if (authored.length) actor = { ...base, aiAuthorship: { model: aiAuthorship.model, fields: [...new Set(authored)] } };
+    }
   }
   const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
   if (!given || typeof given !== 'object') return actor;
