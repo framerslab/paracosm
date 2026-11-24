@@ -1368,3 +1368,58 @@ test('feature 1: a key saved in Settings shows in the header at once', async ({ 
   await field.fill('visitor-key-header-fixture');
   await expect(visitor(page)).toHaveText('Your API key', { useInnerText: true });
 });
+
+test('Settings opens where the browser refuses local storage', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('Storage unavailable', 'SecurityError'); },
+    });
+  });
+  await page.goto(SIM + '?tab=settings');
+  await expect(page.getByRole('group', { name: 'Stored data' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Stored data' }).getByRole('button', { name: 'Clear local data' })).toBeVisible();
+});
+
+test('a Restore while a started run has sent nothing yet asks first', async ({ page }) => {
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  await savedPair(page).click();
+  await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Complete/ })).toBeVisible();
+  // Start was pressed and the page moved on, and the run's first frame has not come.
+  await page.route('**/events', () => undefined);
+  await page.evaluate(() => localStorage.setItem('paracosm:launchPending', '1'));
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  const restore = page.getByRole('region', { name: 'Kept in this browser' })
+    .getByRole('button', { name: 'Restore', exact: true }).first();
+  await expect(restore).toBeVisible();
+  const question = page.waitForEvent('dialog', { timeout: 10_000 });
+  const answer = question.then(dialog => dialog.dismiss());
+  await restore.click();
+  expect((await question).message()).toBe('Replace the run on screen with this one?');
+  await answer;
+  await expect(page).toHaveURL(/[?&]tab=library/);
+});
+
+test('Delete server data appears once a failed admin read is answered, with Settings open', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('paracosm:adminToken', 'e2e-admin-token'));
+  let failing = true;
+  let held = 0;
+  let release = () => {};
+  const released = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/admin-config', async route => {
+    if (!failing) return route.continue();
+    held += 1;
+    await released;
+    await route.fulfill({ status: 503, json: { error: 'unavailable' } });
+    held -= 1;
+  });
+  await page.goto(SERVERS.admin + '/sim?tab=settings');
+  const stored = page.getByRole('group', { name: 'Stored data' });
+  await expect(stored.getByRole('button', { name: 'Clear local data' })).toBeVisible();
+  // The page's reads fail after the Settings controls are on screen.
+  await expect.poll(() => held).toBeGreaterThan(0);
+  release();
+  await expect.poll(() => held).toBe(0);
+  failing = false;
+  await expect(stored.getByRole('button', { name: 'Delete server data' })).toBeVisible({ timeout: 20_000 });
+});

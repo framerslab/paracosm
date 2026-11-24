@@ -27,7 +27,7 @@
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { openTab } from '../support/frame.js';
-import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
+import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_FALLBACK, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
 import { noRunOnPage, pressStart } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stub engine runs on a local server of its own.');
@@ -195,6 +195,18 @@ test.describe('Digital Twin events @twin', () => {
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
     await expect(finishedRun(page)).toHaveCount(0);
+  });
+
+  test('the run status bar counts the twin\'s own validation fallbacks on another scenario', async ({ page }) => {
+    const release = await holdAnswer(page, TWIN_ENGINE_FALLBACK);
+    await startRun(page);
+    await expect(running(page)).toBeVisible();
+    const status = page.getByRole('region', { name: 'Run status' });
+    await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
+    await expect(status.getByLabel('1 validation fallback', { exact: true })).toBeVisible();
+    release();
+    await expect(result(page)).toBeVisible();
+    await expect(status.getByLabel('1 validation fallback', { exact: true })).toBeVisible();
   });
 
   test('a page that did not run it stays without it', async ({ page, browser, baseURL }) => {
