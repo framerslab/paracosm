@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runSim } from '../../src/cli/run-sim.js';
+import { fillInstructions } from '../../src/engine/presets/fill-instructions.js';
 import type { ActorInput } from '../../src/engine/types.js';
 import { GENERAL_AUDIENCE_GUIDANCE } from '../../src/runtime/util/audience.js';
 import { WorldModel } from '../../src/runtime/world-model/index.js';
@@ -426,4 +428,76 @@ test('the CLI name override keeps file orders and fills blanks using the new nam
     else delete process.env.PARACOSM_OUTPUT_DIR;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the CLI name override puts the new name where the shipped orders name the old leader', async () => {
+  const shippedPath = fileURLToPath(new URL('../../config/actors.json', import.meta.url));
+  const [shipped] = (JSON.parse(readFileSync(shippedPath, 'utf-8')) as { actors: ActorInput[] }).actors;
+  const shippedOrders = shipped.instructions ?? '';
+  assert.equal(shipped.name, 'Aria Chen');
+  assert.ok(shippedOrders.includes('Aria Chen'), 'the shipped orders name their leader');
+  const expected = shippedOrders.split('Aria Chen').join('Ren');
+  const dir = mkdtempSync(join(tmpdir(), 'paracosm-cli-rename-'));
+  const oldOutput = process.env.PARACOSM_OUTPUT_DIR;
+  const restore = setHostKeys({ OPENAI_API_KEY: orderTestKey });
+  process.env.PARACOSM_OUTPUT_DIR = dir;
+  try {
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', shippedPath, '--name', 'Ren', '--provider', 'openai']), 0);
+      const boot = commanderBootstraps(calls);
+      assert.ok(boot.length > 0, 'the commander was started');
+      assert.ok(boot.some(call => ordersIn(call, expected)), 'the renamed orders reached the commander');
+      for (const call of boot) assert.ok(!call.system.includes('Aria Chen'), 'no commander call names the old leader');
+    }, promotionReply);
+
+    // Only the name itself changes: a longer word that starts with it stays.
+    const file = join(dir, 'actors.json');
+    writeFileSync(file, JSON.stringify({ actors: [{ ...mira, name: 'Will', instructions: 'You are Will. Ask William to check the reserve.' }] }));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
+      assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Ask William to check the reserve.')),
+        'the orders keep the longer word');
+    }, promotionReply);
+    // A combining mark after the name belongs to the longer word.
+    writeFileSync(file, JSON.stringify({ actors: [{ ...mira, name: '\u0930\u093e\u092e', instructions: 'You are \u0930\u093e\u092e. Read the \u0930\u093e\u092e\u093e\u092f\u0923 first.' }] }));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
+      assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Read the \u0930\u093e\u092e\u093e\u092f\u0923 first.')),
+        'the orders keep the word that goes on with a vowel sign');
+    }, promotionReply);
+
+    // An empty --instructions asks for orders filled for the new name.
+    const filledForRen = fillInstructions({ ...shipped, name: 'Ren', instructions: undefined }).instructions;
+    assert.ok(filledForRen.startsWith('You are Ren, "The Visionary."'));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', shippedPath, '--name', 'Ren', '--instructions', '', '--provider', 'openai']), 0);
+      const boot = commanderBootstraps(calls);
+      assert.ok(boot.some(call => ordersIn(call, filledForRen)), 'the filled orders reached the commander');
+      for (const call of boot) assert.ok(!call.system.includes('Commander Ren'), 'the file orders were not sent');
+    }, promotionReply);
+  } finally {
+    restore();
+    if (oldOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = oldOutput;
+    else delete process.env.PARACOSM_OUTPUT_DIR;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('setup fills orders for a leader whose description is not text', async () => {
+  const body = settingsBody(mars);
+  await withVisitors(async api => {
+    const visitor = api.cookied();
+    const response = await visitor.post('/setup', {
+      ...body, turns: 1, actors: [{ ...mira, description: 5 }, body.actors[1]],
+    });
+    assert.equal(response.status, 200);
+    const { config } = await waitFor(() => api.launches[0], 'the launch');
+    assert.equal(config.actors[0].instructions,
+      'You are Mira, "The Surveyor." Your HEXACO profile drives your leadership style.');
+    await visitor.json('/results');
+  }, {
+    maxSimsPerDay: 2,
+    env: { PARACOSM_HOSTED_DEMO: 'true', OPENAI_API_KEY: orderTestKey },
+    extra: { getDigitalTwinWorld: async () => null },
+  });
 });

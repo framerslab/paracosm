@@ -61,7 +61,8 @@ function parseActorFromArgs(args: readonly string[]): Partial<ActorInput> {
     if (arg === '--name' && next) { actor.name = next; i += 1; }
     else if (arg === '--archetype' && next) { actor.archetype = next; i += 1; }
     else if (arg === '--unit' && next) { actor.unit = next; i += 1; }
-    else if (arg === '--instructions' && next) { actor.instructions = next; i += 1; }
+    // An empty value is kept: it asks for orders filled from the actor's traits.
+    else if (arg === '--instructions' && next !== undefined) { actor.instructions = next; i += 1; }
     else if (arg === '--openness' && next) { hexaco.openness = parseFloat(next); i += 1; }
     else if (arg === '--conscientiousness' && next) { hexaco.conscientiousness = parseFloat(next); i += 1; }
     else if (arg === '--extraversion' && next) { hexaco.extraversion = parseFloat(next); i += 1; }
@@ -110,6 +111,21 @@ export async function runSim(argv: readonly string[]): Promise<number> {
     ...cliActor,
     ...(mergedHexaco ? { hexaco: mergedHexaco } : {}),
   };
+  // A new name takes the old one's place in the file's written orders, so
+  // the commander is not told it is the leader it replaces. Only the name as
+  // a whole changes, never part of a longer word. Orders that do not name the
+  // old leader, and orders given with --instructions, go as written.
+  const oldName = typeof baseActor.name === 'string' ? baseActor.name.trim() : '';
+  const newName = cliActor.name;
+  if (
+    newName && cliActor.instructions === undefined && oldName && newName !== oldName
+    && typeof actor.instructions === 'string'
+  ) {
+    const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Letters, combining marks, digits and _ go on a word, so none of them may touch the name.
+    const wholeName = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, 'gu');
+    actor.instructions = actor.instructions.replace(wholeName, () => newName);
+  }
 
   process.stdout.write(`\n  Actor: ${actor.name} (${actor.archetype}): ${actor.unit}\n`);
   if (actor.hexaco) {

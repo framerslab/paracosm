@@ -291,7 +291,7 @@ paracosm compile scenarios/lunar.json --seed-url <url> --max-searches 5
 paracosm init my-app --domain "Submarine crew of 8" --actors 3
 ```
 
-The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./config/actors.json`, then a bundled example. A back-compat `paracosm-dashboard` alias is shipped for existing scripts and Docker invocations.
+The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./config/actors.json`, then a bundled example. `--name` renames the chosen actor, and its written orders take the new name wherever they name the old one. A back-compat `paracosm-dashboard` alias is shipped for existing scripts and Docker invocations.
 
 ### Share a sim with a one-click link
 
