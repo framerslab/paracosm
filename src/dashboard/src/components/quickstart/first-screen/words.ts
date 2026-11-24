@@ -472,20 +472,3 @@ export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 /** Above Start's notice, as two lines. */
 export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
 export const NOTE_ADULTS = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";
-
-/** The foot's navigation, for a screen reader. */
-export const SITE_LINKS = 'Site links';
-
-/** The key that holds Docs, GitHub and npm when the foot's links do not fit one row. */
-export const MORE_LINKS = 'More links';
-
-/** The foot's links. */
-export const FOOT_LINKS = [
-  { label: 'Docs', href: '/docs' },
-  { label: 'GitHub', href: 'https://github.com/framerslab/paracosm' },
-  { label: 'npm', href: 'https://www.npmjs.com/package/paracosm' },
-  { label: 'Privacy', href: '/#privacy' },
-] as const;
-
-/** The foot's licence line. */
-export const LICENCE_LINE = 'Paracosm · Apache-2.0 · Frame.dev';

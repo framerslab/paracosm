@@ -11,6 +11,8 @@ export const TWIN_ENGINE_FAILS = 'twin-engine-fails';
 /** A subject id that makes the stub engine take 150 ms between events, as a model-backed run takes seconds. */
 export const TWIN_ENGINE_SLOW = 'twin-engine-slow';
 export const TWIN_ENGINE_ERROR = 'stub engine failed';
+/** A subject id that makes the stub engine report one reply that failed its schema, after the first turn. */
+export const TWIN_ENGINE_FALLBACK = 'twin-engine-fallback';
 
 export interface TwinEvent {
   type: string;

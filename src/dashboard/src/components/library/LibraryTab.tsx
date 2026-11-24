@@ -22,7 +22,10 @@ import { RunDetailDrawer } from './RunDetailDrawer.js';
 import { CompareModal } from '../compare/CompareModal.js';
 import { EmptyState } from './EmptyState.js';
 
-export function LibraryTab(): JSX.Element {
+import { SavedRuns, type SavedRunsProps } from './SavedRuns.js';
+
+/** Browses saved replays and run records. */
+export function LibraryTab({ savedRuns }: { savedRuns?: SavedRunsProps } = {}): JSX.Element {
   const searchRef = React.useRef<HTMLInputElement>(null);
   const { filters, setFilters, runs, total, hasMore, loading, error } = useRunsList();
   const { records: recentRecords, push: pushRecent, remove: removeRecent } = useRecentlyViewed();
@@ -118,6 +121,8 @@ export function LibraryTab(): JSX.Element {
           >Table</button>
         </div>
       </header>
+
+      {savedRuns && <SavedRuns {...savedRuns} />}
 
       <HeroStatsStrip
         filters={{ mode: filters.mode, scenario: filters.scenarioId, leader: filters.actorConfigHash }}

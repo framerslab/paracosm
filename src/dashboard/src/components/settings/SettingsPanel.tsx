@@ -1,3 +1,4 @@
+import { StoredDataControls } from './StoredDataControls';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -29,6 +30,7 @@ import {
 } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
+import { safeLocalStorage } from '../quickstart/first-screen/effectiveLaunch';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -189,6 +191,9 @@ const MIN_ACTORS = 2;
 const MAX_ACTORS = 8;
 
 export interface SettingsPanelProps {
+  onClearLocal?: () => void;
+  onWipeServer?: () => void;
+  onOpenStoredData?: () => void;
   /** SSE events to feed the embedded EventLogPanel sub-tab. Optional
    *  so callers that don't care about Log (or mount Settings before the
    *  SSE pipe is ready) can omit it; the sub-tab just renders an empty
@@ -200,7 +205,7 @@ export interface SettingsPanelProps {
   initialSubTab?: SettingsSubTab;
 }
 
-export function SettingsPanel({ events = [], initialSubTab = 'config' }: SettingsPanelProps = {}) {
+export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
   // Persist sub-tab in the URL so refresh / shared links land back on
   // the user's last open panel. 'config' is the default — omit the
@@ -222,11 +227,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // then go in by one rule (withPresetLeaders), at once when the scenario
   // is already loaded (Settings opened from another tab) and when GET
   // /scenario answers after a fresh load, so both show the same form.
-  const persistedActors =
-    typeof window !== 'undefined' ? readActiveRunActors(window.localStorage) : null;
-  const [rosterScenarioId] = useState(() =>
-    typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
-  );
+  // Reading the property throws where the browser refuses storage, so it
+  // goes through safeLocalStorage and the form starts from the defaults.
+  const storage = safeLocalStorage();
+  const persistedActors = storage ? readActiveRunActors(storage) : null;
+  const [rosterScenarioId] = useState(() => (storage ? readActiveRunScenarioId(storage) : null));
   const [actors, setActors] = useState<ActorFormData[]>(() => {
     const count = Math.max(
       MIN_ACTORS,
@@ -467,7 +472,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, actors, scenario.id);
+      const launchStorage = safeLocalStorage();
+      if (launchStorage) writeActiveRunActors(launchStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
       Object.assign(config, sessionProviderKeys(keyOverrides));
       if (keyOverrides.serper) config.serperKey = keyOverrides.serper;
@@ -892,6 +898,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
           </legend>
           <AdminTokenField />
         </fieldset>
+      )}
+
+      {onClearLocal && (
+        <StoredDataControls onClearLocal={onClearLocal} onWipeServer={onWipeServer} onOpen={onOpenStoredData} />
       )}
 
       {/* Scenario Editor: create, import, export, compile. Its own

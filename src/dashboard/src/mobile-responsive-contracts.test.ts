@@ -6,22 +6,6 @@ function read(path: string): string {
   return readFileSync(new URL(path, import.meta.url), 'utf8');
 }
 
-test('mobile contracts: TabBar is CSS responsive and has no viewport-driven inline styles', () => {
-  const component = read('./components/layout/TabBar.tsx');
-  const styles = read('./components/layout/TabBar.module.scss');
-  const tokens = read('./theme/tokens.css');
-
-  assert.ok(!component.includes('window.innerWidth'), 'TabBar must not branch on window.innerWidth');
-  assert.ok(!component.includes('style={{'), 'TabBar layout should live in its SCSS module');
-  assert.ok(component.includes("from './TabBar.module.scss'"), 'TabBar imports its SCSS module');
-  assert.match(styles, /@media\s*\(max-width:\s*900px\)/, 'TabBar has a tablet/mobile breakpoint');
-  assert.match(styles, /min-width:\s*44px/, 'TabBar keeps a 44px touch-target floor');
-  assert.ok(!styles.includes('min-width: 36px'), 'TabBar module must not shrink below 44px');
-  assert.ok(!tokens.includes('.tab-bar button { min-width: 36px'), 'global phone rules must not shrink tabs below 44px');
-  assert.match(styles, /\.icon/, 'TabBar can expose icons in compact CSS layout');
-  assert.match(styles, /\.label/, 'TabBar can hide labels in compact CSS layout');
-});
-
 test('mobile contracts: RunTable exposes labels and card-like phone layout', () => {
   const component = read('./components/library/RunTable.tsx');
   const styles = read('./components/library/RunTable.module.scss');

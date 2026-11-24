@@ -217,8 +217,11 @@ export function useGamePersistence(
   }, [scenarioShortName]);
 
   const clearCache = useCallback(() => {
-    localStorage.removeItem(storageKey(scenarioShortName, 'game-data'));
-    localStorage.setItem(storageKey(scenarioShortName, 'cleared'), Date.now().toString());
+    // Storage can be refused by the browser; the server's run is still let go.
+    try {
+      localStorage.removeItem(storageKey(scenarioShortName, 'game-data'));
+      localStorage.setItem(storageKey(scenarioShortName, 'cleared'), Date.now().toString());
+    } catch { /* storage unavailable */ }
     fetch('/clear', { method: 'POST' }).catch(() => {});
   }, [scenarioShortName]);
 

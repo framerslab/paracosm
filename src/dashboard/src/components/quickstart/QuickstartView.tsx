@@ -9,7 +9,6 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
-import { PageFoot } from './first-screen/PageFoot';
 import { presetLeadersForLaunch, type LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
@@ -636,7 +635,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       )}
       {/* The first screen ends in its own foot; while a run starts or shows
           its results, the same foot ends the tab. */}
-      {phase.kind !== 'input' && <PageFoot />}
     </div>
   );
 }

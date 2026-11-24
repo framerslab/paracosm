@@ -1,0 +1,54 @@
+@use '../quickstart/first-screen/shape' as *;
+
+@include loading-shape-keyframes;
+
+.state {
+  padding: var(--frame-side-padding);
+  color: var(--text-1);
+  font: 400 var(--font-read-body)/1.5 var(--sans);
+}
+
+.problem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--frame-gap);
+
+  p { margin: 0; }
+}
+
+.mark {
+  flex: 0 0 var(--frame-glyph-size);
+  block-size: var(--frame-glyph-size);
+}
+
+.retry {
+  --tab-retry-width: calc(2 * var(--frame-target-size) + var(--frame-gap));
+  min-block-size: var(--frame-target-size);
+  min-inline-size: var(--tab-retry-width);
+  margin-block-start: var(--frame-gap);
+  padding-inline: var(--frame-gap);
+  border: var(--frame-rule-width) solid var(--edge-control);
+  background: var(--bg-deep);
+  color: var(--text-1);
+  font: 600 var(--font-read)/1.4 var(--sans);
+  cursor: pointer;
+
+  &:hover:enabled { background: var(--bg-panel); }
+  &:disabled { cursor: default; }
+}
+
+.shapes {
+  display: grid;
+  gap: var(--frame-gap);
+  max-inline-size: var(--frame-column);
+
+  &[aria-hidden="true"] > :first-child {
+    inline-size: 30%;
+    block-size: var(--frame-glyph-size);
+  }
+}
+
+.shape {
+  @include loading-shape;
+  block-size: var(--frame-target-size);
+}

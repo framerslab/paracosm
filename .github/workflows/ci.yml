@@ -213,6 +213,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Frame end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/sim-frame.spec.ts --project=chromium-desktop
+
+      - name: Upload the frame pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sim-frame-pictures
+          path: test-pictures/sim-frame/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Mobile responsive end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/mobile-responsive.spec.ts --project=chromium-desktop
+
+      - name: Top bar flush end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/topbar-flush.spec.ts --project=chromium-desktop
+
       # Every row of keys is one row from 320 px (the Viz toolbar in each mode,
       # its More panel and the Sim tab's evidence row), with keys 44 px wide and
       # tall below 900 px; on a phone the turn's words never shrink the living

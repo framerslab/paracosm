@@ -3,7 +3,7 @@
  *
  * Asserts that no element on any primary tab extends past the document's
  * client width (i.e. no horizontal scroll, no clipped chrome) at the
- * mobile (375x812) viewport. Runs under the `chromium-mobile` project.
+ * mobile (390x844) viewport on the Chromium desktop project.
  *
  * Failures here mean a layout regression that ships horizontal scroll
  * to the dashboard's mobile users — the highest-fidelity audience for
@@ -21,13 +21,14 @@ interface Offender {
 }
 
 test.describe('Mobile responsive @mobile', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
   for (const tab of TABS) {
     test(`no horizontal overflow on /sim?tab=${tab}`, async ({ page }) => {
       await page.goto(`/sim?tab=${tab}`);
-      await expect(page.locator('[role=tablist]').first()).toBeVisible({ timeout: 15_000 });
-      // Let the layout settle — initial flex/grid passes can briefly
-      // overflow before reflow lands.
-      await page.waitForTimeout(500);
+      await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('tab-loading')).toHaveCount(0);
+      await page.evaluate(() => document.fonts.ready.then(() => undefined));
 
       const result = await page.evaluate(() => {
         const docW = document.documentElement.clientWidth;
@@ -50,7 +51,7 @@ test.describe('Mobile responsive @mobile', () => {
           const cs = getComputedStyle(el);
           if (cs.position === 'absolute' && (cs.clip !== 'auto' || cs.left.startsWith('-'))) continue;
           if (cs.visibility === 'hidden' || cs.display === 'none') continue;
-          // Modal/popover surfaces (TopBar dropdowns, RUN menu) sit on
+          // Menus and popovers sit on
           // a fixed/absolute layer; their content can extend past the
           // viewport without forcing horizontal page scroll. Skip
           // anything inside a position:fixed/absolute layer that the
