@@ -1343,16 +1343,15 @@ test('feature 2: two tabs that retry while one stylesheet still loads', async ({
     await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
   }
   await page.unroute(assets);
-  // The stylesheets answer slowly, so Library retries while Studio's is on its way.
+  // The stylesheets answer slowly. Opening a tab that failed retries it, so
+  // Library retries while Studio's stylesheet is still on its way.
   await page.route('**/assets/*.css', async route => {
     await new Promise(resolve => setTimeout(resolve, 3_000));
     await route.continue();
   });
   await openTab(page, 'studio');
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByTestId('tab-loading')).toBeVisible();
   await openTab(page, 'library');
-  const libraryRetry = page.getByRole('button', { name: 'Try again', exact: true });
-  if (await libraryRetry.isVisible()) await libraryRetry.click();
   await expect(page.getByRole('heading', { name: 'Saved runs', exact: true })).toBeVisible({ timeout: 20_000 });
   await openTab(page, 'studio');
   await expect(page.getByRole('status').filter({ hasText: tabFailure })).toHaveCount(0);
