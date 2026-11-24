@@ -122,7 +122,8 @@ export async function runSim(argv: readonly string[]): Promise<number> {
     && typeof actor.instructions === 'string'
   ) {
     const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const wholeName = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'gu');
+    // Letters, combining marks, digits and _ go on a word, so none of them may touch the name.
+    const wholeName = new RegExp(`(?<![\\p{L}\\p{M}\\p{N}_])${escaped}(?![\\p{L}\\p{M}\\p{N}_])`, 'gu');
     actor.instructions = actor.instructions.replace(wholeName, () => newName);
   }
 
