@@ -39,6 +39,17 @@ export function TabBar({ active, onTabChange, scenario, moreFirstLine, headerFol
     if (restoreFocus) anchor.current?.focus();
   }, []);
 
+  // A refold changes which tabs the menu holds, and can take away the item
+  // that has focus: the menu closes, with focus back on More.
+  const previousFold = useRef(fold);
+  useLayoutEffect(() => {
+    if (fold === previousFold.current) return;
+    previousFold.current = fold;
+    if (!open) return;
+    const focus = document.activeElement;
+    close(!focus || focus === document.body || !!focus.closest('[role="menu"]'));
+  }, [close, fold, open]);
+
   useLayoutEffect(() => {
     if (active === previousTab.current) return;
     previousTab.current = active;

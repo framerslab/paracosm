@@ -6,7 +6,7 @@
  *
  * @module paracosm/cli/dashboard/hooks/useLocalHistory
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SimEvent } from './useSSE';
 import {
   DEFAULT_HISTORY_CAP,
@@ -61,14 +61,27 @@ export interface UseLocalHistoryApi {
   ): void;
 }
 
+/** The storage of a browser that keeps nothing: reads find nothing, writes go nowhere. */
+const NO_STORAGE: StorageLike = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
+/** The browser's localStorage, or null outside a browser and where reading the property throws. */
+function browserStorage(): StorageLike | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function useLocalHistory(
   opts: UseLocalHistoryOptions,
 ): UseLocalHistoryApi {
-  const storage: StorageLike =
-    opts.storage ??
-    (typeof window !== 'undefined'
-      ? window.localStorage
-      : { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  // A browser that blocks site storage throws on reading the property
+  // itself: the history then lives for this page only, starting empty.
+  const storage = useMemo<StorageLike>(
+    () => opts.storage ?? browserStorage() ?? NO_STORAGE,
+    [opts.storage],
+  );
   const maxSize = opts.maxSize ?? DEFAULT_HISTORY_CAP;
 
   const [entries, setEntries] = useState<LocalHistoryEntry[]>(() =>
@@ -101,7 +114,11 @@ export function useLocalHistory(
     } catch {
       // Malformed legacy payload — drop it below.
     }
-    storage.removeItem(key);
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Storage refused the write; the legacy key stays where it was.
+    }
   }, [opts.scenarioShortName, maxSize, storage]);
 
   const push = useCallback(

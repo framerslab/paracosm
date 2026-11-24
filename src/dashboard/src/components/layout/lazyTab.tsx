@@ -13,6 +13,32 @@ function failedModuleUrl(error: unknown): URL | undefined {
   if (url.origin === window.location.origin) return url;
 }
 
+/**
+ * Puts back every stylesheet of this site that failed to load. The bundler's
+ * preload helper remembers a stylesheet it tried, so a second import of the
+ * tab would skip it and the tab would show unstyled.
+ */
+function reloadFailedStylesheets(): Promise<unknown> {
+  const failed = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+    .filter(link => link.sheet === null && new URL(link.href, window.location.href).origin === window.location.origin);
+  return Promise.all(failed.map(link => new Promise<void>((resolve, reject) => {
+    const fresh = document.createElement('link');
+    fresh.rel = 'stylesheet';
+    fresh.href = link.href;
+    fresh.addEventListener('load', () => resolve(), { once: true });
+    fresh.addEventListener('error', () => reject(new Error('Unable to load the stylesheet ' + link.href)), { once: true });
+    link.replaceWith(fresh);
+  })));
+}
+
+/**
+ * A tab whose module loads the first time the tab opens, then stays loaded
+ * for the page. `load` imports the module and `name` is the component it
+ * exports. While the module loads the tab shows its loading shapes; offline
+ * it says it loads once the page is back online; after a failure it offers
+ * Try again, which fetches a failed module again from a new module URL and
+ * puts back any stylesheet that failed with it.
+ */
 export function lazyTab<P extends object, Name extends string>(
   load: () => Promise<Record<Name, ComponentType<P>>>,
   name: Name,
@@ -22,18 +48,22 @@ export function lazyTab<P extends object, Name extends string>(
   let failedUrl: URL | undefined;
   let pending: Promise<TabModule> | undefined;
   let retries = 0;
+  /** Whether the module was asked for before, so a stylesheet may have failed with it. */
+  let attempted = false;
 
   function loadTab() {
     if (!pending) {
-      let request: Promise<TabModule>;
+      let importTab: () => Promise<TabModule> = load;
       if (failedUrl) {
         // The fragment gives the browser a new module URL while keeping
         // the request for the same file on the dashboard server.
         failedUrl.hash = 'tab-retry-' + ++retries;
-        request = import(/* @vite-ignore */ failedUrl.href) as Promise<TabModule>;
-      } else {
-        request = load();
+        const href = failedUrl.href;
+        importTab = () => import(/* @vite-ignore */ href) as Promise<TabModule>;
       }
+      // A first try asks for the stylesheets itself; a retry puts back those that failed.
+      const request = attempted ? reloadFailedStylesheets().then(importTab) : importTab();
+      attempted = true;
       pending = request.then(
         module => (loaded = module),
         error => {

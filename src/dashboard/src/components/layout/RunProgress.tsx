@@ -16,6 +16,8 @@ export function RunProgress({ gameState, validationFallbacks }: {
 
   return (
     <div className={styles.meta}>
+      {/* Reads each new turn aloud, and only the turn: the time and seed stay quiet. */}
+      <span className="sr-only" aria-live="polite">Turn {gameState.turn} of {gameState.maxTurns}</span>
       {/* The compact figures open tooltips with their full meaning. */}
       <Tooltip
         content={

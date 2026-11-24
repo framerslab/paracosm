@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import type { DashboardTab } from '../../tab-routing';
 import { TabBar } from './TabBar';
@@ -104,6 +104,23 @@ export function TopBar({
     };
   }, [overflowOpen]);
 
+  /** The menu's arrow keys, Home and End move between its actions, as a menu's keys do. */
+  function moveInRunActions(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const actions = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    if (!actions.length) return;
+    const at = actions.indexOf(document.activeElement as HTMLElement);
+    let next: number;
+    switch (event.key) {
+      case 'ArrowDown': next = (at + 1) % actions.length; break;
+      case 'ArrowUp': next = at < 0 ? actions.length - 1 : (at + actions.length - 1) % actions.length; break;
+      case 'Home': next = 0; break;
+      case 'End': next = actions.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    actions[next]?.focus();
+  }
+
   return (
     <header role="banner" className={styles.bar}>
       <div ref={row} data-row="Header" data-row-fold={fold} className={styles.row}>
@@ -160,6 +177,7 @@ export function TopBar({
                   role="menu"
                   tabIndex={-1}
                   className={styles.overflowMenu}
+                  onKeyDown={moveInRunActions}
                 >
                   {hasEvents && onSave && (
                     <button

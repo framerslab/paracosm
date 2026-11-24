@@ -24,7 +24,15 @@
     </script>
     <script>
       window.addEventListener('error', (event) => {
-        if (!(event.target instanceof HTMLScriptElement) || event.target.type !== 'module') return;
+        const target = event.target;
+        // The entry module's file did not load: the script element reports it.
+        const notFetched = target instanceof HTMLScriptElement && target.type === 'module';
+        // The entry module, or a module it imports, threw while it ran: the
+        // window reports it. Only before the dashboard mounts, which removes
+        // #seo-shell, and only for this site's own scripts.
+        const stopped = target === window && document.getElementById('seo-shell') !== null &&
+          typeof event.filename === 'string' && event.filename.startsWith(location.origin + '/');
+        if (!notFetched && !stopped) return;
         const failure = document.getElementById('boot-failed');
         if (failure) {
           failure.hidden = false;
@@ -112,6 +120,8 @@
             </a>
           </div>
         </header>
+        <!-- The skip link's target until the dashboard mounts; its own main takes the id then. -->
+        <div id="main-content" tabindex="-1">
         <p id="boot-failed" class="boot-failed" data-text="body" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
             <path d="M10 14.5 7.2 17.3a3 3 0 0 1-4.24-4.24L5.8 10.2a3 3 0 0 1 4.2-.05" />
@@ -141,6 +151,7 @@
               for code examples that don't require the dashboard.</p>
           </div>
         </noscript>
+        </div>
       </div>
     </div>
     <!-- The Analytics choices control of the hosted demo's consent bar, outside

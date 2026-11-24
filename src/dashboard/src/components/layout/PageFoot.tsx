@@ -19,8 +19,13 @@ const KEPT = FOOT_LINKS.slice(-1);
  * first link; the arrow keys, Home and End move between the links; Escape
  * closes it with focus back on the key; Tab or a press outside closes it.
  */
-function MoreLinks({ links, menuSlot }: { links: readonly FootLink[]; menuSlot?: HTMLElement | null }) {
-  const [open, setOpen] = useState(false);
+function MoreLinks({ links, menuSlot, open, setOpen }: {
+  links: readonly FootLink[];
+  menuSlot?: HTMLElement | null;
+  /** Held by the foot, so a refold that redraws this key keeps the menu open. */
+  open: boolean;
+  setOpen: (open: boolean | ((was: boolean) => boolean)) => void;
+}) {
   const key = useRef<HTMLButtonElement | null>(null);
   const menu = useRef<HTMLUListElement | null>(null);
   const id = useId();
@@ -35,7 +40,7 @@ function MoreLinks({ links, menuSlot }: { links: readonly FootLink[]; menuSlot?:
     };
     document.addEventListener('pointerdown', away);
     return () => document.removeEventListener('pointerdown', away);
-  }, [open]);
+  }, [open, setOpen]);
 
   const onMenuKey = (event: KeyboardEvent<HTMLUListElement>) => {
     const items = Array.from(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
@@ -63,7 +68,12 @@ function MoreLinks({ links, menuSlot }: { links: readonly FootLink[]; menuSlot?:
     <ul ref={menu} id={id} role="menu" aria-label={MORE_LINKS} className={styles.menu} onKeyDown={onMenuKey}>
       {links.map((link) => (
         <li key={link.label} role="none">
-          <a role="menuitem" className={styles.menuItem} href={link.href} {...externalLink(link)} onClick={() => setOpen(false)}>
+          <a role="menuitem" className={styles.menuItem} href={link.href} {...externalLink(link)} onClick={() => {
+            // The item leaves with the menu: focus stays on the key, also for
+            // a link that opens a new tab and leaves this one in place.
+            key.current?.focus();
+            setOpen(false);
+          }}>
             {link.label}
           </a>
         </li>
@@ -98,6 +108,11 @@ export function PageFoot() {
   const slot = useConsentControl();
   const nav = useRef<HTMLElement | null>(null);
   const fold = useRowFit(nav, 2);
+  const [moreOpen, setMoreOpen] = useState(false);
+  // The full row has no More links: a menu open as it unfolds closes.
+  useEffect(() => {
+    if (fold === 0) setMoreOpen(false);
+  }, [fold]);
   const links = (fold ? KEPT : FOOT_LINKS).map(link => (
     <a key={link.label} className={styles.link} href={link.href} {...externalLink(link)}>{link.label}</a>
   ));
@@ -106,16 +121,16 @@ export function PageFoot() {
     <footer className={styles.foot} role="contentinfo" data-testid="page-foot">
       <p className={styles.adults} data-testid="foot-adults" data-text="body">{NOTE_ADULTS}</p>
       <div className={styles.parts}>
-        <nav ref={nav} className={styles.nav} aria-label={SITE_LINKS} data-row="site links">
+        <nav ref={nav} className={styles.nav} aria-label={SITE_LINKS} data-row="site links" data-row-fold={fold}>
           {fold === 2 ? (
             <OneRowScroller label="site links" rowClassName={styles.links}>
               {links}
-              <MoreLinks links={FOLDED} menuSlot={nav.current} />
+              <MoreLinks links={FOLDED} menuSlot={nav.current} open={moreOpen} setOpen={setMoreOpen} />
             </OneRowScroller>
           ) : (
             <div className={styles.links}>
               {links}
-              {fold === 1 && <MoreLinks links={FOLDED} />}
+              {fold === 1 && <MoreLinks links={FOLDED} open={moreOpen} setOpen={setMoreOpen} />}
             </div>
           )}
           <div className={styles.measure} aria-hidden="true">

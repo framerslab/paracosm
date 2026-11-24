@@ -963,6 +963,10 @@ function AppContent() {
 
   // A Digital Twin can run in a different scenario and use its own event feed.
   const showsDigitalTwin = interventionRunning !== null || interventionArtifact !== null;
+  // A twin the provider stopped, or a signal cancelled, returns its partial
+  // artifact marked as the server marks its stream: aborted.
+  const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
+  const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
   const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
@@ -1248,7 +1252,7 @@ function AppContent() {
             <PageFoot />
           </div>
           {runExists && <RunStatusBar
-            progress={{ gameState, validationFallbacks: sse.validationFallbacks }}
+            progress={{ gameState: showsDigitalTwin ? interventionState : gameState, validationFallbacks: sse.validationFallbacks }}
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
@@ -1263,7 +1267,7 @@ function AppContent() {
             simStatus={{
               isRunning: showsDigitalTwin ? interventionRunning !== null : gameState.isRunning || launching,
               isComplete: showsDigitalTwin ? interventionArtifact !== null : sse.isComplete,
-              isAborted: !showsDigitalTwin && sse.isAborted,
+              isAborted: showsDigitalTwin ? twinStopped : sse.isAborted,
               connectionStatus: sse.status,
               abortReason: sse.abortReason,
               providerError: sse.providerError,

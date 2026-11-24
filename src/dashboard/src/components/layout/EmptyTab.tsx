@@ -14,6 +14,11 @@ import {
 } from './frameWords';
 import styles from './EmptyTab.module.scss';
 
+/**
+ * What Watch (`kind` "watch") or Reports ("reports") shows with no run: its
+ * title, a line on how a run gets there, Go to Run, and Watch your last run
+ * again when the server still holds this visitor's last run.
+ */
 export function EmptyTab({ kind }: { kind: 'watch' | 'reports' }) {
   const navigate = useDashboardNavigation();
   const { sessions } = useServerFacts();

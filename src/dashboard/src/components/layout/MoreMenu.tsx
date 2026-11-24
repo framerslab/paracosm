@@ -4,6 +4,7 @@ import type { DashboardTab } from '../../tab-routing';
 import { SECTIONS } from './frameWords';
 import styles from './MoreMenu.module.scss';
 
+/** One entry of the More menu: a tab of the dashboard, or a link out of it. */
 export interface SectionMenuItem {
   tab?: DashboardTab;
   label: string;
@@ -24,6 +25,14 @@ interface MoreMenuProps {
   anchor: RefObject<HTMLButtonElement | null>;
 }
 
+/**
+ * The menu the More key opens, drawn in a layer over the page and placed
+ * under its key, which it follows as the row resizes or scrolls. It opens
+ * with focus on its first item; the arrow keys, Home and End move between
+ * items; Escape and Tab close it with focus back on More, and a press
+ * outside closes it. `items` are the tabs the header row does not show at
+ * its fold, `links` the package's links below a rule.
+ */
 export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, onClose, anchor }: MoreMenuProps) {
   const panel = useRef<HTMLDivElement>(null);
 
@@ -42,10 +51,14 @@ export function MoreMenu({ id, items, links, firstLine, headerFold, onChoose, on
     const banner = key.closest('header');
     if (banner) sizes.observe(banner);
     window.addEventListener('resize', position);
+    // A wheel, a swipe or a trackpad can scroll the row that holds More, or
+    // any box around it, without a press on the menu's key.
+    window.addEventListener('scroll', position, true);
     menu.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     return () => {
       sizes.disconnect();
       window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
     };
   }, [anchor]);
 

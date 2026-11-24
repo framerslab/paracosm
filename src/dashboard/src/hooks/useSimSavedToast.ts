@@ -44,7 +44,7 @@ export function useSimSavedToast({ events, userTriggeredRun }: UseSimSavedToastO
     }
     if (status === 'saved') {
       const id = typeof d.id === 'string' ? d.id.slice(0, 8) : 'run';
-      toast('success', 'Saved to cache', `Run ${id}… stored. Open LOAD to replay.`);
+      toast('success', 'Saved to cache', `Run ${id}… stored. Open More, then Library, to replay.`);
     } else if (status === 'failed') {
       toast('error', 'Cache save failed', String(d.error ?? 'Unknown error'));
     } else if (status === 'skipped') {
