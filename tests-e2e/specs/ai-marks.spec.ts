@@ -642,13 +642,14 @@ test('Studio and pinned comparison show each stored decision with its own label'
     decisions: [{ ...fixture.decisions[0], actor: name, choice: decisions[index], aiWrittenFields: ['choice'] }],
   }));
   await page.goto(origin + '/sim?tab=studio');
-  await page.locator('input[type="file"]').setInputFiles({
+  const drop = page.getByRole('button', { name: /Drop a paracosm RunArtifact JSON/ });
+  await drop.locator('input[type="file"]').setInputFiles({
     name: 'authored-runs.json',
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(artifacts)),
   });
   await page.getByRole('button', { name: /Reserve leader/ }).click();
-  await expectMark(page.getByText(decisions[0], { exact: true }));
+  await expectMark(page.locator('[data-ai-generated="true"]').filter({ hasText: decisions[0] }));
   await expect(page.locator(meta)).toHaveCount(1);
   await page.getByRole('button', { name: /Back to bundle/ }).click();
   await page.getByRole('button', { name: 'Promote bundle (2)' }).click();
