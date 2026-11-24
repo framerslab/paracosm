@@ -27,7 +27,9 @@ export function lazyTab<P extends object, Name extends string>(
     if (!pending) {
       let request: Promise<TabModule>;
       if (failedUrl) {
-        failedUrl.searchParams.set('tab-retry', String(++retries));
+        // The fragment gives the browser a new module URL while keeping
+        // the request for the same file on the dashboard server.
+        failedUrl.hash = 'tab-retry-' + ++retries;
         request = import(/* @vite-ignore */ failedUrl.href) as Promise<TabModule>;
       } else {
         request = load();
