@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { crc32 } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { measureText, settle, spacingFaults } from '../support/readability.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The marking spec uses a writable fixture server.');
 
@@ -17,7 +18,14 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await expect(firstScreen.getByRole('heading', { name: 'Mars Genesis', exact: true })).toBeVisible();
   await expect(page.locator(meta)).toHaveCount(0);
   const setup = page.waitForResponse(response => response.url() === origin + '/setup' && response.request().method() === 'POST');
-  await firstScreen.getByRole('button', { name: /^start\b/i }).click();
+  const start = firstScreen.getByRole('button', { name: /^start\b/i });
+  if ((page.viewportSize()?.width ?? 1440) < 900) {
+    await expect(start).toBeEnabled();
+    const target = await start.boundingBox();
+    expect(target?.height).toBeGreaterThanOrEqual(44);
+    expect(target?.width).toBeGreaterThanOrEqual(44);
+  }
+  await start.click();
   expect((await setup).ok()).toBeTruthy();
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
 }
@@ -31,11 +39,36 @@ async function expectMark(text: Locator) {
   await expect(label).toBeVisible();
 }
 
-for (const width of [390, 1440]) {
+function pixelDifference(page: Page, expected: Buffer, actual: Buffer) {
+  return page.evaluate(async pngs => {
+    const decode = async (encoded: string) => {
+      const blob = new Blob([Uint8Array.from(atob(encoded), char => char.charCodeAt(0))], { type: 'image/png' });
+      const image = await createImageBitmap(blob);
+      try {
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        const context = canvas.getContext('2d', { willReadFrequently: true })!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height);
+      } finally {
+        image.close();
+      }
+    };
+    const [expected, actual] = await Promise.all(pngs.map(decode));
+    if (expected.width !== actual.width || expected.height !== actual.height) return -1;
+    let changed = 0;
+    for (let index = 0; index < expected.data.length; index += 4) {
+      if (expected.data[index] !== actual.data[index] || expected.data[index + 1] !== actual.data[index + 1]
+        || expected.data[index + 2] !== actual.data[index + 2] || expected.data[index + 3] !== actual.data[index + 3]) changed++;
+    }
+    return changed;
+  }, [expected.toString('base64'), actual.toString('base64')]);
+}
+
+for (const width of [320, 390, 1440]) {
   for (const look of ['light', 'dark'] as const) {
     test(`model-written decisions in Watch at ${width}px in ${look}`, async ({ browser }) => {
       const context = await browser.newContext({
-        viewport: { width, height: width === 390 ? 844 : 960 },
+        viewport: { width, height: width <= 390 ? 844 : 960 },
         deviceScaleFactor: 2,
         reducedMotion: 'reduce',
       });
@@ -45,9 +78,20 @@ for (const width of [390, 1440]) {
         const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
         await expectMark(decision);
         await expect(page.locator(meta)).toHaveCount(1);
+        await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+        await savedPairId(page, 'Aria Chen');
+        const notifications = page.getByRole('status', { name: 'Notifications' });
+        await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
         await decision.scrollIntoViewIfNeeded();
-        await page.screenshot({ path: `test-pictures/sim-first-screen/ai-marks/${width}-${look}.png`, animations: 'disabled' });
+        await settle(decision);
+        const filename = `${width}-${look}.png`;
+        const shot = await page.screenshot({ path: `test-pictures/sim-first-screen/ai-marks/${filename}`, animations: 'disabled' });
+        if (width !== 320) {
+          const baseline = new URL(`../../docs/design/sim-first-screen/ai-marks/${filename}`, import.meta.url);
+          const changed = await pixelDifference(page, readFileSync(baseline), shot);
+          expect(changed, `pixels changed in the ${filename} Watch capture`).toBe(0);
+        }
       } finally {
         await context.close();
       }
@@ -427,6 +471,25 @@ for (const count of [24, 300]) {
     const profile = page.getByRole('dialog', { name: `Report for Generated leader ${count}` });
     await expectMark(profile.getByText('ENGINEER', { exact: true }));
     await expect(page.locator(meta)).toHaveCount(1);
+    const grid = page.getByTestId('watch-grid-track').locator('canvas').first();
+    await expect(grid).toBeVisible();
+    await expect.poll(() => grid.evaluate(canvas => {
+      const context = (canvas as HTMLCanvasElement).getContext('2d');
+      return Boolean(context?.getImageData(0, 0, canvas.clientWidth, canvas.clientHeight).data.some(value => value !== 0));
+    }), { message: 'the cohort grid paints the recorded cells' }).toBe(true);
+
+    const typeTokens = [
+      '--font-3xs', '--font-2xs', '--font-xs', '--font-sm', '--font-md', '--font-lg', '--font-xl',
+      '--font-2xl', '--font-3xl', '--font-read-body', '--font-read', '--font-display',
+    ];
+    await page.evaluate(tokens => {
+      const root = document.documentElement;
+      const computed = getComputedStyle(root);
+      const sizes = tokens.map(token => [token, Number.parseFloat(computed.getPropertyValue(token))] as const);
+      for (const [token, size] of sizes) if (Number.isFinite(size)) root.style.setProperty(token, `${size * 2}px`);
+    }, typeTokens);
+    await expectReadableMarks(page, profile);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await profile.getByRole('button', { name: 'Close drill-in' }).click();
     await expect(profile).toHaveCount(0);
   });
@@ -455,4 +518,157 @@ test('Watch, the event log and the verdict dialog each expose ownership on the d
   const row = log.locator('details').filter({ hasText: 'Keep a reserve of water.' }).first();
   await row.locator('summary').click();
   await expectMark(row.locator('pre').filter({ hasText: 'Keep a reserve of water.' }));
+});
+const measuredWidths = new Set([320, 390, 600, 768, 1100, 1440]);
+const completePathWidths = new Set([320, 390, 1440]);
+const widths = [320, 360, 390, 430, 480, 600, 768, 1100, 1440];
+const looks = ['light', 'dark'] as const;
+
+async function expectReadableMarks(page: Page, surface = page.locator('body')) {
+  await settle(surface);
+  const labels = surface.locator('[data-ai-generated="true"] > [data-text="other"]').filter({ visible: true });
+  await expect(labels.first()).toBeVisible();
+  const marks = (await measureText(page, surface, { unroundedContrast: true })).filter(mark => mark.text === 'AI-written');
+  expect(marks.length).toBeGreaterThan(0);
+  for (const mark of marks) {
+    expect(mark.px).toBeGreaterThanOrEqual(15);
+    expect(mark.ratio).toBeGreaterThanOrEqual(7);
+  }
+  const owners = await labels.evaluateAll(elements => elements.map(label => {
+    const css = getComputedStyle(label);
+    return {
+      ownership: [...label.parentElement!.children].filter(child => child.textContent === 'AI-written').length,
+      size: Number.parseFloat(css.fontSize),
+      lineHeight: Number.parseFloat(css.lineHeight),
+    };
+  }));
+  expect(owners).toHaveLength(marks.length);
+  for (const owner of owners) {
+    expect(owner.ownership).toBe(1);
+    expect(owner.lineHeight).toBeGreaterThanOrEqual(owner.size * 1.4);
+  }
+  const faults = await spacingFaults(surface);
+  expect(faults.cut.filter(fault => fault.includes('"AI-written"'))).toEqual([]);
+  expect(faults.overlaps.filter(fault => fault.includes('"AI-written"'))).toEqual([]);
+  await expect(page.locator(meta)).toHaveCount(1);
+}
+
+async function savedPairId(page: Page, actor: string) {
+  let id: string | undefined;
+  await expect.poll(async () => {
+    const response = await page.request.get(origin + '/sessions');
+    if (!response.ok()) return false;
+    const { sessions } = await response.json();
+    id = sessions.find((session: { id: string; leaderA?: string }) => session.leaderA === actor)?.id;
+    return Boolean(id);
+  }).toBe(true);
+  return id!;
+}
+
+for (const width of widths) {
+  for (const look of looks) {
+    test(`readable authored passages at ${width}px in ${look}`, async ({ page }) => {
+      test.setTimeout(75_000);
+      await page.setViewportSize({ width, height: width < 600 ? 844 : 960 });
+      const generatedLeader = `Generated leader ${width} ${look}`;
+      if (completePathWidths.has(width)) {
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await page.goto(origin + '/sim');
+        const response = await page.request.post(origin + '/api/quickstart/generate-actors', {
+          data: { scenarioId: 'mars-genesis', count: 2 },
+        });
+        expect(response.ok()).toBe(true);
+        const { actors } = await response.json();
+        actors[0].name = generatedLeader;
+        delete actors[1].aiAuthorship;
+        await page.route('**/setup', route => route.continue({ postData: { ...route.request().postDataJSON(), actors } }));
+      }
+      await openPair(page, look);
+      const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
+      await expectMark(decision);
+      await expect(page.getByTestId('watch-grid').locator('canvas').first()).toBeVisible();
+      if (measuredWidths.has(width)) {
+        const notifications = page.getByRole('status', { name: 'Notifications' });
+        await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
+        await expectReadableMarks(page);
+      }
+      if (!completePathWidths.has(width)) return;
+
+      const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
+      await card.locator('summary').click();
+      await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
+      const leader = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
+        .and(page.locator('[data-ai-generated="true"] > span')).first();
+      await expectMark(leader);
+
+      await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      const report = page.getByRole('region', { name: 'Turn-by-turn report' });
+      const reportText = report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true })
+        .and(page.locator('[data-ai-generated="true"] > span')).first();
+      await expectMark(reportText);
+      await expectReadableMarks(page, report);
+
+      const full = page.getByRole('button', { name: /View Full Verdict/ });
+      await full.click();
+      const verdict = page.getByRole('dialog', { name: 'Simulation verdict' });
+      await expectMark(verdict.getByText('Stored water protected the new crops.', { exact: true }));
+      await expectReadableMarks(page, verdict);
+      await verdict.getByRole('button', { name: 'Close verdict' }).click();
+
+      await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+      await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+      await page.getByRole('textbox', { name: 'Message Noor Aziz' }).fill('How are the stores?');
+      await page.getByRole('button', { name: 'Send', exact: true }).click();
+      const chat = page.getByRole('log', { name: 'Messages with Noor Aziz' });
+      await expectMark(chat.getByText('The water stores are stable.', { exact: true }));
+      await expectReadableMarks(page, chat);
+
+      await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(await savedPairId(page, generatedLeader)));
+      await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
+      await expectReadableMarks(page);
+    });
+  }
+}
+
+test('Studio and pinned comparison show each stored decision with its own label', async ({ page }) => {
+  const fixture = JSON.parse(readFileSync(new URL('../../tests/fixtures/runArtifact-v0.8-turn-loop.json', import.meta.url), 'utf8'));
+  const leaders = ['Reserve leader', 'Well leader'];
+  const decisions = ['Keep the reserve for the next harvest.', 'Open a new well on the east side.'];
+  const artifacts = leaders.map((name, index) => ({
+    ...fixture,
+    leader: { name, archetype: 'Engineer' },
+    metadata: { ...fixture.metadata, runId: `marks-studio-${Date.now()}-${index}` },
+    provenance: { aiGenerated: true, generator: 'paracosm', models: { commander: `test-commander-${index}` } },
+    decisions: [{ ...fixture.decisions[0], actor: name, choice: decisions[index], aiWrittenFields: ['choice'] }],
+  }));
+  await page.goto(origin + '/sim?tab=studio');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'authored-runs.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(artifacts)),
+  });
+  await page.getByRole('button', { name: /Reserve leader/ }).click();
+  await expectMark(page.getByText(decisions[0], { exact: true }));
+  await expect(page.locator(meta)).toHaveCount(1);
+  await page.getByRole('button', { name: /Back to bundle/ }).click();
+  await page.getByRole('button', { name: 'Promote bundle (2)' }).click();
+  await expect(page.getByText(/added to Library \(2 runs\)/)).toBeVisible();
+  await page.getByRole('button', { name: 'Compare bundle', exact: true }).click();
+  const grid = page.getByRole('region', { name: 'Bundle members grid' });
+  for (const name of leaders) await grid.getByRole('checkbox', { name: `Pin ${name} to compare` }).check();
+  const comparison = page.getByRole('region', { name: 'Decision rationale comparison' });
+  for (const decision of decisions) await expectMark(comparison.getByText(decision, { exact: true }));
+  await expect(page.locator(meta)).toHaveCount(1);
+  await page.getByRole('button', { name: 'Close compare' }).click();
+  await expect(page.locator(meta)).toHaveCount(0);
+});
+
+test('Viz marks the model decision in the current turn narrative', async ({ page }) => {
+  await openPair(page, 'dark');
+  await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
+  const narrative = page.getByRole('status', { name: 'Current turn narrative' });
+  const passage = narrative.getByText(/Keep a reserve of water/).locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
+  await expect(passage).toBeVisible();
+  await expect(passage.getByText('AI-written', { exact: true })).toHaveCount(1);
+  await expect(page.locator(meta)).toHaveCount(1);
 });
