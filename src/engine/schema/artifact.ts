@@ -18,6 +18,7 @@ import {
   ProviderErrorSchema,
   RiskFlagSchema,
   RunMetadataSchema,
+  RunProvenanceSchema,
   ScenarioExtensionsSchema,
   SpecialistNoteSchema,
   SubjectConfigSchema,
@@ -101,9 +102,22 @@ export const ForgedToolSummarySchema = z.object({
  * }
  * ```
  */
+/**
+ * The version of {@link RunArtifactSchema}'s shape, checked by the schema
+ * breaking-change gate against its committed snapshot. Raise it with any
+ * change to the shape and regenerate the snapshot (`npm run snapshot:schema`).
+ * It is separate from the compiler's `COMPILE_SCHEMA_VERSION`, which keys
+ * generated hook sources.
+ *
+ * - 9: run and stream provenance (model roles and AI-written fields).
+ */
+export const RUN_ARTIFACT_SCHEMA_VERSION = 9;
+
 export const RunArtifactSchema = z.object({
   /** Required. Identifies the run + scenario + mode. */
   metadata: RunMetadataSchema,
+  /** Present on new runs. Historical artifacts may omit it. */
+  provenance: RunProvenanceSchema.optional(),
 
   // -----------------------------------------------------------------------
   // Narrative layer — mode-agnostic (all modes may populate)

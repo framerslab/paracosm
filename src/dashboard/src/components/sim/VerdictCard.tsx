@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 import * as React from 'react';
 import { useEffect, useMemo, useRef, useState, useCallback, type CSSProperties } from 'react';
 import { CohortVerdictDetails } from '../layout/VerdictModal';
@@ -274,7 +275,7 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
           >
             {v.winner === 'tie' ? 'TIE' : `${v.winnerName} WINS`}
           </div>
-          <div className={styles.headerHeadline}>{v.headline}</div>
+          <AiWritten as="div" className={styles.headerHeadline} authored={Boolean(v.headline)}>{v.headline}</AiWritten>
         </div>
         {onExport && (
           <div className={styles.exportWrap}>
@@ -295,11 +296,11 @@ export function VerdictDetails({ v, onExport, copied, notCopied }: { v: VerdictD
         </div>
       )}
 
-      <div className={styles.summary}>{v.summary}</div>
+      <AiWritten as="div" className={styles.summary} authored={Boolean(v.summary)}>{v.summary}</AiWritten>
 
       <div className={styles.divergenceBox}>
         <span className={styles.divergenceLabel}>KEY DIVERGENCE</span>
-        <div className={styles.divergenceBody}>{v.keyDivergence}</div>
+        <AiWritten as="div" className={styles.divergenceBody} authored={Boolean(v.keyDivergence)}>{v.keyDivergence}</AiWritten>
       </div>
 
       <div className={styles.matchupRow}>
@@ -386,7 +387,7 @@ export function VerdictPanel({ verdict: raw, shownRun }: VerdictCardProps) {
         aria-label="Expand verdict"
       >
         <span className={styles.panelCollapsedDot} aria-hidden="true" />
-        <span className={styles.panelCollapsedText}>Verdict: {headline}</span>
+        <span className={styles.panelCollapsedText}>Verdict: <AiWritten authored={Boolean(v.headline)}>{headline}</AiWritten></span>
         <span className={styles.panelCollapsedHint}>(click to expand)</span>
       </button>
     );
@@ -451,7 +452,7 @@ export function VerdictCard({ verdict: raw }: VerdictCardProps) {
       >
         <span className={styles.bannerKicker}>Verdict</span>
         <span className={styles.bannerWinner}>{winnerLabel}</span>
-        <span className={styles.bannerHeadline}>{v.headline}</span>
+        <AiWritten className={styles.bannerHeadline} authored={Boolean(v.headline)}>{v.headline}</AiWritten>
         <span className={styles.bannerCta}>VIEW FULL VERDICT →</span>
       </button>
 

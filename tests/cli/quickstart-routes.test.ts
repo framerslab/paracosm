@@ -397,6 +397,31 @@ const twinBody = {
   intervention: { id: 'glp1', name: 'Semaglutide', description: 'A 12-week semaglutide and lifestyle protocol.' },
 };
 
+test('simulate-intervention rejects a leader authorship model that is not a model id before opening a run', async () => {
+  let opened = 0;
+  let intervened = 0;
+  const world = {
+    scenario: ASYNC_TEST_SCENARIO,
+    intervene: async () => { intervened += 1; return { metadata: { runId: 'twin-1' } }; },
+  } as unknown as WorldModel;
+  const { res, get } = fakeRes();
+  await handleSimulateIntervention({} as IncomingMessage, res, {
+    ...twinBody,
+    leader: {
+      name: 'Dr. Ada Lin',
+      archetype: 'Clinician',
+      hexaco: { openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, emotionality: 0.5, honestyHumility: 0.5 },
+      aiAuthorship: { model: 'Written by hand, not by a model', fields: ['name'] },
+    },
+  }, fakeDeps({
+    getDigitalTwinWorld: async () => world,
+    openRun: () => { opened += 1; return recordingRun().handle; },
+  } as Partial<QuickstartDeps>));
+  assert.equal(get().status, 400);
+  assert.equal(opened, 0);
+  assert.equal(intervened, 0);
+});
+
 test("simulate-intervention writes the run's events through the run it opened and releases the run when the engine returns", async () => {
   const run = recordingRun();
   const world = {

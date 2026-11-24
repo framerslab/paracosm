@@ -64,7 +64,7 @@ function zodKindToString(schema: z.ZodTypeAny, depth = 0): string {
 
 /**
  * Serialize a top-level Zod object schema's shape to a stable
- * snapshot-shaped object. Pass the COMPILE_SCHEMA_VERSION constant
+ * snapshot-shaped object. Pass the RUN_ARTIFACT_SCHEMA_VERSION constant
  * for `schemaVersion`.
  */
 export function serializeShape(schema: z.ZodObject<z.ZodRawShape>, schemaVersion: number): ShapeSnapshot {

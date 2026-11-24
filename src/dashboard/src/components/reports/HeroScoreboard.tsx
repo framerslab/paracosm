@@ -1,3 +1,4 @@
+import { AiWritten } from '../shared/AiWritten';
 import * as React from 'react';
 import type { CSSProperties } from 'react';
 import styles from './HeroScoreboard.module.scss';
@@ -139,7 +140,7 @@ export function HeroScoreboard(props: HeroScoreboardProps) {
       <div className={styles.header}>
         <div className={styles.kicker}>Run Summary</div>
         {winnerName && <div className={styles.winner}>{winnerName} wins</div>}
-        {headline && <div className={styles.headline}>{headline}</div>}
+        {headline && <AiWritten as="div" className={styles.headline} authored>{headline}</AiWritten>}
         {keyDivergence && <div className={styles.divergence}>{keyDivergence}</div>}
       </div>
 

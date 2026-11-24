@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { useMemo, useEffect, useRef, useState, useCallback, type CSSProperties, type ReactNode } from 'react';
 import type { GameState } from '../../hooks/useGameState';
 import { useCitationContext } from '../../hooks/useCitationRegistry';
@@ -74,10 +75,12 @@ interface EventBlock {
   emergent?: boolean;
   description?: string;
   decision?: string;
+  decisionAuthorship?: { aiWrittenFields?: unknown };
+  eventAuthorship?: { aiWrittenFields?: unknown };
   rationale?: string;
   policies?: string[];
   outcome?: string;
-  depts: Record<string, { summary: string; tools: number; citations: number; citationList: Array<{ text: string; url: string; doi?: string }> }>;
+  depts: Record<string, { summary: string; aiWrittenFields?: unknown; tools: number; citations: number; citationList: Array<{ text: string; url: string; doi?: string }> }>;
 }
 
 interface TurnData {
@@ -116,7 +119,7 @@ function buildSideTurnMap(
 ): Map<number, TurnData> {
   const map = new Map<number, TurnData>();
   if (!events) return map;
-  const pending = new Map<number, { decision: string; rationale: string; policies: string[] }>();
+  const pending = new Map<number, { decision: string; rationale: string; policies: string[]; aiWrittenFields?: unknown }>();
   for (const evt of events) {
     const turn = evt.turn;
     // Reject only events with no turn assignment. Falsy `!turn` would
@@ -145,6 +148,7 @@ function buildSideTurnMap(
     if (evt.type === 'event_start') {
       const block = getEventBlock(t, eventIndex, totalEvents);
       block.title = evt.data?.title as string | undefined;
+      block.eventAuthorship = { aiWrittenFields: evt.data?.aiWrittenFields };
       block.category = evt.data?.category as string | undefined;
       block.emergent = evt.data?.emergent as boolean | undefined;
       block.description = (evt.data?.description as string) || (evt.data?.turnSummary as string) || '';
@@ -153,6 +157,7 @@ function buildSideTurnMap(
       pending.set(eventIndex, {
         decision: String(evt.data?.decision || ''),
         rationale: String(evt.data?.rationale || ''),
+        aiWrittenFields: evt.data?.aiWrittenFields,
         policies: Array.isArray(evt.data?.selectedPolicies)
           ? (evt.data.selectedPolicies as unknown[]).map(p => typeof p === 'string' ? p : JSON.stringify(p))
           : [],
@@ -166,6 +171,12 @@ function buildSideTurnMap(
         block.decision = p.decision;
         block.rationale = p.rationale;
         block.policies = p.policies;
+        block.decisionAuthorship = p;
+      } else if (evt.data?._decision) {
+        block.decision = String(evt.data._decision);
+        block.rationale = String(evt.data._rationale || '');
+        block.policies = (evt.data._policies as string[]) || [];
+        block.decisionAuthorship = { aiWrittenFields: evt.data.aiWrittenFields };
         pending.delete(eventIndex);
       }
     }
@@ -176,6 +187,7 @@ function buildSideTurnMap(
         const filtered = (evt.data?._filteredTools as Array<Record<string, unknown>>) || [];
         const approvedCount = filtered.filter((tool) => tool?.approved !== false).length;
         block.depts[dept] = {
+          aiWrittenFields: evt.data?.aiWrittenFields,
           summary: (evt.data?.summary as string) || '',
           tools: approvedCount,
           citations: Number(evt.data?.citations ?? 0),
@@ -548,7 +560,7 @@ export function ReportView({ state, verdict, shownRun, reportSections }: ReportV
                   Run {turnCount} turn{turnCount === 1 ? '' : 's'} — verdict pending
                 </span>
               ) : null}
-              {headline && <span className={styles.tldrSub}>{headline}</span>}
+              {headline && <AiWritten className={styles.tldrSub} authored>{headline}</AiWritten>}
             </div>
             <div className={styles.tldrStats}>
               {stats.map(s => (
@@ -1053,18 +1065,18 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
     crisis: (
       <div key="crisis">
         <div className={styles.eventTitle}>
-          {block.title}
+          <AiWritten authored={Boolean(block.title) && isAiWritten(block.eventAuthorship, "title")}>{block.title}</AiWritten>
           {block.category && <span className={styles.categoryPill}>{block.category}</span>}
           {block.emergent && <span className={styles.emergentPill}>EMERGENT</span>}
         </div>
 
         {block.description && (
-          <div className={styles.eventDescription}>{block.description}</div>
+          <AiWritten as="div" className={styles.eventDescription} authored={isAiWritten(block.eventAuthorship, "description")}>{block.description}</AiWritten>
         )}
       </div>
     ),
     decision: block.decision ? (
-      <div key="decision" className={styles.eventDecision}>{block.decision}</div>
+      <AiWritten as="div" key="decision" className={styles.eventDecision} authored={isAiWritten(block.decisionAuthorship, "decision")}>{block.decision}</AiWritten>
     ) : null,
     outcome: block.outcome ? (
       <div key="outcome" className={styles.eventOutcomeRow}>
@@ -1079,7 +1091,7 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
     causality: block.rationale ? (
       <details key="causality" className={styles.eventDetails}>
         <summary className={styles.eventDetailsSummary} style={sideStyle}>Rationale</summary>
-        <div className={styles.eventRationale} style={sideStyle}>{block.rationale}</div>
+        <AiWritten as="div" className={styles.eventRationale} style={sideStyle} authored={isAiWritten(block.decisionAuthorship, "rationale")}>{block.rationale}</AiWritten>
       </details>
     ) : null,
     departments: Object.keys(block.depts).length > 0 ? (
@@ -1094,7 +1106,7 @@ function EventSide({ block, eventIndex, totalEvents, name, sideColor, sections }
                 <span className={styles.deptName}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</span>
                 <span className={styles.deptMeta}>{d.citations}c {d.tools}t</span>
               </div>
-              {d.summary && <div className={styles.deptSummary}>{d.summary}</div>}
+              {d.summary && <AiWritten as="div" className={styles.deptSummary} authored={isAiWritten(d, "summary")}>{d.summary}</AiWritten>}
               <CitationPills citations={d.citationList} label="" />
             </div>
           ))}
@@ -1158,9 +1170,9 @@ function TurnSharedFooter({ data, name, sideColor, showQuotes }: { data: TurnDat
                     {String(r.mood || '').toUpperCase()}
                   </span>
                 </div>
-                <div className={styles.reactionQuote}>
+                <AiWritten as="div" className={styles.reactionQuote} authored={Boolean(r.quote)}>
                   &ldquo;{String(r.quote || '')}&rdquo;
-                </div>
+                </AiWritten>
                 {!!r.role && (
                   <div className={styles.reactionRole}>
                     {String(r.role)} {r.department ? `in ${String(r.department)}` : ''}

@@ -3,7 +3,8 @@ import { migrateLegacyEventShape } from './migrateLegacyEventShape';
 import { eventKey } from './sseEventKey';
 import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
 import { refreshOnSimSaved, savedSessions } from './useSessions';
-import type { RunArtifact } from '../../../engine/schema/index.js';
+import { RunProvenanceSchema } from '../../../engine/schema/primitives.js';
+import type { RunArtifact, RunProvenance } from '../../../engine/schema/index.js';
 
 /**
  * Event type strings the dashboard consumes.
@@ -41,6 +42,7 @@ export interface SimEvent {
   turn?: number;
   time?: number;
   data?: Record<string, unknown>;
+  provenance?: RunProvenance;
 }
 
 /**
@@ -97,6 +99,7 @@ export interface ValidationFallbackBucket {
 interface SSEState {
   status: 'connecting' | 'connected' | 'error' | 'replay_not_found';
   events: SimEvent[];
+  provenance: RunProvenance | null;
   results: Array<{
     leader: string;
     summary: Record<string, unknown>;
@@ -232,7 +235,7 @@ export interface UseSSEOptions {
 /** The run fields of SSEState, empty: a page that holds no run. */
 function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
-    events: [], results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
+    events: [], provenance: null, results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
     simSaved: null, errors: [], isComplete: false, isAborted: false, abortReason: null,
     providerError: null, validationFallbacks: [],
   };
@@ -401,7 +404,9 @@ export function useSSE(options: UseSSEOptions = {}) {
       : { ...prev, ownRunScenarioId: null, heldOwnRun: null }));
   }, []);
 
-  const loadEvents = useCallback((events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null) => {
+  const loadEvents = useCallback((
+    events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null, provenance?: RunProvenance | null,
+  ) => {
     // Scan loaded events for any previously-persisted provider_error so
     // a reload after a failed run restores the banner state, not just
     // the viz/reports tabs.
@@ -437,6 +442,7 @@ export function useSSE(options: UseSSEOptions = {}) {
     setState(prev => ({
       status: 'connected',
       events,
+      provenance: RunProvenanceSchema.safeParse(provenance ?? events.find(event => event.provenance)?.provenance).data ?? null,
       results: (results || []) as SSEState['results'],
       verdict: verdict || null,
       verdictRunKey: null,
@@ -502,6 +508,15 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    let bound: { runKey: string; provenance: RunProvenance } | null = null;
+    if (replaySessionId && connectedSourceRef.current !== replaySessionId) {
+      connectedSourceRef.current = replaySessionId;
+      runKeyRef.current = null;
+      shownFromFileRef.current = false;
+      setState(prev => ({
+        ...prev, ...emptyRun(), runKey: null, replayDone: false, loadedRuns: prev.loadedRuns + 1,
+      }));
+    }
 
     /**
      * Open a fresh EventSource and re-attach listeners. The server replays
@@ -549,6 +564,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             reconnectTimer = setTimeout(() => { void open(); }, delay);
             return;
           }
+          const answer = await probe.json().catch(() => null);
+          if (cancelled) return;
+          const provenance = RunProvenanceSchema.safeParse(answer?.meta?.provenance).data;
+          if (provenance && !shownFromFileRef.current) setState(prev => ({ ...prev, provenance }));
         } catch {
           // Network-level failure (offline / CORS). Fall through to
           // EventSource open which will retry with backoff.
@@ -570,10 +589,13 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         attempt = 0;
         connectCount += 1;
         try {
-          const data = JSON.parse(e.data) as { visitorId?: unknown } | null;
+          const data = JSON.parse(e.data) as { visitorId?: unknown; runKey?: unknown; provenance?: unknown } | null;
           streamVisitorIdRef.current = typeof data?.visitorId === 'string' ? data.visitorId : null;
+          const provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
+          bound = provenance && typeof data?.runKey === 'string' ? { runKey: data.runKey, provenance } : null;
         } catch {
           streamVisitorIdRef.current = null;
+          bound = null;
         }
         // The replay starts at the buffer's first event, which names the
         // run when the run named its scenario.
@@ -606,7 +628,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             status: 'connected',
             events: [],
             replayDone: false,
-            ...(newSource ? { runKey: null, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+            ...(newSource ? { runKey: null, provenance: null, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
           }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
@@ -614,7 +636,17 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
       });
 
       es.addEventListener('replay_done', () => {
-        setState(prev => ({ ...prev, replayDone: true }));
+        const mark = bound && (runKeyRef.current === null || bound.runKey === runKeyRef.current) ? bound.provenance : null;
+        const provenance = !skipped() && !shownFromFileRef.current ? mark : null;
+        setState(prev => ({ ...prev, replayDone: true, provenance: provenance ?? prev.provenance }));
+      });
+
+      es.addEventListener('provenance', (event: MessageEvent) => {
+        if (skipped() || shownFromFileRef.current) return;
+        try {
+          const provenance = RunProvenanceSchema.safeParse(JSON.parse(event.data)?.provenance).data;
+          if (provenance) setState(prev => ({ ...prev, provenance }));
+        } catch { /* The saved stream can still be played. */ }
       });
 
       // The visitor cleared the run in another tab, or the server let it go
@@ -645,8 +677,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         let id: string | null = null;
         let runKey: string | null = null;
         let fork = false;
+        let provenance: RunProvenance | undefined;
         try {
-          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown } | null;
+          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown; provenance?: unknown } | null;
+          provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
           id = typeof data?.id === 'string' ? data.id : null;
           runKey = typeof data?.runKey === 'string' ? data.runKey : null;
           fork = data?.forkedFrom != null;
@@ -702,7 +736,11 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // A run the page skips leaves it on the run it shows, and a run loaded
         // from a file stays the page's until a new run replaces it, above.
         if (!skip && !shownFromFileRef.current) {
-          setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
+          const mark = provenance ?? (bound?.runKey === runKey ? bound?.provenance : undefined);
+          setState(prev => ({
+            ...prev, runKey,
+            provenance: mark ?? (prev.runKey === runKey || replaySessionId ? prev.provenance : null),
+          }));
         }
       });
 
@@ -817,7 +855,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
-          setState(prev => ({ ...prev, results: [...prev.results, data] }));
+          const provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
+          setState(prev => ({
+            ...prev, provenance: prev.provenance ?? provenance ?? null, results: [...prev.results, data],
+          }));
         } catch {}
       });
 

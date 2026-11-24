@@ -98,7 +98,7 @@ test('Scenario Editor downloads the imported scenario through an attached link',
   await expect(editor).toHaveValue(JSON.stringify(draft));
 
   const filename = `${draft.id}.json`;
-  const data = await downloadJsonFrom(page, page.getByRole('button', { name: 'Export as JSON file' }), filename);
+  const data = await downloadJsonFrom(page, page.getByRole('button', { name: 'Save source JSON' }), filename);
   expect(data).toEqual(draft);
   await expect(page.getByText(`Exported ${filename}`, { exact: true })).toBeVisible();
 });
@@ -108,7 +108,8 @@ test('References downloads the cited source through an attached link', async ({ 
   await page.getByRole('button', { name: 'Open References list (1 sources)' }).click();
   const dialog = page.getByRole('dialog', { name: 'References · 1' });
   const data = await downloadJsonFrom(page, dialog.getByRole('button', { name: 'EXPORT JSON', exact: true }), 'paracosm-references.json');
-  expect(data).toEqual([{
+  expect(data.provenance).toEqual({ aiGenerated: true, generator: 'paracosm', models: {} });
+  expect(data.references).toEqual([{
     ...citation,
     n: 1,
     departments: ['engineering'],
@@ -124,6 +125,7 @@ test('Save downloads the simulation through an attached link', async ({ page }) 
   const isoTime = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
   expect(data).toEqual({
     ...savedRun,
+    provenance: { aiGenerated: true, generator: 'paracosm', models: {} },
     config: null,
     startedAt: expect.stringMatching(isoTime),
     completedAt: expect.stringMatching(isoTime),

@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import type { TurnEventInfo } from '../../hooks/useGameState';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import { Tooltip } from '../shared/Tooltip';
@@ -23,11 +24,12 @@ export function TurnEventHeader({ actorIndex, event }: TurnEventHeaderProps) {
   if (!event) return null;
 
   const fullText = event.description || event.turnSummary || '';
+  const textAuthored = isAiWritten(event, event.description ? 'description' : 'turnSummary');
 
   const popover = (
     <div>
       <b className={styles.popoverTitle}>
-        T{event.turn}: {event.title}
+        T{event.turn}: <AiWritten authored={isAiWritten(event, "title")}>{event.title}</AiWritten>
       </b>
       <div className={styles.popoverMetaRow}>
         <span className={styles.popoverCategory}>{event.category}</span>
@@ -36,7 +38,7 @@ export function TurnEventHeader({ actorIndex, event }: TurnEventHeaderProps) {
           {labels.Time} {event.time} &middot; Leader {String.fromCharCode(65 + actorIndex)}
         </span>
       </div>
-      {fullText && <div className={styles.popoverBody}>{fullText}</div>}
+      {fullText && <AiWritten as="div" className={styles.popoverBody} authored={textAuthored}>{fullText}</AiWritten>}
     </div>
   );
 
@@ -44,11 +46,11 @@ export function TurnEventHeader({ actorIndex, event }: TurnEventHeaderProps) {
     <Tooltip content={popover} block>
       <div className={styles.header}>
         <div className={styles.titleRow}>
-          <span className={styles.titleText}>T{event.turn}: {event.title}</span>
+          <span className={styles.titleText}>T{event.turn}: <AiWritten authored={isAiWritten(event, "title")}>{event.title}</AiWritten></span>
           <span className={styles.categoryPill}>{event.category}</span>
           {event.emergent && <span className={styles.emergentPill}>EMERGENT</span>}
         </div>
-        {fullText && <span className={styles.body}>{fullText}</span>}
+        {fullText && <AiWritten className={styles.body} authored={textAuthored}>{fullText}</AiWritten>}
       </div>
     </Tooltip>
   );

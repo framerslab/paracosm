@@ -5,6 +5,8 @@
  *
  * @module paracosm/cli/dashboard/hooks/useLocalHistory.helpers
  */
+import { RunProvenanceSchema } from '../../../engine/schema/primitives.js';
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import type { SimEvent } from './useSSE';
 
 /** Single localStorage key shared across scenarios. v2 bump (0.8.0)
@@ -46,6 +48,7 @@ export interface LocalHistoryEntry {
   results: unknown[];
   /** End-of-sim verdict payload when present. */
   verdict?: Record<string, unknown> | null;
+  provenance?: RunProvenance;
   /** Scenario short-name so the UI can filter cross-scenario. */
   scenarioShortName: string;
   /** Cached summary — recompute would re-scan every render otherwise. */
@@ -190,7 +193,9 @@ export function migrateLegacySlot(
     typeof obj.startedAt === 'string' && obj.startedAt
       ? obj.startedAt
       : new Date().toISOString();
+  const provenance = RunProvenanceSchema.safeParse(obj.provenance).data;
   return {
+    ...(provenance ? { provenance } : {}),
     id: Date.parse(startedAt) || makeHistoryId(),
     createdAt: startedAt,
     events,

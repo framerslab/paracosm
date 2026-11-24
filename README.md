@@ -334,7 +334,7 @@ The `?load=` and `?autoload=` params are stripped after the fetch resolves, so r
 
 ## The universal result contract
 
-Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point).
+Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point). New results expose `artifact.provenance` with `aiGenerated`, `generator`, and `models` by role.
 
 ```typescript
 import { RunArtifactSchema, type RunArtifact } from 'paracosm/schema';
@@ -349,6 +349,8 @@ switch (artifact.metadata.mode) {
   case 'batch-point':       // one-shot forecast: overview + risk flags
 }
 ```
+
+Written run JSON carries the same `provenance` fields as the returned artifact. Older files can be read without the field.
 
 For non-TypeScript consumers, `npm run export:json-schema` emits `schema/run-artifact.schema.json` and `schema/stream-event.schema.json`. Python projects generate Pydantic types via `datamodel-codegen`; any ecosystem with a JSON-Schema generator adopts cleanly.
 

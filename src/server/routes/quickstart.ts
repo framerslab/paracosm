@@ -1,3 +1,4 @@
+import type { CostPreset } from '../../cli/sim-config.js';
 import { withoutOutputPath } from '../services/run-record.js';
 /**
  * Quickstart HTTP routes (Tier 5 onboarding). Three endpoints:
@@ -20,6 +21,7 @@ import { MAX_ORDER_CHARS } from '../../engine/presets/fill-instructions.js';
 import type { ActorInput } from '../../engine/types.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { AiAuthorshipInputSchema } from '../../engine/ai-authorship.js';
 import { compileFromSeed } from '../../engine/compiler/compile-from-seed.js';
 import { generateQuickstartActors } from '../../runtime/world-model/index.js';
 import { WorldModel } from '../../runtime/world-model/index.js';
@@ -167,6 +169,7 @@ const LeaderSchema = z.object({
   }),
   instructions: z.string().max(MAX_ORDER_CHARS).optional(),
   description: z.string().optional(),
+  aiAuthorship: AiAuthorshipInputSchema.optional(),
 });
 
 const SimulateInterventionSchema = z.object({
@@ -273,6 +276,7 @@ function isRefusal(value: QuickstartModelCalls | QuickstartRefusal): value is Qu
 }
 
 export interface QuickstartDeps {
+  generateActorObject?: NonNullable<Parameters<typeof generateQuickstartActors>[2]>['generateObjectImpl'];
   /** Installs a compiled scenario into the server catalog and persists it.
    *  It becomes nobody's pick by itself: the visitor who compiled it gets
    *  it through `pickHeaders` on the answers they receive. The optional
@@ -350,7 +354,9 @@ export interface QuickstartDeps {
    * caller's own key counts for its address under the run cap, as a /setup
    * run on one does, and keeps its provider and keys for its chats.
    */
-  openRun?: (scenario: ScenarioPackage, runKey?: string, calls?: QuickstartModelCalls) => OpenedRun | Promise<OpenedRun>;
+  openRun?: (
+    scenario: ScenarioPackage, runKey: string | undefined, calls: QuickstartModelCalls, costPreset: CostPreset,
+  ) => OpenedRun | Promise<OpenedRun>;
   /**
    * True when a run has already opened with this key. Pages tell runs apart
    * by key and read each key off the stream, so a request naming a used key
@@ -743,6 +749,7 @@ export async function handleGenerateActors(
   const count = maxActors !== undefined ? Math.min(parsed.data.count, maxActors) : parsed.data.count;
   try {
     const actors = await generateQuickstartActors(scenario, count, {
+      generateObjectImpl: deps.generateActorObject,
       provider: calls.provider,
       model: calls.model,
       apiKey: apiKeyForProvider(calls.provider, calls),
@@ -924,9 +931,10 @@ export async function handleSimulateIntervention(
   }
   // The caller's run, with its own buffer and viewers, so the dashboard's
   // gameState does not interleave it with whatever run came before.
+  const costPreset = hostLimits || calls.runModels ? 'economy' : options.costPreset ?? 'economy';
   let run: OpenedRun | null = null;
   try {
-    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls) : null;
+    run = deps.openRun ? await deps.openRun(world.scenario, requestedRunKey, calls, costPreset) : null;
   } catch (err) {
     hostLimits?.run.refund();
     if (err instanceof RunCapacityError) {
@@ -956,7 +964,6 @@ export async function handleSimulateIntervention(
   // routing's, which hold with the limiter off too), else the limits' turn
   // cap and the economy tier.
   const maxTurns = Math.min(options.maxTurns ?? 2, calls.maxTurns ?? hostLimits?.maxTurns ?? Number.POSITIVE_INFINITY);
-  const costPreset = hostLimits || calls.runModels ? 'economy' : options.costPreset ?? 'economy';
   send('status', {
     phase: 'parallel',
     maxTurns,
@@ -965,6 +972,7 @@ export async function handleSimulateIntervention(
       archetype: effectiveLeader.archetype,
       unit: effectiveLeader.unit,
       hexaco: effectiveLeader.hexaco,
+      aiAuthorship: effectiveLeader.aiAuthorship,
     }],
   });
   const onEvent = (event: { type: string; leader?: string }) => {

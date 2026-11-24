@@ -1,3 +1,5 @@
+import { AiWritten } from '../shared/AiWritten';
+import { RunReportDownloads } from '../shared/RunReportDownloads';
 /**
  * Three-column Quickstart result grid. Each card: actor name /
  * archetype / HEXACO bars / fingerprint / median deltas / Download +
@@ -12,7 +14,6 @@ import { useScenarioLabels } from '../../hooks/useScenarioLabels';
 import {
   computeMedianDeltas,
   buildQuickstartShareUrl,
-  downloadArtifactJson,
 } from './QuickstartView.helpers';
 import { formatDelta } from '../branches/BranchesTab.helpers';
 import { ActorPresetPicker } from './ActorPresetPicker';
@@ -26,6 +27,7 @@ import styles from './QuickstartResults.module.scss';
 export interface QuickstartResultsProps {
   actors: ActorConfig[];
   artifacts: RunArtifact[];
+  verdict?: Record<string, unknown> | null;
   sessionId?: string;
   onSwap: (actorIndex: number, preset: LeaderPreset) => void;
 }
@@ -35,7 +37,7 @@ const HEXACO_TRAITS: Array<keyof NonNullable<ActorConfig['hexaco']>> = [
   'agreeableness', 'emotionality', 'honestyHumility',
 ];
 
-export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: QuickstartResultsProps) {
+export function QuickstartResults({ actors, artifacts, verdict, sessionId, onSwap }: QuickstartResultsProps) {
   const { dispatch } = useBranchesContext();
   const navigate = useDashboardNavigation();
   const labels = useScenarioLabels();
@@ -68,8 +70,7 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
     shareLink.share(buildQuickstartShareUrl(window.location.origin, sessionId));
   };
 
-  const handleDownload = (i: number) => {
-    const artifact = artifacts[i];
+  const reportFilename = (i: number) => {
     const a = actors[i] ?? {};
     const archetype = typeof a.archetype === 'string' ? a.archetype : '';
     const name = typeof a.name === 'string' ? a.name : '';
@@ -77,7 +78,7 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
       archetype.toLowerCase().replace(/\s+/g, '-') ||
       name.toLowerCase().replace(/\s+/g, '-') ||
       `actor-${i}`;
-    downloadArtifactJson(artifact, `paracosm-quickstart-${slug}.json`);
+    return `paracosm-quickstart-${slug}`;
   };
 
   // Run-wide aggregate stats surfaced as a small summary strip above
@@ -152,7 +153,8 @@ export function QuickstartResults({ actors, artifacts, sessionId, onSwap }: Quic
               timeLabel={labels.time}
               timeLabelCap={labels.Time}
               shareEnabled={!!sessionId}
-              onDownload={() => handleDownload(i)}
+              reportFilename={reportFilename(i)}
+              verdict={verdict}
               onShare={() => handleShare(i)}
               shareNote={sharedFrom === i && shareLink.shared
                 ? <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
@@ -183,7 +185,8 @@ interface ActorResultCardProps {
   timeLabel: string;
   timeLabelCap: string;
   shareEnabled: boolean;
-  onDownload: () => void;
+  reportFilename: string;
+  verdict?: Record<string, unknown> | null;
   onShare: () => void;
   /** The share note, when this card's key made it. */
   shareNote: ReactNode;
@@ -193,7 +196,7 @@ interface ActorResultCardProps {
 
 function ActorResultCard({
   actor, artifact, peers, timeLabel, timeLabelCap,
-  shareEnabled, shareNote, onDownload, onShare, onFork, onRequestSwap,
+  shareEnabled, shareNote, reportFilename, verdict, onShare, onFork, onRequestSwap,
 }: ActorResultCardProps) {
   const deltas = useMemo(() => computeMedianDeltas(artifact, peers), [artifact, peers]);
   const turnsCompleted = artifact.trajectory?.timepoints?.length ?? 0;
@@ -201,7 +204,7 @@ function ActorResultCard({
     <article className={styles.card}>
       <header className={styles.cardHeader}>
         <h4 className={styles.actorName}>{actor.name}</h4>
-        <span className={styles.archetype}>{actor.archetype}</span>
+        <AiWritten className={styles.archetype} authored={actor.aiAuthorship?.fields.includes('archetype') === true}>{actor.archetype}</AiWritten>
         <button
           type="button"
           className={styles.swap}
@@ -245,7 +248,7 @@ function ActorResultCard({
         </ul>
       )}
       <div className={styles.actions}>
-        <button type="button" onClick={onDownload}>Download JSON</button>
+        <RunReportDownloads artifact={artifact} filename={reportFilename} verdict={verdict} />
         <button
           type="button"
           onClick={onShare}

@@ -1,0 +1,10 @@
+.label {
+  color: var(--text-1);
+  font-family: var(--sans);
+  font-size: var(--font-read, var(--font-xl));
+  font-weight: var(--weight-semibold, 600);
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+}

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { judgeCohort, judgePair, type JudgedRun } from '../../src/cli/pair-runner.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
@@ -420,6 +421,7 @@ test('the mortality line counts the deaths in the run\'s event log', async () =>
 
 test('a run that forged and cited nothing says zero, though its artifact drops the empty lists', async () => {
   const artifact = buildRunArtifact({
+    provenance: { aiGenerated: true, generator: 'paracosm', models: {} },
     runId: 'atlas-empty',
     scenarioId: 'atlas-lab',
     scenarioName: 'Atlas Lab',
@@ -698,3 +700,67 @@ for (const kind of ['pair', 'fork'] as const) {
     }
   });
 }
+
+test('pair, cohort and fork persist every actor’s resolved model roles', async () => {
+  const { runPairSimulations, runBatchSimulations, runForkSimulation } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const { withStubOpenAi } = await import('../runtime/helpers/stub-openai-transport.js');
+  const { runMarsWithStubModel } = await import('../runtime/helpers/stub-model-mars-run.js');
+  const { artifact: parentArtifact } = await runMarsWithStubModel({ writeOutputFile: false });
+  const models = {
+    commander: 'gpt-4o', departments: 'gpt-4o-mini', judge: 'gpt-4o-mini',
+    director: 'gpt-4o', agentReactions: 'gpt-4o-mini',
+  };
+  const provenance = { aiGenerated: true, generator: 'paracosm', models };
+  const leaders = marsScenario.presets[0].leaders;
+  const actors = [...leaders.slice(0, 2), { ...leaders[0], name: 'Cohort leader', archetype: 'Cohort observer' }];
+  const outputDir = mkdtempSync(join(tmpdir(), 'paracosm-pair-role-artifacts-'));
+  try {
+    await withStubOpenAi(() => '{}', async () => {
+      for (const kind of ['pair', 'cohort', 'fork'] as const) {
+        const selected = kind === 'pair' ? actors.slice(0, 2) : kind === 'fork' ? actors.slice(0, 1) : actors;
+        const config = {
+          ...normalizeSimulationConfig({
+            actors: selected,
+            turns: 2,
+            seed: 950,
+            population: 30,
+            liveSearch: false,
+            captureSnapshots: false,
+            provider: 'openai',
+            ...(kind === 'fork' ? { forkFrom: { parentArtifact, atTurn: 1 } } : {}),
+          }, marsScenario),
+          apiKey: 'placeholder-key-for-a-test',
+          models,
+        };
+        const { events, broadcast } = captureBroadcast();
+        const artifacts: Array<{ name: string; artifact: typeof parentArtifact }> = [];
+        const record = (artifact: typeof parentArtifact, actor: { name: string }) => {
+          artifacts.push({ name: actor.name, artifact });
+        };
+        if (kind === 'cohort') {
+          await runBatchSimulations(config, broadcast, undefined, marsScenario, record, undefined, { outputDir });
+        } else {
+          const run = kind === 'pair' ? runPairSimulations : runForkSimulation;
+          await run(config, broadcast, undefined, marsScenario, record, { outputDir });
+        }
+        assert.deepEqual(artifacts.map(entry => entry.name).sort(), selected.map(actor => actor.name).sort());
+        for (const { artifact } of artifacts) {
+          assert.deepEqual(artifact.provenance, provenance);
+          const path = artifact.scenarioExtensions?.outputPath;
+          assert.equal(typeof path, 'string');
+          const stored = JSON.parse(readFileSync(String(path), 'utf8')) as typeof artifact;
+          assert.deepEqual(stored.provenance, provenance);
+        }
+        const results = events.filter(event => event.event === 'result');
+        assert.equal(results.length, selected.length);
+        for (const result of results) {
+          if (kind === 'fork') assert.deepEqual(result.data.artifact.provenance, provenance);
+          else assert.equal(result.data.artifact, undefined);
+        }
+      }
+    });
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});

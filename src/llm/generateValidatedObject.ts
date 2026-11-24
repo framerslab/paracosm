@@ -60,6 +60,7 @@ export interface ValidatedObjectOptions<T extends ZodType> {
 export interface ValidatedObjectResult<T> {
   object: T;
   fromFallback: boolean;
+  model?: string;
   rawText: string;
   usage?: { totalTokens?: number; promptTokens?: number; completionTokens?: number; costUSD?: number };
   /**
@@ -102,11 +103,15 @@ export async function generateValidatedObject<T extends ZodType>(
       fallbackProviders: opts.fallbackProviders ?? fallbackProvidersFor(opts.apiKey, opts.stayOnProvider),
     });
     opts.onUsage?.({ usage: result.usage });
+    const metadata = result as { model?: unknown; modelId?: unknown };
+    const reported = metadata.model ?? metadata.modelId;
+    const model = typeof reported === 'string' && reported.trim() ? reported : opts.model;
     return {
       object: result.object,
       fromFallback: false,
       rawText: result.text,
       usage: result.usage,
+      model,
       attempts: 1,
     };
   } catch (err) {
