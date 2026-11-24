@@ -29,6 +29,12 @@ export async function lookOf(page: Page): Promise<{ light: boolean; scheme: stri
   }));
 }
 
+/** Finds a section menu item by the visible title that precedes its description. */
+export function sectionMenuItem(page: Page, title: string) {
+  return page.getByRole('menu', { name: 'Sections' }).getByRole('menuitem')
+    .filter({ has: page.getByText(title, { exact: true }) });
+}
+
 /** Opens a dashboard tab by its accessible key. */
 export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
   const nav = page.getByRole('navigation', { name: 'Sections' });
@@ -41,7 +47,7 @@ export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
   }
   const key = nav.getByRole('button', { has: page.locator('[data-more-label]') });
   if (await key.getAttribute('aria-expanded') !== 'true') await key.click();
-  await page.getByRole('menu', { name: 'Sections' }).getByRole('menuitem', { name: label, exact: true }).click();
+  await sectionMenuItem(page, label).click();
 }
 
 /** Scales the computed text sizes together, including fixed pixel line heights. */

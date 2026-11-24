@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
-import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, routeScenario, scaleText } from '../support/frame.js';
+import { ENTRY_SCRIPT, SERVERS, holdScript, lookOf, openTab, routeScenario, scaleText, sectionMenuItem as menuItem } from '../support/frame.js';
 import { FIGURES, measureText, spacingFaults } from '../support/readability.js';
 
 const LOOKS = ['light', 'dark'] as const;
@@ -569,7 +569,6 @@ const sections = (page: Page) => page.getByRole('navigation', { name: 'Sections'
 const more = (page: Page) => sections(page).getByRole('button', { has: page.locator('[data-more-label]') });
 const sectionLink = (page: Page, name: string) => sections(page).getByRole('link', { name, exact: true });
 const sectionMenu = (page: Page) => page.getByRole('menu', { name: 'Sections' });
-const menuItem = (page: Page, name: string) => sectionMenu(page).getByRole('menuitem', { name, exact: true });
 
 test('feature 2: four keys on one row', async ({ page }) => {
   for (const look of LOOKS) {
@@ -639,7 +638,7 @@ test('feature 2: MORE lists six tabs and three links', async ({ page }) => {
     await expect(menu.getByRole('menuitem')).toHaveCount(labels.length);
     await expect(menu.getByRole('separator')).toHaveCount(1);
     for (const [index, label] of labels.entries()) {
-      await expect(menuItem(page, label)).toHaveAccessibleDescription(descriptions[index]!);
+      await expect(menuItem(page, label)).toHaveAccessibleName(`${label} ${descriptions[index]}`);
     }
     await expect(menuItem(page, 'Docs')).toHaveAttribute('href', '/docs');
     for (const [label, href] of [
@@ -1028,6 +1027,7 @@ test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page })
 
 test('sweep: the frame at 320, 390 and 1,440 px in both looks', async ({ page }) => {
   test.setTimeout(240_000);
+  const layoutExpect = expect.configure({ soft: true });
   const foot = page.getByRole('contentinfo');
   const chrome = ['[role="banner"]', '[role="contentinfo"]'];
   const menu = '[role="menu"][aria-label="Sections"]';
@@ -1045,25 +1045,25 @@ test('sweep: the frame at 320, 390 and 1,440 px in both looks', async ({ page })
           await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
           await expect(page.getByRole('main', { name, exact: true })).toBeVisible();
           expect(await lookOf(page)).toEqual(EXPECTED_LOOK[look]);
-          expect(await rowsOnOneRow(page)).toEqual([]);
+          expect.soft(await rowsOnOneRow(page)).toEqual([]);
           await expect(banner(page).locator('img')).toHaveAttribute('src', '/favicon.svg');
           await expect(banner(page).locator('picture, canvas, video')).toHaveCount(0);
           await expect(foot.locator('img, picture, canvas, video')).toHaveCount(0);
 
           await foot.scrollIntoViewIfNeeded();
           for (const root of chrome) {
-            expect(await measureReadability(page, root), root).toEqual([]);
-            expect(await axeFindings(page, root), root).toEqual([]);
+            expect.soft(await measureReadability(page, root), root).toEqual([]);
+            expect.soft(await axeFindings(page, root), root).toEqual([]);
           }
 
           await more(page).click();
           await expect(sectionMenu(page)).toBeVisible();
           // At phone widths the menu puts the description below each key's name.
-          if (width === 1440) expect(await rowsOnOneRow(page)).toEqual([]);
+          if (width === 1440) expect.soft(await rowsOnOneRow(page)).toEqual([]);
           await expect(sectionMenu(page).locator('img, picture, canvas, video')).toHaveCount(0);
-          expect(await measureReadability(page, menu)).toEqual([]);
-          expect(await axeFindings(page, menu)).toEqual([]);
-          await expect.poll(() => page.evaluate(() => {
+          expect.soft(await measureReadability(page, menu)).toEqual([]);
+          expect.soft(await axeFindings(page, menu)).toEqual([]);
+          await layoutExpect.poll(() => page.evaluate(() => {
             const root = document.documentElement;
             return root.scrollWidth - root.clientWidth;
           })).toBeLessThanOrEqual(1);
@@ -1072,7 +1072,7 @@ test('sweep: the frame at 320, 390 and 1,440 px in both looks', async ({ page })
           await expect(sectionMenu(page)).toHaveCount(0);
           await scaleText(page, 2);
           for (const row of [banner(page), sections(page), foot]) {
-            await expect.poll(() => spacingFaults(row)).toEqual({ cut: [], overlaps: [] });
+            await layoutExpect.poll(() => spacingFaults(row)).toEqual({ cut: [], overlaps: [] });
           }
         });
       }
