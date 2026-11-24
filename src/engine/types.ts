@@ -435,8 +435,12 @@ export interface ActorConfig {
    * `modelId: 'hexaco'`.
    */
   traitProfile?: TraitProfile;
+  description?: string;
   instructions: string;
 }
+
+/** A leader supplied before its orders are resolved. */
+export type ActorInput = Omit<ActorConfig, 'instructions'> & { instructions?: string };
 
 // ---------------------------------------------------------------------------
 // LLM provider types
