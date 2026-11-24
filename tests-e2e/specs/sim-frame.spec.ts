@@ -1326,8 +1326,38 @@ test('the run actions menu moves by its arrow keys', async ({ page }) => {
   await expect(items.first()).toBeFocused();
   await page.keyboard.press('End');
   await expect(items.nth(count - 1)).toBeFocused();
-  await page.keyboard.press('Escape');
+  // Tab leaves the menu, as it leaves the More menu: closed, focus on its key.
+  await page.keyboard.press('Tab');
   await expect(banner(page).getByRole('menu')).toHaveCount(0);
+  await expect(banner(page).getByRole('button', { name: 'Open run actions menu' })).toBeFocused();
+});
+
+test('feature 2: two tabs that retry while one stylesheet still loads', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(SIM);
+  await expect(start(page)).toBeVisible();
+  const assets = '**/assets/*.{js,css}';
+  await page.route(assets, route => route.abort());
+  for (const tab of ['studio', 'library'] as const) {
+    await openTab(page, tab);
+    await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
+  }
+  await page.unroute(assets);
+  // The stylesheets answer slowly, so Library retries while Studio's is on its way.
+  await page.route('**/assets/*.css', async route => {
+    await new Promise(resolve => setTimeout(resolve, 3_000));
+    await route.continue();
+  });
+  await openTab(page, 'studio');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await openTab(page, 'library');
+  const libraryRetry = page.getByRole('button', { name: 'Try again', exact: true });
+  if (await libraryRetry.isVisible()) await libraryRetry.click();
+  await expect(page.getByRole('heading', { name: 'Saved runs', exact: true })).toBeVisible({ timeout: 20_000 });
+  await openTab(page, 'studio');
+  await expect(page.getByRole('status').filter({ hasText: tabFailure })).toHaveCount(0);
+  await expect(page.getByTestId('tab-loading')).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.getByRole('main', { name: 'Studio', exact: true })).toBeVisible();
 });
 
 test('feature 1: a key saved in Settings shows in the header at once', async ({ page }) => {

@@ -152,6 +152,23 @@ test.describe('Digital Twin events @twin', () => {
   });
 
   test('the page that ran it, on another scenario, counts the events as they arrive and plays them back', async ({ page }) => {
+    // A screen reader reads changes to a live region it already holds, not
+    // the words of one that arrives with them: the turn's region must be in
+    // the page, empty, before the first turn.
+    await page.addInitScript(() => {
+      const w = window as Window & { addedWithTurn?: boolean };
+      w.addedWithTurn = false;
+      new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of Array.from(record.addedNodes)) {
+            if (!(node instanceof Element)) continue;
+            const regions = [node, ...Array.from(node.querySelectorAll('[aria-live="polite"]'))]
+              .filter(el => el.getAttribute('aria-live') === 'polite');
+            if (regions.some(el => /^Turn \d+ of \d+$/.test(el.textContent ?? ''))) w.addedWithTurn = true;
+          }
+        }
+      }).observe(document, { childList: true, subtree: true });
+    });
     const release = await holdAnswer(page);
     await startRun(page);
     await expectProgressOfWholeRun(page);
@@ -159,6 +176,7 @@ test.describe('Digital Twin events @twin', () => {
     const status = page.getByRole('region', { name: 'Run status' });
     await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
     await expect(status.locator('[aria-live="polite"]').filter({ hasText: /^Turn 2 of 2$/ })).toHaveCount(1);
+    expect(await page.evaluate(() => (window as Window & { addedWithTurn?: boolean }).addedWithTurn)).toBe(false);
 
     release();
     await expect(result(page)).toBeVisible();
