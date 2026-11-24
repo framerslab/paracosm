@@ -1410,7 +1410,7 @@ async function openLive(page: Page, request: APIRequestContext, run: { id: strin
   await page.goto(`${SERVER}/sim?tab=viz`);
   await expect(gridOf(page, run.turns)).toBeAttached({ timeout: 60_000 });
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices' })).toBeVisible();
-  await expect(page.getByRole('contentinfo').getByText(/^\$\d+\.\d+$/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Run status' }).getByText(/^\$\d+\.\d+$/)).toBeVisible();
 }
 
 for (const size of [PHONE, wideDesktop]) {
