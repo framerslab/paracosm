@@ -34,3 +34,12 @@ export function finishSignal(isComplete: boolean, isAborted: boolean, resultsCou
   if (!isComplete && !isAborted) return '';
   return `${isAborted ? 'aborted' : 'complete'}:${resultsCount}`;
 }
+
+/**
+ * What tells one save notice from the next: the run, then the save's
+ * status, id and reason. A failed save names no id and no reason, so only
+ * the run tells two runs' failed saves apart.
+ */
+export function saveNoticeFingerprint(runKey: string | null, saved: Record<string, unknown>): string {
+  return `sim_saved:${runKey ?? ''}:${String(saved.status ?? 'unknown')}:${saved.id ?? ''}:${saved.reason ?? ''}`;
+}

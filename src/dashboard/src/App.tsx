@@ -222,6 +222,8 @@ function tabHeadingFor(tab: DashboardTab): string {
 
 /** The events of a page that holds no run of its own in another scenario. */
 const NO_EVENTS: SimEvent[] = [];
+/** What the verdict banner reads for a fork that ran to its end: a fork runs one leader and gets no verdict. */
+const FORK_ENDED: Record<string, unknown> = { skipped: true, reason: 'single_actor_fork' };
 
 function AppContent() {
   const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
@@ -246,9 +248,9 @@ function AppContent() {
   const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
   const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
-  // Global verdict banner. Closable by the user; dismissal is keyed
-  // to the verdict's headline so a fresh run with a new verdict
-  // re-shows the banner even after the previous one was dismissed.
+  // Global verdict banner. Closable by the user; a dismissal belongs to
+  // the run it was made on, so the next run's banner shows, the same
+  // winner and headline included.
   const [verdictDismissedKey, setVerdictDismissedKey] = useState<string | null>(null);
   const [verdictModalOpen, setVerdictModalOpen] = useState(false);
 
@@ -960,7 +962,12 @@ function AppContent() {
     return true;
   }, [sse, toast]);
   const shownRunComplete = sse.isComplete && sse.finishRunKey === sse.runKey;
-  const shownRunVerdict = sse.verdictRunKey === sse.runKey ? sse.verdict : null;
+  // The verdict of the run the page shows. A fork that ran to its end has
+  // none of its own: its banner says so, and `sse.verdict` stays its
+  // parent's for Reports, the SIM tab and a saved file.
+  const ownVerdict = sse.verdictRunKey === sse.runKey ? sse.verdict : null;
+  const forkEnded = sse.forkOutcome !== null && sse.forkOutcome.runKey === sse.runKey;
+  const shownRunVerdict = ownVerdict ?? (forkEnded ? FORK_ENDED : null);
   useTerminalToast({
     runKey: sse.runKey,
     isComplete: shownRunComplete,
@@ -1016,7 +1023,7 @@ function AppContent() {
     tourActive,
   ]);
 
-  useSimSavedToast({ savedEvent: sse.simSaved, tourActive, userTriggeredRun });
+  useSimSavedToast({ savedEvent: sse.simSaved, runKey: sse.runKey, tourActive, userTriggeredRun });
 
   // The run the guided tour's last step starts, with the scenario's
   // default settings. The Run tab's Start is the one control that starts a

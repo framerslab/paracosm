@@ -125,6 +125,13 @@ interface SSEState {
   finishRunKey: string | null;
   /** The save status of the open run. The event log can also hold the parent's save. */
   simSaved: SimEvent | null;
+  /**
+   * The fork that ran to its end, by its run key; null while the page holds
+   * no such fork. A fork runs one leader and gets no verdict, so its banner
+   * reads from this. `verdict` stays the parent's, which Reports, the SIM
+   * tab and a saved file go on showing.
+   */
+  forkOutcome: { runKey: string | null } | null;
   errors: string[];
   isComplete: boolean;
   /**
@@ -236,7 +243,7 @@ export interface UseSSEOptions {
 function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
     events: [], provenance: null, results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
-    simSaved: null, errors: [], isComplete: false, isAborted: false, abortReason: null,
+    simSaved: null, forkOutcome: null, errors: [], isComplete: false, isAborted: false, abortReason: null,
     providerError: null, validationFallbacks: [],
   };
 }
@@ -448,6 +455,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       verdictRunKey: null,
       finishRunKey: null,
       simSaved: null,
+      forkOutcome: null,
       errors: [],
       isComplete: true,
       isAborted: restoredAborted,
@@ -918,20 +926,16 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         setState(prev => {
           const reason = prev.finishRunKey === finishRunKey ? prev.abortReason : null;
           const isAborted = wasAborted || (prev.finishRunKey === finishRunKey && prev.isAborted);
-          // A single-actor fork finishes without a comparative verdict.
-          // Give its banner the fork's own outcome while preserving a
-          // verdict if this run already supplied one.
-          const showForkOutcome = fork && !isAborted && (prev.verdictRunKey !== finishRunKey || !prev.verdict);
           return {
             ...prev,
             isComplete: true,
             finishRunKey,
             isAborted,
             abortReason: reason ?? (isAborted ? { reason: 'unknown' } : null),
-            ...(showForkOutcome ? {
-              verdictRunKey: finishRunKey,
-              verdict: { skipped: true, reason: 'single_actor_fork' },
-            } : {}),
+            // A single-leader fork ends without a verdict of its own. Its
+            // end is kept apart from the verdict the page holds, which is
+            // its parent's and stays in Reports and in a saved file.
+            ...(fork && !isAborted ? { forkOutcome: { runKey: finishRunKey } } : {}),
           };
         });
       });
