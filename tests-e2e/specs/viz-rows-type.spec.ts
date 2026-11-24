@@ -1347,9 +1347,8 @@ for (const look of LOOKS) {
       await setWords(page, 'open');
       await scrollBack(page);
       await painted(page);
-      const phase = process.env.VIZ_WIDE_CAPTURE_PHASE ?? 'after';
       await page.screenshot({
-        path: `test-pictures/viz-wide-and-stats/${phase}/${size.width}x${size.height}-${look}.png`,
+        path: `test-pictures/viz-wide-and-stats/after/${size.width}x${size.height}-${look}.png`,
         animations: 'disabled',
         scale: 'css',
       });
