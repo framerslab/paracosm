@@ -38,8 +38,6 @@ import { ReplayBanner, ReplayNotFoundBanner } from './components/layout/ReplayBa
 // StudioTab as sub-tabs; App.tsx no longer needs them at top level.
 import { BranchesProvider } from './components/branches/BranchesContext';
 import { BranchesSyncer } from './components/branches/BranchesSyncer';
-import { LibraryTab } from './components/library/index.js';
-import { StudioTab } from './components/studio/StudioTab.js';
 import { QuickstartView } from './components/quickstart/QuickstartView';
 import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitationRegistry';
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
@@ -47,14 +45,12 @@ import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
 import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
 import { TAB_NAMES } from './components/layout/frameWords';
+import { lazyTab } from './components/layout/lazyTab';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 // Toolbar merged into TopBar
 import { SimView } from './components/sim/SimView';
 import type { RunArtifact } from '../../engine/schema/index.js';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { ReportView } from './components/reports/ReportView';
 import { ChatPanel } from './components/chat/ChatPanel';
-import { SwarmViz } from './components/viz/SwarmViz';
 // The About tab has no panel here: setActiveTab sends it to the landing page at /
 import { PageFoot } from './components/layout/PageFoot';
 import { RunStatusBar } from './components/layout/RunStatusBar';
@@ -70,6 +66,12 @@ import {
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
+
+const ReportView = lazyTab(() => import('./components/reports/ReportView'), 'ReportView');
+const StudioTab = lazyTab(() => import('./components/studio/StudioTab'), 'StudioTab');
+const SwarmViz = lazyTab(() => import('./components/viz/SwarmViz'), 'SwarmViz');
+const LibraryTab = lazyTab(() => import('./components/library/LibraryTab'), 'LibraryTab');
+const SettingsPanel = lazyTab(() => import('./components/settings/SettingsPanel'), 'SettingsPanel');
 
 // Scenario context available to all components. Exported so SSR tests
 // can wrap their renders with a stubbed scenario value without booting
@@ -787,8 +789,7 @@ function AppContent() {
   // (and any other launch path that uses window.location.href to
   // navigate to /sim). Without this, a Quickstart Run → page reload →
   // /sim?tab=sim mount has launching=false, no events yet, and SSE
-  // already connected → SimView falls into the empty "No simulation
-  // running" state for 2-5s while the server queues + emits the first
+  // already connected → SimView falls into the empty Watch state for 2-5s while the server queues + emits the first
   // event. The flag clears in a useEffect once the first event lands
   // OR after a 30s safety timeout so a stuck launch doesn't pin the
   // spinner forever.

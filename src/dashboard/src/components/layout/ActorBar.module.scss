@@ -303,7 +303,7 @@
   // crosses both thresholds on the dashboard's dark surface.
   background: rgba(213, 95, 95, 0.18);
   border: 1px solid rgba(213, 95, 95, 0.55);
-  color: var(--red, #ff7676);
+  color: var(--text-1);
   text-transform: none;
   letter-spacing: 0;
   font-weight: 700;
@@ -402,7 +402,7 @@
 }
 
 .chipCrisis .chipLabel {
-  color: rgba(213, 95, 95, 0.85);
+  color: var(--text-1);
 }
 
 .chipDeciding {

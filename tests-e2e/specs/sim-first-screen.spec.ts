@@ -3298,10 +3298,10 @@ screenTest('one Start', async ({ page }) => {
       await useLook(page, 'dark');
       await page.goto('/sim?tab=sim');
       const sim = page.locator('#tabpanel-sim');
-      await expect(sim.getByText('No simulation running', { exact: true })).toBeVisible();
+      await expect(sim.getByRole('heading', { name: 'No run yet.', exact: true })).toBeVisible();
       await expect(sim.getByRole('button', { name: startsARun })).toHaveCount(0);
       await expect(sim.getByText(/guided tour/i)).toHaveCount(0);
-      await expect(sim.getByRole('button', { name: 'Load Prior Run', exact: true })).toBeVisible();
+      await expect(sim.getByRole('link', { name: 'Go to Run', exact: true })).toBeVisible();
 
       const header = page.getByRole('banner');
       await expect(header.getByRole('button', { name: 'RUN', exact: true })).toHaveCount(0);

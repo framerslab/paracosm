@@ -69,3 +69,13 @@ export const PACKAGE_LINKS = FOOT_LINKS.slice(0, 3).map((link, index) => ({
   ...link,
   description: MORE_LINK_LINES[index],
 }));
+
+export { WATCH_LAST_RUN, TRY_AGAIN, trying as TRYING } from '../quickstart/first-screen/words';
+export const GO_TO_RUN = 'Go to Run';
+export const EMPTY_WATCH_TITLE = 'No run yet.';
+export const EMPTY_WATCH_BODY = 'Set up a run on the Run tab, then press Start. The run shows here, turn by turn.';
+export const EMPTY_REPORTS_TITLE = 'No report yet.';
+export const EMPTY_REPORTS_BODY = 'A report is written when a run ends: a verdict for a pair, a ranking by quarters for 3 or more leaders.';
+export const TAB_FAILED = 'This tab did not load.';
+export const TAB_OFFLINE = 'You are offline. This tab loads when you are back online.';
+export const TAB_LOADING = 'Loading tab…';
