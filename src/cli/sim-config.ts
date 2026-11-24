@@ -1,6 +1,7 @@
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { Department } from '../engine/core/state.js';
-import type { ScenarioPackage } from '../engine/types.js';
+import type { ActorInput, ScenarioPackage } from '../engine/types.js';
+import { clipOrderText, fillInstructions } from '../engine/presets/fill-instructions.js';
 import { marsScenario } from '../engine/scenarios/index.js';
 import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
@@ -60,7 +61,7 @@ export interface SimulationExecutionConfig {
 }
 
 export interface SimulationSetupPayload {
-  actors: ActorConfig[];
+  actors: ActorInput[];
   provider?: LlmProvider;
   turns?: number;
   seed?: number;
@@ -425,7 +426,6 @@ export const DEMO_EXECUTION: SimulationExecutionConfig & {
 };
 
 /** The hosted demo's bounds on what a run's body may add to every prompt. */
-const DEMO_MAX_INSTRUCTIONS_CHARS = 400;
 const DEMO_MAX_EVENT_TITLE_CHARS = 120;
 const DEMO_MAX_EVENT_DESCRIPTION_CHARS = 600;
 /** A leader's name, archetype and unit, and a key person's name, role and specialization. */
@@ -622,6 +622,14 @@ export function demoEconomics(provider: LlmProvider = DEMO_PROVIDER): ResolvedEc
     : economy;
 }
 
+/** Count source orders that need filling among the leaders admitted to a run. */
+export function countMissingOrders(actors: readonly ActorInput[], budget?: number): number {
+  return actors.filter(({ instructions }) => {
+    if (typeof instructions !== 'string') return true;
+    return !(budget === undefined ? instructions : clipOrderText(instructions, budget)).trim();
+  }).length;
+}
+
 /**
  * Apply demo-mode caps to an already-normalized sim config.
  *
@@ -655,12 +663,12 @@ export function applyDemoCaps(input: NormalizedSimulationConfig): NormalizedSimu
     // the population, each name, role and specialization at most 120; one
     // custom event a turn at most, each with a short title and description;
     // no live search.
-    actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => ({
+    actors: config.actors.slice(0, DEMO_EXECUTION.maxActors).map(actor => fillInstructions({
       ...actor,
       name: demoLabel(actor.name),
       archetype: demoLabel(actor.archetype),
       unit: demoLabel(actor.unit),
-      instructions: (actor.instructions ?? '').slice(0, DEMO_MAX_INSTRUCTIONS_CHARS),
+      instructions: clipOrderText(actor.instructions),
     })),
     keyPersonnel: config.keyPersonnel.slice(0, initialPopulation).map(person => ({
       ...person,
@@ -798,7 +806,7 @@ function forkParentTimeline(
  * five traits undefined, and the rule threw on every decision of the run.
  * An actor without a HEXACO profile is returned as it came.
  */
-function withNeutralTraits(actor: ActorConfig): ActorConfig {
+function withNeutralTraits(actor: ActorInput): ActorInput {
   const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
   if (!given || typeof given !== 'object') return actor;
   const filled: string[] = [];
@@ -946,7 +954,7 @@ export function normalizeSimulationConfig(
   }
 
   return {
-    actors: input.actors.map(withNeutralTraits),
+    actors: input.actors.map(actor => fillInstructions(withNeutralTraits(actor))),
     provider: inferredProvider,
     turns,
     seed: input.seed ?? setup.defaultSeed ?? 42,

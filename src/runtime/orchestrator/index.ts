@@ -1,4 +1,6 @@
 import { GENERAL_AUDIENCE_GUIDANCE } from '../util/audience.js';
+import { fillInstructions } from '../../engine/presets/fill-instructions.js';
+import type { ActorInput } from '../../engine/types.js';
 import { writeRunOutput } from '../io/output-writer.js';
 import { buildRunArtifact } from '../io/build-artifact.js';
 import type {
@@ -508,11 +510,13 @@ export interface RunOptions extends RuntimeCredentialOptions {
   searchEnv?: NodeJS.ProcessEnv;
 }
 
-export async function runSimulation(leader: ActorConfig, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
+export async function runSimulation(leader: ActorInput, keyPersonnel: KeyPersonnel[], opts: RunOptions = {}): Promise<RunArtifact> {
+  const actor = fillInstructions(leader);
+  if (actor !== leader) console.log('[orders] filled empty instructions for 1 leader(s)');
   // Each run owns its research memory and closes it however the run ends.
   const research = await createResearchMemory((opts.scenario ?? marsScenario).knowledge);
   try {
-    return await runWithResearch(research, leader, keyPersonnel, opts);
+    return await runWithResearch(research, actor, keyPersonnel, opts);
   } finally {
     await research.close();
   }

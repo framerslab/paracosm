@@ -25,7 +25,8 @@
  * @module paracosm/runtime/client
  */
 
-import { runSimulation, type RunOptions, type ActorConfig } from './orchestrator/index.js';
+import { runSimulation, type RunOptions } from './orchestrator/index.js';
+import type { ActorInput } from '../engine/types.js';
 import { runBatch, type BatchConfig, type BatchManifest } from './batch.js';
 import { compileScenario } from '../engine/compiler/index.js';
 import type { CompileOptions } from '../engine/compiler/types.js';
@@ -83,7 +84,7 @@ export interface ParacosmClient {
    * other options inherit from the client with per-call overrides.
    */
   runSimulation: (
-    leader: ActorConfig,
+    leader: ActorInput,
     keyPersonnel: KeyPersonnel[],
     opts?: RunOptions,
   ) => ReturnType<typeof runSimulation>;
