@@ -819,3 +819,202 @@ test('reduced motion: MORE and the row move at once', async ({ page }) => {
   });
   expect(left).toBeGreaterThan(0);
 });
+
+const tabScripts = '**/assets/*.js';
+const tabFailure = 'This tab did not load.';
+const tabOffline = 'You are offline. This tab loads when you are back online.';
+const emptyTitle = (page: Page, name: string) => page.getByRole('heading', { name, exact: true });
+const goToRun = (page: Page) => page.getByRole('link', { name: 'Go to Run', exact: true });
+
+test('feature 2: Watch and Reports with no run', async ({ page }) => {
+  for (const width of [390, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(width + ' px, ' + look, async () => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ colorScheme: look });
+        await page.goto(SIM);
+
+        await openTab(page, 'sim');
+        await expect(emptyTitle(page, 'No run yet.')).toBeVisible();
+        const watch = page.getByRole('region', { name: 'Watch', exact: true });
+        await expect(watch).toContainText('Set up a run on the Run tab, then press Start. The run shows here, turn by turn.');
+        const line = watch.getByTestId('empty-run-line');
+        await expect(line).toHaveAttribute('aria-hidden', 'true');
+        await expect(line.locator('li')).toHaveCount(6);
+        await expect(line).toContainText('Verdict');
+        await expect(watch.getByRole('button', { name: /^(Start|Run|Launch)\b/i })).toHaveCount(0);
+        await expect(watch.getByText(/guided tour/i)).toHaveCount(0);
+        expect((await goToRun(page).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await goToRun(page).click();
+        await expect(page.getByTestId('run-first-screen')).toBeVisible();
+        await expect(sectionLink(page, 'Run')).toHaveAttribute('aria-current', 'page');
+
+        await openTab(page, 'reports');
+        await expect(emptyTitle(page, 'No report yet.')).toBeVisible();
+        const reports = page.getByRole('region', { name: 'Reports', exact: true });
+        await expect(reports).toContainText('A report is written when a run ends: a verdict for a pair, a ranking by quarters for 3 or more leaders.');
+        const tracks = reports.getByTestId('empty-score-tracks');
+        await expect(tracks).toHaveAttribute('aria-hidden', 'true');
+        await expect(tracks.locator('li')).toHaveCount(4);
+        await expect(reports.getByRole('button', { name: /^(Start|Run|Launch)\b/i })).toHaveCount(0);
+        await expect(reports.getByText(/guided tour/i)).toHaveCount(0);
+        await goToRun(page).click();
+        await expect(page.getByTestId('run-first-screen')).toBeVisible();
+      });
+    }
+  }
+});
+
+test('feature 2: Watch your last run again', async ({ page }) => {
+  const launchPaths: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === '/setup' || path.startsWith('/api/quickstart')) launchPaths.push(path);
+  });
+  for (const [width, look, tab] of [[390, 'light', 'sim'], [1440, 'dark', 'reports']] as const) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: look });
+    await page.goto(SERVERS.replay + '/sim');
+    // The Run screen reads its own scenario before the replay action.
+    await expect(page.getByTestId('scenario-figures')).toBeVisible();
+    await openTab(page, 'sim');
+    const replay = page.getByRole('link', { name: 'Watch your last run again', exact: true });
+    for (const target of ['sim', 'reports'] as const) {
+      await openTab(page, target);
+      await expect(replay).toBeVisible();
+      const box = (await replay.boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual((await goToRun(page).boundingBox())!.y + 44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    await openTab(page, tab);
+    const href = (await replay.getAttribute('href'))!;
+    expect(new URL(href, page.url()).searchParams.get('replay')).toBeTruthy();
+    launchPaths.length = 0;
+    await replay.click();
+    await expect(replayStatus(page)).toBeVisible();
+    await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+    expect(launchPaths).toEqual([]);
+  }
+});
+
+test('feature 2: a tab that did not load, and Try again', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(SIM);
+  await expect(start(page)).toBeVisible();
+  await page.route(tabScripts, route => route.abort());
+  await openTab(page, 'reports');
+  await expect(sections(page)).toBeVisible();
+  const problem = page.getByRole('status').filter({ hasText: tabFailure });
+  await expect(problem).toBeVisible();
+  await expect(problem.locator('svg[aria-hidden="true"]')).toBeVisible();
+  const retry = page.getByRole('button', { name: 'Try again', exact: true });
+  const box = (await retry.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.width).toBeGreaterThanOrEqual(96);
+
+  await page.unroute(tabScripts);
+  await page.route(tabScripts, async route => {
+    await new Promise(resolve => setTimeout(resolve, 2_000));
+    await route.continue();
+  });
+  await retry.click();
+  await expect(page.getByRole('button', { name: 'Trying…', exact: true })).toBeDisabled();
+  await expect(emptyTitle(page, 'No report yet.')).toBeVisible();
+});
+
+test('feature 2: a slow tab shows its shapes, offline says so', async ({ page, context }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [i, look] of LOOKS.entries()) {
+    await page.emulateMedia({ colorScheme: look });
+    await page.goto(SIM);
+    await expect(start(page)).toBeVisible();
+    if (i === 0) {
+      await page.route(tabScripts, async route => {
+        await new Promise(resolve => setTimeout(resolve, 2_000));
+        await route.continue();
+      });
+      await openTab(page, 'reports');
+      await expect(page.getByTestId('tab-loading')).toBeVisible();
+      await expect(sections(page).getByRole('link')).toHaveText(['Run', 'Watch', 'Reports'], { ignoreCase: true });
+      await expect(more(page)).toHaveAccessibleName('More', { ignoreCase: true });
+      await expect(emptyTitle(page, 'No report yet.')).toBeVisible();
+      await page.unroute(tabScripts);
+    }
+    await openTab(page, 'sim');
+    await expect(emptyTitle(page, 'No run yet.')).toBeVisible();
+    await openTab(page, 'quickstart');
+    await context.setOffline(true);
+    try {
+      await openTab(page, 'sim');
+      await expect(emptyTitle(page, 'No run yet.')).toBeVisible();
+      await openTab(page, 'quickstart');
+      await expect(page.getByTestId('run-first-screen')).toBeVisible();
+      await openTab(page, 'library');
+      const problem = page.getByRole('status').filter({ hasText: tabOffline });
+      await expect(problem).toBeVisible();
+      await expect(problem.locator('svg[aria-hidden="true"]')).toBeVisible();
+      if (i === 1) await page.route(tabScripts, route => route.abort());
+    } finally {
+      await context.setOffline(false);
+    }
+    if (i === 0) {
+      await expect(page.getByRole('heading', { name: 'Saved runs', exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
+      const retry = page.getByRole('button', { name: 'Try again', exact: true });
+      await retry.click();
+      await expect(retry).toBeEnabled();
+      await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
+      await page.unroute(tabScripts);
+    }
+  }
+});
+
+test('feature 2: nothing refused at the day’s limit', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [i, look] of LOOKS.entries()) {
+    await page.emulateMedia({ colorScheme: look });
+    await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.' + (104 + i + info.retry * 2) });
+    await page.goto(demo);
+    await expect(start(page)).toBeEnabled();
+    try {
+      await start(page).click();
+      await expect(page.getByTestId('watch-grid-panel')).toHaveCount(2);
+    } finally {
+      await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+    }
+    await page.goto(demo);
+    await expect(visitor(page)).toHaveText('No free run', { useInnerText: true });
+    for (const [tab, name] of [['sim', 'Watch'], ['reports', 'Reports'], ['quickstart', 'Run']] as const) {
+      await openTab(page, tab);
+      await expect(page.getByRole('main', { name, exact: true })).toBeVisible();
+    }
+    await more(page).click();
+    await expect(sectionMenu(page)).toBeVisible();
+    await menuItem(page, 'Library').click();
+    await expect(page.getByRole('heading', { name: 'Saved runs', exact: true })).toBeVisible();
+  }
+});
+
+test('legal L8: the run screen’s event label reads 4.5 to 1', async ({ page }) => {
+  await page.goto(SERVERS.replay + '/sim?tab=library');
+  const href = await savedPair(page).getAttribute('href');
+  expect(href).toBeTruthy();
+  for (const width of [390, 1440]) {
+    for (const look of LOOKS) {
+      await test.step(width + ' px, ' + look, async () => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.emulateMedia({ colorScheme: look });
+        await page.goto(new URL(href!, page.url()).href);
+        await expect(replayStatus(page)).toBeVisible();
+        const chips = page.locator('[class*="compactCrisis"], [class*="chipCrisis"]');
+        await expect(chips.first()).toBeVisible();
+        for (const chip of await chips.all()) {
+          const words = await measureText(page, chip);
+          expect(words.length).toBeGreaterThan(0);
+          for (const word of words) expect(word.ratio, word.selector).toBeGreaterThanOrEqual(4.5);
+        }
+      });
+    }
+  }
+});
