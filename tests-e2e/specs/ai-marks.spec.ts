@@ -134,6 +134,7 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
     };
   }, html);
   expect(parsed).toEqual({ metaCount: 1, data: { provenance }, passages: [choice + ' AI-written'] });
+  expect(html).not.toContain('<h2>Verdict</h2>');
 
   const [pdfDownload] = await Promise.all([
     page.waitForEvent('download'),
@@ -175,6 +176,18 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
   await expect(page.locator('canvas').filter({ visible: true }).first()).toBeVisible();
   await page.getByRole('button', { name: /^Show (advanced|more) tools/ }).click();
   await page.getByRole('toolbar', { name: 'Viz tools' }).getByRole('button', { name: 'Export options' }).click();
+  const original = await page.evaluateHandle(() => {
+    const state = { png: null as Blob | null };
+    const encode = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, type, quality) {
+      HTMLCanvasElement.prototype.toBlob = encode;
+      encode.call(this, blob => {
+        state.png = blob;
+        callback(blob);
+      }, type, quality);
+    };
+    return state;
+  });
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('menuitem', { name: /^PNG/ }).click(),
@@ -200,6 +213,29 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
   expect(xmp).toHaveLength(1);
   expect(xmp[0]).toContain('http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia');
   expect(xmp[0]).toContain('"generator":"paracosm"');
+  const marked = await page.evaluateHandle(base64 =>
+    new Blob([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], { type: 'image/png' }),
+    png.toString('base64'));
+  const pixels = await page.evaluate(async ({ original, marked }) => {
+    if (!original.png) throw new Error('Viz did not encode a source composite');
+    const [before, after] = await Promise.all([createImageBitmap(original.png), createImageBitmap(marked)]);
+    const sameSize = before.width === after.width && before.height === after.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = before.width;
+    canvas.height = before.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true })!;
+    context.drawImage(before, 0, 0);
+    const source = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(after, 0, 0);
+    const exported = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    before.close();
+    after.close();
+    return { sameSize, samePixels: source.every((byte, index) => byte === exported[index]) };
+  }, { original, marked });
+  expect(pixels).toEqual({ sameSize: true, samePixels: true });
+  await original.dispose();
+  await marked.dispose();
 });
 
 test('Reports distinguishes authored decisions and department prose from a fallback with the same words', async ({ page }) => {
@@ -217,4 +253,82 @@ test('Reports distinguishes authored decisions and department prose from a fallb
   expect(sources).toContain(true);
   expect(sources).toContain(false);
   await expect(page.locator(meta)).toHaveCount(1);
+});
+
+test('Library reports include the saved verdict and its model for the selected actor', async ({ page }) => {
+  await page.route('**/setup', route => {
+    const launch = route.request().postDataJSON();
+    launch.actors[0].name = 'Report leader';
+    return route.continue({ postData: launch });
+  });
+  await openPair(page, 'dark');
+  let runId: string | undefined;
+  await expect.poll(async () => {
+    const response = await page.request.get(origin + '/api/v1/runs');
+    const { runs } = await response.json();
+    const record = runs.find((run: { actorName?: string; sessionId?: string }) => run.actorName === 'Report leader' && run.sessionId);
+    runId = record?.runId;
+    return Boolean(runId);
+  }).toBe(true);
+  await page.goto(origin + '/sim?tab=library&runId=' + encodeURIComponent(runId!));
+  const dialog = page.getByRole('dialog', { name: 'Run detail' });
+  const save = async (format: 'HTML' | 'PDF') => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      dialog.getByRole('button', { name: 'Download ' + format }).click(),
+    ]);
+    return readFileSync(await download.path());
+  };
+
+  const html = (await save('HTML')).toString('utf8');
+  const verdict = 'Stored water protected the new crops.';
+  const models = { commander: 'test-commander-a', verdict: 'test-verdict' };
+  const document = await page.evaluate(source => {
+    const report = new DOMParser().parseFromString(source, 'text/html');
+    return {
+      marked: [...report.querySelectorAll('[data-ai-generated="true"]')].map(el => el.textContent),
+      models: JSON.parse(report.querySelector('#paracosm-provenance')!.textContent!).provenance.models,
+    };
+  }, html);
+  expect(document.marked).toContain(verdict + ' AI-written');
+  expect(document.models).toEqual(models);
+
+  const bytes = await save('PDF');
+  const pdf = await PDFDocument.load(bytes);
+  const metadata = pdf.catalog.lookup(PDFName.of('Metadata'), PDFRawStream);
+  expect(new TextDecoder().decode(metadata.getContents())).toContain(JSON.stringify(models));
+  const dashboardRequire = createRequire(new URL('../../src/dashboard/package.json', import.meta.url));
+  const pdfJs = await import(pathToFileURL(dashboardRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href);
+  const rendering = pdfJs.getDocument({ data: Uint8Array.from(bytes), disableFontFace: true });
+  try {
+    const report = await rendering.promise;
+    const items = (await (await report.getPage(1)).getTextContent()).items;
+    const text = items.map((item: { str?: string }) => item.str ?? '').join(' ');
+    expect(text).toContain(verdict);
+    expect(text).toMatch(/Stored water protected the new crops\.\s+AI-written/);
+  } finally {
+    await rendering.destroy();
+  }
+});
+
+test('the Scenario Editor exports only the recorded compiler role for a generated scenario', async ({ page }) => {
+  await page.goto(origin + '/sim?tab=settings');
+  const draft = JSON.parse(readFileSync(new URL('../../scenarios/mars.json', import.meta.url), 'utf8'));
+  const id = 'marks-compiler-' + Date.now();
+  const compiled = await page.request.post(origin + '/compile', { data: {
+    scenario: { ...draft, id }, webSearch: false,
+  } });
+  expect(compiled.ok()).toBe(true);
+  expect(await compiled.text()).toContain('event: complete');
+  expect((await page.request.post(origin + '/scenario/switch', { data: { scenarioId: id } })).ok()).toBe(true);
+  await page.reload();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Export as JSON file' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe(id + '.json');
+  const scenario = JSON.parse(readFileSync(await download.path(), 'utf8'));
+  expect(scenario.provenance).toEqual({
+    aiGenerated: true, generator: 'paracosm', models: { compiler: 'test-compiler' },
+  });
 });
