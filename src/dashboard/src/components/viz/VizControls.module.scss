@@ -51,6 +51,27 @@ $read-size: 15px;
   }
 }
 
+// The Latest key wider than 768 px (SwarmViz.tsx) sits between the slider
+// and the turn. It is no taller than the keys beside it, so the row keeps
+// its height when the key comes and goes.
+.latest {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+
+  > * { min-width: 0; }
+
+  button {
+    margin: 0;
+    min-height: 0;
+    padding: 2px 10px;
+
+    @media (max-width: 899.98px) {
+      min-height: 44px;
+    }
+  }
+}
+
 .turn {
   flex: 0 1 auto;
   min-width: 0;

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import styles from './VizControls.module.scss';
 
 interface VizControlsProps {
@@ -13,6 +14,8 @@ interface VizControlsProps {
   onStepBack: () => void;
   onStepForward: () => void;
   onSpeedChange: (speed: number) => void;
+  /** The Latest key wider than 768 px, where playback stays in view while the fields scroll. */
+  latest?: ReactNode;
 }
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -29,7 +32,7 @@ const SPEEDS = [0.5, 1, 2, 4];
  */
 export function VizControls({
   currentTurn, maxTurn, time, timeInBanner = false, playing, speed,
-  onTurnChange, onPlayPause, onStepBack, onStepForward, onSpeedChange,
+  onTurnChange, onPlayPause, onStepBack, onStepForward, onSpeedChange, latest,
 }: VizControlsProps) {
   return (
     <div className={styles.row}>
@@ -52,6 +55,7 @@ export function VizControls({
         aria-label="Scrub timeline"
         aria-valuetext={`Turn ${currentTurn + 1} of ${maxTurn}`}
       />
+      {latest && <div className={styles.latest}>{latest}</div>}
       <span className={styles.turn}>
         T{currentTurn + 1}/{maxTurn}{time ? <span className={timeInBanner ? styles.timeShownAbove : undefined}>{` \u00b7 ${time}`}</span> : null}
       </span>

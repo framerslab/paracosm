@@ -36,6 +36,15 @@
 .colNarrow { min-width: 90px; }
 .colPaired { min-width: 80px; }
 
+.strip {
+  .row,
+  .rowBaseline,
+  .moodHeader {
+    flex-wrap: wrap;
+    gap: 4px 6px;
+  }
+}
+
 .row {
   display: flex;
   justify-content: space-between;

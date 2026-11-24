@@ -93,6 +93,7 @@ interface ColonyTurn {
   deathCauses?: Record<string, number>;
   metrics: Record<string, number>;
   agents: Array<Record<string, unknown>>;
+  featuredReactions: Array<Record<string, unknown>>;
 }
 
 /** The mood each colonist who reacted under `leader` in `turn` gave, by agent id. */
@@ -152,6 +153,19 @@ function colony(seed: number, leader: string): ColonyTurn[] {
       deaths: deathEvents.length,
       deathCauses: Object.keys(deathCauses).length > 0 ? deathCauses : undefined,
       metrics: { ...after.metrics } as Record<string, number>,
+      featuredReactions: after.agents.filter(a => a.health.alive && a.narrative.featured).map(a => ({
+        agentId: a.core.id,
+        name: a.core.name,
+        mood: moods.get(a.core.id) ?? 'neutral',
+        hexaco: {
+          O: a.hexaco.openness,
+          C: a.hexaco.conscientiousness,
+          E: a.hexaco.extraversion,
+          A: a.hexaco.agreeableness,
+          Em: a.hexaco.emotionality,
+          HH: a.hexaco.honestyHumility,
+        },
+      })),
       agents: after.agents.map(a => ({
         agentId: a.core.id,
         name: a.core.name,
@@ -211,6 +225,8 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
   const start = mine.find(e => e.type === 'turn_start' && e.data.title !== 'Director generating...');
   const between = mine.filter(e => e.type !== 'turn_start' && e.type !== 'systems_snapshot');
   const outcomes = between.filter(e => e.type === 'outcome').length;
+  const reactions = between.find(e => e.type === 'agent_reactions');
+  const recordedReactions = (reactions?.data.reactions as Array<Record<string, unknown>> | undefined) ?? [];
   const at = { turn: t.turn, time: t.time };
   // The recording omits usage. Use fixture totals in the per-leader
   // cumulative shape the dashboard consumes from a completed turn.
@@ -246,7 +262,15 @@ function leaderTurn(leader: string, t: ColonyTurn, wordsOf = leader): string[] {
       pacing: start?.data.pacing ?? 'normal',
     }),
     ...eventStart,
-    ...between.map(e => sim(leader, e.type, { ...e.data, ...at })),
+    ...between.filter(e => !HOSTED_CHROME || e.type !== 'agent_reactions')
+      .map(e => sim(leader, e.type, { ...e.data, ...at })),
+    // The stream deduplicates reaction frames by leader and turn. Include
+    // the generated colony's featured traits in that same per-turn frame.
+    ...(HOSTED_CHROME ? [sim(leader, 'agent_reactions', {
+      ...reactions?.data,
+      ...at,
+      reactions: [...recordedReactions, ...t.featuredReactions],
+    })] : []),
     sim(leader, 'turn_done', { ...at, metrics: t.metrics, toolsForged: 0, totalEvents: outcomes, ...usage, ...(t.deathCauses ? { deathCauses: t.deathCauses } : {}) }),
     sim(leader, 'systems_snapshot', { ...at, agents: t.agents, ...systemsSnapshotTotals(t.metrics), births: t.births, deaths: t.deaths }),
   ];
