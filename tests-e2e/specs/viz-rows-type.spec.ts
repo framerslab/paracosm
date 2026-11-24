@@ -1420,6 +1420,38 @@ test('a live crisis appears before the comparison chart in stacked Viz', async (
   expect(notice.y + notice.height).toBeLessThanOrEqual(chartBox.y);
 });
 
+// Wider than 768 px a notice stands in the row kept for it. The stored run's
+// last crisis must read whole there: no scroll inside the row, no part of
+// the card past its edge, and no line of it cut.
+for (const width of [1100, 1440]) {
+  test(`a live crisis reads whole in its reserved row at ${width} x 900`, async ({ page, request }) => {
+    await openLive(page, request, await pairRun(request), { width, height: 900 });
+    const notice = crisisCard(page);
+    await expect(notice).toBeVisible();
+    await notice.evaluate(card => Promise.all(card.getAnimations({ subtree: true })
+      .filter(motion => motion.effect?.getTiming().iterations !== Infinity)
+      .map(motion => motion.finished)));
+    const fit = await notice.evaluate(card => {
+      const row = card.parentElement!;
+      const box = row.getBoundingClientRect();
+      const own = card.getBoundingClientRect();
+      return {
+        rowScroll: row.scrollHeight - row.clientHeight,
+        inside: own.top >= box.top - 0.5 && own.bottom <= box.bottom + 0.5
+          && own.left >= box.left - 0.5 && own.right <= box.right + 0.5,
+        parts: Array.from(card.children).map(part => ({
+          text: part.textContent ?? '',
+          cut: part.scrollHeight > part.clientHeight + 1 || part.scrollWidth > part.clientWidth + 1,
+        })),
+      };
+    });
+    expect.soft(fit.rowScroll, 'the notices row needs no scroll').toBeLessThanOrEqual(0);
+    expect.soft(fit.inside, 'the crisis card lies wholly inside its row').toBe(true);
+    expect(fit.parts.length, 'the card has its kicker and its title').toBe(2);
+    for (const part of fit.parts) expect.soft(part.cut, `"${part.text}" shows whole`).toBe(false);
+  });
+}
+
 interface PaintedName { text: string; left: number; top: number; right: number; bottom: number; size: number }
 
 async function observeGridPaint(page: Page) {
