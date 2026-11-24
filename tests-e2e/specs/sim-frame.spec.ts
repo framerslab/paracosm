@@ -1104,10 +1104,13 @@ test('pictures', async ({ browser }, info) => {
           extraHTTPHeaders: { 'x-real-ip': `192.0.2.${120 + lookIndex * 2 + widthIndex + info.retry * 4}` },
         });
         const page = await context.newPage();
-        const capture = (state: string) => page.screenshot({
-          path: `test-pictures/sim-frame/${width}-${look}-${state}.png`,
-          animations: 'disabled',
-        });
+        const capture = async (state: string) => {
+          await expect(page.locator('#pcc')).toBeHidden();
+          await page.screenshot({
+            path: `test-pictures/sim-frame/${width}-${look}-${state}.png`,
+            animations: 'disabled',
+          });
+        };
 
         try {
           await page.goto(demo);
@@ -1125,7 +1128,10 @@ test('pictures', async ({ browser }, info) => {
           await expect(emptyTitle(page, 'No run yet.')).toBeVisible();
           await capture('empty-watch');
 
-          await page.getByRole('contentinfo').scrollIntoViewIfNeeded();
+          const foot = page.getByRole('contentinfo');
+          await foot.scrollIntoViewIfNeeded();
+          await expect(foot).toBeInViewport({ ratio: 1 });
+          await expect(foot.getByRole('button', { name: 'Analytics choices', exact: true })).toBeInViewport({ ratio: 1 });
           await capture('foot');
 
           await page.route(tabScripts, route => route.abort());
