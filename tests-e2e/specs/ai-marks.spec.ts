@@ -669,7 +669,7 @@ for (const width of widths) {
       const chat = page.getByRole('log', { name: 'Messages with Noor Aziz' });
       await expectMark(chat.getByText('The water stores are stable.', { exact: true }));
       const replyLabel = chat.getByText('AI-written', { exact: true }).last();
-      await replyLabel.scrollIntoViewIfNeeded();
+      await replyLabel.evaluate(label => label.scrollIntoView({ block: 'center' }));
       await expect(replyLabel).toBeInViewport({ ratio: 1 });
       await expectReadableMarks(page, chat);
 
@@ -702,11 +702,30 @@ test('Studio and pinned comparison show each stored decision with its own label'
   await expectMark(page.locator('[data-ai-generated="true"]').filter({ hasText: decisions[0] }));
   await expect(page.locator(meta)).toHaveCount(1);
   await page.getByRole('button', { name: /Back to bundle/ }).click();
+  const imported = page.waitForResponse(response => response.url().endsWith('/api/v1/library/import')
+    && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Promote bundle (2)' }).click();
   await expect(page.getByText(/added to Library \(2 runs\)/)).toBeVisible();
+  const { runIds } = await (await imported).json() as { runIds: string[] };
   await page.getByRole('button', { name: 'Compare bundle', exact: true }).click();
   const grid = page.getByRole('region', { name: 'Bundle members grid' });
   const comparison = page.getByRole('region', { name: 'Decision rationale comparison' });
+  const firstPin = grid.getByRole('checkbox', { name: `Pin ${leaders[0]} to compare` });
+  const firstUnpin = grid.getByRole('checkbox', { name: `Unpin ${leaders[0]}` });
+  const detailUrl = `**/api/v1/runs/${encodeURIComponent(runIds[0])}`;
+  for (const invalidArtifact of [undefined, 'unreadable']) {
+    await page.route(detailUrl, async route => {
+      const response = await route.fetch();
+      const detail = await response.json();
+      await route.fulfill({ response, json: { ...detail, artifact: invalidArtifact } });
+    }, { times: 1 });
+    await firstPin.press('Space');
+    const pinned = page.getByRole('region', { name: 'Pinned runs side-by-side' });
+    await expect(pinned.getByText('Run artifact missing or invalid', { exact: true })).toBeVisible();
+    await expect(comparison).toHaveCount(0);
+    await firstUnpin.press('Space');
+    await expect(firstPin).not.toBeChecked();
+  }
   for (const [index, name] of leaders.entries()) {
     const pin = grid.getByRole('checkbox', { name: `Pin ${name} to compare` });
     await pin.press('Space');
