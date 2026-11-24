@@ -21,7 +21,7 @@ import type { RunArtifact } from '../../../../engine/schema/index.js';
 import styles from './InterventionDemoCard.module.scss';
 import { emitLaunched } from '../../scenario-sync';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
-import { sessionProviderKeys } from '../settings/sessionProviderKeys';
+import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
 
 export interface InterventionDemoCardProps {
   /** The run's artifact, with the key the run was started under. */
@@ -194,6 +194,7 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
   const [intervention, setIntervention] = useState<InterventionForm>(EMPTY_INTERVENTION);
   const [signalsJson, setSignalsJson] = useState<string>('[]');
   const [running, setRunning] = useState(false);
+  const [transportNotice, setTransportNotice] = useState<string>();
   const [elapsedSec, setElapsedSec] = useState(0);
   const [activePreset, setActivePreset] = useState<string | null>(null);
 
@@ -221,6 +222,10 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
 
   const handleRun = async () => {
     if (running || !formIsValid) return;
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const transportError = visitorKeyTransportError(providerKeys);
+    setTransportNotice(transportError);
+    if (transportError) return;
     const profile = safeParseJson(subject.profileJson, {}) as Record<string, unknown>;
     const signals = safeParseJson(signalsJson, []) as Array<Record<string, unknown>>;
     const subjectPayload = {
@@ -277,7 +282,7 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
           runKey,
           options: { maxTurns: 2, seed: 11, costPreset: 'economy' },
           // The visitor's own provider key from Settings: the run is on it.
-          ...sessionProviderKeys(readTabKeyOverrides()),
+          ...providerKeys,
         }),
       });
       if (!res.ok) {
@@ -473,7 +478,9 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
             {elapsedSec}s elapsed · 2 turns × LLM decisions, typically 40-90s
           </span>
         ) : (
-          <span className={styles.helper}>2 turns · seed 11 · economy preset</span>
+          <span className={styles.helper} role={transportNotice ? 'alert' : undefined}>
+            {transportNotice ?? '2 turns · seed 11 · economy preset'}
+          </span>
         )}
       </div>
     </div>

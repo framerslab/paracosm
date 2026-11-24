@@ -19,7 +19,7 @@ import { ADD_KEY_IN_SETTINGS, GENERATE_AND_RUN, atLimitAfter, atLimitReset } fro
 import styles from './SeedInput.module.scss';
 
 export interface SeedInputProps {
-  onSeedReady: (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => void;
+  onSeedReady: (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => Promise<string | undefined>;
   /** Optional: fires when the user clicks the LoadedScenarioCTA's run
    *  button. Parent decides whether to fast-path through `/setup`
    *  (presets present) or route through actor-generation. When omitted
@@ -135,7 +135,7 @@ export function SeedInput({
   const [actorCount, setActorCount] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     // Another run is starting on this screen: this form starts no second one.
     if (locked) return;
     // No free run is left on the host's keys: the sentences above the key say so, and nothing is sent.
@@ -151,12 +151,13 @@ export function SeedInput({
       return;
     }
     setError(null);
-    onSeedReady({
+    const refusal = await onSeedReady({
       seedText: trimmedSeed,
       sourceUrl,
       domainHint: domainHint.trim() || undefined,
       actorCount: hostPaid ? 2 : actorCount,
     });
+    if (refusal) setError(refusal);
   }, [seedText, sourceUrl, domainHint, actorCount, onSeedReady, limited, hostPaid, locked]);
 
   const fetchUrl = useCallback(async () => {

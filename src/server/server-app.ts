@@ -28,6 +28,8 @@ import {
   hasProviderCredentials,
   normalizeCredential,
   resolveProviderFromCredentials,
+  VISITOR_KEY_FIELDS,
+  VISITOR_KEY_TRANSPORT_REFUSAL,
 } from '../engine/provider/credentials.js';
 import { hostedModelRouting, hostedRunModels } from './hosted-model-policy.js';
 import {
@@ -315,8 +317,6 @@ function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<strin
   }
 }
 
-const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
-
 /**
  * Keys travel over TLS or stay on this computer. A request came over HTTPS
  * when its own connection is TLS, or when `X-Forwarded-Proto: https` comes
@@ -336,7 +336,7 @@ function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, namedP
   if (proxyScheme === undefined && LOOPBACK_HOSTNAMES.has(hostHeaderName(req.headers.host))) return false;
 
   res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ error: 'Send API keys over HTTPS, or use a dashboard on this computer.' }));
+  res.end(JSON.stringify({ error: VISITOR_KEY_TRANSPORT_REFUSAL }));
   return true;
 }
 

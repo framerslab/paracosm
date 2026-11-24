@@ -23,7 +23,7 @@ import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { markRunLaunchHandoff } from '../../scenario-sync';
 import { compileScenarioWithPolling } from './compile-poll';
-import { sessionProviderKeys } from '../settings/sessionProviderKeys';
+import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
 import { atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './QuickstartView.module.scss';
 
@@ -182,18 +182,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
    */
   const handleLoadedScenarioRun = useCallback(async (actorCount: number, opts?: LoadedRunOptions) => {
     setErrorBanner(null);
-    const keepsTwin = Boolean(opts) && showsDigitalTwin;
-    if (!keepsTwin) {
-      onRunStarted?.();
-      // Reset the local SSE buffer up front so the Progress panel never
-      // shows leftover events from a prior run while this one ramps up.
-      // The later sse.reset() right before the /setup fetch is kept as
-      // belt-and-suspenders for the brief window when actor-generation
-      // is still in flight. Each reset is awaited: an unawaited /clear can
-      // land after the /setup that follows and stop the new run.
-      await sse.reset();
-    }
-
     // Inherit the user's Settings-tab choices (API keys, provider,
     // model picks, economics profile) so the CTA respects what the
     // user configured and bypasses the hosted-demo rate limit when
@@ -216,6 +204,25 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     }
     if (lastLaunch?.economics && typeof lastLaunch.economics === 'object') {
       settingsSpread.economics = lastLaunch.economics;
+    }
+
+    const transportError = visitorKeyTransportError({ ...opts?.body, ...settingsSpread });
+    if (transportError) {
+      if (opts) opts.onFailure?.({ visitorKeyTransport: true });
+      else setErrorBanner(transportError);
+      return;
+    }
+
+    const keepsTwin = Boolean(opts) && showsDigitalTwin;
+    if (!keepsTwin) {
+      onRunStarted?.();
+      // Reset the local SSE buffer up front so the Progress panel never
+      // shows leftover events from a prior run while this one ramps up.
+      // The later sse.reset() right before the /setup fetch is kept as
+      // belt-and-suspenders for the brief window when actor-generation
+      // is still in flight. Each reset is awaited: an unawaited /clear can
+      // land after the /setup that follows and stop the new run.
+      await sse.reset();
     }
 
     const presetActors = presetLeadersForLaunch(scenario, actorCount);
@@ -381,6 +388,10 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
+    // All three model calls in this flow use the same Settings keys.
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const transportError = visitorKeyTransportError(providerKeys);
+    if (transportError) return transportError;
     onRunStarted?.();
     // Clear local SSE buffer immediately. Without this, the
     // QuickstartProgress panel's "Run N simulations" stage card renders
@@ -401,7 +412,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // The visitor's own provider keys from Settings go to every step that
       // calls a model (the draft and its compile, the actors, the run), so
       // each runs on the visitor's key when they saved one.
-      const providerKeys = typeof window !== 'undefined' ? sessionProviderKeys(readTabKeyOverrides()) : {};
       const { scenario, scenarioId } = await compileScenarioWithPolling({ ...payload, ...providerKeys });
       setPhase({ kind: 'progress', stage: 'research', scenario });
       // Real grounding pass: hits Serper for 3 derived queries, attaches

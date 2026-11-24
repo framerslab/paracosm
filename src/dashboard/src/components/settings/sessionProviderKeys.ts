@@ -6,7 +6,17 @@
  * run on the visitor's key posts these, so the page never shows a run as the
  * visitor's that the server runs on the host's keys.
  */
-import { normalizeCredential } from '../../../../engine/provider/credentials.js';
+import { normalizeCredential, VISITOR_KEY_FIELDS, VISITOR_KEY_TRANSPORT_REFUSAL } from '../../../../engine/provider/credentials.js';
+
+/**
+ * Refuse any request with visitor key fields outside a secure context.
+ * Without a body, return the notice for the key fields in Settings.
+ */
+export function visitorKeyTransportError(body?: Readonly<Record<string, unknown>>): string | undefined {
+  if (typeof window !== 'undefined' && window.isSecureContext === true) return undefined;
+  if (!body || VISITOR_KEY_FIELDS.some(field => Boolean(body[field]))) return VISITOR_KEY_TRANSPORT_REFUSAL;
+  return undefined;
+}
 
 /** The saved key overrides (`paracosm:keyOverrides`) this reads: the OpenAI and the Anthropic key. */
 export interface SavedProviderKeys {

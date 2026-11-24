@@ -1,5 +1,11 @@
 import type { LlmProvider } from '../types.js';
 
+/** Request fields that carry visitor keys from the dashboard. */
+export const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
+
+/** The refusal shown when a visitor key needs a secure connection. */
+export const VISITOR_KEY_TRANSPORT_REFUSAL = 'Send API keys over HTTPS, or use a dashboard on this computer.';
+
 /** Provider credentials accepted by hosted routes and runtime calls. */
 export interface ProviderCredentialOptions {
   /** OpenAI API key. Historical dashboard field name. */
