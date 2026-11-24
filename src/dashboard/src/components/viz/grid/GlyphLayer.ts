@@ -117,6 +117,7 @@ export function drawGlyphs(
     ctx.font = `${textSize}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
+    const plates: Array<{ left: number; top: number; right: number; bottom: number }> = [];
     for (const c of cells) {
       if (!c.alive) continue;
       const pos = positions.get(c.agentId);
@@ -130,9 +131,15 @@ export function drawGlyphs(
       const label = c.name.split(/\s+/)[0];
       const y = pos.y + (c.featured ? 12 : 10);
       // Plate behind the label so it reads over the RD field.
-      const w = ctx.measureText(label).width;
+      const halfWidth = ctx.measureText(label).width / 2 + 3;
+      const plate = { left: pos.x - halfWidth, top: y - 1, right: pos.x + halfWidth, bottom: y + textSize };
+      // The roster and hit targets still expose every colonist. Keep the
+      // first readable plate when two names compete for the same pixels.
+      if (plates.some(other => plate.left < other.right && plate.right > other.left &&
+        plate.top < other.bottom && plate.bottom > other.top)) continue;
+      plates.push(plate);
       ctx.fillStyle = labelChipBg;
-      ctx.fillRect(pos.x - w / 2 - 3, y - 1, w + 6, textSize + 1);
+      ctx.fillRect(plate.left, plate.top, 2 * halfWidth, textSize + 1);
       ctx.fillStyle = diverged
         ? 'rgba(232, 180, 74, 0.95)'
         : labelColor;
