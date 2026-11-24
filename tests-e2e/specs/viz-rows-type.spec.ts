@@ -1481,7 +1481,9 @@ async function observeGridPaint(page: Page) {
       if (frame && this.textAlign === 'center' && this.textBaseline === 'top') {
         const size = Number(/([0-9.]+)px/.exec(this.font)?.[1]);
         const width = this.measureText(value).width;
-        frame.names.push({ text: value, left: x - width / 2, top: y, right: x + width / 2, bottom: y + size, size });
+        // The name's plate as GlyphLayer fills it behind the text: 3 px past
+        // each side of the text and 1 px above it.
+        frame.names.push({ text: value, left: x - width / 2 - 3, top: y - 1, right: x + width / 2 + 3, bottom: y + size, size });
       }
       if (maxWidth === undefined) fillText.call(this, value, x, y);
       else fillText.call(this, value, x, y, maxWidth);
