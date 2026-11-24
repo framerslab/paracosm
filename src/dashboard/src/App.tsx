@@ -213,6 +213,10 @@ function useReplaySessionId(): string | null {
 
 /** The events of a page that holds no run of its own in another scenario. */
 const NO_EVENTS: SimEvent[] = [];
+/** A failed read of /admin-config for the server data gate is asked again after this long, then at twice the gap each time. */
+const ADMIN_CONFIG_RETRY_FIRST_MS = 2_000;
+/** The longest gap between two reads of /admin-config for that gate. */
+const ADMIN_CONFIG_RETRY_MAX_MS = 15_000;
 
 function AppContent() {
   const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
@@ -543,25 +547,42 @@ function AppContent() {
   // token is there, so a browser without one sends no extra request.
   const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
   useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
-  // A request that fails, or is answered with an error, is asked again the
-  // next time the run actions menu opens, so one failed request does not
-  // hide the item for the rest of the page load.
+  // A request that fails, or is answered with an error, is asked again
+  // after 2 seconds, then at twice the gap up to 15, and at once when the
+  // run actions menu or the Settings controls open, so one failed request
+  // does not hide the item for the rest of the page load.
   const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
   const [adminConfigAsk, setAdminConfigAsk] = useState(0);
   const adminConfigFailedRef = useRef(false);
+  const adminConfigGapRef = useRef(ADMIN_CONFIG_RETRY_FIRST_MS);
   useEffect(() => {
     if (!adminTokenSaved || serverAdminWrite !== null) return;
     let live = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const failed = () => {
+      if (!live) return;
+      adminConfigFailedRef.current = true;
+      const gap = adminConfigGapRef.current;
+      adminConfigGapRef.current = Math.min(gap * 2, ADMIN_CONFIG_RETRY_MAX_MS);
+      retry = setTimeout(() => {
+        adminConfigFailedRef.current = false;
+        setAdminConfigAsk(n => n + 1);
+      }, gap);
+    };
     adminConfigFailedRef.current = false;
     fetch('/admin-config')
       .then(res => (res.ok ? res.json() : null))
       .then((config: { adminWrite?: unknown } | null) => {
         if (!live) return;
-        if (config) setServerAdminWrite(config.adminWrite === true);
-        else adminConfigFailedRef.current = true;
+        if (!config) return failed();
+        adminConfigGapRef.current = ADMIN_CONFIG_RETRY_FIRST_MS;
+        setServerAdminWrite(config.adminWrite === true);
       })
-      .catch(() => { if (live) adminConfigFailedRef.current = true; });
-    return () => { live = false; };
+      .catch(failed);
+    return () => {
+      live = false;
+      if (retry !== undefined) clearTimeout(retry);
+    };
   }, [adminTokenSaved, serverAdminWrite, adminConfigAsk]);
   const handleRunActionsOpen = useCallback(() => {
     if (!adminConfigFailedRef.current) return;
@@ -1187,7 +1208,8 @@ function AppContent() {
                 >
                   <LibraryTab savedRuns={{
                     history: history.entries,
-                    runOpen: sse.events.length > 0,
+                    // A started run whose first frame has not come is open too.
+                    runOpen: sse.events.length > 0 || launching,
                     onRestore: (entry) => {
                       leaveDigitalTwin();
                       clearShareLink();
@@ -1261,7 +1283,11 @@ function AppContent() {
             <PageFoot />
           </div>
           {runExists && <RunStatusBar
-            progress={{ gameState: showsDigitalTwin ? interventionState : gameState, validationFallbacks: sse.validationFallbacks }}
+            progress={{
+              gameState: showsDigitalTwin ? interventionState : gameState,
+              // The twin's progress counts the twin's own fallbacks.
+              validationFallbacks: showsDigitalTwin && sse.ownRun ? sse.ownRun.validationFallbacks : sse.validationFallbacks,
+            }}
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,

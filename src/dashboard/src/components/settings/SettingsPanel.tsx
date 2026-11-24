@@ -30,6 +30,7 @@ import {
 } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
 import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
+import { safeLocalStorage } from '../quickstart/first-screen/effectiveLaunch';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -226,11 +227,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
   // then go in by one rule (withPresetLeaders), at once when the scenario
   // is already loaded (Settings opened from another tab) and when GET
   // /scenario answers after a fresh load, so both show the same form.
-  const persistedActors =
-    typeof window !== 'undefined' ? readActiveRunActors(window.localStorage) : null;
-  const [rosterScenarioId] = useState(() =>
-    typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
-  );
+  // Reading the property throws where the browser refuses storage, so it
+  // goes through safeLocalStorage and the form starts from the defaults.
+  const storage = safeLocalStorage();
+  const persistedActors = storage ? readActiveRunActors(storage) : null;
+  const [rosterScenarioId] = useState(() => (storage ? readActiveRunScenarioId(storage) : null));
   const [actors, setActors] = useState<ActorFormData[]>(() => {
     const count = Math.max(
       MIN_ACTORS,
@@ -471,7 +472,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, actors, scenario.id);
+      const launchStorage = safeLocalStorage();
+      if (launchStorage) writeActiveRunActors(launchStorage, actors, scenario.id);
       // Attach any user-provided key overrides (never sends .env values)
       Object.assign(config, sessionProviderKeys(keyOverrides));
       if (keyOverrides.serper) config.serperKey = keyOverrides.serper;

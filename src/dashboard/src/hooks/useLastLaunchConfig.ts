@@ -275,7 +275,9 @@ export function readTabKeyOverrides(): KeyOverrides {
 
 /**
  * The window event {@link writeTabKeyOverrides} sends after it saves the
- * keys. The browser's own `storage` event reaches only the other tabs.
+ * keys, to the readers in the window that wrote them. The browser's own
+ * `storage` event never reaches that window, and for session storage it
+ * reaches no other tab either: only same-origin frames in the same tab.
  */
 export const KEY_OVERRIDES_CHANGED = 'paracosm:key-overrides-changed';
 
