@@ -3201,6 +3201,12 @@ for (const reload of [false, true]) {
       await expect(notifications.getByText('Run finished', { exact: false })).toHaveCount(0);
       expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:terminalToastFingerprint'))).toBe(runKey);
       expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:verdictToastFingerprint'))).toBe(reload ? null : parentKey);
+
+      // The fork ends with no verdict of its own, and the pair's verdict stays in Reports.
+      await forkPage.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      const report = forkPage.getByRole('region', { name: 'Turn-by-turn report' });
+      await expect(report.getByText('Priya Kapoor wins', { exact: true }).first()).toBeVisible();
+      await expect(report.getByText('verdict pending', { exact: false })).toHaveCount(0);
     } finally {
       await page.request.post(`${SERVER}/clear`).catch(() => undefined);
     }
