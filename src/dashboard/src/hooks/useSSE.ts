@@ -592,11 +592,9 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // complete; the listener below flips the flag true again so
         // subsequent truly-live events can toast.
         //
-        // A first connect from another source than the last (a switch
-        // between the live feed and a saved session's replay without a
-        // reload), or after a run loaded from a file or from the page's
-        // history, drops the run the page held: the Chat tab's threads start
-        // empty with the run this source delivers.
+        // A source switch resets the event history and Chat identity.
+        // Keep the displayed outcome if the feed is empty. The next
+        // active_scenario frame is what replaces it with a new run.
         if (connectCount === 1) {
           const newSource = connectedSourceRef.current !== replaySessionId || shownFromFileRef.current;
           connectedSourceRef.current = replaySessionId;
@@ -608,7 +606,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             status: 'connected',
             events: [],
             replayDone: false,
-            ...(newSource ? { ...emptyRun(), runKey: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+            ...(newSource ? { runKey: null, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
           }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
