@@ -110,6 +110,16 @@ export async function runSim(argv: readonly string[]): Promise<number> {
     ...cliActor,
     ...(mergedHexaco ? { hexaco: mergedHexaco } : {}),
   };
+  // A new name takes the old one's place in the file's written orders, so
+  // the commander is not told it is the leader it replaces. Orders that do
+  // not name the old leader, and orders given with --instructions, go as written.
+  const oldName = typeof baseActor.name === 'string' ? baseActor.name.trim() : '';
+  if (
+    cliActor.name && cliActor.instructions === undefined && oldName && cliActor.name !== oldName
+    && typeof actor.instructions === 'string'
+  ) {
+    actor.instructions = actor.instructions.split(oldName).join(cliActor.name);
+  }
 
   process.stdout.write(`\n  Actor: ${actor.name} (${actor.archetype}): ${actor.unit}\n`);
   if (actor.hexaco) {
