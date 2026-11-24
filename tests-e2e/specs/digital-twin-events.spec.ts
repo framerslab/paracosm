@@ -155,6 +155,10 @@ test.describe('Digital Twin events @twin', () => {
     const release = await holdAnswer(page);
     await startRun(page);
     await expectProgressOfWholeRun(page);
+    // The run's status bar follows the twin's turns, and reads each one aloud.
+    const status = page.getByRole('region', { name: 'Run status' });
+    await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
+    await expect(status.locator('[aria-live="polite"]').filter({ hasText: /^Turn 2 of 2$/ })).toHaveCount(1);
 
     release();
     await expect(result(page)).toBeVisible();
@@ -283,6 +287,18 @@ test.describe('Digital Twin events @twin', () => {
 
     await expect(result(page)).toHaveCount(0);
     await expect(finishedRun(page)).toBeVisible();
+  });
+
+  test('a twin the provider stopped reads Interrupted in the run status', async ({ page }) => {
+    await page.route(TWIN_ROUTE, async route => {
+      const answer = await route.fetch();
+      const json = await answer.json() as { artifact: Record<string, unknown> };
+      await route.fulfill({ response: answer, json: { ...json, artifact: { ...json.artifact, aborted: true } } });
+    });
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Interrupted/ })).toBeVisible();
   });
 
   test('clearing local data clears the result', async ({ page }) => {

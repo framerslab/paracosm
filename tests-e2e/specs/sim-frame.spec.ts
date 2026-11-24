@@ -82,7 +82,24 @@ test('feature 1: the page’s script did not load', async ({ page }) => {
     const reload = failure.getByRole('link', { name: 'Reload', exact: true });
     expect(await reload.evaluate((link: HTMLAnchorElement) => link.href)).toBe(page.url());
     expect(await measureReadability(page, '.boot-row')).toEqual([]);
+    // The skip link reaches the page's words before the dashboard mounts.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Skip to main content', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#main-content')).toBeFocused();
+    await expect(page.locator('#main-content #boot-failed')).toHaveCount(1);
   }
+});
+
+test('feature 1: the page’s script stopped while it ran', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route(ENTRY_SCRIPT, route => route.fulfill({
+    status: 200, contentType: 'text/javascript', body: 'throw new Error("The entry module stopped.");',
+  }));
+  await page.goto(SIM);
+  const failure = page.locator('#boot-failed');
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText('This page did not load. Reload to try again.');
 });
 
 test('feature 1: one skip link, first in the tab order', async ({ page }) => {
@@ -566,7 +583,8 @@ test('feature 1: large text in the header', async ({ page }) => {
 });
 
 const sections = (page: Page) => page.getByRole('navigation', { name: 'Sections' });
-const more = (page: Page) => sections(page).getByRole('button', { has: page.locator('[data-more-label]') });
+// getByRole has no `has` option: the filter picks More out of the row's arrow keys.
+const more = (page: Page) => sections(page).getByRole('button').filter({ has: page.locator('[data-more-label]') });
 const sectionLink = (page: Page, name: string) => sections(page).getByRole('link', { name, exact: true });
 const sectionMenu = (page: Page) => page.getByRole('menu', { name: 'Sections' });
 
@@ -1158,4 +1176,153 @@ test('pictures', async ({ browser }, info) => {
       });
     }
   }
+});
+
+/** Sets every text size to the page's own times `factor`, from the sizes it had before any scaling. */
+async function setTextScale(page: Page, factor: number): Promise<void> {
+  await page.evaluate(() => {
+    for (const element of Array.from(document.querySelectorAll<HTMLElement>('body, body *'))) {
+      element.style.removeProperty('font-size');
+      element.style.removeProperty('line-height');
+    }
+  });
+  if (factor !== 1) await scaleText(page, factor);
+}
+
+test('feature 2: the More menu closes when the row refolds', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(SIM);
+  await expect(sections(page)).toBeVisible();
+  await scaleText(page, 2);
+  await expect(sections(page)).toHaveAttribute('data-row-fold', '1');
+  await more(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(sectionMenu(page).getByRole('menuitem').first()).toBeFocused();
+  await setTextScale(page, 1);
+  await expect(sections(page)).toHaveAttribute('data-row-fold', '0');
+  await expect(sectionMenu(page)).toHaveCount(0);
+  await expect(more(page)).toHaveAttribute('aria-expanded', 'false');
+  await expect(more(page)).toBeFocused();
+});
+
+test('feature 2: the More menu follows its key when the row scrolls', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(SIM);
+  await expect(sections(page)).toBeVisible();
+  await scaleText(page, 4);
+  const nav = sections(page);
+  await expect(nav).toHaveAttribute('data-row-fold', '2');
+  await more(page).click();
+  await expect(sectionMenu(page)).toBeVisible();
+  const row = nav.locator('[data-fade-end]');
+  const before = await more(page).evaluate(key => key.getBoundingClientRect().left);
+  // A wheel or a swipe moves the row without a press on More.
+  await row.evaluate(element => { element.scrollLeft = 0; });
+  await expect.poll(() => more(page).evaluate(key => key.getBoundingClientRect().left)).not.toBe(before);
+  await expect(sectionMenu(page)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => {
+    const menu = document.querySelector<HTMLElement>('[role="menu"][aria-label="Sections"]');
+    const key = document.querySelector('nav[aria-label="Sections"] [data-more-label]')?.closest('button');
+    if (!menu || !key) return Number.NaN;
+    return Math.abs(parseFloat(menu.style.getPropertyValue('--more-anchor-left')) - key.getBoundingClientRect().left);
+  })).toBeLessThanOrEqual(1);
+});
+
+test('feature 2: a tab whose stylesheet did not load, and Try again', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(SIM);
+  await expect(start(page)).toBeVisible();
+  const refused: string[] = [];
+  const styles = '**/assets/*.css';
+  await page.route(styles, route => {
+    refused.push(route.request().url());
+    return route.abort();
+  });
+  await openTab(page, 'studio');
+  await expect(page.getByRole('status').filter({ hasText: tabFailure })).toBeVisible();
+  expect(refused.length).toBeGreaterThan(0);
+  await page.unroute(styles);
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: tabFailure })).toHaveCount(0);
+  // Studio shows with every stylesheet it asked for, not unstyled.
+  await expect.poll(() => page.evaluate(urls => urls.every(url => Array.from(document.styleSheets)
+    .some(sheet => sheet.href === url && sheet.cssRules.length > 0)), refused)).toBe(true);
+});
+
+test('feature 13: a More links item that opens a new tab leaves focus on More links', async ({ page, context }) => {
+  await context.route(/^https:\/\/(github\.com|www\.npmjs\.com)\//, route => route.fulfill({ status: 200, contentType: 'text/html', body: '' }));
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(SIM);
+  const nav = page.getByRole('contentinfo').getByRole('navigation', { name: 'Site links' });
+  await expect(nav).toBeVisible();
+  await scaleText(page, 2);
+  const key = nav.getByRole('button', { name: 'More links' });
+  await key.focus();
+  await page.keyboard.press('Enter');
+  const github = nav.getByRole('menuitem', { name: 'GitHub', exact: true });
+  await github.focus();
+  const opened = context.waitForEvent('page');
+  await page.keyboard.press('Enter');
+  await (await opened).close();
+  await expect(nav.getByRole('menu')).toHaveCount(0);
+  await expect(key).toBeFocused();
+});
+
+test('feature 13: an open More links menu stays open when the row folds further', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto(SIM);
+  const nav = page.getByRole('contentinfo').getByRole('navigation', { name: 'Site links' });
+  await expect(nav).toHaveAttribute('data-row-fold', '0');
+  const foldAt = async (target: string, from: number): Promise<number> => {
+    for (let factor = from; factor <= 4; factor = Math.round((factor + 0.05) * 100) / 100) {
+      await setTextScale(page, factor);
+      // The row measures its fit on the next frames.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      if (await nav.getAttribute('data-row-fold') === target) return factor;
+    }
+    throw new Error('The foot never folded to ' + target);
+  };
+  const one = await foldAt('1', 1.05);
+  await nav.getByRole('button', { name: 'More links' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(nav.getByRole('menuitem').first()).toBeFocused();
+  await foldAt('2', one + 0.05);
+  await expect(nav.getByRole('menu')).toBeVisible();
+  await expect(nav.getByRole('menuitem').first()).toBeFocused();
+});
+
+test('the run actions menu moves by its arrow keys', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await page.goto(SERVERS.replay + '/sim');
+  await expect(page.getByTestId('scenario-figures')).toBeVisible();
+  await openTab(page, 'sim');
+  await page.getByRole('link', { name: 'Watch your last run again', exact: true }).click();
+  await expect(replayStatus(page)).toBeVisible();
+  await banner(page).getByRole('button', { name: 'Open run actions menu' }).click();
+  const items = banner(page).getByRole('menu').getByRole('menuitem');
+  const count = await items.count();
+  expect(count).toBeGreaterThan(1);
+  await items.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(1)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(items.last()).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(items.first()).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(items.nth(count - 1)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(banner(page).getByRole('menu')).toHaveCount(0);
+});
+
+test('feature 1: a key saved in Settings shows in the header at once', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 844 });
+  await page.goto(SIM + '?tab=settings');
+  const field = page.locator('#key-openai');
+  await expect(field).toBeVisible();
+  await expect(visitor(page)).not.toHaveText('Your API key', { useInnerText: true });
+  await field.fill('visitor-key-header-fixture');
+  await expect(visitor(page)).toHaveText('Your API key', { useInnerText: true });
 });

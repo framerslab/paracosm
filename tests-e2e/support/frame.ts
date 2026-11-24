@@ -45,7 +45,8 @@ export async function openTab(page: Page, tab: DashboardTab): Promise<void> {
     await link.click();
     return;
   }
-  const key = nav.getByRole('button', { has: page.locator('[data-more-label]') });
+  // getByRole has no `has` option: the filter picks More out of the row's arrow keys.
+  const key = nav.getByRole('button').filter({ has: page.locator('[data-more-label]') });
   if (await key.getAttribute('aria-expanded') !== 'true') await key.click();
   await sectionMenuItem(page, label).click();
 }
