@@ -200,7 +200,7 @@ const DESCRIPTION = 'Read each AI leader’s orders and full prompt, compare lea
 let defined = 0;
 /**
  * A test of this spec: before its body runs, its context sends an internet
- * address of its own (198.51.100.n, three a test so each retry has its own).
+ * address of its own (three per test so each retry has its own).
  * Every test is a first visit: its browser holds nothing of an earlier one.
  */
 function screenTest(
@@ -209,7 +209,9 @@ function screenTest(
 ): void {
   const index = defined++;
   test(title, async ({ page, context, browser }, info) => {
-    await context.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${1 + index * 3 + info.retry}` });
+    const offset = index * 3 + info.retry;
+    const network = offset < 254 ? '198.51.100' : '192.0.2';
+    await context.setExtraHTTPHeaders({ 'x-real-ip': `${network}.${1 + offset % 254}` });
     await body({ page, context, browser }, info);
   });
 }
@@ -3168,33 +3170,37 @@ for (const reload of [false, true]) {
     try {
       await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
       const parentKey = await launchFromSettings(page);
-      const { complete, notifications } = await expectAtlasVerdictAndNotices(page);
+      await expectAtlasVerdictAndNotices(page);
+      const forkPage = reload ? await context.newPage() : page;
+      const notifications = forkPage.getByRole('status', { name: 'Notifications' });
       if (reload) {
-        await page.reload();
-        await expect(complete).toBeVisible();
+        // A new tab shares the finished run and has no notice fingerprints.
+        await forkPage.goto(page.url());
+        await answerConsent(forkPage);
+        await expect(forkPage.getByRole('status', { name: /^Complete\./ })).toBeVisible();
         await expect(notifications).toBeEmpty();
       } else {
         const dismiss = notifications.getByRole('button', { name: 'Dismiss', exact: true }).first();
         while (await dismiss.isVisible()) await dismiss.click();
       }
       await secondAddress(context, info, reload ? 24 : 23);
-      await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
-      await page.getByRole('button', { name: /^Fork at .* 1$/ }).first().click();
-      const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup');
-      await page.getByRole('dialog').getByRole('button', { name: 'Fork', exact: true }).click();
+      await forkPage.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      await forkPage.getByRole('button', { name: /^Fork at .* 1$/ }).first().click();
+      const setup = forkPage.waitForResponse(response => new URL(response.url()).pathname === '/setup');
+      await forkPage.getByRole('dialog').getByRole('button', { name: 'Fork', exact: true }).click();
       const response = await setup;
       expect(response.ok()).toBe(true);
       const { runKey } = await response.json() as { runKey: string };
       expect(runKey).not.toBe(parentKey);
 
-      const banner = page.getByRole('status', { name: 'Verdict unavailable' });
+      const banner = forkPage.getByRole('status', { name: 'Verdict unavailable' });
       await expect(banner).toContainText('A fork runs one leader');
       await expect(notifications.getByText('Saved to cache', { exact: true })).toBeVisible();
       await expect(notifications.getByText('Simulation complete', { exact: true })).toHaveCount(1);
       await expect(notifications.getByText('Priya Kapoor wins', { exact: true })).toHaveCount(0);
       await expect(notifications.getByText('Run finished', { exact: false })).toHaveCount(0);
-      expect(await page.evaluate(() => sessionStorage.getItem('paracosm:terminalToastFingerprint'))).toBe(runKey);
-      expect(await page.evaluate(() => sessionStorage.getItem('paracosm:verdictToastFingerprint'))).toBe(parentKey);
+      expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:terminalToastFingerprint'))).toBe(runKey);
+      expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:verdictToastFingerprint'))).toBe(reload ? null : parentKey);
     } finally {
       await page.request.post(`${SERVER}/clear`).catch(() => undefined);
     }
