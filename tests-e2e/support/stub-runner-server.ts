@@ -15,6 +15,8 @@ import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import type { NormalizedSimulationConfig } from '../../src/cli/sim-config.js';
 import type { BroadcastFn } from '../../src/cli/pair-runner.js';
+import { DEPARTMENTS } from './pair-run.js';
+import { crewOf } from './run-frames.js';
 
 const STEP_MS = Number(process.env.STUB_STEP_MS ?? 1500);
 const TURNS = 2;
@@ -30,6 +32,7 @@ function step(ms: number, signal?: AbortSignal): Promise<boolean> {
 
 async function scriptedRun(config: NormalizedSimulationConfig, broadcast: BroadcastFn, signal?: AbortSignal): Promise<void> {
   const leaders = config.actors;
+  const vizThreshold = config.scenarioId === 'mars-genesis' && leaders[0]?.name === 'Morale test leader';
   broadcast('status', { phase: 'starting', maxTurns: TURNS });
   broadcast('status', {
     phase: 'parallel',
@@ -40,13 +43,20 @@ async function scriptedRun(config: NormalizedSimulationConfig, broadcast: Broadc
     for (const l of leaders) {
       broadcast('sim', { type: 'turn_start', leader: l.name, data: { turn, time: turn, title: `${l.name}: turn ${turn}` } }, l.name);
     }
-    if (await step(STEP_MS, signal)) {
+    if (await step(vizThreshold ? STEP_MS * 4 : STEP_MS, signal)) {
       broadcast('sim', { type: 'sim_aborted', leader: '', data: { reason: signal?.reason, turn, completedTurns: turn - 1 } });
       broadcast('complete', { timestamp: new Date().toISOString(), aborted: true });
       return;
     }
     for (const l of leaders) {
       broadcast('sim', { type: 'turn_done', leader: l.name, data: { turn, time: turn, metrics: { population: 100, morale: 0.7 } } }, l.name);
+      if (vizThreshold) {
+        const agents = crewOf(l.name, turn, DEPARTMENTS);
+        const morale = turn === 2 && l === leaders[0] ? 0.4 : 0.7;
+        broadcast('sim', { type: 'systems_snapshot', leader: l.name, data: {
+          turn, time: turn, agents, morale, population: agents.length, births: 0, deaths: 0,
+        } }, l.name);
+      }
       // One person who lives under each leader, for the Chat tab.
       if (turn === 1) {
         broadcast('sim', {

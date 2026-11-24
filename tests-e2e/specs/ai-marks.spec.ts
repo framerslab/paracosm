@@ -30,6 +30,38 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
 }
 
+for (const width of [320, 390]) {
+  for (const look of ['light', 'dark'] as const) {
+    test(`the longest stored verdict keeps its whole AI-written mark at ${width}px in ${look}`, async ({ page }) => {
+      const leader = `Verdict headline ${width} ${look}`;
+      const headline = 'Warming winds and widespread wildfires overwhelmed Mars while reserves dwindled.';
+      expect(headline).toHaveLength(80);
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.route('**/setup', route => {
+        const setup = route.request().postDataJSON();
+        setup.actors[0].name = leader;
+        return route.continue({ postData: setup });
+      });
+      await openPair(page, look);
+      await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+      const id = await savedPairId(page, leader);
+      await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(id));
+
+      const banner = page.getByRole('status', { name: 'Simulation verdict' });
+      await expectMark(banner.getByText(headline, { exact: true }));
+      await expect(banner.getByText('AI-written', { exact: true })).toHaveCount(1);
+      await settle(banner);
+      await page.screenshot({
+        path: `test-pictures/sim-first-screen/verdict-banner/${width}-${look}.png`,
+        animations: 'disabled',
+        scale: 'css',
+      });
+      await expectReadableMarks(page, banner);
+    });
+  }
+}
+
 async function expectMark(text: Locator) {
   await expect(text).toBeVisible();
   const block = text.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
