@@ -448,6 +448,15 @@ test('the CLI name override puts the new name where the shipped orders name the 
       assert.ok(boot.some(call => ordersIn(call, expected)), 'the renamed orders reached the commander');
       for (const call of boot) assert.ok(!call.system.includes('Aria Chen'), 'no commander call names the old leader');
     }, promotionReply);
+
+    // Only the name itself changes: a longer word that starts with it stays.
+    const file = join(dir, 'actors.json');
+    writeFileSync(file, JSON.stringify({ actors: [{ ...mira, name: 'Will', instructions: 'You are Will. Ask William to check the reserve.' }] }));
+    await withProviderWire(async calls => {
+      assert.equal(await runSim(['1', '--actors', file, '--name', 'Ren', '--provider', 'openai']), 0);
+      assert.ok(commanderBootstraps(calls).some(call => ordersIn(call, 'You are Ren. Ask William to check the reserve.')),
+        'the orders keep the longer word');
+    }, promotionReply);
   } finally {
     restore();
     if (oldOutput !== undefined) process.env.PARACOSM_OUTPUT_DIR = oldOutput;
