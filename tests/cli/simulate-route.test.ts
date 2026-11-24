@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join } from 'node:path';
 
 import { handleSimulate, type SimulateDeps } from '../../src/server/routes/simulate.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
@@ -281,6 +283,8 @@ test('simulate sends orders to the commander subject to the server payer decisio
             });
             assert.equal(response.status, 200);
             await response.json();
+            assert.ok(readdirSync(join(api.appDir, 'runs')).some(name => name.startsWith('v3-') && name.endsWith('.json')),
+              'the run file is written inside the test server folder');
 
             const boot = modelCalls(calls).filter(call =>
               call.lastUser.includes('You receive department reports and make strategic decisions'));

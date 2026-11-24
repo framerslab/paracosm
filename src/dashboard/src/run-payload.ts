@@ -15,12 +15,16 @@ interface RunActor {
   description?: string;
 }
 
-/** Prepare a leader for launch, preserving written orders and omitting blank ones. */
+/**
+ * Prepare a leader for launch, preserving written orders and omitting blank
+ * ones. Orders that are not text (a scenario file is read without a check on
+ * its leaders) are omitted too, so the server fills them.
+ */
 export function actorForLaunch<T extends { instructions?: string }>(
   actor: T,
 ): Omit<T, 'instructions'> & { instructions?: string } {
   const { instructions, ...fields } = actor;
-  return instructions?.trim() ? { ...fields, instructions } : fields;
+  return typeof instructions === 'string' && instructions.trim() ? { ...fields, instructions } : fields;
 }
 
 const PLACEHOLDER_ACTORS: RunActor[] = [

@@ -281,3 +281,20 @@ test('effectiveLaunch preserves written orders and omits blank orders for both p
     assert.equal(posted.actors[1].instructions, instructions, alias);
   }
 });
+
+test('effectiveLaunch omits orders a hand-written scenario gives as something other than text', () => {
+  const preset = mars.presets[0];
+  const written = preset.leaders ?? [];
+  // A scenario file is read as JSON without a check on its preset leaders.
+  const scenario = JSON.parse(JSON.stringify({
+    ...mars,
+    presets: [{ id: preset.id, label: preset.label, leaders: [
+      { ...written[0], instructions: 42 },
+      { ...written[1], instructions: ['Keep the reserve.'] },
+    ] }],
+  })) as typeof mars;
+  const launch = effectiveLaunch(facts(false), scenario, { overrides: {}, lastLaunch: null }, 2, 'server');
+  const posted = JSON.parse(JSON.stringify(launch.body));
+  assert.deepEqual(posted.actors.map((actor: { name: string }) => actor.name), written.map(leader => leader.name));
+  for (const actor of posted.actors) assert.equal(Object.hasOwn(actor, 'instructions'), false, actor.name);
+});

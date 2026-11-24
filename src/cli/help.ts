@@ -54,10 +54,10 @@ Options:
   --provider <p>          openai | anthropic (defaults to whichever key is set)
   --cost <p>              quality | economy (default: quality)
   --live                  Enable live web search during department analysis
-  --name <s>              Override actor name
+  --name <s>              Override actor name; its written orders take the new name
   --archetype <s>         Override actor archetype
   --unit <s>              Override actor unit
-  --instructions <s>      Override actor instructions
+  --instructions <s>      Override actor instructions; an empty value fills them
   --openness <0-1>        HEXACO openness override
   --conscientiousness <0-1>
   --extraversion <0-1>
