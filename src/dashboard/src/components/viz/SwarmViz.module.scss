@@ -65,29 +65,63 @@ $read-size: 15px;
   display: contents;
 }
 
+// A notice in the shared row: its kicker line, a 2 px gap, two lines of its
+// body, 8 px of padding and its borders, plus 3 px for a symbol drawn from
+// a fallback font. The Latest key needs 56 px of it.
+$notice-row: $read-size * 1.2 + 2px + $read-size * 1.3 * 2 + 10px + 3px;
+
 @media (width > 768px) {
   // Keep the notices and the Latest key in a shared slot. Appearance,
   // dismissal and wrapping leave the space for the fields constant.
   .transientRow {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    flex: 0 0 56px;
+    flex: 0 0 $notice-row;
     min-height: 0;
     gap: 8px;
   }
 
+  // The alert and the crisis notice stand side by side, each whole.
   .notices {
     display: flex;
-    flex-direction: column;
     align-items: flex-start;
-    overflow-y: auto;
+    gap: 8px;
+    overflow: hidden;
     padding-inline: 8px;
-    scrollbar-width: thin;
-
-    > * { flex: 0 0 auto; }
   }
 
-  .transientRow .toast { align-self: flex-start; }
+  .transientRow .toast {
+    align-self: flex-start;
+    flex: 0 1 520px;
+    min-width: 0;
+    width: auto;
+    margin: 0;
+    padding: 4px 12px;
+  }
+
+  .transientRow .toastKicker {
+    line-height: 1.2;
+    white-space: nowrap;
+
+    > :first-child { flex: none; }
+  }
+
+  .transientRow .toastKickerMeta {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // A body longer than two lines ends in an ellipsis; the card's title
+  // holds its whole text.
+  .transientRow .toastBody,
+  .transientRow .toastBodyMd {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .transientRow .jumpLatestAnchor { grid-column: 2; }
 }
 

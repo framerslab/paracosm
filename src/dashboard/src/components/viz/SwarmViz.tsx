@@ -1548,7 +1548,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
                   '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
                   '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
                 } as CSSProperties}
-                title="Click to dismiss"
+                title={`${alertToast.message} (click to dismiss)`}
               >
                 <div
                   className={styles.toastKicker}
@@ -1575,7 +1575,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
                   '--side-color': crisisToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
                   '--left-accent': 'var(--rust)',
                 } as CSSProperties}
-                title="Click to dismiss"
+                title={`${crisisToast.title || `${crisisToast.category} crisis unfolding`} (click to dismiss)`}
               >
                 <div className={styles.toastKicker}>
                   <span>⚡ Crisis</span>
