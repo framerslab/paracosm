@@ -1114,6 +1114,7 @@ test('pictures', async ({ browser }, info) => {
 
         try {
           await page.goto(demo);
+          await page.getByRole('button', { name: 'Reject all', exact: true }).click();
           await expect(start(page)).toBeEnabled();
           await expect(visitor(page)).toHaveText(width < 600 ? '1 free run' : 'Free demo: 1 run left today', { useInnerText: true });
           await expect(page.getByTestId('scenario-figures')).toBeVisible();
