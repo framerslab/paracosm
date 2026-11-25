@@ -211,6 +211,48 @@ test('runs kept in this browser are in Library', async ({ page }) => {
   await expect(local).toHaveCount(0);
 });
 
+test('a kept run waits while a run is live, and so does Studio’s file key', async ({ page }) => {
+  // One run kept in this browser, as the history ring stores it.
+  await page.addInitScript(() => {
+    window.localStorage.setItem('paracosm-local-history-v2', JSON.stringify([{
+      id: 1, createdAt: '2026-11-20T00:00:00.000Z', scenarioShortName: 'mars', results: [], verdict: null,
+      events: [{ type: 'turn_start', leader: 'Aria Chen', data: { turn: 1, time: 1, title: 'Turn 1' } }],
+      summary: { actorNames: ['Aria Chen', 'Dietrich Voss'], turnCount: 1, eventCount: 1 },
+    }]));
+  });
+  await page.setExtraHTTPHeaders({ 'x-real-ip': '192.0.2.91' });
+  await page.goto(SERVERS.demo + '/sim');
+  await expect(start(page)).toBeEnabled();
+  try {
+    await start(page).click();
+    await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
+    await openTab(page, 'library');
+    const local = page.getByRole('region', { name: 'Kept in this browser' });
+    // Restoring into a live stream would mix the kept run with the live one.
+    await expect(local.getByRole('button', { name: 'Restore', exact: true })).toBeDisabled();
+    await expect(local.getByText('Restore opens once the run on screen ends.')).toBeVisible();
+    await openTab(page, 'studio');
+    await expect(page.getByRole('main', { name: 'Studio', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open a run file', exact: true })).toHaveCount(0);
+  } finally {
+    await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
+  }
+});
+
+test('the add-key link lands on the key field when Settings loads late', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Settings' module answers after the page has loaded and the browser has
+  // looked for the fragment's target.
+  await page.route('**/assets/SettingsPanel-*.js', async route => {
+    await new Promise(resolve => setTimeout(resolve, 2_000));
+    await route.continue();
+  });
+  await page.goto(SIM + '?tab=settings#key-openai');
+  const field = page.locator('#key-openai');
+  await expect(field).toBeVisible({ timeout: 20_000 });
+  await expect(field).toBeInViewport();
+});
+
 test('a run file opens from Studio, or dropped anywhere', async ({ page }) => {
   await page.goto(SIM);
   await openTab(page, 'studio');
