@@ -260,6 +260,14 @@ test('refused key opens the same field', async ({ page }) => {
   await expect(recovery(page)).toHaveCount(0);
 });
 
+function isUncovered(locator: Locator): Promise<boolean> {
+  return locator.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    const middle = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return middle !== null && el.contains(middle);
+  });
+}
+
 for (const width of [390, 1440]) {
   for (const look of ['light', 'dark']) {
     test(`pictures: Settings and Watch at ${width} in ${look}`, async ({ page }) => {
@@ -269,6 +277,14 @@ for (const width of [390, 1440]) {
         await expect(page.locator('html')).toHaveClass(look === 'light' ? /\blight\b/ : /^(?!.*\blight\b)/);
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
         await part.evaluate(element => element.scrollIntoView({ block: 'center' }));
+        if (view === 'watch-refusal') {
+          expect(await isUncovered(part.getByRole('link')), 'the recovery link is uncovered in the picture').toBe(true);
+        } else {
+          const visible = [field(page), back(page), keys(page).getByTestId('visitor-key-notes').locator('p').last()];
+          for (const control of visible) {
+            expect(await isUncovered(control), 'the key, return link and explanation are in frame').toBe(true);
+          }
+        }
         await page.screenshot({ path: `test-pictures/sim-first-screen/server-answers/${view}-${width}-${look}.png`, animations: 'disabled' });
       };
       await openProviderFailure(page, 'auth', look);
