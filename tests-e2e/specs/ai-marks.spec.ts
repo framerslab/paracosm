@@ -31,7 +31,9 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
 }
 
-for (const width of [320, 390]) {
+// 640 and 800 px: a long winner's name leaves the row's headline column
+// too narrow for the label unless the banner stacks or the name gives way.
+for (const width of [320, 390, 640, 800]) {
   for (const look of ['light', 'dark'] as const) {
     test(`the longest stored verdict keeps its whole AI-written mark at ${width}px in ${look}`, async ({ page }) => {
       const leader = `Verdict headline ${width} ${look}`;
@@ -63,6 +65,11 @@ for (const width of [320, 390]) {
         const { x, y, width, height } = mark.getBoundingClientRect();
         return mark.contains(document.elementFromPoint(x + width / 2, y + height / 2));
       }), 'the verdict label is unobstructed').toBe(true);
+      expect(await label.evaluate(mark => {
+        const own = mark.getBoundingClientRect();
+        const headline = mark.closest('button')!.getBoundingClientRect();
+        return own.left >= headline.left - 1 && own.right <= headline.right + 1;
+      }), 'the verdict label stays inside its headline').toBe(true);
       await page.screenshot({
         path: `test-pictures/sim-first-screen/verdict-banner/${width}-${look}.png`,
         animations: 'disabled',
