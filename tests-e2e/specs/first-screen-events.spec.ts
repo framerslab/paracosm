@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Browser, type Page, type Request } from '@playwright/test';
-import { openTab, routeScenario, SERVERS } from '../support/frame.js';
+import { expect, test, type Browser, type BrowserContextOptions, type Page, type Request } from '@playwright/test';
+import { lookOf, openTab, routeScenario, SERVERS } from '../support/frame.js';
+import { failures, measureText, saidOf } from '../support/readability.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The event sink and hosted fixture run together.');
 
@@ -14,7 +15,7 @@ const tab = (to: string) => event('tab_change', { to });
 const start = (key = 'host', size = '2') => event('qs_start', { picked: 'no', key, size });
 const failed = (reason: string) => event('run_failed', { reason });
 
-async function open(browser: Browser, host: string = SERVERS.demo) {
+async function open(browser: Browser, host: string = SERVERS.demo, options: BrowserContextOptions = {}) {
   const id = randomUUID();
   const bytes = Buffer.from(id.replaceAll('-', ''), 'hex');
   const agent = 'paracosm-first-screen-events/' + id;
@@ -23,6 +24,7 @@ async function open(browser: Browser, host: string = SERVERS.demo) {
     userAgent: agent,
     viewport: { width: 1440, height: 900 },
     extraHTTPHeaders: { 'x-real-ip': `198.19.${bytes[0]}.${bytes[1]}` },
+    ...options,
   });
   await context.route(url => /(^|\.)(googletagmanager\.com|google-analytics\.com|clarity\.ms|plausible\.io|analytics\.manic\.agency)$/.test(url.hostname),
     route => route.fulfill({ contentType: 'text/javascript', body: '' }));
@@ -403,3 +405,73 @@ test('the installed dashboard sends nothing during actual Run and frame actions'
     await context.close();
   }
 });
+
+for (const look of ['light', 'dark'] as const) {
+  for (const width of [390, 1440]) {
+    test(`the dashboard Privacy link shows the disclosures in ${look} at ${width} px`, async ({ browser }) => {
+      const { context, page } = await open(browser, SERVERS.demo, {
+        viewport: { width, height: 844 },
+        deviceScaleFactor: 2,
+      });
+      try {
+        await context.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+        await page.goto('/sim');
+        await consent(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+        const foot = page.getByRole('contentinfo').getByRole('navigation', { name: 'Site links' });
+        await foot.getByRole('link', { name: 'Privacy', exact: true }).click();
+        await expect(page).toHaveURL(url => url.pathname === '/' && url.hash === '#privacy');
+        expect((await lookOf(page)).light).toBe(look === 'light');
+        await expect(consent(page)).toBeHidden();
+
+        const privacy = page.locator('#privacy');
+        await expect(privacy.getByRole('heading', { name: 'Privacy', exact: true })).toBeVisible();
+        const paragraphs = privacy.locator('p');
+        for (const [lead, text] of [
+          ['Viewing the Run screen', /Plausible counts.*Google Analytics 4 measures.*Microsoft Clarity marks/],
+          ['Opening How it works', /switching between the two leaders.*choosing a section.*Plausible.*Google Analytics 4/],
+          ['To run a simulation', /OpenAI or Anthropic.*orders you write for a leader/],
+          ['Our server saves finished runs', /visitor cookie lets this browser list your saved runs.*runs our team has pinned/],
+          ['Anyone with a replay link', /watch that run.*orders you wrote that appear in the replay.*original brief is visible only to your browser/],
+          ['We keep your saved replay', /ten newer runs.*50 unpinned replays.*removed sooner/],
+          ['This browser keeps a separate history', /on this device.*Clearing this site's data.*removes that local history/],
+        ] as const) {
+          await expect(paragraphs.filter({ hasText: lead })).toContainText(text);
+        }
+        await expect(privacy).not.toContainText("shows on no one else's");
+
+        const date = privacy.locator('time[datetime]');
+        await expect(date).toHaveCount(1);
+        await expect(date).toBeVisible();
+        await expect(date).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}$/);
+        const published = new Date((await date.getAttribute('datetime')) + 'T00:00:00Z');
+        await expect(date).toHaveText(new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeZone: 'UTC' }).format(published));
+        await expect(date.locator('..')).toContainText('Updated');
+
+        await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        await expect.poll(() => privacy.locator('.rv').evaluateAll(parts => (
+          parts.length > 0 && parts.every(part => getComputedStyle(part).opacity === '1')
+        ))).toBe(true);
+        await expect(paragraphs.first()).toBeVisible();
+        await expect(paragraphs.last()).toBeVisible();
+
+        if (width === 390) {
+          const measured = await measureText(page, privacy);
+          for (const words of ['Viewing the Run screen', 'Opening How it works', 'To run a simulation',
+            'Our server saves finished runs', 'Anyone with a replay link', 'We keep your saved replay',
+            'This browser keeps a separate history', 'data policy', "Clarity's terms", await date.innerText()]) {
+            expect(measured.some(row => row.text.includes(words)), words).toBe(true);
+          }
+          expect(failures(measured).map(saidOf)).toEqual([]);
+        }
+
+        await privacy.screenshot({
+          path: `test-pictures/sim-first-screen/events-privacy/${width}-${look}.png`,
+          animations: 'disabled',
+          scale: 'device',
+        });
+      } finally {
+        await context.close();
+      }
+    });
+  }
+}

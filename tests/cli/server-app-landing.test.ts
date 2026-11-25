@@ -355,6 +355,59 @@ test("the landing page's privacy section names each purpose, its tool and its ro
   assert.ok(footer.includes('<button type="button" data-consent-open hidden>Analytics choices</button>'), 'the footer must hold the Analytics choices control');
 });
 
+test('the served privacy section explains who receives the first-screen events', () => {
+  const privacy = section('privacy');
+  const paragraphs = [...privacy.matchAll(/<p\b[^>]*>(.*?)<\/p>/gs)].map(match => match[1].replace(/<[^>]*>/g, ''));
+  const launches = paragraphs.find(text => text.includes('Viewing the Run screen')) ?? '';
+  for (const action of ['pressing Start', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
+    assert.ok(launches.includes(action), action);
+  }
+  assert.match(launches, /Plausible counts.*Google Analytics 4 measures.*with your permission.*Microsoft Clarity marks.*by name.*recording/s);
+
+  const navigation = paragraphs.find(text => text.includes('Opening How it works')) ?? '';
+  assert.match(navigation, /switching between the two leaders.*choosing a section.*Plausible.*Google Analytics 4.*permission/s);
+  assert.doesNotMatch(navigation, /Clarity/);
+  assert.match(privacy, /only fixed choices and ranges for the number of leaders/);
+  assert.match(privacy, /count runs before you answer/);
+  assert.match(privacy, /Reject all or its switch stops it/);
+  assert.match(privacy, /Global Privacy Control or Do Not Track.*count included/);
+});
+
+test('the served privacy section explains which saved run data can be seen and when it expires', () => {
+  const privacy = section('privacy');
+  assert.match(privacy, /send its prompts to OpenAI or Anthropic.*includes any orders you write for a leader/);
+  assert.match(privacy, /saves finished runs for replay.*scenario, its leaders, the sequence of turns, decisions and results.*brief you started from/);
+  assert.match(privacy, /visitor cookie lets this browser list your saved runs.*Everyone can also see runs our team has pinned/);
+  assert.match(privacy, /Anyone with a replay link can watch.*including any orders you wrote that appear in the replay/);
+  assert.match(privacy, /own unpinned run, the original brief is visible only to your browser/);
+  assert.match(privacy, /ten newer runs are saved for your browser/);
+  assert.match(privacy, /50 unpinned replays in total, so a replay can be removed sooner/);
+  assert.match(privacy, /Team runs that we pin stay outside these limits/);
+  assert.match(privacy, /separate history of runs on this device.*Clearing this site's data.*removes that local history.*Saved replays on our server follow the limits above/);
+  assert.doesNotMatch(privacy, /shows on no one else's/);
+});
+
+test('the served privacy section carries one release date and keeps the standing disclosures', () => {
+  const privacy = section('privacy');
+  const dates = [...privacy.matchAll(/<time\b[^>]*datetime="(\d{4}-\d{2}-\d{2})"[^>]*>([^<]+)<\/time>/g)];
+  assert.equal(dates.length, 1);
+  const [, iso, words] = dates[0];
+  const date = new Date(iso + 'T00:00:00Z');
+  assert.equal(date.toISOString().slice(0, 10), iso);
+  assert.equal(words, new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeZone: 'UTC' }).format(date));
+  assert.match(privacy, /Updated\s+<time\b/);
+  assert.match(privacy, /<code>paracosm_scenario<\/code>.*lasts 30 days.*<code>paracosm_visitor<\/code>.*lasts 30 days/);
+  for (const cookie of ['_ga', '_ga_*', '_clck', '_clsk']) assert.ok(privacy.includes(`<code>${cookie}</code>`), cookie);
+  assert.match(privacy, /server keeps your IP address with a count of your requests/);
+  assert.match(privacy, /If you add API keys, we use them for the runs and chats you start/);
+  assert.match(privacy, /This tab keeps them until it closes or you select Forget my keys/);
+  assert.match(privacy, /Our server holds them in memory while in use and for up to \d+ minutes afterward, then drops them/);
+  assert.match(privacy, /Each key is sent only to the provider it belongs to/);
+  assert.match(privacy, /Paracosm is for a general audience.*children under 13.*delete what we hold/);
+  assert.match(privacy, /href="mailto:team@frame.dev"/);
+  assert.match(privacy, /install from npm or run from the repository loads none of these tools/);
+});
+
 test('/docs and /docs/ answer a permanent redirect to the API reference', async () => {
   for (const path of ['/docs', '/docs/']) {
     const res = await fetch(`${localSite}${path}`, { redirect: 'manual' });
