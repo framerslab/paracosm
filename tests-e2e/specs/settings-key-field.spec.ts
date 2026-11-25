@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { openTab, SERVERS } from '../support/frame.js';
@@ -81,7 +82,9 @@ test('saved key returns to Run', async ({ page }) => {
   await back(page).press('Enter');
   await expect(page).toHaveURL(/scenario=lunar-outpost&size=2&tab=quickstart$/);
   await expect(startKey(page)).toBeEnabled();
-  await expect(page.getByTestId('notice-pays')).toHaveText('This run uses your Anthropic API key, and your provider bills you.');
+  await expect(page.getByTestId('notice-pays')).toHaveText(
+    'This run uses your Anthropic API key, and your provider bills you. Runs on your key skip the daily limit and do not use your free runs. They are not held to this demo’s size, so they can be larger than the free run.',
+  );
 
   await page.addInitScript(() => {
     const setItem = Storage.prototype.setItem;
@@ -216,14 +219,24 @@ async function openProviderFailure(page: Page, kind: 'auth' | 'quota', look = 'd
   const switched = await page.request.post('/scenario/switch', { data: { id: SCENARIO_ID } });
   expect(switched.ok()).toBe(true);
   await page.reload();
-  await field(page).fill(kind === 'auth' ? 'fixture-openai-refused' : 'fixture-openai-quota');
+  // Each call must reach the provider wire, including retries and other pictures.
+  const marker = `fixture-openai-${kind}:${randomUUID()}`;
+  await field(page).fill(marker);
   await openTab(page, 'quickstart');
   await expect(startKey(page)).toBeEnabled();
-  const accepted = page.waitForResponse(response => new URL(response.url()).pathname === '/setup' && response.request().method() === 'POST');
+  let accepted: { ok: boolean; hasRunId: boolean; sentProviderKey: boolean } | undefined;
+  await page.route('**/setup', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    accepted = {
+      ok: response.ok(),
+      hasRunId: typeof body.runKey === 'string' && body.runKey.length > 0,
+      sentProviderKey: route.request().postDataJSON().apiKey === marker,
+    };
+    await route.fulfill({ response });
+  }, { times: 1 });
   await startKey(page).click();
-  const response = await accepted;
-  expect(response.ok()).toBe(true);
-  expect((await response.json()).runKey).toEqual(expect.any(String));
+  await expect.poll(() => accepted).toEqual({ ok: true, hasRunId: true, sentProviderKey: true });
   await expect(page).toHaveURL(/[?&]tab=sim(?:&|$)/);
   await expect(page.locator('html')).toHaveAttribute('data-test-provider-error', kind);
 }
