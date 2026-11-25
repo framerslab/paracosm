@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { openTab, SERVERS } from '../support/frame.js';
+import { settle } from '../support/readability.js';
 import { startKey } from '../support/start-run.js';
 
 const SERVER = SERVERS.demo;
@@ -276,10 +277,23 @@ for (const width of [390, 1440]) {
         await expect(part).toBeVisible();
         await expect(page.locator('html')).toHaveClass(look === 'light' ? /\blight\b/ : /^(?!.*\blight\b)/);
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        await part.evaluate(element => element.scrollIntoView({ block: 'center' }));
         if (view === 'watch-refusal') {
-          expect(await isUncovered(part.getByRole('link')), 'the recovery link is uncovered in the picture').toBe(true);
+          await part.evaluate(element => element.scrollIntoView({ block: 'start' }));
+          const link = part.getByRole('link');
+          // Let the transient run notices finish before framing the persistent recovery action.
+          await expect(page.getByRole('status', { name: /^Simulation status: Interrupted/ })).toBeVisible();
+          await expect(page.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
+          await settle(part);
+          expect(await isUncovered(link), 'the recovery link is uncovered in the picture').toBe(true);
         } else {
+          // At the phone width the fields stack. A taller window fits the
+          // same columns, the actions and all of the key explanation.
+          if (width === 390) await page.setViewportSize({ width, height: 1440 });
+          const dismissOldBanner = page.getByRole('button', { name: 'Dismiss banner', exact: true });
+          if (await dismissOldBanner.isVisible()) await dismissOldBanner.click();
+          await field(page).focus();
+          await field(page).locator('..').evaluate(element => element.scrollIntoView({ block: 'start' }));
+          await settle(keys(page));
           const visible = [field(page), back(page), keys(page).getByTestId('visitor-key-notes').locator('p').last()];
           for (const control of visible) {
             expect(await isUncovered(control), 'the key, return link and explanation are in frame').toBe(true);
