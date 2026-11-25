@@ -32,6 +32,8 @@ export function getDashboardTabAndSubFromHref(href: string): { tab: DashboardTab
   const tabParam = url.searchParams.get('tab');
   const subParam = url.searchParams.get('sub') as DashboardSubTab | null;
 
+  if (requestsSettingsKeyFocus(href)) return { tab: 'settings', sub: 'config' };
+
   if (tabParam && LEGACY_REDIRECTS[tabParam]) {
     return LEGACY_REDIRECTS[tabParam];
   }
@@ -57,7 +59,21 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
   // Settings consume it. Without this, leaving Studio with sub=branches
   // active leaves the param dangling on every subsequent tab change.
   url.searchParams.delete('sub');
+  url.searchParams.delete('focus');
   url.hash = '';
+  return url.toString();
+}
+
+export function requestsSettingsKeyFocus(href: string): boolean {
+  const url = new URL(href);
+  const tab = url.searchParams.get('tab');
+  return (tab === 'settings' && url.searchParams.get('focus') === 'api-key')
+    || ((tab === 'settings' || tab === null) && url.hash === '#key-openai');
+}
+
+export function createSettingsKeyHref(currentHref: string): string {
+  const url = new URL(createDashboardTabHref(currentHref, 'settings'));
+  url.searchParams.set('focus', 'api-key');
   return url.toString();
 }
 
@@ -93,6 +109,8 @@ export function setSubTabUrlParam(sub: string | null): void {
   const url = new URL(window.location.href);
   if (sub) url.searchParams.set('sub', sub);
   else url.searchParams.delete('sub');
+  url.searchParams.delete('focus');
+  if (url.hash === '#key-openai') url.hash = '';
   window.history.replaceState({}, '', url.toString());
 }
 

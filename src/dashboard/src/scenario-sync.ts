@@ -50,22 +50,43 @@ const tabStorage = (): FlagStorage => window.sessionStorage;
 
 const RUN_HANDOFF_KEY = 'paracosm:runLaunchHandoff';
 
-/** Passes the accepted run's key to the next document in this tab. */
-export function markRunLaunchHandoff(runKey: unknown): void {
+export interface RunLaunchHandoff {
+  runKey: string;
+  usedVisitorKey: boolean;
+}
+
+/** Passes the accepted run's ID and payer flag to the next document in this tab. */
+export function markRunLaunchHandoff(runKey: unknown, usedVisitorKey = false): void {
   if (typeof runKey !== 'string' || runKey.length === 0) return;
-  try { tabStorage().setItem(RUN_HANDOFF_KEY, runKey); } catch { /* storage unavailable */ }
+  try {
+    tabStorage().setItem(RUN_HANDOFF_KEY, JSON.stringify({ runKey, usedVisitorKey }));
+  } catch { /* storage unavailable */ }
 }
 
-/** Reads the hand-off during render. The mounted page clears it after commit. */
-export function readRunLaunchHandoff(): string | null {
-  try { return tabStorage().getItem(RUN_HANDOFF_KEY); } catch { return null; }
+function parseRunLaunchHandoff(stored: string | null): RunLaunchHandoff | null {
+  if (!stored) return null;
+  if (!stored.startsWith('{')) return { runKey: stored, usedVisitorKey: false };
+  try {
+    const parsed = JSON.parse(stored) as Partial<RunLaunchHandoff>;
+    if (typeof parsed?.runKey === 'string' && parsed.runKey) {
+      return { runKey: parsed.runKey, usedVisitorKey: parsed.usedVisitorKey === true };
+    }
+  } catch { /* malformed entry */ }
+  return null;
 }
 
-/** Consumes the hand-off once the receiving page has kept its key in state. */
+/** Reads the handoff during render. The mounted page clears it after commit. */
+export function readRunLaunchHandoff(): RunLaunchHandoff | null {
+  try { return parseRunLaunchHandoff(tabStorage().getItem(RUN_HANDOFF_KEY)); } catch { return null; }
+}
+
+/** Consumes the handoff once the receiving page has kept it in state. */
 export function clearRunLaunchHandoff(runKey: string): void {
   try {
     const storage = tabStorage();
-    if (storage.getItem(RUN_HANDOFF_KEY) === runKey) storage.removeItem(RUN_HANDOFF_KEY);
+    if (parseRunLaunchHandoff(storage.getItem(RUN_HANDOFF_KEY))?.runKey === runKey) {
+      storage.removeItem(RUN_HANDOFF_KEY);
+    }
   } catch { /* storage unavailable */ }
 }
 

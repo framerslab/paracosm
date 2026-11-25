@@ -335,6 +335,10 @@ export function teamRunSpoken(o: { scenario?: string; turns?: number }): string 
 }
 
 /** The link under the key at the limit, to Settings' API key field. */
+export const VISITOR_KEY_REFUSED = 'Your API key was refused by its provider.';
+export const CHECK_KEY_IN_SETTINGS = 'Check it in Settings';
+export const KEY_SAVED_IN_TAB = 'Key saved in this tab.';
+export const BACK_TO_RUN = 'Back to Run';
 export const ADD_KEY_IN_SETTINGS = 'Add your API key in Settings';
 
 /** Said above Start when the request did not reach the server. */

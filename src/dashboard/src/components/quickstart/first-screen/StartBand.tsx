@@ -40,7 +40,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { VISITOR_KEY_TRANSPORT_REFUSAL } from '../../../../../engine/provider/credentials.js';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
-import { createDashboardTabHref } from '../../../tab-routing';
+import { createSettingsKeyHref } from '../../../tab-routing';
 import { buildReplayHref } from '../../layout/LoadMenu.helpers';
 import { estimateQuickstartCostUSD } from '../SeedInput.helpers';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
@@ -549,7 +549,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
       setTrying(true);
       void sessions.refresh().finally(() => setTrying(false));
     };
-    const settingsHref = `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
+    const settingsHref = createSettingsKeyHref(window.location.href);
     return (
       <div className={styles.band} data-testid="start-band" data-state={state} data-layout={layout}>
         <div className={styles.limit} data-testid="at-limit">
