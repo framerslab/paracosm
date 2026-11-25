@@ -7,7 +7,7 @@
  *   until the visitor turns it off. The page sends its page views to this
  *   server's `POST /api/event`, which forwards each as the public page it
  *   names, with nothing of the referring page, to the shared Plausible
- *   instance (countEventFrom, forwardCountEvent).
+ *   instance. Approved dashboard events use the same route.
  * - `measure`: Google Analytics 4, off until the visitor turns it on.
  * - `record`: Microsoft Clarity, off until the visitor turns it on.
  *
@@ -36,6 +36,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
+import { checkedFirstScreenEvent, type FirstScreenEventName } from '../analytics/first-screen-events.js';
 import { IpRateLimiter, type ClientIpHeader } from './rate-limiter.js';
 
 /** The site the hosted demo counts under on the shared Plausible instance, analytics.manic.agency. */
@@ -137,13 +138,17 @@ export function withSiteAnalytics(html: string, page: SiteAnalyticsPage): string
   return tagged.replace(/<body(?=[\s>])/, '<body data-clarity-mask="True"');
 }
 
-/** A page view as the shared Plausible instance takes it (https://plausible.io/docs/events-api). */
-export interface CountEvent {
-  name: 'pageview';
+interface CountEventPage {
   /** One of the site's public pages, on the counted domain: the landing page, the dashboard or a built API docs page. */
   url: string;
   domain: string;
 }
+
+/** An event in the format accepted by the Plausible events API. */
+export type CountEvent = CountEventPage & (
+  | { name: 'pageview' }
+  | { name: FirstScreenEventName; props: Record<string, string> }
+);
 
 const MAX_PATH_LENGTH = 512;
 /** The shape of an API docs page's path; only a page that is built counts under its own path. */
@@ -173,24 +178,54 @@ export function countedPage(pathname: string, isDocsPage: (path: string) => bool
  * instance.
  */
 export function countEventFrom(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
-  let parsed: unknown;
+  const parsed = parseEventBody(body);
+  return parsed?.n === 'pageview' ? countedPageView(parsed.u, isDocsPage) : null;
+}
+
+function parseEventBody(body: string): Record<string, unknown> | null {
   try {
-    parsed = JSON.parse(body);
+    const parsed: unknown = JSON.parse(body);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
   } catch {
     return null;
   }
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const { n, u } = parsed as Record<string, unknown>;
-  if (n !== 'pageview' || typeof u !== 'string' || !u.startsWith('/') || u.startsWith('//') || u.length > MAX_PATH_LENGTH) return null;
-  let path: string;
+}
+
+function parsedCountUrl(value: unknown): URL | null {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.length > MAX_PATH_LENGTH) return null;
   try {
-    path = new URL(u, `https://${PLAUSIBLE_DOMAIN}`).pathname;
+    return new URL(value, `https://${PLAUSIBLE_DOMAIN}`);
   } catch {
     return null;
   }
-  const page = countedPage(path, isDocsPage);
+}
+
+function countedPageView(value: unknown, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
+  const url = parsedCountUrl(value);
+  if (!url) return null;
+  const page = countedPage(url.pathname, isDocsPage);
   if (page === null) return 'unlisted';
   return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN };
+}
+
+/** Parses a legacy page view or a strict dashboard event for the shared count route. */
+export function countedEvent(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
+  const parsed = parseEventBody(body);
+  if (!parsed) return null;
+  if (parsed.n === 'pageview') return countedPageView(parsed.u, isDocsPage);
+
+  const keys = Object.keys(parsed);
+  if (keys.length !== 3 || !keys.includes('n') || !keys.includes('u') || !keys.includes('p')) return null;
+  const event = checkedFirstScreenEvent(parsed.n, parsed.p);
+  if (!event) return null;
+  const { u } = parsed;
+  if (typeof u !== 'string' || /[\\\s]|%(?![0-9a-f]{2})/i.test(u)) return null;
+  const url = parsedCountUrl(u);
+  if (!url || url.origin !== `https://${PLAUSIBLE_DOMAIN}`) return null;
+  if (countedPage(url.pathname) !== '/sim') return 'unlisted';
+  return { name: event.name, url: `https://${PLAUSIBLE_DOMAIN}/sim`, domain: PLAUSIBLE_DOMAIN, props: event.fields };
 }
 
 /**
@@ -210,10 +245,10 @@ export function clientAddress(req: IncomingMessage, trustedHeader: ClientIpHeade
   return isIP(candidate) ? candidate : socket;
 }
 
-/** The most page views `POST /api/event` forwards from one address in a minute. */
+/** The most events `POST /api/event` forwards from one address in a minute. */
 export const COUNT_EVENTS_PER_MINUTE = 120;
 
-/** The most page views `POST /api/event` holds open on their way to the instance at once. */
+/** The most events `POST /api/event` holds open on their way to the instance at once. */
 export const COUNT_FORWARDS_AT_ONCE = 32;
 
 /** The most addresses the per-address limit tracks; past it, a new address is refused until windows end. */
@@ -223,8 +258,8 @@ const COUNT_LIMIT_ADDRESSES = 50_000;
 export const COUNT_WINDOW_MS = 60_000;
 
 /**
- * The per-address limit on forwarded page views: a window from an address's
- * first page view, COUNT_EVENTS_PER_MINUTE in it. It keys on the address
+ * The per-address limit on forwarded events: a window from an address's
+ * first event, COUNT_EVENTS_PER_MINUTE in it. It keys on the address
  * as IpRateLimiter.getIp gives it (an IPv6 address by its /64), holds it
  * in memory only, and drops it when its window ends: a timer set for the
  * oldest window, and a sweep on every take. No more than
@@ -245,7 +280,7 @@ export class CountEventLimit {
     return this.windows.size;
   }
 
-  /** Takes one page view for the address key; false when its window is full. */
+  /** Takes one event for the address key; false when its window is full. */
   take(key: string, now = Date.now()): boolean {
     this.sweep(now);
     const current = this.windows.get(key);
@@ -301,7 +336,7 @@ export function countAddresses(req: IncomingMessage, trustedHeader: ClientIpHead
 }
 
 /**
- * Sends one page view to the instance with the visitor's full User-Agent
+ * Sends one event to the instance with the visitor's full User-Agent
  * header and one address, as its events API asks, and resolves true when the instance
  * accepted it. It never throws: a refusal, a network error or a timeout
  * resolves false.
