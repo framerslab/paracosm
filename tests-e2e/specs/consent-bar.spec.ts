@@ -20,7 +20,7 @@
  * - Reject all ends the count; Accept all loads Google Analytics and
  *   Clarity; Choose turns on one purpose alone;
  * - the dashboard reads each purpose's answer from window.paracosmConsent,
- *   which says no before an answer and after Reject all, and which other
+ *   which enables the count before an answer and denies every purpose after Reject all, and which other
  *   code on the page cannot replace;
  * - a privacy signal (the Sec-GPC header, the DNT header alone, or
  *   navigator.globalPrivacyControl) shows no bar and loads nothing optional,
@@ -53,6 +53,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { openTab } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The hosted-demo server with analytics runs locally, on a port of its own.');
 
@@ -212,10 +213,176 @@ async function goesQuiet(page: Page, watch: Watch, label: string): Promise<void>
   expect(watch.vendor.slice(seen), label).toEqual([]);
 }
 
-async function forwarded(agent: string): Promise<Array<{ body: { name?: string; url?: string; domain?: string; referrer?: string } }>> {
+const pageviews = (watch: Watch) => watch.counts.filter(request => request.postDataJSON().n === 'pageview');
+
+async function forwarded(agent: string): Promise<Array<{ body: {
+  name?: string; url?: string; domain?: string; referrer?: string; props?: Record<string, string>;
+}; forwardedFor?: string }>> {
   const response = await fetch(`${SINK}/received`);
   const all = await response.json() as Array<{ body: { name?: string; url?: string; domain?: string }; userAgent: string | null }>;
   return all.filter(event => event.userAgent === agent);
+}
+
+const optionalControls = [
+  ['count', /Plausible/], ['measure', /Google Analytics/], ['record', /Microsoft Clarity/],
+] as const;
+
+async function choosePurposes(page: Page, purposes: readonly string[]) {
+  for (const [purpose, label] of optionalControls) {
+    const toggle = bar(page).getByRole('switch', { name: label });
+    const enabled = await toggle.getAttribute('aria-checked') === 'true';
+    if (enabled !== purposes.includes(purpose)) await toggle.click();
+  }
+  await bar(page).getByRole('button', { name: 'Save choices', exact: true }).click();
+  await expect(bar(page)).toBeHidden();
+}
+
+async function observeVendorCalls(context: BrowserContext) {
+  await context.addInitScript(() => {
+    const state = window as unknown as {
+      gtag: (...args: unknown[]) => void;
+      clarity: (...args: unknown[]) => void;
+      recordedEvents: { measure: unknown[][]; record: unknown[][] };
+    };
+    state.recordedEvents = { measure: [], record: [] };
+    const observe = (purpose: 'measure' | 'record') => (...args: unknown[]) => {
+      if (args[0] === 'event' && args[1] !== 'page_view') state.recordedEvents[purpose].push(args);
+    };
+    state.gtag = observe('measure');
+    state.clarity = observe('record');
+  });
+}
+
+async function vendorCalls(page: Page) {
+  return page.evaluate(() => (window as unknown as {
+    recordedEvents: { measure: unknown[][]; record: unknown[][] };
+  }).recordedEvents);
+}
+
+async function useRunControls(page: Page) {
+  await openTab(page, 'sim');
+  await openTab(page, 'quickstart');
+  await page.getByTestId('leaders').getByRole('tab').nth(1).click();
+}
+
+const runVisit = { state: 'ready', entry: 'from_tab' };
+const pairChange = { to: '2' };
+const gaContext = {
+  page_location: BASE + '/sim',
+  page_title: 'Watch AI leaders run the same scenario | Paracosm',
+  page_referrer: '',
+};
+
+function namedPosts(watch: Watch, from: number) {
+  return watch.counts.slice(from).map(request => request.postDataJSON()).filter(payload => payload.n !== 'pageview');
+}
+
+for (const purposes of [['measure'], ['record'], ['count'], ['count', 'measure', 'record']] as const) {
+  test(`Run controls send to exactly the chosen destinations (${purposes.join(', ')})`, async ({ browser }) => {
+    const { context, page, watch, agent } = await open(browser, purposes.join('-'), {
+      viewport: { width: 390, height: 844 },
+    });
+    try {
+      await observeVendorCalls(context);
+      await page.goto('/sim?name=private-marker#private-marker', { referer: 'https://example.test/private-marker' });
+      await expect.poll(() => namedPosts(watch, 0)).toEqual([
+        { n: 'qs_view', u: '/sim', p: { state: 'ready', entry: 'direct' } },
+      ]);
+      expect(await vendorCalls(page)).toEqual({ measure: [], record: [] });
+      if (purposes.length === 3) {
+        await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
+        await expect(bar(page)).toBeHidden();
+      } else {
+        await bar(page).getByRole('button', { name: 'Choose', exact: true }).click();
+        await choosePurposes(page, purposes);
+      }
+
+      const before = watch.counts.length;
+      await useRunControls(page);
+      const frames = [
+        ['tab_change', { to: 'sim' }], ['tab_change', { to: 'quickstart' }],
+        ['qs_view', runVisit], ['qs_pair_switch', pairChange],
+      ] as const;
+      const chosen: readonly string[] = purposes;
+      const measured = frames.map(([n, p]) => ['event', n, { ...p, ...gaContext }]);
+      expect(await vendorCalls(page)).toEqual({
+        measure: chosen.includes('measure') ? measured : [],
+        record: chosen.includes('record') ? [['event', 'qs_view']] : [],
+      });
+      await expect.poll(() => namedPosts(watch, before)).toEqual(chosen.includes('count')
+        ? frames.map(([n, p]) => ({ n, u: '/sim', p }))
+        : []);
+      const sinkNames = async () => (await forwarded(agent)).map(row => row.body.name).filter(name => name !== 'pageview').sort();
+      await expect.poll(sinkNames).toEqual(chosen.includes('count')
+        ? ['qs_view', ...frames.map(([name]) => name)].sort()
+        : ['qs_view']);
+
+      if (purposes.length === 3) {
+        await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+        await choosePurposes(page, ['measure', 'record']);
+        const withdrawnAt = watch.counts.length;
+        await page.getByTestId('leaders').getByRole('tab').nth(1).press('ArrowLeft');
+        expect(watch.counts.slice(withdrawnAt)).toEqual([]);
+        expect(await vendorCalls(page)).toEqual({
+          measure: [...measured, ['event', 'qs_pair_switch', { to: '1', ...gaContext }]],
+          record: [['event', 'qs_view']],
+        });
+
+        const other = await context.newPage();
+        await other.goto('/');
+        await other.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
+        await bar(other).getByRole('button', { name: 'Reject all', exact: true }).click();
+        await expect.poll(() => page.evaluate(() => (window as unknown as {
+          paracosmConsent: { allows: (purpose: string) => boolean };
+        }).paracosmConsent.allows('measure'))).toBe(false);
+        const calls = await vendorCalls(page);
+        await useRunControls(page);
+        expect(await vendorCalls(page)).toEqual(calls);
+        expect(watch.counts.slice(withdrawnAt)).toEqual([]);
+        await page.goto('/sim');
+        await useRunControls(page);
+        expect(await vendorCalls(page)).toEqual({ measure: [], record: [] });
+        expect(watch.counts.slice(withdrawnAt)).toEqual([]);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+for (const signal of ['Sec-GPC', 'DNT', 'navigator', 'storage refusal'] as const) {
+  test(`Run actions respect ${signal} even when vendor functions exist`, async ({ browser }) => {
+    const { context, page, watch } = await open(browser, signal, {
+      viewport: { width: 390, height: 844 },
+      extraHTTPHeaders: signal === 'Sec-GPC' || signal === 'DNT' ? { [signal]: '1' } : {},
+    });
+    try {
+      await observeVendorCalls(context);
+      if (signal === 'navigator') {
+        await context.addInitScript(() => {
+          Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true, configurable: true });
+        });
+      }
+      await page.goto('/sim');
+      if (signal === 'storage refusal') {
+        await page.evaluate(() => {
+          Storage.prototype.setItem = function () { throw new DOMException('Storage full.', 'QuotaExceededError'); };
+        });
+        await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
+        await expect(bar(page).getByText('could not be saved on this device')).toBeVisible();
+      }
+      const before = watch.counts.length;
+      if (signal !== 'storage refusal') expect(before).toBe(0);
+      // Avoid the still-visible storage notice intercepting the pair switch.
+      await page.getByRole('navigation', { name: 'Sections' }).scrollIntoViewIfNeeded();
+      await useRunControls(page);
+      expect(watch.counts.slice(before)).toEqual([]);
+      expect(await vendorCalls(page)).toEqual({ measure: [], record: [] });
+      expect(watch.vendor).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
 }
 
 test.describe('the consent bar on the hosted demo', () => {
@@ -233,12 +400,25 @@ test.describe('the consent bar on the hosted demo', () => {
         expect(watch.vendor, 'no request to Google, Microsoft, PostHog or Plausible before an answer').toEqual([]);
         expect(watch.fonts, 'no request to Google\'s font service').toEqual([]);
         expect(await loadedFace(page, 'Inter'), 'Inter loads from the site itself').toBe(true);
-        expect(watch.counts, 'one count event to the site itself').toHaveLength(1);
+        expect(pageviews(watch), 'one page view to the site itself').toHaveLength(1);
         expect(await page.evaluate(() => localStorage.getItem('plausible_ignore'))).toBeNull();
 
         // The server forwards it under the site's Plausible domain, path only.
-        await expect.poll(async () => (await forwarded(agent)).length).toBe(1);
-        const [event] = await forwarded(agent);
+        await expect.poll(async () => (await forwarded(agent)).map(row => row.body.name).sort())
+          .toEqual(pathname === '/sim' ? ['pageview', 'qs_view'] : ['pageview']);
+        const events = await forwarded(agent);
+        const event = events.find(row => row.body.name === 'pageview')!;
+        if (pathname === '/sim') {
+          const named = watch.counts.filter(request => request.postDataJSON().n !== 'pageview');
+          expect(named.map(request => request.postDataJSON())).toEqual([
+            { n: 'qs_view', u: '/sim', p: { state: 'ready', entry: 'direct' } },
+          ]);
+          const headers = await named[0].allHeaders();
+          expect(headers.referer).toBeUndefined();
+          expect(headers.cookie).toBeUndefined();
+          expect(JSON.stringify(events)).not.toContain('ticket-123');
+          expect(JSON.stringify(events)).not.toContain('utm_source');
+        }
         expect(event.body.name).toBe('pageview');
         expect(event.body.domain).toBe('paracosm.agentos.sh');
         expect(event.body.url).toBe(`https://paracosm.agentos.sh${pathname}`);
@@ -651,12 +831,12 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.goto('/sim');
       await page.waitForTimeout(SETTLE_MS);
       await page.evaluate(() => { (window as unknown as { __sameDocument?: boolean }).__sameDocument = true; });
-      const before = watch.counts.length;
+      const before = pageviews(watch).length;
 
       await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
       await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
-      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
-      expect(watch.counts[before].postDataJSON()).toEqual({ n: 'pageview', u: '/sim' });
+      await expect.poll(() => pageviews(watch).length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
+      expect(pageviews(watch)[before].postDataJSON()).toEqual({ n: 'pageview', u: '/sim' });
       expect(await page.evaluate(() => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true), 'the page was not reloaded').toBe(true);
     } finally {
       await context.close();
@@ -670,7 +850,7 @@ test.describe('the consent bar on the hosted demo', () => {
       await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
       await page.goto('/sim');
       await page.waitForTimeout(SETTLE_MS);
-      const before = watch.counts.length;
+      const before = pageviews(watch).length;
 
       // The answer itself stores; removing the earlier no to the count does not.
       await page.evaluate(() => {
@@ -679,10 +859,10 @@ test.describe('the consent bar on the hosted demo', () => {
       await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
       await bar(page).getByRole('button', { name: 'Accept all', exact: true }).click();
       await expect(bar(page).getByText('could not be saved on this device')).toBeVisible();
-      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
+      await expect.poll(() => pageviews(watch).length, { timeout: 10_000, message: 'this page is counted after the yes' }).toBe(before + 1);
 
       await page.evaluate(() => history.pushState({}, '', '/'));
-      await expect.poll(() => watch.counts.length, { timeout: 10_000, message: 'the next path of this page is counted too' }).toBe(before + 2);
+      await expect.poll(() => pageviews(watch).length, { timeout: 10_000, message: 'the next path of this page is counted too' }).toBe(before + 2);
     } finally {
       await context.close();
     }
