@@ -94,7 +94,9 @@ const run: NonNullable<CreateMarsServerOptions['runPairSimulations']> = async (c
     else broadcast('verdict', {
       winner: 'A', winnerName: config.actors[0].name,
       leaderA: config.actors[0], leaderB: config.actors[1],
-      headline: 'The reserve carried the crew.',
+      headline: config.actors[0].name.startsWith('Verdict headline ')
+        ? 'Warming winds and widespread wildfires overwhelmed Mars while reserves dwindled.'
+        : 'The reserve carried the crew.',
       summary: 'Stored water protected the new crops.',
       keyDivergence: 'One leader kept more water available.',
       ...(config.actors[0].name === 'Report leader' ? { verdictModel: 'test-verdict' } : {}),
