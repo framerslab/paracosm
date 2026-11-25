@@ -448,6 +448,14 @@ function AppContent() {
     window.dispatchEvent(new PopStateEvent('popstate'));
   }, [leaveDigitalTwin]);
 
+  // A run on this page's feed is running. A kept run or a run file loaded
+  // now would take the stream's next events into it, so loading waits until
+  // the run ends. A launch whose first frame has not come is not held: that
+  // frame opens a new run, which replaces what the page shows.
+  const runLive = gameState.isRunning;
+  const runLiveRef = useRef(runLive);
+  runLiveRef.current = runLive;
+
   const loadPreview = useLoadPreview({
     pickFile: async () => {
       const file = await persistence.pickFile();
@@ -457,6 +465,11 @@ function AppContent() {
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
     onConfirm: ({ events, results, verdict, provenance }) => {
+      // Every way in (Studio, a drop, a preview opened before the run began) ends here.
+      if (runLiveRef.current) {
+        toast('info', 'Run in progress', 'A run file opens once the run on screen ends.');
+        return;
+      }
       leaveDigitalTwin();
       sse.loadEvents(events, results, verdict, provenance);
       clearShareLink();
@@ -1006,11 +1019,6 @@ function AppContent() {
   const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
   const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
   const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
-  // A run on this page's feed is running. A kept run or a run file loaded
-  // now would take the stream's next events into it, so those keys wait
-  // until the run ends. A launch whose first frame has not come is not
-  // held: that frame opens a new run, which replaces what the page shows.
-  const runLive = gameState.isRunning;
   // The status bar's spend is the run its progress shows: a Digital Twin's
   // own when the page shows one.
   const shownRunCost = (showsDigitalTwin ? interventionState : gameState).cost;
