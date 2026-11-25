@@ -1006,10 +1006,11 @@ function AppContent() {
   const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
   const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
   const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
-  // A run on this page's feed is starting or running. A kept run or a run
-  // file loaded now would take the stream's next events into it, so those
-  // keys wait until the run ends, as the header's run menu did.
-  const runLive = launching || gameState.isRunning;
+  // A run on this page's feed is running. A kept run or a run file loaded
+  // now would take the stream's next events into it, so those keys wait
+  // until the run ends. A launch whose first frame has not come is not
+  // held: that frame opens a new run, which replaces what the page shows.
+  const runLive = gameState.isRunning;
   // The status bar's spend is the run its progress shows: a Digital Twin's
   // own when the page shows one.
   const shownRunCost = (showsDigitalTwin ? interventionState : gameState).cost;

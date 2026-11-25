@@ -595,7 +595,7 @@ Reports, Studio, Visualization, Library and Settings load on demand through `laz
 
 The active section and one shared `PageFoot` sit in the same page scroller. The footer holds the adults notice, site links and licence. When the consent bar is present, `useConsentControl` moves its Analytics choices button into the footer. While a run is open, `RunStatusBar` below the scroller shows its progress, status and cost.
 
-Library holds server-saved replays and runs kept in the browser. Studio opens saved run files, and the dashboard accepts those files by drop on any tab. While a run is starting or running, Library's Restore waits and Studio shows no Open a run file key, so the live stream's events never join a loaded run. Settings holds the stored-data controls. The header's run actions menu appears while a run is open.
+Library holds server-saved replays and runs kept in the browser. Studio opens saved run files, and the dashboard accepts those files by drop on any tab. While a run is running, Library's Restore waits and Studio shows no Open a run file key, so the live stream's events never join a loaded run. Settings holds the stored-data controls. The header's run actions menu appears while a run is open.
 
 CI sweeps the frame in both looks at phone and desktop widths and at 200 per cent text. It checks readability and accessibility across the banner, More and the footer, runs the mobile layout and top bar suites, and saves 2× browser captures with the frame checks.
 

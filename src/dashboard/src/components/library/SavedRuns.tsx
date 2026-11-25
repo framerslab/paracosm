@@ -16,8 +16,8 @@ export interface SavedRunsProps {
   onClear: () => void;
   runOpen: boolean;
   /**
-   * A run is starting or running: its live events would join a restored
-   * run's, so Restore waits until it ends.
+   * A run is running: its live events would join a restored run's, so
+   * Restore waits until it ends.
    */
   runLive?: boolean;
 }
