@@ -116,6 +116,15 @@ jobs:
         if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
         run: npx playwright test tests-e2e/specs/visitor-keys-and-age.spec.ts --project=chromium-desktop
 
+      - name: Upload visitor-key transport pictures
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: keys-secure-context-pictures
+          path: test-pictures/keys-secure-context/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: PDF upload end-to-end test
         run: npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop
 

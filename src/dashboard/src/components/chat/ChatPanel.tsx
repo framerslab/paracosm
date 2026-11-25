@@ -1,6 +1,6 @@
 import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
-import { sessionProviderKeys } from '../settings/sessionProviderKeys';
+import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
 import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState } from '../../hooks/useGameState';
@@ -162,6 +162,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   const [historyByAgent, setHistoryByAgent] = useState<Map<string, Array<{ role: string; content: string }>>>(() => new Map());
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [transportNotice, setTransportNotice] = useState<string>();
   const messagesRef = useRef<HTMLDivElement>(null);
   // Pin-to-bottom for the chat message stream. Release the pin if
   // the user scrolls up to re-read an earlier message so the next
@@ -383,6 +384,10 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
 
   const send = async () => {
     if (!input.trim() || !selectedId || sending) return;
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const transportError = visitorKeyTransportError(providerKeys);
+    setTransportNotice(transportError);
+    if (transportError) return;
     const targetId = selectedId;
     const leader = leaderOf(targetId);
     const thread = threadKey(targetId);
@@ -394,7 +399,6 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     const newHistory = [...currentHistory, { role: 'user', content: msg }];
     setHistoryFor(thread, () => newHistory);
     try {
-      const providerKeys = sessionProviderKeys(readTabKeyOverrides());
       const res = await fetch('/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -650,6 +654,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
         </div>
 
         {/* Input */}
+        {transportNotice && <div className={styles.bubble} role="alert">{transportNotice}</div>}
         <div className={styles.inputRow}>
           <input
             value={input}

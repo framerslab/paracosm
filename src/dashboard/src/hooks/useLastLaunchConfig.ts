@@ -1,3 +1,4 @@
+import { VISITOR_KEY_FIELDS } from '../../../engine/provider/credentials.js';
 import type { ActorAuthorship } from '../../../engine/types.js';
 /**
  * Centralized reader/writer for the dashboard's two launch-related
@@ -16,13 +17,10 @@ import type { ActorAuthorship } from '../../../engine/types.js';
 /** localStorage key holding the last config that succeeded on /setup, without its keys. */
 export const LAST_LAUNCH_KEY = 'paracosm:lastLaunchConfig';
 
-/** The /setup fields that carry a visitor's model and search keys. */
-const KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
-
 /** A launch config without its key fields: keys stay in this tab's storage alone. */
 function withoutKeys(config: Record<string, unknown>): Record<string, unknown> {
   const rest = { ...config };
-  for (const field of KEY_FIELDS) delete rest[field];
+  for (const field of VISITOR_KEY_FIELDS) delete rest[field];
   return rest;
 }
 

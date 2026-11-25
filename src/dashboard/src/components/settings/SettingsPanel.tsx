@@ -29,7 +29,7 @@ import {
   writeActiveRunActors, writeTabKeyOverrides, type KeyOverrides,
 } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
-import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
+import { hasSessionProviderKey, sessionProviderKeys, visitorKeyTransportError } from './sessionProviderKeys';
 import { safeLocalStorage } from '../quickstart/first-screen/effectiveLaunch';
 import styles from './SettingsPanel.module.scss';
 
@@ -335,6 +335,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
   const [keyIdleMinutes, setKeyIdleMinutes] = useState<number | null>(null);
   const [forgettingKeys, setForgettingKeys] = useState(false);
   const [keyNotice, setKeyNotice] = useState('');
+  const transportNotice = visitorKeyTransportError();
 
   function updateKey(provider: keyof KeyOverrides, value: string) {
     const next = { ...keyOverrides, [provider]: value };
@@ -448,6 +449,16 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
 
   const launch = useCallback(async () => {
     if (!scenarioReady) return;
+    const keys: Record<string, unknown> = { ...sessionProviderKeys(keyOverrides) };
+    if (keyOverrides.serper) keys.serperKey = keyOverrides.serper;
+    if (keyOverrides.firecrawl) keys.firecrawlKey = keyOverrides.firecrawl;
+    if (keyOverrides.tavily) keys.tavilyKey = keyOverrides.tavily;
+    if (keyOverrides.cohere) keys.cohereKey = keyOverrides.cohere;
+    const transportError = visitorKeyTransportError(keys);
+    if (transportError) {
+      setStatus(transportError);
+      return;
+    }
     setLaunching(true);
     setStatus('Starting...');
     try {
@@ -474,12 +485,6 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
       // alphabetic placeholder until status:parallel lands.
       const launchStorage = safeLocalStorage();
       if (launchStorage) writeActiveRunActors(launchStorage, actors, scenario.id);
-      // Attach any user-provided key overrides (never sends .env values)
-      Object.assign(config, sessionProviderKeys(keyOverrides));
-      if (keyOverrides.serper) config.serperKey = keyOverrides.serper;
-      if (keyOverrides.firecrawl) config.firecrawlKey = keyOverrides.firecrawl;
-      if (keyOverrides.tavily) config.tavilyKey = keyOverrides.tavily;
-      if (keyOverrides.cohere) config.cohereKey = keyOverrides.cohere;
       // Per-tier model overrides only apply when the user is paying. The
       // server enforces DEMO_MODELS otherwise, so sending these without a
       // key would be silently overwritten.
@@ -491,7 +496,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
         headers: { 'Content-Type': 'application/json' },
         // Tier 2 Spec 2B: UI-initiated runs capture kernel snapshots
         // so every turn is fork-eligible from the Reports tab.
-        body: JSON.stringify({ ...config, captureSnapshots: true }),
+        body: JSON.stringify({ ...config, ...keys, captureSnapshots: true }),
       });
       const data = await res.json();
       if (res.status === 429) {
@@ -796,6 +801,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
             the simulation cannot run. You need at least one OpenAI or Anthropic key configured somewhere.
           </p>
         </div>
+        {transportNotice && <p role="status" className={styles.launchStatus}>{transportNotice}</p>}
         <div className={`responsive-grid-2 ${styles.grid2}`}>
           {([
             ['openai', 'OpenAI', 'Required (or Anthropic). Powers commander, departments, crisis director.'],
