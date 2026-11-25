@@ -25,15 +25,13 @@ export interface UseSimSavedToastOptions {
   savedEvent: SimEvent | null;
   /** The run the save belongs to: the run the page shows. */
   runKey: string | null;
-  tourActive: boolean;
   /** True when the page launched this run or received its hand-off. */
   userTriggeredRun: boolean;
 }
 
-export function useSimSavedToast({ savedEvent, runKey, tourActive, userTriggeredRun }: UseSimSavedToastOptions): void {
+export function useSimSavedToast({ savedEvent, runKey, userTriggeredRun }: UseSimSavedToastOptions): void {
   const { toast } = useToast();
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!savedEvent) return;
     const d = (savedEvent.data ?? {}) as Record<string, unknown>;
@@ -47,7 +45,7 @@ export function useSimSavedToast({ savedEvent, runKey, tourActive, userTriggered
     }
     if (status === 'saved') {
       const id = typeof d.id === 'string' ? d.id.slice(0, 8) : 'run';
-      toast('success', 'Saved to cache', `Run ${id}… stored. Open LOAD to replay.`);
+      toast('success', 'Saved to cache', `Run ${id}… stored. Open More, then Library, to replay.`);
     } else if (status === 'failed') {
       toast('error', 'Cache save failed', String(d.error ?? 'Unknown error'));
     } else if (status === 'skipped') {
@@ -56,5 +54,5 @@ export function useSimSavedToast({ savedEvent, runKey, tourActive, userTriggered
         toast('info', 'Not cached', `Skipped: ${reason.replace(/_/g, ' ')}.`);
       }
     }
-  }, [savedEvent, runKey, tourActive, userTriggeredRun, toast]);
+  }, [savedEvent, runKey, userTriggeredRun, toast]);
 }

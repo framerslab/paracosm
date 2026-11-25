@@ -26,7 +26,8 @@
  * too: the server holds nothing of that run to show again.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
+import { openTab } from '../support/frame.js';
+import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_FALLBACK, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, twinRows } from '../support/digital-twin-run.js';
 import { noRunOnPage, pressStart } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stub engine runs on a local server of its own.');
@@ -46,7 +47,6 @@ const playback = (page: Page, position: number) => page.getByRole('heading', { n
 const dismiss = (page: Page) => page.getByRole('button', { name: 'Clear · run another' });
 const finishedRun = (page: Page) => page.getByText('Spin up a new run');
 const pairRunning = (page: Page) => page.getByRole('status', { name: /^Simulation status: Running\./ });
-const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 /** What the Run tab says above Start when the server refuses the run. */
 const RUN_DID_NOT_START = 'The run did not start. Press Start again.';
 const stat = (page: Page, label: string) => page.locator('[class*="statsBar"]').getByText(label, { exact: true }).locator('xpath=..');
@@ -125,11 +125,11 @@ async function startPairRun(page: Page): Promise<void> {
   await expect(page).toHaveURL(/[?&]tab=sim\b/);
 }
 
-/** Loads a saved run from a file through the RUN menu, taking whatever the page shows. */
+/** Loads a saved run from a file through Studio, taking whatever the page shows. */
 async function loadSavedRun(page: Page): Promise<void> {
-  await runMenuButton(page).click();
+  await openTab(page, 'studio');
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('menuitem', { name: /Load from file/ }).click();
+  await page.getByRole('button', { name: 'Open a run file', exact: true }).click();
   await (await chooser).setFiles(savedRun());
   await page.getByRole('button', { name: /^(Load|Replace current simulation)$/ }).click();
 }
@@ -152,9 +152,31 @@ test.describe('Digital Twin events @twin', () => {
   });
 
   test('the page that ran it, on another scenario, counts the events as they arrive and plays them back', async ({ page }) => {
+    // A screen reader reads changes to a live region it already holds, not
+    // the words of one that arrives with them: the turn's region must be in
+    // the page, empty, before the first turn.
+    await page.addInitScript(() => {
+      const w = window as Window & { addedWithTurn?: boolean };
+      w.addedWithTurn = false;
+      new MutationObserver(records => {
+        for (const record of records) {
+          for (const node of Array.from(record.addedNodes)) {
+            if (!(node instanceof Element)) continue;
+            const regions = [node, ...Array.from(node.querySelectorAll('[aria-live="polite"]'))]
+              .filter(el => el.getAttribute('aria-live') === 'polite');
+            if (regions.some(el => /^Turn \d+ of \d+$/.test(el.textContent ?? ''))) w.addedWithTurn = true;
+          }
+        }
+      }).observe(document, { childList: true, subtree: true });
+    });
     const release = await holdAnswer(page);
     await startRun(page);
     await expectProgressOfWholeRun(page);
+    // The run's status bar follows the twin's turns, and reads each one aloud.
+    const status = page.getByRole('region', { name: 'Run status' });
+    await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
+    await expect(status.locator('[aria-live="polite"]').filter({ hasText: /^Turn 2 of 2$/ })).toHaveCount(1);
+    expect(await page.evaluate(() => (window as Window & { addedWithTurn?: boolean }).addedWithTurn)).toBe(false);
 
     release();
     await expect(result(page)).toBeVisible();
@@ -173,6 +195,18 @@ test.describe('Digital Twin events @twin', () => {
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
     await expect(finishedRun(page)).toHaveCount(0);
+  });
+
+  test('the run status bar counts the twin\'s own validation fallbacks on another scenario', async ({ page }) => {
+    const release = await holdAnswer(page, TWIN_ENGINE_FALLBACK);
+    await startRun(page);
+    await expect(running(page)).toBeVisible();
+    const status = page.getByRole('region', { name: 'Run status' });
+    await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
+    await expect(status.getByLabel('1 validation fallback', { exact: true })).toBeVisible();
+    release();
+    await expect(result(page)).toBeVisible();
+    await expect(status.getByLabel('1 validation fallback', { exact: true })).toBeVisible();
   });
 
   test('a page that did not run it stays without it', async ({ page, browser, baseURL }) => {
@@ -236,7 +270,7 @@ test.describe('Digital Twin events @twin', () => {
     // The refused press stays on the Run tab and says so above Start.
     await pressStart(page);
     await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expectProgressOfWholeRun(page);
 
     release();
@@ -251,7 +285,7 @@ test.describe('Digital Twin events @twin', () => {
 
     await pressStart(page);
     await expect(page.getByTestId('start-failure')).toHaveText(RUN_DID_NOT_START);
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
     await expect(result(page)).toBeVisible();
     await expect(playback(page, ROWS)).toBeVisible();
   });
@@ -269,7 +303,7 @@ test.describe('Digital Twin events @twin', () => {
     release();
     await page.waitForResponse(response => response.url().endsWith('/api/quickstart/simulate-intervention'));
     await twinAnswerHandled(page);
-    await page.getByRole('tab', { name: 'QUICKSTART', exact: true }).click();
+    await openTab(page, 'quickstart');
     await expect(page.getByRole('button', { name: 'Patient · treatment' })).toBeVisible();
     await expect(page.getByText(TWIN_ENGINE_ERROR)).toHaveCount(0);
     await expect(page.getByText('Digital twin failed')).toHaveCount(0);
@@ -285,14 +319,28 @@ test.describe('Digital Twin events @twin', () => {
     await expect(finishedRun(page)).toBeVisible();
   });
 
+  test('a twin the provider stopped reads Interrupted in the run status', async ({ page }) => {
+    await page.route(TWIN_ROUTE, async route => {
+      const answer = await route.fetch();
+      const json = await answer.json() as { artifact: Record<string, unknown> };
+      await route.fulfill({ response: answer, json: { ...json, artifact: { ...json.artifact, aborted: true } } });
+    });
+    await startRun(page);
+    await expect(result(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Interrupted/ })).toBeVisible();
+  });
+
   test('clearing local data clears the result', async ({ page }) => {
     await startRun(page);
     await expect(result(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Complete/ })).toBeVisible();
 
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Clear local data/ }).click();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
@@ -308,7 +356,7 @@ test.describe('Digital Twin events @twin', () => {
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: 'Delete server data' }).click();
     await expect(page.getByText(/ files deleted on the server\./).first()).toBeVisible();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await expect(result(page)).toHaveCount(0);
     await expect(noRunOnPage(page)).toBeVisible();
@@ -329,12 +377,14 @@ test.describe('Digital Twin events @twin', () => {
     });
     await startRun(page);
     await expect(running(page)).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Run status' })
+      .getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
     await expect(stat(page, 'Turn')).toContainText('1 / 2');
 
     page.once('dialog', dialog => void dialog.accept());
     await page.getByRole('button', { name: 'Open run actions menu' }).click();
     await page.getByRole('menuitem', { name: /Clear local data/ }).click();
-    await page.getByRole('tab', { name: 'SIM', exact: true }).click();
+    await openTab(page, 'sim');
 
     await twinAnswerHandled(page);
     await expect(running(page)).toHaveCount(0);

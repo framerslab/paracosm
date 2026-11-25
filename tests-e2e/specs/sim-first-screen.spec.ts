@@ -85,9 +85,8 @@
  *   (tests-e2e/support/cohort-replay-server.ts, port 3471), shows the track
  *   of one panel a leader, and the page does not scroll sideways.
  * - Under reduced motion a panel holds still between turns.
- * - Start is the one control that starts a new run: the RUN menu keeps its
- *   saved runs and Load from file, and the Sim tab's empty state offers no
- *   run and no tour.
+ * - Start is the one control that starts a new run: saved runs are in Library,
+ *   run files open in Studio, and the Sim tab's empty state offers no run or tour.
  * - No tour opens by itself on a first visit.
  *
  * How it works (feature 11):
@@ -147,6 +146,7 @@
  * which CI uploads.
  */
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page, type Route, type TestInfo } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { FIRST_SCREEN, axeFindings, measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
 import { spacingFaults } from '../support/readability.js';
 
@@ -3060,7 +3060,8 @@ async function startAndWatch(page: Page, root: Locator, name: string | RegExp = 
  * the notices' region for what a test checks next.
  */
 async function expectAtlasVerdictAndNotices(page: Page): Promise<{ complete: Locator; notifications: Locator }> {
-  const complete = page.getByRole('status', { name: /^Complete\./ });
+  const complete = page.getByRole('region', { name: 'Run status' })
+    .getByRole('status', { name: /^Simulation status: Complete\./ });
   await expect(complete).toBeVisible();
   const banner = page.getByRole('status', { name: 'Simulation verdict' });
   await expect(banner).toBeVisible();
@@ -3089,7 +3090,7 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
         await startAndWatch(page, root, /^Start Atlas Lab:/);
         expect(await documentStart()).not.toBe(beforeLaunch);
       } else {
-        await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+        await openTab(page, 'settings');
         const button = page.getByRole('button', { name: 'Launch simulation', exact: true });
         await expect(button).toBeEnabled();
         await button.click();
@@ -3111,7 +3112,7 @@ for (const launch of ['Start with the page hand-off', 'Launch simulation in plac
 
 /** Starts a run from Settings and returns its key from the accepted setup. */
 async function launchFromSettings(page: Page): Promise<string> {
-  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await openTab(page, 'settings');
   const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup');
   await page.getByRole('button', { name: 'Launch simulation', exact: true }).click();
   const response = await setup;
@@ -3133,13 +3134,13 @@ for (const source of ['stored replay', 'saved file'] as const) {
       } else {
         const fileUrl = `${SERVER}/legacy-notice-fixture.json`;
         await page.route(fileUrl, async route => {
-          await expect(page.getByRole('status', { name: /^Live\./ })).toBeVisible();
+          await expect(page.locator('#main-content')).toHaveAttribute('data-run-connection', 'connected');
           await route.fulfill({ json: file });
         });
         await page.goto(`/sim?load=${encodeURIComponent(fileUrl)}&autoload=1&tab=sim`);
       }
       await answerConsent(page);
-      await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+      await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
       const notices = page.getByRole('status', { name: 'Notifications' });
       const recorded = await notices.evaluateHandle(element => {
         const additions: string[] = [];
@@ -3177,14 +3178,14 @@ for (const reload of [false, true]) {
         // A new tab shares the finished run and has no notice fingerprints.
         await forkPage.goto(page.url());
         await answerConsent(forkPage);
-        await expect(forkPage.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+        await expect(forkPage.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
         await expect(notifications).toBeEmpty();
       } else {
         const dismiss = notifications.getByRole('button', { name: 'Dismiss', exact: true }).first();
         while (await dismiss.isVisible()) await dismiss.click();
       }
       await secondAddress(context, info, reload ? 24 : 23);
-      await forkPage.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      await openTab(forkPage, 'reports');
       await forkPage.getByRole('button', { name: /^Fork at .* 1$/ }).first().click();
       const setup = forkPage.waitForResponse(response => new URL(response.url()).pathname === '/setup');
       await forkPage.getByRole('dialog').getByRole('button', { name: 'Fork', exact: true }).click();
@@ -3203,7 +3204,7 @@ for (const reload of [false, true]) {
       expect(await forkPage.evaluate(() => sessionStorage.getItem('paracosm:verdictToastFingerprint'))).toBe(reload ? null : parentKey);
 
       // The fork ends with no verdict of its own, and the pair's verdict stays in Reports.
-      await forkPage.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      await openTab(forkPage, 'reports');
       const report = forkPage.getByRole('region', { name: 'Turn-by-turn report' });
       await expect(report.getByText('Priya Kapoor wins', { exact: true }).first()).toBeVisible();
       await expect(report.getByText('verdict pending', { exact: false })).toHaveCount(0);
@@ -3238,7 +3239,7 @@ screenTest('an Atlas Lab pair shows its verdict and notices after Run again', as
   await switchScenario(page, 'atlas-lab');
   try {
     await openReadyAt(page, '/sim', WIDE, 'dark', 'Atlas Lab');
-    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await openTab(page, 'settings');
     const launch = page.getByRole('button', { name: 'Launch simulation', exact: true });
     await expect(launch).toBeEnabled();
     await launch.click();
@@ -3423,22 +3424,17 @@ screenTest('one Start', async ({ page }) => {
       await useLook(page, 'dark');
       await page.goto('/sim?tab=sim');
       const sim = page.locator('#tabpanel-sim');
-      await expect(sim.getByText('No simulation running', { exact: true })).toBeVisible();
+      await expect(sim.getByRole('heading', { name: 'No run yet.', exact: true })).toBeVisible();
       await expect(sim.getByRole('button', { name: startsARun })).toHaveCount(0);
       await expect(sim.getByText(/guided tour/i)).toHaveCount(0);
-      await expect(sim.getByRole('button', { name: 'Load Prior Run', exact: true })).toBeVisible();
+      await expect(sim.getByRole('link', { name: 'Go to Run', exact: true })).toBeVisible();
 
-      // The RUN menu keeps its saved runs and Load from file, and starts no new run.
       const header = page.getByRole('banner');
-      await pressInPage(header.getByRole('button', { name: 'RUN', exact: true }));
-      const menu = page.getByRole('menu', { name: 'Run actions' });
-      await expect(menu).toBeVisible();
-      await expect(menu.getByRole('menuitem', { name: /Run New Simulation/ })).toHaveCount(0);
-      await expect(menu.getByRole('menuitem', { name: /Run Saved Simulation/ })).toHaveCount(1);
-      await expect(menu.getByRole('menuitem', { name: /Load from file/ })).toHaveCount(1);
-      await expect(menu.getByRole('menuitem')).toHaveCount(2);
-      await page.keyboard.press('Escape');
-      await expect(menu).toHaveCount(0);
+      await expect(header.getByRole('button', { name: 'RUN', exact: true })).toHaveCount(0);
+      await openTab(page, 'library');
+      await expect(page.getByRole('heading', { name: 'Saved runs' })).toBeVisible();
+      await openTab(page, 'studio');
+      await expect(page.getByRole('button', { name: 'Open a run file' })).toBeVisible();
       // No key of the header opens a tour.
       await expect(header.getByRole('button', { name: /tour/i })).toHaveCount(0);
 
@@ -3450,9 +3446,7 @@ screenTest('one Start', async ({ page }) => {
       const named = await root.getByRole('button').or(root.getByRole('link')).evaluateAll((els) => els.map((el) => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim()));
       expect(named.filter((name) => startsARun.test(name))).toHaveLength(1);
       await expect(root.getByRole('button', { name: startsARun })).toHaveCount(1);
-      // The header's own RUN key opens the menu read above; nothing else in the header is named for a run.
-      await expect(header.getByRole('button', { name: startsARun })).toHaveCount(1);
-      await expect(header.getByRole('button', { name: startsARun })).toHaveAccessibleName('RUN');
+      await expect(header.getByRole('button', { name: startsARun })).toHaveCount(0);
       await expect(page.getByText(/guided tour/i).filter({ visible: true })).toHaveCount(0);
     });
   }
@@ -3629,7 +3623,7 @@ screenTest('feature 11: the card', async ({ page }) => {
     await openReadyAt(page, '/sim', WIDE, 'light');
     await howKey(page).click();
     await expect(howCard(page)).toBeVisible();
-    await page.getByRole('banner').getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+    await page.getByRole('banner').getByRole('button', { name: 'Switch to dark look', exact: true }).click();
     await expect(howCard(page)).toHaveCount(0);
     // The press reached the key it was made on: the page changed its look.
     await page.waitForFunction(() => !document.documentElement.classList.contains('light'));
@@ -4094,10 +4088,24 @@ screenTest('feature 12: the list loads, never runs', async ({ page }) => {
     // While it loads, no other row takes a press.
     await expect(otherParts(root).part.getByRole('button', { name: /^Load /, disabled: false })).toHaveCount(0);
     await picture(page, 'other-scenarios-loading-1440-dark');
+    // Let the scenario answer arrive before the shared payer read, so
+    // the scenario is known while the heading is still a loading shape.
+    const payerRead = gate();
+    await page.route('**/admin-config', async (route: Route) => {
+      await payerRead.opened;
+      await route.continue();
+    });
     const reloaded = page.waitForEvent('load');
     held.open();
-    await reloaded;
-    await page.unroute('**/scenario/switch');
+    try {
+      await reloaded;
+      await expect(row(LUNAR).getByTestId('row-state')).toHaveText('On screen now');
+      await expect(root.getByTestId('scenario-line')).toHaveAttribute('aria-busy', 'true');
+    } finally {
+      payerRead.open();
+      await page.unroute('**/admin-config');
+      await page.unroute('**/scenario/switch');
+    }
 
     // The page loads again at its top with that scenario: its name, its two leaders and its turns on Start.
     const heading = root.getByRole('heading', { level: 1, name: 'Lunar Outpost', exact: true });
@@ -5015,7 +5023,7 @@ screenTest('pictures: Watch on the stub pair at 390 and 1,440 in both looks', as
 
 /* States a visitor reaches by an ordinary path after the first screen has loaded. */
 
-// Feature 13: the foot's Analytics choices control is the page's one control, moved between the footers.
+// Feature 13: the same foot holds the page's one Analytics choices control across tabs.
 screenTest('feature 13: Analytics choices stays through a change of tab', async ({ page }) => {
   test.setTimeout(120_000);
   await openReadyAt(page, '/sim', WIDE, 'dark');
@@ -5024,10 +5032,10 @@ screenTest('feature 13: Analytics choices stays through a change of tab', async 
   await expect(inFoot).toBeVisible();
   for (const visit of [1, 2]) {
     await test.step(`to Watch and back, visit ${visit}`, async () => {
-      await page.locator('#tab-sim').click();
+      await openTab(page, 'sim');
       await expect(page.locator('#tabpanel-sim')).toBeVisible();
       await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
-      await page.locator('#tab-quickstart').click();
+      await openTab(page, 'quickstart');
       await expect(page.locator(FIRST_SCREEN)).toBeVisible();
       await expect(inFoot, 'the Run tab’s foot offers the control again').toBeVisible();
     });
@@ -5068,9 +5076,7 @@ screenTest('feature 13: the foot ends the Run tab while a pasted scenario is wri
   }
 });
 
-// Feature 13: the control stands in the footer on screen. The Run tab stays mounted while another tab shows, and
-// a change of its state there gives it a new foot: that foot, out of view, does not take the control from the
-// footer the visitor sees.
+// Feature 13: the shared footer keeps the consent control when the hidden Run tab changes.
 screenTest('feature 13: Analytics choices stays in the footer on screen while the Run tab changes out of view', async ({ page }) => {
   test.setTimeout(120_000);
   const held = gate();
@@ -5083,23 +5089,23 @@ screenTest('feature 13: Analytics choices stays in the footer on screen while th
     // The scenario is being written: the first screen has given way to the run's progress.
     await expect(root).toHaveCount(0);
 
-    // The visitor opens Watch meanwhile, and that tab's footer offers the control.
-    await page.locator('#tab-sim').click();
+    // The visitor opens Watch while the scenario is still being written.
+    await openTab(page, 'sim');
     await expect(page.locator('#tabpanel-sim')).toBeVisible();
-    const control = page.locator('#pcc-reopen');
-    await expect(control, 'the other tabs’ footer offers the control').toBeVisible();
+    const foot = page.getByRole('contentinfo');
+    const control = foot.getByRole('button', { name: 'Analytics choices', exact: true });
+    await expect(control).toBeVisible();
 
-    // The writing fails: out of view, the Run tab goes back to its first screen, which mounts a foot of its own.
+    // The writing fails and the hidden Run tab returns to its first screen.
     held.open();
     await expect(page.locator(FIRST_SCREEN)).toBeAttached();
     await expect(page.locator(FIRST_SCREEN)).toBeHidden();
-    await expect(page.locator(FOOT)).toBeHidden();
-    await expect(control, 'the footer on screen keeps the control').toBeVisible();
+    await expect(foot).toHaveCount(1);
+    await expect(control).toBeVisible();
 
-    // Back on the Run tab, its foot offers the control again.
-    await page.locator('#tab-quickstart').click();
+    await openTab(page, 'quickstart');
     await expect(page.locator(FIRST_SCREEN)).toBeVisible();
-    await expect(page.locator(FOOT).getByRole('button', { name: 'Analytics choices', exact: true })).toBeVisible();
+    await expect(control).toBeVisible();
   } finally {
     held.open();
     await page.unrouteAll({ behavior: 'ignoreErrors' });

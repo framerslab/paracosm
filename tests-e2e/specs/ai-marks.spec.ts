@@ -5,6 +5,7 @@ import { crc32 } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { measureText, settle } from '../support/readability.js';
+import { openTab } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The marking spec uses a writable fixture server.');
 
@@ -44,7 +45,7 @@ for (const width of [320, 390]) {
         return route.continue({ postData: setup });
       });
       await openPair(page, look);
-      await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+      await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
       const id = await savedPairId(page, leader);
       const replay = await page.request.get(origin + '/sessions/' + encodeURIComponent(id) + '/replay');
       expect(replay.ok()).toBe(true);
@@ -129,7 +130,7 @@ for (const width of [320, 390, 1440]) {
         const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
         await expectMark(decision);
         await expect(page.locator(meta)).toHaveCount(1);
-        await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+        await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
         await savedPairId(page, 'Aria Chen');
         const notifications = page.getByRole('status', { name: 'Notifications' });
         await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
@@ -176,7 +177,7 @@ test('generated leaders and successful chat replies carry their own source', asy
     aiAuthorship: { model: 'test-chat', fields: ['reply'] },
   });
 
-  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await openTab(page, 'chat');
   const actor = page.getByRole('combobox', { name: 'Filter chat agents by lead actor' });
   await actor.selectOption({ label: (await actor.locator('option').allTextContents()).find(label => label.startsWith('Generated leader ('))! });
   await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
@@ -299,7 +300,7 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
 
 test('the Viz PNG download carries one valid metadata chunk', async ({ page }) => {
   await openPair(page, 'dark');
-  await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
+  await openTab(page, 'viz');
   await expect(page.locator('canvas').filter({ visible: true }).first()).toBeVisible();
   await page.getByRole('button', { name: /^Show (advanced|more) tools/ }).click();
   await page.getByRole('toolbar', { name: 'Viz tools' }).getByRole('button', { name: 'Export options' }).click();
@@ -367,7 +368,7 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
 
 test('Reports distinguishes authored decisions and department prose from a fallback with the same words', async ({ page }) => {
   await openPair(page, 'light');
-  await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+  await openTab(page, 'reports');
   const report = page.getByRole('region', { name: 'Turn-by-turn report' });
   await expectMark(report.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expectMark(report.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true }).first());
@@ -588,7 +589,7 @@ test('Watch, the event log and the verdict dialog each expose ownership on the d
   await verdict.getByRole('button', { name: 'Close verdict' }).click();
   await expect(verdict).toBeHidden();
 
-  await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+  await openTab(page, 'settings');
   await page.getByRole('tab', { name: 'Event Log', exact: true }).click();
   const log = page.getByRole('log', { name: 'Event log' });
   const row = log.locator('details').filter({ hasText: 'Keep a reserve of water.' }).first();
@@ -633,6 +634,9 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
       Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2
       && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
     const clips = (overflow: string) => overflow === 'hidden' || overflow === 'clip';
+    const holdsFixed = (css: CSSStyleDeclaration) => css.transform !== 'none' || css.perspective !== 'none'
+      || css.filter !== 'none' || !['', 'none'].includes(css.getPropertyValue('backdrop-filter')) || /\b(layout|paint|strict|content)\b/.test(css.contain)
+      || /\b(transform|perspective|filter)\b/.test(css.willChange) || /size/.test(css.getPropertyValue('container-type'));
     const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
     const problems: string[] = [];
     for (const label of elements) {
@@ -650,10 +654,16 @@ async function expectReadableMarks(page: Page, surface = page.locator('body')) {
 
       // A scrollport can reveal the next passage when scrolled. Check
       // clipping inside that content, where scrolling cannot reveal it.
+      // A fixed box escapes the overflow of every ancestor that does not
+      // hold its containing block, so those ancestors cannot clip it.
       let checkX = true;
       let checkY = true;
+      let escaped = false;
       for (let ancestor: Element | null = label; ancestor && (checkX || checkY); ancestor = ancestor.parentElement) {
         const css = getComputedStyle(ancestor);
+        if (escaped && !holdsFixed(css)) continue;
+        escaped = false;
+        if (css.position === 'fixed') escaped = true;
         if (scrolls(css.overflowX) && ancestor.scrollWidth > ancestor.clientWidth) checkX = false;
         if (scrolls(css.overflowY) && ancestor.scrollHeight > ancestor.clientHeight) checkY = false;
         const rect = ancestor.getBoundingClientRect();
@@ -724,7 +734,7 @@ for (const width of widths) {
         .and(page.locator('[data-ai-generated="true"] > span')).first();
       await expectMark(leader);
 
-      await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+      await openTab(page, 'reports');
       const report = page.getByRole('region', { name: 'Turn-by-turn report' });
       const reportText = report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true })
         .and(page.locator('[data-ai-generated="true"] > span')).first();
@@ -738,7 +748,7 @@ for (const width of widths) {
       await expectReadableMarks(page, verdict);
       await verdict.getByRole('button', { name: 'Close verdict' }).click();
 
-      await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+      await openTab(page, 'chat');
       await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
       await page.getByRole('textbox', { name: 'Message Noor Aziz' }).fill('How are the stores?');
       await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -826,7 +836,7 @@ test('Studio and pinned comparison show each stored decision with its own label'
 
 test('Viz marks the model decision in the current turn narrative', async ({ page }) => {
   await openPair(page, 'dark');
-  await page.getByRole('tab', { name: 'VIZ', exact: true }).click();
+  await openTab(page, 'viz');
   const narrative = page.getByRole('status', { name: 'Current turn narrative' });
   await page.getByLabel('Scrub timeline').press('Home');
   const passage = narrative.getByText(/keep a reserve of water/i).locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
@@ -845,7 +855,7 @@ async function openLegacyPair(page: Page, secondLeader?: string) {
     return route.continue({ postData: launch });
   });
   await openPair(page, 'light');
-  await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
   const id = await savedPairId(page, 'Legacy leader');
   await page.unroute('**/setup');
   return id;
@@ -861,7 +871,7 @@ test('a run saved before field-level source marks its model passages and leaves 
   await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
   await expectUnmarked(page.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
 
-  await page.getByRole('tab', { name: 'REPORTS', exact: true }).click();
+  await openTab(page, 'reports');
   const report = page.getByRole('region', { name: 'Turn-by-turn report' });
   await expectMark(report.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
   await expectMark(report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true }).first());
@@ -887,7 +897,7 @@ test('a saved run opened in the same page after another run shows every one of i
   const recorder = await browser.newContext();
   const id = await openLegacyPair(await recorder.newPage()).finally(() => recorder.close());
   await openPair(page, 'light');
-  await expect(page.getByRole('status', { name: /^Complete\./ })).toBeVisible();
+  await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
   await expect(page.getByText('Spend the reserve on new wells.', { exact: true }).filter({ visible: true }).first()).toBeVisible();
   // The page opens the stored pair the way its own address changes do.
   await page.evaluate(replay => {

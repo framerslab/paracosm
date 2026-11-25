@@ -16,6 +16,7 @@
  * answered here, so no model is called.
  */
 import { test, expect, type Page, type Request } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stream is served from the test against a local server.');
 test.use({ baseURL: 'http://127.0.0.1:3458' });
@@ -130,7 +131,7 @@ test.describe('Chat threads per run @chat', () => {
     const chatRequests = await answerChat(page);
 
     await page.goto('/sim?tab=sim');
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
 
     // The first run: the person's thread opens with its greeting, then a message and its reply.
     await expect(person(page)).toContainText('ANXIOUS');
@@ -161,12 +162,12 @@ test.describe('Chat threads per run @chat', () => {
     const chatRequests = await answerChat(page);
 
     await page.goto('/sim?tab=sim');
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
     await expect(person(page)).toContainText('ANXIOUS');
     await chatOnce(page, chatRequests);
 
     body = runStream('chat-run-elsewhere', 'hopeful', { id: 'atlas-lab', name: 'Atlas Lab' });
-    await expect(page.getByRole('status', { name: /^Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
+    await expect(page.getByRole('status', { name: /^Simulation status: Interrupted\. Run interrupted: you started another run/ }).first()).toBeVisible();
     const seen = served;
     await expect.poll(() => served).toBeGreaterThan(seen + 1);
 
@@ -178,8 +179,7 @@ test.describe('Chat threads per run @chat', () => {
 
   test('a second run restored from the page\'s history starts the same person\'s thread empty and sends no earlier turn', async ({ page }) => {
     // Two runs of Mars Genesis kept in the browser's history, with the same
-    // leaders and the same person, restored one after the other from the RUN
-    // menu. Neither has a run key, so each load is a run of its own. The
+    // leaders and the same person, restored one after the other from Library. Neither has a run key, so each load is a run of its own. The
     // stream holds no run.
     const entry = (id: number, mood: string, turn: number) => {
       const events = runEvents(mood, turn);
@@ -205,19 +205,21 @@ test.describe('Chat threads per run @chat', () => {
     page.on('dialog', dialog => dialog.accept());
     const chatRequests = await answerChat(page);
     const restore = async (turns: RegExp) => {
-      await page.getByRole('button', { name: 'RUN', exact: true }).click();
-      await page.getByRole('menu', { name: 'Run actions' }).getByRole('button', { name: turns }).first().click();
+      await openTab(page, 'library');
+      await page.getByRole('region', { name: 'Kept in this browser' })
+        .getByRole('listitem').filter({ hasText: turns }).getByRole('button', { name: 'Restore' }).first().click();
+      await openTab(page, 'chat');
     };
 
     await page.goto('/sim?tab=sim');
     await expect.poll(() => served).toBeGreaterThan(1);
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
 
-    await restore(/· 1 turn/);
+    await restore(/1 turn/);
     await expect(person(page)).toContainText('ANXIOUS');
     await chatOnce(page, chatRequests);
 
-    await restore(/· 2 turns/);
+    await restore(/2 turns/);
     await expect(person(page)).toContainText('HOPEFUL');
     await expectFreshThread(page, chatRequests);
   });
@@ -260,10 +262,12 @@ test.describe('Chat threads per run @chat', () => {
 
     await page.goto('/sim?tab=sim');
     await expect.poll(() => served).toBeGreaterThan(1);
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
 
-    await page.getByRole('button', { name: 'RUN', exact: true }).click();
-    await page.getByRole('menu', { name: 'Run actions' }).getByRole('button', { name: /· 1 turn/ }).first().click();
+    await openTab(page, 'library');
+    await page.getByRole('region', { name: 'Kept in this browser' })
+      .getByRole('listitem').filter({ hasText: /1 turn/ }).getByRole('button', { name: 'Restore' }).first().click();
+    await openTab(page, 'chat');
     await expect(person(page)).toContainText('ANXIOUS');
     await chatOnce(page, chatRequests);
 
@@ -277,12 +281,12 @@ test.describe('Chat threads per run @chat', () => {
     await expect(chat(page)).toHaveCount(0);
     expect(chatRequests).toHaveLength(1);
 
-    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await openTab(page, 'settings');
     const setup = page.waitForResponse(response => new URL(response.url()).pathname === '/setup' && response.request().method() === 'POST');
     await page.getByRole('button', { name: 'Launch simulation', exact: true }).click();
     expect((await setup).ok()).toBe(true);
     await expect.poll(() => new URL(page.url()).searchParams.has('replay')).toBe(false);
-    await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+    await openTab(page, 'chat');
     await expect(chat(page)).toBeVisible();
     await expect(thread(page).getByText(FIRST_MESSAGE)).toHaveCount(0);
     expect(chatRequests).toHaveLength(1);

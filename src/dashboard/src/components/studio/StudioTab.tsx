@@ -5,6 +5,7 @@
  *
  * @module paracosm/dashboard/studio/StudioTab
  */
+import { OPEN_RUN_FILE, OPEN_RUN_FILE_HINT } from '../layout/frameWords';
 import * as React from 'react';
 import styles from './StudioTab.module.scss';
 import { StudioDropZone } from './StudioDropZone.js';
@@ -32,14 +33,16 @@ interface LoadedState {
   promote: PromoteResult | null;
 }
 
+/** The Studio tab's entry point and dashboard file picker. */
 export interface StudioTabProps {
+  onOpenRunFile?: () => void;
   /** Sub-tab to land on when the tab mounts. Used by tab-routing
    *  redirects: `?tab=branches` lands on `studio?subTab=branches`
    *  for backward compat with deep links from before the merge. */
   initialSubTab?: StudioSubTab;
 }
 
-export function StudioTab({ initialSubTab = 'author' }: StudioTabProps = {}): JSX.Element {
+export function StudioTab({ initialSubTab = 'author', onOpenRunFile }: StudioTabProps = {}): JSX.Element {
   const [subTab, setSubTab] = React.useState<StudioSubTab>(initialSubTab);
   // Persist the sub-tab choice in the URL so a page refresh or shared
   // link lands the user back on the same Branches / Author panel.
@@ -106,6 +109,12 @@ export function StudioTab({ initialSubTab = 'author' }: StudioTabProps = {}): JS
       {subTab === 'author' && !loaded && (
         <>
           <StudioGuide />
+          {onOpenRunFile && (
+            <div className={styles.openRunFile}>
+              <button type="button" onClick={onOpenRunFile}>{OPEN_RUN_FILE}</button>
+              <p>{OPEN_RUN_FILE_HINT}</p>
+            </div>
+          )}
           <StudioDropZone onLoaded={onLoaded} />
         </>
       )}

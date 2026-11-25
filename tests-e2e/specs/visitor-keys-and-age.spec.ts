@@ -1,3 +1,4 @@
+import { openTab } from '../support/frame.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mars, settingsBody } from '../../tests/cli/helpers/run-server.js';
 
@@ -77,7 +78,7 @@ test('the first dashboard load moves an old model and search key to tab storage'
   await expect(page.getByTestId('note-adults')).toBeAttached();
   await expect.poll(() => stores(page)).toEqual({ local: null, session: old });
   expect(await savedLaunch(page)).toEqual(settingsBody(mars));
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await openTab(page, 'settings');
   await expect(field(page, 'openai')).toHaveValue(MARKER);
   await expect(field(page, 'tavily')).toHaveValue(SEARCH_MARKER);
 });
@@ -206,7 +207,7 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
 
   await note.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await openTab(page, 'chat');
   await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent chat', exact: true })).toHaveCount(0);
   expect(chats).toEqual([]);

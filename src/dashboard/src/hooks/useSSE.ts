@@ -204,6 +204,8 @@ interface SSEState {
 export interface OwnRun {
   events: SimEvent[];
   isComplete: boolean;
+  /** The run's own schema fallbacks, which the ordinary feed does not show for it. */
+  validationFallbacks: ValidationFallbackBucket[];
 }
 
 /**
@@ -735,7 +737,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             ...emptyRun(),
             ownRunScenarioId: isOwnRun ? id : null,
             heldOwnRun: prev.ownRunScenarioId !== null && !isOwnRun
-              ? { events: prev.events, isComplete: true }
+              ? { events: prev.events, isComplete: true, validationFallbacks: prev.validationFallbacks }
               : prev.heldOwnRun,
           }));
         } else if (newRun && fork && !replaySessionId) {
@@ -1033,7 +1035,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
   // A provider error stays: it is about the account, not the scenario.
   const ownRunElsewhere = state.ownRunScenarioId !== null && state.ownRunScenarioId !== scenarioId;
   const ownRun: OwnRun | null = state.heldOwnRun
-    ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete } : null);
+    ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete, validationFallbacks: state.validationFallbacks } : null);
   const shown = ownRunElsewhere ? { ...state, ...NO_RUN, providerError: state.providerError } : state;
   return { ...shown, ownRun, reset, loadEvents, followRun, leaveOwnRun };
 }

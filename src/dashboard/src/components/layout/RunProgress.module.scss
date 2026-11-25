@@ -1,0 +1,70 @@
+.meta {
+  --run-progress-width: calc(10 * var(--frame-gap));
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--frame-gap);
+  font: 400 var(--font-read)/1.4 var(--mono);
+  color: var(--text-2);
+}
+
+.tokenInline {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.tokenLabel { color: var(--text-3); }
+.tokenValue { color: var(--text-1); }
+
+.progressTrack {
+  inline-size: var(--run-progress-width);
+  block-size: var(--radius-lg);
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--border);
+}
+
+.progressFill {
+  inline-size: var(--progress-pct, 0%);
+  block-size: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--side-a), var(--side-b));
+}
+
+.tooltipTitle {
+  font-size: var(--font-read);
+  font-weight: 800;
+  color: var(--amber);
+  margin-block-end: var(--frame-gap);
+}
+
+.tooltipSection { margin-block-end: var(--frame-gap); }
+
+.fallbackBlock {
+  margin-block-start: var(--frame-gap);
+  padding-block-start: var(--frame-gap);
+  border-block-start: var(--frame-rule-width) solid var(--border);
+}
+
+.fallbackRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--frame-gap);
+  font: 400 var(--font-read)/1.4 var(--mono);
+  color: var(--text-2);
+}
+
+.fallbackRowMeta { color: var(--text-3); }
+
+.fallbackPill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--radius-md);
+  padding: var(--frame-rule-width) var(--radius-lg);
+  border-radius: var(--radius-sm);
+  background: var(--amber-glow);
+  border: var(--frame-rule-width) solid var(--amber);
+  color: var(--amber);
+  font: 700 var(--font-read)/1.4 var(--mono);
+}
