@@ -37,7 +37,7 @@ import { useTellRunTurns } from './runTurns';
 import { FREE_SIZE, sizeMode } from './runSize.helpers';
 import { ScenarioLine } from './ScenarioLine';
 import { SharedColonyPanel } from './SharedColonyPanel';
-import { StartBand, type StartRun } from './StartBand';
+import { StartBand, type RunEntry, type StartRun } from './StartBand';
 import { noFreeRunLeft, useServerFacts } from './useServerFacts';
 import { useRunSetup } from './useRunSetup';
 import { WRITE_YOUR_OWN } from './words';
@@ -47,6 +47,7 @@ import styles from './RunFirstScreen.module.scss';
 const DRAFT_HOLDS_AT = 200;
 
 export interface RunFirstScreenProps {
+  entry: RunEntry | null;
   /** Starts the run Start launches. */
   onStart: StartRun;
   /** Compiles and runs the scenario written in Write your own scenario. */
@@ -55,7 +56,7 @@ export interface RunFirstScreenProps {
   children?: ReactNode;
 }
 
-function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStart' | 'onSeedReady'>) {
+function FirstScreen({ entry, onStart, onSeedReady }: Pick<RunFirstScreenProps, 'entry' | 'onStart' | 'onSeedReady'>) {
   const facts = useServerFacts();
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
@@ -96,7 +97,7 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
       <FictionalNote />
       <LeaderPair size={runSize} />
       <FirstScreenNotes />
-      <StartBand size={runSize} onStart={onStart} onBusy={setStarting} draft={held} />
+      <StartBand entry={entry} size={runSize} onStart={onStart} onBusy={setStarting} draft={held} />
       <OtherScenarios locked={starting} />
       <section className={styles.writeYourOwn} data-testid="write-your-own" aria-labelledby="write-your-own-heading">
         <h2 className={styles.heading} id="write-your-own-heading" data-text="heading">{WRITE_YOUR_OWN}</h2>
@@ -115,10 +116,10 @@ function FirstScreen({ onStart, onSeedReady }: Pick<RunFirstScreenProps, 'onStar
   );
 }
 
-export function RunFirstScreen({ onStart, onSeedReady, children }: RunFirstScreenProps) {
+export function RunFirstScreen({ entry, onStart, onSeedReady, children }: RunFirstScreenProps) {
   return (
     <>
-      <FirstScreen onStart={onStart} onSeedReady={onSeedReady} />
+      <FirstScreen entry={entry} onStart={onStart} onSeedReady={onSeedReady} />
       {children}
     </>
   );

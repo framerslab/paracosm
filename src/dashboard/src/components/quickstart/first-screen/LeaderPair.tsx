@@ -1,3 +1,4 @@
+import { sendEvent } from '../../../analytics/send';
 import { AiWritten } from '../../shared/AiWritten';
 /**
  * The two leaders of a pair, before the run starts: each leader's place
@@ -323,10 +324,15 @@ export function LeaderPair({ size = 2 }: LeaderPairProps) {
 
   const at = Math.min(shown, pair.length - 1);
   const leader = pair[at];
+  const showLeaderAt = (index: number) => {
+    if (index === at) return;
+    if (size === 2) sendEvent('qs_pair_switch', { to: String(index + 1) });
+    setShown(index);
+  };
   return (
     <section className={styles.leaders} data-testid="leaders" aria-label={LEADERS_SPOKEN}>
       {writesAll}
-      <LeaderSwitch pair={pair} shown={at} onShow={setShown} tabId={tabId} panelId={panelId} />
+      <LeaderSwitch pair={pair} shown={at} onShow={showLeaderAt} tabId={tabId} panelId={panelId} />
       <div className={`${styles.card} ${styles.shown}`} role="tabpanel" id={panelId} aria-label={leader.name}>
         {leader.title && (
           <div className={styles.head} data-testid="leader-head">

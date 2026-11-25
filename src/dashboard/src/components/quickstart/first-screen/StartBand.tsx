@@ -38,6 +38,8 @@
  * @module paracosm/dashboard/quickstart/first-screen/StartBand
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { sizeBucket } from '../../../../../analytics/first-screen-events.js';
+import { sendEvent } from '../../../analytics/send';
 import { VISITOR_KEY_TRANSPORT_REFUSAL } from '../../../../../engine/provider/credentials.js';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
 import { createDashboardTabHref } from '../../../tab-routing';
@@ -113,7 +115,12 @@ import styles from './StartBand.module.scss';
 /** Starts the run: the launch the Run tab has always used, told to leave the first screen in view. */
 export type StartRun = (size: number, opts: LoadedRunOptions) => Promise<void> | void;
 
+/** How the visitor reached the visible Run input screen. */
+export type RunEntry = 'direct' | 'from_landing' | 'from_tab';
+
 export interface StartBandProps {
+  /** Null while another section is visible. */
+  entry: RunEntry | null;
   /** How many leaders the run takes. */
   size: number;
   onStart: StartRun;
@@ -282,9 +289,10 @@ const replayHref = (id: string): string => buildReplayHref(window.location.href,
  * team's run over its scenario and turn count, named from its content.
  */
 function ReplayKey({ choice }: { choice: { kind: 'own' | 'team'; row: SessionRow } }) {
+  const countReplay = () => sendEvent('qs_no_run_left_action', { action: 'replay_last' });
   if (choice.kind === 'own') {
     return (
-      <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)}>
+      <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)} onClick={countReplay}>
         <span className={styles.replayFirst} data-testid="replay-first" data-read-exception="primary-key-label">{WATCH_LAST_RUN}</span>
       </a>
     );
@@ -292,7 +300,7 @@ function ReplayKey({ choice }: { choice: { kind: 'own' | 'team'; row: SessionRow
   const about = { scenario: choice.row.scenarioName, turns: choice.row.turnCount };
   const second = teamRunLine(about);
   return (
-    <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)}>
+    <a className={`${styles.key} ${styles.replay}`} data-testid="replay-key" href={replayHref(choice.row.id)} onClick={countReplay}>
       <span className="sr-only">{teamRunSpoken(about)}</span>
       <span className={styles.replayFirst} data-testid="replay-first" data-read-exception="primary-key-label" aria-hidden="true">{WATCH_TEAM_RUN}</span>
       {second && (
@@ -432,7 +440,46 @@ function useHeldBar(layout: Layout, limited: boolean) {
   return { bar, place, lines, held };
 }
 
-export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProps) {
+function useRunImpressions(entry: RunEntry | null, state: BandState) {
+  const viewed = useRef(false);
+  const limitShown = useRef(false);
+
+  useLayoutEffect(() => {
+    if (entry === null) {
+      viewed.current = false;
+      limitShown.current = false;
+      return;
+    }
+    if (state !== 'ready' && state !== 'held' && state !== 'limit') return;
+    if (state !== 'limit') limitShown.current = false;
+
+    const observe = () => {
+      const page: Window & { paracosmConsent?: { ready?: boolean } } = window;
+      if (page.paracosmConsent?.ready !== true) return;
+      if (!viewed.current) {
+        viewed.current = true;
+        sendEvent('qs_view', { state: state === 'limit' ? 'no_run_left' : 'ready', entry });
+      }
+      if (state === 'limit' && !limitShown.current) {
+        limitShown.current = true;
+        sendEvent('qs_no_run_left_view', {});
+      }
+    };
+    window.addEventListener('paracosm:consent-ready', observe);
+    observe();
+    return () => window.removeEventListener('paracosm:consent-ready', observe);
+  }, [entry, state]);
+}
+
+function launchFailureReason(failure: LaunchFailureInput, kind: LaunchFailureKind, who: Payer) {
+  if (kind === 'limit' && who === 'host') return 'no_run_left';
+  if (kind === 'busy' || kind === 'slots') return 'capacity';
+  if (kind === 'offline') return 'network';
+  if (who === 'own' && (failure.status === 401 || failure.status === 403)) return 'key_refused';
+  return 'other';
+}
+
+export function StartBand({ entry, size, onStart, onBusy, draft = null }: StartBandProps) {
   const scenario = useScenarioContext();
   const ready = useScenarioReady();
   const { failed } = useScenarioLoad();
@@ -465,6 +512,8 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
             : draft ? 'held'
               : 'ready');
 
+  useRunImpressions(entry, state);
+
   // A press is over once the band can be pressed again.
   useEffect(() => {
     if (stage === null) pressed.current = false;
@@ -473,8 +522,10 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
   const press = async () => {
     if (pressed.current || state !== 'ready' || !launch) return;
     pressed.current = true;
+    const bucket = sizeBucket(launch.size);
+    if (bucket !== null) sendEvent('qs_start', { picked: 'no', key: who, size: bucket });
     setFailure(null);
-    const outcome: { failure: LaunchFailureInput | null } = { failure: null };
+    const outcome: { accepted: boolean; failure: LaunchFailureInput | null } = { accepted: false, failure: null };
     // The reset time of the count this press acts on, kept with a refusal at the day's limit.
     let dayResetAt = rateLimit.status === 'ready' ? rateLimit.answer?.resetAt : undefined;
     try {
@@ -486,6 +537,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
         const fresh = await rateLimit.refresh();
         if (fresh.status === 'ready') dayResetAt = fresh.answer?.resetAt;
         if (fresh.status === 'ready' && fresh.answer?.remaining === 0) {
+          sendEvent('run_failed', { reason: 'no_run_left' });
           setStage(null);
           onBusy?.(false);
           return;
@@ -504,12 +556,18 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
           setStage(next);
         },
         onFailure: (f) => { outcome.failure = f; },
+        onAccepted: () => {
+          if (outcome.accepted) return;
+          outcome.accepted = true;
+          if (who !== 'server') sendEvent('run_started', { key: who });
+        },
       });
     } catch {
       outcome.failure = { networkError: true };
     }
-    if (outcome.failure) {
+    if (outcome.failure && !outcome.accepted) {
       const { kind } = classifyLaunchFailure({ ...outcome.failure, online: navigator.onLine });
+      sendEvent('run_failed', { reason: launchFailureReason(outcome.failure, kind, who) });
       if (kind === 'limit' && who === 'host') {
         // The day's limit was met since the count was read: say it as the limit, with the reset time read again.
         // The refusal names when the day's count resets; a server that leaves it out leaves the count read before the press.
@@ -575,7 +633,14 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
                 </div>
               )
               : choice.kind !== 'neither' && <ReplayKey choice={choice} />}
-            <a className={styles.textLink} data-testid="add-key-link" href={settingsHref}>{ADD_KEY_IN_SETTINGS}</a>
+            <a
+              className={styles.textLink}
+              data-testid="add-key-link"
+              href={settingsHref}
+              onClick={() => sendEvent('qs_no_run_left_action', { action: 'add_key' })}
+            >
+              {ADD_KEY_IN_SETTINGS}
+            </a>
           </div>
         </div>
       </div>
