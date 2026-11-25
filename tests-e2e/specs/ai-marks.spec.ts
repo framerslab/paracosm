@@ -31,6 +31,54 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
 }
 
+// 640 and 800 px: a long winner's name leaves the row's headline column
+// too narrow for the label unless the banner stacks or the name gives way.
+for (const width of [320, 390, 640, 800]) {
+  for (const look of ['light', 'dark'] as const) {
+    test(`the longest stored verdict keeps its whole AI-written mark at ${width}px in ${look}`, async ({ page }) => {
+      const leader = `Verdict headline ${width} ${look}`;
+      const headline = 'Warming winds and widespread wildfires overwhelmed Mars while reserves dwindled.';
+      expect(headline).toHaveLength(80);
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.route('**/setup', route => {
+        const setup = route.request().postDataJSON();
+        setup.actors[0].name = leader;
+        return route.continue({ postData: setup });
+      });
+      await openPair(page, look);
+      await expect(page.getByRole('status', { name: /^Simulation status: Complete\./ })).toBeVisible();
+      const id = await savedPairId(page, leader);
+      const replay = await page.request.get(origin + '/sessions/' + encodeURIComponent(id) + '/replay');
+      expect(replay.ok()).toBe(true);
+      expect(await replay.text()).toContain(JSON.stringify(headline));
+
+      const banner = page.getByRole('status', { name: 'Simulation verdict' });
+      await expectMark(banner.getByText(headline, { exact: true }));
+      const label = banner.getByText('AI-written', { exact: true });
+      await expect(label).toHaveCount(1);
+      const notifications = page.getByRole('status', { name: 'Notifications' });
+      await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
+      await settle(banner);
+      await expectReadableMarks(page, banner);
+      expect(await label.evaluate(mark => {
+        const { x, y, width, height } = mark.getBoundingClientRect();
+        return mark.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+      }), 'the verdict label is unobstructed').toBe(true);
+      expect(await label.evaluate(mark => {
+        const own = mark.getBoundingClientRect();
+        const headline = mark.closest('button')!.getBoundingClientRect();
+        return own.left >= headline.left - 1 && own.right <= headline.right + 1;
+      }), 'the verdict label stays inside its headline').toBe(true);
+      await page.screenshot({
+        path: `test-pictures/sim-first-screen/verdict-banner/${width}-${look}.png`,
+        animations: 'disabled',
+        scale: 'css',
+      });
+    });
+  }
+}
+
 async function expectMark(text: Locator) {
   await expect(text).toBeVisible();
   const block = text.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');

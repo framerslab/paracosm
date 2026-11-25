@@ -1048,43 +1048,23 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
     { k: 'esc', v: 'close popover' },
   ], [scenarioLabels.person]);
 
-  if (maxTurn === 0) {
-    // Running but no first-turn snapshot yet: the run starts with
-    // research + commander prompts that take ~10-30s before the first
-    // kernel snapshot lands. Showing the static "Run a simulation"
-    // empty state in that window read as "nothing happened" even though
-    // the SSE stream was carrying status events. Render a live waiting
-    // state instead so the user sees the run is on the way.
-    if (state.isRunning) {
-      return (
-        <div className={`viz-content ${styles.empty}`} role="status" aria-live="polite">
-          <span className={styles.emptySpinner} aria-hidden="true" />
-          <span>Awaiting first turn snapshot — the {scenarioLabels.place} viz will populate once the kernel reports state.</span>
-        </div>
-      );
-    }
-    // Replay mode: ?replay=<id> is in the URL but events haven't streamed
-    // back yet (or the session was empty). Showing "Run a simulation"
-    // here reads as "the cached run failed to load" — instead show a
-    // replay-aware empty state so the user knows the load is in flight.
-    const isReplaying = typeof window !== 'undefined'
-      && new URLSearchParams(window.location.search).has('replay');
-    if (isReplaying) {
-      return (
-        <div className={`viz-content ${styles.empty}`} role="status" aria-live="polite">
-          <span className={styles.emptySpinner} aria-hidden="true" />
-          <span>Loading replay — the {scenarioLabels.place} viz will populate as the cached events stream in.</span>
-        </div>
-      );
-    }
-    return (
-      <div className={`viz-content ${styles.empty}`}>
-        Run a simulation to see the {scenarioLabels.place} visualization.
-      </div>
-    );
-  }
+  // Keep the same Viz content mounted while the first snapshots arrive.
+  // The threshold region must already exist when its first alert is added.
+  const waitingForReplay = isReplay && maxTurn === 0;
+  const emptyState = (
+    <div className={styles.empty} role={state.isRunning || waitingForReplay ? 'status' : undefined}>
+      {(state.isRunning || waitingForReplay) && <span className={styles.emptySpinner} aria-hidden="true" />}
+      {state.isRunning
+        ? <span>Awaiting first turn snapshot — the {scenarioLabels.place} viz will populate once the kernel reports state.</span>
+        : waitingForReplay
+          ? <span>Loading replay — the {scenarioLabels.place} viz will populate as the cached events stream in.</span>
+          : <>Run a simulation to see the {scenarioLabels.place} visualization.</>}
+    </div>
+  );
+  const hasSnapshots = maxTurn > 0;
+  const showAlert = !isReplay && hasSnapshots && alertToast;
 
-  // Leader metadata is now resolved above (pre-early-return) so
+  // Leader metadata is now resolved above so
   // dependency arrays in searchMatchesMemo / useSoundCues don't hit TDZ.
   const diffLine = snapA && snapB
     ? `A vs B: ${snapB.population - snapA.population >= 0 ? '+' : ''}${snapB.population - snapA.population} pop, ${snapB.morale - snapA.morale >= 0 ? '+' : ''}${Math.round((snapB.morale - snapA.morale) * 100)}% morale${typeof snapA.foodReserve === 'number' && typeof snapB.foodReserve === 'number' ? `, ${snapB.foodReserve - snapA.foodReserve > 0 ? '+' : ''}${(snapB.foodReserve - snapA.foodReserve).toFixed(1)}mo food` : ''}`
@@ -1186,10 +1166,12 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
         className={`viz-content ${styles.root}`}
         // ? opens this tab's own help (the key listener above), so the
         // page's shortcuts overlay leaves the key to it: ShortcutsOverlay.tsx.
-        data-own-help-key="?"
+        data-own-help-key={hasSnapshots ? '?' : undefined}
       >
         <div ref={splitPlayback ? undefined : vizBodyRef} className={styles.body} data-viz-layout="">
         <div ref={splitPlayback ? vizBodyRef : undefined} className={styles.content}>
+        {hasSnapshots ? (
+        <div className={isReplay && vizMode === 'pair' ? styles.replayPair : styles.firstSight}>
         {isCohort && (
           <div className={styles.cohortViewBar} role="region" aria-label="Cohort view controls">
             <div className={styles.cohortViewModeToggle} role="tablist" aria-label="Swarm grid view mode">
@@ -1550,40 +1532,48 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
           )}
         </div>
         )}
-        {narrow && eventRow}
+        </div>
+        ) : emptyState}
+        {hasSnapshots && narrow && eventRow}
         {/* Live notices come before the comparison on every layout. On
             desktop the comparison follows the fields, which keeps both whole
             fields above playback. */}
-        <div className={styles.transientRow}>
+        <div className={styles.transientRow} data-live-notices={hasSnapshots ? '' : undefined}>
           <div className={styles.notices}>
-            {!isReplay && alertToast && (
-              <div
-                key={alertToast.key}
-                role="status"
-                aria-live="assertive"
-                onClick={() => setAlertToast(null)}
-                className={styles.toast}
-                style={{
-                  '--side-color': alertToast.side === 'a' ? 'var(--vis)' : 'var(--eng)',
-                  '--left-accent': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
-                } as CSSProperties}
-                title={`${alertToast.message} (click to dismiss)`}
-              >
+            <div
+              role="status"
+              aria-label="Viz threshold alerts"
+              aria-live="assertive"
+              aria-atomic="true"
+              className={showAlert ? styles.alertRegion : styles.srOnly}
+            >
+              {showAlert && (
                 <div
-                  className={styles.toastKicker}
+                  key={showAlert.key}
+                  onClick={() => setAlertToast(null)}
+                  className={styles.toast}
                   style={{
-                    '--kicker-color': alertToast.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                    '--side-color': showAlert.side === 'a' ? 'var(--vis)' : 'var(--eng)',
+                    '--left-accent': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
                   } as CSSProperties}
+                  title={`${showAlert.message} (click to dismiss)`}
                 >
-                  <span>{alertToast.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
-                  <span className={styles.toastKickerMeta}>
-                    {alertToast.side.toUpperCase()} · T{alertToast.turn}
-                  </span>
+                  <div
+                    className={styles.toastKicker}
+                    style={{
+                      '--kicker-color': showAlert.kind === 'morale-crash' ? 'var(--rust)' : 'var(--amber)',
+                    } as CSSProperties}
+                  >
+                    <span>{showAlert.kind === 'morale-crash' ? '\u25BC Alert' : '\u26A0 Alert'}</span>
+                    <span className={styles.toastKickerMeta}>
+                      {showAlert.side.toUpperCase()} · T{showAlert.turn}
+                    </span>
+                  </div>
+                  <div className={styles.toastBody}>{showAlert.message}</div>
                 </div>
-                <div className={styles.toastBody}>{alertToast.message}</div>
-              </div>
-            )}
-            {!isReplay && crisisToast && (
+              )}
+            </div>
+            {hasSnapshots && !isReplay && crisisToast && (
               <div
                 key={crisisToast.key}
                 role="status"
@@ -1608,13 +1598,14 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
               </div>
             )}
           </div>
-          {narrow && comparison}
+          {hasSnapshots && narrow && comparison}
           {/* On a phone the Latest key stands in the flow above the play
               controls. Wider than 768 px it sits in the play row. */}
-          {narrow && latestKey}
+          {hasSnapshots && narrow && latestKey}
         </div>
-        {!narrow && comparison}
+        {hasSnapshots && !narrow && comparison}
         </div>
+        {hasSnapshots && <>
         <VizControls
           currentTurn={currentTurn}
           maxTurn={maxTurn}
@@ -1642,7 +1633,9 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
             ? `Turn ${Math.max(snapA.turn, snapB.turn)}. ${leaderA?.name ?? 'A'} ${scenarioLabels.place}: ${snapA.cells.filter(c => c.alive).length} alive, ${snapA.births} born, ${snapA.deaths} died, morale ${Math.round(snapA.morale * 100)}%. ${leaderB?.name ?? 'B'} ${scenarioLabels.place}: ${snapB.cells.filter(c => c.alive).length} alive, ${snapB.births} born, ${snapB.deaths} died, morale ${Math.round(snapB.morale * 100)}%.`
             : ''}
         </div>
+        </>}
         </div>
+        {hasSnapshots && <>
         <GridHelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
         <GridSettingsDrawer
           open={settingsOpen}
@@ -1683,6 +1676,7 @@ export function SwarmViz({ state, isReplay, onNavigateToChat }: SwarmVizProps) {
             100% { opacity: 1; transform: translateY(0); }
           }
         `}</style>
+        </>}
       </div>
     );
 }
