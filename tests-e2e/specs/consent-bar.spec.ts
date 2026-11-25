@@ -375,6 +375,11 @@ test.describe('the consent bar on the hosted demo', () => {
 
   test('the dashboard reads each purpose\'s answer from paracosmConsent: measure is false before an answer, true after Accept all and false after Reject all', async ({ browser }) => {
     const { context, page } = await open(browser, 'allows');
+    await context.addInitScript(() => {
+      const state = window as unknown as { consentReadyEvents: number };
+      state.consentReadyEvents = 0;
+      window.addEventListener('paracosm:consent-ready', () => { state.consentReadyEvents++; });
+    });
     try {
       const allows = (purpose: string) => page.evaluate(name => {
         const consent = (window as unknown as { paracosmConsent?: { allows?: (purpose: string) => unknown } }).paracosmConsent;
@@ -382,6 +387,12 @@ test.describe('the consent bar on the hosted demo', () => {
       }, purpose);
       await page.goto('/sim');
       await expect(bar(page)).toBeVisible();
+      const readiness = () => page.evaluate(() => {
+        const state = window as unknown as { paracosmConsent?: { ready?: boolean }; consentReadyEvents: number };
+        return { ready: state.paracosmConsent?.ready, events: state.consentReadyEvents };
+      });
+      expect(await readiness()).toEqual({ ready: true, events: 1 });
+      expect(await allows('count'), 'count before any answer').toBe(true);
       expect(await allows('measure'), 'measure before any answer').toBe(false);
       expect(await allows('record'), 'record before any answer').toBe(false);
 
@@ -389,13 +400,23 @@ test.describe('the consent bar on the hosted demo', () => {
       await expect(bar(page)).toBeHidden();
       expect(await allows('measure'), 'measure after Accept all').toBe(true);
       expect(await allows('record'), 'record after Accept all').toBe(true);
-      expect(await allows('count'), 'the count purpose takes page views alone, never an event').toBe(false);
+      expect(await allows('count'), 'count after Accept all').toBe(true);
       expect(await allows('anything'), 'a purpose the bar does not offer').toBe(false);
 
       await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
       await expect(bar(page)).toBeVisible();
+      await bar(page).getByRole('switch', { name: /Plausible/ }).click();
+      await bar(page).getByRole('button', { name: 'Save choices', exact: true }).click();
+      await expect(bar(page)).toBeHidden();
+      expect(await allows('count'), 'count after turning its switch off').toBe(false);
+      expect(await allows('measure'), 'measure after turning count off').toBe(true);
+      expect(await allows('record'), 'record after turning count off').toBe(true);
+
+      await page.getByRole('contentinfo').getByRole('button', { name: 'Analytics choices', exact: true }).click();
       await bar(page).getByRole('button', { name: 'Reject all', exact: true }).click();
       await expect(bar(page)).toBeHidden();
+      expect(await readiness()).toEqual({ ready: true, events: 1 });
+      expect(await allows('count'), 'count after Reject all').toBe(false);
       expect(await allows('measure'), 'measure after Reject all').toBe(false);
       expect(await allows('record'), 'record after Reject all').toBe(false);
 
@@ -418,6 +439,10 @@ test.describe('the consent bar on the hosted demo', () => {
         await page.goto(pathname);
         await page.waitForTimeout(SETTLE_MS);
         await expect(bar(page)).toBeHidden();
+        expect(await page.evaluate(() => {
+          const consent = (window as unknown as { paracosmConsent: { ready: boolean; allows: (purpose: string) => boolean } }).paracosmConsent;
+          return [consent.ready, consent.allows('count'), consent.allows('measure'), consent.allows('record')];
+        })).toEqual([true, false, false, false]);
       }
       expect(watch.vendor).toEqual([]);
       expect(watch.counts).toEqual([]);
