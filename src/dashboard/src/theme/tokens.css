@@ -328,8 +328,8 @@
        Five named layers covering every overlay surface in the dashboard.
        Use the variable, not a literal. Higher = nearer to the user.
 
-       --z-popover            popovers anchored to a control (RunMenu,
-                              LoadMenu, AddFilterPopover). Above content,
+       --z-popover            popovers anchored to a control (the run
+                              actions menu, AddFilterPopover). Above content,
                               below dialogs.
        --z-modal              context modals (CompareModal). Sits below
                               the detail drawer because the drawer is
@@ -514,7 +514,7 @@
   /* === FOCUS STYLES (a11y) ===
      All interactive elements share a consistent amber ring so
      keyboard users can track focus across pills, chronicle dots,
-     LoadMenu cards, settings-drawer toggles, etc. The box-shadow
+     saved-run links, settings-drawer toggles, etc. The box-shadow
      variant is a fallback for elements inside `overflow: hidden`
      containers that would otherwise clip the outline — setting
      both means one of them lands regardless of ancestor layout. */
