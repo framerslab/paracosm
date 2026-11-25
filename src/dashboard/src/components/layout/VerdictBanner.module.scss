@@ -164,15 +164,32 @@
   &:hover { color: var(--text-1); }
 }
 
-/* Phone / narrow tablet portrait. The banner's five-column row layout
-   (winner label | divider | headline | view button | reports chip |
-   dismiss) cannot squeeze into ~360-600px viewports without truncating
-   `.winnerName` ("Turn 6/0" was clipping mid-character on iPhone 12)
-   and the action buttons overlapping each other. Stack the banner into
-   three rows: header (winner + dismiss), headline, action row. The
-   left-border accent on `.headlineColumn` flips to a top border so the
-   visual separator survives the column flip. */
-@media (max-width: 600px) {
+/* Wider than 768 px the banner is one row. Its keys keep their size, so a
+   long winner's name gives way before the headline column narrows past
+   192 px, which holds the AI-written label and a readable headline. */
+@media (min-width: 769px) {
+  .winnerLabel {
+    flex: 0 1 auto;
+    min-width: 112px;
+  }
+
+  .winnerName {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .headlineColumn { min-width: 192px; }
+}
+
+/* Phone and tablet portrait. The banner's row (winner label | divider |
+   headline | view button | reports chip | dismiss) leaves the headline
+   column too narrow up to 768 px: the winner's name and the keys take the
+   width, `.winnerName` clipped mid-character on iPhone 12, and the
+   AI-written label ran over the view button. Stack the banner into three
+   rows: header (winner + dismiss), headline, action row. The left-border
+   accent on `.headlineColumn` flips to a top border so the visual
+   separator survives the column flip. */
+@media (max-width: 768px) {
   .banner {
     flex-direction: column;
     align-items: stretch;
