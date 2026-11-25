@@ -187,28 +187,35 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // their own keys are available. Mirrors how RerunPanel composes
     // the next-run body — the same /setup endpoint reads the same
     // field names (apiKey, anthropicKey, provider, models, economics).
-    const overrides = typeof window !== 'undefined' ? readTabKeyOverrides() : {};
-    const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
-    // The provider keys as the server reads them: also sent to actor
-    // generation, so the leaders are written on the visitor's key too.
-    const providerKeys = sessionProviderKeys(overrides);
-    const settingsSpread: Record<string, unknown> = { ...providerKeys };
-    if (overrides.serper) settingsSpread.serperKey = overrides.serper;
-    if (overrides.firecrawl) settingsSpread.firecrawlKey = overrides.firecrawl;
-    if (overrides.tavily) settingsSpread.tavilyKey = overrides.tavily;
-    if (overrides.cohere) settingsSpread.cohereKey = overrides.cohere;
-    if (lastLaunch?.provider) settingsSpread.provider = lastLaunch.provider;
-    if (lastLaunch?.models && typeof lastLaunch.models === 'object') {
-      settingsSpread.models = lastLaunch.models;
-    }
-    if (lastLaunch?.economics && typeof lastLaunch.economics === 'object') {
-      settingsSpread.economics = lastLaunch.economics;
-    }
-
-    const transportError = visitorKeyTransportError({ ...opts?.body, ...settingsSpread });
-    if (transportError) {
+    const readSettings = () => {
+      const overrides = typeof window !== 'undefined' ? readTabKeyOverrides() : {};
+      const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
+      // The provider keys as the server reads them: also sent to actor
+      // generation, so the leaders are written on the visitor's key too.
+      const keys = sessionProviderKeys(overrides);
+      const spread: Record<string, unknown> = { ...keys };
+      if (overrides.serper) spread.serperKey = overrides.serper;
+      if (overrides.firecrawl) spread.firecrawlKey = overrides.firecrawl;
+      if (overrides.tavily) spread.tavilyKey = overrides.tavily;
+      if (overrides.cohere) spread.cohereKey = overrides.cohere;
+      if (lastLaunch?.provider) spread.provider = lastLaunch.provider;
+      if (lastLaunch?.models && typeof lastLaunch.models === 'object') {
+        spread.models = lastLaunch.models;
+      }
+      if (lastLaunch?.economics && typeof lastLaunch.economics === 'object') {
+        spread.economics = lastLaunch.economics;
+      }
+      return { providerKeys: keys, settingsSpread: spread };
+    };
+    const refuseTransport = (error: string) => {
       if (opts) opts.onFailure?.({ visitorKeyTransport: true });
-      else setErrorBanner(transportError);
+      else setErrorBanner(error);
+    };
+
+    // Asked before anything is reset, so a refused Start leaves the page's run as it was.
+    const transportError = visitorKeyTransportError({ ...opts?.body, ...readSettings().settingsSpread });
+    if (transportError) {
+      refuseTransport(transportError);
       return;
     }
 
@@ -222,6 +229,14 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // is still in flight. Each reset is awaited: an unawaited /clear can
       // land after the /setup that follows and stop the new run.
       await sse.reset();
+    }
+    // Read again after the awaited reset: a key forgotten while /clear was
+    // out is not sent.
+    const { providerKeys, settingsSpread } = readSettings();
+    const lateTransportError = visitorKeyTransportError({ ...opts?.body, ...settingsSpread });
+    if (lateTransportError) {
+      refuseTransport(lateTransportError);
+      return;
     }
 
     const presetActors = presetLeadersForLaunch(scenario, actorCount);
@@ -387,9 +402,7 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
-    // All three model calls in this flow use the same Settings keys.
-    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
-    const transportError = visitorKeyTransportError(providerKeys);
+    const transportError = visitorKeyTransportError(sessionProviderKeys(readTabKeyOverrides()));
     if (transportError) return transportError;
     onRunStarted?.();
     // Clear local SSE buffer immediately. Without this, the
@@ -399,6 +412,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // with the prior run's actors before this fix. Awaited, as every reset
     // before a launch is.
     await sse.reset();
+    // All three model calls in this flow use the same Settings keys, read
+    // after the awaited reset: a key forgotten while /clear was out is not sent.
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const lateTransportError = visitorKeyTransportError(providerKeys);
+    if (lateTransportError) return lateTransportError;
     setPhase({ kind: 'progress', stage: 'compile' });
     try {
       // compileScenarioWithPolling encapsulates the async-job dance:

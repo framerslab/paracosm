@@ -222,8 +222,7 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
 
   const handleRun = async () => {
     if (running || !formIsValid) return;
-    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
-    const transportError = visitorKeyTransportError(providerKeys);
+    const transportError = visitorKeyTransportError(sessionProviderKeys(readTabKeyOverrides()));
     setTransportNotice(transportError);
     if (transportError) return;
     const profile = safeParseJson(subject.profileJson, {}) as Record<string, unknown>;
@@ -273,6 +272,14 @@ export function InterventionDemoCard({ onResult, onError, onRunStart }: Interven
     });
 
     try {
+      // Read the keys again after the awaited reset: Forget my keys may have
+      // run while /clear was out, and a key forgotten then is not sent.
+      const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+      const lateTransportError = visitorKeyTransportError(providerKeys);
+      if (lateTransportError) {
+        setTransportNotice(lateTransportError);
+        throw new Error(lateTransportError);
+      }
       const res = await fetch('/api/quickstart/simulate-intervention', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
