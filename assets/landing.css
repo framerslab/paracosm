@@ -932,6 +932,63 @@ section p a,
 .contact-card p { font-size: var(--font-md); color: var(--t2); margin-bottom: 12px; line-height: 1.6; }
 .contact-card a { font-weight: 600; }
 
+/* Privacy disclosure */
+#privacy {
+  --privacy-body-size: calc((var(--font-xl) + var(--font-2xl)) / 2);
+  --privacy-date-size: calc((var(--font-lg) + var(--font-xl)) / 2);
+  --privacy-body-line: 1.55;
+  --privacy-date-line: 1.4;
+  --privacy-reading-width: 54ch;
+  --privacy-paragraph-gap: 1em;
+  --privacy-list-gap: 0.75em;
+  --privacy-list-indent: 1.25em;
+  background: var(--bg);
+  color: var(--t1);
+  font-size: var(--privacy-body-size);
+  line-height: var(--privacy-body-line);
+  overflow-wrap: anywhere;
+}
+
+#privacy .sec-inner {
+  max-width: var(--privacy-reading-width);
+}
+
+#privacy .sec-title {
+  font-size: var(--font-3xl);
+  font-weight: 600;
+}
+
+#privacy .privacy-updated {
+  font-size: var(--privacy-date-size);
+  line-height: var(--privacy-date-line);
+}
+
+#privacy p,
+#privacy ul {
+  margin-block-start: var(--privacy-paragraph-gap);
+}
+
+#privacy ul {
+  display: grid;
+  gap: var(--privacy-list-gap);
+  padding-inline-start: var(--privacy-list-indent);
+}
+
+#privacy strong {
+  font-weight: 600;
+}
+
+#privacy code {
+  font: 1em var(--mono);
+  line-height: inherit;
+}
+
+#privacy a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
 /* ── CTA Banner ───────────────────────────────────────────────────────────── */
 
 .banner { text-align: center; padding: 100px 24px; position: relative; }

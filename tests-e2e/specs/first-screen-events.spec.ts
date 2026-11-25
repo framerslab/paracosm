@@ -468,6 +468,7 @@ for (const look of ['light', 'dark'] as const) {
           path: `test-pictures/sim-first-screen/events-privacy/${width}-${look}.png`,
           animations: 'disabled',
           scale: 'device',
+          style: '.nav { visibility: hidden; }',
         });
       } finally {
         await context.close();
