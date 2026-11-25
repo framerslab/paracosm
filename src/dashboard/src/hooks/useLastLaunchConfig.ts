@@ -1,3 +1,5 @@
+import { VISITOR_KEY_FIELDS } from '../../../engine/provider/credentials.js';
+import type { ActorAuthorship } from '../../../engine/types.js';
 /**
  * Centralized reader/writer for the dashboard's two launch-related
  * storage contracts. Keeping the key strings + payload shape in
@@ -15,13 +17,10 @@
 /** localStorage key holding the last config that succeeded on /setup, without its keys. */
 export const LAST_LAUNCH_KEY = 'paracosm:lastLaunchConfig';
 
-/** The /setup fields that carry a visitor's model and search keys. */
-const KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
-
 /** A launch config without its key fields: keys stay in this tab's storage alone. */
 function withoutKeys(config: Record<string, unknown>): Record<string, unknown> {
   const rest = { ...config };
-  for (const field of KEY_FIELDS) delete rest[field];
+  for (const field of VISITOR_KEY_FIELDS) delete rest[field];
   return rest;
 }
 
@@ -128,6 +127,8 @@ export function writeLastLaunchConfig(
  * already gates on `Object.values(h).some(v => v > 0)`.
  */
 export interface PersistedActor {
+  aiAuthorship?: ActorAuthorship;
+  instructions?: string;
   name?: string;
   archetype?: string;
   unit?: string;
@@ -270,7 +271,15 @@ export function readTabKeyOverrides(): KeyOverrides {
   }
 }
 
-/** Saves key fields to this tab, removing the entry when the fields are empty. */
+/**
+ * The window event {@link writeTabKeyOverrides} sends after it saves the
+ * keys, to the readers in the window that wrote them. The browser's own
+ * `storage` event never reaches that window, and for session storage it
+ * reaches no other tab either: only same-origin frames in the same tab.
+ */
+export const KEY_OVERRIDES_CHANGED = 'paracosm:key-overrides-changed';
+
+/** Saves key fields to this tab, removing the entry when the fields are empty, and tells this tab's readers. */
 export function writeTabKeyOverrides(overrides: KeyOverrides): void {
   try {
     const storage = window.sessionStorage;
@@ -279,7 +288,9 @@ export function writeTabKeyOverrides(overrides: KeyOverrides): void {
     else storage.removeItem(KEY_OVERRIDES_KEY);
   } catch {
     // The current form still works when the browser disables storage.
+    return;
   }
+  window.dispatchEvent(new Event(KEY_OVERRIDES_CHANGED));
 }
 
 /** Removes keys from the tab and discards any legacy copy still present. */

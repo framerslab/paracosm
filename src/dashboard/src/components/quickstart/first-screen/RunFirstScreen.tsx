@@ -5,7 +5,7 @@
  * living grid at turn 0, drawn once), the run's size in the leaders'
  * heading row, the note that the leaders are fictional, the leaders, the AI
  * and adults notes, Start with its run line and notice, the other scenarios,
- * and Write your own scenario. The page's foot ends the tab.
+ * and Write your own scenario.
  *
  * The run's size is the visitor's to choose on their own key or on a server
  * that is not the hosted demo, and the address holds it; a run on the
@@ -32,7 +32,6 @@ import { FictionalNote, FirstScreenNotes } from './FirstScreenNotes';
 import { formatResetTime } from './launchFailure';
 import { LeaderPair } from './LeaderPair';
 import { OtherScenarios } from './OtherScenarios';
-import { PageFoot } from './PageFoot';
 import { RunSize } from './RunSize';
 import { useTellRunTurns } from './runTurns';
 import { resolveRunSizes, sizeMode } from './runSize.helpers';
@@ -122,7 +121,6 @@ export function RunFirstScreen({ onStart, onSeedReady, children }: RunFirstScree
     <>
       <FirstScreen onStart={onStart} onSeedReady={onSeedReady} />
       {children}
-      <PageFoot />
     </>
   );
 }

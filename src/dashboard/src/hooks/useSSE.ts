@@ -3,7 +3,8 @@ import { migrateLegacyEventShape } from './migrateLegacyEventShape';
 import { eventKey } from './sseEventKey';
 import { consumeScenarioSwitched, subscribeLaunched } from '../scenario-sync';
 import { refreshOnSimSaved, savedSessions } from './useSessions';
-import type { RunArtifact } from '../../../engine/schema/index.js';
+import { RunProvenanceSchema } from '../../../engine/schema/primitives.js';
+import type { RunArtifact, RunProvenance } from '../../../engine/schema/index.js';
 
 /**
  * Event type strings the dashboard consumes.
@@ -41,6 +42,7 @@ export interface SimEvent {
   turn?: number;
   time?: number;
   data?: Record<string, unknown>;
+  provenance?: RunProvenance;
 }
 
 /**
@@ -97,6 +99,7 @@ export interface ValidationFallbackBucket {
 interface SSEState {
   status: 'connecting' | 'connected' | 'error' | 'replay_not_found';
   events: SimEvent[];
+  provenance: RunProvenance | null;
   results: Array<{
     leader: string;
     summary: Record<string, unknown>;
@@ -116,6 +119,19 @@ interface SSEState {
     forkedFrom?: { parentRunId: string; atTurn: number };
   }>;
   verdict: Record<string, unknown> | null;
+  /** The run that supplied the verdict, which can be the parent of the open fork. */
+  verdictRunKey: string | null;
+  /** The run that finished or aborted, which can be the parent of the open fork. */
+  finishRunKey: string | null;
+  /** The save status of the open run. The event log can also hold the parent's save. */
+  simSaved: SimEvent | null;
+  /**
+   * The fork that ran to its end, by its run key; null while the page holds
+   * no such fork. A fork runs one leader and gets no verdict, so its banner
+   * reads from this. `verdict` stays the parent's, which Reports, the SIM
+   * tab and a saved file go on showing.
+   */
+  forkOutcome: { runKey: string | null } | null;
   errors: string[];
   isComplete: boolean;
   /**
@@ -188,6 +204,8 @@ interface SSEState {
 export interface OwnRun {
   events: SimEvent[];
   isComplete: boolean;
+  /** The run's own schema fallbacks, which the ordinary feed does not show for it. */
+  validationFallbacks: ValidationFallbackBucket[];
 }
 
 /**
@@ -226,8 +244,9 @@ export interface UseSSEOptions {
 /** The run fields of SSEState, empty: a page that holds no run. */
 function emptyRun(): Omit<SSEState, 'status' | 'replayDone' | 'ownRunScenarioId' | 'heldOwnRun' | 'runKey' | 'loadedRuns'> {
   return {
-    events: [], results: [], verdict: null, errors: [], isComplete: false,
-    isAborted: false, abortReason: null, providerError: null, validationFallbacks: [],
+    events: [], provenance: null, results: [], verdict: null, verdictRunKey: null, finishRunKey: null,
+    simSaved: null, forkOutcome: null, errors: [], isComplete: false, isAborted: false, abortReason: null,
+    providerError: null, validationFallbacks: [],
   };
 }
 
@@ -243,15 +262,7 @@ export function useSSE(options: UseSSEOptions = {}) {
   onRunClearedRef.current = options.onRunCleared;
   const [state, setState] = useState<SSEState>({
     status: 'connecting',
-    events: [],
-    results: [],
-    verdict: null,
-    errors: [],
-    isComplete: false,
-    isAborted: false,
-    abortReason: null,
-    providerError: null,
-    validationFallbacks: [],
+    ...emptyRun(),
     replayDone: false,
     ownRunScenarioId: null,
     heldOwnRun: null,
@@ -344,15 +355,7 @@ export function useSSE(options: UseSSEOptions = {}) {
       // Preserve current connection status so the UI doesn't flash
       // "Connecting..." just because the user pressed Clear.
       status: prev.status,
-      events: [], results: [], verdict: null, errors: [], isComplete: false,
-      isAborted: false,
-      abortReason: null,
-      // Clear provider error on manual reset. If the underlying problem
-      // still exists (key still bad / still no credits), the next run's
-      // first LLM call will re-fire the `provider_error` event within
-      // seconds, which is the right UX: let the user try.
-      providerError: null,
-      validationFallbacks: [],
+      ...emptyRun(),
       // After a clear the server holds no run of this visitor's, so the
       // next events we receive are live by definition.
       replayDone: true,
@@ -410,7 +413,9 @@ export function useSSE(options: UseSSEOptions = {}) {
       : { ...prev, ownRunScenarioId: null, heldOwnRun: null }));
   }, []);
 
-  const loadEvents = useCallback((events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null) => {
+  const loadEvents = useCallback((
+    events: SimEvent[], results?: unknown[], verdict?: Record<string, unknown> | null, provenance?: RunProvenance | null,
+  ) => {
     // Scan loaded events for any previously-persisted provider_error so
     // a reload after a failed run restores the banner state, not just
     // the viz/reports tabs.
@@ -446,8 +451,13 @@ export function useSSE(options: UseSSEOptions = {}) {
     setState(prev => ({
       status: 'connected',
       events,
+      provenance: RunProvenanceSchema.safeParse(provenance ?? events.find(event => event.provenance)?.provenance).data ?? null,
       results: (results || []) as SSEState['results'],
       verdict: verdict || null,
+      verdictRunKey: null,
+      finishRunKey: null,
+      simSaved: null,
+      forkOutcome: null,
       errors: [],
       isComplete: true,
       isAborted: restoredAborted,
@@ -508,6 +518,19 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempt = 0;
+    let bound: { runKey: string; provenance: RunProvenance } | null = null;
+    if (replaySessionId && connectedSourceRef.current !== replaySessionId) {
+      connectedSourceRef.current = replaySessionId;
+      runKeyRef.current = null;
+      shownFromFileRef.current = false;
+      // A saved replay sends no `connected`, so its events are told apart
+      // from the last source's here: a key names no run, and a decision of
+      // the same leader, turn and event would be taken for a repeat.
+      seenEventKeysRef.current.clear();
+      setState(prev => ({
+        ...prev, ...emptyRun(), runKey: null, replayDone: false, loadedRuns: prev.loadedRuns + 1,
+      }));
+    }
 
     /**
      * Open a fresh EventSource and re-attach listeners. The server replays
@@ -555,6 +578,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             reconnectTimer = setTimeout(() => { void open(); }, delay);
             return;
           }
+          const answer = await probe.json().catch(() => null);
+          if (cancelled) return;
+          const provenance = RunProvenanceSchema.safeParse(answer?.meta?.provenance).data;
+          if (provenance && !shownFromFileRef.current) setState(prev => ({ ...prev, provenance }));
         } catch {
           // Network-level failure (offline / CORS). Fall through to
           // EventSource open which will retry with backoff.
@@ -576,10 +603,13 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         attempt = 0;
         connectCount += 1;
         try {
-          const data = JSON.parse(e.data) as { visitorId?: unknown } | null;
+          const data = JSON.parse(e.data) as { visitorId?: unknown; runKey?: unknown; provenance?: unknown } | null;
           streamVisitorIdRef.current = typeof data?.visitorId === 'string' ? data.visitorId : null;
+          const provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
+          bound = provenance && typeof data?.runKey === 'string' ? { runKey: data.runKey, provenance } : null;
         } catch {
           streamVisitorIdRef.current = null;
+          bound = null;
         }
         // The replay starts at the buffer's first event, which names the
         // run when the run named its scenario.
@@ -598,22 +628,21 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // complete; the listener below flips the flag true again so
         // subsequent truly-live events can toast.
         //
-        // A first connect from another source than the last (a switch
-        // between the live feed and a saved session's replay without a
-        // reload), or after a run loaded from a file or from the page's
-        // history, drops the run the page held: the Chat tab's threads start
-        // empty with the run this source delivers.
+        // A source switch resets the event history and Chat identity.
+        // Keep the displayed outcome if the feed is empty. The next
+        // active_scenario frame is what replaces it with a new run.
         if (connectCount === 1) {
           const newSource = connectedSourceRef.current !== replaySessionId || shownFromFileRef.current;
           connectedSourceRef.current = replaySessionId;
           seenEventKeys.clear();
           shownFromFileRef.current = false;
+          if (newSource) runKeyRef.current = null;
           setState(prev => ({
             ...prev,
             status: 'connected',
             events: [],
             replayDone: false,
-            ...(newSource ? { runKey: null, loadedRuns: prev.loadedRuns + 1 } : {}),
+            ...(newSource ? { runKey: null, provenance: null, simSaved: null, loadedRuns: prev.loadedRuns + 1 } : {}),
           }));
         } else {
           setState(prev => ({ ...prev, status: 'connected', replayDone: false }));
@@ -621,7 +650,17 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
       });
 
       es.addEventListener('replay_done', () => {
-        setState(prev => ({ ...prev, replayDone: true }));
+        const mark = bound && (runKeyRef.current === null || bound.runKey === runKeyRef.current) ? bound.provenance : null;
+        const provenance = !skipped() && !shownFromFileRef.current ? mark : null;
+        setState(prev => ({ ...prev, replayDone: true, provenance: provenance ?? prev.provenance }));
+      });
+
+      es.addEventListener('provenance', (event: MessageEvent) => {
+        if (skipped() || shownFromFileRef.current) return;
+        try {
+          const provenance = RunProvenanceSchema.safeParse(JSON.parse(event.data)?.provenance).data;
+          if (provenance) setState(prev => ({ ...prev, provenance }));
+        } catch { /* The saved stream can still be played. */ }
       });
 
       // The visitor cleared the run in another tab, or the server let it go
@@ -652,16 +691,18 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         let id: string | null = null;
         let runKey: string | null = null;
         let fork = false;
+        let provenance: RunProvenance | undefined;
         try {
-          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown } | null;
+          const data = JSON.parse(e.data) as { id?: unknown; runKey?: unknown; forkedFrom?: unknown; provenance?: unknown } | null;
+          provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
           id = typeof data?.id === 'string' ? data.id : null;
           runKey = typeof data?.runKey === 'string' ? data.runKey : null;
           fork = data?.forkedFrom != null;
         } catch { /* no id: the run is shown, as one from before runs named it */ }
         const previousRunKey = runKeyRef.current;
-        const newRun = previousRunKey !== null && runKey !== null && runKey !== previousRunKey;
+        const newRun = runKey !== null && runKey !== previousRunKey;
         const isOwnRun = runKey !== null && runKey === ownRunKeyRef.current;
-        const tookOwnRun = newRun && previousRunKey === ownRunKeyRef.current;
+        const tookOwnRun = newRun && previousRunKey !== null && previousRunKey === ownRunKeyRef.current;
         runKeyRef.current = runKey;
         runScenarioIdRef.current = id;
         skipBufferedRunRef.current = false;
@@ -681,16 +722,14 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
                 ...prev,
                 isComplete: true,
                 isAborted: true,
+                finishRunKey: prev.runKey,
                 abortReason: prev.abortReason ?? { reason: 'another_run_started' },
               }
             : prev));
         } else if (newRun && (!fork || tookOwnRun) && !replaySessionId) {
-          // A new run in the page's scenario that is not a fork: the page
-          // shows it on its own, with none of the last run's state, events
-          // or dedupe keys, as reset() leaves them. A fork continues the
-          // run the page holds, which shows the fork as a branch of it. A run
-          // that takes the feed from the page's own run leaves that run to
-          // the Digital Twin views, whose artifact is still that run's.
+          // A new keyed run starts with its own state, including when the
+          // page showed a keyless replay or a file. If it takes over from
+          // a Digital Twin run, keep that run for the Digital Twin views.
           seenEventKeys.clear();
           shownFromFileRef.current = false;
           setState(prev => ({
@@ -698,15 +737,24 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
             ...emptyRun(),
             ownRunScenarioId: isOwnRun ? id : null,
             heldOwnRun: prev.ownRunScenarioId !== null && !isOwnRun
-              ? { events: prev.events, isComplete: true }
+              ? { events: prev.events, isComplete: true, validationFallbacks: prev.validationFallbacks }
               : prev.heldOwnRun,
           }));
+        } else if (newRun && fork && !replaySessionId) {
+          // Keep the parent's history for Branches. The fork has no save
+          // status yet, and the parent's finish and verdict keep their keys.
+          shownFromFileRef.current = false;
+          setState(prev => ({ ...prev, simSaved: null, isAborted: false, abortReason: null }));
         }
         // The run the page holds now, which the Chat tab keys its threads on.
         // A run the page skips leaves it on the run it shows, and a run loaded
         // from a file stays the page's until a new run replaces it, above.
         if (!skip && !shownFromFileRef.current) {
-          setState(prev => (prev.runKey === runKey ? prev : { ...prev, runKey }));
+          const mark = provenance ?? (bound?.runKey === runKey ? bound?.provenance : undefined);
+          setState(prev => ({
+            ...prev, runKey,
+            provenance: mark ?? (prev.runKey === runKey || replaySessionId ? prev.provenance : null),
+          }));
         }
       });
 
@@ -799,11 +847,13 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
               completedTurns: typeof payload.completedTurns === 'number' ? payload.completedTurns : undefined,
               leader: typeof data.leader === 'string' ? data.leader : undefined,
             };
+            const finishRunKey = runKeyRef.current;
             setState(prev => ({
               ...prev,
               events: [...prev.events, data],
               isAborted: true,
               isComplete: true,
+              finishRunKey,
               // Keep only the earliest reason so both leaders firing
               // the same disconnect cause don't overwrite it with the
               // second fire.
@@ -819,7 +869,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
-          setState(prev => ({ ...prev, results: [...prev.results, data] }));
+          const provenance = RunProvenanceSchema.safeParse(data?.provenance).data;
+          setState(prev => ({
+            ...prev, provenance: prev.provenance ?? provenance ?? null, results: [...prev.results, data],
+          }));
         } catch {}
       });
 
@@ -830,7 +883,8 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
           // Tag the pair-mode shape so VerdictBanner can branch
           // cleanly between pair and cohort rendering instead of
           // sniffing the payload shape.
-          setState(prev => ({ ...prev, verdict: { ...data, mode: 'pair' } }));
+          const verdictRunKey = runKeyRef.current;
+          setState(prev => ({ ...prev, verdictRunKey, verdict: { ...data, mode: 'pair' } }));
         } catch {}
       });
 
@@ -838,7 +892,8 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         if (skipped()) return;
         try {
           const data = JSON.parse(e.data);
-          setState(prev => ({ ...prev, verdict: { ...data, mode: 'cohort' } }));
+          const verdictRunKey = runKeyRef.current;
+          setState(prev => ({ ...prev, verdictRunKey, verdict: { ...data, mode: 'cohort' } }));
         } catch {}
       });
 
@@ -852,10 +907,10 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // no explanation.
         try {
           const data = JSON.parse(e.data);
-          setState(prev => ({
-            ...prev,
-            verdict: prev.verdict ?? { ...data, mode: 'cohort', skipped: true },
-          }));
+          const verdictRunKey = runKeyRef.current;
+          setState(prev => prev.verdictRunKey === verdictRunKey && prev.verdict
+            ? prev
+            : { ...prev, verdictRunKey, verdict: { ...data, mode: 'cohort', skipped: true } });
         } catch {}
       });
 
@@ -867,19 +922,28 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         // the sim_aborted SSE event got lost (older server versions
         // might not emit it).
         let wasAborted = false;
+        let fork = false;
         try {
           const data = e.data ? JSON.parse(e.data) : null;
-          wasAborted = !!(data && data.aborted);
+          wasAborted = data?.aborted === true;
+          fork = data?.fork === true;
         } catch { /* payload optional */ }
-        setState(prev => ({
-          ...prev,
-          isComplete: true,
-          isAborted: prev.isAborted || wasAborted,
-          // When pair-runner reports aborted without an earlier
-          // sim_aborted event (older server or race), leave a generic
-          // marker so the pill still explains itself.
-          abortReason: prev.abortReason ?? (wasAborted ? { reason: 'unknown' } : null),
-        }));
+        const finishRunKey = runKeyRef.current;
+        setState(prev => {
+          const reason = prev.finishRunKey === finishRunKey ? prev.abortReason : null;
+          const isAborted = wasAborted || (prev.finishRunKey === finishRunKey && prev.isAborted);
+          return {
+            ...prev,
+            isComplete: true,
+            finishRunKey,
+            isAborted,
+            abortReason: reason ?? (isAborted ? { reason: 'unknown' } : null),
+            // A single-leader fork ends without a verdict of its own. Its
+            // end is kept apart from the verdict the page holds, which is
+            // its parent's and stays in Reports and in a saved file.
+            ...(fork && !isAborted ? { forkOutcome: { runKey: finishRunKey } } : {}),
+          };
+        });
       });
 
       es.addEventListener('sim_error', (e: MessageEvent) => {
@@ -903,10 +967,15 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
         try {
           const data = JSON.parse(e.data);
           const evt: SimEvent = { type: 'sim_saved', leader: '', data };
-          const key = `sim_saved|${data.status ?? ''}|${data.id ?? ''}|${data.reason ?? ''}`;
+          const key = `sim_saved|${runKeyRef.current ?? ''}|${data.status ?? ''}|${data.id ?? ''}|${data.reason ?? ''}`;
           if (seenEventKeys.has(key)) return;
           seenEventKeys.add(key);
-          setState(prev => ({ ...prev, events: [...prev.events, evt] }));
+          setState(prev => ({
+            ...prev,
+            events: [...prev.events, evt],
+            // Title updates refresh the list but do not replace the save outcome.
+            simSaved: data.status === 'titled' ? prev.simSaved : evt,
+          }));
           // A save or a title that landed refreshes the saved-run list every
           // mounted picker reads (Quickstart, Load Prior Run, the Run menu).
           void refreshOnSimSaved(savedSessions, data);
@@ -966,7 +1035,7 @@ function addValidationFallback(prev: readonly ValidationFallbackBucket[], d: Rec
   // A provider error stays: it is about the account, not the scenario.
   const ownRunElsewhere = state.ownRunScenarioId !== null && state.ownRunScenarioId !== scenarioId;
   const ownRun: OwnRun | null = state.heldOwnRun
-    ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete } : null);
+    ?? (ownRunElsewhere ? { events: state.events, isComplete: state.isComplete, validationFallbacks: state.validationFallbacks } : null);
   const shown = ownRunElsewhere ? { ...state, ...NO_RUN, providerError: state.providerError } : state;
   return { ...shown, ownRun, reset, loadEvents, followRun, leaveOwnRun };
 }

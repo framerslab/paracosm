@@ -284,6 +284,7 @@ export async function runPairSimulations(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     })),
   });
 
@@ -435,6 +436,7 @@ export async function runForkSimulation(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     },
     parentRunId: simConfig.forkFrom.parentArtifact.metadata.runId,
     atTurn: simConfig.forkFrom.atTurn,
@@ -453,6 +455,9 @@ export async function runForkSimulation(
     broadcast('sim', event, lname);
   };
 
+  // An external stop or a terminal provider error ends the fork before its
+  // last turn. The engine returns such a run's artifact instead of throwing.
+  let cutShort = false;
   try {
     const result = await forkedWm.simulate({
       actor: leader,
@@ -484,6 +489,7 @@ export async function runForkSimulation(
       outputDir: runnerOptions.outputDir,
       searchEnv: runnerOptions.searchEnv,
     }, runSimulationImpl);
+    cutShort = (result as any)?.aborted === true || Boolean((result as any)?.providerError);
     broadcast('result', {
       leader: leaderTag(leader, 0),
       summary: {
@@ -514,7 +520,8 @@ export async function runForkSimulation(
     throw err;
   }
 
-  broadcast('complete', { timestamp: new Date().toISOString(), fork: true });
+  // A cut fork ends as a cut pair does, so the page shows it as interrupted.
+  broadcast('complete', { timestamp: new Date().toISOString(), fork: true, ...(cutShort ? { aborted: true } : {}) });
 }
 
 /**
@@ -556,6 +563,7 @@ export async function runBatchSimulations(
       archetype: leader.archetype,
       unit: leader.unit,
       hexaco: leader.hexaco,
+      aiAuthorship: leader.aiAuthorship,
     })),
   });
 
@@ -825,7 +833,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
   const colB = b.result.finalState?.metrics;
   try {
     const { prompt, words, rows } = pairVerdictRequest(turns, scenario, a, b);
-    const { object: verdict, fromFallback } = await generateValidatedObject({
+    const { object: verdict, fromFallback, model } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
@@ -848,6 +856,7 @@ export async function judgePair(opts: VerdictCallOptions & { a: JudgedRun; b: Ju
     } else {
       broadcast('verdict', {
         ...verdict,
+        verdictModel: model ?? verdictModel,
         leaderA: { name: a.leader.name, archetype: a.leader.archetype, unit: a.leader.unit },
         leaderB: { name: b.leader.name, archetype: b.leader.archetype, unit: b.leader.unit },
         settlementNoun: words.settlement,
@@ -931,7 +940,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
   const { credentials, verdictModel, turns, scenario, broadcast, runs: cleanRuns, generateObjectImpl } = opts;
   try {
     const { prompt, words, rows } = cohortVerdictRequest(turns, scenario, cleanRuns);
-    const { object: cohortVerdict, fromFallback } = await generateValidatedObject({
+    const { object: cohortVerdict, fromFallback, model } = await generateValidatedObject({
       provider: credentials.provider || 'openai',
       model: verdictModel,
       apiKey: apiKeyForProvider(credentials.provider || 'openai', credentials),
@@ -961,6 +970,7 @@ export async function judgeCohort(opts: VerdictCallOptions & { runs: JudgedRun[]
     } else {
       broadcast('cohort_verdict', {
         ...cohortVerdict,
+        verdictModel: model ?? verdictModel,
         actors: cleanRuns.map(({ leader, index }) => ({
           name: leader.name,
           archetype: leader.archetype,

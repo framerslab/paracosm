@@ -1,3 +1,5 @@
+import { AiWritten } from '../shared/AiWritten';
+import { RunReportDownloads } from '../shared/RunReportDownloads';
 import * as React from 'react';
 import styles from './RunDetailDrawer.module.scss';
 import { useRunArtifact } from './hooks/useRunArtifact.js';
@@ -25,9 +27,32 @@ export interface RunDetailDrawerProps {
   onReplayed?: () => void;
 }
 
+/**
+ * The leader's name and archetype, each marked by its own source: a name a
+ * person gave a generated leader stays outside the archetype's mark, and a
+ * profile a model wrote whole is one marked block.
+ */
+function LeaderLine({ record }: { record: RunRecord }): JSX.Element {
+  const fields: readonly string[] = Array.isArray(record.aiAuthorship?.fields) ? record.aiAuthorship.fields : [];
+  const name = record.actorName ?? 'Unknown';
+  const archetype = record.actorArchetype;
+  const nameAuthored = fields.includes('name');
+  const archetypeAuthored = Boolean(archetype) && fields.includes('archetype');
+  if (!archetype || nameAuthored === archetypeAuthored) {
+    return <AiWritten authored={nameAuthored}>{archetype ? `${name} · ${archetype}` : name}</AiWritten>;
+  }
+  return (
+    <>
+      <AiWritten authored={nameAuthored}>{name}</AiWritten>
+      {' · '}
+      <AiWritten authored={archetypeAuthored}>{archetype}</AiWritten>
+    </>
+  );
+}
+
 export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
   const { runId, open, onClose, onArtifactLoaded, onRunMissing, onReplayed } = props;
-  const { record, artifact, loading, error, status } = useRunArtifact(open ? runId : null);
+  const { record, artifact, verdict, loading, error, status } = useRunArtifact(open ? runId : null);
   const drawerRef = React.useRef<HTMLDivElement | null>(null);
   const lastFocusedRef = React.useRef<HTMLElement | null>(null);
   const shareLink = useShareLink();
@@ -147,15 +172,13 @@ export function RunDetailDrawer(props: RunDetailDrawerProps): JSX.Element {
               <section className={styles.summary}>
                 <span className={styles.modeBadge} data-mode={artifact.metadata.mode}>{artifact.metadata.mode}</span>
                 <h2>{artifact.metadata.scenario.name}</h2>
-                <p>
-                  {record.actorName ?? 'Unknown'}
-                  {record.actorArchetype ? ` · ${record.actorArchetype}` : ''}
-                </p>
+                <p><LeaderLine record={record} /></p>
                 <p className={styles.meta}>
                   {(artifact.trajectory?.timepoints?.length ?? 0)} timepoints · {record.costUSD != null ? `$${record.costUSD.toFixed(2)}` : '-'} · {record.createdAt.slice(0, 19).replace('T', ' ')}
                 </p>
               </section>
 
+              <RunReportDownloads artifact={artifact} filename={artifact.metadata.runId} verdict={verdict} />
               <SwarmPanel artifact={artifact} />
 
               <section className={styles.detailBody}>

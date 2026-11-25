@@ -174,7 +174,7 @@ const { actors, artifacts } = await wm.quickstart({ actorCount: 3 });
 artifacts.forEach((a, i) => console.log(actors[i].name, a.fingerprint));
 ```
 
-In the dashboard, the Run tab opens on the loaded scenario: its two leaders with their HEXACO scores and written orders, its colony at turn 0 in the living grid, and one Start key. Under it, Other scenarios loads another scenario, and Write your own scenario takes a pasted brief, a URL or a PDF, compiles it through the same path and runs it. A curated library of HEXACO archetypes ships at `paracosm.ACTOR_PRESETS` for programmatic `wm.batch` sweeps.
+Run is the default dashboard tab. It shows the loaded scenario, two leaders and their HEXACO scores and written orders, the colony's living grid at turn 0, and one Start button. Under it, Other scenarios loads another scenario, and Write your own scenario takes a pasted brief, a URL or a PDF, compiles it through the same path and runs it. A curated library of HEXACO archetypes ships at `paracosm.ACTOR_PRESETS` for programmatic `wm.batch` sweeps.
 
 ---
 
@@ -295,14 +295,14 @@ The CLI looks for `actors.json` via `--actors`, then `./actors.json`, then `./co
 
 ### Share a sim with a one-click link
 
-The dashboard ships two ways to produce a shareable run link, both landing the viewer on the visualization tab with no upload step.
+The dashboard ships two ways to produce a shareable run link, both landing the viewer on the Visualization tab with no upload step.
 
 **From the dashboard UI** — four places copy `paracosm.agentos.sh/sim?replay=<sessionId>&tab=viz` to the clipboard:
 
-- **TopBar overflow menu** (⋯ → Share viz link) — for the run you're currently watching, including replays loaded from a previously shared link.
-- **Run detail drawer** (Library → Open → Share viz link) — for the run the drawer shows.
-- **Quickstart actor cards** — per-actor "Copy viz share link" button.
-- **Library row Share button** — for any historical run whose broadcast session was successfully linked at save time (any run completed after this feature shipped). Library rows from before the link wire-up render without the Share button.
+- **Share viz link** in the header's run actions menu, while a run is open and has a saved replay.
+- **Share viz link** in a run's detail drawer. Open Library from More, then open the run.
+- **Copy viz share link** on a leader's results card in Run.
+- **Share** on a Library row whose replay was linked when the run was saved.
 
 All four routes hit the public `/sessions/:id/replay` SSE endpoint so the viewer streams the stored run directly. Anyone who has the link and can reach the dashboard that made it can watch the run; a link made on a dashboard served at `localhost` opens only on that computer. Every one of these keys shows the link in a field after the press, with whether it was copied and who can open it; when the browser refuses the clipboard or does not answer within three seconds, the note says so and the link stays in the field to copy by hand.
 
@@ -334,7 +334,7 @@ The `?load=` and `?autoload=` params are stripped after the fetch resolves, so r
 
 ## The universal result contract
 
-Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point).
+Every simulation returns a `RunArtifact`: one Zod-validated shape exported from `paracosm/schema`. The same shape covers civilization sims (turn-loop), digital-twin runs (batch-trajectory), and one-shot forecasts (batch-point). New results expose `artifact.provenance` with `aiGenerated`, `generator`, and `models` by role.
 
 ```typescript
 import { RunArtifactSchema, type RunArtifact } from 'paracosm/schema';
@@ -349,6 +349,8 @@ switch (artifact.metadata.mode) {
   case 'batch-point':       // one-shot forecast: overview + risk flags
 }
 ```
+
+Written run JSON carries the same `provenance` fields as the returned artifact. Older files can be read without the field.
 
 For non-TypeScript consumers, `npm run export:json-schema` emits `schema/run-artifact.schema.json` and `schema/stream-event.schema.json`. Python projects generate Pydantic types via `datamodel-codegen`; any ecosystem with a JSON-Schema generator adopts cleanly.
 

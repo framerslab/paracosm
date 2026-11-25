@@ -16,6 +16,7 @@
  * off.
  */
 import { test, expect, type Browser, type Locator, type Page, type Request } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -55,16 +56,6 @@ const CLEAR_QUESTION = 'Clear local data? This wipes the in-browser simulation b
  * Clear local data in the RUN menu's local history: its tooltip and its
  * question. It posts the same POST /clear, so both say so.
  */
-const HISTORY_CLEAR_TITLE = 'Wipe everything in this browser: saved-runs ring, event cache, current sim state. '
-  + "It also lets go of this browser's run on the server, stopping it if it is running. "
-  + 'Run history, saved sessions and output files are kept: Delete server data in the ⋯ menu deletes those, where admin writes are on and an admin token is saved.';
-const HISTORY_CLEAR_QUESTION = 'Clear all local browser state?\n\n'
-  + '  • Saved-runs ring (this dropdown)\n'
-  + '  • Event cache (Sim / Constellation / Log)\n'
-  + '  • Current SSE state\n\n'
-  + "It also lets go of this browser's run on the server, and stops it if it is running.\n\n"
-  + 'Run history, saved sessions, and on-disk artifact files are kept (Delete server data in the ⋯ menu deletes those, where it shows).\n\n'
-  + 'Cannot be undone.';
 /** What a scenario's details say when the server refused an older token and a newer one is saved. */
 const refusedWithNewerToken = (call: string, button: string) =>
   `The server refused the admin token this ${call} was sent with. A newer token is saved in this browser; press ${button} to try again with it.`;
@@ -100,10 +91,9 @@ const tokenInput = (page: Page) => page.locator('#admin-token');
 const saveToken = (page: Page) => page.getByRole('button', { name: 'Save admin token' });
 const clearToken = (page: Page) => page.getByRole('button', { name: 'Clear admin token' });
 const tokenStatus = (page: Page) => page.locator('#admin-token-status');
-const runActions = (page: Page) => page.getByRole('button', { name: 'Open run actions menu' });
-const closeRunActions = (page: Page) => page.getByRole('button', { name: 'Close run actions' });
-const clearLocal = (page: Page) => page.getByRole('menuitem', { name: 'Clear local data' });
-const deleteServerData = (page: Page) => page.getByRole('menuitem', { name: 'Delete server data' });
+const storedData = (page: Page) => page.getByRole('group', { name: 'Stored data' });
+const clearLocal = (page: Page) => storedData(page).getByRole('button', { name: 'Clear local data' });
+const deleteServerData = (page: Page) => storedData(page).getByRole('button', { name: 'Delete server data' });
 const storedToken = (page: Page) => page.evaluate(key => window.localStorage.getItem(key), TOKEN_KEY);
 
 /** Opens Settings on `base` and waits for the form, which follows GET /scenario. */
@@ -175,20 +165,17 @@ async function withTouchPage(browser: Browser, viewport: { width: number; height
 }
 
 /**
- * The open run actions menu, with a token saved and no run: Clear local data
+ * The Stored data group, with a token saved: Clear local data
  * then Delete server data, in one column that starts inside the window, each
  * on one line with text of 14 px or more and at least `minTargetPx` tall.
  */
-async function expectRunActionsMenu(page: Page, { minTargetPx }: { minTargetPx: number }): Promise<void> {
+async function expectStoredDataControls(page: Page, { minTargetPx }: { minTargetPx: number }): Promise<void> {
   const width = page.viewportSize()!.width;
-  const items = page.getByRole('menuitem');
+  const items = storedData(page).getByRole('button');
   await expect(items).toHaveText(['Clear local data', 'Delete server data']);
-  // The menu hangs from its trigger's right edge and widens to the left, so
-  // its longest item must not push its left edge out of the window.
-  const menu = (await page.getByRole('menu').filter({ has: clearLocal(page) }).boundingBox())!;
-  const trigger = (await closeRunActions(page).boundingBox())!;
-  expect(Math.abs(menu.x + menu.width - (trigger.x + trigger.width)), `${width}px: the menu ends at its trigger's right edge`).toBeLessThanOrEqual(1);
-  expect(menu.x, `${width}px: the menu starts inside the window`).toBeGreaterThanOrEqual(0);
+  const group = (await storedData(page).boundingBox())!;
+  expect(group.x).toBeGreaterThanOrEqual(0);
+  expect(group.x + group.width).toBeLessThanOrEqual(width + 1);
   const first = (await items.first().boundingBox())!;
   for (const item of await items.all()) {
     const name = `${width}px ${(await item.textContent()) ?? ''}`;
@@ -362,14 +349,12 @@ test.describe('Admin token field @admin', () => {
     const requests = recordRequests(page);
     await openSettings(page, ADMIN_BASE);
 
-    await runActions(page).click();
     await clearLocal(page).click();
     await expect.poll(() => questions.length).toBe(1);
     expect(questions[0]).toBe(CLEAR_QUESTION);
 
     // A token saved, a wrong one: a server wipe, were one sent, would remove nothing.
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
     await clearLocal(page).click();
     await expect.poll(() => questions.length).toBe(2);
     expect(questions[1]).toBe(CLEAR_QUESTION);
@@ -381,8 +366,8 @@ test.describe('Admin token field @admin', () => {
     await expect(tokenStatus(page)).toHaveText(/A token is saved in this browser/);
   });
 
-  test('Clear local data in the RUN menu\'s local history says it lets go of this browser\'s run on the server, and sends nothing when declined', async ({ page }) => {
-    // One run kept in this browser's local history, so the RUN menu shows the section and its Clear local data.
+  test('Clear this list in Library says it lets go of this browser\'s run on the server, and sends nothing when declined', async ({ page }) => {
+    // One run kept in this browser's local history, so Library shows its history and Clear this list.
     const createdAt = Date.now() - 60_000;
     const ring = [{
       id: createdAt,
@@ -399,15 +384,12 @@ test.describe('Admin token field @admin', () => {
     const requests = recordRequests(page);
     await openSettings(page, ADMIN_BASE);
 
-    await page.getByRole('button', { name: 'RUN', exact: true }).click();
-    const runMenu = page.getByRole('menu', { name: 'Run actions' });
-    // The section opens expanded.
-    await expect(runMenu.getByRole('menuitem', { name: /Local history/ })).toHaveAttribute('aria-expanded', 'true');
-    const clear = runMenu.getByRole('button', { name: 'Clear local data', exact: true });
-    await expect(clear).toHaveAttribute('title', HISTORY_CLEAR_TITLE);
-    await clear.click();
+    await openTab(page, 'library');
+    const history = page.getByRole('region', { name: 'Kept in this browser' });
+    await history.getByRole('button', { name: 'Clear this list' }).click();
     await expect.poll(() => questions.length).toBe(1);
-    expect(questions[0]).toBe(HISTORY_CLEAR_QUESTION);
+    expect(questions[0]).toMatch(/^Clear the runs kept in this browser\?/);
+    expect(questions[0]).toContain("lets go of this browser's run on the server");
     // Declined: nothing went to the server.
     expect(requests.filter(request => request.method() === 'POST' && new URL(request.url()).pathname === '/clear')).toEqual([]);
   });
@@ -419,18 +401,15 @@ test.describe('Admin token field @admin', () => {
     page.on('dialog', dialog => { questions.push(dialog.message()); void (accept ? dialog.accept() : dialog.dismiss()); });
     const requests = recordRequests(page);
 
-    // No token saved: the menu holds Clear local data and not the server item.
+    // No token saved: Settings offers Clear local data only.
     await openSettings(page, ADMIN_BASE);
-    await runActions(page).click();
     await expect(clearLocal(page)).toBeVisible();
     await expect(deleteServerData(page)).toHaveCount(0);
-    await closeRunActions(page).click();
 
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
     await expect(deleteServerData(page)).toBeVisible();
 
-    // The menu's destructive item, repeated: the same look, one column, one line each at 320 px.
+    // Both actions: the same look, one column, one line each at 320 px.
     const look = (item: Locator) => item.evaluate(element => {
       const style = getComputedStyle(element);
       return [style.color, style.backgroundColor, style.fontFamily, style.fontSize, style.fontWeight, style.padding, style.textAlign, style.borderRadius].join(' | ');
@@ -451,7 +430,6 @@ test.describe('Admin token field @admin', () => {
 
     // Accepted with the wrong token: the server refuses, the token is dropped, and the page says where it goes.
     accept = true;
-    await runActions(page).click();
     await deleteServerData(page).click();
     await expect(page.getByText(`Server data not deleted: the admin token was refused and has been cleared. ${WHERE}`).first()).toBeVisible();
     expect(requests.filter(isServerWipe).map(request => request.headers()['x-admin-token'])).toEqual([WRONG]);
@@ -559,7 +537,6 @@ test.describe('Admin token field @admin', () => {
     // A 200 whose body is not JSON: the server may have deleted its data, and nothing here says otherwise.
     await page.route(`${ADMIN_BASE}/admin/data/wipe`, route => route.fulfill({ status: 200, contentType: 'application/json', body: 'not json' }));
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
     await deleteServerData(page).click();
 
     await expect(page.getByText(WIPE_NOT_KNOWN).first()).toBeVisible();
@@ -573,7 +550,6 @@ test.describe('Admin token field @admin', () => {
     const error = 'Error: session store unavailable';
     await page.route(`${ADMIN_BASE}/admin/data/wipe`, route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error }) }));
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
     await deleteServerData(page).click();
 
     await expect(page.getByText(wipeStoppedOnError(error)).first()).toBeVisible();
@@ -593,7 +569,6 @@ test.describe('Admin token field @admin', () => {
       await route.continue();
     });
     await saveTokenInSettings(page, WRONG);
-    await runActions(page).click();
     await deleteServerData(page).click();
     await expect.poll(() => sent).toEqual([WRONG]);
 
@@ -605,17 +580,15 @@ test.describe('Admin token field @admin', () => {
     expect(await storedToken(page)).toBe(TOKEN);
   });
 
-  test('the run actions menu has text of 14 px or more on one line per item, 44 px targets at 768 px and under, and on a touch screen held sideways it and the token field have 44 px targets', async ({ page, browser }) => {
-    // With a mouse: the menu's items keep their order and column, one line
+  test('Stored data has text of 14 px or more on one line per item, 44 px targets at 768 px and under, and on a touch screen held sideways it and the token field have 44 px targets', async ({ page, browser }) => {
+    // With a mouse: the buttons keep their order and column, one line
     // each, with 14 px text at every width, and are 44 px targets in a
     // window 768 px wide or less.
     await saveTokenInSettings(page, WRONG);
     for (const [width, minTargetPx] of [[1280, 0], [768, 44], [667, 44], [390, 44], [320, 44]] as const) {
       await page.setViewportSize({ width, height: 800 });
-      await runActions(page).click();
       await expect(deleteServerData(page)).toBeVisible();
-      await expectRunActionsMenu(page, { minTargetPx });
-      await closeRunActions(page).click();
+      await expectStoredDataControls(page, { minTargetPx });
     }
 
     // A phone held sideways, 852 by 393: wider than 768 px, with a coarse pointer.
@@ -632,13 +605,12 @@ test.describe('Admin token field @admin', () => {
         expect(Math.abs(found.y - input.y), `852px touch: ${name} on the input's row`).toBeLessThanOrEqual(1);
       }
 
-      await runActions(touch).click();
       await expect(deleteServerData(touch)).toBeVisible();
-      await expectRunActionsMenu(touch, { minTargetPx: 44 });
+      await expectStoredDataControls(touch, { minTargetPx: 44 });
     });
   });
 
-  test('Delete server data shows once a failed admin-config request is asked again when the menu opens', async ({ page }) => {
+  test('Delete server data shows once a failed admin-config request is asked again when Settings reopens', async ({ page }) => {
     // A token is saved before the page loads, and every admin-config request of that load fails.
     await page.addInitScript(([key, token]) => window.localStorage.setItem(key, token), [TOKEN_KEY, WRONG] as const);
     let failing = true;
@@ -650,15 +622,14 @@ test.describe('Admin token field @admin', () => {
     await page.goto(`${ADMIN_BASE}/sim?tab=settings`);
     await expect(settingsLaunch(page)).toBeEnabled();
     await expect.poll(() => asked, 'the page, Settings and the editor each asked').toBeGreaterThanOrEqual(3);
-    await runActions(page).click();
     await expect(clearLocal(page)).toBeVisible();
     await expect(deleteServerData(page)).toHaveCount(0);
-    await closeRunActions(page).click();
 
-    // The server answers again, and the page asks again the next time the menu opens.
+    // The server answers again when the visitor returns to Settings.
     failing = false;
     const before = asked;
-    await runActions(page).click();
+    await openTab(page, 'sim');
+    await openTab(page, 'settings');
     await expect.poll(() => asked).toBeGreaterThan(before);
     await expect(deleteServerData(page)).toBeVisible();
   });
@@ -793,11 +764,10 @@ test.describe('Admin token field @admin', () => {
     await expect(tokenInput(page)).toHaveCount(0);
     await expect(saveToDisk(page)).toHaveCount(0);
 
-    // A token left in this browser does not bring the server item into the menu.
+    // A token left in this browser does not bring the server action into Settings.
     await page.evaluate(key => window.localStorage.setItem(key, 'a-token-from-elsewhere'), TOKEN_KEY);
     await page.reload();
     await expect(settingsLaunch(page)).toBeEnabled();
-    await runActions(page).click();
     await expect(clearLocal(page)).toBeVisible();
     await expect(deleteServerData(page)).toHaveCount(0);
   });

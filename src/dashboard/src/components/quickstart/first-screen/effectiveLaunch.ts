@@ -164,11 +164,12 @@ export function figuresSpoken(f: RunFigures): string {
 /** The body POST /setup takes. */
 export type SetupBody = Record<string, unknown>;
 
-/** How a launch request failed: the server's status and parsed answer, or no answer at all. Never a message string. */
+/** How a launch failed: a browser refusal, the server answer, or no answer at all. */
 export interface LaunchFailureInput {
   status?: number;
   body?: Record<string, unknown>;
   networkError?: boolean;
+  visitorKeyTransport?: true;
   /** Which request failed: the one that has the leaders written, or the one that posts the run. Unset reads as the run's. */
   request?: 'leaders' | 'setup';
 }

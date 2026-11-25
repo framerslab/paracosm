@@ -28,7 +28,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { publicResultFrame, withoutBrief } from './services/run-record.js';
+import { publicResultFrame, readRunProvenance, recordedRunProvenance, withoutBrief, withRunProvenance } from './services/run-record.js';
+import { makeRunProvenance, type RunProvenance } from '../engine/schema/index.js';
 import type { BroadcastFn } from '../cli/pair-runner.js';
 import type { NormalizedSimulationConfig } from '../cli/sim-config.js';
 import type { LlmProvider, ScenarioPackage } from '../engine/types.js';
@@ -125,6 +126,7 @@ export interface LiveRun {
   readonly seedText: string | null;
   /** Null for a Digital Twin run and for a run read back after a restart. */
   readonly config: NormalizedSimulationConfig | null;
+  readonly provenance: RunProvenance;
   /** See {@link OpenRunInput.ownKeyAddress}. */
   readonly ownKeyAddress: string | null;
   /** See {@link OpenRunInput.ownKeys}. Never written with the run. */
@@ -275,6 +277,7 @@ export interface OpenRunInput {
   scenario: ScenarioPackage;
   seedText: string | null;
   config: NormalizedSimulationConfig | null;
+  provenance?: RunProvenance;
   /** A fork's parent run and turn. */
   forkedFrom?: { parentRunId: string; atTurn: number } | null;
   /** The run's key; minted when absent. */
@@ -344,6 +347,7 @@ interface PersistedRun {
   scenarioId: string;
   scenarioName: string;
   seedText: string | null;
+  provenance?: RunProvenance;
   aborted: boolean;
   errored: boolean;
   saved: boolean;
@@ -633,6 +637,7 @@ export class LiveRunRegistry {
       scenario: input.scenario,
       seedText: input.seedText,
       config: input.config,
+      provenance: input.provenance ?? makeRunProvenance({}),
       ownKeyAddress: input.ownKeyAddress ?? null,
       ownKeys: input.ownKeys ?? null,
       buffer: [],
@@ -696,6 +701,7 @@ export class LiveRunRegistry {
       runKey: key,
       forkedFrom: input.forkedFrom ?? null,
       kind: input.kind,
+      provenance: run.provenance,
     });
     run.metaFrame = run.buffer[0] ?? null;
     if (this.viewerCount(run) > 0) run.hadViewer = true;
@@ -825,12 +831,15 @@ export class LiveRunRegistry {
    * for a stream subscribed to one, and the brief left out with `hideBrief`.
    */
   replay(res: ServerResponse, run: LiveRun, actorFilter: string | null, hideBrief = false): void {
+    let first = true;
     for (let i = 0; i < run.buffer.length; i++) {
       const tag = run.actorIds[i] ?? null;
       if (actorFilter !== null && tag !== null && tag !== actorFilter) continue;
       try {
         const frame = publicResultFrame(run.buffer[i]);
-        res.write(hideBrief ? withoutBrief(frame) : frame);
+        const visible = hideBrief ? withoutBrief(frame) : frame;
+        res.write(first ? withRunProvenance(visible, run.provenance) : visible);
+        first = false;
       } catch {
         break;
       }
@@ -1166,6 +1175,7 @@ export class LiveRunRegistry {
       scenarioId: run.scenarioId,
       scenarioName: run.scenarioName,
       seedText: run.seedText,
+      provenance: run.provenance,
       aborted: run.aborted,
       errored: run.errored,
       saved: run.saved,
@@ -1365,6 +1375,7 @@ export class LiveRunRegistry {
       scenario: null,
       seedText: typeof p.seedText === 'string' ? p.seedText : null,
       config: null,
+      provenance: readRunProvenance(p.provenance) ?? recordedRunProvenance(events) ?? makeRunProvenance({}),
       ownKeyAddress: null,
       ownKeys: null,
       buffer: events,

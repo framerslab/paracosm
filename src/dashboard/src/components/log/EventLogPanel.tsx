@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 /**
  * Event Log tab content. Scrollable list of every SSE event with
  * per-type color coding, a rich filter bar (F15) covering text search,
@@ -134,7 +135,15 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
       )}
       {filteredEvents.map((e, i) => {
         const color = TYPE_COLORS[e.type] || 'var(--text-3)';
-        const hasData = e.data && Object.keys(e.data).length > 0;
+        const data = e.data ?? {};
+        const hasData = Object.keys(data).length > 0;
+        // A frame saved before field-level source holds a decision or a
+        // department report whose text is the model's unless it fell back.
+        const rawAuthored = Array.isArray(data.aiWrittenFields)
+          ? data.aiWrittenFields.length > 0
+          : e.type === 'decision_made'
+            ? isAiWrittenPassage(data, 'decision', data.decision)
+            : e.type === 'specialist_done' && isAiWrittenPassage(data, 'summary', data.summary);
         return (
           <details
             key={i}
@@ -146,14 +155,14 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
               <span className={styles.type}>{e.type}</span>
               <span className={styles.leader}>{e.leader}</span>
               {e.data?.turn != null && <span className={styles.turn}>T{String(e.data.turn)}</span>}
-              {!!e.data?.title && <span className={styles.title}>{String(e.data.title)}</span>}
+              {!!e.data?.title && <AiWritten className={styles.title} authored={isAiWritten(e.data, "title")}>{String(e.data.title)}</AiWritten>}
               {!!e.data?.department && <span className={styles.department}>{String(e.data.department)}</span>}
               {!!e.data?.outcome && <span className={styles.outcome}>{String(e.data.outcome)}</span>}
             </summary>
             {hasData && (
-              <pre className={styles.dataBlock}>
-                {JSON.stringify(e.data, null, 2)}
-              </pre>
+              <AiWritten as="div" authored={rawAuthored}>
+                <pre className={styles.dataBlock}>{JSON.stringify(data, null, 2)}</pre>
+              </AiWritten>
             )}
           </details>
         );

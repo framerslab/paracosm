@@ -289,7 +289,7 @@ export interface ScenarioPolicies {
 export interface ScenarioPreset {
   id: string;
   label: string;
-  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions?: string; description?: string }>;
+  leaders?: Array<{ name: string; archetype: string; hexaco: Record<string, number>; instructions?: string; description?: string; aiAuthorship?: ActorAuthorship }>;
   personnel?: Array<{ name: string; department: string; role: string; specialization: string; age: number; featured: boolean }>;
   startingState?: Partial<WorldState>;
 }
@@ -411,7 +411,13 @@ export interface Scenario {
  * The legacy `ActorConfig` name is exported below as a `@deprecated`
  * type alias so 0.7.x callers compile unchanged. Drop in 1.0.
  */
+export interface ActorAuthorship {
+  model: string;
+  fields: string[];
+}
+
 export interface ActorConfig {
+  aiAuthorship?: ActorAuthorship;
   name: string;
   archetype: string;
   /**

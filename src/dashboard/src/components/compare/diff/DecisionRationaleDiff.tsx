@@ -1,3 +1,4 @@
+import { AiWritten, isAiWrittenPassage } from '../../shared/AiWritten';
 import * as React from 'react';
 import styles from './diff.module.scss';
 import type { RunArtifact } from '../../../../../engine/schema/index.js';
@@ -10,6 +11,8 @@ interface DecisionEntry {
   turn: number;
   decision: string;
   rationale: string;
+  choiceAuthored: boolean;
+  rationaleAuthored: boolean;
 }
 
 export function DecisionRationaleDiff({ artifacts }: DecisionRationaleDiffProps): JSX.Element {
@@ -49,8 +52,8 @@ export function DecisionRationaleDiff({ artifacts }: DecisionRationaleDiffProps)
             {entries.map((e, i) => (
               <div key={i} className={styles.rationaleEntry}>
                 <span className={styles.rationaleTurn}>Turn {e.turn}</span>
-                <p className={styles.rationaleDecision}>{e.decision}</p>
-                <p className={styles.rationaleText}>{e.rationale}</p>
+                <AiWritten as="p" className={styles.rationaleDecision} authored={e.choiceAuthored}>{e.decision}</AiWritten>
+                <AiWritten as="p" className={styles.rationaleText} authored={Boolean(e.rationale) && e.rationaleAuthored}>{e.rationale}</AiWritten>
               </div>
             ))}
           </div>
@@ -67,6 +70,10 @@ function extractDecisions(artifact: RunArtifact): DecisionEntry[] {
   // rationale (preferring rationale over reasoning when both present).
   return ds
     .map((d) => ({
+      choiceAuthored: isAiWrittenPassage(d, 'choice', d.choice),
+      rationaleAuthored: typeof d.rationale === 'string'
+        ? isAiWrittenPassage(d, 'rationale', d.rationale)
+        : isAiWrittenPassage(d, 'reasoning', d.reasoning),
       turn: typeof d.time === 'number' ? Math.round(d.time) : 0,
       decision: typeof d.choice === 'string' ? d.choice : '—',
       rationale: typeof d.rationale === 'string'

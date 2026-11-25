@@ -23,6 +23,7 @@ import type {
   ProviderErrorSchema,
   RiskFlagSchema,
   RunMetadataSchema,
+  RunProvenanceSchema,
   ScenarioExtensionsSchema,
   ScoreSchema,
   SimulationModeSchema,
@@ -47,6 +48,9 @@ import type { StreamEventSchema } from './stream.js';
 export type ScenarioExtensions = z.infer<typeof ScenarioExtensionsSchema>;
 export type SimulationMode = z.infer<typeof SimulationModeSchema>;
 export type RunMetadata = z.infer<typeof RunMetadataSchema>;
+
+/** Machine-readable authorship and assigned public model identifiers. */
+export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
 export type WorldSnapshot = z.infer<typeof WorldSnapshotSchema>;
 export type Score = z.infer<typeof ScoreSchema>;
 export type HighlightMetric = z.infer<typeof HighlightMetricSchema>;

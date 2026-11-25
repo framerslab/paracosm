@@ -64,6 +64,9 @@ test('formatResetTime: the browser\'s own locale and zone when none is named, an
 });
 
 test('classifyLaunchFailure: by the answer, never by its words', () => {
+  // A key the page did not send: nothing was posted, so the page being offline says nothing about it.
+  assert.equal(classifyLaunchFailure({ visitorKeyTransport: true }).kind, 'visitor-key-transport');
+  assert.equal(classifyLaunchFailure({ visitorKeyTransport: true, online: false }).kind, 'visitor-key-transport');
   // No answer at all, or a page that is offline.
   assert.equal(classifyLaunchFailure({ networkError: true }).kind, 'offline');
   assert.equal(classifyLaunchFailure({ status: 500, body: {}, online: false }).kind, 'offline');

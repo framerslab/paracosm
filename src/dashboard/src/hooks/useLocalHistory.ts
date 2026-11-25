@@ -6,7 +6,8 @@
  *
  * @module paracosm/cli/dashboard/hooks/useLocalHistory
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import type { SimEvent } from './useSSE';
 import {
   DEFAULT_HISTORY_CAP,
@@ -42,6 +43,7 @@ export interface UseLocalHistoryApi {
     events: SimEvent[];
     results: unknown[];
     verdict?: Record<string, unknown> | null;
+    provenance?: RunProvenance | null;
   }): void;
   /** Drop a specific entry by id. No-op if id is missing. */
   remove(id: number): void;
@@ -57,18 +59,32 @@ export interface UseLocalHistoryApi {
       events: SimEvent[],
       results?: unknown[],
       verdict?: Record<string, unknown> | null,
+      provenance?: RunProvenance | null,
     ) => void,
   ): void;
+}
+
+/** The storage of a browser that keeps nothing: reads find nothing, writes go nowhere. */
+const NO_STORAGE: StorageLike = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+
+/** The browser's localStorage, or null outside a browser and where reading the property throws. */
+function browserStorage(): StorageLike | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 export function useLocalHistory(
   opts: UseLocalHistoryOptions,
 ): UseLocalHistoryApi {
-  const storage: StorageLike =
-    opts.storage ??
-    (typeof window !== 'undefined'
-      ? window.localStorage
-      : { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+  // A browser that blocks site storage throws on reading the property
+  // itself: the history then lives for this page only, starting empty.
+  const storage = useMemo<StorageLike>(
+    () => opts.storage ?? browserStorage() ?? NO_STORAGE,
+    [opts.storage],
+  );
   const maxSize = opts.maxSize ?? DEFAULT_HISTORY_CAP;
 
   const [entries, setEntries] = useState<LocalHistoryEntry[]>(() =>
@@ -79,7 +95,14 @@ export function useLocalHistory(
   // re-run because migrateLegacySlot returns null when the key is
   // empty or absent (and we remove it after the first successful pull).
   useEffect(() => {
-    const raw = storage.getItem(legacySlotKey(opts.scenarioShortName));
+    const key = legacySlotKey(opts.scenarioShortName);
+    let raw: string | null;
+    try {
+      raw = storage.getItem(key);
+    } catch {
+      // Storage is unavailable, so there is no legacy run to migrate.
+      return;
+    }
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
@@ -94,7 +117,11 @@ export function useLocalHistory(
     } catch {
       // Malformed legacy payload — drop it below.
     }
-    storage.removeItem(legacySlotKey(opts.scenarioShortName));
+    try {
+      storage.removeItem(key);
+    } catch {
+      // Storage refused the write; the legacy key stays where it was.
+    }
   }, [opts.scenarioShortName, maxSize, storage]);
 
   const push = useCallback(
@@ -102,6 +129,7 @@ export function useLocalHistory(
       events: SimEvent[];
       results: unknown[];
       verdict?: Record<string, unknown> | null;
+      provenance?: RunProvenance | null;
     }) => {
       if (!params.events || params.events.length === 0) return;
       const entry: LocalHistoryEntry = {
@@ -110,6 +138,7 @@ export function useLocalHistory(
         events: params.events,
         results: params.results,
         verdict: params.verdict ?? null,
+        ...(params.provenance ? { provenance: params.provenance } : {}),
         scenarioShortName: opts.scenarioShortName,
         summary: summarizeEvents(params.events, params.results),
       };
@@ -145,9 +174,10 @@ export function useLocalHistory(
         events: SimEvent[],
         results?: unknown[],
         verdict?: Record<string, unknown> | null,
+        provenance?: RunProvenance | null,
       ) => void,
     ) => {
-      loadEvents(entry.events, entry.results, entry.verdict ?? null);
+      loadEvents(entry.events, entry.results, entry.verdict ?? null, ...(entry.provenance ? [entry.provenance] as const : []));
     },
     [],
   );

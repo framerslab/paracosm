@@ -9,12 +9,12 @@ import type { LaunchFailureInput } from './effectiveLaunch.js';
 
 /**
  * Why a run did not start: no connection, the day's free runs used, every
- * run slot on the server in use, a busy server, or any other refusal.
+ * run slot on the server in use, a busy server, key transport, or any other refusal.
  */
-export type LaunchFailureKind = 'offline' | 'limit' | 'slots' | 'busy' | 'other';
+export type LaunchFailureKind = 'offline' | 'limit' | 'slots' | 'busy' | 'visitor-key-transport' | 'other';
 
 /**
- * Sorts a failed launch by what the server answered, never by its words.
+ * Sorts a failed launch by the browser refusal or what the server answered.
  * In order: no connection when the request never reached the server or the
  * page is offline; the day's limit on a 429 that says none is left
  * (POST /setup's own refusal: `{ error, limit, remaining: 0 }`); every run
@@ -28,6 +28,7 @@ export type LaunchFailureKind = 'offline' | 'limit' | 'slots' | 'busy' | 'other'
  * start, and Start stays.
  */
 export function classifyLaunchFailure(i: LaunchFailureInput & { online?: boolean }): { kind: LaunchFailureKind } {
+  if (i.visitorKeyTransport) return { kind: 'visitor-key-transport' };
   if (i.networkError || i.online === false) return { kind: 'offline' };
   const remaining = i.body?.remaining;
   const maxRuns = i.body?.maxRuns;

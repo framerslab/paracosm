@@ -1,3 +1,10 @@
+import {
+  apiKeyForProvider,
+  resolveProviderFromCredentials,
+  type ProviderCredentialOptions,
+  type ProviderRoutingOptions,
+} from '../engine/provider/credentials.js';
+import { resolveProviderWithFallback } from '../engine/provider/resolver.js';
 import type { KeyPersonnel } from '../engine/core/agent-generator.js';
 import type { Department } from '../engine/core/state.js';
 import type { ActorInput, ScenarioPackage } from '../engine/types.js';
@@ -7,6 +14,7 @@ import { buildTimeSchedule } from '../runtime/util/runtime-helpers.js';
 import type { ActorConfig } from './types.js';
 import type { HexacoProfile } from '../engine/core/state.js';
 import { hexacoModel } from '../engine/traits/hexaco.js';
+import { AI_AUTHORED_LEADER_FIELDS, AI_AUTHORSHIP_MODEL_PATTERN } from '../engine/ai-authorship.js';
 import {
   resolveEconomicsProfile,
   type ResolvedEconomicsProfile,
@@ -513,7 +521,7 @@ export function resolveSimulationModels(
   provider: LlmProvider,
   models?: Partial<SimulationModelConfig>,
   costPreset: CostPreset = 'quality',
-): SimulationModelConfig {
+): Required<SimulationModelConfig> {
   const defaults = costPreset === 'economy' ? DEMO_MODELS[provider] : DEFAULT_MODELS[provider];
   const normalizeModel = (
     requested: string | undefined,
@@ -533,6 +541,32 @@ export function resolveSimulationModels(
     // forcing the orchestrator to fall back to a hardcoded gpt-4o-mini even
     // when the run is on Anthropic.
     agentReactions: normalizeModel(models?.agentReactions, defaults.agentReactions ?? defaults.departments),
+  };
+}
+
+type SimulationRoutingOptions = ProviderCredentialOptions & ProviderRoutingOptions & {
+  provider?: LlmProvider;
+  models?: Partial<SimulationModelConfig>;
+  costPreset?: CostPreset;
+};
+
+/** Resolve the provider and the five role assignments before a simulation starts. */
+export function resolveSimulationRouting(
+  options: SimulationRoutingOptions,
+  env?: NodeJS.ProcessEnv,
+  silent = false,
+) {
+  const requested = resolveProviderFromCredentials(options.provider, options, 'openai');
+  const { provider } = resolveProviderWithFallback(requested, {
+    apiKey: apiKeyForProvider(requested, options),
+    stayOnProvider: options.stayOnProvider,
+    env,
+    silent,
+  });
+  return {
+    provider,
+    apiKey: apiKeyForProvider(provider, options),
+    models: resolveSimulationModels(provider, options.models, options.costPreset),
   };
 }
 
@@ -806,7 +840,18 @@ function forkParentTimeline(
  * five traits undefined, and the rule threw on every decision of the run.
  * An actor without a HEXACO profile is returned as it came.
  */
-function withNeutralTraits(actor: ActorInput): ActorInput {
+function withNeutralTraits(input: ActorInput): ActorInput {
+  let actor = input;
+  if (input.aiAuthorship !== undefined) {
+    const { aiAuthorship, ...base } = input;
+    actor = base;
+    const fields: readonly string[] = AI_AUTHORED_LEADER_FIELDS;
+    if (typeof aiAuthorship?.model === 'string' && AI_AUTHORSHIP_MODEL_PATTERN.test(aiAuthorship.model)
+        && Array.isArray(aiAuthorship.fields)) {
+      const authored = aiAuthorship.fields.filter(field => fields.includes(field));
+      if (authored.length) actor = { ...base, aiAuthorship: { model: aiAuthorship.model, fields: [...new Set(authored)] } };
+    }
+  }
   const given = actor.hexaco as Partial<Record<keyof HexacoProfile, unknown>> | undefined;
   if (!given || typeof given !== 'object') return actor;
   const filled: string[] = [];

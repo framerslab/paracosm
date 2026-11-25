@@ -118,6 +118,7 @@ interface ReadArg {
   region: number;
   /** rows: the selectors of the rows of keys. */
   rows: string[];
+  unroundedContrast?: boolean;
 }
 
 /**
@@ -197,7 +198,8 @@ function readSurface(root: Element, arg: ReadArg): unknown {
     if (paint[3] <= 0) return 1;
     const ground = groundOf(groundFrom);
     const drawn: RGBA = [paint[0], paint[1], paint[2], paint[3] * opacityTo(el, ground.from)];
-    return r2(ratioOf(over(drawn, ground.colour), ground.colour));
+    const ratio = ratioOf(over(drawn, ground.colour), ground.colour);
+    return arg.unroundedContrast ? ratio : r2(ratio);
   };
 
   const visibleNow = (el: Element, withOpacity: boolean): boolean => {
@@ -565,19 +567,38 @@ function readSurface(root: Element, arg: ReadArg): unknown {
   const clips = (value: string): boolean => value === 'hidden' || value === 'clip';
   const meets = (p: DOMRect, q: DOMRect): boolean =>
     Math.min(p.right, q.right) - Math.max(p.left, q.left) > 2 && Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top) > 2;
-  const lines = words.map((el) => ({ el, text: ownText(el), rects: drawnWords(el) }));
-  for (const { el, text, rects } of lines) {
+  function visibleInRow(el: Element, rects: DOMRect[]): DOMRect[] {
+    const row = el.closest('[data-fade-start][data-fade-end]');
+    if (!row || row.scrollWidth <= row.clientWidth + 1) return rects;
+    const left = row.getBoundingClientRect().left + row.clientLeft;
+    const right = left + row.clientWidth;
+    return rects.flatMap(rect => {
+      const start = Math.max(left, rect.left);
+      const end = Math.min(right, rect.right);
+      return end > start ? [new DOMRect(start, rect.top, end - start, rect.height)] : [];
+    });
+  }
+
+  const lines = words.map((el) => {
+    const rects = drawnWords(el);
+    return { el, text: ownText(el), rects, visible: visibleInRow(el, rects) };
+  });
+  for (const { el, text, rects, visible } of lines) {
     // Cut: a part that clips what it holds, the word's own included, hides some of its words, or an ellipsis stands for them.
     const cs = getComputedStyle(el);
     if (cs.textOverflow === 'ellipsis' && cs.display !== 'inline' && el.scrollWidth > el.clientWidth + 1) cut.push(`${describe(el, text)} ends in an ellipsis`);
+    let horizontal = rects;
     for (let a: Element | null = el; a; a = a.parentElement) {
+      // A key can scroll into view. Measure its own clipping first, then
+      // use the visible part when checking the scroll row's ancestors.
+      if (a.matches('[data-fade-start][data-fade-end]')) horizontal = visible;
       const s = getComputedStyle(a);
       const ar = a.getBoundingClientRect();
       const left = ar.left + a.clientLeft;
       const top = ar.top + a.clientTop;
       const right = left + (a.clientWidth || ar.width);
       const bottom = top + (a.clientHeight || ar.height);
-      if (clips(s.overflowX) && rects.some((r) => r.left < left - 1 || r.right > right + 1)) cut.push(`${describe(el, text)} is cut at the side by ${describe(a, '')}`);
+      if (clips(s.overflowX) && horizontal.some((r) => r.left < left - 1 || r.right > right + 1)) cut.push(`${describe(el, text)} is cut at the side by ${describe(a, '')}`);
       if (clips(s.overflowY) && rects.some((r) => r.top < top - 1 || r.bottom > bottom + 1)) cut.push(`${describe(el, text)} is cut at the top or foot by ${describe(a, '')}`);
       if (a === root) break;
     }
@@ -589,13 +610,13 @@ function readSurface(root: Element, arg: ReadArg): unknown {
     const a = lines[i];
     for (let j = i + 1; j < lines.length; j += 1) {
       const b = lines[j];
-      if (a.rects.some((p) => b.rects.some((q) => meets(p, q)))) overlaps.push(`${describe(a.el, a.text)} over ${describe(b.el, b.text)}`);
+      if (a.visible.some((p) => b.visible.some((q) => meets(p, q)))) overlaps.push(`${describe(a.el, a.text)} over ${describe(b.el, b.text)}`);
     }
     const holder = a.el.closest(PRESS);
     for (const c of controls) {
       if (c.contains(a.el) || (holder && (holder === c || holder.contains(c)))) continue;
-      const box = c.getBoundingClientRect();
-      if (a.rects.some((p) => meets(p, box))) overlaps.push(`${describe(a.el, a.text)} over ${describe(c, (c.getAttribute('aria-label') ?? c.textContent ?? '').replace(/\s+/g, ' ').trim())}`);
+      const boxes = visibleInRow(c, [c.getBoundingClientRect()]);
+      if (a.visible.some((p) => boxes.some((box) => meets(p, box)))) overlaps.push(`${describe(a.el, a.text)} over ${describe(c, (c.getAttribute('aria-label') ?? c.textContent ?? '').replace(/\s+/g, ' ').trim())}`);
     }
   }
   return { cut: [...new Set(cut)], overlaps: [...new Set(overlaps)] };
@@ -619,8 +640,8 @@ export async function settle(root: Locator): Promise<void> {
 }
 
 /** Every element with its own text: its role, size and contrast against the ground it is drawn on. */
-export async function measureText(_page: Page, root: Locator): Promise<TextMeasure[]> {
-  return read<TextMeasure[]>(root, { op: 'text' });
+export async function measureText(_page: Page, root: Locator, options: { unroundedContrast?: boolean } = {}): Promise<TextMeasure[]> {
+  return read<TextMeasure[]>(root, { op: 'text', ...options });
 }
 
 /** The glyphs ([aria-hidden] svg), the cells, bands, side marks and tracks, and the key and field edges, each against its ground. */

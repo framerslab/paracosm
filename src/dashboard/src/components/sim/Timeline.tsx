@@ -1,3 +1,4 @@
+import { AiWritten, isAiWritten, isAiWrittenPassage } from '../shared/AiWritten';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import type { GameState, ActorSideState } from '../../hooks/useGameState';
 import { getActorColorVar } from '../../hooks/useGameState';
@@ -15,10 +16,13 @@ interface TurnEntry {
   summary?: string;
   outcome?: string;
   decision?: string;
+  decisionAuthored?: boolean;
+  titleAuthored?: boolean;
+  summaryAuthored?: boolean;
   category?: string;
   emergent?: boolean;
   current?: boolean;
-  subEvents?: Array<{ index: number; title: string; category: string }>;
+  subEvents?: Array<{ index: number; title: string; category: string; titleAuthored: boolean }>;
 }
 
 function extractTurns(sideState: ActorSideState, isComplete: boolean): TurnEntry[] {
@@ -30,6 +34,8 @@ function extractTurns(sideState: ActorSideState, isComplete: boolean): TurnEntry
         turn: evt.data.turn as number,
         time: evt.data.time as number,
         title: evt.data.title as string,
+        titleAuthored: isAiWritten(evt.data, "title"),
+        summaryAuthored: isAiWritten(evt.data, evt.data.turnSummary ? "turnSummary" : "description"),
         summary: (evt.data.turnSummary as string) || (evt.data.crisis as string) || '',
         category: evt.data.category as string || '',
         emergent: evt.data.emergent as boolean || false,
@@ -43,6 +49,7 @@ function extractTurns(sideState: ActorSideState, isComplete: boolean): TurnEntry
         t.subEvents.push({
           index: Number(evt.data.eventIndex ?? 0),
           title: String(evt.data.title || ''),
+          titleAuthored: isAiWritten(evt.data, 'title'),
           category: String(evt.data.category || ''),
         });
       }
@@ -52,6 +59,7 @@ function extractTurns(sideState: ActorSideState, isComplete: boolean): TurnEntry
       if (t) {
         t.outcome = evt.data.outcome as string;
         t.decision = (evt.data._decision as string) || '';
+        t.decisionAuthored = isAiWrittenPassage(evt.data, "decision", t.decision);
       }
     }
   }
@@ -102,12 +110,12 @@ function TurnTooltipContent({ t, sideColor }: { t: TurnEntry; sideColor: string 
         {t.category && <span className={styles.tooltipCategory}>{t.category}</span>}
         {t.emergent && <span className={styles.tooltipEmergent}>EMERGENT</span>}
       </div>
-      <div className={styles.tooltipTitle}>{t.title}</div>
-      {t.summary && <div className={styles.tooltipSummary}>{t.summary}</div>}
+      <AiWritten as="div" className={styles.tooltipTitle} authored={!!t.titleAuthored}>{t.title}</AiWritten>
+      {t.summary && <AiWritten as="div" className={styles.tooltipSummary} authored={!!t.summaryAuthored}>{t.summary}</AiWritten>}
       {t.decision && (
         <div className={styles.tooltipDecision}>
           <span className={styles.tooltipDecisionLabel} style={sideStyle}>Decision: </span>
-          {t.decision}
+          <AiWritten authored={!!t.decisionAuthored}>{t.decision}</AiWritten>
         </div>
       )}
       {t.outcome && (
@@ -149,24 +157,24 @@ function SideTimeline({ turns, actorIndex }: { turns: TurnEntry[]; actorIndex: n
               <span className={styles.entryTurn} style={sideStyle}>
                 T{t.turn} {t.time}
               </span>
-              <span className={styles.entryTitle}>{t.title}</span>
+              <AiWritten className={styles.entryTitle} authored={!!t.titleAuthored}>{t.title}</AiWritten>
               {t.category && <span className={styles.entryCategory}>{t.category}</span>}
               {t.emergent && <span className={styles.entryEmergent}>EMERGENT</span>}
               {outcomeBadge(t.outcome)}
             </div>
-            {t.summary && <div className={styles.entrySummary}>{t.summary}</div>}
+            {t.summary && <AiWritten as="div" className={styles.entrySummary} authored={!!t.summaryAuthored}>{t.summary}</AiWritten>}
             {t.subEvents && t.subEvents.length > 1 && (
               <div className={styles.entrySubEvents}>
                 {t.subEvents.map((se, i) => (
                   <div key={i} className={styles.entrySubEventRow}>
                     <span className={styles.entrySubIdx}>{se.index + 1}.</span>
-                    <span>{se.title}</span>
+                    <AiWritten authored={se.titleAuthored}>{se.title}</AiWritten>
                   </div>
                 ))}
               </div>
             )}
             {t.decision && !t.subEvents?.length && (
-              <div className={styles.entryDecision}>{t.decision}</div>
+              <AiWritten as="div" className={styles.entryDecision} authored={!!t.decisionAuthored}>{t.decision}</AiWritten>
             )}
           </div>
         </Tooltip>

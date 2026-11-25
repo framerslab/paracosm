@@ -46,12 +46,31 @@
         "startedAt": {
           "type": "string",
           "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
         },
         "completedAt": {
           "type": "string",
           "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "forkedFrom": {
+          "type": "object",
+          "properties": {
+            "parentRunId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "atTurn": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "parentRunId",
+            "atTurn"
+          ],
+          "additionalProperties": false
         },
         "scenarioExtensions": {
           "type": "object",
@@ -66,6 +85,35 @@
         "scenario",
         "mode",
         "startedAt"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "aiGenerated": {
+          "type": "boolean",
+          "const": true
+        },
+        "generator": {
+          "type": "string",
+          "const": "paracosm"
+        },
+        "models": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "aiGenerated",
+        "generator",
+        "models"
       ],
       "additionalProperties": false
     },
@@ -247,13 +295,9 @@
                       "type": "string"
                     },
                     "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "boolean"
-                        }
+                      "type": [
+                        "string",
+                        "boolean"
                       ]
                     }
                   },
@@ -263,16 +307,10 @@
                       "type": "string"
                     },
                     "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "boolean"
-                        }
+                      "type": [
+                        "number",
+                        "string",
+                        "boolean"
                       ]
                     }
                   },
@@ -282,16 +320,10 @@
                       "type": "string"
                     },
                     "additionalProperties": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "type": "boolean"
-                        }
+                      "type": [
+                        "number",
+                        "string",
+                        "boolean"
                       ]
                     }
                   },
@@ -357,13 +389,9 @@
                 "minLength": 1
               },
               "value": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "number"
-                  }
+                "type": [
+                  "string",
+                  "number"
                 ]
               },
               "unit": {
@@ -372,7 +400,7 @@
               "recordedAt": {
                 "type": "string",
                 "format": "date-time",
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
               }
             },
             "required": [
@@ -527,6 +555,19 @@
           "summary": {
             "type": "string",
             "minLength": 1
+          },
+          "aiWrittenFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "summary",
+                "risks",
+                "opportunities",
+                "recommendedActions",
+                "openQuestions"
+              ]
+            }
           },
           "trajectory": {
             "type": "string",
@@ -713,6 +754,17 @@
           "reasoning": {
             "type": "string"
           },
+          "aiWrittenFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "choice",
+                "rationale",
+                "reasoning"
+              ]
+            }
+          },
           "outcome": {
             "type": "string",
             "enum": [
@@ -764,13 +816,9 @@
             "type": "string"
           },
           "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "boolean"
-              }
+            "type": [
+              "string",
+              "boolean"
             ]
           }
         },
@@ -780,16 +828,10 @@
             "type": "string"
           },
           "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "boolean"
-              }
+            "type": [
+              "number",
+              "string",
+              "boolean"
             ]
           }
         },
@@ -799,16 +841,10 @@
             "type": "string"
           },
           "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "string"
-              },
-              {
-                "type": "boolean"
-              }
+            "type": [
+              "number",
+              "string",
+              "boolean"
             ]
           }
         },
@@ -825,19 +861,144 @@
       ],
       "additionalProperties": false
     },
+    "finalSwarm": {
+      "type": "object",
+      "properties": {
+        "turn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "time": {
+          "type": "number"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "department": {
+                "type": "string",
+                "minLength": 1
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rank": {
+                "type": "string",
+                "enum": [
+                  "junior",
+                  "senior",
+                  "lead",
+                  "chief"
+                ]
+              },
+              "alive": {
+                "type": "boolean"
+              },
+              "marsborn": {
+                "type": "boolean"
+              },
+              "psychScore": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "age": {
+                "type": "number",
+                "minimum": 0
+              },
+              "generation": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "partnerId": {
+                "type": "string"
+              },
+              "childrenIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "featured": {
+                "type": "boolean"
+              },
+              "mood": {
+                "type": "string"
+              },
+              "shortTermMemory": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "agentId",
+              "name",
+              "department",
+              "role",
+              "alive"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "population": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "morale": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "births": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "deaths": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "scenarioExtensions": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "turn",
+        "time",
+        "agents",
+        "population"
+      ],
+      "additionalProperties": false
+    },
     "fingerprint": {
       "type": "object",
       "propertyNames": {
         "type": "string"
       },
       "additionalProperties": {
-        "anyOf": [
-          {
-            "type": "number"
-          },
-          {
-            "type": "string"
-          }
+        "type": [
+          "number",
+          "string"
         ]
       }
     },

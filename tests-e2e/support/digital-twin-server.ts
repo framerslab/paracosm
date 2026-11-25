@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
 import { createNoopRunHistoryStore } from '../../src/server/stores/run-history.js';
 import type { WorldModel } from '../../src/runtime/world-model/index.js';
-import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, type TwinEvent } from './digital-twin-run.js';
+import { TWIN_ENGINE_ERROR, TWIN_ENGINE_FAILS, TWIN_ENGINE_FALLBACK, TWIN_ENGINE_SLOW, twinArtifact, twinEvents, type TwinEvent } from './digital-twin-run.js';
 
 const scenario = JSON.parse(readFileSync(new URL('../../scenarios/t2d-glp1-protocol.json', import.meta.url), 'utf-8')) as unknown;
 
@@ -52,6 +52,14 @@ const world = {
       throw new Error(TWIN_ENGINE_ERROR);
     }
     const gapMs = subject.id === TWIN_ENGINE_SLOW ? 150 : 5;
+    if (subject.id === TWIN_ENGINE_FALLBACK) {
+      const firstTurnEnds = events.findIndex(event => event.type === 'turn_done') + 1;
+      events.splice(firstTurnEnds, 0, {
+        type: 'validation_fallback',
+        leader: actor.name,
+        data: { site: 'commander:turn1:event1', schemaName: 'CommanderDecision', rawTextPreview: '{}', error: 'Validation failed after 3 attempts' },
+      });
+    }
     for (const event of events) {
       onEvent?.(event);
       await new Promise(resolve => setTimeout(resolve, gapMs));

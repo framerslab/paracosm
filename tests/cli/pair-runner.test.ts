@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { judgeCohort, judgePair, type JudgedRun } from '../../src/cli/pair-runner.js';
 import { loadDiskCustomScenarios } from '../../src/cli/custom-scenarios.js';
@@ -420,6 +421,7 @@ test('the mortality line counts the deaths in the run\'s event log', async () =>
 
 test('a run that forged and cited nothing says zero, though its artifact drops the empty lists', async () => {
   const artifact = buildRunArtifact({
+    provenance: { aiGenerated: true, generator: 'paracosm', models: {} },
     runId: 'atlas-empty',
     scenarioId: 'atlas-lab',
     scenarioName: 'Atlas Lab',
@@ -698,3 +700,112 @@ for (const kind of ['pair', 'fork'] as const) {
     }
   });
 }
+
+/** The frames a fork writes when the engine returns an artifact with these fields. No provider is called. */
+async function forkFramesFor(outcome: Record<string, unknown>): Promise<Array<{ event: string; data: any }>> {
+  const { runForkSimulation } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const snapshot = { snapshotVersion: 1, scenarioId: marsScenario.id, turn: 1, state: {}, rngState: 1, seed: 950, startTime: 2035, time: 2036 };
+  const parent = { metadata: { runId: 'parent' }, scenarioExtensions: { kernelSnapshotsPerTurn: [snapshot] } };
+  const config = normalizeSimulationConfig({
+    actors: marsScenario.presets[0].leaders.slice(0, 1), turns: 2, captureSnapshots: true,
+    forkFrom: { parentArtifact: parent, atTurn: 1 },
+  } as any, marsScenario);
+  const artifact = {
+    metadata: { runId: 'child', forkedFrom: { parentRunId: 'parent', atTurn: 1 } },
+    finalState: { metrics: {} }, citations: [], fingerprint: null,
+    scenarioExtensions: { outputPath: '/tmp/fork-output.json', kernelSnapshotsPerTurn: [snapshot] },
+    ...outcome,
+  } as any;
+  const { events, broadcast } = captureBroadcast();
+  await (runForkSimulation as (...args: any[]) => Promise<void>)(
+    config, broadcast, undefined, marsScenario, undefined, {}, async () => artifact,
+  );
+  return events;
+}
+
+for (const [cut, outcome] of [
+  ['a stop', { aborted: true }],
+  ['a terminal provider error', { providerError: { kind: 'quota', provider: 'openai', message: 'The account is out of credit.' } }],
+] as const) {
+  test(`a fork cut short by ${cut} ends as aborted`, async () => {
+    // The engine returns a cut run's artifact instead of throwing, and a pair
+    // ends such a run with `complete {aborted: true}`. A fork ended it as a
+    // finished run, so its page announced a completed simulation.
+    const complete = (await forkFramesFor(outcome)).filter(frame => frame.event === 'complete');
+    assert.equal(complete.length, 1);
+    assert.equal(complete[0].data.fork, true);
+    assert.equal(complete[0].data.aborted, true, 'the fork ends as aborted');
+  });
+}
+
+test('a fork that ran every turn ends as a finished fork', async () => {
+  const complete = (await forkFramesFor({})).filter(frame => frame.event === 'complete');
+  assert.equal(complete.length, 1);
+  assert.equal(complete[0].data.fork, true);
+  assert.equal(complete[0].data.aborted, undefined);
+});
+
+test('pair, cohort and fork persist every actor’s resolved model roles', async () => {
+  const { runPairSimulations, runBatchSimulations, runForkSimulation } = await import('../../src/cli/pair-runner.js');
+  const { normalizeSimulationConfig } = await import('../../src/cli/sim-config.js');
+  const { withStubOpenAi } = await import('../runtime/helpers/stub-openai-transport.js');
+  const { runMarsWithStubModel } = await import('../runtime/helpers/stub-model-mars-run.js');
+  const { artifact: parentArtifact } = await runMarsWithStubModel({ writeOutputFile: false });
+  const models = {
+    commander: 'gpt-4o', departments: 'gpt-4o-mini', judge: 'gpt-4o-mini',
+    director: 'gpt-4o', agentReactions: 'gpt-4o-mini',
+  };
+  const provenance = { aiGenerated: true, generator: 'paracosm', models };
+  const leaders = marsScenario.presets[0].leaders;
+  const actors = [...leaders.slice(0, 2), { ...leaders[0], name: 'Cohort leader', archetype: 'Cohort observer' }];
+  const outputDir = mkdtempSync(join(tmpdir(), 'paracosm-pair-role-artifacts-'));
+  try {
+    await withStubOpenAi(() => '{}', async () => {
+      for (const kind of ['pair', 'cohort', 'fork'] as const) {
+        const selected = kind === 'pair' ? actors.slice(0, 2) : kind === 'fork' ? actors.slice(0, 1) : actors;
+        const config = {
+          ...normalizeSimulationConfig({
+            actors: selected,
+            turns: 2,
+            seed: 950,
+            population: 30,
+            liveSearch: false,
+            captureSnapshots: false,
+            provider: 'openai',
+            ...(kind === 'fork' ? { forkFrom: { parentArtifact, atTurn: 1 } } : {}),
+          }, marsScenario),
+          apiKey: 'placeholder-key-for-a-test',
+          models,
+        };
+        const { events, broadcast } = captureBroadcast();
+        const artifacts: Array<{ name: string; artifact: typeof parentArtifact }> = [];
+        const record = (artifact: typeof parentArtifact, actor: { name: string }) => {
+          artifacts.push({ name: actor.name, artifact });
+        };
+        if (kind === 'cohort') {
+          await runBatchSimulations(config, broadcast, undefined, marsScenario, record, undefined, { outputDir });
+        } else {
+          const run = kind === 'pair' ? runPairSimulations : runForkSimulation;
+          await run(config, broadcast, undefined, marsScenario, record, { outputDir });
+        }
+        assert.deepEqual(artifacts.map(entry => entry.name).sort(), selected.map(actor => actor.name).sort());
+        for (const { artifact } of artifacts) {
+          assert.deepEqual(artifact.provenance, provenance);
+          const path = artifact.scenarioExtensions?.outputPath;
+          assert.equal(typeof path, 'string');
+          const stored = JSON.parse(readFileSync(String(path), 'utf8')) as typeof artifact;
+          assert.deepEqual(stored.provenance, provenance);
+        }
+        const results = events.filter(event => event.event === 'result');
+        assert.equal(results.length, selected.length);
+        for (const result of results) {
+          if (kind === 'fork') assert.deepEqual(result.data.artifact.provenance, provenance);
+          else assert.equal(result.data.artifact, undefined);
+        }
+      }
+    });
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
+});

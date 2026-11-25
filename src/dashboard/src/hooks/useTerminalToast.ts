@@ -36,7 +36,6 @@ export interface UseTerminalToastOptions {
   resultsCount: number;
   hasVerdict: boolean;
   replayDone: boolean;
-  tourActive: boolean;
   /** True when the page launched this run or received its hand-off. */
   userTriggeredRun: boolean;
   /**
@@ -56,7 +55,6 @@ export function useTerminalToast({
   resultsCount,
   hasVerdict,
   replayDone,
-  tourActive,
   userTriggeredRun,
   verdict,
 }: UseTerminalToastOptions): void {
@@ -66,7 +64,7 @@ export function useTerminalToast({
   // are written.
   const finishOwnerRef = useRef<NoticeOwner<string> | null>(null);
   const verdictOwnerRef = useRef<NoticeOwner<Record<string, unknown> | null> | null>(null);
-  const finish = finishSignal(isComplete, isAborted, resultsCount);
+  const finish = JSON.stringify([runKey, finishSignal(isComplete, isAborted, resultsCount)]);
   const heldVerdict = verdict ?? null;
   useEffect(() => {
     finishOwnerRef.current = noticeOwner(finishOwnerRef.current, finish, runKey);
@@ -74,7 +72,6 @@ export function useTerminalToast({
   }, [finish, heldVerdict, runKey]);
 
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!isComplete && !isAborted) return;
     if (!replayDone) return;
@@ -93,7 +90,7 @@ export function useTerminalToast({
     } else {
       toast('success', 'Simulation complete', 'Open the Reports tab for the verdict + full breakdown.');
     }
-  }, [runKey, isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [runKey, isComplete, isAborted, abortReason, resultsCount, hasVerdict, replayDone, userTriggeredRun, toast]);
 
   // Verdict toast — separate effect so the winner announcement fires
   // even when the verdict arrives a beat AFTER the terminal toast
@@ -101,7 +98,6 @@ export function useTerminalToast({
   // so the gap can be 5-30s). Fingerprinted independently so the two
   // toasts don't clobber each other's dedup.
   useEffect(() => {
-    if (tourActive) return;
     if (!userTriggeredRun) return;
     if (!verdict || typeof verdict !== 'object') return;
     if (!replayDone) return;
@@ -114,6 +110,8 @@ export function useTerminalToast({
       // Skipped-verdict toast — explains the missing banner so users
       // don't refresh the page assuming something hung.
       const reason = String((verdict as { reason?: unknown }).reason || 'unknown');
+      // A single-actor fork already announces completion through the terminal notice.
+      if (reason === 'single_actor_fork') return;
       const fingerprint = judgedRunKey ?? `skipped:${reason}`;
       try {
         if (sessionStorage.getItem(VERDICT_STORAGE_KEY) === fingerprint) return;
@@ -159,5 +157,5 @@ export function useTerminalToast({
       : (isTie ? 'Verdict: tie' : `${winnerName} wins`);
     const body = headline || 'Click the verdict banner for the full breakdown.';
     toast('success', title, body);
-  }, [runKey, verdict, replayDone, tourActive, userTriggeredRun, toast]);
+  }, [runKey, verdict, replayDone, userTriggeredRun, toast]);
 }

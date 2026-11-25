@@ -23,6 +23,7 @@ import {
 } from '../../hooks/useLastLaunchConfig';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { emitLaunched, markRunLaunchHandoff } from '../../scenario-sync';
+import { visitorKeyTransportError } from '../settings/sessionProviderKeys';
 import styles from './RerunPanel.module.scss';
 
 interface RerunPanelProps {
@@ -33,12 +34,14 @@ interface RerunPanelProps {
 
 export function RerunPanel({ enabled = true }: RerunPanelProps) {
   const [launching, setLaunching] = useState(false);
+  const [transportNotice, setTransportNotice] = useState<string>();
   const scenario = useScenarioContext();
   const scenarioReady = useScenarioReady();
   const runStart = useRunStart();
 
   const handleClick = useCallback(async () => {
     if (launching || !scenarioReady) return;
+    setTransportNotice(undefined);
     setLaunching(true);
     try {
       const prev = readLastLaunchConfig(window.localStorage);
@@ -48,6 +51,11 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
       }
       const overrides = readTabKeyOverrides();
       const next = buildNextRunConfig(prev, overrides);
+      const transportError = visitorKeyTransportError(next);
+      if (transportError) {
+        setTransportNotice(transportError);
+        return;
+      }
       const res = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,8 +123,8 @@ export function RerunPanel({ enabled = true }: RerunPanelProps) {
   return (
     <div className={styles.panel}>
       <span className={styles.label}>Re-run</span>
-      <span className={styles.copy}>
-        Spin up a new run with the same leaders + scenario, seed bumped by one.
+      <span className={styles.copy} role={transportNotice ? 'alert' : undefined}>
+        {transportNotice ?? 'Spin up a new run with the same leaders + scenario, seed bumped by one.'}
       </span>
       <button
         type="button"

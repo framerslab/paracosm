@@ -1,5 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
+import { networkInterfaces } from 'node:os';
+import { openTab } from '../support/frame.js';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import { mars, settingsBody } from '../../tests/cli/helpers/run-server.js';
+import { pressStart } from '../support/start-run.js';
 
 const RUN_SERVER = 'http://127.0.0.1:3470';
 const CONSENT_SERVER = 'http://127.0.0.1:3464';
@@ -77,7 +80,7 @@ test('the first dashboard load moves an old model and search key to tab storage'
   await expect(page.getByTestId('note-adults')).toBeAttached();
   await expect.poll(() => stores(page)).toEqual({ local: null, session: old });
   expect(await savedLaunch(page)).toEqual(settingsBody(mars));
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await openTab(page, 'settings');
   await expect(field(page, 'openai')).toHaveValue(MARKER);
   await expect(field(page, 'tavily')).toHaveValue(SEARCH_MARKER);
 });
@@ -206,7 +209,7 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await expect(note.getByText(TEACHERS, { exact: true })).toBeVisible();
 
   await note.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'CHAT', exact: true }).click();
+  await openTab(page, 'chat');
   await expect(page.getByText('Start your own run to chat with its characters.', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Agent chat', exact: true })).toHaveCount(0);
   expect(chats).toEqual([]);
@@ -220,4 +223,171 @@ async function openShareNote(page: Page) {
   await expect(page.getByRole('status').filter({ hasText: /^REPLAYING/i })).toBeVisible();
   await page.getByRole('button', { name: 'Open run actions menu' }).click();
   await page.getByRole('menuitem', { name: /Share viz link/ }).click();
+}
+
+// A scripted-runner server these tests have to themselves (playwright.config.ts): the runs they start take no place
+// on the server the run-per-visitor spec fills to its cap.
+const SCRIPTED_SERVER_PORT = 3475;
+const VISITOR_KEY = 'sk-test-0000';
+const REFUSAL = 'Send API keys over HTTPS, or use a dashboard on this computer.';
+
+function networkDashboard(): string {
+  const address = Object.values(networkInterfaces()).flat().find(entry => entry?.family === 'IPv4' && !entry.internal);
+  if (!address) throw new Error('The visitor-key browser test needs a non-loopback IPv4 address.');
+  return `http://${address.address}:${SCRIPTED_SERVER_PORT}`;
+}
+
+function recordRequests(page: Page): Request[] {
+  const requests: Request[] = [];
+  page.on('request', request => requests.push(request));
+  return requests;
+}
+
+function expectNoVisitorKey(requests: Request[]): void {
+  const matchingPaths = requests
+    .filter(request => request.postData()?.includes(VISITOR_KEY))
+    .map(request => new URL(request.url()).pathname);
+  expect(matchingPaths).toEqual([]);
+}
+
+const againButton = (page: Page) => page.getByRole('button', { name: /Run again with seed/ });
+const chatRegion = (page: Page) => page.getByRole('region', { name: 'Agent chat' });
+
+async function enterVisitorKey(page: Page): Promise<void> {
+  await openTab(page, 'settings');
+  await field(page, 'openai').fill(VISITOR_KEY);
+}
+
+async function saveLastLaunch(page: Page): Promise<void> {
+  // Run again uses the saved Settings launch, which Start does not write.
+  await page.evaluate(({ slot, launch }) => localStorage.setItem(slot, launch),
+    { slot: LAST_LAUNCH, launch: JSON.stringify(settingsBody(mars)) });
+}
+
+async function typeChat(page: Page): Promise<void> {
+  await openTab(page, 'chat');
+  await chatRegion(page).getByRole('button', { name: /Lena Ortiz/ }).first().click();
+  await chatRegion(page).getByRole('textbox', { name: 'Message Lena Ortiz' }).fill('How is the greenhouse?');
+}
+
+test('network HTTP keeps the visitor key in Settings through Start, Run again and chat', async ({ page }) => {
+  const requests = recordRequests(page);
+  await page.goto(`${networkDashboard()}/sim?tab=sim`);
+  expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+
+  // A search field that holds only spaces is no key to the server, so it
+  // holds no run back here either.
+  await openTab(page, 'settings');
+  await field(page, 'serper').fill('   ');
+
+  // Make a finished Mars Genesis run without a visitor key, using the real
+  // scenario and /setup. That supplies both Run again and the Chat roster.
+  await pressStart(page);
+  await expect(againButton(page)).toBeEnabled();
+  await enterVisitorKey(page);
+  await saveLastLaunch(page);
+  const settingsRefusal = keyGroup(page).getByText(REFUSAL, { exact: true });
+  await expect.soft(settingsRefusal).toBeVisible();
+
+  await typeChat(page);
+  await chatRegion(page).getByRole('button', { name: 'Send', exact: true }).click();
+  await expect.soft(chatRegion(page).getByText(REFUSAL, { exact: true })).toBeVisible();
+
+  await openTab(page, 'sim');
+  await againButton(page).click();
+  await expect.soft(againButton(page).locator('..').getByText(REFUSAL, { exact: true })).toBeVisible();
+
+  await pressStart(page);
+  await expect.soft(page.getByTestId('start-band').getByText(REFUSAL, { exact: true })).toBeVisible();
+  await openTab(page, 'settings');
+  await expect(field(page, 'openai')).toHaveValue(VISITOR_KEY);
+  expectNoVisitorKey(requests);
+});
+
+test('loopback HTTP still sends the visitor key on Start, Run again and chat', async ({ page }) => {
+  const requests = recordRequests(page);
+  // Keep the browser's real chat request and answer without calling a model.
+  await page.route('**/chat', route => route.fulfill({ json: { reply: 'The greenhouse is open.' } }));
+  await page.goto(`http://localhost:${SCRIPTED_SERVER_PORT}/sim?tab=sim`);
+  expect(await page.evaluate(() => window.isSecureContext)).toBe(true);
+  await enterVisitorKey(page);
+  await saveLastLaunch(page);
+  await expect(keyGroup(page).getByText(REFUSAL, { exact: true })).toHaveCount(0);
+
+  await pressStart(page);
+  await expect(againButton(page)).toBeEnabled();
+  const rerun = page.waitForResponse(response => new URL(response.url()).pathname === '/setup');
+  const loaded = page.waitForEvent('load');
+  await againButton(page).click();
+  expect((await rerun).ok()).toBe(true);
+  await loaded;
+  await expect(againButton(page)).toBeEnabled();
+
+  await typeChat(page);
+  await chatRegion(page).getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(chatRegion(page).getByText('The greenhouse is open.')).toBeVisible();
+
+  const keyRequests = requests.filter(request => request.postData()?.includes(VISITOR_KEY));
+  expect(keyRequests.map(request => new URL(request.url()).pathname)).toEqual(['/setup', '/setup', '/chat']);
+  for (const request of keyRequests) expect(request.postDataJSON()).toMatchObject({ apiKey: VISITOR_KEY });
+});
+
+test('a key forgotten while a Digital Twin run waits on its reset never reaches that run', async ({ page }) => {
+  // The twin run's own answer is not under test: the request's body is.
+  const twinBodies: string[] = [];
+  await page.route('**/api/quickstart/simulate-intervention', route => {
+    twinBodies.push(route.request().postData() ?? '');
+    return route.fulfill({ status: 500, json: { error: 'The twin run is not under test here.' } });
+  });
+  await page.goto(`http://localhost:${SCRIPTED_SERVER_PORT}/sim?tab=settings`);
+  await field(page, 'openai').fill(VISITOR_KEY);
+  await field(page, 'openai').blur();
+  await expect.poll(async () => (await stores(page)).session ?? '').toContain(VISITOR_KEY);
+  await page.goto(`http://localhost:${SCRIPTED_SERVER_PORT}/sim?tab=quickstart`);
+
+  // Hold the reset's /clear, which the card awaits before it posts the run.
+  let releaseClear = () => {};
+  const clearHeld = new Promise<void>(resolve => { releaseClear = resolve; });
+  let clearSeen = () => {};
+  const clearArrived = new Promise<void>(resolve => { clearSeen = resolve; });
+  await page.route('**/clear', async route => {
+    clearSeen();
+    await clearHeld;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Patient · treatment' }).click();
+  await page.getByRole('button', { name: 'Run digital twin' }).click();
+  await clearArrived;
+
+  await openTab(page, 'settings');
+  await page.getByRole('button', { name: 'Forget my keys', exact: true }).click();
+  await expect.poll(async () => (await stores(page)).session ?? '').not.toContain(VISITOR_KEY);
+  releaseClear();
+
+  await expect.poll(() => twinBodies.length).toBe(1);
+  expect(twinBodies[0]).not.toContain(VISITOR_KEY);
+});
+
+for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+  for (const look of ['dark', 'light'] as const) {
+    test(`network HTTP key notice at ${viewport.width} in ${look}`, async ({ page }, testInfo) => {
+      // Every project would write the same four files, so one project takes the pictures.
+      test.skip(testInfo.project.name !== 'chromium-desktop', 'The desktop project takes the pictures.');
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
+      await page.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
+      await page.goto(`${networkDashboard()}/sim?tab=settings`);
+      const settings = keyGroup(page);
+      await expect(settings.getByText(REFUSAL, { exact: true })).toBeVisible();
+      // Give the Settings scroll pane enough height to capture the whole fieldset.
+      const height = await settings.evaluate(el => Math.ceil(el.getBoundingClientRect().height));
+      await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, height + 240) });
+      await settings.scrollIntoViewIfNeeded();
+      await expect(settings).toBeInViewport({ ratio: 0.99 });
+      await settings.screenshot({
+        path: `test-pictures/keys-secure-context/${viewport.width}-${look}.png`,
+        animations: 'disabled',
+      });
+    });
+  }
 }

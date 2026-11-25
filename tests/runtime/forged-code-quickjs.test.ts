@@ -92,9 +92,17 @@ test('a forged tool that allocates past the memory cap fails its forge, whatever
   const out = spawnSync(
     process.execPath,
     ['--import', 'tsx', '--import', './scripts/test-css-stub.mjs', PROBE, JSON.stringify({ setup: SETUP, forges: [ALLOCATES_PAST_THE_CAP, SUMS] })],
-    { cwd: ROOT, encoding: 'utf8', timeout: 90_000, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024 },
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+      // The probe writes its results to fd 3. AgentOS logs to stdout.
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+      timeout: 90_000,
+      killSignal: 'SIGKILL',
+      maxBuffer: 16 * 1024 * 1024,
+    },
   );
-  const lines = (out.stdout ?? '').split('\n').filter(Boolean);
+  const lines = (out.output[3] ?? '').split('\n').filter(Boolean);
   const parsed = lines.map((line) => {
     try {
       return JSON.parse(line) as { ended?: string; success?: boolean; statuses?: string[] };

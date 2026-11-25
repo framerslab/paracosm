@@ -115,9 +115,12 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
     void load();
   }, [load]);
 
-  // After a row's reload, the new scenario's name is read: focus goes to the page's heading once it shows.
+  // The heading appears after both the scenario and payer are known.
+  // Keep the focus request while the new scenario still draws a loading shape.
   useEffect(() => {
     if (!scenarioReady) return;
+    const heading = document.querySelector<HTMLElement>('[data-testid="run-first-screen"] h1');
+    if (!heading) return;
     let asked = false;
     try {
       asked = sessionStorage.getItem(FOCUS_HEADING_KEY) === '1';
@@ -126,11 +129,9 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
       return;
     }
     if (!asked) return;
-    const heading = document.querySelector<HTMLElement>('[data-testid="run-first-screen"] h1');
-    if (!heading) return;
     heading.setAttribute('tabindex', '-1');
     heading.focus();
-  }, [scenarioReady]);
+  }, [scenarioReady, facts.adminConfig.status]);
 
   const who = payer(facts, readLaunchSettings(safeLocalStorage()).overrides);
   const payerKnown = who === 'own' || facts.adminConfig.status === 'ready';

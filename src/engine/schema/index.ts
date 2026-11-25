@@ -27,6 +27,7 @@ export {
   DecisionOutcomeSchema,
   // Content primitives
   RunMetadataSchema,
+  RunProvenanceSchema,
   WorldSnapshotSchema,
   ScoreSchema,
   HighlightMetricSchema,
@@ -52,6 +53,7 @@ export {
 } from './primitives.js';
 
 export { RunArtifactSchema, ForgedToolSummarySchema } from './artifact.js';
+export { makeRunProvenance } from './provenance.js';
 
 export { StreamEventSchema, STREAM_EVENT_TYPES } from './stream.js';
 export type { StreamEventType } from './stream.js';
@@ -64,6 +66,7 @@ export type {
   ScenarioExtensions,
   SimulationMode,
   RunMetadata,
+  RunProvenance,
   WorldSnapshot,
   Score,
   HighlightMetric,

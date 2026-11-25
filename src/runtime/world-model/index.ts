@@ -48,7 +48,7 @@ import {
 } from '../swarm/index.js';
 import type { KernelSnapshot } from '../../engine/core/snapshot.js';
 import { z } from 'zod';
-import { generateValidatedObject } from '../../llm/generateValidatedObject.js';
+import { generateValidatedObject, type ValidatedObjectOptions } from '../../llm/generateValidatedObject.js';
 
 /**
  * Options accepted by {@link WorldModel.simulate}. Identical to
@@ -751,6 +751,7 @@ export async function generateQuickstartActors(
     apiKey?: string;
     /** Keep the call on `provider`: no fallback to another provider. */
     stayOnProvider?: boolean;
+    generateObjectImpl?: ValidatedObjectOptions<typeof QuickstartActorsSchema>['_generateObjectImpl'];
   } = {},
 ): Promise<ActorConfig[]> {
   const provider = opts.provider ?? 'anthropic';
@@ -778,8 +779,15 @@ Generate exactly ${count} archetypal actors. Each one makes recognizably differe
     maxRetries: 1,
     apiKey: opts.apiKey,
     stayOnProvider: opts.stayOnProvider,
+    _generateObjectImpl: opts.generateObjectImpl,
   });
 
   // The leaders asked for, never more.
-  return (result.object.actors as ActorConfig[]).slice(0, count);
+  return (result.object.actors as ActorConfig[]).slice(0, count).map(actor => result.fromFallback ? actor : ({
+    ...actor,
+    aiAuthorship: {
+      model: result.model ?? model,
+      fields: ['name', 'archetype', 'unit', 'hexaco', 'instructions'],
+    },
+  }));
 }

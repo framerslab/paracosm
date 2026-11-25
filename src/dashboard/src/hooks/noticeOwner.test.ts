@@ -7,7 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finishSignal, noticeOwner, type NoticeOwner } from './noticeOwner';
+import { finishSignal, noticeOwner, saveNoticeFingerprint, type NoticeOwner } from './noticeOwner';
 
 /** The run each step's state belongs to, as a page that passes through the steps keeps it. */
 function ownersOf<T>(steps: ReadonlyArray<readonly [state: T, heldRunKey: string | null]>): Array<string | null> {
@@ -64,4 +64,14 @@ test('the next run owns its verdict, the same words included', () => {
     [{ ...words }, 'second'], // and ends on the same winner and headline
   ]);
   assert.deepEqual(owners, ['first', 'second', 'second']);
+});
+
+test('each run records its own save notice, a failed save included', () => {
+  // The server's failed frame names no id and no reason, so two runs' failed saves read alike.
+  const failed = { status: 'failed', error: 'The disk is full.' };
+  assert.notEqual(saveNoticeFingerprint('first', failed), saveNoticeFingerprint('second', failed));
+  // A reconnect replays the same frame under the same run: one notice.
+  assert.equal(saveNoticeFingerprint('first', failed), saveNoticeFingerprint('first', { ...failed }));
+  // One run's outcomes stay apart: a save that failed, then one that landed.
+  assert.notEqual(saveNoticeFingerprint('first', failed), saveNoticeFingerprint('first', { status: 'saved', id: 'a1b2' }));
 });

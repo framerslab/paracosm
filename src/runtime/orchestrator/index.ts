@@ -3,10 +3,13 @@ import { fillInstructions } from '../../engine/presets/fill-instructions.js';
 import type { ActorInput } from '../../engine/types.js';
 import { writeRunOutput } from '../io/output-writer.js';
 import { buildRunArtifact } from '../io/build-artifact.js';
+import { makeRunProvenance } from '../../engine/schema/provenance.js';
+import { hookSourcesOf } from '../../engine/compiler/hook-sources.js';
 import type {
   Decision,
   InterventionConfig,
   RunArtifact,
+  RunProvenance,
   SubjectConfig,
 } from '../../engine/schema/index.js';
 import type { ITool } from '@framers/agentos';
@@ -69,17 +72,14 @@ import type { ScenarioPackage } from '../../engine/types.js';
 import type { LlmProvider, ScenarioLabels, SimulationModelConfig } from '../../engine/types.js';
 import {
   DEFAULT_EXECUTION,
-  resolveSimulationModels,
+  resolveSimulationRouting,
   type CostPreset,
   type SimulationExecutionConfig,
   type StartingPolitics,
   type StartingResources,
 } from '../../cli/sim-config.js';
-import { resolveProviderWithFallback } from '../../engine/provider/resolver.js';
 import {
-  apiKeyForProvider,
   fallbackProvidersFor,
-  resolveProviderFromCredentials,
   type RuntimeCredentialOptions,
 } from '../../engine/provider/credentials.js';
 import { applyCustomEventToCrisis, buildTimeSchedule } from '../util/runtime-helpers.js';
@@ -130,6 +130,10 @@ export interface SimEventCostPayload {
  * events, degraded vs healthy paths, etc.). Adding a new field to a
  * payload is non-breaking; removing or renaming one is.
  */
+type EventAuthorship = Array<'title' | 'description' | 'turnSummary'>;
+type DecisionAuthorship = Array<'decision' | 'rationale' | 'reasoning'>;
+type ReportAuthorship = Array<'summary' | 'risks' | 'opportunities' | 'recommendedActions' | 'openQuestions'>;
+
 export interface SimEventPayloadMap {
   /** Fires once at the start of every turn. Title/crisis carry the first event's headline when `totalEvents > 0`. */
   turn_start: {
@@ -143,6 +147,7 @@ export interface SimEventPayloadMap {
     turnSummary?: string;
     totalEvents?: number;
     pacing?: unknown;
+    aiWrittenFields?: EventAuthorship;
   };
   /** Fires before each event within a turn. One turn can carry multiple events (up to `maxEventsPerTurn`). */
   event_start: {
@@ -154,6 +159,7 @@ export interface SimEventPayloadMap {
     emergent?: boolean;
     turnSummary?: string;
     pacing?: unknown;
+    aiWrittenFields?: EventAuthorship;
   };
   /** Department agent starts analyzing an event. `department` is the scenario-defined id. */
   specialist_start: { department: string; eventIndex: number };
@@ -167,6 +173,7 @@ export interface SimEventPayloadMap {
     risks: string[];
     forgedTools: unknown[];
     recommendedActions?: string[];
+    aiWrittenFields?: ReportAuthorship;
   };
   /** A department tried to forge a runtime tool. `approved` reflects the LLM-judge verdict. */
   forge_attempt: {
@@ -190,6 +197,7 @@ export interface SimEventPayloadMap {
     rationale: string;
     reasoning: string;
     selectedPolicies: unknown[];
+    aiWrittenFields?: DecisionAuthorship;
     selectedOptionId?: string;
     eventIndex: number;
   };
@@ -289,6 +297,7 @@ export type SimEvent = {
     leader: string;
     turn?: number;
     time?: number;
+    provenance?: RunProvenance;
     data: SimEventPayloadMap[K] & SimEventCostPayload;
   };
 }[SimEventType];
@@ -547,20 +556,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // values back. Either way, every `.hexaco.X` read below is safe.
   const leaderHexaco: HexacoProfile = leader.hexaco ?? traitsToHexaco(normalized.traitProfile.traits);
   const timePerTurn = opts.timePerTurn ?? opts.scenario?.setup?.defaultTimePerTurn ?? 1;
-  const requestedProvider = resolveProviderFromCredentials(opts.provider, opts, 'openai');
-  const requestedProviderApiKey = apiKeyForProvider(requestedProvider, opts);
-  // Preflight env check. Falls back to the other supported provider if
-  // the requested one has no key; throws ProviderKeyMissingError when
-  // neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set, rather than
-  // hanging in a retry loop during the first LLM call. A run that stays on
-  // its provider (`stayOnProvider`, the hosted demo) never moves to another
-  // provider's key: its provider's missing key throws instead.
-  const resolvedProvider = resolveProviderWithFallback(requestedProvider, {
-    apiKey: requestedProviderApiKey,
-    stayOnProvider: opts.stayOnProvider,
-  });
-  const provider = resolvedProvider.provider;
-  const providerApiKey = apiKeyForProvider(provider, opts);
+  const { provider, apiKey: providerApiKey, models: modelConfig } = resolveSimulationRouting(opts);
   // The fallback chain every model call of the run passes AgentOS: none on
   // the run's own key or when the run stays on its provider.
   const callFallbackProviders = fallbackProvidersFor(providerApiKey, opts.stayOnProvider);
@@ -569,7 +565,16 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     || (typeof leader.name === 'string' ? leader.name : '').toLowerCase().replace(/\s+/g, '-')
     || 'leader';
   const sid = `${sc.labels.shortName}-v2-${archetypeSlug}`;
-  const modelConfig = resolveSimulationModels(provider, opts.models, opts.costPreset);
+  // A compiled scenario's milestone events are text its compiler model
+  // wrote; a scenario's own milestones, and a compile that left the hook on
+  // its fallback, record no milestones source.
+  const compiledSources = hookSourcesOf(sc);
+  const compiledMilestones = compiledSources?.hooks.milestones ? compiledSources : undefined;
+  const provenance = makeRunProvenance({
+    ...modelConfig,
+    ...(leader.aiAuthorship?.fields.length ? { leaderWriter: leader.aiAuthorship.model } : {}),
+    ...(compiledMilestones ? { compiler: compiledMilestones.model } : {}),
+  });
   // Cost tracking: accumulate token usage and estimated cost across all LLM calls
   // Cost tracker: per-site buckets + cache-aware fallback estimation.
   // Lives in cost-tracker.ts so the math has one home and the turn loop
@@ -593,6 +598,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   // having to type-narrow or know which fields carry a title — the
   // exact pain point that produced the "undefined" spam in casual
   // examples before this was wired up.
+  let firstEvent = true;
   const emit = (type: SimEventType, data?: Record<string, unknown>) => {
     const merged: Record<string, unknown> = {
       ...data,
@@ -603,9 +609,12 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     // Record-typed data bag that doesn't structurally match the narrow
     // per-event payload interfaces; we guarantee the shape via the
     // emit() call-sites in the orchestrator, so the double-cast is safe.
+    const opening = firstEvent;
+    firstEvent = false;
     opts.onEvent?.({
       type,
       leader: leader.name,
+      ...(opening ? { provenance: { ...provenance, models: { ...provenance.models } } } : {}),
       data: merged,
     } as unknown as SimEvent);
   };
@@ -1009,7 +1018,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
   const allCommanderDecisions: Array<{ turn: number; time: number; eventIndex: number; eventTitle: string; decision: CommanderDecision; outcome: TurnOutcome; barCheck?: BarCheck }> = [];
   const allForges: Array<CapturedForge & { turn: number; time: number; eventIndex: number }> = [];
   const allAgentReactions: Array<{ turn: number; time: number; reactions: import('../agents/agent-reactions.js').AgentReaction[] }> = [];
-  const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent; pacing: string }> = [];
+  const allDirectorEvents: Array<{ turn: number; time: number; eventIndex: number; event: DirectorEvent & { aiWrittenFields?: EventAuthorship }; pacing: string }> = [];
   // Per-turn slots that fill during the inner event loop and then get
   // merged into TurnArtifact at the end of the turn.
   let turnPolicyLimited: NonNullable<TurnArtifact['policyEffectsLimited']> = [];
@@ -1095,6 +1104,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     const maxEvents = sc.setup.maxEventsPerTurn ?? 2;
     let turnEvents: DirectorEvent[];
     let batchPacing = 'normal';
+    // Whether a model wrote this turn's events: the director, or the
+    // compiler of a compiled scenario's milestones.
+    let eventsAuthored = false;
 
     const getMilestone = sc.hooks.getMilestoneEvent;
     const milestone = getMilestone?.(turn, maxTurns);
@@ -1115,6 +1127,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         ? (turn === 1 ? effectKeys[0] : effectKeys[effectKeys.length - 1])
         : milestone.category;
       turnEvents = [{ ...milestone, category: forcedCategory, description: (milestone as any).description || (milestone as any).crisis || '' } as DirectorEvent];
+      eventsAuthored = compiledMilestones !== undefined;
     } else {
       const preState = kernel.getState();
       const alive = preState.agents.filter(c => c.health.alive);
@@ -1173,7 +1186,10 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         // fallback events.
         (err) => reportProviderError(err, 'director'),
         // Feed per-schema retry telemetry.
-        (attempts, fellBack) => recordSchemaAttempt('DirectorEventBatch', attempts, fellBack),
+        (attempts, fellBack) => {
+          eventsAuthored = !fellBack;
+          recordSchemaAttempt('DirectorEventBatch', attempts, fellBack);
+        },
         providerApiKey,
         opts.stayOnProvider,
       );
@@ -1200,7 +1216,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     console.log(`  Turn ${turn}/${maxTurns}. ${TimeNoun} ${time}: ${turnEvents.length} event(s) [${milestone ? 'MILESTONE' : 'EMERGENT'}]`);
     console.log(`${'─'.repeat(50)}`);
 
-    emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing });
+    emit('turn_start', { turn, time, title: turnEvents[0]?.title || '', crisis: turnEvents[0]?.description?.slice(0, 200) || '', category: turnEvents[0]?.category || '', births, deaths, metrics: state.metrics, emergent: !milestone, turnSummary: turnEvents[0]?.turnSummary || '', totalEvents: turnEvents.length, pacing: batchPacing,
+      aiWrittenFields: eventsAuthored ? ['title', 'description', 'turnSummary'] : [],
+    });
 
     // ── Inner event loop ──────────────────────────────────────────────
     let reactions: import('../agents/agent-reactions.js').AgentReaction[] = [];
@@ -1218,14 +1236,18 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
 
     for (let ei = 0; ei < turnEvents.length; ei++) {
       try {
-      let event = applyCustomEventToCrisis(turnEvents[ei], opts.customEvents ?? [], turn);
+      const originalEvent = turnEvents[ei];
+      const event = applyCustomEventToCrisis(originalEvent, opts.customEvents ?? [], turn);
+      const aiWrittenFields: EventAuthorship = eventsAuthored ? ['title'] : [];
+      if (eventsAuthored && event.description === originalEvent.description) aiWrittenFields.push('description');
+      if (eventsAuthored && event.turnSummary === originalEvent.turnSummary) aiWrittenFields.push('turnSummary');
 
       // Update context so any forge_attempt SSE emitted during this event
       // (from inside parallel dept calls) is attributed to the right slot.
       currentEmitContext = { turn, time, eventIndex: ei };
 
       console.log(`  Event ${ei + 1}/${turnEvents.length}: ${event.title} (${event.category})`);
-      emit('event_start', { turn, time, eventIndex: ei, totalEvents: turnEvents.length, title: event.title, description: event.description?.slice(0, 200), category: event.category, emergent: !milestone, turnSummary: event.turnSummary, pacing: batchPacing });
+      emit('event_start', { turn, time, eventIndex: ei, totalEvents: turnEvents.length, title: event.title, description: event.description?.slice(0, 200), category: event.category, emergent: !milestone, turnSummary: event.turnSummary, pacing: batchPacing, aiWrittenFields });
       turnEventTitles.push(event.title);
 
       // Research
@@ -1323,7 +1345,9 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           // Cast schema-inferred result back to the legacy DepartmentReport
           // nominal type so downstream code (reports consumer, cost tracker,
           // citation plumbing) sees the same shape it always has.
-          const report = parsedDeptReport as unknown as DepartmentReport;
+          const aiWrittenFields: ReportAuthorship = sendResult.fromFallback
+            ? [] : ['summary', 'risks', 'opportunities', 'recommendedActions', 'openQuestions'];
+          const report = Object.assign(parsedDeptReport as unknown as DepartmentReport, { aiWrittenFields });
           // Citation provenance guarantee: when the LLM omits citations but the
           // research packet carried real sources, attribute them to the report.
           // This keeps the citation flow auditable end-to-end (seed → memory →
@@ -1509,7 +1533,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
               history: ledgerEntry.history,
             };
           });
-          emit('specialist_done', { turn, time, department: dept, summary: report.summary, eventIndex: ei, citations: report.citations.length, citationList: report.citations.slice(0, 5).map(c => ({ text: c.text, url: c.url, doi: c.doi })), risks: report.risks, forgedTools: validTools, recommendedActions: report.recommendedActions?.slice(0, 2) });
+          emit('specialist_done', { turn, time, department: dept, summary: report.summary, eventIndex: ei, citations: report.citations.length, citationList: report.citations.slice(0, 5).map(c => ({ text: c.text, url: c.url, doi: c.doi })), risks: report.risks, forgedTools: validTools, recommendedActions: report.recommendedActions?.slice(0, 2), aiWrittenFields });
           if (validTools.length) {
             const names = validTools.map(t => t.name).filter(Boolean);
             if (names.length) toolRegs[dept] = [...(toolRegs[dept] || []), ...names];
@@ -1662,7 +1686,8 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
       if (decisionFallback) {
         console.log(`  [commander] schema fallback for turn ${turn} event ${ei + 1}`);
       }
-      const decision = decisionParsed as unknown as CommanderDecision;
+      const decisionAiWrittenFields: DecisionAuthorship = decisionFallback ? [] : ['decision', 'rationale', 'reasoning'];
+      const decision = Object.assign(decisionParsed as unknown as CommanderDecision, { aiWrittenFields: decisionAiWrittenFields });
       console.log(`  [commander] ${decision.decision.slice(0, 120)}...`);
       emit('decision_made', {
         turn, time,
@@ -1673,6 +1698,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
          *  rationale is the default compressed view. */
         reasoning: decision.reasoning ?? '',
         selectedPolicies: decision.selectedPolicies,
+        aiWrittenFields: decisionAiWrittenFields,
         eventIndex: ei,
       });
 
@@ -1750,7 +1776,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
         turnPolicyEffects.push(...decision.selectedPolicies.map(p => typeof p === 'string' ? p : JSON.stringify(p)));
       }
       allCommanderDecisions.push({ turn, time, eventIndex: ei, eventTitle: event.title, decision, outcome, ...(barCheck ? { barCheck } : {}) });
-      allDirectorEvents.push({ turn, time, eventIndex: ei, event, pacing: batchPacing });
+      allDirectorEvents.push({ turn, time, eventIndex: ei, event: { ...event, aiWrittenFields }, pacing: batchPacing });
       lastOutcome = outcome;
       lastEventCategory = event.category;
 
@@ -2075,12 +2101,15 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     rationale: cd.decision.rationale ?? '',
     reasoning: cd.decision.reasoning,
     outcome: cd.outcome as Decision['outcome'],
+    aiWrittenFields: (cd.decision as CommanderDecision & { aiWrittenFields?: DecisionAuthorship })
+      .aiWrittenFields?.map(field => field === 'decision' ? 'choice' as const : field),
   }));
 
   const peSnapshot = providerErrorState as ClassifiedProviderError | null;
   const finalCost = costTracker.finalCost();
 
   const output: RunArtifact = buildRunArtifact({
+    provenance,
     runId: `${sc.labels.shortName}-${archetypeSlug}-${Date.now()}`,
     scenarioId: sc.id,
     scenarioName: sc.labels.name,
@@ -2129,6 +2158,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
           name: leader.name,
           archetype: leader.archetype,
           unit: leader.unit,
+          ...(leader.aiAuthorship ? { aiAuthorship: leader.aiAuthorship } : {}),
           hexaco: commanderHexacoLive,
           hexacoBaseline: { ...leader.hexaco },
           hexacoHistory: commanderHexacoHistory,
@@ -2375,6 +2405,7 @@ export async function replaySimulation(
   const freshRunId = `replay-${artifact.metadata.runId}-${Date.now().toString(36)}`;
   const freshArtifact: RunArtifact = {
     ...artifact,
+    provenance: makeRunProvenance(artifact.provenance?.models ?? {}),
     metadata: {
       ...artifact.metadata,
       runId: freshRunId,

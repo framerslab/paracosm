@@ -1,3 +1,4 @@
+import { exportProvenance } from '../../exports/run-report';
 /**
  * Pure helpers for the Quickstart tab (Tier 5 onboarding).
  *
@@ -136,5 +137,5 @@ export function buildQuickstartShareUrl(
  * (browsers require a direct event for Save-As style downloads).
  */
 export function downloadArtifactJson(artifact: RunArtifact, filename: string): void {
-  downloadJson(JSON.stringify(artifact, null, 2), filename);
+  downloadJson(JSON.stringify({ ...artifact, provenance: exportProvenance(artifact.provenance) }, null, 2), filename);
 }

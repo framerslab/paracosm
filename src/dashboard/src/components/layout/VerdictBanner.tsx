@@ -1,7 +1,7 @@
+import { AiWritten } from '../shared/AiWritten';
 /**
  * Global verdict banner. Visible on every tab as soon as the verdict
- * LLM returns; closable per-verdict (a new run's headline re-shows the
- * banner even after dismissal). Click the middle strip or the "View
+ * LLM returns; closable for the current run. Click the middle strip or the "View
  * Full Verdict" button to open the full breakdown modal; the "Reports"
  * chip jumps to the Reports tab.
  *
@@ -20,6 +20,7 @@ import styles from './VerdictBanner.module.scss';
 
 interface VerdictBannerProps {
   verdict: Record<string, unknown> | null;
+  runIdentity: string;
   currentTurn: number;
   maxTurns: number;
   dismissedKey: string | null;
@@ -49,6 +50,7 @@ function winColorCssVars(winColor: string): CSSProperties {
 
 export function VerdictBanner({
   verdict,
+  runIdentity,
   currentTurn,
   maxTurns,
   dismissedKey,
@@ -67,11 +69,12 @@ export function VerdictBanner({
       switch (reason) {
         case 'generation_failed': return 'Verdict LLM call failed — open Reports for the raw run stats.';
         case 'cohort_too_large': return `Cohort exceeded the verdict cap (${verdict.actorCount}/${verdict.max} actors). Open Reports for the cohort breakdown.`;
+        case 'single_actor_fork': return 'A fork runs one leader. Open Reports for the branch results.';
         case 'economics_skip': return 'Verdict generation off in your economics profile. Reports tab carries the run summary.';
         default: return 'Verdict unavailable. Open Reports for the run breakdown.';
       }
     })();
-    const skippedKey = `skipped|${reason}`;
+    const skippedKey = JSON.stringify([runIdentity, 'skipped', reason]);
     if (dismissedKey === skippedKey) return null;
     return (
       <div
@@ -112,7 +115,7 @@ export function VerdictBanner({
   }
   if (!verdict.winner) return null;
   const headline = String(verdict.headline || '');
-  const winnerKey = `${verdict.winner}|${headline}`;
+  const winnerKey = JSON.stringify([runIdentity, 'winner', verdict.winner, headline]);
   if (dismissedKey === winnerKey) return null;
 
   // Mode discriminator: pair verdict uses A/B/tie; cohort verdict uses
@@ -163,7 +166,7 @@ export function VerdictBanner({
           className={styles.headlineButton}
           title="Click to open the full verdict breakdown"
         >
-          {headline || 'Verdict delivered — click to see full breakdown.'}
+          {headline ? <AiWritten authored>{headline}</AiWritten> : 'Verdict delivered — click to see full breakdown.'}
         </button>
         <div className={styles.turnLabel}>{turnLabel}</div>
       </div>

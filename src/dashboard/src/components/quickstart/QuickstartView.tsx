@@ -9,7 +9,6 @@ import { InterventionDemoCard } from '../digital-twin/InterventionDemoCard';
 import { CompareModal } from '../compare/CompareModal.js';
 import { ReplayLastRunCTA } from './ReplayLastRunCTA';
 import { RunFirstScreen } from './first-screen/RunFirstScreen';
-import { PageFoot } from './first-screen/PageFoot';
 import { presetLeadersForLaunch, type LoadedRunOptions } from './first-screen/effectiveLaunch';
 import { QuickstartProgress, type Stage, type ActorProgress } from './QuickstartProgress';
 import { QuickstartResults } from './QuickstartResults';
@@ -23,7 +22,7 @@ import { useToast } from '../shared/Toast';
 import { resolveSetupRedirectHref } from '../../tab-routing';
 import { markRunLaunchHandoff } from '../../scenario-sync';
 import { compileScenarioWithPolling } from './compile-poll';
-import { sessionProviderKeys } from '../settings/sessionProviderKeys';
+import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
 import { atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './QuickstartView.module.scss';
 
@@ -56,6 +55,7 @@ export interface QuickstartViewProps {
   sse: {
     events: SimEvent[];
     results: SseResultItem[];
+    verdict?: Record<string, unknown> | null;
     isComplete: boolean;
     isAborted: boolean;
     errors: string[];
@@ -181,6 +181,44 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
    */
   const handleLoadedScenarioRun = useCallback(async (actorCount: number, opts?: LoadedRunOptions) => {
     setErrorBanner(null);
+    // Inherit the user's Settings-tab choices (API keys, provider,
+    // model picks, economics profile) so the CTA respects what the
+    // user configured and bypasses the hosted-demo rate limit when
+    // their own keys are available. Mirrors how RerunPanel composes
+    // the next-run body — the same /setup endpoint reads the same
+    // field names (apiKey, anthropicKey, provider, models, economics).
+    const readSettings = () => {
+      const overrides = typeof window !== 'undefined' ? readTabKeyOverrides() : {};
+      const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
+      // The provider keys as the server reads them: also sent to actor
+      // generation, so the leaders are written on the visitor's key too.
+      const keys = sessionProviderKeys(overrides);
+      const spread: Record<string, unknown> = { ...keys };
+      if (overrides.serper) spread.serperKey = overrides.serper;
+      if (overrides.firecrawl) spread.firecrawlKey = overrides.firecrawl;
+      if (overrides.tavily) spread.tavilyKey = overrides.tavily;
+      if (overrides.cohere) spread.cohereKey = overrides.cohere;
+      if (lastLaunch?.provider) spread.provider = lastLaunch.provider;
+      if (lastLaunch?.models && typeof lastLaunch.models === 'object') {
+        spread.models = lastLaunch.models;
+      }
+      if (lastLaunch?.economics && typeof lastLaunch.economics === 'object') {
+        spread.economics = lastLaunch.economics;
+      }
+      return { providerKeys: keys, settingsSpread: spread };
+    };
+    const refuseTransport = (error: string) => {
+      if (opts) opts.onFailure?.({ visitorKeyTransport: true });
+      else setErrorBanner(error);
+    };
+
+    // Asked before anything is reset, so a refused Start leaves the page's run as it was.
+    const transportError = visitorKeyTransportError({ ...opts?.body, ...readSettings().settingsSpread });
+    if (transportError) {
+      refuseTransport(transportError);
+      return;
+    }
+
     const keepsTwin = Boolean(opts) && showsDigitalTwin;
     if (!keepsTwin) {
       onRunStarted?.();
@@ -192,29 +230,13 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // land after the /setup that follows and stop the new run.
       await sse.reset();
     }
-
-    // Inherit the user's Settings-tab choices (API keys, provider,
-    // model picks, economics profile) so the CTA respects what the
-    // user configured and bypasses the hosted-demo rate limit when
-    // their own keys are available. Mirrors how RerunPanel composes
-    // the next-run body — the same /setup endpoint reads the same
-    // field names (apiKey, anthropicKey, provider, models, economics).
-    const overrides = typeof window !== 'undefined' ? readTabKeyOverrides() : {};
-    const lastLaunch = typeof window !== 'undefined' ? readLastLaunchConfig(window.localStorage) : null;
-    // The provider keys as the server reads them: also sent to actor
-    // generation, so the leaders are written on the visitor's key too.
-    const providerKeys = sessionProviderKeys(overrides);
-    const settingsSpread: Record<string, unknown> = { ...providerKeys };
-    if (overrides.serper) settingsSpread.serperKey = overrides.serper;
-    if (overrides.firecrawl) settingsSpread.firecrawlKey = overrides.firecrawl;
-    if (overrides.tavily) settingsSpread.tavilyKey = overrides.tavily;
-    if (overrides.cohere) settingsSpread.cohereKey = overrides.cohere;
-    if (lastLaunch?.provider) settingsSpread.provider = lastLaunch.provider;
-    if (lastLaunch?.models && typeof lastLaunch.models === 'object') {
-      settingsSpread.models = lastLaunch.models;
-    }
-    if (lastLaunch?.economics && typeof lastLaunch.economics === 'object') {
-      settingsSpread.economics = lastLaunch.economics;
+    // Read again after the awaited reset: a key forgotten while /clear was
+    // out is not sent.
+    const { providerKeys, settingsSpread } = readSettings();
+    const lateTransportError = visitorKeyTransportError({ ...opts?.body, ...settingsSpread });
+    if (lateTransportError) {
+      refuseTransport(lateTransportError);
+      return;
     }
 
     const presetActors = presetLeadersForLaunch(scenario, actorCount);
@@ -380,6 +402,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
 
   const handleSeedReady = useCallback(async (payload: { seedText: string; sourceUrl?: string; domainHint?: string; actorCount?: number }) => {
     setErrorBanner(null);
+    const transportError = visitorKeyTransportError(sessionProviderKeys(readTabKeyOverrides()));
+    if (transportError) return transportError;
     onRunStarted?.();
     // Clear local SSE buffer immediately. Without this, the
     // QuickstartProgress panel's "Run N simulations" stage card renders
@@ -388,6 +412,11 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
     // with the prior run's actors before this fix. Awaited, as every reset
     // before a launch is.
     await sse.reset();
+    // All three model calls in this flow use the same Settings keys, read
+    // after the awaited reset: a key forgotten while /clear was out is not sent.
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const lateTransportError = visitorKeyTransportError(providerKeys);
+    if (lateTransportError) return lateTransportError;
     setPhase({ kind: 'progress', stage: 'compile' });
     try {
       // compileScenarioWithPolling encapsulates the async-job dance:
@@ -400,7 +429,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       // The visitor's own provider keys from Settings go to every step that
       // calls a model (the draft and its compile, the actors, the run), so
       // each runs on the visitor's key when they saved one.
-      const providerKeys = typeof window !== 'undefined' ? sessionProviderKeys(readTabKeyOverrides()) : {};
       const { scenario, scenarioId } = await compileScenarioWithPolling({ ...payload, ...providerKeys });
       setPhase({ kind: 'progress', stage: 'research', scenario });
       // Real grounding pass: hits Serper for 3 derived queries, attaches
@@ -619,6 +647,8 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
           <QuickstartResults
             actors={phase.actors}
             artifacts={phase.artifacts}
+            verdict={sse.results.some(result => result.artifact?.metadata.runId === phase.artifacts[0]?.metadata.runId)
+              ? sse.verdict : null}
             sessionId={sessionId}
             onSwap={handleSwap}
           />
@@ -633,7 +663,6 @@ export function QuickstartView({ sse, sessionId, onRunStarted, showsDigitalTwin 
       )}
       {/* The first screen ends in its own foot; while a run starts or shows
           its results, the same foot ends the tab. */}
-      {phase.kind !== 'input' && <PageFoot />}
     </div>
   );
 }

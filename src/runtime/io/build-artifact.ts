@@ -15,6 +15,7 @@ import type {
   InterventionConfig,
   ProviderError,
   RunArtifact,
+  RunProvenance,
   SimulationMode,
   SpecialistNote,
   SubjectConfig,
@@ -49,6 +50,7 @@ const isOpportunityImpact = (v: string): v is OpportunityImpact =>
  */
 export interface BuildArtifactInputs {
   runId: string;
+  provenance: RunProvenance;
   scenarioId: string;
   scenarioName: string;
   seed?: number;
@@ -82,6 +84,7 @@ export interface BuildArtifactInputs {
       opportunities: Array<{ impact: string; description: string }>;
       citations: Array<{ text: string; url: string; doi?: string; context?: string }>;
       recommendedActions: string[];
+      aiWrittenFields?: SpecialistNote['aiWrittenFields'];
       openQuestions: string[];
     }>;
     commanderDecision: {
@@ -102,6 +105,7 @@ export interface BuildArtifactInputs {
     rationale: string;
     reasoning?: string;
     outcome?: Decision['outcome'];
+    aiWrittenFields?: Decision['aiWrittenFields'];
   }>;
   /** Deduped forged toolbox. */
   forgedToolbox: ForgedToolSummary[];
@@ -195,6 +199,7 @@ export function buildRunArtifact(inputs: BuildArtifactInputs): RunArtifact {
       domain: r.department,
       summary: r.summary,
       confidence: r.confidence,
+      aiWrittenFields: r.aiWrittenFields,
       detail: {
         risks: r.risks
           .filter((risk) => isRiskSeverity(risk.severity))
@@ -227,6 +232,7 @@ export function buildRunArtifact(inputs: BuildArtifactInputs): RunArtifact {
     rationale: d.rationale,
     reasoning: d.reasoning,
     outcome: d.outcome,
+    aiWrittenFields: d.aiWrittenFields,
   }));
 
   const trajectoryPopulated = timepoints.length > 0 || points.length > 0;
@@ -246,6 +252,7 @@ export function buildRunArtifact(inputs: BuildArtifactInputs): RunArtifact {
       completedAt: inputs.completedAt,
       ...(inputs.forkedFrom ? { forkedFrom: inputs.forkedFrom } : {}),
     },
+    provenance: inputs.provenance,
     overview: inputs.overview,
     assumptions: inputs.assumptions,
     leveragePoints: inputs.leveragePoints,

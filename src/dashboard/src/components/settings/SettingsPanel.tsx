@@ -1,3 +1,4 @@
+import { StoredDataControls } from './StoredDataControls';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useDashboardNavigation, useRunStart, useScenarioContext, useScenarioReady } from '../../App';
 import { useScenarioLabels } from '../../hooks/useScenarioLabels';
@@ -28,7 +29,8 @@ import {
   writeActiveRunActors, writeTabKeyOverrides, type KeyOverrides,
 } from '../../hooks/useLastLaunchConfig';
 import type { ScenarioClientPayload } from '../../hooks/useScenario';
-import { hasSessionProviderKey, sessionProviderKeys } from './sessionProviderKeys';
+import { hasSessionProviderKey, sessionProviderKeys, visitorKeyTransportError } from './sessionProviderKeys';
+import { safeLocalStorage } from '../quickstart/first-screen/effectiveLaunch';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsSubTab = 'config' | 'log';
@@ -123,7 +125,7 @@ function defaultLeader(idx: number, scenario: ScenarioLabelsInput): ActorFormDat
 }
 
 /** A leader as /setup stored it after the last launch (readActiveRunActors). */
-type StoredLeader = { name?: string; archetype?: string; unit?: string; instructions?: string; description?: string; hexaco?: Record<string, number> };
+type StoredLeader = { aiAuthorship?: ActorFormData['aiAuthorship']; name?: string; archetype?: string; unit?: string; instructions?: string; description?: string; hexaco?: Record<string, number> };
 
 /**
  * The default preset's leaders. Server's projectScenarioForClient ships
@@ -172,6 +174,7 @@ function withPresetLeaders(
       unit: keepUnit ? existing.unit : preset.unit ?? leaderUnit(scenario, idx),
       instructions: preset.instructions,
       description: preset.description,
+      aiAuthorship: preset.aiAuthorship,
       hexaco: { ...preset.hexaco },
       ...edited,
     };
@@ -188,6 +191,9 @@ const MIN_ACTORS = 2;
 const MAX_ACTORS = 8;
 
 export interface SettingsPanelProps {
+  onClearLocal?: () => void;
+  onWipeServer?: () => void;
+  onOpenStoredData?: () => void;
   /** SSE events to feed the embedded EventLogPanel sub-tab. Optional
    *  so callers that don't care about Log (or mount Settings before the
    *  SSE pipe is ready) can omit it; the sub-tab just renders an empty
@@ -199,7 +205,7 @@ export interface SettingsPanelProps {
   initialSubTab?: SettingsSubTab;
 }
 
-export function SettingsPanel({ events = [], initialSubTab = 'config' }: SettingsPanelProps = {}) {
+export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
   // Persist sub-tab in the URL so refresh / shared links land back on
   // the user's last open panel. 'config' is the default — omit the
@@ -221,11 +227,11 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   // then go in by one rule (withPresetLeaders), at once when the scenario
   // is already loaded (Settings opened from another tab) and when GET
   // /scenario answers after a fresh load, so both show the same form.
-  const persistedActors =
-    typeof window !== 'undefined' ? readActiveRunActors(window.localStorage) : null;
-  const [rosterScenarioId] = useState(() =>
-    typeof window !== 'undefined' ? readActiveRunScenarioId(window.localStorage) : null,
-  );
+  // Reading the property throws where the browser refuses storage, so it
+  // goes through safeLocalStorage and the form starts from the defaults.
+  const storage = safeLocalStorage();
+  const persistedActors = storage ? readActiveRunActors(storage) : null;
+  const [rosterScenarioId] = useState(() => (storage ? readActiveRunScenarioId(storage) : null));
   const [actors, setActors] = useState<ActorFormData[]>(() => {
     const count = Math.max(
       MIN_ACTORS,
@@ -240,6 +246,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         unit: fallback.unit ?? leaderUnit(scenario, idx),
         instructions: fallback.instructions,
         description: fallback.description,
+        aiAuthorship: fallback.aiAuthorship,
         hexaco: { ...(fallback.hexaco ?? DEFAULT_HEXACO) },
       };
     });
@@ -328,6 +335,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
   const [keyIdleMinutes, setKeyIdleMinutes] = useState<number | null>(null);
   const [forgettingKeys, setForgettingKeys] = useState(false);
   const [keyNotice, setKeyNotice] = useState('');
+  const transportNotice = visitorKeyTransportError();
 
   function updateKey(provider: keyof KeyOverrides, value: string) {
     const next = { ...keyOverrides, [provider]: value };
@@ -441,6 +449,16 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
 
   const launch = useCallback(async () => {
     if (!scenarioReady) return;
+    const keys: Record<string, unknown> = { ...sessionProviderKeys(keyOverrides) };
+    if (keyOverrides.serper) keys.serperKey = keyOverrides.serper;
+    if (keyOverrides.firecrawl) keys.firecrawlKey = keyOverrides.firecrawl;
+    if (keyOverrides.tavily) keys.tavilyKey = keyOverrides.tavily;
+    if (keyOverrides.cohere) keys.cohereKey = keyOverrides.cohere;
+    const transportError = visitorKeyTransportError(keys);
+    if (transportError) {
+      setStatus(transportError);
+      return;
+    }
     setLaunching(true);
     setStatus('Starting...');
     try {
@@ -465,13 +483,8 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
       // header has names available during the SSE connect-and-replay
       // window. Without this, compiled-scenario runs render the
       // alphabetic placeholder until status:parallel lands.
-      writeActiveRunActors(window.localStorage, actors, scenario.id);
-      // Attach any user-provided key overrides (never sends .env values)
-      Object.assign(config, sessionProviderKeys(keyOverrides));
-      if (keyOverrides.serper) config.serperKey = keyOverrides.serper;
-      if (keyOverrides.firecrawl) config.firecrawlKey = keyOverrides.firecrawl;
-      if (keyOverrides.tavily) config.tavilyKey = keyOverrides.tavily;
-      if (keyOverrides.cohere) config.cohereKey = keyOverrides.cohere;
+      const launchStorage = safeLocalStorage();
+      if (launchStorage) writeActiveRunActors(launchStorage, actors, scenario.id);
       // Per-tier model overrides only apply when the user is paying. The
       // server enforces DEMO_MODELS otherwise, so sending these without a
       // key would be silently overwritten.
@@ -483,7 +496,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
         headers: { 'Content-Type': 'application/json' },
         // Tier 2 Spec 2B: UI-initiated runs capture kernel snapshots
         // so every turn is fork-eligible from the Reports tab.
-        body: JSON.stringify({ ...config, captureSnapshots: true }),
+        body: JSON.stringify({ ...config, ...keys, captureSnapshots: true }),
       });
       const data = await res.json();
       if (res.status === 429) {
@@ -788,6 +801,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
             the simulation cannot run. You need at least one OpenAI or Anthropic key configured somewhere.
           </p>
         </div>
+        {transportNotice && <p role="status" className={styles.launchStatus}>{transportNotice}</p>}
         <div className={`responsive-grid-2 ${styles.grid2}`}>
           {([
             ['openai', 'OpenAI', 'Required (or Anthropic). Powers commander, departments, crisis director.'],
@@ -890,6 +904,10 @@ export function SettingsPanel({ events = [], initialSubTab = 'config' }: Setting
           </legend>
           <AdminTokenField />
         </fieldset>
+      )}
+
+      {onClearLocal && (
+        <StoredDataControls onClearLocal={onClearLocal} onWipeServer={onWipeServer} onOpen={onOpenStoredData} />
       )}
 
       {/* Scenario Editor: create, import, export, compile. Its own

@@ -77,6 +77,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check schema drift
+        run: |
+          npm run export:json-schema
+          npm run snapshot:schema
+          git diff --exit-code -- schema tests/engine/schema/run-artifact-schema-snapshot.json
+
       # Packs the package, installs the tarball into an empty project, starts
       # paracosm-dashboard and requests the landing page, the dashboard and
       # their assets (scripts/smoke-packed-package.mjs).
@@ -102,9 +108,22 @@ jobs:
         id: install-playwright
         run: npx playwright install --with-deps chromium
 
+      - name: Legacy JSON round trip
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/json-round-trip.spec.ts --project=chromium-desktop
+
       - name: Visitor keys and age notices end-to-end test
         if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
         run: npx playwright test tests-e2e/specs/visitor-keys-and-age.spec.ts --project=chromium-desktop
+
+      - name: Upload visitor-key transport pictures
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: keys-secure-context-pictures
+          path: test-pictures/keys-secure-context/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: PDF upload end-to-end test
         run: npx playwright test tests-e2e/specs/pdf-upload.spec.ts --project=chromium-desktop
@@ -188,6 +207,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: npx playwright test tests-e2e/specs/sim-first-screen.spec.ts --project=chromium-desktop
 
+      - name: AI-written marks and exports
+        if: ${{ !cancelled() && steps.install-playwright.outcome == 'success' }}
+        run: npx playwright test tests-e2e/specs/ai-marks.spec.ts --project=chromium-desktop
+
       # The pictures that spec takes of the Run tab's first screen at each
       # width it checks, in both looks: ready, loading, did not load, offline.
       - name: Upload the first screen pictures
@@ -198,6 +221,27 @@ jobs:
           path: test-pictures/sim-first-screen/
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Frame end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/sim-frame.spec.ts --project=chromium-desktop
+
+      - name: Upload the frame pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sim-frame-pictures
+          path: test-pictures/sim-frame/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Mobile responsive end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/mobile-responsive.spec.ts --project=chromium-desktop
+
+      - name: Top bar flush end-to-end test
+        if: ${{ !cancelled() }}
+        run: npx playwright test tests-e2e/specs/topbar-flush.spec.ts --project=chromium-desktop
 
       # Every row of keys is one row from 320 px (the Viz toolbar in each mode,
       # its More panel and the Sim tab's evidence row), with keys 44 px wide and

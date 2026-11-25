@@ -16,6 +16,7 @@ import { withoutOutputPath } from '../services/run-record.js';
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
+import { AiAuthorshipInputSchema } from '../../engine/ai-authorship.js';
 import type { ScenarioPackage, ActorInput, LlmProvider, SimulationModelConfig } from '../../engine/types.js';
 import type { RunArtifact } from '../../engine/schema/index.js';
 import type { CompileOptions } from '../../engine/compiler/types.js';
@@ -41,6 +42,7 @@ const LeaderSchema = z.object({
   }),
   instructions: z.string().optional(),
   description: z.string().optional(),
+  aiAuthorship: AiAuthorshipInputSchema.optional(),
 });
 
 const SimulateOptionsSchema = z.object({

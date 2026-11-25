@@ -1,3 +1,5 @@
+import { exportProvenance } from '../exports/run-report';
+import type { RunProvenance } from '../../../engine/schema/index.js';
 import { useCallback } from 'react';
 import { downloadJson } from '../download';
 import type { SimEvent } from './useSSE';
@@ -51,6 +53,7 @@ export type ParseResult =
 
 interface GameData {
   config: Record<string, unknown> | null;
+  provenance?: RunProvenance;
   events: SimEvent[];
   results: unknown[];
   /** End-of-sim LLM verdict — was being silently dropped from saves before. */
@@ -67,9 +70,10 @@ export function useGamePersistence(
   scenarioShortName: string,
   scenarioStamp?: SavedScenarioStamp,
 ) {
-  const save = useCallback((events: SimEvent[], results: unknown[], verdict?: Record<string, unknown> | null) => {
+  const save = useCallback((events: SimEvent[], results: unknown[], verdict?: Record<string, unknown> | null, provenance?: RunProvenance | null) => {
     const data: GameData = {
       config: null,
+      provenance: exportProvenance(provenance, verdict),
       events,
       results,
       verdict: verdict ?? null,
@@ -213,8 +217,11 @@ export function useGamePersistence(
   }, [scenarioShortName]);
 
   const clearCache = useCallback(() => {
-    localStorage.removeItem(storageKey(scenarioShortName, 'game-data'));
-    localStorage.setItem(storageKey(scenarioShortName, 'cleared'), Date.now().toString());
+    // Storage can be refused by the browser; the server's run is still let go.
+    try {
+      localStorage.removeItem(storageKey(scenarioShortName, 'game-data'));
+      localStorage.setItem(storageKey(scenarioShortName, 'cleared'), Date.now().toString());
+    } catch { /* storage unavailable */ }
     fetch('/clear', { method: 'POST' }).catch(() => {});
   }, [scenarioShortName]);
 

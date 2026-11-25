@@ -1,0 +1,49 @@
+// Migrated from inline `style={{}}`. Status color flows in via
+// --status-color CSS custom property.
+
+.bar {
+  padding: 4px 16px;
+  background: var(--bg-deep);
+  border-top: var(--frame-rule-width) solid var(--edge-control);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: var(--font-read);
+  color: var(--text-3);
+}
+
+.bar.phone {
+  padding-block: var(--frame-rule-width);
+  padding-inline: calc(var(--frame-side-padding) - var(--frame-gap) / 2);
+}
+
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  // --status-color set inline.
+  color: var(--status-color, var(--text-3));
+  font-family: var(--mono);
+  font-size: var(--font-read);
+  font-weight: 700;
+  cursor: help;
+}
+
+.cost {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--font-read);
+  cursor: help;
+}
+
+.costAmount {
+  color: var(--green);
+  font-weight: 800;
+  font-size: var(--font-read);
+}
+
+.costMuted { color: var(--text-3); }

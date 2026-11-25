@@ -110,6 +110,22 @@ test('simulate: HEXACO out-of-bounds in leader rejects with 400', async () => {
   assert.equal(get().status, 400);
 });
 
+test('simulate: a leader authorship model that is not a model id rejects with 400 before any run', async () => {
+  let runs = 0;
+  const { res, get } = fakeRes();
+  await handleSimulate(
+    {} as IncomingMessage,
+    res,
+    {
+      scenario: marsScenario,
+      leader: { ...fakeLeader(), aiAuthorship: { model: 'Written by hand, not by a model', fields: ['name'] } },
+    },
+    fakeDeps({ runSimulation: async () => { runs += 1; return fakeArtifact(); } }),
+  );
+  assert.equal(get().status, 400);
+  assert.equal(runs, 0);
+});
+
 test('simulate: malformed body rejects with 400', async () => {
   const { res, get } = fakeRes();
   await handleSimulate(

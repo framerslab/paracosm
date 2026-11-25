@@ -1,3 +1,4 @@
+import type { RunProvenance } from '../../../../engine/schema/index.js';
 import { useState, useCallback, useEffect, useRef, type CSSProperties } from 'react';
 import { downloadJson } from '../../download';
 import { emitScenarioUpdated, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
@@ -62,6 +63,7 @@ interface ScenarioEditorProps {
 export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
   const [adminConfig, setAdminConfig] = useState<AdminConfig>({ adminWrite: false, memoryScenarios: [] });
   const [jsonText, setJsonText] = useState('');
+  const [compilerSource, setCompilerSource] = useState<{ id: string; provenance: RunProvenance } | null>(null);
   const [parseError, setParseError] = useState('');
   const [seedText, setSeedText] = useState('');
   const [seedUrl, setSeedUrl] = useState('');
@@ -91,6 +93,7 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data?.id) {
+          setCompilerSource(data.provenance?.models?.compiler ? { id: data.id, provenance: data.provenance } : null);
           setJsonText(JSON.stringify(data, null, 2));
         }
       })
@@ -109,12 +112,16 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     catch (e) { setParseError(String(e).replace('SyntaxError: ', '')); }
   }, [jsonText]);
 
-  const loadExample = () => setJsonText(JSON.stringify(EXAMPLE_SCENARIO, null, 2));
+  const loadExample = () => {
+    setCompilerSource(null);
+    setJsonText(JSON.stringify(EXAMPLE_SCENARIO, null, 2));
+  };
 
   const loadActiveScenario = useCallback(async () => {
     try {
       const res = await fetch('/scenario');
       const data = await res.json();
+      setCompilerSource(data.provenance?.models?.compiler ? { id: data.id, provenance: data.provenance } : null);
       setJsonText(JSON.stringify(data, null, 2));
       setResult({ success: true, message: `Loaded active scenario: ${data.labels?.name || data.id}` });
     } catch (err) { setResult({ success: false, message: `Failed to load: ${err}` }); }
@@ -128,6 +135,7 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     const reader = new FileReader();
     reader.onload = () => {
       const text = reader.result as string;
+      setCompilerSource(null);
       setJsonText(text);
       try { JSON.parse(text); setResult({ success: true, message: `Imported ${file.name} (${(file.size / 1024).toFixed(1)}KB)` }); }
       catch { setResult({ success: false, message: `Imported ${file.name} but JSON is invalid` }); }
@@ -141,7 +149,8 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
     try {
       const parsed = JSON.parse(jsonText);
       const name = parsed.id || 'scenario';
-      downloadJson(JSON.stringify(parsed, null, 2), `${name}.json`);
+      const data = compilerSource && compilerSource.id === parsed.id ? { ...parsed, provenance: compilerSource.provenance } : parsed;
+      downloadJson(JSON.stringify(data, null, 2), `${name}.json`);
       setResult({ success: true, message: `Exported ${name}.json` });
     } catch { setResult({ success: false, message: 'Fix JSON errors before exporting' }); }
   };
@@ -332,7 +341,7 @@ export function ScenarioEditor({ onAdminWrite }: ScenarioEditorProps) {
           <button onClick={loadActiveScenario} className={[styles.btn, styles.amber].join(' ')} aria-label="Load active scenario JSON">Load Active</button>
           <button onClick={loadExample} className={styles.btn} aria-label="Load example scenario">Template</button>
           <button onClick={importFile} className={styles.btn} aria-label="Import JSON file">Import</button>
-          <button onClick={exportFile} className={styles.btn} disabled={!jsonText.trim() || !!parseError} aria-label="Export as JSON file">Export</button>
+          <button onClick={exportFile} className={styles.btn} disabled={!jsonText.trim() || !!parseError} aria-label={compilerSource ? "Export as JSON file" : "Save source JSON"}>{compilerSource ? "Export" : "Save source JSON"}</button>
           <input ref={fileInputRef} type="file" accept=".json,application/json" onChange={handleFileImport} className={styles.fileInput} />
         </div>
       </div>

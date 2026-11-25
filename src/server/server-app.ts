@@ -1,3 +1,4 @@
+import { hookSourcesOf } from '../engine/compiler/hook-sources.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
 import type { TLSSocket } from 'node:tls';
@@ -24,10 +25,13 @@ import type { ScenarioPackage } from '../engine/types.js';
 import { clipOrderText, MAX_ORDER_CHARS } from '../engine/presets/fill-instructions.js';
 import {
   apiKeyForProvider,
+  carriesVisitorKey,
   credentialFingerprint,
   hasProviderCredentials,
+  LOOPBACK_HOSTNAMES,
   normalizeCredential,
   resolveProviderFromCredentials,
+  VISITOR_KEY_TRANSPORT_REFUSAL,
 } from '../engine/provider/credentials.js';
 import { hostedModelRouting, hostedRunModels } from './hosted-model-policy.js';
 import {
@@ -74,7 +78,11 @@ import {
   withSiteAnalytics,
   type SiteAnalyticsIds,
 } from './site-analytics.js';
-import { createRunRecord, hashActorConfig, publicResultFrame, withoutBrief } from './services/run-record.js';
+import {
+  createRunRecord, hashActorConfig, publicResultFrame, recordedRunProvenance,
+  resolveRunProvenance, withoutBrief, withRunProvenance,
+} from './services/run-record.js';
+import { makeRunProvenance } from '../engine/schema/index.js';
 import { enrichRunRecordFromArtifact } from './services/enrich-run-record.js';
 import { isRunOutputFileName, resolveRunsDir } from './services/run-artifact-file.js';
 import { createNoopRunHistoryStore, type RunHistoryStore } from './stores/run-history.js';
@@ -122,7 +130,10 @@ function hostedScenarioFacts(sc: ScenarioPackage): HostedScenarioFacts {
 }
 
 function projectScenarioForClient(sc: ScenarioPackage) {
+  const sources = hookSourcesOf(sc);
+  const compiled = sources && Object.keys(sources.hooks).length > 0;
   return {
+    ...(compiled ? { provenance: makeRunProvenance({ compiler: sources.model }) } : {}),
     id: sc.id,
     sourceUrl: sc.sourceUrl,
     version: sc.version,
@@ -256,8 +267,6 @@ function sendPerVisitor(res: ServerResponse): void {
   for (const [name, value] of Object.entries(PER_VISITOR_HEADERS)) res.setHeader(name, value);
 }
 
-const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
 /** The hostname of a `Host` header value (`name:port`, `[v6]:port`), lowercased; '' when it has none. */
 function hostHeaderName(value: string | undefined): string {
   if (typeof value !== 'string' || value.length === 0) return '';
@@ -332,8 +341,6 @@ function fromAnotherSite(req: IncomingMessage, allowedOrigins: ReadonlySet<strin
   }
 }
 
-const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey', 'tavilyKey', 'cohereKey'] as const;
-
 /**
  * Keys travel over TLS or stay on this computer. A request came over HTTPS
  * when its own connection is TLS, or when `X-Forwarded-Proto: https` comes
@@ -343,7 +350,7 @@ const VISITOR_KEY_FIELDS = ['apiKey', 'anthropicKey', 'serperKey', 'firecrawlKey
  * computer, through a container's published port too.
  */
 function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, namedProxy: boolean, keys: Record<string, unknown>): boolean {
-  if (!VISITOR_KEY_FIELDS.some(field => normalizeCredential(keys[field]) !== undefined)) return false;
+  if (!carriesVisitorKey(keys)) return false;
   if ((req.socket as TLSSocket).encrypted) return false;
 
   const peer = req.socket.remoteAddress?.replace(/^::ffff:/, '') ?? '';
@@ -353,7 +360,7 @@ function refuseUnencryptedKeys(req: IncomingMessage, res: ServerResponse, namedP
   if (proxyScheme === undefined && LOOPBACK_HOSTNAMES.has(hostHeaderName(req.headers.host))) return false;
 
   res.writeHead(403, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ error: 'Send API keys over HTTPS, or use a dashboard on this computer.' }));
+  res.end(JSON.stringify({ error: VISITOR_KEY_TRANSPORT_REFUSAL }));
   return true;
 }
 
@@ -655,6 +662,7 @@ export interface CreateMarsServerOptions {
    * calls no model.
    */
   chatAgent?: typeof import('../runtime/agents/chat-agents.js').getOrCreateChatAgent;
+  generateActorObject?: QuickstartDeps['generateActorObject'];
   /**
    * Override the session store instance. Intended for tests; the
    * default production path opens a SQLite store at
@@ -2195,9 +2203,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         // and title calls are not an actor's. A run with no artifact costs
         // (a runner that hands none back) takes the cost its frames carry.
         const artifactCosts = [...run.artifactCosts.values()];
-        const override = artifactCosts.length > 0
-          ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) }
-          : undefined;
+        const override = {
+          provenance: run.provenance,
+          ...(artifactCosts.length > 0 ? { totalCostUSD: artifactCosts.reduce((sum, cost) => sum + cost, 0) } : {}),
+        };
         result = await sessionStore.saveSession(events, override, { owner: sessionOwner(run.visitorId), runKey: run.key });
       } finally {
         savesCommitting.delete(commit);
@@ -2590,6 +2599,28 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       scenarioLookup: (id) => lookupScenario(req, id),
       runScope: runScopeFor(req),
       savedSessionIds,
+      savedVerdict: async (id, actorName) => {
+        const session = await sessionStore?.getSession(id).catch(() => null);
+        const event = session?.events.slice().reverse().find(({ sse }) => /^event: (?:cohort_)?verdict\r?\n/.test(sse));
+        const json = event?.sse.split('\n').find(line => line.startsWith('data: '))?.slice(6);
+        if (!json) return undefined;
+        try {
+          const verdict = JSON.parse(json) as Record<string, unknown>;
+          const fields = Object.fromEntries(
+            ['headline', 'summary', 'keyDivergence', 'reasoning', 'verdictModel']
+              .filter(field => typeof verdict[field] === 'string')
+              .map(field => [field, verdict[field]]),
+          );
+          const ranking = actorName && Array.isArray(verdict.rankings)
+            ? verdict.rankings.find(entry => entry?.actorName === actorName) : undefined;
+          if (typeof ranking?.rationale === 'string') {
+            return { ...fields, rankings: [{ actorName, rationale: ranking.rationale }] };
+          }
+          return fields;
+        } catch {
+          return undefined;
+        }
+      },
     })) {
       return;
     }
@@ -2637,7 +2668,8 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
       });
-      res.write(`event: connected\ndata: ${JSON.stringify({ actorFilter, runKey: run?.key ?? null, visitorId })}\n\n`);
+      const connected = { actorFilter, runKey: run?.key ?? null, visitorId, ...(run ? { provenance: run.provenance } : {}) };
+      res.write(`event: connected\ndata: ${JSON.stringify(connected)}\n\n`);
       // Replay the run's buffered events so a new client catches up. The
       // trailing `replay_done` marker lets the client distinguish
       // historical-buffer events from truly live ones so toasts (transient
@@ -3144,6 +3176,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         if (body && typeof body === 'object' && refuseUnencryptedKeys(req, res, clientIpHeader !== null, body as Record<string, unknown>)) return;
         const quickstartVisitor = readVisitorId(req);
         const quickstartDeps: QuickstartDeps = {
+          generateActorObject: options.generateActorObject,
           installCompiledScenario: (compiledFromSeed, seedText) => {
             const seed = typeof seedText === 'string' && seedText.trim().length > 0
               ? seedText.slice(0, 1000)
@@ -3257,12 +3290,12 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
           // alone, and it holds a capacity slot until `finish`. Its events go
           // through the broadcast bound to it, so a late event of a twin its
           // visitor has since replaced is discarded.
-          openRun: (scenario, runKey, calls) => {
+          openRun: (scenario, runKey, calls, costPreset) => {
             // A twin on the caller's own key skips the day limit, as a /setup
             // run on one does, so its address holds all but one of the run
             // slots; and it has no config to hold its keys, so the run keeps
             // them, in memory alone, for a chat that brings none.
-            const ownKeys = calls && !calls.hostPaid
+            const ownKeys = !calls.hostPaid
               ? {
                   provider: calls.provider,
                   ...(calls.apiKey ? { apiKey: calls.apiKey } : {}),
@@ -3275,6 +3308,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
               scenario,
               seedText: briefFor(scenario.id, req, compiledScenarioMeta.get(scenario.id)?.seedText) ?? null,
               config: null,
+              provenance: resolveRunProvenance({ ...calls, models: calls.runModels, costPreset }, env),
               runKey,
               ownKeyAddress: ownKeys ? IpRateLimiter.getIp(req, clientIpHeader) : null,
               ownKeys,
@@ -3993,7 +4027,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         const provider = chatRouting
           ? chatRouting.provider
           : resolveProviderFromCredentials(chatRun.config?.provider, chatCredentials, envDefaultProvider);
-        const { session, isNew, release } = await getOrCreateChatAgent(profile, memories, {
+        const { session, isNew, release, model } = await getOrCreateChatAgent(profile, memories, {
           provider,
           apiKey: chatCredentials.apiKey,
           anthropicKey: chatCredentials.anthropicKey,
@@ -4013,6 +4047,9 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
 
         // Send message through the agent session (full history + memory + RAG automatic)
         const result = await session.send(message).finally(() => release?.());
+        const { model: responseModel, modelId } = result as { model?: unknown; modelId?: unknown };
+        const reportedModel = responseModel ?? modelId;
+        const chatModel = typeof reportedModel === 'string' && reportedModel.trim() ? reportedModel : model;
 
         // Surface per-turn token usage + cost so the dashboard footer
         // can fold chat spend into the run-total display. Without this,
@@ -4022,6 +4059,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         res.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           reply: result.text,
+          ...(chatModel ? { aiAuthorship: { model: chatModel, fields: ['reply'] } } : {}),
           colonist: profile.name,
           memorySeeded: memories.length,
           firstMessage: isNew,
@@ -4453,7 +4491,15 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
       // was reads it, on the hosted demo.
       const hideBrief = briefHiddenFrom(session, req);
       void (async () => {
-        let prevTs = session.events[0]?.ts ?? 0;
+        const provenance = session.meta.provenance
+          ?? recordedRunProvenance(session.events.map(event => event.sse))
+          ?? makeRunProvenance({});
+        if (session.events.length === 0) {
+          res.end(`event: provenance\ndata: ${JSON.stringify({ provenance })}\n\n`);
+          return;
+        }
+        let first = true;
+        let prevTs = session.events[0].ts;
         for (const ev of session.events) {
           if (cancelled || res.destroyed) return;
           if (!isInstant) {
@@ -4466,7 +4512,10 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
             // a reader that does not read holds a buffer's worth of the
             // session, never the whole of it.
             const frame = publicResultFrame(ev.sse);
-            if (!res.write(hideBrief ? withoutBrief(frame) : frame)) await waitForDrain(res);
+            const visible = hideBrief ? withoutBrief(frame) : frame;
+            const outgoing = first ? withRunProvenance(visible, provenance) : visible;
+            first = false;
+            if (!res.write(outgoing)) await waitForDrain(res);
           } catch {
             return;
           }
@@ -5475,6 +5524,7 @@ export function createMarsServer(options: CreateMarsServerOptions = {}): MarsSer
         scenario: runScenario,
         seedText: hooks?.seedText ?? null,
         config,
+        provenance: resolveRunProvenance(config, env),
         forkedFrom: config.forkFrom
           ? { parentRunId: config.forkFrom.parentArtifact.metadata.runId, atTurn: config.forkFrom.atTurn }
           : null,

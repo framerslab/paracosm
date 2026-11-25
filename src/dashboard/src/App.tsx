@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
+import { RunExportProvenanceContext } from './components/shared/RunReportDownloads';
+import { AiWrittenPage } from './components/shared/AiWritten';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, createContext, useContext, Component, type ReactNode, type ErrorInfo } from 'react';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { useScenario, type ScenarioClientPayload } from './hooks/useScenario';
 import { PAGE_TITLE } from './components/quickstart/first-screen/words';
-import { defaultRunSetup } from './run-payload';
-import { clearRunLaunchHandoff, emitLaunched, readRunLaunchHandoff } from './scenario-sync';
+import { clearRunLaunchHandoff, readRunLaunchHandoff } from './scenario-sync';
 import { ADMIN_TOKEN_HEADER, ADMIN_TOKEN_WHERE, adminTokenState, clearAdminToken, dropUnsendableAdminToken, readAdminToken, subscribeAdminToken } from './admin-token';
 import { deriveLabels } from './hooks/useScenarioLabels.helpers';
 import { useSSE, type SimEvent } from './hooks/useSSE';
@@ -39,31 +40,28 @@ import { ReplayBanner, ReplayNotFoundBanner } from './components/layout/ReplayBa
 // StudioTab as sub-tabs; App.tsx no longer needs them at top level.
 import { BranchesProvider } from './components/branches/BranchesContext';
 import { BranchesSyncer } from './components/branches/BranchesSyncer';
-import { LibraryTab } from './components/library/index.js';
-import { StudioTab } from './components/studio/StudioTab.js';
 import { QuickstartView } from './components/quickstart/QuickstartView';
 import { useCitationRegistry, CitationRegistryContext } from './hooks/useCitationRegistry';
 import { useToolRegistry, ToolRegistryContext } from './hooks/useToolRegistry';
 import { ForgeViewProvider } from './components/forge/ForgeViewProvider';
 import { TopBar } from './components/layout/TopBar';
-import { TabBar } from './components/layout/TabBar';
+import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
+import { TAB_NAMES } from './components/layout/frameWords';
+import { lazyTab } from './components/layout/lazyTab';
 import { ProviderErrorBanner } from './components/layout/ProviderErrorBanner';
 // Toolbar merged into TopBar
 import { SimView } from './components/sim/SimView';
 import type { RunArtifact } from '../../engine/schema/index.js';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { ReportView } from './components/reports/ReportView';
 import { ChatPanel } from './components/chat/ChatPanel';
-import { SwarmViz } from './components/viz/SwarmViz';
+import type { SettingsPanelProps } from './components/settings/SettingsPanel';
+import type { StudioTabProps } from './components/studio/StudioTab';
 // The About tab has no panel here: setActiveTab sends it to the landing page at /
-import { Footer } from './components/layout/Footer';
+import { PageFoot } from './components/layout/PageFoot';
+import { RunStatusBar } from './components/layout/RunStatusBar';
 import { ToastProvider, useToast } from './components/shared/Toast';
 import { ShortcutsOverlay } from './components/shared/ShortcutsOverlay';
-import { GuidedTour } from './components/tour/GuidedTour';
 import { HowItWorksCard } from './components/quickstart/first-screen/HowItWorksCard';
 import { RunTurnsProvider } from './components/quickstart/first-screen/runTurns';
-import { ServerFactsProvider } from './components/quickstart/first-screen/useServerFacts';
-import { DEMO_EVENTS } from './components/tour/demoData';
 import {
   createDashboardTabHref,
   createToolLogHref,
@@ -72,6 +70,19 @@ import {
   type DashboardTab,
 } from './tab-routing';
 import styles from './App.module.scss';
+
+const ReportView = lazyTab(() => import('./components/reports/ReportView'), 'ReportView');
+const StudioTab = lazyTab<StudioTabProps, 'StudioTab'>(
+  () => import('./components/studio/StudioTab'), 'StudioTab',
+);
+const SwarmViz = lazyTab(() => import('./components/viz/SwarmViz'), 'SwarmViz');
+type LibraryTabProps = NonNullable<Parameters<typeof import('./components/library/LibraryTab').LibraryTab>[0]>;
+const LibraryTab = lazyTab<LibraryTabProps, 'LibraryTab'>(
+  () => import('./components/library/LibraryTab'), 'LibraryTab',
+);
+const SettingsPanel = lazyTab<SettingsPanelProps, 'SettingsPanel'>(
+  () => import('./components/settings/SettingsPanel'), 'SettingsPanel',
+);
 
 // Scenario context available to all components. Exported so SSR tests
 // can wrap their renders with a stubbed scenario value without booting
@@ -200,27 +211,14 @@ function useReplaySessionId(): string | null {
   return id;
 }
 
-/**
- * Human-readable heading per dashboard tab. Used for the SR-only `<h1>`
- * inside `<main>` so the heading outline is well-formed on every view.
- */
-function tabHeadingFor(tab: DashboardTab): string {
-  switch (tab) {
-    case 'quickstart': return 'Paracosm — Quickstart';
-    case 'studio':     return 'Paracosm — Studio';
-    case 'sim':        return 'Paracosm — Simulation';
-    case 'viz':        return 'Paracosm — Visualization';
-    case 'chat':       return 'Paracosm — Chat';
-    case 'reports':    return 'Paracosm — Reports';
-    case 'library':    return 'Paracosm — Library';
-    case 'settings':   return 'Paracosm — Settings';
-    case 'about':      return 'Paracosm — About';
-    default:           return 'Paracosm';
-  }
-}
-
 /** The events of a page that holds no run of its own in another scenario. */
 const NO_EVENTS: SimEvent[] = [];
+/** A failed read of /admin-config for the server data gate is asked again after this long, then at twice the gap each time. */
+const ADMIN_CONFIG_RETRY_FIRST_MS = 2_000;
+/** The longest gap between two reads of /admin-config for that gate. */
+const ADMIN_CONFIG_RETRY_MAX_MS = 15_000;
+/** What the verdict banner reads for a fork that ran to its end: a fork runs one leader and gets no verdict. */
+const FORK_ENDED: Record<string, unknown> = { skipped: true, reason: 'single_actor_fork' };
 
 function AppContent() {
   const { scenario, ready: scenarioReady, failed: scenarioFailed, retryNow: retryScenario } = useScenario();
@@ -237,7 +235,6 @@ function AppContent() {
   useEffect(() => {
     if (launchedRunKey !== null) clearRunLaunchHandoff(launchedRunKey);
   }, [launchedRunKey]);
-  const [tourActive, setTourActive] = useState(false);
   // The How it works card: the header's key opens and closes it on every
   // tab. Nothing opens it by itself.
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
@@ -245,9 +242,9 @@ function AppContent() {
   const toggleHowItWorks = useCallback(() => setHowItWorksOpen(open => !open), []);
   const closeHowItWorks = useCallback(() => setHowItWorksOpen(false), []);
 
-  // Global verdict banner. Closable by the user; dismissal is keyed
-  // to the verdict's headline so a fresh run with a new verdict
-  // re-shows the banner even after the previous one was dismissed.
+  // Global verdict banner. Closable by the user; a dismissal belongs to
+  // the run it was made on, so the next run's banner shows, the same
+  // winner and headline included.
   const [verdictDismissedKey, setVerdictDismissedKey] = useState<string | null>(null);
   const [verdictModalOpen, setVerdictModalOpen] = useState(false);
 
@@ -268,22 +265,7 @@ function AppContent() {
     document.title = PAGE_TITLE;
   }, []);
 
-  // When tour is active, use demo events; otherwise use live SSE events.
-  // How the Event Log scrolls (it opens at its top and follows new events
-  // once the visitor scrolls to its end) lives inside EventLogPanel.
-  // Tour data swap. The tour ships with DEMO_EVENTS so first-time
-  // visitors with no run loaded see realistic content while the
-  // highlight walks through tabs. BUT — if the user already has real
-  // events in flight (their own Quickstart run, a loaded Library
-  // bundle, an in-progress sim), swapping to demo data on tour start
-  // would visibly trash everything they had on screen. Keep their
-  // data instead; the tour copy describes UI structure either way,
-  // and the structure is the same regardless of whose data fills it.
-  const useDemoData = tourActive && sse.events.length === 0;
-  const effectiveEvents = useDemoData ? DEMO_EVENTS : sse.events;
-  const effectiveComplete = useDemoData ? true : sse.isComplete;
-  // The results carry each decision's bar check, which the outcome cards show.
-  const gameState = useGameState(effectiveEvents, effectiveComplete, useDemoData ? undefined : sse.results);
+  const gameState = useGameState(sse.events, sse.isComplete, sse.results);
   // Names the run the page shows, the same saved file loaded twice as two
   // runs. The Chat tab's threads start afresh for each run, and the
   // verdict's export key drops what it said about the run before.
@@ -304,9 +286,8 @@ function AppContent() {
   const shareRunLink = shareLink.share;
   const clearShareLink = shareLink.clear;
   useForgeToasts({
-    events: effectiveEvents,
+    events: sse.events,
     replayDone: sse.replayDone,
-    tourActive,
   });
 
   const citationRegistry = useCitationRegistry(gameState);
@@ -322,6 +303,10 @@ function AppContent() {
   // so old deep links keep working.
   const initialRoute = getDashboardTabAndSubFromHref(window.location.href);
   const [activeTab, setActiveTabState] = useState<DashboardTab>(initialRoute.tab);
+  const pageRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (pageRef.current) pageRef.current.scrollTop = 0;
+  }, [activeTab]);
   const [studioInitialSubTab] = useState<'author' | 'branches'>(
     initialRoute.tab === 'studio' && initialRoute.sub === 'branches' ? 'branches' : 'author',
   );
@@ -372,9 +357,9 @@ function AppContent() {
   const handleSave = useCallback(() => {
     // Include verdict in the export so reload restores the end-of-sim
     // judgment (previously dropped — saves looked incomplete on load).
-    persistence.save(sse.events, sse.results, sse.verdict);
+    persistence.save(sse.events, sse.results, sse.verdict, sse.provenance);
     toast('success', 'Saved', `${sse.events.length} events${sse.verdict ? ' + verdict' : ''} saved to file.`);
-  }, [sse.events, sse.results, sse.verdict, persistence, toast]);
+  }, [sse.events, sse.results, sse.verdict, sse.provenance, persistence, toast]);
 
   // Deep-link intent captured once at mount via useState lazy init.
   // Only populated when the initial URL has a valid `?load=<url>` param
@@ -471,9 +456,9 @@ function AppContent() {
     },
     parseFile: persistence.parseFile,
     currentScenario: { id: scenario.id, name: scenario.labels.name },
-    onConfirm: ({ events, results, verdict }) => {
+    onConfirm: ({ events, results, verdict, provenance }) => {
       leaveDigitalTwin();
-      sse.loadEvents(events, results, verdict);
+      sse.loadEvents(events, results, verdict, provenance);
       clearShareLink();
       toast('info', 'Loaded', `${events.length} events loaded.`);
       // Respect the share-link's `?tab=` when it was specified alongside
@@ -564,25 +549,42 @@ function AppContent() {
   // token is there, so a browser without one sends no extra request.
   const [adminTokenSaved, setAdminTokenSaved] = useState(() => adminTokenState() !== 'none');
   useEffect(() => subscribeAdminToken(() => setAdminTokenSaved(adminTokenState() !== 'none')), []);
-  // A request that fails, or is answered with an error, is asked again the
-  // next time the run actions menu opens, so one failed request does not
-  // hide the item for the rest of the page load.
+  // A request that fails, or is answered with an error, is asked again
+  // after 2 seconds, then at twice the gap up to 15, and at once when the
+  // run actions menu or the Settings controls open, so one failed request
+  // does not hide the item for the rest of the page load.
   const [serverAdminWrite, setServerAdminWrite] = useState<boolean | null>(null);
   const [adminConfigAsk, setAdminConfigAsk] = useState(0);
   const adminConfigFailedRef = useRef(false);
+  const adminConfigGapRef = useRef(ADMIN_CONFIG_RETRY_FIRST_MS);
   useEffect(() => {
     if (!adminTokenSaved || serverAdminWrite !== null) return;
     let live = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const failed = () => {
+      if (!live) return;
+      adminConfigFailedRef.current = true;
+      const gap = adminConfigGapRef.current;
+      adminConfigGapRef.current = Math.min(gap * 2, ADMIN_CONFIG_RETRY_MAX_MS);
+      retry = setTimeout(() => {
+        adminConfigFailedRef.current = false;
+        setAdminConfigAsk(n => n + 1);
+      }, gap);
+    };
     adminConfigFailedRef.current = false;
     fetch('/admin-config')
       .then(res => (res.ok ? res.json() : null))
       .then((config: { adminWrite?: unknown } | null) => {
         if (!live) return;
-        if (config) setServerAdminWrite(config.adminWrite === true);
-        else adminConfigFailedRef.current = true;
+        if (!config) return failed();
+        adminConfigGapRef.current = ADMIN_CONFIG_RETRY_FIRST_MS;
+        setServerAdminWrite(config.adminWrite === true);
       })
-      .catch(() => { if (live) adminConfigFailedRef.current = true; });
-    return () => { live = false; };
+      .catch(failed);
+    return () => {
+      live = false;
+      if (retry !== undefined) clearTimeout(retry);
+    };
   }, [adminTokenSaved, serverAdminWrite, adminConfigAsk]);
   const handleRunActionsOpen = useCallback(() => {
     if (!adminConfigFailedRef.current) return;
@@ -721,11 +723,6 @@ function AppContent() {
   // launch-stalled, rate-limited, and simulation errors. The server's
   // `replay_done` SSE marker stays in place for future transient UX.
 
-  // Where the visitor was looking before the guided tour took over, put
-  // back when the tour ends. Nothing opens the tour: no key starts it and it
-  // never starts by itself, on a first visit or any other.
-  const preTourTabRef = useRef<DashboardTab | null>(null);
-
   // Chat handoff from the VIZ drilldown. Sets the URL hash so
   // ChatPanel can read it on mount or on hashchange, then switches
   // tabs. Hash survives the tab switch so preselection works even
@@ -733,22 +730,6 @@ function AppContent() {
   const navigateToChat = useCallback((colonistName: string) => {
     window.location.hash = `chat=${encodeURIComponent(colonistName)}`;
     setActiveTab('chat');
-  }, [setActiveTab]);
-
-  const handleTourEnd = useCallback(() => {
-    setTourActive(false);
-    // Restore the tab the visitor was on before the tour started. Falls
-    // back to whatever tab the tour was last on when none was captured.
-    if (preTourTabRef.current) {
-      setActiveTab(preTourTabRef.current);
-      preTourTabRef.current = null;
-    }
-    // Mark the tour as seen, on both finish and skip.
-    try {
-      localStorage.setItem('paracosm:tourSeen', '1');
-    } catch {
-      /* silent — privacy mode or quota error, nothing we can do */
-    }
   }, [setActiveTab]);
 
   const handleCopySummary = useCallback(() => {
@@ -842,8 +823,7 @@ function AppContent() {
   // (and any other launch path that uses window.location.href to
   // navigate to /sim). Without this, a Quickstart Run → page reload →
   // /sim?tab=sim mount has launching=false, no events yet, and SSE
-  // already connected → SimView falls into the empty "No simulation
-  // running" state for 2-5s while the server queues + emits the first
+  // already connected → SimView falls into the empty Watch state for 2-5s while the server queues + emits the first
   // event. The flag clears in a useEffect once the first event lands
   // OR after a 30s safety timeout so a stuck launch doesn't pin the
   // spinner forever.
@@ -853,7 +833,7 @@ function AppContent() {
     catch { return false; }
   });
 
-  // Accumulator for /chat turn cost + tokens. Folded into the Footer's
+  // Accumulator for /chat turn cost + tokens. Folded into the run status bar's
   // `cost` prop so users see the real run-plus-chat total spend. Prior
   // behaviour: footer only counted simulation cost, chat turns billed
   // invisibly. Reset to zero whenever the sim event list empties —
@@ -958,21 +938,27 @@ function AppContent() {
     toast('error', 'Digital twin failed', message);
     return true;
   }, [sse, toast]);
+  const shownRunComplete = sse.isComplete && sse.finishRunKey === sse.runKey;
+  // The verdict of the run the page shows. A fork that ran to its end has
+  // none of its own: its banner says so, and `sse.verdict` stays its
+  // parent's for Reports, the SIM tab and a saved file.
+  const ownVerdict = sse.verdictRunKey === sse.runKey ? sse.verdict : null;
+  const forkEnded = sse.forkOutcome !== null && sse.forkOutcome.runKey === sse.runKey;
+  const shownRunVerdict = ownVerdict ?? (forkEnded ? FORK_ENDED : null);
   useTerminalToast({
     runKey: sse.runKey,
-    isComplete: sse.isComplete,
-    isAborted: sse.isAborted,
+    isComplete: shownRunComplete,
+    isAborted: sse.isAborted && sse.finishRunKey === sse.runKey,
     abortReason: sse.abortReason,
     resultsCount: sse.results.length,
-    hasVerdict: Boolean(sse.verdict),
+    hasVerdict: Boolean(shownRunVerdict),
     replayDone: sse.replayDone,
-    tourActive,
     userTriggeredRun,
-    verdict: sse.verdict,
+    verdict: shownRunVerdict,
   });
 
   // Local cache fallback: write completed runs to localStorage keyed
-  // by scenario shortName so the LOAD menu can surface them even when
+  // by scenario shortName so Library can show them even when
   // the server-side /sessions save was skipped (e.g. hosted container
   // lost the SQLite volume, or the run took a path that tripped one
   // of autoSaveOnComplete's guards). Dedup via the same fingerprint
@@ -980,10 +966,11 @@ function AppContent() {
   // same data; bounded by the scenarioShortName key so switching
   // scenarios doesn't trample prior scenario caches.
   useEffect(() => {
-    if (tourActive) return;
-    if (!sse.isComplete) return;
+    if (!shownRunComplete) return;
     if (sse.events.length === 0) return;
-    const fingerprint = `cached:${scenario.labels.shortName}:${sse.events.length}:${sse.isAborted ? 'a' : 'c'}`;
+    const fingerprint = JSON.stringify([
+      scenario.labels.shortName, sse.runKey ?? replaySessionId, sse.events.length, sse.isAborted, sse.provenance,
+    ]);
     const storageKey = 'paracosm:lastCachedRunFingerprint';
     try {
       if (sessionStorage.getItem(storageKey) === fingerprint) return;
@@ -995,81 +982,31 @@ function AppContent() {
       events: sse.events,
       results: sse.results,
       verdict: sse.verdict,
+      provenance: sse.provenance,
     });
   }, [
     sse.isComplete,
+    sse.runKey,
+    replaySessionId,
+    sse.provenance,
     sse.isAborted,
     sse.events,
     sse.results,
     sse.verdict,
     scenario.labels.shortName,
     history,
-    tourActive,
   ]);
 
-  useSimSavedToast({ events: sse.events, tourActive, userTriggeredRun });
+  useSimSavedToast({ savedEvent: sse.simSaved, runKey: sse.runKey, userTriggeredRun });
 
-  // The run the guided tour's last step starts, with the scenario's
-  // default settings. The Run tab's Start is the one control that starts a
-  // run; the tour, which nothing opens, is the only caller left here.
-  const handleRun = useCallback(async () => {
-    // Guard against double-fire: an early return here is the
-    // authoritative gate.
-    if (!scenarioReady) {
-      toast('info', 'Loading scenario', 'The scenario is still loading. Run again in a moment.');
-      return;
-    }
-    if (launching || gameState.isRunning) {
-      toast('info', 'Already running', 'A simulation is in progress — wait for it to finish or hit Clear to reset.');
-      return;
-    }
-    try {
-      setLaunching(true);
-      // Mark the run as user-triggered so the run-finish + cache-saved
-      // toasts unlock for this session. Cleared by handleClear / Wipe.
-      setUserTriggeredRun(true);
-      // Clear prior-run state on the client before launching a new sim.
-      // handleClear does this via sse.reset() but Run previously did not,
-      // so a user who loaded a completed run from cache and then hit Run
-      // saw the new sim's events append to the stale history. reset()
-      // also posts /clear to the server, naming the run the page held; it
-      // is awaited, so the /clear lands before the new run opens and never
-      // stops it. The server's /setup replaces the visitor's run anyway. A
-      // page that shows a Digital Twin keeps its events until the server
-      // takes the run, so a run the server refuses leaves the twin's
-      // progress and playback as they were: the new run opens with a key of
-      // its own, and the feed starts it clean then.
-      const showsTwin = twinRunKeyRef.current !== null || interventionArtifact !== null;
-      if (!showsTwin) await sse.reset();
-      // Switch to the sim tab immediately so the user sees the launching
-      // spinner there (the Run button on the empty state still works
-      // from any tab via the topbar).
-      setActiveTab('sim');
-      toast('info', 'Launching', 'Starting simulation with default settings...');
-      const res = await fetch('/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(defaultRunSetup(scenario)),
-      });
-      const data = await res.json();
-      if (res.status === 429) {
-        setLaunching(false);
-        toast('error', 'Rate Limited', data.error || 'Too many simulations');
-      } else if (!data.redirect) {
-        setLaunching(false);
-        toast('error', 'Launch Failed', data.error || 'Unknown error');
-      } else {
-        emitLaunched(window, data.visitorId);
-        // The server took the run: switch to its live stream.
-        showNewRun();
-      }
-      // Success path: leave launching=true; the effect above clears it
-      // when the first SSE event arrives.
-    } catch (err) {
-      setLaunching(false);
-      toast('error', 'Launch Failed', String(err));
-    }
-  }, [scenario, scenarioReady, toast, setActiveTab, launching, gameState.isRunning, sse, showNewRun, interventionArtifact]);
+  // A Digital Twin can run in a different scenario and use its own event feed.
+  const showsDigitalTwin = interventionRunning !== null || interventionArtifact !== null;
+  // A twin the provider stopped, or a signal cancelled, returns its partial
+  // artifact marked as the server marks its stream: aborted.
+  const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
+  const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
+  const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
+  const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
     <BranchesProvider>
@@ -1080,13 +1017,9 @@ function AppContent() {
       <ScenarioLoadContext.Provider value={scenarioLoad}>
        <CitationRegistryContext.Provider value={citationRegistry}>
         <ToolRegistryContext.Provider value={toolRegistry}>
+        <RunExportProvenanceContext.Provider value={sse.provenance}>
         <ForgeViewProvider state={gameState} runKey={sse.runKey ?? null} sessionId={currentSessionId} showToolLog={showToolLog}>
         <BranchesSyncer sse={sse} />
-        {/* Skip link: keyboard users land on this first, jumping past
-            the long tab/header chrome to the active tabpanel. The CSS
-            visually hides it until :focus per the .skip-to-content
-            class in theme/tokens.css. */}
-        <a className="skip-to-content" href="#main-content">Skip to main content</a>
         <div className={`scanline-overlay ${styles.shell} ${activeTab === 'viz' ? styles.vizShortScroll : ''}`}>
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
@@ -1101,40 +1034,21 @@ function AppContent() {
             <ReplayBanner replaySessionId={replaySessionId} />
           ) : null}
           <TopBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
             scenario={scenario}
-            sse={sse}
-            gameState={gameState}
+            hasEvents={Object.values(gameState.actors).some(actor => actor.events.length > 0)}
             onSave={handleSave}
-            onLoad={handleLoad}
             onClear={handleClear}
-            onWipeServer={adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined}
+            onWipeServer={wipeServer}
             onRunActionsOpen={handleRunActionsOpen}
             onHowItWorks={toggleHowItWorks}
             howItWorksOpen={howItWorksOpen}
             howItWorksKeyRef={howItWorksKeyRef}
             onCopy={handleCopySummary}
             onShareViz={currentSessionId ? handleShareViz : undefined}
-            launching={launching}
-            history={history.entries}
-            onRestoreHistory={(entry) => { leaveDigitalTwin(); clearShareLink(); history.restore(entry, sse.loadEvents); }}
-            onClearHistory={() => {
-              // Clear all browser-side state — the local LOAD-menu
-              // ring, the localStorage event-cache, the in-memory SSE
-              // state (which feeds Sim/Constellation/EventLog), and
-              // the userTriggeredRun toast gate. On the server, as Clear
-              // local data in the run actions menu, POST /clear lets go of
-              // this browser's run and stops it while it runs. Run
-              // history, saved sessions and output files are Delete server
-              // data's, in the run actions menu.
-              history.clear();
-              persistence.clearCache();
-              leaveDigitalTwin();
-              sse.reset();
-              setUserTriggeredRun(false);
-              setLaunchedRunKey(null);
-            }}
+            runExists={runExists}
           />
-          <TabBar active={activeTab} onTabChange={setActiveTab} scenario={scenario} />
           {/* In the page's flow under the tabs, so it covers none of the top bar's keys. */}
           {shareLink.shared && (
             <ShareLinkNote shared={shareLink.shared} onClose={shareLink.clear} />
@@ -1142,7 +1056,8 @@ function AppContent() {
           {/* The banner and finish notices share the launch gate. */}
           {userTriggeredRun && (
             <VerdictBanner
-              verdict={sse.verdict}
+              verdict={shownRunVerdict}
+              runIdentity={shownRun}
               currentTurn={gameState.turn}
               maxTurns={gameState.maxTurns}
               dismissedKey={verdictDismissedKey}
@@ -1152,217 +1067,237 @@ function AppContent() {
             />
           )}
 
-          <main
-            id="main-content"
-            // tabIndex={-1} so the skip link's #main-content anchor
-            // actually translates focus into the main region. Without
-            // this, browsers scroll to the target but leave focus on
-            // the <a> itself, defeating the skip-link purpose.
-            tabIndex={-1}
-            className={`flex-1 overflow-hidden ${styles.main}`}
-            role="main"
-            aria-label={`${activeTab} view`}
-          >
-            {/* SR-only h1 anchors the heading hierarchy per tab. Sighted
-                users see the visible TabBar + view chrome; AT users
-                land on a real <h1> on every tab so the page outline
-                reads "Paracosm > <Tab Name>" instead of "no h1 found".
-                Per-tab views can still emit their own h2/h3 for
-                section structure. */}
-            {/* The Run tab's first screen shows its own visible h1, the
-                scenario's name, so the page keeps one h1 there. */}
-            {activeTab !== 'quickstart' && <h1 className="sr-only">{tabHeadingFor(activeTab)}</h1>}
-            {/* QuickstartView stays mounted across tab switches so an in-
-                flight compile/research/actors run survives navigation. The
-                handleSeedReady pipeline is a chain of long fetches (compile
-                up to 5 min on first-paste, ground-scenario, generate-actors,
-                /setup) that drive local Phase state via setState — unmount
-                during any of those would silently drop the user back on the
-                input form when they returned, even though the server-side
-                work was still in progress. Hidden via display:none + the
-                `hidden` attribute so the panel exits layout AND the a11y
-                tree on inactive tabs while preserving every promise + state
-                slot. ChatPanel uses the same pattern to keep per-agent
-                threads alive. */}
-            <section
-              role="tabpanel"
-              id="tabpanel-quickstart"
-              aria-labelledby="tab-quickstart"
-              hidden={activeTab !== 'quickstart'}
-              // tabIndex={-1}: panel contains its own focusable
-              // descendants (buttons, inputs, etc.), so per ARIA APG
-              // we don't insert an extra Tab stop on the panel
-              // itself. -1 keeps it programmatically focusable for
-              // skip-link / future activation handlers.
+          <div className={styles.page} ref={pageRef}>
+            <main
+              id="main-content"
+              // tabIndex={-1} so the skip link's #main-content anchor
+              // actually translates focus into the main region. Without
+              // this, browsers scroll to the target but leave focus on
+              // the <a> itself, defeating the skip-link purpose.
               tabIndex={-1}
-              className={activeTab === 'quickstart' ? styles.tabPanel : styles.tabPanelHidden}
+              className={styles.main}
+              role="main"
+              data-run-connection={sse.status}
+              aria-label={TAB_NAMES[activeTab]}
             >
-              <QuickstartView
-                sse={sse}
-                sessionId={replaySessionId ?? undefined}
-                onRunStarted={leaveDigitalTwin}
-                showsDigitalTwin={interventionRunning !== null || interventionArtifact !== null}
-                onInterventionStart={handleInterventionStart}
-                onInterventionResult={handleInterventionResult}
-                onInterventionError={handleInterventionError}
-              />
-            </section>
-
-            {activeTab === 'sim' && (
+              {/* SR-only h1 anchors the heading hierarchy per tab. Sighted
+                  users see the visible TabBar + view chrome; AT users
+                  land on a real <h1> on every tab so the page outline
+                  reads the tab name instead of "no h1 found".
+                  Per-tab views can still emit their own h2/h3 for
+                  section structure. */}
+              {/* The Run tab's first screen shows its own visible h1, the
+                  scenario's name, so the page keeps one h1 there. */}
+              {activeTab !== 'quickstart' && <h1 className="sr-only">{TAB_NAMES[activeTab]}</h1>}
+              {/* QuickstartView stays mounted across tab switches so an in-
+                  flight compile/research/actors run survives navigation. The
+                  handleSeedReady pipeline is a chain of long fetches (compile
+                  up to 5 min on first-paste, ground-scenario, generate-actors,
+                  /setup) that drive local Phase state via setState — unmount
+                  during any of those would silently drop the user back on the
+                  input form when they returned, even though the server-side
+                  work was still in progress. Hidden via display:none + the
+                  `hidden` attribute so the panel exits layout AND the a11y
+                  tree on inactive tabs while preserving every promise + state
+                  slot. ChatPanel uses the same pattern to keep per-agent
+                  threads alive. */}
               <section
-                role="tabpanel"
-                id="tabpanel-sim"
-                aria-labelledby="tab-sim"
+                id="tabpanel-quickstart"
+                aria-label={TAB_NAMES.quickstart}
+                hidden={activeTab !== 'quickstart'}
                 // tabIndex={-1}: panel contains its own focusable
                 // descendants (buttons, inputs, etc.), so per ARIA APG
                 // we don't insert an extra Tab stop on the panel
                 // itself. -1 keeps it programmatically focusable for
                 // skip-link / future activation handlers.
                 tabIndex={-1}
-                className={styles.tabPanel}
+                className={activeTab === 'quickstart' ? styles.tabPanel : styles.tabPanelHidden}
               >
-                <SimView
-                  state={gameState}
-                  sseStatus={sse.status}
-                  verdict={sse.verdict}
-                  shownRun={shownRun}
-                  launching={launching}
-                  interventionArtifact={interventionArtifact}
-                  interventionRunning={interventionRunning}
-                  interventionState={interventionState}
-                  onInterventionDismiss={handleInterventionDismiss}
-                  forceLayout={tourActive ? 'side-by-side' : undefined}
+                <QuickstartView
+                  sse={sse}
+                  sessionId={replaySessionId ?? undefined}
+                  onRunStarted={leaveDigitalTwin}
+                  showsDigitalTwin={showsDigitalTwin}
+                  onInterventionStart={handleInterventionStart}
+                  onInterventionResult={handleInterventionResult}
+                  onInterventionError={handleInterventionError}
                 />
               </section>
-            )}
 
-            {activeTab === 'viz' && (
+              {activeTab === 'sim' && (
+                <section
+                  id="tabpanel-sim"
+                  aria-label={TAB_NAMES.sim}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <SimView
+                    state={gameState}
+                    sseStatus={sse.status}
+                    verdict={sse.verdict}
+                    shownRun={shownRun}
+                    launching={launching}
+                    interventionArtifact={interventionArtifact}
+                    interventionRunning={interventionRunning}
+                    interventionState={interventionState}
+                    onInterventionDismiss={handleInterventionDismiss}
+                  />
+                </section>
+              )}
+
+              {activeTab === 'viz' && (
+                <section
+                  id="tabpanel-viz"
+                  aria-label={TAB_NAMES.viz}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <SwarmViz key={shownRun} state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
+                </section>
+              )}
+
+              {activeTab === 'settings' && (
+                <section
+                  id="tabpanel-settings"
+                  aria-label={TAB_NAMES.settings}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <SettingsPanel
+                    events={sse.events}
+                    initialSubTab={settingsInitialSubTab}
+                    onClearLocal={handleClear}
+                    onWipeServer={wipeServer}
+                    onOpenStoredData={handleRunActionsOpen}
+                  />
+                </section>
+              )}
+
+              {activeTab === 'reports' && (
+                <section
+                  id="tabpanel-reports"
+                  aria-label={TAB_NAMES.reports}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <ReportView state={gameState} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
+                </section>
+              )}
+
+              {activeTab === 'library' && (
+                <section
+                  id="tabpanel-library"
+                  aria-label={TAB_NAMES.library}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <LibraryTab savedRuns={{
+                    history: history.entries,
+                    // A started run whose first frame has not come is open too.
+                    runOpen: sse.events.length > 0 || launching,
+                    onRestore: (entry) => {
+                      leaveDigitalTwin();
+                      clearShareLink();
+                      history.restore(entry, sse.loadEvents);
+                      setActiveTab('sim');
+                    },
+                    onClear: () => {
+                      history.clear();
+                      persistence.clearCache();
+                      leaveDigitalTwin();
+                      void sse.reset();
+                      setUserTriggeredRun(false);
+                      setLaunchedRunKey(null);
+                    },
+                  }} />
+                </section>
+              )}
+
+              {activeTab === 'studio' && (
+                <section
+                  id="tabpanel-studio"
+                  aria-label={TAB_NAMES.studio}
+                  // tabIndex={-1}: panel contains its own focusable
+                  // descendants (buttons, inputs, etc.), so per ARIA APG
+                  // we don't insert an extra Tab stop on the panel
+                  // itself. -1 keeps it programmatically focusable for
+                  // skip-link / future activation handlers.
+                  tabIndex={-1}
+                  className={styles.tabPanel}
+                >
+                  <StudioTab initialSubTab={studioInitialSubTab} onOpenRunFile={handleLoad} />
+                </section>
+              )}
+
+              {/* ChatPanel stays mounted across tab switches so per-agent
+                  message threads survive when the user jumps to Sim / Reports
+                  / Viz and comes back. ChatPanel owns the `threads` Map in
+                  local state; unmounting on tab change dropped every
+                  conversation the moment the user navigated away. Other tabs
+                  (Sim, Viz, Settings, Reports, Log) have no user-generated
+                  state at risk and stay on the unmount-on-switch pattern.
+
+                  Hide path: `display: none` via .chatSurfaceHidden — that
+                  alone removes the subtree from layout, the a11y tree, and
+                  tab order. Do NOT switch to visibility/opacity hiding
+                  without auditing chat input + send button focus order
+                  (would create a hidden-but-focusable trap).
+
+                  Keyed on the run the page shows (its key, or which run
+                  loaded from a file or from history it is): a new run, the
+                  same scenario with the same people included, mounts a fresh
+                  panel, so no thread and no history from the last run shows
+                  or goes to /chat. A reconnect replays the same key and keeps
+                  the threads. */}
               <section
-                role="tabpanel"
-                id="tabpanel-viz"
-                aria-labelledby="tab-viz"
-                // tabIndex={-1}: panel contains its own focusable
-                // descendants (buttons, inputs, etc.), so per ARIA APG
-                // we don't insert an extra Tab stop on the panel
-                // itself. -1 keeps it programmatically focusable for
-                // skip-link / future activation handlers.
+                id="tabpanel-chat"
+                aria-label={TAB_NAMES.chat}
                 tabIndex={-1}
-                className={styles.tabPanel}
+                className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
               >
-                <SwarmViz key={shownRun} state={gameState} isReplay={replaySessionId !== null} onNavigateToChat={navigateToChat} />
+                {replaySessionId
+                  ? <p>Start your own run to chat with its characters.</p>
+                  : <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />}
               </section>
-            )}
 
-            {activeTab === 'settings' && (
-              <section
-                role="tabpanel"
-                id="tabpanel-settings"
-                aria-labelledby="tab-settings"
-                // tabIndex={-1}: panel contains its own focusable
-                // descendants (buttons, inputs, etc.), so per ARIA APG
-                // we don't insert an extra Tab stop on the panel
-                // itself. -1 keeps it programmatically focusable for
-                // skip-link / future activation handlers.
-                tabIndex={-1}
-                className={styles.tabPanel}
-              >
-                <SettingsPanel
-                  events={effectiveEvents}
-                  initialSubTab={settingsInitialSubTab}
-                />
-              </section>
-            )}
+              {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now
+                  rendered inside SettingsPanel when its sub-tab is 'log'. */}
 
-            {activeTab === 'reports' && (
-              <section
-                role="tabpanel"
-                id="tabpanel-reports"
-                aria-labelledby="tab-reports"
-                // tabIndex={-1}: panel contains its own focusable
-                // descendants (buttons, inputs, etc.), so per ARIA APG
-                // we don't insert an extra Tab stop on the panel
-                // itself. -1 keeps it programmatically focusable for
-                // skip-link / future activation handlers.
-                tabIndex={-1}
-                className={styles.tabPanel}
-              >
-                <ReportView state={gameState} verdict={sse.verdict} shownRun={shownRun} reportSections={scenario.ui.reportSections} />
-              </section>
-            )}
-
-            {activeTab === 'library' && (
-              <section
-                role="tabpanel"
-                id="tabpanel-library"
-                aria-labelledby="tab-library"
-                // tabIndex={-1}: panel contains its own focusable
-                // descendants (buttons, inputs, etc.), so per ARIA APG
-                // we don't insert an extra Tab stop on the panel
-                // itself. -1 keeps it programmatically focusable for
-                // skip-link / future activation handlers.
-                tabIndex={-1}
-                className={styles.tabPanel}
-              >
-                <LibraryTab />
-              </section>
-            )}
-
-            {activeTab === 'studio' && (
-              <section
-                role="tabpanel"
-                id="tabpanel-studio"
-                aria-labelledby="tab-studio"
-                // tabIndex={-1}: panel contains its own focusable
-                // descendants (buttons, inputs, etc.), so per ARIA APG
-                // we don't insert an extra Tab stop on the panel
-                // itself. -1 keeps it programmatically focusable for
-                // skip-link / future activation handlers.
-                tabIndex={-1}
-                className={styles.tabPanel}
-              >
-                <StudioTab initialSubTab={studioInitialSubTab} />
-              </section>
-            )}
-
-            {/* ChatPanel stays mounted across tab switches so per-agent
-                message threads survive when the user jumps to Sim / Reports
-                / Viz and comes back. ChatPanel owns the `threads` Map in
-                local state; unmounting on tab change dropped every
-                conversation the moment the user navigated away. Other tabs
-                (Sim, Viz, Settings, Reports, Log) have no user-generated
-                state at risk and stay on the unmount-on-switch pattern.
-
-                Hide path: `display: none` via .chatSurfaceHidden — that
-                alone removes the subtree from layout, the a11y tree, and
-                tab order. Do NOT switch to visibility/opacity hiding
-                without auditing chat input + send button focus order
-                (would create a hidden-but-focusable trap).
-
-                Keyed on the run the page shows (its key, or which run
-                loaded from a file or from history it is): a new run, the
-                same scenario with the same people included, mounts a fresh
-                panel, so no thread and no history from the last run shows
-                or goes to /chat. A reconnect replays the same key and keeps
-                the threads. */}
-            <section
-              role="tabpanel"
-              id="tabpanel-chat"
-              aria-labelledby="tab-chat"
-              tabIndex={-1}
-              className={activeTab === 'chat' ? styles.chatSurfaceVisible : styles.chatSurfaceHidden}
-            >
-              {replaySessionId
-                ? <p>Start your own run to chat with its characters.</p>
-                : <ChatPanel key={shownRun} state={gameState} onChatUsage={handleChatUsage} />}
-            </section>
-
-            {/* LOG moved into SETTINGS as a sub-tab; EventLogPanel is now
-                rendered inside SettingsPanel when its sub-tab is 'log'. */}
-
-            {/* About tab redirects to the landing page */}
-          </main>
-          {/* The Run tab ends in its own foot (first-screen/PageFoot). */}
-          {activeTab !== 'quickstart' && <Footer
+              {/* About tab redirects to the landing page */}
+            </main>
+            <PageFoot />
+          </div>
+          {runExists && <RunStatusBar
+            progress={{
+              gameState: showsDigitalTwin ? interventionState : gameState,
+              // The twin's progress counts the twin's own fallbacks.
+              validationFallbacks: showsDigitalTwin && sse.ownRun ? sse.ownRun.validationFallbacks : sse.validationFallbacks,
+            }}
             cost={{
               totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
               totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
@@ -1375,9 +1310,9 @@ function AppContent() {
               chatCalls: chatUsage.calls,
             }}
             simStatus={{
-              isRunning: gameState.isRunning,
-              isComplete: sse.isComplete,
-              isAborted: sse.isAborted,
+              isRunning: showsDigitalTwin ? interventionRunning !== null : gameState.isRunning || launching,
+              isComplete: showsDigitalTwin ? interventionArtifact !== null : sse.isComplete,
+              isAborted: showsDigitalTwin ? twinStopped : sse.isAborted,
               connectionStatus: sse.status,
               abortReason: sse.abortReason,
               providerError: sse.providerError,
@@ -1406,19 +1341,11 @@ function AppContent() {
             />
           )}
           <DropZoneOverlay active={dropZone.isDragging} />
-          {tourActive && (
-            <GuidedTour
-              activeTab={activeTab}
-              chatEnabled={scenario.policies.characterChat}
-              onTabChange={setActiveTab}
-              onClose={handleTourEnd}
-              onRun={handleRun}
-            />
-          )}
           <ShortcutsOverlay />
           <HowItWorksCard open={howItWorksOpen} onClose={closeHowItWorks} anchor={howItWorksKeyRef} />
         </div>
         </ForgeViewProvider>
+        </RunExportProvenanceContext.Provider>
         </ToolRegistryContext.Provider>
        </CitationRegistryContext.Provider>
       </ScenarioLoadContext.Provider>
@@ -1467,7 +1394,7 @@ export function App() {
         <ToastProvider>
           <RunTurnsProvider>
             <ServerFactsProvider>
-              <AppContent />
+              <AiWrittenPage><AppContent /></AiWrittenPage>
             </ServerFactsProvider>
           </RunTurnsProvider>
         </ToastProvider>

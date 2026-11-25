@@ -3,6 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0806" />
+    <script>
+      // Keep this early look rule in sync with src/theme/look.ts.
+      (() => {
+        let stored = null;
+        try {
+          stored = localStorage.getItem('paracosm-theme');
+        } catch {
+          // Storage can be unavailable in a private browsing context.
+        }
+        const look = stored === 'light' || stored === 'dark'
+          ? stored
+          : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        const root = document.documentElement;
+        root.classList.toggle('light', look === 'light');
+        root.style.colorScheme = look;
+        document.querySelector('meta[name="theme-color"]').content = look === 'light' ? '#f0e6d2' : '#0a0806';
+      })();
+    </script>
+    <script>
+      window.addEventListener('error', (event) => {
+        const target = event.target;
+        // The entry module's file did not load: the script element reports it.
+        const notFetched = target instanceof HTMLScriptElement && target.type === 'module';
+        // The entry module, or a module it imports, threw while it ran: the
+        // window reports it. Only before the dashboard mounts, which removes
+        // #seo-shell, and only for this site's own scripts.
+        const stopped = target === window && document.getElementById('seo-shell') !== null &&
+          typeof event.filename === 'string' && event.filename.startsWith(location.origin + '/');
+        if (!notFetched && !stopped) return;
+        const failure = document.getElementById('boot-failed');
+        if (failure) {
+          failure.hidden = false;
+        } else if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => {
+            const line = document.getElementById('boot-failed');
+            if (line) line.hidden = false;
+          }, { once: true });
+        }
+      }, true);
+    </script>
     <title>Watch AI leaders run the same scenario | Paracosm</title>
 
     <!-- SEO -->
@@ -26,8 +67,6 @@
     <meta name="twitter:description" content="Read each AI leader’s orders and full prompt, compare leaders side by side, then watch 2 to 300 of them run the same scenario turn by turn." />
 
     <!-- Theme -->
-    <meta name="theme-color" content="#0a0806" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#e8dcc8" media="(prefers-color-scheme: light)" />
     <meta name="color-scheme" content="dark light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -41,6 +80,8 @@
 
     <!-- Fonts -->
     <!-- Served from this site (assets/fonts/), so no page asks a font service. -->
+    <link rel="preload" href="/brand/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/brand/fonts/jetbrains-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link href="/brand/fonts/fonts.css" rel="stylesheet" />
 
     <!-- Structured Data -->
@@ -69,12 +110,26 @@
   </head>
   <body>
     <a href="#main-content" class="skip-to-content">Skip to main content</a>
-    <!-- Skip-link target: wraps #root so the keyboard/screen-reader
-         "Skip to main content" anchor at the top of the page lands here
-         regardless of whether JS is enabled. React mounts inside #root
-         and never touches this wrapper. -->
-    <main id="main-content">
+    <div id="app">
       <div id="root">
+        <header class="boot-row">
+          <div class="boot-row-inner">
+            <a href="/" class="boot-home" aria-label="Paracosm home">
+              <img src="/favicon.svg" alt="" />
+              <span class="boot-wordmark" translate="no">PARA<span data-read-exception="wordmark">COSM</span></span>
+            </a>
+          </div>
+        </header>
+        <!-- The skip link's target until the dashboard mounts; its own main takes the id then. -->
+        <div id="main-content" tabindex="-1">
+        <p id="boot-failed" class="boot-failed" data-text="body" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M10 14.5 7.2 17.3a3 3 0 0 1-4.24-4.24L5.8 10.2a3 3 0 0 1 4.2-.05" />
+            <path d="M14 9.5 16.8 6.7a3 3 0 0 1 4.24 4.24L18.2 13.8a3 3 0 0 1-4.2.05" />
+            <path d="M8.5 2.5v2.5M2.5 8.5H5M15.5 21.5V19M21.5 15.5H19" />
+          </svg>
+          <span>This page did not load. Reload to try again. <a href="">Reload</a></span>
+        </p>
         <!--
           Server-rendered semantic shell for crawlers and screen readers
           without JavaScript: a real H1 and H2, and a noscript fallback
@@ -96,8 +151,9 @@
               for code examples that don't require the dashboard.</p>
           </div>
         </noscript>
+        </div>
       </div>
-    </main>
+    </div>
     <!-- The Analytics choices control of the hosted demo's consent bar, outside
          #root so it is there when the dashboard's script does not load. The bar's
          script shows it; the dashboard's footer takes it in when it mounts. -->

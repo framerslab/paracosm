@@ -1,11 +1,13 @@
+import { AiWritten, isAiWritten } from '../shared/AiWritten';
 import { readTabKeyOverrides } from '../../hooks/useLastLaunchConfig';
-import { sessionProviderKeys } from '../settings/sessionProviderKeys';
+import { sessionProviderKeys, visitorKeyTransportError } from '../settings/sessionProviderKeys';
 import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState } from '../../hooks/useGameState';
 import styles from './ChatPanel.module.scss';
 
 interface ChatMessage {
+  authored?: boolean;
   role: 'user' | 'agent';
   name?: string;
   text: string;
@@ -60,7 +62,7 @@ function valenceBorderColor(valence: string): string {
 
 function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; events: GameState; scenario: { labels: { eventNoun?: string; eventNounSingular?: string } } }) {
   // Collect event titles from every leader's timeline, deduped by turn.
-  const eventTimeline: Array<{ turn: number; time: number; title: string; category: string }> = [];
+  const eventTimeline: Array<{ turn: number; time: number; title: string; category: string; authored: boolean }> = [];
   for (const actorName of events.actorIds) {
     const sideState = events.actors[actorName];
     if (!sideState) continue;
@@ -72,6 +74,7 @@ function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; e
             turn,
             time: evt.data.time as number || 0,
             title: String(evt.data.title),
+            authored: isAiWritten(evt.data, 'title'),
             category: String(evt.data.category || ''),
           });
         }
@@ -99,7 +102,7 @@ function EventContext({ memory, events, scenario }: { memory: AgentMemoryInfo; e
           {eventTimeline.map(e => (
             <div key={e.turn} className={styles.eventRow}>
               <span className={styles.eventTurn}>T{e.turn} {e.time}</span>
-              <span className={styles.eventTitle}>{e.title}</span>
+              <AiWritten className={styles.eventTitle} authored={e.authored}>{e.title}</AiWritten>
               {e.category && <span className={styles.eventCategory}>{e.category}</span>}
             </div>
           ))}
@@ -159,6 +162,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
   const [historyByAgent, setHistoryByAgent] = useState<Map<string, Array<{ role: string; content: string }>>>(() => new Map());
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [transportNotice, setTransportNotice] = useState<string>();
   const messagesRef = useRef<HTMLDivElement>(null);
   // Pin-to-bottom for the chat message stream. Release the pin if
   // the user scrolls up to re-read an earlier message so the next
@@ -380,6 +384,10 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
 
   const send = async () => {
     if (!input.trim() || !selectedId || sending) return;
+    const providerKeys = sessionProviderKeys(readTabKeyOverrides());
+    const transportError = visitorKeyTransportError(providerKeys);
+    setTransportNotice(transportError);
+    if (transportError) return;
     const targetId = selectedId;
     const leader = leaderOf(targetId);
     const thread = threadKey(targetId);
@@ -391,7 +399,6 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
     const newHistory = [...currentHistory, { role: 'user', content: msg }];
     setHistoryFor(thread, () => newHistory);
     try {
-      const providerKeys = sessionProviderKeys(readTabKeyOverrides());
       const res = await fetch('/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -403,8 +410,8 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
         }),
       });
       const data = await res.json();
-      if (data.reply) {
-        setMessagesFor(thread, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply }]);
+      if (res.ok && typeof data.reply === 'string' && data.reply) {
+        setMessagesFor(thread, prev => [...prev, { role: 'agent', name: data.colonist || targetId, text: data.reply, authored: true }]);
         setHistoryFor(thread, prev => [...prev, { role: 'assistant', content: data.reply }]);
         // Bubble the chat turn's token/cost usage up so the footer can
         // add it to the simulation-cost total. Failure-path responses
@@ -624,9 +631,9 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
               className={[styles.bubbleWrap, msg.role === 'user' ? styles.fromUser : styles.fromAgent].join(' ')}
             >
               {msg.name && <div className={styles.bubbleName}>{msg.name}</div>}
-              <div className={[styles.bubble, msg.role === 'user' ? styles.user : ''].filter(Boolean).join(' ')}>
+              <AiWritten as="div" authored={msg.authored === true} className={[styles.bubble, msg.role === 'user' ? styles.user : ''].filter(Boolean).join(' ')}>
                 {msg.text}
-              </div>
+              </AiWritten>
             </div>
           ))}
 
@@ -647,6 +654,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
         </div>
 
         {/* Input */}
+        {transportNotice && <div className={styles.bubble} role="alert">{transportNotice}</div>}
         <div className={styles.inputRow}>
           <input
             value={input}

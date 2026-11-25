@@ -15,6 +15,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test, expect, type Page } from '@playwright/test';
+import { openTab, waitForRunConnection } from '../support/frame.js';
 
 const OTHER_HOST = 'runs.example.test';
 const RUN_URL = `https://${OTHER_HOST}/shared/run.json`;
@@ -41,7 +42,7 @@ async function serveOtherHost(page: Page): Promise<{ count: () => number }> {
     requests += 1;
     // The live feed's first connect clears the page's events, so the run
     // is answered once the feed is up, or it can be cleared.
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await waitForRunConnection(page);
     await route.fulfill({
       status: 200,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
@@ -59,7 +60,7 @@ test.describe('a load link to another site', () => {
   test('asks once, naming the site, before anything is fetched or shown', async ({ page }) => {
     const other = await serveOtherHost(page);
     await page.goto(linkTo(RUN_URL));
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await waitForRunConnection(page);
 
     const dialog = askDialog(page);
     await expect(dialog).toBeVisible();
@@ -108,7 +109,7 @@ test.describe('a load link to another site', () => {
 
   test("a link to the page's own site loads with no question", async ({ page, baseURL }) => {
     await page.route('**/own-runs/*.json', async route => {
-      await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+      await waitForRunConnection(page);
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(hostileRun) });
     });
     await page.goto(linkTo(`${baseURL}/own-runs/run.json`));
@@ -191,7 +192,7 @@ test.describe('after a load link is cancelled', () => {
   test("the visitor's own file still gets the preview", async ({ page }) => {
     await serveOtherHost(page);
     await page.goto(`${linkTo(RUN_URL)}&tab=reports`);
-    await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+    await waitForRunConnection(page);
     await askDialog(page).getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(askDialog(page)).toHaveCount(0);
 
@@ -202,9 +203,9 @@ test.describe('after a load link is cancelled', () => {
         { type: 'turn_done', leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' } },
       ],
     };
-    await page.getByRole('button', { name: 'RUN', exact: true }).click();
+    await openTab(page, 'studio');
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('menuitem', { name: /Load from file/ }).click();
+    await page.getByRole('button', { name: 'Open a run file', exact: true }).click();
     await (await chooser).setFiles({ name: 'own-run.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(ownRun)) });
 
     // The link's autoload=1 was for the link's file, which the visitor
@@ -227,7 +228,7 @@ test.describe('a run file whose provider_error address is not text', () => {
         : e)),
     };
     await page.route('**/own-runs/odd.json', async route => {
-      await expect(page.getByRole('status', { name: /^Live\./ }).first()).toBeVisible();
+      await waitForRunConnection(page);
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(oddRun) });
     });
     await page.goto(linkTo(`${baseURL}/own-runs/odd.json`));

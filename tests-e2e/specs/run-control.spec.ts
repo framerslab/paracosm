@@ -19,6 +19,7 @@
  * one another's scenario.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { openTab } from '../support/frame.js';
 import { openRunTab, pressStart, startKey } from '../support/start-run.js';
 
 // Each browser context holds its own pick, so the tests need no order.
@@ -54,7 +55,6 @@ async function holdScenario(page: Page): Promise<() => void> {
   return release;
 }
 
-const runMenuButton = (page: Page) => page.getByRole('button', { name: 'RUN', exact: true });
 const settingsLaunch = (page: Page) => page.getByRole('button', { name: /Launch simulation|Loading scenario/i });
 
 const orderSweeps = [320, 390, 1440].flatMap(width =>
@@ -152,17 +152,6 @@ test.describe('Run controls @run', () => {
     await expect.poll(() => bodies.length).toBe(1);
     expect(bodies[0].quickstart?.scenarioId).toBe('atlas-lab');
     expect(bodies[0].actors.map(a => a.name)).toEqual(['Marcus Reinhardt', 'Priya Kapoor']);
-  });
-
-  test('the RUN menu opens clear of its own tooltip', async ({ page }) => {
-    await page.goto('/sim?tab=sim');
-    await runMenuButton(page).hover();
-    await expect(page.getByRole('tooltip')).toBeVisible();
-    await runMenuButton(page).click();
-    await expect(page.getByRole('menu', { name: 'Run actions' })).toBeVisible();
-    // The pointer has not left the RUN button: its tooltip must not sit
-    // over the menu it just opened.
-    await expect(page.getByRole('tooltip')).toHaveCount(0);
   });
 
   test("Settings launches Atlas Lab's leaders, in units named for a lab", async ({ page }) => {
@@ -343,7 +332,7 @@ test.describe('Run controls @run', () => {
     // The launch opens the Sim tab without a reload, so Atlas Lab and its
     // preset are already in hand when Settings mounts again.
     await expect(page).toHaveURL(/[?&]tab=sim\b/);
-    await page.getByRole('tab', { name: 'SETTINGS', exact: true }).click();
+    await openTab(page, 'settings');
     await expect(settingsLaunch(page)).toBeEnabled();
     await expect(units).toHaveCount(3);
     await expect(units.first()).toHaveValue('East Wing');

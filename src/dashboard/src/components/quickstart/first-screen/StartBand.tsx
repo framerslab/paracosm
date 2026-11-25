@@ -38,6 +38,7 @@
  * @module paracosm/dashboard/quickstart/first-screen/StartBand
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { VISITOR_KEY_TRANSPORT_REFUSAL } from '../../../../../engine/provider/credentials.js';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
 import { createDashboardTabHref } from '../../../tab-routing';
 import { buildReplayHref } from '../../layout/LoadMenu.helpers';
@@ -139,6 +140,7 @@ const FAILURE_WORDS: Record<Exclude<LaunchFailureKind, 'limit'>, string> = {
   offline: COULD_NOT_REACH,
   busy: SERVER_BUSY,
   slots: SLOTS_IN_USE,
+  'visitor-key-transport': VISITOR_KEY_TRANSPORT_REFUSAL,
   other: RUN_DID_NOT_START,
 };
 
