@@ -264,11 +264,15 @@ await withProviderWire(async () => {
   server.listen(PORT);
   await once(server, 'close');
 }, call => {
-  if (call.key === 'fixture-openai-refused') {
-    return Response.json({ error: { message: 'OpenAI authentication failed.', code: 'invalid_api_key' } }, { status: 401 });
+  if (call.key?.startsWith('fixture-openai-auth:')) {
+    return Response.json({
+      error: { message: 'OpenAI: Incorrect API key provided.', type: 'invalid_request_error', code: 'invalid_api_key' },
+    }, { status: 401 });
   }
-  if (call.key === 'fixture-openai-quota') {
-    return Response.json({ error: { message: 'OpenAI billing limit reached.', code: 'insufficient_quota' } }, { status: 403 });
+  if (call.key?.startsWith('fixture-openai-quota:')) {
+    return Response.json({
+      error: { message: 'OpenAI billing limit reached.', type: 'insufficient_quota', code: 'insufficient_quota' },
+    }, { status: 403 });
   }
   return 'The engineering team kept the power on.';
 });
