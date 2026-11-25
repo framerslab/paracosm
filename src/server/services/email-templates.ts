@@ -6,7 +6,18 @@
  * @module paracosm/cli/server/email-templates
  */
 
-export interface YoureInInput {
+/**
+ * What every email's footer carries besides the recipient's address: the
+ * recipient's own unsubscribe link (the same one the List-Unsubscribe
+ * header holds) and the sender's postal address, which commercial email
+ * must show (15 U.S.C. 7704(a)(5)).
+ */
+export interface MailFooter {
+  unsubscribeUrl: string;
+  postalAddress: string;
+}
+
+export interface YoureInInput extends MailFooter {
   email: string;
   name: string | null;
 }
@@ -41,11 +52,14 @@ function escapeHtml(s: string): string {
 /**
  * Broadcast email that tells the people who joined the waitlist that
  * hosted access is open. `scripts/send-waitlist-broadcast.ts` sends it
- * to every stored signup. No personalization beyond the optional name,
- * which keeps it appropriate for bulk delivery.
+ * to every stored signup through `sendOptionalEmail`, which supplies the
+ * footer's unsubscribe link and postal address. No personalization beyond
+ * the optional name, which keeps it appropriate for bulk delivery.
  */
 export function renderYoureIn(input: YoureInInput): RenderedEmail {
   const safeEmail = escapeHtml(input.email);
+  const safeUnsubscribeUrl = escapeHtml(input.unsubscribeUrl);
+  const safePostalAddress = escapeHtml(input.postalAddress);
   const safeName = input.name ? escapeHtml(input.name) : null;
   const greeting = safeName ? `Hi ${safeName},` : 'Hi,';
 
@@ -87,9 +101,11 @@ export function renderYoureIn(input: YoureInInput): RenderedEmail {
 <p style="margin:0 0 32px 0;font-size:16px;line-height:1.6;color:${TEXT_PRIMARY};">&mdash; The Paracosm team</p>
 </td></tr>
 
-<tr><td style="padding:24px 40px;border-top:1px solid #2a1f18;font-size:12px;color:${TEXT_MUTED};">
-<p style="margin:0 0 6px 0;">Sent to <strong style="color:${TEXT_PRIMARY};">${safeEmail}</strong> from <a href="mailto:${SUPPORT_EMAIL}" style="color:${ACCENT_AMBER};text-decoration:none;">${SUPPORT_EMAIL}</a>.</p>
-<p style="margin:0;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a></p>
+<tr><td style="padding:24px 40px;border-top:1px solid #2a1f18;font-size:13px;line-height:1.6;color:${TEXT_MUTED};">
+<p style="margin:0 0 8px 0;font-size:13px;">Sent to <strong style="color:${TEXT_PRIMARY};">${safeEmail}</strong> from <a href="mailto:${SUPPORT_EMAIL}" style="color:${ACCENT_AMBER};text-decoration:none;">${SUPPORT_EMAIL}</a>. You get this email because you left this address on paracosm.agentos.sh.</p>
+<p style="margin:0 0 8px 0;font-size:13px;"><a href="${safeUnsubscribeUrl}" style="color:${ACCENT_AMBER};text-decoration:underline;font-weight:700;">Unsubscribe</a> to stop every Paracosm email to this address at once.</p>
+<p style="margin:0 0 8px 0;font-size:13px;">${safePostalAddress}</p>
+<p style="margin:0;font-size:13px;"><a href="https://frame.dev" style="color:${ACCENT_AMBER};text-decoration:none;">Frame.dev</a> &middot; <a href="https://agentos.sh" style="color:${ACCENT_AMBER};text-decoration:none;">agentos.sh</a></p>
 </td></tr>
 </table>
 </td></tr>
@@ -115,7 +131,9 @@ export function renderYoureIn(input: YoureInInput): RenderedEmail {
     '',
     '-- The Paracosm team',
     '',
-    `Sent to ${input.email} from ${SUPPORT_EMAIL}.`,
+    `Sent to ${input.email} from ${SUPPORT_EMAIL}. You get this email because you left this address on paracosm.agentos.sh.`,
+    `Unsubscribe: ${input.unsubscribeUrl}`,
+    input.postalAddress,
     'frame.dev | agentos.sh',
   ].join('\n');
 
