@@ -28,8 +28,13 @@ export function visitorState({ ownKey, adminConfig, rateLimit, limitMet = false 
   return null;
 }
 
-/** Keeps the last successful answer through a failed or pending read. */
+/**
+ * Keeps the last successful answer through a failed or pending read. The
+ * visitor's own key is read in this browser, not asked of the server: once
+ * it is gone, its words go too, even while the server's answer is unknown.
+ */
 export function keepVisitorState(previous: VisitorState | null, current: VisitorState | null): VisitorState | null {
+  if (!current && previous?.long === OWN_KEYS.long) return null;
   if (!current || (current.long === previous?.long && current.short === previous?.short)) return previous;
   return current;
 }

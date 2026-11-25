@@ -1006,6 +1006,13 @@ function AppContent() {
   const stoppedArtifact = interventionArtifact as (RunArtifact & { aborted?: unknown; providerError?: unknown }) | null;
   const twinStopped = stoppedArtifact !== null && (stoppedArtifact.aborted === true || !!stoppedArtifact.providerError);
   const runExists = sse.events.length > 0 || sse.isComplete || launching || showsDigitalTwin;
+  // A run on this page's feed is starting or running. A kept run or a run
+  // file loaded now would take the stream's next events into it, so those
+  // keys wait until the run ends, as the header's run menu did.
+  const runLive = launching || gameState.isRunning;
+  // The status bar's spend is the run its progress shows: a Digital Twin's
+  // own when the page shows one.
+  const shownRunCost = (showsDigitalTwin ? interventionState : gameState).cost;
   const wipeServer = adminTokenSaved && serverAdminWrite === true ? handleWipeServer : undefined;
 
   return (
@@ -1220,6 +1227,7 @@ function AppContent() {
                     history: history.entries,
                     // A started run whose first frame has not come is open too.
                     runOpen: sse.events.length > 0 || launching,
+                    runLive,
                     onRestore: (entry) => {
                       leaveDigitalTwin();
                       clearShareLink();
@@ -1250,7 +1258,7 @@ function AppContent() {
                   tabIndex={-1}
                   className={styles.tabPanel}
                 >
-                  <StudioTab initialSubTab={studioInitialSubTab} onOpenRunFile={handleLoad} />
+                  <StudioTab initialSubTab={studioInitialSubTab} onOpenRunFile={runLive ? undefined : handleLoad} />
                 </section>
               )}
 
@@ -1299,13 +1307,13 @@ function AppContent() {
               validationFallbacks: showsDigitalTwin && sse.ownRun ? sse.ownRun.validationFallbacks : sse.validationFallbacks,
             }}
             cost={{
-              totalTokens: (gameState.cost?.totalTokens ?? 0) + chatUsage.totalTokens,
-              totalCostUSD: Math.round(((gameState.cost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
-              llmCalls: (gameState.cost?.llmCalls ?? 0) + chatUsage.calls,
+              totalTokens: (shownRunCost?.totalTokens ?? 0) + chatUsage.totalTokens,
+              totalCostUSD: Math.round(((shownRunCost?.totalCostUSD ?? 0) + chatUsage.costUSD) * 10000) / 10000,
+              llmCalls: (shownRunCost?.llmCalls ?? 0) + chatUsage.calls,
             }}
             costBreakdown={{
-              simUSD: gameState.cost?.totalCostUSD ?? 0,
-              simCalls: gameState.cost?.llmCalls ?? 0,
+              simUSD: shownRunCost?.totalCostUSD ?? 0,
+              simCalls: shownRunCost?.llmCalls ?? 0,
               chatUSD: chatUsage.costUSD,
               chatCalls: chatUsage.calls,
             }}

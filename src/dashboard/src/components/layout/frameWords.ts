@@ -27,6 +27,8 @@ export const CLEAR_LIST_QUESTION = 'Clear the runs kept in this browser?\n\n' +
   'Server run records, saved replays and output files are kept.';
 /** The question Restore asks while another run is on screen. */
 export const REPLACE_RUN = 'Replace the run on screen with this one?';
+/** Why Restore waits: a live run's events would join the kept run's. */
+export const RESTORE_WAITS = 'Restore opens once the run on screen ends.';
 /** Studio's dashboard file picker. */
 export const OPEN_RUN_FILE = 'Open a run file';
 /** The line under Open a run file: which file it opens. */
