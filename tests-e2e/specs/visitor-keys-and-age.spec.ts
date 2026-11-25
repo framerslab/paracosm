@@ -332,9 +332,47 @@ test('loopback HTTP still sends the visitor key on Start, Run again and chat', a
   for (const request of keyRequests) expect(request.postDataJSON()).toMatchObject({ apiKey: VISITOR_KEY });
 });
 
+test('a key forgotten while a Digital Twin run waits on its reset never reaches that run', async ({ page }) => {
+  // The twin run's own answer is not under test: the request's body is.
+  const twinBodies: string[] = [];
+  await page.route('**/api/quickstart/simulate-intervention', route => {
+    twinBodies.push(route.request().postData() ?? '');
+    return route.fulfill({ status: 500, json: { error: 'The twin run is not under test here.' } });
+  });
+  await page.goto(`http://localhost:${SCRIPTED_SERVER_PORT}/sim?tab=settings`);
+  await field(page, 'openai').fill(VISITOR_KEY);
+  await field(page, 'openai').blur();
+  await expect.poll(async () => (await stores(page)).session ?? '').toContain(VISITOR_KEY);
+  await page.goto(`http://localhost:${SCRIPTED_SERVER_PORT}/sim?tab=quickstart`);
+
+  // Hold the reset's /clear, which the card awaits before it posts the run.
+  let releaseClear = () => {};
+  const clearHeld = new Promise<void>(resolve => { releaseClear = resolve; });
+  let clearSeen = () => {};
+  const clearArrived = new Promise<void>(resolve => { clearSeen = resolve; });
+  await page.route('**/clear', async route => {
+    clearSeen();
+    await clearHeld;
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Patient · treatment' }).click();
+  await page.getByRole('button', { name: 'Run digital twin' }).click();
+  await clearArrived;
+
+  await openTab(page, 'settings');
+  await page.getByRole('button', { name: 'Forget my keys', exact: true }).click();
+  await expect.poll(async () => (await stores(page)).session ?? '').not.toContain(VISITOR_KEY);
+  releaseClear();
+
+  await expect.poll(() => twinBodies.length).toBe(1);
+  expect(twinBodies[0]).not.toContain(VISITOR_KEY);
+});
+
 for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
   for (const look of ['dark', 'light'] as const) {
-    test(`network HTTP key notice at ${viewport.width} in ${look}`, async ({ page }) => {
+    test(`network HTTP key notice at ${viewport.width} in ${look}`, async ({ page }, testInfo) => {
+      // Every project would write the same four files, so one project takes the pictures.
+      test.skip(testInfo.project.name !== 'chromium-desktop', 'The desktop project takes the pictures.');
       await page.setViewportSize(viewport);
       await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
       await page.addInitScript(theme => localStorage.setItem('paracosm-theme', theme), look);
