@@ -53,14 +53,21 @@ for (const width of [320, 390]) {
 
       const banner = page.getByRole('status', { name: 'Simulation verdict' });
       await expectMark(banner.getByText(headline, { exact: true }));
-      await expect(banner.getByText('AI-written', { exact: true })).toHaveCount(1);
+      const label = banner.getByText('AI-written', { exact: true });
+      await expect(label).toHaveCount(1);
+      const notifications = page.getByRole('status', { name: 'Notifications' });
+      await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
       await settle(banner);
+      await expectReadableMarks(page, banner);
+      expect(await label.evaluate(mark => {
+        const { x, y, width, height } = mark.getBoundingClientRect();
+        return mark.contains(document.elementFromPoint(x + width / 2, y + height / 2));
+      }), 'the verdict label is unobstructed').toBe(true);
       await page.screenshot({
         path: `test-pictures/sim-first-screen/verdict-banner/${width}-${look}.png`,
         animations: 'disabled',
         scale: 'css',
       });
-      await expectReadableMarks(page, banner);
     });
   }
 }
