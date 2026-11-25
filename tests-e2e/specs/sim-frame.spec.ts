@@ -211,7 +211,7 @@ test('runs kept in this browser are in Library', async ({ page }) => {
   await expect(local).toHaveCount(0);
 });
 
-test('a kept run waits while a run is live, and so does Studio’s file key', async ({ page }) => {
+test('a kept run and a run file wait while a run is live', async ({ page }) => {
   // One run kept in this browser, as the history ring stores it.
   await page.addInitScript(() => {
     window.localStorage.setItem('paracosm-local-history-v2', JSON.stringify([{
@@ -234,6 +234,25 @@ test('a kept run waits while a run is live, and so does Studio’s file key', as
     await openTab(page, 'studio');
     await expect(page.getByRole('main', { name: 'Studio', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open a run file', exact: true })).toHaveCount(0);
+    // A run file dropped on the page now opens its preview, and confirming it
+    // leaves the live run on screen.
+    const contents = JSON.stringify({
+      schemaVersion: 3,
+      events: ['turn_start', 'turn_done'].map(type => ({
+        type, leader: 'A', data: { turn: 1, time: 1, title: 'Turn 1' },
+      })),
+    });
+    const dataTransfer = await page.evaluateHandle(body => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([body], 'run.json', { type: 'application/json' }));
+      return transfer;
+    }, contents);
+    await page.locator('body').dispatchEvent('drop', { dataTransfer });
+    const preview = page.getByRole('dialog', { name: 'Load simulation' });
+    await expect(preview).toBeVisible();
+    await preview.getByRole('button', { name: /^(Load|Load anyway|Replace current simulation)$/ }).click();
+    await expect(preview).toHaveCount(0);
+    await expect(runStatus(page).getByRole('status', { name: /^Simulation status: Running/ })).toBeVisible();
   } finally {
     await page.request.post(SERVERS.demo + '/clear').catch(() => undefined);
   }
