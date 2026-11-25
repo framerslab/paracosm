@@ -4349,7 +4349,7 @@ screenTest('feature 12: the paste form on a free run and on a key', async ({ pag
       await expect(atLimit).toContainText(NO_RUN_LEFT);
       await expect(atLimit).toContainText(ADD_KEY_PARAGRAPH);
       const link = atLimit.getByRole('link', { name: ADD_KEY_LINK, exact: true });
-      await expect(link).toHaveAttribute('href', /tab=settings.*#key-openai$/);
+      await expect(link).toHaveAttribute('href', /tab=settings&focus=api-key$/);
       const run = part.getByRole('button', { name: 'Generate and run', exact: true });
       const [words, key] = await Promise.all([box(atLimit), box(run)]);
       expect(words.y + words.height, 'the paragraphs stand above the key').toBeLessThanOrEqual(key.y + 1);
