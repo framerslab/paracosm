@@ -469,6 +469,5 @@ export const CLEAR_DRAFT = 'Clear your draft';
 /** Under the leaders' heading row. */
 export const NOTE_FICTIONAL = 'Leaders are fictional characters.';
 
-/** Above Start's notice, as two lines. */
+/** Above Start's notice. */
 export const NOTE_AI = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
-export const NOTE_ADULTS = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";

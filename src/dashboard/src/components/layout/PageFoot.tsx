@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { hasConsentBar, useConsentControl } from './useConsentControl';
 import { useRowFit } from './useRowFit';
 import { OneRowScroller } from '../shared/OneRowScroller';
-import { NOTE_ADULTS } from '../quickstart/first-screen/words';
 import { FOOT_LINKS, LICENCE_LINE, MORE_LINKS, SITE_LINKS } from './frameWords';
 import styles from './PageFoot.module.scss';
 
@@ -119,7 +118,6 @@ export function PageFoot() {
 
   return (
     <footer className={styles.foot} role="contentinfo" data-testid="page-foot">
-      <p className={styles.adults} data-testid="foot-adults" data-text="body">{NOTE_ADULTS}</p>
       <div className={styles.parts}>
         <nav ref={nav} className={styles.nav} aria-label={SITE_LINKS} data-row="site links" data-row-fold={fold}>
           {fold === 2 ? (
