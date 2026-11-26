@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMarsServer } from '../../src/server/server-app.js';
-import { CountEventLimit, countEventFrom, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
+import { CountEventLimit, countedEvent, parseSiteAnalyticsIds, readSiteAnalyticsIds } from '../../src/server/site-analytics.js';
 
 test('only an id of its vendor\'s shape reaches the bar', () => {
   assert.deepEqual(parseSiteAnalyticsIds({ ga: 'G-AB12CD34EF', clarity: 'abc123xyz' }), { ga: 'G-AB12CD34EF', clarity: 'abc123xyz' });
@@ -39,18 +39,18 @@ test('a build without site-analytics.json, or with one that does not parse, give
 });
 
 test('a page view is forwarded as its public page and nothing of the referring page', () => {
-  assert.deepEqual(countEventFrom(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
+  assert.deepEqual(countedEvent(JSON.stringify({ n: 'pageview', u: '/sim', r: 'https://news.example.com/item?id=7#c' })), {
     name: 'pageview',
     url: 'https://paracosm.agentos.sh/sim',
     domain: 'paracosm.agentos.sh',
   });
   // A query or fragment in the path is dropped; dot segments resolve.
-  assert.equal(countEventFrom(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
+  assert.equal(countedEvent(JSON.stringify({ n: 'pageview', u: '/docs/../sim?token=secret#x' }))?.url, 'https://paracosm.agentos.sh/sim');
 });
 
 test('a page view names one of the site\'s public pages, never the rest of a path', () => {
   const url = (u: string, isDocsPage?: (path: string) => boolean) => {
-    const event = countEventFrom(JSON.stringify({ n: 'pageview', u }), isDocsPage);
+    const event = countedEvent(JSON.stringify({ n: 'pageview', u }), isDocsPage);
     return typeof event === 'object' && event !== null ? event.url : event;
   };
   assert.equal(url('/'), 'https://paracosm.agentos.sh/');
@@ -79,7 +79,7 @@ test('no referrer reaches the instance, whatever the page sends', () => {
     '',
     'javascript:alert(1)',
   ]) {
-    const event = countEventFrom(JSON.stringify({ n: 'pageview', u: '/', r }));
+    const event = countedEvent(JSON.stringify({ n: 'pageview', u: '/', r }));
     assert.ok(typeof event === 'object' && event !== null, r);
     assert.equal('referrer' in event, false, r);
   }
@@ -109,7 +109,7 @@ test('a body that is not a page view of this site forwards nothing', () => {
     JSON.stringify({ n: 'pageview', u: '//elsewhere.example/path' }),
     JSON.stringify({ n: 'pageview', u: `/${'a'.repeat(600)}` }),
   ]) {
-    assert.equal(countEventFrom(body), null, body.slice(0, 60));
+    assert.equal(countedEvent(body), null, body.slice(0, 60));
   }
 });
 
