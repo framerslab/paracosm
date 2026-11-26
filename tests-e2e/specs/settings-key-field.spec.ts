@@ -269,6 +269,18 @@ function isUncovered(locator: Locator): Promise<boolean> {
   });
 }
 
+/** Whether the element's first and last lines both show, not only its middle. */
+function isWhollyUncovered(locator: Locator): Promise<boolean> {
+  return locator.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    return [box.top + 1, box.bottom - 1].every(y => {
+      const hit = document.elementFromPoint(x, y);
+      return hit !== null && el.contains(hit);
+    });
+  });
+}
+
 for (const width of [390, 1440]) {
   for (const look of ['light', 'dark']) {
     test(`pictures: Settings and Watch at ${width} in ${look}`, async ({ page }) => {
@@ -294,10 +306,11 @@ for (const width of [390, 1440]) {
           await field(page).focus();
           await field(page).locator('..').evaluate(element => element.scrollIntoView({ block: 'start' }));
           await settle(keys(page));
-          const visible = [field(page), back(page), keys(page).getByTestId('visitor-key-notes').locator('p').last()];
-          for (const control of visible) {
-            expect(await isUncovered(control), 'the key, return link and explanation are in frame').toBe(true);
+          for (const control of [field(page), back(page)]) {
+            expect(await isUncovered(control), 'the key and return link are in frame').toBe(true);
           }
+          const lastNote = keys(page).getByTestId('visitor-key-notes').locator('p').last();
+          expect(await isWhollyUncovered(lastNote), 'the whole key explanation is in frame').toBe(true);
         }
         await page.screenshot({ path: `test-pictures/sim-first-screen/server-answers/${view}-${width}-${look}.png`, animations: 'disabled' });
       };
