@@ -259,7 +259,6 @@ export const RUN_END = { verdict: 'Verdict', report: 'Report' } as const;
 export const NOTICE_FREE = 'This run is free: we pay for it.';
 
 /** The first sentence of the note that says what the leaders are. */
-export const AI_AGENTS = 'The leaders are AI agents.';
 
 /**
  * The day's count of free runs for this internet address, with the time

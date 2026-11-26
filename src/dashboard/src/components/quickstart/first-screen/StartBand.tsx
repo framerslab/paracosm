@@ -73,7 +73,6 @@ import { useOnline } from './useOnline';
 import { noFreeRunLeft, useServerFacts, type ServerFacts, type SessionRow } from './useServerFacts';
 import {
   ADD_KEY_IN_SETTINGS,
-  AI_AGENTS,
   CLEAR_DRAFT,
   GO_TO_DRAFT,
   COULD_NOT_REACH,
@@ -641,7 +640,7 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
     )
     : null;
 
-  // Held, the bar carries the notice's first sentence and what the leaders are; resting, the whole notice is beside it.
+  // The held bar keeps the payment notice near Start.
   const heldLines = held && firstSentence && !problem
     ? (
       <div
@@ -650,7 +649,6 @@ export function StartBand({ size, onStart, onBusy, draft = null }: StartBandProp
         data-testid="start-bar-lines"
       >
         <p>{firstSentence}</p>
-        <p>{AI_AGENTS}</p>
       </div>
     )
     : null;

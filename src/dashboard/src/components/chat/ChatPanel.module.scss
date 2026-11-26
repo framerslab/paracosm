@@ -149,6 +149,14 @@
   background: var(--bg-deep);
 }
 
+.chatNotice {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--text-2);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+
 .memoryBar {
   padding: 6px 16px;
   border-bottom: 1px solid var(--border);

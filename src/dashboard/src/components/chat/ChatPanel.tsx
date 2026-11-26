@@ -534,6 +534,7 @@ export function ChatPanel({ state, onChatUsage }: ChatPanelProps) {
 
       {/* Chat area */}
       <div className={styles.chatArea}>
+        {selectedId && <p className={styles.chatNotice}>Replies are written by an AI model.</p>}
         {/* Memory bar */}
         {selected?.memory && (selected.memory.beliefs?.length > 0 || selected.memory.stances?.length > 0) && (
           <div className={styles.memoryBar}>
