@@ -281,6 +281,17 @@ function isWhollyUncovered(locator: Locator): Promise<boolean> {
   });
 }
 
+/** How many CSS px of the element sit below what its clipping and scrolling ancestors show. */
+function hiddenBelow(locator: Locator): Promise<number> {
+  return locator.evaluate(el => {
+    let shown = window.innerHeight;
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      if (getComputedStyle(node).overflowY !== 'visible') shown = Math.min(shown, node.getBoundingClientRect().bottom);
+    }
+    return Math.ceil(el.getBoundingClientRect().bottom - shown);
+  });
+}
+
 for (const width of [390, 1440]) {
   for (const look of ['light', 'dark']) {
     test(`pictures: Settings and Watch at ${width} in ${look}`, async ({ page }) => {
@@ -303,13 +314,23 @@ for (const width of [390, 1440]) {
           if (width === 390) await page.setViewportSize({ width, height: 1440 });
           const dismissOldBanner = page.getByRole('button', { name: 'Dismiss banner', exact: true });
           if (await dismissOldBanner.isVisible()) await dismissOldBanner.click();
+          const lastNote = keys(page).getByTestId('visitor-key-notes').locator('p').last();
+          const frame = async () => {
+            await field(page).locator('..').evaluate(element => element.scrollIntoView({ block: 'start' }));
+            await settle(keys(page));
+          };
           await field(page).focus();
-          await field(page).locator('..').evaluate(element => element.scrollIntoView({ block: 'start' }));
-          await settle(keys(page));
+          await frame();
+          // The refused key's alert and the two-row top bar stay above the
+          // scroller, so the window grows by the part the scrollers still hide.
+          for (let grow = 0; width === 390 && grow < 3 && !(await isWhollyUncovered(lastNote)); grow++) {
+            const height = page.viewportSize()?.height ?? 1440;
+            await page.setViewportSize({ width, height: height + Math.max(await hiddenBelow(lastNote), 0) + 48 });
+            await frame();
+          }
           for (const control of [field(page), back(page)]) {
             expect(await isUncovered(control), 'the key and return link are in frame').toBe(true);
           }
-          const lastNote = keys(page).getByTestId('visitor-key-notes').locator('p').last();
           expect(await isWhollyUncovered(lastNote), 'the whole key explanation is in frame').toBe(true);
         }
         await page.screenshot({ path: `test-pictures/sim-first-screen/server-answers/${view}-${width}-${look}.png`, animations: 'disabled' });
