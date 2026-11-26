@@ -177,6 +177,8 @@ test.describe('Digital Twin events @twin', () => {
     await expect(status.getByRole('progressbar', { name: 'Simulation progress, turn 2 of 2' })).toHaveCount(1);
     await expect(status.locator('[aria-live="polite"]').filter({ hasText: /^Turn 2 of 2$/ })).toHaveCount(1);
     expect(await page.evaluate(() => (window as Window & { addedWithTurn?: boolean }).addedWithTurn)).toBe(false);
+    // Its spend is the twin's too: the page's own scenario ran nothing.
+    await expect(status).toContainText(/\d+k tokens/);
 
     release();
     await expect(result(page)).toBeVisible();
