@@ -1,5 +1,5 @@
-// The notes: body text in the ink. The AI and adults notes stand as two
-// lines, in a 620 px column from 1,100 px and side by side from 1,440 px.
+// The notes: body text in the ink. The AI note stands as one line, in a
+// 620 px column from 1,100 px.
 .note {
   margin: 0;
   font-size: var(--font-read-body);
@@ -17,13 +17,5 @@
 
   @media (min-width: 1100px) {
     max-width: 620px;
-  }
-
-  @media (min-width: 1440px) {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-    gap: 24px;
-    max-width: none;
   }
 }
