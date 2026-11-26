@@ -206,6 +206,49 @@ export interface SettingsPanelProps {
   initialSubTab?: SettingsSubTab;
 }
 
+/** Whether this page load already showed the field its address names. */
+let fragmentShown = false;
+
+/**
+ * The element id the page's address names, such as `key-openai` from the
+ * Run tab's add-key link. Hashes that hold parameters (`log=...`) name none.
+ */
+function fragmentId(): string | null {
+  try {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    return /^[A-Za-z][\w-]*$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Settings loads on demand, often after the browser looked for the
+ * address's target and found none: the panel shows that field itself once,
+ * when it renders.
+ */
+function useShowFragmentTarget() {
+  useEffect(() => {
+    const id = fragmentId();
+    if (fragmentShown || !id) return undefined;
+    const show = () => {
+      const target = document.getElementById(id);
+      if (!target) return false;
+      fragmentShown = true;
+      target.scrollIntoView({ block: 'center' });
+      return true;
+    };
+    if (show()) return undefined;
+    const watch = new MutationObserver(() => { if (show()) watch.disconnect(); });
+    watch.observe(document.body, { childList: true, subtree: true });
+    const stop = window.setTimeout(() => watch.disconnect(), 10_000);
+    return () => {
+      watch.disconnect();
+      window.clearTimeout(stop);
+    };
+  }, []);
+}
+
 export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
   const openAiField = useRef<HTMLInputElement>(null);
@@ -215,6 +258,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
     focusedKeyField.current = true;
     openAiField.current.focus();
   }, [subTab]);
+  useShowFragmentTarget();
   // Persist sub-tab in the URL so refresh / shared links land back on
   // the user's last open panel. 'config' is the default — omit the
   // param for that case to keep the URL clean.

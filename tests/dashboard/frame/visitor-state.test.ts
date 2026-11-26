@@ -36,3 +36,9 @@ test('the current visitor state replaces the last known state, which survives a 
   assert.equal(keepVisitorState(oneRun, null), oneRun);
   assert.equal(keepVisitorState(oneRun, noRuns), noRuns);
 });
+
+test('a removed provider key does not keep its payer words through an unknown answer', () => {
+  // The last key went from Settings while the free-run count could not be read.
+  assert.equal(keepVisitorState(ownWords, null), null);
+  assert.equal(keepVisitorState(ownWords, oneRun), oneRun);
+});

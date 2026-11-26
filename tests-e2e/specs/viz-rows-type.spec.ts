@@ -79,6 +79,8 @@
 import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { LOOKS, useLook, type Look } from '../support/forge-view-pages';
+import { openTab } from '../support/frame.js';
+import { pressStart } from '../support/start-run.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The stored runs live on local servers of their own.');
 
@@ -1338,6 +1340,43 @@ test('on the Viz tab one press of ? opens the help overlay alone and a second cl
 });
 
 // Wide Viz regressions use the hosted replay chrome and the stored Mars turns.
+test('the live Viz region exists before a morale alert and announces its words once', async ({ page }) => {
+  await page.setViewportSize(PHONE);
+  await useLook(page, 'dark');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.route('**/setup', route => {
+    const setup = route.request().postDataJSON();
+    setup.actors[0].name = 'Morale test leader';
+    return route.continue({ postData: setup });
+  });
+  await page.goto('http://127.0.0.1:3459/sim?tab=sim');
+  await pressStart(page);
+  await expect(page).toHaveURL(/[?&]tab=sim\b/);
+  await openTab(page, 'viz');
+
+  const panel = page.locator('#tabpanel-viz');
+  const status = panel.getByRole('status', { name: 'Viz threshold alerts' });
+  await expect(panel.getByText(/Awaiting first turn snapshot/)).toBeVisible();
+  await expect(status).toBeAttached();
+  await expect(status).toBeEmpty();
+  const mounted = await status.elementHandle();
+
+  const first = panel.getByRole('img', { name: /^Morale test leader colony, turn 1\./ });
+  await expect(first).toBeAttached();
+  await expect(status).toBeEmpty();
+
+  const message = 'Morale crashed 30% → 40% this turn';
+  const words = status.getByText(message, { exact: true });
+  await expect(words).toHaveCount(1, { timeout: 15_000 });
+  expect(await status.evaluate((node, initial) => node === initial, mounted)).toBe(true);
+  await expect(panel.getByText(message, { exact: true })).toHaveCount(1);
+  await expect(words).toBeVisible();
+  await words.scrollIntoViewIfNeeded();
+  await picture(page, '390x844-dark-threshold-alert');
+  await words.click();
+  await expect(status).toBeEmpty();
+});
+
 const wideDesktop = { width: 1440, height: 900 };
 const comparisonChart = (page: Page) => viz(page).getByRole('img', { name: /^Timeline sparkline/ });
 const crisisCard = (page: Page) => viz(page).getByRole('status').filter({ hasText: /^⚡ Crisis/ });
@@ -1381,6 +1420,51 @@ for (const look of LOOKS) {
       expect(gaps, `${label} is present in both stats cards`).toHaveLength(2);
       for (const gap of gaps) expect.soft(gap, `${label} has space before its value`).toBeGreaterThanOrEqual(4);
     }
+  });
+}
+
+for (const look of LOOKS) {
+  test(`both fields and playback fit at 1100 x 900 with two-line turn text in ${look}`, async ({ page, request }) => {
+    const run = await pairRun(request);
+    await page.route(`**/sessions/${run.id}/replay**`, async route => {
+      const response = await route.fetch();
+      const stream = (await response.text()).split('\n\n').map(frame => {
+        if (!frame.startsWith('event: sim\n')) return frame;
+        const [event, data] = frame.split('\n');
+        const sim = JSON.parse(data.slice('data: '.length)) as RecordedSimFrame;
+        if (sim.data.turn !== run.turns) return frame;
+        if (sim.type === 'decision_made') {
+          sim.data.decision = sim.leader === ARIA
+            ? 'Describe the settlement’s achievements and commit to an ambitious long-term programme for the next century'
+            : 'Report the failures and achievements of the settlement and document the work still needed to keep it viable';
+        } else if (sim.type === 'turn_done') {
+          sim.data.deathCauses = { 'natural causes': 2, 'habitat failure': 1, 'radiation exposure': 1 };
+        } else {
+          return frame;
+        }
+        return `${event}\ndata: ${JSON.stringify(sim)}`;
+      }).join('\n\n');
+      await route.fulfill({ response, body: stream });
+    });
+
+    await openRun(page, run, look, { width: 1100, height: 900 });
+    await setWords(page, 'open');
+    await scrollBack(page);
+    await painted(page);
+    const narrative = viz(page).getByRole('status', { name: 'Current turn narrative' });
+    const outcomes = narrative.locator(':scope > div').filter({ hasText: /^[AB]:/ });
+    await expect(outcomes).toHaveCount(2);
+    const lines = await outcomes.evaluateAll(rows => rows.map(row => {
+      const lineHeight = Number.parseFloat(getComputedStyle(row).lineHeight);
+      return Math.round(row.getBoundingClientRect().height / lineHeight);
+    }));
+    expect(lines).toEqual([2, 2]);
+
+    await picture(page, `1100x900-${look}-two-line-turn-text`);
+    expect.soft(await inView(playRow(page)), 'the whole play row is in view').toBe(true);
+    expect.soft(await inView(gridOf(page, run.turns)), 'the first field is in view').toBe(true);
+    const other = viz(page).getByRole('img', { name: new RegExp(`^Dietrich Voss colony, turn ${run.turns}\\.`) });
+    expect.soft(await inView(other), 'the second field is in view').toBe(true);
   });
 }
 
