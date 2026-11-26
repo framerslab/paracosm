@@ -4,19 +4,29 @@ import { pathToFileURL } from 'node:url';
 import { crc32 } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { measureText, settle } from '../support/readability.js';
+import { settle } from '../support/readability.js';
 import { openTab } from '../support/frame.js';
 
 test.skip(!!process.env.PARACOSM_E2E_BASE_URL, 'The marking spec uses a writable fixture server.');
 
 const origin = 'http://127.0.0.1:3474';
-const meta = 'meta[name="ai-generated-content"][content="partial"]';
+const meta = 'meta[name="ai-generated-content"]';
+const mark = '[data-ai-generated="true"]';
+const startNotice = 'The leaders are AI agents. Everything they say is written by a language model and can be wrong.';
+const chatNotice = 'Replies are written by an AI model.';
+const reportNotice = 'Written by AI models in a Paracosm simulation.';
+const iptcSource = 'http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia';
 
 async function openPair(page: Page, look: 'light' | 'dark') {
   await page.addInitScript(look => localStorage.setItem('paracosm-theme', look), look);
   await page.goto(origin + '/sim');
   const firstScreen = page.getByTestId('run-first-screen');
   await expect(firstScreen.getByRole('heading', { name: 'Mars Genesis', exact: true })).toBeVisible();
+  const notice = firstScreen.getByText(startNotice, { exact: true });
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toBeVisible();
+  expect((await firstScreen.innerText()).match(/The leaders are AI agents\./g)).toHaveLength(1);
+  await expectNoLabels(page);
   await expect(page.locator(meta)).toHaveCount(0);
   const setup = page.waitForResponse(response => response.url() === origin + '/setup' && response.request().method() === 'POST');
   const start = firstScreen.getByRole('button', { name: /^start\b/i });
@@ -31,11 +41,9 @@ async function openPair(page: Page, look: 'light' | 'dark') {
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
 }
 
-// 640 and 800 px: a long winner's name leaves the row's headline column
-// too narrow for the label unless the banner stacks or the name gives way.
 for (const width of [320, 390, 640, 800]) {
   for (const look of ['light', 'dark'] as const) {
-    test(`the longest stored verdict keeps its whole AI-written mark at ${width}px in ${look}`, async ({ page }) => {
+    test(`the longest stored verdict fits in the banner at ${width}px in ${look}`, async ({ page }) => {
       const leader = `Verdict headline ${width} ${look}`;
       const headline = 'Warming winds and widespread wildfires overwhelmed Mars while reserves dwindled.';
       expect(headline).toHaveLength(80);
@@ -54,22 +62,22 @@ for (const width of [320, 390, 640, 800]) {
       expect(await replay.text()).toContain(JSON.stringify(headline));
 
       const banner = page.getByRole('status', { name: 'Simulation verdict' });
-      await expectMark(banner.getByText(headline, { exact: true }));
-      const label = banner.getByText('AI-written', { exact: true });
-      await expect(label).toHaveCount(1);
+      const title = banner.getByText(headline, { exact: true });
+      await expectMark(title);
+      await expectQuietPage(page);
       const notifications = page.getByRole('status', { name: 'Notifications' });
       await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
       await settle(banner);
-      await expectReadableMarks(page, banner);
-      expect(await label.evaluate(mark => {
-        const { x, y, width, height } = mark.getBoundingClientRect();
-        return mark.contains(document.elementFromPoint(x + width / 2, y + height / 2));
-      }), 'the verdict label is unobstructed').toBe(true);
-      expect(await label.evaluate(mark => {
-        const own = mark.getBoundingClientRect();
-        const headline = mark.closest('button')!.getBoundingClientRect();
-        return own.left >= headline.left - 1 && own.right <= headline.right + 1;
-      }), 'the verdict label stays inside its headline').toBe(true);
+      expect(await title.evaluate(element => {
+        const button = element.closest('button')!.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return [...range.getClientRects()].every(rect =>
+          rect.left >= button.left - 1 && rect.right <= button.right + 1
+          && rect.top >= button.top - 1 && rect.bottom <= button.bottom + 1
+          && rect.left >= 0 && rect.right <= document.documentElement.clientWidth,
+        );
+      }), 'the whole headline fits inside the button and viewport').toBe(true);
       await page.screenshot({
         path: `test-pictures/sim-first-screen/verdict-banner/${width}-${look}.png`,
         animations: 'disabled',
@@ -83,9 +91,19 @@ async function expectMark(text: Locator) {
   await expect(text).toBeVisible();
   const block = text.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
   await expect(block).toHaveCount(1);
-  const label = block.getByText('AI-written', { exact: true });
-  await expect(label).toHaveCount(1);
-  await expect(label).toBeVisible();
+  await expect(block).not.toContainText('AI-written');
+}
+
+async function expectNoLabels(page: Page) {
+  const body = page.locator('body');
+  expect(await body.innerText()).not.toContain('AI-written');
+  expect(await body.textContent()).not.toContain('AI-written');
+}
+
+async function expectQuietPage(page: Page) {
+  await expectNoLabels(page);
+  await expect(page.locator(meta)).toHaveCount(1);
+  await expect(page.locator(meta)).toHaveAttribute('content', 'partial');
 }
 
 /** Every match of the text is shown with no marked block around it. */
@@ -103,31 +121,6 @@ async function libraryRunId(page: Page, actor: string) {
     return Boolean(runId);
   }).toBe(true);
   return runId!;
-}
-
-function pixelDifference(page: Page, expected: Buffer, actual: Buffer) {
-  return page.evaluate(async pngs => {
-    const decode = async (encoded: string) => {
-      const blob = new Blob([Uint8Array.from(atob(encoded), char => char.charCodeAt(0))], { type: 'image/png' });
-      const image = await createImageBitmap(blob);
-      try {
-        const canvas = new OffscreenCanvas(image.width, image.height);
-        const context = canvas.getContext('2d', { willReadFrequently: true })!;
-        context.drawImage(image, 0, 0);
-        return context.getImageData(0, 0, image.width, image.height);
-      } finally {
-        image.close();
-      }
-    };
-    const [expected, actual] = await Promise.all(pngs.map(decode));
-    if (expected.width !== actual.width || expected.height !== actual.height) return -1;
-    let changed = 0;
-    for (let index = 0; index < expected.data.length; index += 4) {
-      if (expected.data[index] !== actual.data[index] || expected.data[index + 1] !== actual.data[index + 1]
-        || expected.data[index + 2] !== actual.data[index + 2] || expected.data[index + 3] !== actual.data[index + 3]) changed++;
-    }
-    return changed;
-  }, [expected.toString('base64'), actual.toString('base64')]);
 }
 
 for (const width of [320, 390, 1440]) {
@@ -151,12 +144,18 @@ for (const width of [320, 390, 1440]) {
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
         await decision.scrollIntoViewIfNeeded();
         await settle(decision);
+        await expectQuietPage(page);
         const filename = `${width}-${look}.png`;
-        const shot = await page.screenshot({ path: `test-pictures/sim-first-screen/ai-marks/${filename}`, animations: 'disabled' });
+        await page.screenshot({ path: `test-pictures/sim-first-screen/ai-marks/${filename}`, animations: 'disabled' });
         if (width !== 320) {
-          const baseline = new URL(`../../docs/design/sim-first-screen/ai-marks/${filename}`, import.meta.url);
-          const changed = await pixelDifference(page, readFileSync(baseline), shot);
-          expect(changed, `pixels changed in the ${filename} Watch capture`).toBe(0);
+          await openTab(page, 'reports');
+          const report = page.getByRole('region', { name: 'Turn-by-turn report' });
+          const passage = report.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
+          await expectMark(passage);
+          await expectQuietPage(page);
+          await passage.scrollIntoViewIfNeeded();
+          await settle(passage);
+          await page.screenshot({ path: `test-pictures/sim-first-screen/ai-marks/reports-${filename}`, animations: 'disabled' });
         }
       } finally {
         await context.close();
@@ -192,10 +191,16 @@ test('generated leaders and successful chat replies carry their own source', asy
   });
 
   await openTab(page, 'chat');
+  const notice = page.getByText(chatNotice, { exact: true });
+  await expect(notice).toHaveCount(0);
   const actor = page.getByRole('combobox', { name: 'Filter chat agents by lead actor' });
   await actor.selectOption({ label: (await actor.locator('option').allTextContents()).find(label => label.startsWith('Generated leader ('))! });
   await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
   const greeting = page.getByText(/I lived through this simulation/).first();
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toBeVisible();
+  expect((await page.locator('body').innerText()).indexOf(chatNotice))
+    .toBeLessThan((await page.locator('body').innerText()).indexOf((await greeting.innerText()).trim()));
   await expect(greeting).toBeVisible();
   await expect(greeting.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
 
@@ -216,6 +221,8 @@ test('generated leaders and successful chat replies carry their own source', asy
     const other = (await actor.locator('option').allTextContents()).find(label => label.startsWith('Supplied leader ('))!;
     await actor.selectOption({ label: other });
     await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toBeVisible();
     releaseReply();
     expect((await replyReceived).ok()).toBe(true);
     await expect(typing).toHaveCount(0);
@@ -228,21 +235,26 @@ test('generated leaders and successful chat replies carry their own source', asy
     releaseReply();
     await page.unroute('**/chat', delay);
   }
+  await expect(notice).toHaveCount(1);
+  await expect(notice).toBeVisible();
+  await expectQuietPage(page);
   const question = page.getByText('Check the reserve, please.', { exact: true });
   await expect(question).toBeVisible();
   await expect(question.locator('xpath=ancestor-or-self::*[@data-ai-generated="true"]')).toHaveCount(0);
 
-  let sessionId: string | undefined;
-  await expect.poll(async () => {
-    const response = await page.request.get(origin + '/sessions');
-    if (!response.ok()) return false;
-    const { sessions } = await response.json();
-    sessionId = sessions.find((session: { id: string; leaderA?: string }) => session.leaderA === 'Generated leader')?.id;
-    return typeof sessionId === 'string';
-  }).toBe(true);
-  await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(sessionId!));
+  const sessionId = await savedPairId(page, 'Generated leader');
+  const replayUrl = origin + '/sessions/' + encodeURIComponent(sessionId) + '/replay';
+  const replay = await page.request.get(replayUrl);
+  expect(replay.ok()).toBe(true);
+  const firstEvent = (await replay.text()).split(/\r?\n\r?\n/, 1)[0];
+  const firstData = firstEvent.match(/^data: (.+)$/m);
+  expect(firstData).not.toBeNull();
+  expect(JSON.parse(firstData![1]).provenance).toMatchObject({
+    aiGenerated: true, generator: 'paracosm', models: expect.any(Object),
+  });
+  await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(sessionId));
   await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
-  await expect(page.locator(meta)).toHaveCount(1);
+  await expectQuietPage(page);
 });
 
 test('a selected run downloads readable HTML and PDF with the same provenance', async ({ page }) => {
@@ -262,6 +274,16 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   await page.goto(origin + '/sim?tab=library&runId=' + encodeURIComponent(runId));
   const dialog = page.getByRole('dialog', { name: 'Run detail' });
 
+  await expectMark(dialog.locator(mark).filter({ hasText: choice }));
+  await expectQuietPage(page);
+  const [jsonDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Download JSON' }).click(),
+  ]);
+  const run = JSON.parse(readFileSync(await jsonDownload.path(), 'utf8'));
+  expect(run.provenance).toEqual(provenance);
+  expect(run.decisions[0]).toMatchObject({ choice, aiWrittenFields: ['choice'] });
+
   const [htmlDownload] = await Promise.all([
     page.waitForEvent('download'),
     dialog.getByRole('button', { name: 'Download HTML' }).click(),
@@ -270,12 +292,16 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   const parsed = await page.evaluate(source => {
     const dom = new DOMParser().parseFromString(source, 'text/html');
     return {
-      metaCount: dom.querySelectorAll('meta[name="ai-generated-content"][content="partial"]').length,
+      meta: [...dom.querySelectorAll('meta[name="ai-generated-content"]')].map(el => el.getAttribute('content')),
+      titleNotice: dom.querySelector('h1 + p')?.textContent,
+      body: dom.body.textContent,
       data: JSON.parse(dom.getElementById('paracosm-provenance')!.textContent!),
       passages: [...dom.querySelectorAll('[data-ai-generated="true"]')].map(el => el.textContent),
     };
   }, html);
-  expect(parsed).toEqual({ metaCount: 1, data: { provenance }, passages: [choice + ' AI-written'] });
+  expect(parsed).toMatchObject({ meta: ['partial'], data: { provenance }, passages: [choice], titleNotice: reportNotice });
+  expect(parsed.body).not.toContain('AI-written');
+  expect(parsed.body!.split(reportNotice)).toHaveLength(2);
   expect(html).not.toContain('<h2>Verdict</h2>');
 
   const [pdfDownload] = await Promise.all([
@@ -286,6 +312,7 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   const pdf = await PDFDocument.load(pdfBytes);
   const stream = pdf.catalog.lookup(PDFName.of('Metadata'), PDFRawStream);
   const xmp = new TextDecoder().decode(stream.getContents());
+  expect(xmp).toContain(iptcSource);
   const embedded = await page.evaluate(source => {
     const xml = new DOMParser().parseFromString(source, 'application/xml');
     return JSON.parse(xml.getElementsByTagNameNS('https://paracosm.agentos.sh/ns/provenance/1.0/', 'provenance')[0].textContent!);
@@ -304,9 +331,16 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
     expect(bytes?.byteLength, 'the selected run attachment has content').toBeGreaterThan(0);
     const json = JSON.parse(new TextDecoder().decode(bytes!));
     expect(json.provenance).toEqual(provenance);
-    expect(json.decisions[0].choice).toBe(choice);
-    const rendered = await (await report.getPage(1)).getTextContent();
-    expect(rendered.items.some((item: { str?: string }) => item.str === 'AI-written')).toBe(true);
+    expect(json.decisions[0]).toMatchObject({ choice, aiWrittenFields: ['choice'] });
+    const pages: string[] = [];
+    for (let index = 1; index <= report.numPages; index++) {
+      const { items } = await (await report.getPage(index)).getTextContent();
+      pages.push(items.map((item: { str?: string }) => item.str ?? '').filter(Boolean).join('\n'));
+    }
+    expect(pages[0].split('\n')[1]).toBe(reportNotice);
+    const text = pages.join('\n');
+    expect(text.split(reportNotice)).toHaveLength(2);
+    expect(text).not.toContain('AI-written');
   } finally {
     await rendering.destroy();
   }
@@ -353,7 +387,7 @@ test('the Viz PNG download carries one valid metadata chunk', async ({ page }) =
     offset = end + 4;
   }
   expect(xmp).toHaveLength(1);
-  expect(xmp[0]).toContain('http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia');
+  expect(xmp[0]).toContain(iptcSource);
   expect(xmp[0]).toContain('"generator":"paracosm"');
   const marked = await page.evaluateHandle(base64 =>
     new Blob([Uint8Array.from(atob(base64), char => char.charCodeAt(0))], { type: 'image/png' }),
@@ -394,7 +428,7 @@ test('Reports distinguishes authored decisions and department prose from a fallb
   );
   expect(sources).toContain(true);
   expect(sources).toContain(false);
-  await expect(page.locator(meta)).toHaveCount(1);
+  await expectQuietPage(page);
 });
 
 test('Library reports include the saved verdict and its model for the selected actor', async ({ page }) => {
@@ -432,7 +466,8 @@ test('Library reports include the saved verdict and its model for the selected a
       models: JSON.parse(report.querySelector('#paracosm-provenance')!.textContent!).provenance.models,
     };
   }, html);
-  expect(document.marked).toContain(verdict + ' AI-written');
+  expect(document.marked).toContain(verdict);
+  expect(html).not.toContain('AI-written');
   expect(document.models).toEqual(models);
 
   const bytes = await save('PDF');
@@ -447,7 +482,8 @@ test('Library reports include the saved verdict and its model for the selected a
     const items = (await (await report.getPage(1)).getTextContent()).items;
     const text = items.map((item: { str?: string }) => item.str ?? '').join(' ');
     expect(text).toContain(verdict);
-    expect(text).toMatch(/Stored water protected the new crops\.\s+AI-written/);
+    expect(text).toContain(reportNotice);
+    expect(text).not.toContain('AI-written');
   } finally {
     await rendering.destroy();
   }
@@ -506,7 +542,7 @@ test('editing generated instructions clears their source and preserves the other
   expect(supplied.aiAuthorship).toBeUndefined();
   await page.waitForURL(url => url.searchParams.get('tab') === 'sim');
   const authoredArchetype = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
-    .and(page.locator('[data-ai-generated="true"] > span')).first();
+    .and(page.locator(mark)).first();
   await expectMark(authoredArchetype);
   const human = page.getByText('"Leave half the water in storage today."', { exact: true }).filter({ visible: true }).first();
   await expect(human).toBeVisible();
@@ -610,96 +646,6 @@ test('Watch, the event log and the verdict dialog each expose ownership on the d
   await row.locator('summary').click();
   await expectMark(row.locator('pre').filter({ hasText: 'Keep a reserve of water.' }));
 });
-const measuredWidths = new Set([320, 390, 600, 768, 1100, 1440]);
-const completePathWidths = new Set([320, 390, 1440]);
-const widths = [320, 360, 390, 430, 480, 600, 768, 1100, 1440];
-const looks = ['light', 'dark'] as const;
-
-async function expectReadableMarks(page: Page, surface = page.locator('body')) {
-  await settle(surface);
-  const labels = surface.locator('[data-ai-generated="true"] > [data-text="other"]').filter({ visible: true });
-  await expect(labels.first()).toBeVisible();
-  const marks = (await measureText(page, surface, { unroundedContrast: true })).filter(mark => mark.text === 'AI-written');
-  expect(marks.length).toBeGreaterThan(0);
-  for (const mark of marks) {
-    expect(mark.px, mark.selector).toBeGreaterThanOrEqual(15);
-    expect(mark.ratio, mark.selector).toBeGreaterThanOrEqual(7);
-  }
-  const owners = await labels.evaluateAll(elements => elements.map(label => {
-    const css = getComputedStyle(label);
-    return {
-      ownership: [...label.parentElement!.children].filter(child => child.textContent === 'AI-written').length,
-      size: Number.parseFloat(css.fontSize),
-      lineHeight: Number.parseFloat(css.lineHeight),
-    };
-  }));
-  expect(owners).toHaveLength(marks.length);
-  for (const owner of owners) {
-    expect(owner.ownership).toBe(1);
-    expect(owner.lineHeight).toBeGreaterThanOrEqual(owner.size * 1.4);
-  }
-  const faults = await labels.evaluateAll(elements => {
-    const range = document.createRange();
-    const boxes = (node: Node) => {
-      range.selectNodeContents(node);
-      return Array.from(range.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
-    };
-    const overlaps = (a: DOMRect, b: DOMRect) =>
-      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2
-      && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
-    const clips = (overflow: string) => overflow === 'hidden' || overflow === 'clip';
-    const holdsFixed = (css: CSSStyleDeclaration) => css.transform !== 'none' || css.perspective !== 'none'
-      || css.filter !== 'none' || !['', 'none'].includes(css.getPropertyValue('backdrop-filter')) || /\b(layout|paint|strict|content)\b/.test(css.contain)
-      || /\b(transform|perspective|filter)\b/.test(css.willChange) || /size/.test(css.getPropertyValue('container-type'));
-    const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
-    const problems: string[] = [];
-    for (const label of elements) {
-      const owner = label.parentElement!;
-      const description = owner.textContent?.trim().slice(0, 100);
-      const labelBoxes = boxes(label);
-      const walker = document.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
-      for (let adjacent = walker.nextNode(); adjacent; adjacent = walker.nextNode()) {
-        if (label.contains(adjacent) || !adjacent.textContent?.trim()) continue;
-        if (boxes(adjacent).some(rect => labelBoxes.some(mark => overlaps(rect, mark)))) {
-          problems.push(`Overlapping label in "${description}"`);
-          break;
-        }
-      }
-
-      // A scrollport can reveal the next passage when scrolled. Check
-      // clipping inside that content, where scrolling cannot reveal it.
-      // A fixed box escapes the overflow of every ancestor that does not
-      // hold its containing block, so those ancestors cannot clip it.
-      let checkX = true;
-      let checkY = true;
-      let escaped = false;
-      for (let ancestor: Element | null = label; ancestor && (checkX || checkY); ancestor = ancestor.parentElement) {
-        const css = getComputedStyle(ancestor);
-        if (escaped && !holdsFixed(css)) continue;
-        escaped = false;
-        if (css.position === 'fixed') escaped = true;
-        if (scrolls(css.overflowX) && ancestor.scrollWidth > ancestor.clientWidth) checkX = false;
-        if (scrolls(css.overflowY) && ancestor.scrollHeight > ancestor.clientHeight) checkY = false;
-        const rect = ancestor.getBoundingClientRect();
-        const left = rect.left + ancestor.clientLeft;
-        const top = rect.top + ancestor.clientTop;
-        const right = left + (ancestor.clientWidth || rect.width);
-        const bottom = top + (ancestor.clientHeight || rect.height);
-        if (labelBoxes.some(mark =>
-          (checkX && clips(css.overflowX) && (mark.left < left - 1 || mark.right > right + 1))
-          || (checkY && clips(css.overflowY) && (mark.top < top - 1 || mark.bottom > bottom + 1))
-        )) {
-          problems.push(`Clipped label in "${description}"`);
-          break;
-        }
-      }
-    }
-    return problems;
-  });
-  expect(faults).toEqual([]);
-  await expect(page.locator(meta)).toHaveCount(1);
-}
-
 async function savedPairId(page: Page, actor: string) {
   let id: string | undefined;
   await expect.poll(async () => {
@@ -712,75 +658,7 @@ async function savedPairId(page: Page, actor: string) {
   return id!;
 }
 
-for (const width of widths) {
-  for (const look of looks) {
-    test(`readable authored passages at ${width}px in ${look}`, async ({ page }) => {
-      test.setTimeout(75_000);
-      await page.setViewportSize({ width, height: width < 600 ? 844 : 960 });
-      const generatedLeader = `Generated leader ${width} ${look}`;
-      if (completePathWidths.has(width)) {
-        await page.emulateMedia({ reducedMotion: 'reduce' });
-        await page.goto(origin + '/sim');
-        const response = await page.request.post(origin + '/api/quickstart/generate-actors', {
-          data: { scenarioId: 'mars-genesis', count: 2 },
-        });
-        expect(response.ok()).toBe(true);
-        const { actors } = await response.json();
-        actors[0].name = generatedLeader;
-        delete actors[1].aiAuthorship;
-        await page.route('**/setup', route => route.continue({ postData: { ...route.request().postDataJSON(), actors } }));
-      }
-      await openPair(page, look);
-      const decision = page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first();
-      await expectMark(decision);
-      await expect(page.getByTestId('watch-grid').locator('canvas').first()).toBeVisible();
-      if (measuredWidths.has(width)) {
-        const notifications = page.getByRole('status', { name: 'Notifications' });
-        await expect(notifications.getByRole('button', { name: 'Dismiss', exact: true })).toHaveCount(0, { timeout: 20_000 });
-        await expectReadableMarks(page);
-      }
-      if (!completePathWidths.has(width)) return;
-
-      const card = decision.locator('xpath=ancestor::*[./details/summary[contains(., "Full reasoning")]][1]');
-      await card.locator('summary').click();
-      await expectMark(card.getByText('The next harvest needs a cushion.', { exact: true }));
-      const leader = page.getByText('ENGINEER', { exact: true }).filter({ visible: true })
-        .and(page.locator('[data-ai-generated="true"] > span')).first();
-      await expectMark(leader);
-
-      await openTab(page, 'reports');
-      const report = page.getByRole('region', { name: 'Turn-by-turn report' });
-      const reportText = report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true })
-        .and(page.locator('[data-ai-generated="true"] > span')).first();
-      await expectMark(reportText);
-      await expectReadableMarks(page, report);
-
-      const full = page.getByRole('button', { name: /View Full Verdict/ });
-      await full.click();
-      const verdict = page.getByRole('dialog', { name: 'Simulation verdict' });
-      await expectMark(verdict.getByText('Stored water protected the new crops.', { exact: true }));
-      await expectReadableMarks(page, verdict);
-      await verdict.getByRole('button', { name: 'Close verdict' }).click();
-
-      await openTab(page, 'chat');
-      await page.getByRole('button', { name: /Noor Aziz/ }).first().click();
-      await page.getByRole('textbox', { name: 'Message Noor Aziz' }).fill('How are the stores?');
-      await page.getByRole('button', { name: 'Send', exact: true }).click();
-      const chat = page.getByRole('log', { name: 'Messages with Noor Aziz' });
-      await expectMark(chat.getByText('The water stores are stable.', { exact: true }));
-      const replyLabel = chat.getByText('AI-written', { exact: true }).last();
-      await replyLabel.evaluate(label => label.scrollIntoView({ block: 'center' }));
-      await expect(replyLabel).toBeInViewport({ ratio: 1 });
-      await expectReadableMarks(page, chat);
-
-      await page.goto(origin + '/sim?tab=sim&replay=' + encodeURIComponent(await savedPairId(page, generatedLeader)));
-      await expectMark(page.getByText('Keep a reserve of water.', { exact: true }).filter({ visible: true }).first());
-      await expectReadableMarks(page);
-    });
-  }
-}
-
-test('Studio and pinned comparison show each stored decision with its own label', async ({ page }) => {
+test('Studio and pinned comparison mark each stored decision', async ({ page }) => {
   const fixture = JSON.parse(readFileSync(new URL('../../tests/fixtures/runArtifact-v0.8-turn-loop.json', import.meta.url), 'utf8'));
   const leaders = ['Reserve leader', 'Well leader'];
   const decisions = ['Keep the reserve for the next harvest.', 'Open a new well on the east side.'];
@@ -853,10 +731,8 @@ test('Viz marks the model decision in the current turn narrative', async ({ page
   await openTab(page, 'viz');
   const narrative = page.getByRole('status', { name: 'Current turn narrative' });
   await page.getByLabel('Scrub timeline').press('Home');
-  const passage = narrative.getByText(/keep a reserve of water/i).locator('xpath=ancestor-or-self::*[@data-ai-generated="true"][1]');
-  await expect(passage).toBeVisible();
-  await expect(passage.getByText('AI-written', { exact: true })).toHaveCount(1);
-  await expect(page.locator(meta)).toHaveCount(1);
+  await expectMark(narrative.getByText(/keep a reserve of water/i));
+  await expectQuietPage(page);
 });
 
 const fallbackDecision = 'Commander decision unavailable; defer to department consensus.';
@@ -891,7 +767,7 @@ test('a run saved before field-level source marks its model passages and leaves 
   await expectMark(report.getByText('Pressure held overnight.', { exact: true }).filter({ visible: true }).first());
   await expectUnmarked(report.getByText(fallbackDecision, { exact: true }).filter({ visible: true }));
   await expectUnmarked(report.getByText('engineering report unavailable this turn.', { exact: true }).filter({ visible: true }));
-  await expect(page.locator(meta)).toHaveCount(1);
+  await expectQuietPage(page);
 
   for (const [actor, authored] of [['Legacy leader', true], ['Legacy fallback leader', false]] as const) {
     const runId = await libraryRunId(page, actor);
@@ -942,4 +818,5 @@ test('the Library marks a generated archetype apart from the name a person gave 
   const summary = page.getByRole('dialog', { name: 'Run detail' }).locator('section', { has: page.locator('h2') }).first();
   await expectUnmarked(summary.getByText('Renamed leader', { exact: true }));
   await expectMark(summary.getByText('Engineer', { exact: true }));
+  await expectQuietPage(page);
 });

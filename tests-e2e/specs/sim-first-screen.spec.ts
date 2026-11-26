@@ -1560,7 +1560,6 @@ const cohortCaption = (n: number) => `All ${n} colonies start with the same 100 
 const START_FREE = 'Start Mars Genesis: 6 turns, about 3 and a half minutes';
 const FREE_SECOND_LINE = '6 turns, about 3½ minutes';
 const FREE_RUN = 'This run is free: we pay for it.';
-const AI_AGENTS = 'The leaders are AI agents.';
 const AFTER_NO_SAVED_RUN = 'After that, add your own API key in Settings to run again today. Your provider bills you for those runs.';
 const OWN_KEY_NOTICE = 'This run uses your OpenAI API key, and your provider bills you. Runs on your key skip the daily limit and do not use your free runs. They are not held to this demo’s size, so they can be larger than the free run.';
 const SERVER_NOTICE = 'This run uses this server’s API keys.';
@@ -2382,9 +2381,9 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
     await test.step(`390 by 844 in the ${look} look: stuck, then resting in its place`, async () => {
       const root = await openReadyAt(page, '/sim', PHONE, look);
       const { key, bar, barLines, notice, runLine } = startParts(root);
-      // Before any scroll: the bar at the bottom edge, its two lines over Start.
+      // Before any scroll: the bar at the bottom edge, its notice over Start.
       await expect(bar).toHaveAttribute('data-stuck', 'true');
-      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      await expect(barLines.locator('p')).toHaveText(FREE_RUN);
       for (const line of await barLines.locator('p').all()) expect((await styleOf(line)).size).toBe(15);
       const quiet = await tokenColour(page, look === 'light' ? '--text-3' : '--text-2');
       expect((await styleOf(barLines.locator('p').first())).colour).toBe(quiet);
@@ -2397,7 +2396,7 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
       await expect(barLines).not.toHaveAttribute('role', 'status');
       await picture(page, `start-bar-stuck-390-${look}`);
 
-      // A control reached by keyboard is never under the bar, whose two lines are its top.
+      // A control reached by keyboard is never under the bar, whose notice is at its top.
       const tab = root.getByTestId('leaders').getByRole('tab').first();
       await tab.focus();
       const [focused, over] = await Promise.all([box(tab), box(barLines)]);
@@ -2421,7 +2420,7 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
     const root = await openReadyAt(page, '/sim', small, 'dark');
     const { key, bar, barLines } = startParts(root);
     await expect(bar).toHaveAttribute('data-stuck', 'true');
-    await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+    await expect(barLines.locator('p')).toHaveText(FREE_RUN);
     // The key's two lines fit inside it, and the bar is whole in the window.
     const [start, held] = await Promise.all([box(key), box(bar)]);
     for (const line of [key.getByTestId('start-first'), key.getByTestId('start-second')]) {
@@ -2458,11 +2457,11 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
 
   for (const look of LOOKS) {
     await test.step(`600 in the ${look} look`, async () => {
-      // The bar's two lines over a row of the 320 px key and the run line to Verdict.
+      // The bar's notice over a row of the 320 px key and the run line to Verdict.
       const root = await openReadyAt(page, '/sim', sizeAt(600), look);
       const { key, bar, barLines, runLine } = startParts(root);
       await expect(bar).toHaveAttribute('data-stuck', 'true');
-      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      await expect(barLines.locator('p')).toHaveText(FREE_RUN);
       const [lines, start, line] = await Promise.all([box(barLines), box(key), box(runLine)]);
       expect(Math.abs(start.width - 320)).toBeLessThanOrEqual(1);
       expect(lines.y + lines.height).toBeLessThanOrEqual(start.y + 1);
@@ -2472,7 +2471,7 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
     });
 
     await test.step(`768 in the ${look} look`, async () => {
-      // One row 72 px high, the key at the left and the two lines at its right.
+      // One row 72 px high, the key at the left and the notice at its right.
       const root = await openReadyAt(page, '/sim', { width: 768, height: 1024 }, look);
       const { key, bar, barLines } = startParts(root);
       await expect(bar).toHaveAttribute('data-stuck', 'true');
@@ -2489,12 +2488,12 @@ screenTest('feature 10: the bar and the band', async ({ page }) => {
     await test.step(`1440 by 900 in the ${look} look: the band held at the bottom edge, then in its place`, async () => {
       const root = await openReadyAt(page, '/sim', WIDE, look);
       const { key, bar, barLines, notice, runLine } = startParts(root);
-      // Held: Start with its second line, six marks to Verdict, and the two first sentences.
+      // Held: Start with its second line, six marks to Verdict, and the payment notice.
       await expect(bar).toHaveAttribute('data-stuck', 'true');
       await expect(key.getByTestId('start-second')).toHaveText(FREE_SECOND_LINE);
       await expect(runLine.locator('[data-run-mark]')).toHaveCount(6);
       await expect(runLine.getByTestId('run-end')).toHaveText('Verdict');
-      await expect(barLines.locator('p')).toHaveText([FREE_RUN, AI_AGENTS]);
+      await expect(barLines.locator('p')).toHaveText(FREE_RUN);
       const held = await box(bar);
       expect(held.y + held.height).toBeLessThanOrEqual(await windowHeight() + 1);
       for (const part of [key, runLine, barLines]) {
