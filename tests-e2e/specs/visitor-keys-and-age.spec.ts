@@ -12,7 +12,7 @@ const LAST_LAUNCH = 'paracosm:lastLaunchConfig';
 const MARKER = 'visitor-key-browser-fixture';
 const SEARCH_MARKER = 'visitor-search-browser-fixture';
 const AGE = "Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.";
-const TEACHERS = "For teachers: run a simulation yourself and show it to your class, or share its replay link. A replay only plays back a finished run, and sends nothing new to an AI model. A student who starts their own run must be 13 or over and have a parent's or guardian's permission.";
+const TEACHERS = "For teachers: run a simulation yourself and show it to your class, or share its replay link. A replay only plays back a finished run, and sends nothing new to an AI model.";
 const TERMS = "If you add your own API key, you confirm it is yours and that your provider's terms let you use it here.";
 const PRIVACY = "If you add API keys, we use them for the runs and chats you start. This tab keeps them until it closes or you select Forget my keys. Our server holds them in memory while in use and for up to 30 minutes afterward, then drops them. Each key is sent only to the provider it belongs to.";
 const CHILDREN = 'Paracosm is for a general audience. It is not directed to children under 13, and we do not knowingly collect personal information from them. If you believe a child under 13 has used it, write to team@frame.dev and we will delete what we hold.';
@@ -77,7 +77,7 @@ test('the first dashboard load moves an old model and search key to tab storage'
     localStorage.setItem(launchSlot, oldLaunch);
   }, { slot: SLOT, old, launchSlot: LAST_LAUNCH, oldLaunch });
   await page.goto(`${RUN_SERVER}/sim`);
-  await expect(page.getByTestId('note-adults')).toBeAttached();
+  await expect(page.getByTestId('note-ai')).toBeAttached();
   await expect.poll(() => stores(page)).toEqual({ local: null, session: old });
   expect(await savedLaunch(page)).toEqual(settingsBody(mars));
   await openTab(page, 'settings');
@@ -191,12 +191,16 @@ test('Settings, Terms, Privacy, the start path, footer and share help show the a
   await expect(lines.getByRole('link')).toHaveAttribute('href', '/#get-started');
 
   await page.goto(`${RUN_SERVER}/sim`);
-  await expect(page.getByTestId('note-adults')).toHaveText(AGE);
-  await expect(page.getByTestId('foot-adults')).toHaveText(AGE);
+  // The age terms live in the landing's Terms section alone, never on the app's screens.
+  await expect(page.getByTestId('note-adults')).toHaveCount(0);
+  await expect(page.getByTestId('foot-adults')).toHaveCount(0);
+  await expect(page.getByText(AGE, { exact: true })).toHaveCount(0);
 
   await page.goto(`${RUN_SERVER}/#about`);
   await expect(page.locator('#about').getByText(TEACHERS, { exact: true })).toBeAttached();
   await expect(page.locator('#terms').getByText(TERMS, { exact: true })).toBeAttached();
+  await expect(page.locator('#terms').getByText(AGE, { exact: true })).toBeAttached();
+  await expect(page.locator('#about')).not.toContainText("guardian's permission");
   await expect(page.locator('#privacy').getByText(PRIVACY, { exact: true })).toBeAttached();
   await expect(page.locator('#privacy').getByText(CHILDREN, { exact: true })).toBeAttached();
 
