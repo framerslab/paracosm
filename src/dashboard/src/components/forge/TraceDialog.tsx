@@ -8,7 +8,6 @@ import { ActorTile } from './ActorTile';
 import { STATIONS, attemptNumber, forgeLineModel, glyphFor, lineColour, usesOf, type StationId } from './forgeLine';
 import { ForgeLine } from './ForgeLine.tsx';
 import {
-  AI_WRITTEN_LABEL,
   ATTEMPT_WORDS,
   CLOSE_TRACE,
   COPY_LINK,
@@ -419,7 +418,6 @@ export function TraceDialog({
               </button>
             </div>
           )}
-          <p className={styles.label}>{AI_WRITTEN_LABEL}</p>
           <h2 ref={headNameRef} className={`${styles.name} ${styles.nameInHead}`} tabIndex={-1} translate="no" data-text="heading">
             {entry.name}
           </h2>

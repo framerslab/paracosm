@@ -36,7 +36,7 @@ export function AiWritten({
 
   return (
     <Element
-      ref={node => { block.current = node; }}
+      ref={(node: HTMLElement | null) => { block.current = node; }}
       className={className}
       style={style}
       title={title}
