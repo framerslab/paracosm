@@ -42,6 +42,9 @@ import {
   type BarCheck,
   type DecisionRuleArgs,
   buildEffectsBlock,
+  commanderAgentOptions,
+} from './commander-prompt.js';
+import {
   resolveActiveDepartments,
   resolveEventDepartments,
   runDepartmentPromotions,
@@ -835,8 +838,7 @@ async function runWithResearch(research: ResearchMemory, leader: ActorConfig, ke
     provider, model: modelConfig.commander,
     apiKey: providerApiKey,
     fallbackProviders: callFallbackProviders,
-    instructions: `${GENERAL_AUDIENCE_GUIDANCE}\n\n${leader.instructions}`,
-    personality: { openness: leaderHexaco.openness, conscientiousness: leaderHexaco.conscientiousness, extraversion: leaderHexaco.extraversion, agreeableness: leaderHexaco.agreeableness, emotionality: leaderHexaco.emotionality, honesty: leaderHexaco.honestyHumility },
+    ...commanderAgentOptions(leader, leaderHexaco),
     maxSteps: opts.execution?.commanderMaxSteps ?? DEFAULT_EXECUTION.commanderMaxSteps,
     // Commander outputs CommanderDecision JSON: rationale + reasoning +
     // selectedOptionId etc. Typical ~500-1500 output tokens; cap 3000

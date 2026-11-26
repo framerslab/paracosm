@@ -74,7 +74,31 @@ jobs:
       - name: Build dashboard
         run: npm run dashboard:build
 
+      - name: Check out the original commander
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 0cc71a4d7eece20f775488f23777239700136b07
+          path: .prompt-before
+          persist-credentials: false
+
+      - name: Capture the original Mars commander inputs
+        run: |
+          cp tests/cli/helpers/leader-prompt-wire.ts .prompt-before/tests/cli/helpers/
+          cd .prompt-before || exit 1
+          printf 'Original commander source: %s\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          npm ci
+          node --import tsx tests/cli/helpers/leader-prompt-wire.ts --capture-mars "$RUNNER_TEMP/mars-opening.json"
+
+      - name: Upload the original Mars commander inputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mars-commander-before
+          path: ${{ runner.temp }}/mars-opening.json
+          if-no-files-found: error
+
       - name: Run tests
+        env:
+          PARACOSM_TEST_ORIGINAL_PROMPTS: ${{ runner.temp }}/mars-opening.json
         run: npm test
 
       - name: Check schema drift
