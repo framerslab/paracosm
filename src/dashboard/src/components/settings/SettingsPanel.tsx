@@ -11,7 +11,7 @@ import { AdminTokenField } from './AdminTokenField';
 import { LoadPriorRunsCTA } from './LoadPriorRunsCTA';
 import { EventLogPanel } from '../log/EventLogPanel';
 import { SubTabNav } from '../shared/SubTabNav';
-import { createDashboardTabHref, getDashboardTabFromHref, requestsSettingsKeyFocus, resolveSetupRedirectHref, setSubTabUrlParam } from '../../tab-routing';
+import { createDashboardTabHref, getDashboardTabFromHref, resolveSetupRedirectHref, setSubTabUrlParam, settingsKeyFocusField } from '../../tab-routing';
 import { emitLaunched, markScenarioSwitched, subscribeScenarioUpdates } from '../../scenario-sync';
 import type { SimEvent } from '../../hooks/useSSE';
 import {
@@ -252,11 +252,15 @@ function useShowFragmentTarget() {
 export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLocal, onWipeServer, onOpenStoredData }: SettingsPanelProps = {}) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
   const openAiField = useRef<HTMLInputElement>(null);
+  const anthropicField = useRef<HTMLInputElement>(null);
   const focusedKeyField = useRef(false);
   useEffect(() => {
-    if (focusedKeyField.current || !openAiField.current || !requestsSettingsKeyFocus(window.location.href)) return;
+    if (focusedKeyField.current) return;
+    const named = settingsKeyFocusField(window.location.href);
+    const target = named === 'anthropic' ? anthropicField.current : named === 'openai' ? openAiField.current : null;
+    if (!target) return;
     focusedKeyField.current = true;
-    openAiField.current.focus();
+    target.focus();
   }, [subTab]);
   useShowFragmentTarget();
   // Persist sub-tab in the URL so refresh / shared links land back on
@@ -871,7 +875,7 @@ export function SettingsPanel({ events = [], initialSubTab = 'config', onClearLo
               </label>
               <input
                 id={`key-${key}`}
-                ref={key === 'openai' ? openAiField : undefined}
+                ref={key === 'openai' ? openAiField : key === 'anthropic' ? anthropicField : undefined}
                 type="password"
                 autoComplete="off"
                 data-clarity-mask="True"

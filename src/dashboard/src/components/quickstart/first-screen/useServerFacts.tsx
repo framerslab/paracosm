@@ -43,6 +43,12 @@ export interface DemoCaps {
 export type SessionRow = StoredSessionMeta & { pinned?: boolean };
 
 export type RateLimitState = { status: 'loading' | 'ready' | 'unlimited' | 'error'; answer?: RateLimitAnswer };
+/**
+ * GET /admin-config as the first screen reads it: whether the server is the
+ * hosted demo and the host's caps on a run on its keys (`demoCaps`), the
+ * bounds on a run's leaders and turns (`run`), and the default number of
+ * runs a batch starts at once (`batch.maxConcurrency`).
+ */
 export interface AdminConfigState {
   status: 'loading' | 'ready' | 'error';
   hostedDemo?: boolean;

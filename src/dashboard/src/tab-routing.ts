@@ -64,16 +64,41 @@ export function createDashboardTabHref(currentHref: string, tab: Exclude<Dashboa
   return url.toString();
 }
 
-export function requestsSettingsKeyFocus(href: string): boolean {
+/** A provider key field in Settings that a link can focus. */
+export type SettingsKeyField = 'openai' | 'anthropic';
+
+/**
+ * The Settings key field an address asks to focus: `focus=api-key` or the
+ * `#key-openai` fragment for OpenAI's, `focus=api-key-anthropic` or the
+ * `#key-anthropic` fragment for Anthropic's. Null when it asks for none.
+ */
+export function settingsKeyFocusField(href: string): SettingsKeyField | null {
   const url = new URL(href);
   const tab = url.searchParams.get('tab');
-  return (tab === 'settings' && url.searchParams.get('focus') === 'api-key')
-    || ((tab === 'settings' || tab === null) && url.hash === '#key-openai');
+  if (tab === 'settings') {
+    const focus = url.searchParams.get('focus');
+    if (focus === 'api-key') return 'openai';
+    if (focus === 'api-key-anthropic') return 'anthropic';
+  }
+  if (tab === 'settings' || tab === null) {
+    if (url.hash === '#key-openai') return 'openai';
+    if (url.hash === '#key-anthropic') return 'anthropic';
+  }
+  return null;
 }
 
-export function createSettingsKeyHref(currentHref: string): string {
+/** Whether an address asks Settings to focus one of its provider key fields. */
+export function requestsSettingsKeyFocus(href: string): boolean {
+  return settingsKeyFocusField(href) !== null;
+}
+
+/**
+ * The Settings tab with a key field focused: Anthropic's when `provider` is
+ * `anthropic` (the provider that refused a visitor's key), else OpenAI's.
+ */
+export function createSettingsKeyHref(currentHref: string, provider?: string): string {
   const url = new URL(createDashboardTabHref(currentHref, 'settings'));
-  url.searchParams.set('focus', 'api-key');
+  url.searchParams.set('focus', provider === 'anthropic' ? 'api-key-anthropic' : 'api-key');
   return url.toString();
 }
 

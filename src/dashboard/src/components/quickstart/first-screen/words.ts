@@ -334,11 +334,15 @@ export function teamRunSpoken(o: { scenario?: string; turns?: number }): string 
   return about ? `${WATCH_TEAM_RUN}: ${about}` : WATCH_TEAM_RUN;
 }
 
-/** The link under the key at the limit, to Settings' API key field. */
+/** Said on Watch when the provider refused the key the visitor's run went out on. */
 export const VISITOR_KEY_REFUSED = 'Your API key was refused by its provider.';
+/** The refused-key alert's link, to the Settings field of the provider that refused the key. */
 export const CHECK_KEY_IN_SETTINGS = 'Check it in Settings';
+/** Said in Settings once a provider key is saved in this tab. */
 export const KEY_SAVED_IN_TAB = 'Key saved in this tab.';
+/** The link from Settings back to the Run tab, beside the saved-key line. */
 export const BACK_TO_RUN = 'Back to Run';
+/** The link under the key at the limit, to Settings' API key field. */
 export const ADD_KEY_IN_SETTINGS = 'Add your API key in Settings';
 
 /** Said above Start when the request did not reach the server. */

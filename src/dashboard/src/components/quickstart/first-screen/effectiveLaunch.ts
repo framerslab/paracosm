@@ -87,13 +87,42 @@ export function effectiveTurns(facts: ServerFacts, scenario: LaunchScenario, set
     const cap = hostTurnCap(facts);
     return isCount(cap) ? Math.min(own, cap) : own;
   }
+  return turnsOffTheHostsKeys(facts, scenario.id, own, settings);
+}
+
+/**
+ * A run's turns off the host's keys: the visitor's last launch on this
+ * scenario when it holds a whole number up to the server's bound, else the
+ * scenario's own, cut to that bound.
+ */
+function turnsOffTheHostsKeys(facts: ServerFacts, scenarioId: string, own: number, settings: LaunchSettings): number {
   const maxTurns = facts.adminConfig.run?.maxTurns ?? MAX_TURNS;
   const last = settings.lastLaunch;
-  if (last && isLastLaunchFor(last, scenario.id)) {
+  if (last && isLastLaunchFor(last, scenarioId)) {
     const turns = last.turns;
     if (isCount(turns) && turns <= maxTurns) return turns;
   }
   return Math.min(own, maxTurns);
+}
+
+/**
+ * The turns a row of Other scenarios says: the turns Start posts once that
+ * scenario is loaded, by the rules of effectiveTurns, so a saved launch of
+ * 12 turns is not listed as the scenario's own 6. Undefined for a row with
+ * no turns, and on the host's keys while the host's cap is not known.
+ */
+export function catalogTurns(
+  facts: ServerFacts,
+  row: { id: string; turns?: unknown },
+  settings: LaunchSettings,
+  who: Payer,
+): number | undefined {
+  if (!isCount(row.turns)) return undefined;
+  if (who === 'host') {
+    const cap = hostTurnCap(facts);
+    return cap === undefined ? undefined : Math.min(row.turns, cap);
+  }
+  return turnsOffTheHostsKeys(facts, row.id, row.turns, settings);
 }
 
 /** The people a scenario that names none starts with (normalizeSimulationConfig in src/cli/sim-config.ts). */

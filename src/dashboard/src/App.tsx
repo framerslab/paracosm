@@ -1047,7 +1047,7 @@ function AppContent() {
           {sse.providerError && !bannerDismissed ? (
             <ProviderErrorBanner
               providerError={sse.providerError}
-              settingsKeyHref={canRecoverVisitorKey ? createSettingsKeyHref(window.location.href) : undefined}
+              settingsKeyHref={canRecoverVisitorKey ? createSettingsKeyHref(window.location.href, sse.providerError?.provider) : undefined}
               onDismiss={() => setBannerDismissed(true)}
             />
           ) : null}

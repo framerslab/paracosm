@@ -22,7 +22,7 @@ import { markScenarioSwitched } from '../../../scenario-sync';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import type { CatalogScenario } from '../ScenarioCatalogGrid';
 import { ScenarioDetailDrawer } from '../ScenarioDetailDrawer';
-import { hostTurnCap, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
+import { catalogTurns, payer, readLaunchSettings, safeLocalStorage } from './effectiveLaunch';
 import { BrokenLinkMark } from './marks';
 import { isPositiveCount, useServerFacts } from './useServerFacts';
 import {
@@ -133,9 +133,9 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
     heading.focus();
   }, [scenarioReady, facts.adminConfig.status]);
 
-  const who = payer(facts, readLaunchSettings(safeLocalStorage()).overrides);
+  const settings = readLaunchSettings(safeLocalStorage());
+  const who = payer(facts, settings.overrides);
   const payerKnown = who === 'own' || facts.adminConfig.status === 'ready';
-  const turnCap = hostTurnCap(facts);
   const departmentCap = facts.adminConfig.demoCaps?.maxActiveDepartments;
 
   const choose = async (row: CatalogScenario) => {
@@ -189,9 +189,7 @@ export function OtherScenarios({ locked = false }: OtherScenariosProps = {}) {
     const names = Array.isArray(row.leaders)
       ? row.leaders.filter((name) => typeof name === 'string' && name.trim())
       : undefined;
-    const turns = payerKnown && isPositiveCount(row.turns)
-      ? who === 'host' ? (turnCap === undefined ? undefined : Math.min(row.turns, turnCap)) : row.turns
-      : undefined;
+    const turns = payerKnown ? catalogTurns(facts, row, settings, who) : undefined;
     let departments = isPositiveCount(row.departments) ? row.departments : undefined;
     if (departments !== undefined && who === 'host' && departmentCap !== undefined) {
       departments = Math.min(departments, departmentCap);
