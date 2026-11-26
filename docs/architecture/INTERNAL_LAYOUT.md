@@ -2,7 +2,7 @@
 
 This document describes the contributor-facing layout of `apps/paracosm/src/`. For the consumer-facing public API, see the `paracosm` package's `exports` map and the user-facing docs (`README.md`, `docs/COOKBOOK.md`, `docs/HTTP_API.md`).
 
-## The seven top-level directories
+## The eight top-level directories
 
 ```
 src/
@@ -12,7 +12,8 @@ src/
 ├── api/         Public run/runMany surface
 ├── cli/         CLI entry points and scenario-config helpers
 ├── server/      HTTP server
-└── dashboard/   Vite/React UI
+├── dashboard/   Vite/React UI
+└── analytics/   Event contract shared by dashboard and server
 ```
 
 Each directory owns one job. New top-level directories require justification (a one-line entry in this document).
@@ -79,6 +80,10 @@ Top-level files: `server-app.ts`, `router.ts`, `server-mode.ts`, `rate-limiter.t
 ### `dashboard/`
 
 The Vite/React UI. Self-contained: own `package.json`, own `vite.config.ts`, own `tsconfig.json`. Communicates with `server/` via `fetch()` only — no direct imports from `server/`. Type-imports from `engine/schema/`. Excluded from the library `tsconfig.build.json`.
+
+### `analytics/`
+
+The fixed contract for the dashboard's named events (`first-screen-events.ts`): each event's name, its allowed fields and values, and whether Clarity may record it. It sits outside `dashboard/` and `server/` because both read it: the dashboard's sender checks an event against it before sending, and `server/site-analytics.ts` checks it again before `POST /api/event` forwards anything. No I/O and no LLM calls.
 
 ## The boundary rule
 

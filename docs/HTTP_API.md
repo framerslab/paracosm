@@ -403,7 +403,7 @@ The body holds exactly `n`, `u` and `p`. `n` is one of the nine names below. `u`
 | `qs_no_run_left_view` | The Start band shows the daily limit | none | Yes |
 | `qs_no_run_left_action` | At that limit, a visitor picks the offered replay or Settings | `action`: `replay_last`, `add_key` | Yes |
 | `qs_pair_switch` | The narrow layout shows the other leader of a pair | `to`: `1`, `2` | No |
-| `tab_change` | A visitor picks a different section | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
+| `tab_change` | A visitor picks a different section in the header's section row or its More menu; links inside a page that open another section are not counted | `to`: `quickstart`, `sim`, `reports`, `studio`, `viz`, `chat`, `library`, `settings`, `about` | No |
 
 `size` gives the number of leaders as a range: 2, 3 to 8, 9 to 24, 25 to 100, or 101 to 300.
 
