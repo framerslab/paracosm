@@ -93,6 +93,17 @@ function between(open: string, close: string): string {
   return html.slice(start, html.indexOf(close, start));
 }
 
+/** The words of a piece of markup, its tags removed until none remains, so a tag split by another reads as no words. */
+function wordsOf(markup: string): string {
+  let words = markup;
+  let previous: string;
+  do {
+    previous = words;
+    words = words.replace(/<[^<>]*>/g, '');
+  } while (words !== previous);
+  return words;
+}
+
 test('wherever the landing page links the API reference it also links the HTTP API reference and the Cookbook', () => {
   const httpApi = 'href="https://github.com/framerslab/paracosm/blob/master/docs/HTTP_API.md"';
   const cookbook = 'href="https://github.com/framerslab/paracosm/blob/master/docs/COOKBOOK.md"';
@@ -357,7 +368,7 @@ test("the landing page's privacy section names each purpose, its tool and its ro
 
 test('the served privacy section explains who receives the first-screen events', () => {
   const privacy = section('privacy');
-  const paragraphs = [...privacy.matchAll(/<p\b[^>]*>(.*?)<\/p>/gs)].map(match => match[1].replace(/<[^>]*>/g, ''));
+  const paragraphs = [...privacy.matchAll(/<p\b[^>]*>(.*?)<\/p>/gs)].map(match => wordsOf(match[1]));
   const launches = paragraphs.find(text => text.includes('Viewing the Run screen')) ?? '';
   for (const action of ['pressing Start', 'a run opening or failing to start', 'seeing the daily limit', 'choosing a replay or Settings']) {
     assert.ok(launches.includes(action), action);
