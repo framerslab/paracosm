@@ -346,6 +346,54 @@ test('a selected run downloads readable HTML and PDF with the same provenance', 
   }
 });
 
+test('a run with no model-written passage downloads HTML and PDF without the AI title line', async ({ page }) => {
+  await page.goto(origin + '/sim?tab=library');
+  const fixture = JSON.parse(readFileSync(new URL('../../tests/fixtures/runArtifact-v0.8-turn-loop.json', import.meta.url), 'utf8'));
+  const human = (record: Record<string, unknown>) => ({ ...record, aiWrittenFields: [] });
+  const artifact = {
+    ...fixture,
+    metadata: { ...fixture.metadata, runId: 'run_report_human_fixture' },
+    decisions: (fixture.decisions ?? []).map(human),
+    specialistNotes: (fixture.specialistNotes ?? []).map(human),
+  };
+  const response = await page.request.post(origin + '/api/v1/library/import', { data: { artifact } });
+  expect(response.status()).toBe(201);
+  const { runId } = await response.json();
+  await page.goto(origin + '/sim?tab=library&runId=' + encodeURIComponent(runId));
+  const dialog = page.getByRole('dialog', { name: 'Run detail' });
+
+  const [htmlDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Download HTML' }).click(),
+  ]);
+  const html = readFileSync(await htmlDownload.path(), 'utf8');
+  expect(html).toContain('<h2>Decision</h2>');
+  expect(html).not.toContain('data-ai-generated="true"');
+  expect(html).not.toContain(reportNotice);
+
+  const [pdfDownload] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Download PDF' }).click(),
+  ]);
+  const pdfBytes = readFileSync(await pdfDownload.path());
+  const dashboardRequire = createRequire(new URL('../../src/dashboard/package.json', import.meta.url));
+  const pdfJs = await import(pathToFileURL(dashboardRequire.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href);
+  const rendering = pdfJs.getDocument({ data: Uint8Array.from(pdfBytes), disableFontFace: true });
+  const report = await rendering.promise;
+  try {
+    const pages: string[] = [];
+    for (let index = 1; index <= report.numPages; index++) {
+      const { items } = await (await report.getPage(index)).getTextContent();
+      pages.push(items.map((item: { str?: string }) => item.str ?? '').filter(Boolean).join('\n'));
+    }
+    const text = pages.join('\n');
+    expect(text).toContain('Decision');
+    expect(text).not.toContain(reportNotice);
+  } finally {
+    await rendering.destroy();
+  }
+});
+
 test('the Viz PNG download carries one valid metadata chunk', async ({ page }) => {
   await openPair(page, 'dark');
   await openTab(page, 'viz');
@@ -615,7 +663,9 @@ for (const count of [24, 300]) {
       const sizes = tokens.map(token => [token, Number.parseFloat(computed.getPropertyValue(token))] as const);
       for (const [token, size] of sizes) if (Number.isFinite(size)) root.style.setProperty(token, `${size * 2}px`);
     }, typeTokens);
-    await expectReadableMarks(page, profile);
+    // At doubled type the generated leader's text keeps its machine-readable mark and no visible label.
+    await settle(profile);
+    await expectMark(profile.getByText('ENGINEER', { exact: true }));
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await profile.getByRole('button', { name: 'Close drill-in' }).click();
     await expect(profile).toHaveCount(0);
