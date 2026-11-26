@@ -17,6 +17,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  catalogTurns,
   effectiveDepartments,
   effectiveLaunch,
   effectivePeople,
@@ -101,6 +102,30 @@ test('effectiveTurns on the visitor\'s key: the last launch on this scenario, el
   for (const turns of [0, 101, 2.5, '40', null]) {
     assert.equal(effectiveTurns(facts(false), mars, last('mars-genesis', turns), 'server'), 6, `turns ${JSON.stringify(turns)}`);
   }
+});
+
+test('catalogTurns: a row says the turns Start posts once that scenario is loaded', () => {
+  // The rows of Other scenarios as GET /scenarios lists them: each scenario's id and its own turns.
+  const marsRow = { id: mars.id, turns: mars.setup.defaultTurns };
+  const lunarRow = { id: lunar.id, turns: lunar.setup.defaultTurns };
+  const saved = { overrides: { openai: 'sk-test' }, lastLaunch: { scenarioId: 'mars-genesis', turns: 12 } };
+  // On the visitor's key a saved launch of 12 turns on Mars Genesis is the next run's length, not the scenario's 6.
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'own'), 12);
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'own'), effectiveTurns(facts(true), mars, saved, 'own'));
+  // The saved launch belongs to Mars Genesis alone: Lunar Outpost keeps its own 8.
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'own'), 8);
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'own'), effectiveTurns(facts(true), lunar, saved, 'own'));
+  // On a self-hosted server the same rule holds, under the server's own bound on turns.
+  const bounded: ServerFacts = { ...facts(false), adminConfig: { ...facts(false).adminConfig, run: { maxTurns: 10 } } };
+  assert.equal(catalogTurns(bounded, marsRow, saved, 'server'), effectiveTurns(bounded, mars, saved, 'server'));
+  assert.equal(catalogTurns(bounded, lunarRow, { overrides: {}, lastLaunch: null }, 'server'), 8);
+  // On the host's keys the cap of 6 cuts the row and the saved launch does not lift it.
+  assert.equal(catalogTurns(facts(true), lunarRow, saved, 'host'), 6);
+  assert.equal(catalogTurns(facts(true), marsRow, saved, 'host'), effectiveTurns(facts(true), mars, saved, 'host'));
+  // A host cap not yet known, or a row with no turns, says no figure.
+  const noCap: ServerFacts = { ...facts(true), adminConfig: { status: 'ready', hostedDemo: true } };
+  assert.equal(catalogTurns(noCap, lunarRow, saved, 'host'), undefined);
+  assert.equal(catalogTurns(facts(true), { id: 'drafted' }, saved, 'own'), undefined);
 });
 
 test('people and departments follow the host\'s caps on a free run and the scenario elsewhere', () => {

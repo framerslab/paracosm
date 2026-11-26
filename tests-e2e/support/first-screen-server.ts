@@ -275,4 +275,11 @@ await withProviderWire(async () => {
     }, { status: 403 });
   }
   return 'The engineering team kept the power on.';
+}, call => {
+  if (call.key?.startsWith('fixture-anthropic-auth:')) {
+    return Response.json({
+      type: 'error', error: { type: 'authentication_error', message: 'Anthropic: invalid x-api-key' },
+    }, { status: 401 });
+  }
+  return undefined;
 });

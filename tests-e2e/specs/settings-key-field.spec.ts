@@ -36,12 +36,12 @@ async function atLimit(page: Page) {
   });
 }
 
-async function openKeyLink(page: Page, link: Locator) {
+async function openKeyLink(page: Page, link: Locator, provider: 'openai' | 'anthropic' = 'openai') {
   await link.focus();
   await expect(link).toBeFocused();
   await link.press('Enter');
-  await expect(page).toHaveURL(/tab=settings&focus=api-key$/);
-  await expect(field(page)).toBeFocused();
+  await expect(page).toHaveURL(provider === 'anthropic' ? /tab=settings&focus=api-key-anthropic$/ : /tab=settings&focus=api-key$/);
+  await expect(field(page, provider)).toBeFocused();
 }
 
 test('key link focuses the mounted field', async ({ page }) => {
@@ -196,7 +196,7 @@ test('Forget clears this tab and retries server cleanup', async ({ page, browser
   }
 });
 
-async function openProviderFailure(page: Page, kind: 'auth' | 'quota', look = 'dark') {
+async function openProviderFailure(page: Page, kind: 'auth' | 'quota', look = 'dark', provider: 'openai' | 'anthropic' = 'openai') {
   await page.addInitScript(({ expected, look }) => {
     localStorage.setItem('paracosm-theme', look);
     const NativeSource = window.EventSource;
@@ -222,8 +222,8 @@ async function openProviderFailure(page: Page, kind: 'auth' | 'quota', look = 'd
   expect(switched.ok()).toBe(true);
   await page.reload();
   // Each call must reach the provider wire, including retries and other pictures.
-  const marker = `fixture-openai-${kind}:${randomUUID()}`;
-  await field(page).fill(marker);
+  const marker = `fixture-${provider}-${kind}:${randomUUID()}`;
+  await field(page, provider).fill(marker);
   await openTab(page, 'quickstart');
   await expect(startKey(page)).toBeEnabled();
   let accepted: { ok: boolean; hasRunId: boolean; sentProviderKey: boolean } | undefined;
@@ -233,7 +233,7 @@ async function openProviderFailure(page: Page, kind: 'auth' | 'quota', look = 'd
     accepted = {
       ok: response.ok(),
       hasRunId: typeof body.runKey === 'string' && body.runKey.length > 0,
-      sentProviderKey: route.request().postDataJSON().apiKey === marker,
+      sentProviderKey: route.request().postDataJSON()[provider === 'anthropic' ? 'anthropicKey' : 'apiKey'] === marker,
     };
     await route.fulfill({ response });
   }, { times: 1 });
@@ -260,6 +260,14 @@ test('refused key opens the same field', async ({ page }) => {
   await page.goto(`/sim?tab=sim&replay=${id}`);
   await expect(page.getByRole('link', { name: 'Fix key →' })).toBeVisible();
   await expect(recovery(page)).toHaveCount(0);
+});
+
+test('refused Anthropic key opens the Anthropic field', async ({ page }) => {
+  await openProviderFailure(page, 'auth', 'dark', 'anthropic');
+  const alert = recovery(page);
+  await expect(alert.getByText(REFUSED, { exact: true })).toBeVisible();
+  await openKeyLink(page, alert.getByRole('link', { name: 'Check it in Settings', exact: true }), 'anthropic');
+  await expect(field(page)).not.toBeFocused();
 });
 
 function isUncovered(locator: Locator): Promise<boolean> {
