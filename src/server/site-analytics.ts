@@ -167,21 +167,6 @@ export function countedPage(pathname: string, isDocsPage: (path: string) => bool
   return null;
 }
 
-/**
- * The page view a browser's `POST /api/event` body describes: an event, the
- * word `unlisted` for a path that is no page of the site (nothing is
- * forwarded for it), or null for a body that is not a page view. The body
- * is `{"n":"pageview","u":"<path>"}` (assets/consent/consent.js sends it).
- * The server builds the address itself from countedPage, on the counted
- * domain, and sends no referrer: any other field of the body is ignored, so
- * no query string, fragment, unlisted path or referring page reaches the
- * instance.
- */
-export function countEventFrom(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
-  const parsed = parseEventBody(body);
-  return parsed?.n === 'pageview' ? countedPageView(parsed.u, isDocsPage) : null;
-}
-
 function parseEventBody(body: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(body);
@@ -210,7 +195,16 @@ function countedPageView(value: unknown, isDocsPage?: (path: string) => boolean)
   return { name: 'pageview', url: `https://${PLAUSIBLE_DOMAIN}${page}`, domain: PLAUSIBLE_DOMAIN };
 }
 
-/** Parses a legacy page view or a strict dashboard event for the shared count route. */
+/**
+ * The event a browser's `POST /api/event` body describes: an event, the word
+ * `unlisted` for a path that is no page of the site (nothing is forwarded
+ * for it), or null for any other body. A page view is
+ * `{"n":"pageview","u":"<path>"}` (assets/consent/consent.js sends it); the
+ * server builds its address from countedPage, on the counted domain, and
+ * sends no referrer, so no query string, fragment, unlisted path or
+ * referring page reaches the instance. A dashboard event carries exactly
+ * `n`, `u` and `p`, and only the fixed names and values of its contract pass.
+ */
 export function countedEvent(body: string, isDocsPage?: (path: string) => boolean): CountEvent | 'unlisted' | null {
   const parsed = parseEventBody(body);
   if (!parsed) return null;
