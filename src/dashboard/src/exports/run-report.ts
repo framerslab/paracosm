@@ -11,6 +11,7 @@ export const exportProvenance = (existing?: RunProvenance | null, verdict?: Reco
   },
 });
 
+/** The report's one AI line under its title, written only when a passage is model-written. */
 const reportNotice = 'Written by AI models in a Paracosm simulation.';
 
 interface Passage {
@@ -18,6 +19,8 @@ interface Passage {
   text: string;
   authored: boolean;
 }
+
+const hasAiPassage = (passages: Passage[]): boolean => passages.some(passage => passage.authored);
 
 function verdictPassages(verdict: Record<string, unknown> | null | undefined, actor: string | undefined): Passage[] {
   if (!verdict || verdict.skipped === true) return [];
@@ -86,7 +89,7 @@ export function makeRunReportHtml(artifact: RunArtifact, verdict?: Record<string
     `<section><h2>${escapeHtml(heading)}</h2><p${authored ? ' data-ai-generated="true"' : ''}>${escapeHtml(text)}</p></section>`,
   );
   const embedded = JSON.stringify({ provenance: report.provenance }).replaceAll('<', '\\u003c');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="ai-generated-content" content="partial"><script type="application/json" id="paracosm-provenance">${embedded}</script></head><body><main><h1>${title}</h1><p>${reportNotice}</p>${sections.join('')}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><meta name="ai-generated-content" content="partial"><script type="application/json" id="paracosm-provenance">${embedded}</script></head><body><main><h1>${title}</h1>${hasAiPassage(report.passages) ? `<p>${reportNotice}</p>` : ''}${sections.join('')}</main></body></html>`;
 }
 
 export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<string, unknown> | null): Promise<Uint8Array<ArrayBuffer>> {
@@ -153,7 +156,7 @@ export async function makeRunReportPdf(artifact: RunArtifact, verdict?: Record<s
     }
   };
   await write(report.title);
-  await write(reportNotice);
+  if (hasAiPassage(report.passages)) await write(reportNotice);
   for (const { heading, text } of report.passages) {
     await draw('');
     await write(heading);

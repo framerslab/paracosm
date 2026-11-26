@@ -352,7 +352,7 @@ switch (artifact.metadata.mode) {
 
 Run JSON, the first replay event, and HTML, PDF and PNG run exports carry `provenance`. Older files can be read without the field. In the dashboard and HTML reports, each model-written block carries `data-ai-generated="true"`. A page with model-written content has one `ai-generated-content` meta tag. Human-written text stays unmarked.
 
-The dashboard shows a disclosure before Start and one at the top of each chat. HTML and PDF reports show one disclosure under the title.
+The dashboard shows a disclosure before Start and one at the top of each chat. HTML and PDF reports show one disclosure under the title when a passage is model-written.
 
 For non-TypeScript consumers, `npm run export:json-schema` emits `schema/run-artifact.schema.json` and `schema/stream-event.schema.json`. Python projects generate Pydantic types via `datamodel-codegen`; any ecosystem with a JSON-Schema generator adopts cleanly.
 
