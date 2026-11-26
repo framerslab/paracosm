@@ -302,7 +302,9 @@ test.describe('feature 1 on the run\'s record', () => {
         // Judge, the station that decided a passed tool, opens with the trace: the confidence shows open or closed.
         await expect(passed.locator('[data-station="judge"]')).toContainText('0.98 out of 1');
         await expect(passed.locator('[data-station="added"]')).toContainText('Used 1 time');
-        await expect(passed.getByText('Written by an AI model during this paracosm run', { exact: true })).toBeVisible();
+        const description = passed.locator('[data-station="request"]').getByText(LANDING_TEXT, { exact: true });
+        await expect(description).toHaveAttribute('data-ai-generated', 'true');
+        expect(await passed.innerText()).not.toContain('Written by an AI model during this paracosm run');
         await expect(passed.getByText('The reason the run recorded')).toHaveCount(0);
         await picture(page, `${size.width}-${look}-f1-passed`);
         await passed.getByRole('button', { name: 'Close the trace' }).click();
@@ -324,7 +326,7 @@ test.describe('feature 1 on the run\'s record', () => {
         await expect(failed.getByText('The reason the run recorded', { exact: true })).toBeVisible();
         await expect(failed.getByText(RADIATION_REASON, { exact: true })).toBeVisible();
         await expect(failed.getByText('The run\'s record keeps at most 240 characters of this reason.', { exact: true })).toBeVisible();
-        await expect(failed.getByText('Written by an AI model during this paracosm run', { exact: true })).toBeVisible();
+        expect(await failed.innerText()).not.toContain('Written by an AI model during this paracosm run');
         await picture(page, `${size.width}-${look}-f1-did-not-pass`);
         await failed.getByRole('button', { name: 'Close the trace' }).click();
         await expect(failed).toBeHidden();
