@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
-import { openTab, SERVERS } from '../support/frame.js';
-import { settle } from '../support/readability.js';
+import { measureReadability, rowsOnOneRow } from '../support/first-screen-measure.js';
+import { openTab, scaleText, SERVERS } from '../support/frame.js';
+import { FIGURES, measureText, saidOf, settle, spacingFaults } from '../support/readability.js';
 import { startKey } from '../support/start-run.js';
 
 const SERVER = SERVERS.demo;
@@ -342,4 +343,115 @@ for (const width of [390, 1440]) {
       await capture('settings-keys', saved(page));
     });
   }
+}
+
+/*
+ * The release checks of the changed surfaces: the Settings key group and the
+ * refused key's alert on Watch at nine widths, under reduced motion, with the
+ * words measured at six widths; one-row actions, 44 px targets, focus, line
+ * heights, text spacing and 200 per cent text.
+ */
+const KEY_GROUP = '[data-testid="settings-key-group"]';
+const REFUSAL = '[data-testid="visitor-key-refusal"]';
+const MEASURE_WIDTHS = [320, 390, 600, 768, 1100, 1440];
+
+for (const look of ['light', 'dark']) {
+  test(`changed text meets the size and contrast floors in ${look}`, async ({ page, context }) => {
+    test.setTimeout(300_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openProviderFailure(page, 'auth', look);
+    const settings = await context.newPage();
+    try {
+      await settings.emulateMedia({ reducedMotion: 'reduce' });
+      await settings.goto(FIELD_URL);
+      await answerConsent(settings);
+      await expect(field(settings)).toBeFocused();
+      await field(settings).fill('fixture-openai');
+      await expect(saved(settings)).toBeVisible();
+
+      for (const width of [320, 360, 390, 430, 480, 600, 768, 1100, 1440]) {
+        await test.step(`Settings and Watch at ${width}`, async () => {
+          const viewport = { width, height: width < 900 ? 844 : 900 };
+          await Promise.all([page.setViewportSize(viewport), settings.setViewportSize(viewport)]);
+          for (const [surfacePage, selector] of [[settings, KEY_GROUP], [page, REFUSAL]] as const) {
+            const surface = surfacePage.locator(selector);
+            if (MEASURE_WIDTHS.includes(width)) {
+              const faults = await measureReadability(surfacePage, selector);
+              if (selector === REFUSAL) {
+                // The warning mark is a glyph. Apply its contrast floor to the same measurement.
+                const glyph = (await measureText(surfacePage, surface)).find(part => part.text === '!');
+                expect(glyph).toBeDefined();
+                expect.soft(glyph!.ratio).toBeGreaterThanOrEqual(FIGURES.glyphRatio);
+                expect.soft(faults.filter(fault => !fault.endsWith(saidOf(glyph!))), selector).toEqual([]);
+              } else {
+                expect.soft(faults, selector).toEqual([]);
+              }
+            }
+            expect.soft(await overflowOf(surface), selector).toBeLessThanOrEqual(1);
+            expect.soft(await rowsOnOneRow(surfacePage), selector).toEqual([]);
+          }
+          const forget = keys(settings).getByRole('button', { name: 'Forget my keys', exact: true });
+          const checkKey = recovery(page).getByRole('link');
+          const dismiss = recovery(page).getByRole('button');
+          await expectOneRow(forget, back(settings).locator('..'));
+          await expectOneRow(checkKey, dismiss);
+          for (const control of [field(settings), back(settings), forget, checkKey, dismiss]) {
+            expect.soft(await control.evaluate(el => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+          }
+        });
+      }
+      await expect(field(settings)).toBeFocused();
+      await expect(field(settings)).toHaveCSS('outline-style', 'solid');
+      await recovery(page).getByRole('link').focus();
+      await expect(recovery(page).getByRole('link')).toBeFocused();
+      for (const [word, ratio] of [[saved(settings), 1.4], [back(settings), 1.4],
+        [keys(settings).getByTestId('visitor-key-notes').locator('p').first(), 1.55],
+        [recovery(page).getByText(REFUSED, { exact: true }), 1.55]] as const) {
+        expect.soft(await word.evaluate(el => {
+          const css = getComputedStyle(el);
+          return parseFloat(css.lineHeight) / parseFloat(css.fontSize);
+        })).toBeCloseTo(ratio, 2);
+      }
+
+      for (const [surfacePage, selector] of [[settings, KEY_GROUP], [page, REFUSAL]] as const) {
+        await surfacePage.setViewportSize({ width: 320, height: 844 });
+        const surface = surfacePage.locator(selector);
+        const spacing = await surfacePage.addStyleTag({ content: `
+          ${selector}, ${selector} * { letter-spacing: .12em !important; word-spacing: .16em !important; line-height: 1.5 !important; }
+          ${selector} p { margin-bottom: 2em !important; }
+        ` });
+        expect.soft((await spacingFaults(surface)).cut, `text spacing on ${selector}`).toEqual([]);
+        expect.soft(await overflowOf(surface)).toBeLessThanOrEqual(1);
+        await spacing.evaluate(el => el.remove());
+        await scaleText(surfacePage, 2);
+        expect.soft((await spacingFaults(surface)).cut, `200 percent text on ${selector}`).toEqual([]);
+        expect.soft(await ownOverflowOf(surface), `200 percent text on ${selector}`).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await settings.close();
+    }
+  });
+}
+
+async function expectOneRow(a: Locator, b: Locator) {
+  const [left, right] = await Promise.all([a.boundingBox(), b.boundingBox()]);
+  expect(left).not.toBeNull();
+  expect(right).not.toBeNull();
+  expect.soft(Math.max(left!.y, right!.y)).toBeLessThan(Math.min(left!.y + left!.height, right!.y + right!.height));
+}
+
+/** How far the surface, or the page around it, scrolls sideways, in px. */
+function overflowOf(surface: Locator): Promise<number> {
+  return surface.evaluate(el => Math.max(
+    el.scrollWidth - el.clientWidth,
+    document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  ));
+}
+
+/** How far the surface scrolls sideways or stands past the window's right edge, in px. */
+function ownOverflowOf(surface: Locator): Promise<number> {
+  return surface.evaluate(el => Math.max(
+    el.scrollWidth - el.clientWidth,
+    el.getBoundingClientRect().right - document.documentElement.clientWidth,
+  ));
 }

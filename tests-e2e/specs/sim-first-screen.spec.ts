@@ -5761,3 +5761,95 @@ screenTest('pictures: hosted run and scenario details', async ({ page }) => {
     }
   }
 });
+
+/*
+ * The release checks of the hosted Run screen: the notice, the catalog rows
+ * and the How it works card at nine widths in both looks, under reduced
+ * motion, with the words measured at the six sweep widths; text spacing and
+ * 200 per cent text on the card; the served privacy paragraph; and the
+ * committed pictures of the pull request at twice their CSS width.
+ */
+screenTest('changed text meets the size and contrast floors', async ({ page }) => {
+  test.setTimeout(360_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const widths = [320, 360, 390, 430, 480, 600, 768, 1100, 1440];
+  for (const look of LOOKS) {
+    const root = await openReadyAt(page, '/sim', sizeAt(320), look);
+    await expect(startParts(root).notice.getByTestId('notice-pays')).toHaveText(hostRunNotice());
+    await expect(otherParts(root).row(LUNAR).getByTestId('row-figures')).toHaveText('6 turns · 3 departments');
+    for (const width of widths) {
+      await test.step(`Run and How it works at ${width} in ${look}`, async () => {
+        await page.setViewportSize(sizeAt(width));
+        if (SWEEP_WIDTHS.some(measured => measured === width)) {
+          expect.soft(await measureReadability(page), 'Run words, glyphs and edges').toEqual([]);
+        }
+        expect.soft(await rowsOnOneRow(page)).toEqual([]);
+        await expectSoftNoSideways(page, root, `on Run at ${width} in ${look}`);
+        const notice = startParts(root).notice.getByTestId('notice-pays');
+        expect.soft(await lineHeightRatio(notice)).toBeCloseTo(1.55, 2);
+
+        await pressInPage(howKey(page));
+        const card = await expectHowCard(page, MARS_LINES);
+        if (SWEEP_WIDTHS.some(measured => measured === width)) {
+          expect.soft(await measureReadability(page, '[data-testid="how-it-works-card"]'), 'How it works words, glyphs and edges').toEqual([]);
+        }
+        expect.soft(await card.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+        const close = card.getByTestId('how-it-works-close');
+        expect.soft((await box(close)).height).toBeGreaterThanOrEqual(44);
+        expect.soft(await card.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        await page.keyboard.press('Escape');
+        await expect(howCard(page)).toHaveCount(0);
+        await expect(howKey(page)).toBeFocused();
+      });
+    }
+  }
+
+  const root = await openReadyAt(page, '/sim', sizeAt(320), 'dark');
+  await pressInPage(howKey(page));
+  const card = await expectHowCard(page, MARS_LINES);
+  const selector = `${FIRST_SCREEN}, [data-testid="how-it-works-card"]`;
+  const spacing = await page.addStyleTag({ content: `
+    :is(${selector}), :is(${selector}) * { line-height: 1.5 !important; letter-spacing: .12em !important; word-spacing: .16em !important; }
+    :is(${selector}) p { margin-bottom: 2em !important; }
+  ` });
+  expect.soft((await spacingFaults(card)).cut, 'How it works with text spacing').toEqual([]);
+  await spacing.evaluate(el => el.remove());
+  await doubleText(page);
+  expect.soft((await spacingFaults(card)).cut, 'How it works at 200 percent text').toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(howCard(page)).toHaveCount(0);
+  await expectSoftNoSideways(page, root, 'Run at 200 percent text');
+});
+
+async function lineHeightRatio(word: Locator): Promise<number> {
+  return word.evaluate(el => {
+    const css = getComputedStyle(el);
+    return parseFloat(css.lineHeight) / parseFloat(css.fontSize);
+  });
+}
+
+screenTest('served privacy explains tab keys and the server idle time', async ({ page }) => {
+  const response = await page.request.get('/admin-config');
+  expect(response.ok()).toBe(true);
+  const { visitorKeyIdleMinutes: minutes } = await response.json();
+  expect(minutes).toBeGreaterThan(0);
+  await page.goto('/#privacy');
+  const paragraphs = page.locator('#privacy p').filter({ hasText: 'If you add API keys' });
+  await expect(paragraphs).toHaveCount(1);
+  await expect(paragraphs).toHaveText(`If you add API keys, we use them for the runs and chats you start. This tab keeps them until it closes or you select Forget my keys. Our server holds them in memory while in use and for up to ${minutes} minutes afterward, then drops them. Each key is sent only to the provider it belongs to.`);
+});
+
+test('committed hosted Run and Settings pictures have their device width', () => {
+  const views = ['run-size', 'run-notice', 'catalog-free', 'catalog-keyed', 'how-it-works', 'settings-keys', 'watch-refusal'];
+  for (const view of views) {
+    for (const width of [390, 1440]) {
+      for (const look of LOOKS) {
+        const file = `${view}-${width}-${look}.png`;
+        const png = readFileSync(new URL(`../../docs/design/sim-first-screen/server-answers/${file}`, import.meta.url));
+        expect(png.subarray(0, 8).toString('hex'), file).toBe('89504e470d0a1a0a');
+        expect(png.toString('ascii', 12, 16), file).toBe('IHDR');
+        expect(png.readUInt32BE(16), file).toBe(width * 2);
+      }
+    }
+  }
+});
