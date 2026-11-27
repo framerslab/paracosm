@@ -186,8 +186,18 @@ test('the scenarios section lists exactly the scenario files in scenarios/, and 
 
 test("the landing page's structured data parses and every FAQ entry has an answer", () => {
   const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map(
-    (match) => JSON.parse(match[1]) as { '@type'?: string; mainEntity?: Array<{ name?: string; acceptedAnswer?: { text?: string } }> },
+    (match) => JSON.parse(match[1]) as {
+      '@type'?: string;
+      description?: string;
+      mainEntity?: Array<{ name?: string; acceptedAnswer?: { text?: string } }>;
+    },
   );
+  const software = blocks.find((block) => block['@type'] === 'SoftwareApplication');
+  assert.equal(
+    software?.description,
+    'Agent swarm simulation for structured world modeling with LLMs. Run one scenario as timelines from the same start and compare outcomes after changing one thing, such as who leads or an event at a past turn. An LLM event director writes each timeline’s unscripted crises from what happens in it.',
+  );
+
   const faq = blocks.find((block) => block['@type'] === 'FAQPage');
 
   assert.ok(faq?.mainEntity && faq.mainEntity.length > 0, 'expected a FAQPage block with questions');
