@@ -350,7 +350,7 @@ test('feature 13: the foot ends every tab', async ({ page, context }) => {
         await openTab(page, tab);
         await expect(foot).toHaveCount(1);
         await expect(page.getByRole('main').getByRole('contentinfo')).toHaveCount(0);
-        await expect(foot).toContainText("Under 18? You need a parent's or guardian's permission to use this. Not for children under 13.");
+        await expect(foot).not.toContainText('Under 18?');
         await expect(foot).toContainText('Paracosm · Apache-2.0 · Frame.dev');
         const before = (await foot.boundingBox())!.y;
         await foot.scrollIntoViewIfNeeded();

@@ -15,6 +15,7 @@ import { QuickstartProgress, type Stage, type ActorProgress } from './Quickstart
 import { QuickstartResults } from './QuickstartResults';
 import type { ActorConfig, ScenarioPackage } from '../../../../engine/types.js';
 import type { RunArtifact } from '../../../../engine/schema/index.js';
+import { normalizeCredential } from '../../../../engine/provider/credentials.js';
 import type { LeaderPreset } from '../../../../engine/presets/index.js';
 import type { SimEvent } from '../../hooks/useSSE';
 import { useScenarioContext } from '../../App';
@@ -101,11 +102,11 @@ type Phase =
   | { kind: 'progress'; stage: Stage; scenario?: ScenarioPackage; actors?: ActorConfig[] }
   | { kind: 'results'; scenario: ScenarioPackage; actors: ActorConfig[]; artifacts: RunArtifact[] };
 
-function handOffLaunch(redirect: string, runKey: unknown): void {
+function handOffLaunch(redirect: string, runKey: unknown, body: Record<string, unknown>): void {
   // The receiving page uses the pending flag for the launch spinner and
   // the run key to show that run's verdict and notices when it finishes.
   try { window.localStorage.setItem('paracosm:launchPending', '1'); } catch { /* private mode */ }
-  markRunLaunchHandoff(runKey);
+  markRunLaunchHandoff(runKey, Boolean(normalizeCredential(body.apiKey) || normalizeCredential(body.anthropicKey)));
   window.location.href = resolveSetupRedirectHref(window.location.href, redirect);
 }
 
@@ -265,17 +266,18 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
       }
       opts?.onStage?.('starting');
       try {
+        const setupBody = opts?.body ? { ...opts.body, actors } : {
+          ...settingsSpread,
+          actors,
+          turns: scenario.setup.defaultTurns,
+          seed: scenario.setup.defaultSeed ?? 42,
+          captureSnapshots: true,
+          quickstart: { scenarioId: scenario.id },
+        };
         const setupRes = await fetch('/setup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
-            ...settingsSpread,
-            actors,
-            turns: scenario.setup.defaultTurns,
-            seed: scenario.setup.defaultSeed ?? 42,
-            captureSnapshots: true,
-            quickstart: { scenarioId: scenario.id },
-          }),
+          body: JSON.stringify(setupBody),
         });
         if (!setupRes.ok) {
           const body = await setupRes.json().catch(() => ({} as { error?: string }));
@@ -295,7 +297,7 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
         const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
         if (setupData.redirect) {
           opts?.onAccepted?.();
-          handOffLaunch(setupData.redirect, setupData.runKey);
+          handOffLaunch(setupData.redirect, setupData.runKey, setupBody);
           return;
         }
         // An answer that opens no run is a run that did not start.
@@ -361,17 +363,18 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
         writeActiveRunActors(window.localStorage, actors, scenario.id);
       }
       opts?.onStage?.('starting');
+      const setupBody = opts?.body ? { ...opts.body, actors } : {
+        ...settingsSpread,
+        actors,
+        turns: scenario.setup.defaultTurns,
+        seed: scenario.setup.defaultSeed ?? 42,
+        captureSnapshots: true,
+        quickstart: { scenarioId: scenario.id },
+      };
       const setupRes = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(opts?.body ? { ...opts.body, actors } : {
-          ...settingsSpread,
-          actors,
-          turns: scenario.setup.defaultTurns,
-          seed: scenario.setup.defaultSeed ?? 42,
-          captureSnapshots: true,
-          quickstart: { scenarioId: scenario.id },
-        }),
+        body: JSON.stringify(setupBody),
       });
       if (!setupRes.ok) {
         const body = await setupRes.json().catch(() => ({} as { error?: string }));
@@ -385,7 +388,7 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
       const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
       if (setupData.redirect) {
         opts?.onAccepted?.();
-        handOffLaunch(setupData.redirect, setupData.runKey);
+        handOffLaunch(setupData.redirect, setupData.runKey, setupBody);
         return;
       }
       restoreActors();
@@ -483,17 +486,18 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
       if (typeof window !== 'undefined') {
         writeActiveRunActors(window.localStorage, actors, scenarioId);
       }
+      const setupBody = {
+        ...providerKeys,
+        actors,
+        turns: scenario.setup.defaultTurns,
+        seed: scenario.setup.defaultSeed ?? 42,
+        captureSnapshots: true,
+        quickstart: { scenarioId },
+      };
       const setupRes = await fetch('/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...providerKeys,
-          actors,
-          turns: scenario.setup.defaultTurns,
-          seed: scenario.setup.defaultSeed ?? 42,
-          captureSnapshots: true,
-          quickstart: { scenarioId },
-        }),
+        body: JSON.stringify(setupBody),
       });
       if (!setupRes.ok) {
         const body = await setupRes.json().catch(() => ({} as { error?: string }));
@@ -507,7 +511,7 @@ export function QuickstartView({ entry, sse, sessionId, onRunStarted, showsDigit
       // entry points must behave the same way.
       const setupData = (await setupRes.json().catch(() => ({}))) as { redirect?: string; runKey?: string };
       if (setupData.redirect) {
-        handOffLaunch(setupData.redirect, setupData.runKey);
+        handOffLaunch(setupData.redirect, setupData.runKey, setupBody);
         return;
       }
     } catch (err) {

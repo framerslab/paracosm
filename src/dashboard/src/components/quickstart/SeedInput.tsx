@@ -14,7 +14,7 @@ import { ScenarioCatalogGrid } from './ScenarioCatalogGrid';
 import { QUICKSTART_TEMPLATES } from './quickstart-templates';
 import { estimateQuickstartCostUSD } from './SeedInput.helpers';
 import type { Payer } from './first-screen/effectiveLaunch';
-import { createDashboardTabHref } from '../../tab-routing';
+import { createSettingsKeyHref } from '../../tab-routing';
 import { ADD_KEY_IN_SETTINGS, GENERATE_AND_RUN, atLimitAfter, atLimitReset } from './first-screen/words';
 import styles from './SeedInput.module.scss';
 
@@ -481,8 +481,8 @@ export function SeedInput({
 
 /** Settings' API key field, where a visitor adds the key that runs past the day's free runs. */
 function settingsHref(): string {
-  if (typeof window === 'undefined') return '?tab=settings#key-openai';
-  return `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
+  if (typeof window === 'undefined') return '?tab=settings&focus=api-key';
+  return createSettingsKeyHref(window.location.href);
 }
 
 /** Rough wall-time estimate for the cost-preview tile. The batch

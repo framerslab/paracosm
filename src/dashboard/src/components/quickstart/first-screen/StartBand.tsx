@@ -42,12 +42,13 @@ import { sizeBucket } from '../../../../../analytics/first-screen-events.js';
 import { sendEvent } from '../../../analytics/send';
 import { VISITOR_KEY_TRANSPORT_REFUSAL } from '../../../../../engine/provider/credentials.js';
 import { useScenarioContext, useScenarioLoad, useScenarioReady } from '../../../App';
-import { createDashboardTabHref } from '../../../tab-routing';
+import { createSettingsKeyHref } from '../../../tab-routing';
 import { buildReplayHref } from '../../layout/LoadMenu.helpers';
 import { estimateQuickstartCostUSD } from '../SeedInput.helpers';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import {
   effectiveLaunch,
+  effectiveTurns,
   keyProviderName,
   minutesForTurns,
   modelNames,
@@ -99,6 +100,7 @@ import {
   atLimitReset,
   estimateLine,
   heldDraft,
+  hostRunPolicy,
   noticeAfter,
   noticeCount,
   noticeOwnKey,
@@ -323,9 +325,12 @@ function StartNotice({ who, launch, facts, keyProvider }: {
   if (who === 'host') {
     const { rateLimit, sessions } = facts;
     const answer = rateLimit.status === 'ready' ? rateLimit.answer : undefined;
+    const policy = answer?.provider && answer.models && answer.turns
+      ? hostRunPolicy(providerName(answer.provider), modelNames(answer.models), launch.turns)
+      : undefined;
     return (
       <div className={styles.notice} data-testid="start-notice">
-        {paragraph('notice-pays', NOTICE_FREE)}
+        {paragraph('notice-pays', policy ? `${NOTICE_FREE} ${policy}` : NOTICE_FREE)}
         {answer && paragraph(
           'notice-count',
           noticeCount({ remaining: answer.remaining, limit: answer.limit, resetTime: formatResetTime(answer.resetAt) || undefined }),
@@ -531,6 +536,7 @@ export function StartBand({ entry, size, onStart, onBusy, draft = null }: StartB
     try {
       // From here until the run opens or fails, the screen holds as it is: the body posted is this scenario at this size.
       onBusy?.(true);
+      let body = launch.body;
       if (who === 'host') {
         // The count may have been spent since the page read it: read it again, and post nothing when none is left.
         setStage('checking');
@@ -542,6 +548,10 @@ export function StartBand({ entry, size, onStart, onBusy, draft = null }: StartB
           onBusy?.(false);
           return;
         }
+        if (fresh.status === 'ready') {
+          const turns = effectiveTurns({ ...facts, rateLimit: { ...rateLimit, ...fresh } }, scenario, settings, who);
+          body = { ...body, turns };
+        }
       }
       if (writtenLeaders(scenario).length < size) {
         setWriting(size);
@@ -550,7 +560,7 @@ export function StartBand({ entry, size, onStart, onBusy, draft = null }: StartB
         setStage('starting');
       }
       await onStart(size, {
-        body: launch.body,
+        body,
         onStage: (next, count) => {
           if (next === 'writing') setWriting(count ?? size);
           setStage(next);
@@ -597,7 +607,7 @@ export function StartBand({ entry, size, onStart, onBusy, draft = null }: StartB
       setTrying(true);
       void sessions.refresh().finally(() => setTrying(false));
     };
-    const settingsHref = `${createDashboardTabHref(window.location.href, 'settings')}#key-openai`;
+    const settingsHref = createSettingsKeyHref(window.location.href);
     return (
       <div className={styles.band} data-testid="start-band" data-state={state} data-layout={layout}>
         <div className={styles.limit} data-testid="at-limit">

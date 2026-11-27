@@ -39,7 +39,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { judgePair, type VerdictCallOptions } from '../../src/cli/pair-runner.js';
+import { judgePair, runPairSimulations, type VerdictCallOptions } from '../../src/cli/pair-runner.js';
 import { SimulationKernel } from '../../src/engine/core/kernel.js';
 import { marsScenario } from '../../src/engine/scenarios/index.js';
 import { createMarsServer } from '../../src/server/server-app.js';
@@ -100,6 +100,17 @@ const { id: legacySessionId } = await sessionStore.saveSession(
   { owner: 'legacy-notice-fixture' },
 );
 
+const { id: refusedReplayId } = await sessionStore.saveSession([
+  frame('active_scenario', { id: marsScenario.id, name: marsScenario.labels.name }),
+  sim('Commander Aria Chen', 'provider_error', {
+    kind: 'auth',
+    provider: 'openai',
+    message: 'The API key was refused.',
+    actionUrl: 'https://platform.openai.com/api-keys',
+  }),
+  frame('complete', { aborted: true }),
+].map((sse, index) => ({ ts: recordedAt + index, sse })), undefined, { owner: 'key-refusal-replay-fixture' });
+
 const rosters: RosterRecord[] = [];
 const rosterServer = createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/roster') {
@@ -113,6 +124,11 @@ const rosterServer = createServer((req, res) => {
       id: legacySessionId,
       file: { schemaVersion: 3, events: framesToSimEvents(legacyTurns), results: legacyResults, verdict: legacyVerdict },
     }));
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/key-refusal-replay') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ id: refusedReplayId }));
     return;
   }
   res.writeHead(404);
@@ -156,7 +172,11 @@ const server = createMarsServer({
   },
   runHistoryStore: createNoopRunHistoryStore(),
   getDigitalTwinWorld: async () => null,
-  runPairSimulations: async (config, broadcast, signal, scenario) => {
+  runPairSimulations: async (config, broadcast, signal, scenario, onArtifact, options) => {
+    if (scenario?.id === 'key-refusal-fixture') {
+      // Use the written pair with the real runtime hooks for the provider failure.
+      return runPairSimulations(config, broadcast, signal, { ...marsScenario, id: scenario.id }, onArtifact, options);
+    }
     const { actors, turns, startTime, customEvents } = config;
     broadcast('status', { phase: 'starting', maxTurns: turns, customEvents });
     broadcast('status', {
@@ -245,4 +265,23 @@ const server = createMarsServer({
 await withProviderWire(async () => {
   server.listen(PORT);
   await once(server, 'close');
-}, () => 'The engineering team kept the power on.');
+}, call => {
+  if (call.key?.startsWith('fixture-openai-auth:')) {
+    return Response.json({
+      error: { message: 'OpenAI: Incorrect API key provided.', type: 'invalid_request_error', code: 'invalid_api_key' },
+    }, { status: 401 });
+  }
+  if (call.key?.startsWith('fixture-openai-quota:')) {
+    return Response.json({
+      error: { message: 'OpenAI billing limit reached.', type: 'insufficient_quota', code: 'insufficient_quota' },
+    }, { status: 403 });
+  }
+  return 'The engineering team kept the power on.';
+}, call => {
+  if (call.key?.startsWith('fixture-anthropic-auth:')) {
+    return Response.json({
+      type: 'error', error: { type: 'authentication_error', message: 'Anthropic: invalid x-api-key' },
+    }, { status: 401 });
+  }
+  return undefined;
+});

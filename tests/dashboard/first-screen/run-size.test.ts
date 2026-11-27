@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
   FREE_SIZE,
   RUN_SIZE_BOUNDS,
+  resolveRunSizes,
   clampSize,
   searchWithSize,
   sizeFromSearch,
@@ -98,4 +99,18 @@ test('sizeMode: a pair on the host\'s keys, a control on the visitor\'s key or a
   assert.equal(sizeMode({ payer: 'server', adminConfig: 'error', rateLimit: 'ready' }), 'pair');
   assert.equal(sizeMode({ payer: 'server', adminConfig: 'ready', rateLimit: 'loading' }), 'waiting');
   assert.equal(sizeMode({ payer: 'server', adminConfig: 'ready', rateLimit: 'unlimited' }), 'control');
+});
+
+test('late hosted bounds recheck the address with the current minimum', () => {
+  const pending = resolveRunSizes({ status: 'loading' });
+  assert.equal(sizeFromSearch('?size=121', pending.bounds, pending.bounds.min), 121);
+  const hosted = resolveRunSizes({
+    status: 'ready', hostedDemo: true, demoCaps: { maxActors: 3 },
+    run: { minActors: 2, maxActors: 120 },
+  });
+  assert.equal(hosted.free, 3);
+  assert.deepEqual(hosted.bounds, { min: 2, max: 120 });
+  assert.equal(sizeFromSearch('?size=121', hosted.bounds, hosted.bounds.min), 2);
+  assert.equal(sizeFromSearch(searchWithSize('', 120), hosted.bounds, hosted.bounds.min), 120);
+  assert.equal(searchWithSize('?size=8', 3, 3), '');
 });

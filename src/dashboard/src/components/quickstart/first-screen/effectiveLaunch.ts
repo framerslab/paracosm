@@ -19,7 +19,7 @@ import {
   type KeyOverrides,
 } from '../../../hooks/useLastLaunchConfig.js';
 import { hasSessionProviderKey, sessionProviderKeys, type SavedProviderKeys } from '../../settings/sessionProviderKeys.js';
-import type { ServerFacts } from './useServerFacts.js';
+import { isPositiveCount as isCount, type ServerFacts } from './useServerFacts.js';
 import { NBSP, countOf, minutesFigure } from './words.js';
 
 /** Who pays for the run: the host's keys, the visitor's own key, or the server it runs on. */
@@ -40,9 +40,6 @@ const MAX_TURNS = 100;
 const DEFAULT_EVENTS = 2;
 /** The most events a turn ever holds (the director's own limit). */
 const MAX_EVENTS = 3;
-
-/** A whole number above 0. */
-const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0;
 
 /** The browser's storage, or null where reading it throws (a private window that blocks it). */
 export function safeLocalStorage(): Storage | null {
@@ -72,6 +69,12 @@ export function payer(facts: ServerFacts, overrides: SavedProviderKeys): Payer {
   return 'server';
 }
 
+/** The smallest reported turn limit for a hosted run on the host's keys. */
+export function hostTurnCap(facts: ServerFacts): number | undefined {
+  const caps = [facts.adminConfig.demoCaps?.maxTurns, facts.rateLimit.answer?.turns].filter(isCount);
+  return caps.length ? Math.min(...caps) : undefined;
+}
+
 /**
  * The run's turns. On the host's keys, the smaller of the scenario's turns
  * and the host's cap. Otherwise the turns of the visitor's last launch on
@@ -81,15 +84,45 @@ export function payer(facts: ServerFacts, overrides: SavedProviderKeys): Payer {
 export function effectiveTurns(facts: ServerFacts, scenario: LaunchScenario, settings: LaunchSettings, who: Payer): number {
   const own = scenario.setup.defaultTurns;
   if (who === 'host') {
-    const cap = facts.adminConfig.demoCaps?.maxTurns;
+    const cap = hostTurnCap(facts);
     return isCount(cap) ? Math.min(own, cap) : own;
   }
+  return turnsOffTheHostsKeys(facts, scenario.id, own, settings);
+}
+
+/**
+ * A run's turns off the host's keys: the visitor's last launch on this
+ * scenario when it holds a whole number up to the server's bound, else the
+ * scenario's own, cut to that bound.
+ */
+function turnsOffTheHostsKeys(facts: ServerFacts, scenarioId: string, own: number, settings: LaunchSettings): number {
+  const maxTurns = facts.adminConfig.run?.maxTurns ?? MAX_TURNS;
   const last = settings.lastLaunch;
-  if (last && isLastLaunchFor(last, scenario.id)) {
+  if (last && isLastLaunchFor(last, scenarioId)) {
     const turns = last.turns;
-    if (isCount(turns) && turns <= MAX_TURNS) return turns;
+    if (isCount(turns) && turns <= maxTurns) return turns;
   }
-  return own;
+  return Math.min(own, maxTurns);
+}
+
+/**
+ * The turns a row of Other scenarios says: the turns Start posts once that
+ * scenario is loaded, by the rules of effectiveTurns, so a saved launch of
+ * 12 turns is not listed as the scenario's own 6. Undefined for a row with
+ * no turns, and on the host's keys while the host's cap is not known.
+ */
+export function catalogTurns(
+  facts: ServerFacts,
+  row: { id: string; turns?: unknown },
+  settings: LaunchSettings,
+  who: Payer,
+): number | undefined {
+  if (!isCount(row.turns)) return undefined;
+  if (who === 'host') {
+    const cap = hostTurnCap(facts);
+    return cap === undefined ? undefined : Math.min(row.turns, cap);
+  }
+  return turnsOffTheHostsKeys(facts, row.id, row.turns, settings);
 }
 
 /** The people a scenario that names none starts with (normalizeSimulationConfig in src/cli/sim-config.ts). */
@@ -198,7 +231,7 @@ export interface EffectiveLaunch {
   provider?: string;
   /** The models the visitor last launched with, by the role each plays. */
   models?: Record<string, string>;
-  /** How many leaders run at a time, where the visitor's last launch set it. */
+  /** How many leaders run at a time, when the applicable setting is known. */
   batch?: number;
   /** What POST /setup is sent. */
   body: SetupBody;
@@ -231,6 +264,27 @@ function namedModels(models: unknown): Record<string, string> | undefined {
   return Object.keys(named).length > 0 ? named : undefined;
 }
 
+/** The saved batch size in the request shape used by the runner. */
+function launchEconomics(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const { batch, batchConcurrency, ...rest } = value;
+  const resolved = isRecord(batch) ? batch.maxConcurrency : undefined;
+  const concurrency = isCount(batchConcurrency) ? batchConcurrency : resolved;
+  return isCount(concurrency) ? { ...rest, batchConcurrency: concurrency } : rest;
+}
+
+function batchForEconomics(facts: ServerFacts, economics: Record<string, unknown> | undefined): number | undefined {
+  const explicit = economics?.batchConcurrency;
+  if (isCount(explicit)) return explicit;
+  if ((economics?.profileId ?? 'balanced') === 'balanced') return facts.adminConfig.batch?.maxConcurrency;
+  return undefined;
+}
+
+/** The batch shown in How it works, using the same settings Start posts. */
+export function effectiveBatch(facts: ServerFacts, settings: LaunchSettings): number | undefined {
+  return batchForEconomics(facts, launchEconomics(settings.lastLaunch?.economics));
+}
+
 /**
  * The run Start launches, worked out once. Its body is what the launch has
  * always posted, with the run's own turns: the visitor's provider keys and
@@ -256,10 +310,10 @@ export function effectiveLaunch(
   if (overrides.cohere) body.cohereKey = overrides.cohere;
   const lastProvider: unknown = last?.provider;
   const lastModels: unknown = last?.models;
-  const lastEconomics: unknown = last?.economics;
+  const economics = launchEconomics(last?.economics);
   if (lastProvider) body.provider = lastProvider;
   if (isRecord(lastModels)) body.models = lastModels;
-  if (isRecord(lastEconomics)) body.economics = lastEconomics;
+  if (economics) body.economics = economics;
   const written = writtenLeaders(scenario);
   if (written.length >= size) {
     body.actors = presetLeadersForLaunch(scenario, size);
@@ -280,8 +334,7 @@ export function effectiveLaunch(
   const shaped = who !== 'host' && (keyed === undefined || named?.trim().toLowerCase() === keyed);
   const provider = shaped ? named : undefined;
   const models = shaped ? namedModels(lastModels) : undefined;
-  const lastBatch: unknown = isRecord(lastEconomics) ? lastEconomics.batch : undefined;
-  const batchSet: unknown = isRecord(lastBatch) ? lastBatch.maxConcurrency : undefined;
+  const batch = batchForEconomics(facts, economics);
 
   return {
     payer: who,
@@ -292,7 +345,7 @@ export function effectiveLaunch(
     events: eventsPerTurn(scenario),
     ...(provider ? { provider } : {}),
     ...(models ? { models } : {}),
-    ...(isCount(batchSet) ? { batch: batchSet } : {}),
+    ...(batch === undefined ? {} : { batch }),
     body,
   };
 }

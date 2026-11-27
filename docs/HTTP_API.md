@@ -56,6 +56,10 @@ A local server and `platform_api` mode answer every caller that reaches the rout
 | GET    | `/api/v1/demo/status` | Public-demo capability flags (always reachable) |
 | POST   | `/scenario/store` | Store a scenario in this visitor's memory; with `saveToDisk`, write it to the scenarios folder and the shared catalog instead (admin credential) |
 | POST   | `/compile` | Compile a scenario JSON into the shared catalog under an id that names nothing yet |
+| GET    | `/rate-limit` | The day's run allowance for the caller, and on the hosted demo the turns, provider and models of a run on the host's keys |
+| GET    | `/admin-config` | What the dashboard may show: server mode, run caps and bounds, batch concurrency, key presence, the key idle time |
+| GET    | `/scenarios` | The scenarios this visitor can run, with their figures, leaders and labels |
+| POST   | `/forget-keys` | Drop the run and chat agents that hold this visitor's keys |
 | POST   | `/api/event` | Hosted demo only: one page view from the consent bar, or one named dashboard event, forwarded as the public page it names to the site's Plausible count |
 
 ---
@@ -433,6 +437,107 @@ The rest of the path, any query string and any fragment stay on the server, and 
 - `429 too_many_events`: the address (an IPv6 address by its /64) has sent 120 page views and named events together in its current minute, or 32 forwards are open at once across all visitors; nothing is forwarded, and `Retry-After` is 60 seconds
 - `502`: the instance did not take it (refused, unreachable or slower than 5 seconds)
 
+## `GET /rate-limit`
+
+The Run tab reads this for the notice beside Start. It reports the day's run allowance for the caller's internet address: `allowed`, `remaining`, `limit` and `resetAt` (Unix time in milliseconds), with `resetAtISO` for the same instant. On the hosted demo it also names what a run on the host's keys uses: `turns`, the most turns such a run takes, `provider`, and `models`. The address below is a documentation address and the reset time is an example.
+
+```json
+{
+  "ip": "192.0.2.1",
+  "allowed": true,
+  "remaining": 1,
+  "limit": 1,
+  "resetAt": 1795478400000,
+  "resetAtISO": "2026-11-24T00:00:00.000Z",
+  "turns": 6,
+  "provider": "openai",
+  "models": {
+    "commander": "gpt-5.4-mini",
+    "departments": "gpt-5.4-mini",
+    "judge": "gpt-5.4-mini",
+    "director": "gpt-5.4-nano",
+    "agentReactions": "gpt-5.4-nano"
+  }
+}
+```
+
+`models` gives the model each simulation role runs on: `commander`, `departments`, `judge`, `director` and `agentReactions`. Several roles can share a model. The notice beside Start names the provider and each model once. A run on the visitor's own provider key runs on that key's provider and does not use the allowance.
+
+A local or platform server with a limiter answers with the allowance alone.
+
+```json
+{
+  "ip": "192.0.2.1",
+  "allowed": false,
+  "remaining": 0,
+  "limit": 1,
+  "resetAt": 1795478400000,
+  "resetAtISO": "2026-11-24T00:00:00.000Z"
+}
+```
+
+A server with no limiter, in any mode, answers with exactly these two fields.
+
+```json
+{ "unlimited": true, "ip": "192.0.2.1" }
+```
+
+## `GET /admin-config`
+
+Reports what the dashboard may show: whether the server takes admin writes (`adminWrite`), its mode (`hostedDemo`, `serverMode`), `visitorKeyIdleMinutes`, the caps on a run the host pays for (`demoCaps`), which keys the server holds (`keys`, booleans only, never a key), and `memoryScenarios`, the ids of the scenarios this visitor stored in memory. On the hosted demo it also gives `run` and `batch`. A hosted answer:
+
+```json
+{
+  "adminWrite": false,
+  "hostedDemo": true,
+  "serverMode": "hosted_demo",
+  "visitorKeyIdleMinutes": 30,
+  "demoCaps": { "maxTurns": 6, "maxPopulation": 30, "maxActiveDepartments": 3, "maxActors": 2 },
+  "run": { "minActors": 2, "maxActors": 300, "maxTurns": 100 },
+  "batch": { "maxConcurrency": 8 },
+  "memoryScenarios": [],
+  "keys": { "openai": true, "anthropic": false, "serper": false, "firecrawl": false, "tavily": false, "cohere": false }
+}
+```
+
+- `demoCaps` holds a run on the host's keys to its turns, population, active departments and, on the hosted demo, two leaders (`maxActors`).
+- `run` gives the bounds of a run's leader count and turns. The size control on Run offers 2 to 300 leaders on the visitor's own key.
+- `batch.maxConcurrency` is how many leaders of a run of more than two the server runs at once by default. On the hosted demo `PARACOSM_BATCH_CONCURRENCY` (a whole number above 0) sets it for the site, for runs on the default economics profile. Another profile runs at its own concurrency, and `economics.batchConcurrency` on `POST /setup` sets it for one run. How it works names the figure a launch from Run takes.
+- `visitorKeyIdleMinutes` is the server's idle limit for the keys a finished run or a visitor-key chat agent holds. Settings and the privacy paragraph at `/#privacy` print it. **Forget my keys** in Settings clears this tab's keys at once and asks the server to drop them with [`POST /forget-keys`](#post-forget-keys).
+- A local or platform answer leaves out `demoCaps.maxActors`, `run` and `batch`.
+
+The answer carries `Cache-Control: no-store` and `Vary: Cookie`.
+
+## `GET /scenarios`
+
+Lists the scenarios this visitor can run, and `active`, the visitor's pick. A hosted answer, with one row shown:
+
+```json
+{
+  "scenarios": [
+    {
+      "id": "lunar-outpost",
+      "name": "Lunar Outpost",
+      "description": "Built-in scenario",
+      "departments": 5,
+      "source": "builtin",
+      "leaders": ["Commander Sarah Lindgren", "Commander Raj Patel"],
+      "turns": 8,
+      "summary": "A crew at the Moon's south pole. Two commanders decide how hard to push.",
+      "runCount": 0
+    }
+  ],
+  "active": "mars-genesis"
+}
+```
+
+- `departments` and `turns` are the scenario's own department count and default length. A run on the host's keys takes the lesser of each and the host's cap (`demoCaps.maxActiveDepartments`, and `turns` from `GET /rate-limit`). Other scenarios on Run reads this row as 6 turns and 3 departments on a free run, and 8 turns and 5 departments on the visitor's own key.
+- `leaders` names the leaders of the scenario's first preset, in its order. An empty array means the scenario names none, and Paracosm writes the leaders when the run starts.
+- `summary` and `fictionNote` are the scenario's own labels. A row leaves out a label the scenario does not carry, and leaves out `turns` when the scenario names no default length.
+- A local or platform server leaves out `leaders`, `turns`, `summary` and `fictionNote`.
+- A compiled row carries `compiledAt`. On the hosted demo its brief (`seedText`) goes only to the visitor who compiled it. `runCount` counts the scenario's recorded runs where the server keeps run history.
+- The list joins the shared catalog and the runnable scenarios this visitor stored with [`POST /scenario/store`](#post-scenariostore). Another visitor's stored scenarios and pick never appear in it. The answer carries `Cache-Control: no-store` and `Vary: Cookie`.
+
 ## `POST /forget-keys`
 
 Settings uses this endpoint when the visitor selects **Forget my keys**. It needs no request body. The server drops the run held for this visitor's dashboard cookie, stops it if it is running, and closes its pooled chat agents. On a local server, a visitor with no run of their own chats on the shared run they watch: its chat agents are closed and the run stays. A Digital Twin run's engine takes no stop signal, so a twin run in flight runs to its end, as it does after Clear. The response reports `runConfigsDropped` and `chatAgentsDropped`. Saved replays and run history remain available.
@@ -587,6 +692,7 @@ The dashboard at `/sim` also accepts a client-side query-param contract for shar
 | `?load=`   | yes      | URL of a remote `.json` save (http/https only, CORS-readable). A file on another site is fetched only after the visitor answers a question that names that site; Cancel fetches nothing. A file that a redirect serves from another origin than the link's is not loaded. |
 | `?tab=`    | no       | Tab to land on after the load resolves: `sim` (default), `viz`, `reports`, `chat`, `library`, `settings`, `studio`. |
 | `?autoload=` | no     | `1` or `true` skips the F9 preview-confirm modal. For a file on another site, the question naming the site is still asked first. |
+| `?focus=`  | no       | With `tab=settings`, `api-key` puts the keyboard focus in the OpenAI key field once when Settings opens. The older `#key-openai` address does the same. Moving to another tab or sub-tab drops it. |
 | `?replay=` | no       | Session ID from a server-stored run. Switches the SSE source to `/sessions/:id/replay` instead of fetching a remote file. Pairs with `?tab=` the same way. |
 
 A loaded run's provider error banner links only to the provider key and billing pages the server itself sends (`platform.openai.com`, `console.anthropic.com`); any other address in the file is shown as text.

@@ -8,7 +8,7 @@ test.use({ deviceScaleFactor: 2 });
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
   for (const look of ['dark', 'light'] as const) {
-    test(`key fields, age and teacher notices at ${viewport.width} in ${look}`, async ({ page, context }) => {
+    test(`key fields, start notes, foot and teacher notices at ${viewport.width} in ${look}`, async ({ page, context }) => {
       const path = `test-pictures/visitor-keys-and-age/${phase}/${viewport.width}-${look}`;
       await page.setViewportSize(viewport);
       await page.emulateMedia({ colorScheme: look, reducedMotion: 'reduce' });
@@ -31,12 +31,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
 
       await page.setViewportSize(viewport);
       await page.goto(`${SERVER}/sim`);
-      const startAge = page.getByTestId('note-adults');
-      const footerAge = page.getByTestId('foot-adults');
-      await expect(startAge).toBeVisible();
-      await startAge.locator('..').screenshot({ path: `${path}-start-age.png`, animations: 'disabled' });
-      await expect(footerAge).toBeVisible();
-      await footerAge.locator('..').screenshot({ path: `${path}-footer-age.png`, animations: 'disabled' });
+      const startNotes = page.getByTestId('first-screen-notes');
+      const foot = page.getByTestId('page-foot');
+      await expect(startNotes).toBeVisible();
+      await startNotes.screenshot({ path: `${path}-start-notes.png`, animations: 'disabled' });
+      await expect(foot).toBeVisible();
+      await foot.screenshot({ path: `${path}-foot.png`, animations: 'disabled' });
 
       await page.goto(`${SERVER}/#about`);
       const about = page.locator('#about .sec-inner');

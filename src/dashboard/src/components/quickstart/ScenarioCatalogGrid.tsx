@@ -36,6 +36,10 @@ export interface CatalogScenario {
   name: string;
   description?: string;
   departments?: number;
+  turns?: number;
+  leaders?: string[];
+  summary?: string;
+  fictionNote?: string;
   source?: string;
   compiledAt?: string;
   seedText?: string | null;
