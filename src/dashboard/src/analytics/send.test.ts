@@ -115,7 +115,7 @@ test('delivery errors leave the action and the other destinations working', asyn
 
 
 test('full prompt opens reach only the allowed destinations with the fixed side', () => {
-  const name = 'qs_prompt_open' as Parameters<typeof sendEvent>[0];
+  const name = 'qs_prompt_open';
   const choices: Purpose[] = [];
   const page = browser(choices);
   sendEvent(name, { side: 'right' }, page.window);

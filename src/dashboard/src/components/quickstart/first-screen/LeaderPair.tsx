@@ -287,16 +287,20 @@ export function LeaderPair({ size = 2, payer }: LeaderPairProps) {
   const [shown, setShown] = useState(0);
   const [selection, setSelection] = useState<PromptSelection | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
-  const { state } = useLeaderPrompt(selection, payer);
-  const closePrompt = () => setSelection(null);
+  const { state, retry, online } = useLeaderPrompt(selection, payer);
+  const closePrompt = () => {
+    setSelection(null);
+    opener.current = null;
+  };
   const promptKey = (leader: PairLeader) => {
     if (!leader.written) return null;
     const pending = state.status === 'loading' && selection?.place === leader.place;
     return (
       <button type="button" className={styles.promptKey} aria-haspopup="dialog"
         onClick={event => {
-          if (selection) return;
+          if (opener.current) return;
           opener.current = event.currentTarget;
+          sendEvent('qs_prompt_open', { side: leader.place === 1 ? 'left' : 'right' });
           setSelection({ scenarioId: scenario.id, place: leader.place, name: leader.name });
         }}
       >
@@ -370,7 +374,10 @@ export function LeaderPair({ size = 2, payer }: LeaderPairProps) {
           </div>
         </>
       )}
-      {selection && <FullPromptDialog selection={selection} payer={payer} state={state} onClose={closePrompt} />}
+      {selection && (
+        <FullPromptDialog selection={selection} payer={payer} state={state}
+          opener={opener.current} onClose={closePrompt} onRetry={retry} online={online} />
+      )}
     </section>
   );
 }

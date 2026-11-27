@@ -1,7 +1,8 @@
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import type { LeaderPromptAnswer } from '../../../../../api/leader-prompt.js';
 import { useMediaQuery } from '../../viz/grid/useMediaQuery';
 import type { Payer } from './effectiveLaunch';
+import { BrokenLinkMark } from './marks';
 import { scoreFigure, TRAIT_ORDER } from './ScoreRows';
 import type { PromptLoad, PromptSelection } from './useLeaderPrompt';
 import { FULL_PROMPT as words, TRAIT_NAMES } from './words';
@@ -83,31 +84,82 @@ function PromptPart({ part, id, phone, pending, text, notes }: {
 }
 
 /** A modal with the current leader's exact first two inputs and a sample turn. */
-export function FullPromptDialog({ selection, payer, state, onClose }: {
+export function FullPromptDialog({ selection, payer, state, opener, online, onClose, onRetry }: {
   selection: PromptSelection;
   payer: Payer;
   state: PromptLoad;
+  opener: HTMLButtonElement | null;
+  online: boolean;
   onClose: () => void;
+  onRetry: () => void;
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
+  const scroll = useRef<HTMLDivElement>(null);
   const phone = !useMediaQuery('(min-width: 600px)');
   const answer = state.status === 'ready' ? state.answer : null;
   const pending = state.status === 'loading';
+  const failure = state.status === 'loading' ? state.retrying
+    : state.status === 'failed' || state.status === 'offline' || state.status === 'limited' || state.status === 'changed'
+      ? state.status : undefined;
   const [current, setCurrent] = useState<Part['key']>('system');
   const model = payer === 'host' ? answer?.model : null;
 
   useLayoutEffect(() => {
     const node = dialog.current;
     if (!node) return;
+    const locked: Array<{ element: HTMLElement; overflow: string }> = [];
+    for (let element = node.parentElement; element; element = element.parentElement) {
+      const overflowY = getComputedStyle(element).overflowY;
+      if (overflowY !== 'auto' && overflowY !== 'scroll' && element !== document.documentElement) continue;
+      locked.push({ element, overflow: element.style.overflow });
+      element.style.overflow = 'hidden';
+    }
     node.showModal();
     title.current?.focus({ preventScroll: true });
-    return () => node.close();
-  }, []);
+    return () => {
+      node.close();
+      for (const { element, overflow } of locked) element.style.overflow = overflow;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [opener]);
+
+  const wrapFocus = (event: KeyboardEvent<HTMLDialogElement>) => {
+    if (event.key !== 'Tab') return;
+    const stops = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]')]
+      .filter(element => element.getClientRects().length > 0);
+    const first = stops[0];
+    const last = stops.at(-1);
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === title.current)) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  };
+
+  const section = (part: Part) => document.getElementById(`${id}-${part.key}`);
+  const syncCurrent = () => {
+    const viewport = scroll.current;
+    if (!viewport) return;
+    const edge = viewport.getBoundingClientRect().top + parseFloat(getComputedStyle(viewport).scrollPaddingTop) + 1;
+    const visible = [...parts].reverse().find(part => (section(part)?.getBoundingClientRect().top ?? Infinity) <= edge);
+    setCurrent(visible?.key ?? 'system');
+  };
+  const jump = (part: Part) => {
+    const viewport = scroll.current;
+    const destination = section(part);
+    if (!viewport || !destination) return;
+    const inset = parseFloat(getComputedStyle(viewport).scrollPaddingTop);
+    const top = viewport.scrollTop + destination.getBoundingClientRect().top - viewport.getBoundingClientRect().top - inset;
+    viewport.scrollTo({ top, behavior: 'auto' });
+    setCurrent(part.key);
+  };
 
   return (
-    <dialog ref={dialog} className={styles.dialog} aria-labelledby={id + '-title'} onCancel={event => {
+    <dialog ref={dialog} className={styles.dialog} data-clarity-mask="True" aria-labelledby={id + '-title'} onKeyDown={wrapFocus} onCancel={event => {
       event.preventDefault();
       onClose();
     }}>
@@ -116,20 +168,33 @@ export function FullPromptDialog({ selection, payer, state, onClose }: {
         <button type="button" className={styles.close} onClick={onClose}>{words.close}</button>
       </header>
       <p className="sr-only" role="status">{pending ? words.loading : answer ? words.loaded : ''}</p>
-      <div className={styles.scroll} aria-busy={pending}>
+      <div ref={scroll} className={styles.scroll} aria-busy={pending} onScroll={syncCurrent}>
         <p className={styles.model}>
           {model ? <>{words.freeModel} {model.provider} <code>{model.model}</code></> : payer !== 'host' ? words.ownModel : null}
         </p>
         <p className={styles.lead} data-text="body">{words.lead}</p>
-        {state.status === 'failed' && <p data-text="body">{words.failed}</p>}
+        {failure && (
+          <div className={styles.problem}>
+            <BrokenLinkMark className={styles.problemMark} />
+            <div>
+              <p data-text="body">{words[failure]}</p>
+              {failure === 'changed' ? (
+                <button type="button" className={styles.action} onClick={() => window.location.reload()}>{words.reload}</button>
+              ) : (
+                <button type="button" className={styles.action} onClick={onRetry} disabled={pending || !online}>
+                  {pending ? words.trying : words.retry}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className={styles.layout}>
           <nav aria-label={words.sections} className={styles.nav}>
             {parts.map(part => (
               <a key={part.key} href={`#${id}-${part.key}`} aria-current={current === part.key ? 'location' : undefined}
                 onClick={event => {
                   event.preventDefault();
-                  setCurrent(part.key);
-                  document.getElementById(`${id}-${part.key}`)?.scrollIntoView({ block: 'start' });
+                  jump(part);
                 }}
               >{part.title}</a>
             ))}

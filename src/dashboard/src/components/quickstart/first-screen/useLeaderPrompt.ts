@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LeaderPromptAnswer } from '../../../../../api/leader-prompt.js';
 import type { Payer } from './effectiveLaunch';
+import { useOnline } from './useOnline';
+
+type Retryable = 'failed' | 'offline' | 'limited';
 
 /** The written leader selected from the scenario on screen. */
 export interface PromptSelection {
@@ -11,7 +14,8 @@ export interface PromptSelection {
 
 /** The current read's result, with no result retained after Close. */
 export type PromptLoad =
-  | { status: 'closed' | 'loading' | 'offline' | 'changed' | 'limited' | 'failed' }
+  | { status: 'closed' | 'changed' | Retryable }
+  | { status: 'loading'; retrying?: Retryable }
   | { status: 'ready'; answer: LeaderPromptAnswer };
 
 interface Result {
@@ -23,12 +27,15 @@ interface Result {
 
 /** Reads the current prompt with the tab's payer choice and visitor cookie. */
 export function useLeaderPrompt(selection: PromptSelection | null, payer: Payer) {
+  const online = useOnline();
   const [attempt, setAttempt] = useState(0);
+  const retried = useRef<Result | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
     if (!selection) {
       setResult(null);
+      retried.current = null;
       return;
     }
 
@@ -36,6 +43,10 @@ export function useLeaderPrompt(selection: PromptSelection | null, payer: Payer)
     const finish = (state: PromptLoad) => {
       if (!controller.signal.aborted) setResult({ selection, payer, attempt, state });
     };
+    if (navigator.onLine === false) {
+      finish({ status: 'offline' });
+      return () => controller.abort();
+    }
     const query = new URLSearchParams({ scenario: selection.scenarioId, place: String(selection.place) });
     void (async () => {
       try {
@@ -60,9 +71,17 @@ export function useLeaderPrompt(selection: PromptSelection | null, payer: Payer)
     return () => controller.abort();
   }, [selection, payer, attempt]);
 
+  const matching = result?.selection === selection && result.payer === payer ? result : null;
+  const previous = matching?.state.status;
+  const retrying = previous === 'failed' || previous === 'offline' || previous === 'limited' ? previous : undefined;
   const state: PromptLoad = !selection ? { status: 'closed' }
-    : result?.selection === selection && result.payer === payer && result.attempt === attempt ? result.state
-    : { status: 'loading' };
+    : matching?.attempt === attempt ? matching.state
+    : { status: 'loading', retrying };
 
-  return { state, retry: () => setAttempt(attempt + 1) };
+  const retry = () => {
+    if (!retrying || !matching || matching.attempt !== attempt || retried.current === matching || !online) return;
+    retried.current = matching;
+    setAttempt(attempt + 1);
+  };
+  return { state, retry, online };
 }

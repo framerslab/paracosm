@@ -40,6 +40,7 @@ async function openRun(page: Page, origin: string = SERVERS.demo, scenario = 'Ma
   await expect(page.getByRole('heading', { name: scenario, exact: true, level: 1 })).toBeVisible();
   if (origin === SERVERS.demo) {
     const reject = consent(page).getByRole('button', { name: 'Reject all', exact: true });
+    await reject.waitFor({ state: 'visible', timeout: 2_000 }).catch(() => undefined);
     if (await reject.isVisible()) await reject.click();
     await expect(page.getByTestId('scenario-figures')).toBeVisible();
   }
