@@ -69,6 +69,19 @@ test('key link focuses the mounted field', async ({ page }) => {
   await openKeyLink(page, page.getByTestId('paste-at-limit').getByRole('link'));
 });
 
+test('the Anthropic field address is dropped on the Event Log', async ({ page }) => {
+  await page.goto('/sim?tab=settings#key-anthropic');
+  await answerConsent(page);
+  await expect(field(page, 'anthropic')).toBeFocused();
+  const log = page.getByRole('tab', { name: 'Event Log', exact: true });
+  await log.click();
+  await expect(log).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/tab=settings&sub=log$/);
+  await page.reload();
+  await expect(log).toHaveAttribute('aria-selected', 'true');
+  await expect(field(page, 'anthropic')).toHaveCount(0);
+});
+
 test('saved key returns to Run', async ({ page }) => {
   await atLimit(page);
   await page.goto('/sim?scenario=lunar-outpost&size=2&tab=settings&focus=api-key');
