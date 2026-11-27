@@ -214,6 +214,27 @@ test('pair, help and frame count each changed selection once', async ({ browser 
   }
 });
 
+for (const size of [24, 300]) {
+  test(`a run of ${size} counts each change of the shown leader on a phone`, async ({ browser }) => {
+    const { context, page, assertEvents } = await open(browser, SERVERS.demo, { viewport: { width: 390, height: 844 } });
+    try {
+      await saveKey(page);
+      await page.goto(`/sim?size=${size}`);
+      await expect(startKey(page)).toBeEnabled();
+      await expect(page.getByTestId('writes-all')).toBeVisible();
+      await assertEvents([view('direct')]);
+      const second = leaders(page).getByRole('tab').nth(1);
+      await second.click();
+      await second.click();
+      await second.press('ArrowLeft');
+      await expect(leaders(page).getByRole('tab').first()).toHaveAttribute('aria-selected', 'true');
+      await assertEvents([view('direct'), event('qs_pair_switch', { to: '2' }), event('qs_pair_switch', { to: '1' })]);
+    } finally {
+      await context.close();
+    }
+  });
+}
+
 test('double presses through preflight and setup count one real launch', async ({ browser }) => {
   const { context, page, assertEvents } = await open(browser);
   const count = gate();
