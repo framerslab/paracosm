@@ -473,3 +473,8 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+.watchHistoryLeaders {
+  --vis: var(--text-1);
+  --eng: var(--text-1);
+}

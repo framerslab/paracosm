@@ -62,8 +62,9 @@ function changesOf(outcome: Record<string, unknown>, metrics: DisplayMetrics) {
   }).join(' · ');
 }
 
-function Decision({ name, side, place, noun, metrics, firstStamp, firstBar, reportHref, openReport }: {
+function Decision({ name, nameAuthored, side, place, noun, metrics, firstStamp, firstBar, reportHref, openReport }: {
   name: string;
+  nameAuthored: boolean;
   side?: PairDecision;
   place: number;
   noun: string;
@@ -80,6 +81,9 @@ function Decision({ name, side, place, noun, metrics, firstStamp, firstBar, repo
   const replied = hasChoice(choice);
   const outcome = typeof side?.outcome?.outcome === 'string' ? side.outcome.outcome : '';
   const check = side?.barCheck;
+  const barText = check ? describeBarCheck(check) : '';
+  const fact = check?.departs ? check.departureFact : '';
+  const reportedBar = (fact ? barText.slice(0, -fact.length) : barText).replaceAll("'", '’');
   const reportNames = Array.from(side?.reports.keys() ?? [], name => name.charAt(0).toUpperCase() + name.slice(1));
   const changes = side?.outcome ? changesOf(side.outcome, metrics) : '';
   const reason = String(choice?.rationale || '');
@@ -87,7 +91,7 @@ function Decision({ name, side, place, noun, metrics, firstStamp, firstBar, repo
   const policies = Array.isArray(choice?.selectedPolicies) ? choice.selectedPolicies : [];
   return (
     <article className={styles.watchDecision} aria-labelledby={heading}>
-      <h3 id={heading}><span aria-hidden="true" className={styles.watchPlaceFigure}>{place + 1}</span> {name}<span className="sr-only">’s decision</span></h3>
+      <h3 id={heading}><span aria-hidden="true" className={styles.watchPlaceFigure}>{place + 1}</span> <AiWritten authored={nameAuthored}>{name}</AiWritten><span className="sr-only">’s decision</span></h3>
       {replied ? <>
         <div className={styles.watchChoiceRow}>
           <AiWritten as="p" className={styles.watchChoice} authored={isAiWrittenPassage(choice, 'decision', choice?.decision)}>{String(choice?.decision)}</AiWritten>
@@ -103,7 +107,7 @@ function Decision({ name, side, place, noun, metrics, firstStamp, firstBar, repo
         </div>}
         {check && <p className={styles.watchKind}>
           {check.bar < 57 ? 'Bold leader.' : check.bar > 57 ? 'Careful leader.' : 'Balanced leader.'}{' '}
-          <AiWritten authored={Boolean(check.departureFact)}>{describeBarCheck(check).replaceAll("'", '’')}</AiWritten>
+          {reportedBar}{fact && <AiWritten authored>{fact}</AiWritten>}
         </p>}
         {check && firstBar && <p>{barHelp}</p>}
         {changes && <p>{changes}</p>}
@@ -160,7 +164,7 @@ export function PairTurn({ data, turn, maxTurns, noun, place, grid, metrics, rep
       {data.crises.map(({ index, sides }) => {
         const a = sides[0]?.crisis;
         const b = sides[1]?.crisis;
-        const shared = Boolean(a && b && a.title === b.title && a.category === b.category);
+        const shared = Boolean(a && b && a.title === b.title && a.category === b.category && a.description === b.description);
         const firstCrisis = index === data.crises[0].index;
         return (
           <div className={styles.watchCrisisGroup} data-first={firstCrisis} key={index}>
@@ -173,24 +177,26 @@ export function PairTurn({ data, turn, maxTurns, noun, place, grid, metrics, rep
               </div>
             </div>
             <div className={styles.watchColumns}>
-              {data.leaders.map((name, i) => {
+              {data.leaders.map(({ name, info }, i) => {
                 const side = sides[i];
                 const firstStamp = showStampHelp && hasChoice(side?.choice) && Boolean(side?.outcome?.outcome);
                 const firstBar = showBarHelp && hasChoice(side?.choice) && Boolean(side?.barCheck);
                 if (firstStamp) showStampHelp = false;
                 if (firstBar) showBarHelp = false;
                 return <div data-watch-side={i + 1} className={styles.watchDecisionColumn} key={name}>
-                  <Decision name={name} place={i} side={side} noun={noun} metrics={metrics} firstStamp={firstStamp} firstBar={firstBar}
+                  <Decision name={name} nameAuthored={info?.aiAuthorship?.fields.includes('name') === true}
+                    place={i} side={side} noun={noun} metrics={metrics} firstStamp={firstStamp} firstBar={firstBar}
                     reportHref={reportHref} openReport={openReport} />
                 </div>;
               })}
             </div>
             {[0, 1].map(i => {
               const choice = sides[i]?.choice;
-              if (!hasChoice(choice)) return null;
+              const leader = data.leaders[i];
+              if (!leader || !hasChoice(choice)) return null;
               const outcome = sides[i]?.outcome?.outcome;
               return <p className={styles.watchCompact} data-watch-other={i + 1} key={i}>
-                {data.leaders[i]}: {typeof outcome === 'string' && `${outcomeLabel(outcome)}, `}
+                <AiWritten authored={leader.info?.aiAuthorship?.fields.includes('name') === true}>{leader.name}</AiWritten>: {typeof outcome === 'string' && `${outcomeLabel(outcome)}, `}
                 <AiWritten authored={isAiWrittenPassage(choice, 'decision', choice?.decision)}>{String(choice?.decision)}</AiWritten>
               </p>;
             })}

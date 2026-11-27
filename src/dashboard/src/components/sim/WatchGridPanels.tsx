@@ -23,6 +23,7 @@
 import { useMemo } from 'react';
 import { useScenarioContext } from '../../App';
 import type { GameState, LeaderInfo } from '../../hooks/useGameState';
+import { AiWritten } from '../shared/AiWritten';
 import { OneRowScroller } from '../shared/OneRowScroller';
 import { CohortSwarmGrid } from '../viz/CohortSwarmGrid';
 import { DEFAULT_GRID_SETTINGS } from '../viz/grid/GridSettingsDrawer';
@@ -90,7 +91,10 @@ export function WatchGridPanels({ state, place = 0, onSelectPlace }: {
     <div className={styles.pair} data-watch-place={place + 1} data-testid="watch-grid">
       {onSelectPlace && <OneRowScroller label="leaders" role="group" ariaLabel="Shown colony" className={styles.placeSwitch}>
         {actorIds.map((id, index) => <button key={id} type="button" className={styles.placeKey}
-          aria-pressed={place === index} onClick={() => onSelectPlace(index)}><span>{index + 1}</span> {id}</button>)}
+          aria-pressed={place === index} onClick={() => onSelectPlace(index)}>
+          <span className={styles.placeFigure}>{index + 1}</span>{' '}
+          <AiWritten authored={state.actors[id]?.leader?.aiAuthorship?.fields.includes('name') === true}>{id}</AiWritten>
+        </button>)}
       </OneRowScroller>}
       {PAIR_SIDES.map(({ side, color }, index) => {
         const id = actorIds[index];

@@ -74,7 +74,7 @@
   cursor: pointer;
   white-space: nowrap;
 
-  span { font-family: var(--mono); }
+  .placeFigure { font-family: var(--mono); }
   &:hover { background: var(--bg-panel); }
   &:active { background: var(--bg-card); }
   &[aria-pressed='true'] { border-block-end-color: var(--amber); }
@@ -92,7 +92,6 @@
   [data-testid^='living-colony-field-'] {
     --tint-color: var(--bg-deep) !important;
     --wrap-border: var(--edge-control) !important;
-    --wrap-glow: none !important;
   }
 }
 

@@ -15,7 +15,7 @@ import { TurnGrid } from './TurnGrid';
 import { MultiActorTurnGrid } from './MultiActorTurnGrid';
 import { WatchGridPanels } from './WatchGridPanels';
 import { PairTurn } from './PairTurn';
-import { pairTurnAt } from './pair-turn';
+import { hasChoice, pairTurnAt } from './pair-turn';
 import { createReportTurnHref, createWatchPlaceHref, watchPlaceFromHref } from '../../tab-routing';
 import { SimFooterBar } from './SimFooterBar';
 import { RerunPanel } from './RerunPanel';
@@ -181,6 +181,13 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
     : [], [pair, state]);
   const turn = pairTurns.at(-1) ?? 1;
   const data = useMemo(() => pairTurnAt(state, turn), [state, turn]);
+  const [firstEvidence, setFirstEvidence] = useState<{ run: string | undefined; turn: number } | null>(null);
+  useEffect(() => {
+    if (!pair || firstEvidence?.run === shownRun && firstEvidence?.turn !== undefined) return;
+    if (data.crises.some(crisis => crisis.sides.some(side => side?.outcome && hasChoice(side.choice)))) {
+      setFirstEvidence({ run: shownRun, turn });
+    }
+  }, [pair, shownRun, firstEvidence, turn, data.crises]);
   const reportHref = typeof window === 'undefined' ? `/sim?tab=reports#turn-${turn}` : createReportTurnHref(window.location.href, turn);
 
   // Build turn-event text for the shared stats bar
@@ -227,6 +234,12 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
             setStack(null);
             requestAnimationFrame(() => document.getElementById('watch-turn-heading')?.focus());
           }}>Back to one turn at a time</button>
+          <div className={`leaders-row ${styles.leadersRow} ${styles.watchHistoryLeaders}`}>
+            {[sideA, sideB].map((side, index) => <ActorBar
+              key={index} actorIndex={index} leader={side?.leader ?? null}
+              popHistory={side?.popHistory ?? []} moraleHistory={side?.moraleHistory ?? []}
+            />)}
+          </div>
           <TurnGrid state={state} />
         </> : <PairTurn
           key={`${shownRun}:${turn}`}
@@ -234,7 +247,7 @@ export function SimView({ state, sseStatus, openReportTurn, verdict, shownRun, l
           noun={scenario.labels.eventNounSingular ?? 'crisis'}
           metrics={scenario.ui.headerMetrics}
           reportHref={reportHref}
-          firstEvidence={turn === (pairTurns[0] ?? 1)}
+          firstEvidence={!firstEvidence || firstEvidence.run !== shownRun || firstEvidence.turn === turn}
           openReport={openReportTurn ? event => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault();

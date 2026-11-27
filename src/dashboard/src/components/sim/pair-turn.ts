@@ -1,4 +1,4 @@
-import type { DecisionBarCheck, GameState } from '../../hooks/useGameState';
+import type { DecisionBarCheck, GameState, LeaderInfo } from '../../hooks/useGameState';
 import { isAiWrittenPassage } from '../shared/authorship';
 
 export interface PairDecision {
@@ -11,16 +11,16 @@ export interface PairDecision {
 }
 
 export interface PairTurnData {
-  leaders: string[];
+  leaders: Array<{ name: string; info: LeaderInfo | null }>;
   time?: number;
   crises: Array<{ index: number; sides: Array<PairDecision | undefined> }>;
 }
 
 export function pairTurnAt(state: GameState, turn: number): PairTurnData {
-  const leaders = state.actorIds.slice(0, 2);
+  const leaders = state.actorIds.slice(0, 2).map(name => ({ name, info: state.actors[name]?.leader ?? null }));
   const byIndex = new Map<number, PairTurnData['crises'][number]>();
   let time: number | undefined;
-  for (const [place, name] of leaders.entries()) {
+  for (const [place, { name }] of leaders.entries()) {
     const events = state.actors[name]?.events ?? [];
     let prior: { turn: number; figures: Record<string, number> } | undefined;
     for (const event of events) {
@@ -38,7 +38,7 @@ export function pairTurnAt(state: GameState, turn: number): PairTurnData {
       const index = Number(data.eventIndex ?? 0);
       let crisis = byIndex.get(index);
       if (!crisis) byIndex.set(index, crisis = { index, sides: [] });
-      const side = crisis.sides[place] ??= { reports: new Map(), priorFigures: prior?.figures };
+      const side: PairDecision = crisis.sides[place] ??= { reports: new Map(), priorFigures: prior?.figures };
       if (type === 'event_start' || type === 'turn_start') {
         side.crisis = type === 'event_start' ? data : { ...data, description: data.crisis };
       } else if (type === 'specialist_start' || type === 'specialist_done') {
