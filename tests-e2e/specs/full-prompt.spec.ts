@@ -443,6 +443,8 @@ for (const width of [390, 1440]) {
         await paragraph.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
         await expect(paragraph).toBeInViewport({ ratio: 1 });
         const bounds = (await paragraph.boundingBox())!;
+        await settle(paragraph);
+        expect(await paragraph.boundingBox(), 'the disclosure stays in place through the next paint').toEqual(bounds);
         expect(Math.abs(bounds.y + bounds.height / 2 - viewport.height / 2), 'the disclosure is centered in the capture').toBeLessThanOrEqual(1);
         await snap('privacy', { top: Math.ceil(bounds.y * scale), bottom: Math.floor((bounds.y + bounds.height) * scale) });
       } finally {
